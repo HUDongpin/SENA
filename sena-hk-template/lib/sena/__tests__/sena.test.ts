@@ -2833,6 +2833,7 @@ describe("SENA model builder", () => {
 
   it("exposes enterprise ops export controls in the SENA workspace", () => {
     const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const enterpriseContractsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-contracts.ts", import.meta.url), "utf8");
     const deploymentRouteSource = readFileSync(new URL("../../../app/api/sena/ops/deployment/route.ts", import.meta.url), "utf8");
     const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
     [
@@ -2873,8 +2874,6 @@ describe("SENA model builder", () => {
       'data-testid="enterprise-identity-request-receipt-policy-binding"',
       "request.latestReceiptRequestPacketPolicyBindingStatus",
       "platformRequestPacket.submission.path",
-      "requiredBodyFields: Array<",
-      "identityProductionEvidenceBodyFields: Array<",
       "platformRequestPacket.submission.requiredBodyFields.join",
       "platformRequestPacket.submission.identityProductionEvidenceBodyFields.join",
       'data-testid="enterprise-identity-request-evidence-url-policy"',
@@ -2928,6 +2927,12 @@ describe("SENA model builder", () => {
       "Enter the named institution identity platform owner"
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
+    });
+    [
+      "requiredBodyFields: Array<",
+      "identityProductionEvidenceBodyFields: Array<"
+    ].forEach((requiredText) => {
+      expect(enterpriseContractsSource).toContain(requiredText);
     });
     expect(source).not.toContain("setPlatformDecisionOwnerName((current) => current.trim() || request.submissionTemplate.ownerNamePlaceholder)");
     expect(source).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.deployment");
@@ -3148,6 +3153,7 @@ describe("SENA model builder", () => {
 
   it("exports platform decision registers for institution adapter ownership review", () => {
     const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const enterpriseContractsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-contracts.ts", import.meta.url), "utf8");
     const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
     const routeSource = readFileSync(new URL("../../../app/api/sena/ops/platform-decisions/route.ts", import.meta.url), "utf8");
     const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
@@ -3165,9 +3171,6 @@ describe("SENA model builder", () => {
       "productionEvidenceReceipt",
       "latestReceiptEvidenceUrlHostBindingStatus",
       'data-testid="enterprise-identity-request-host-binding"',
-      "rotationFreshnessChecks",
-      "rotationExpiredEvidenceIds",
-      "rotationDueSoonEvidenceIds",
       'data-testid="enterprise-identity-request-rotation-receipt"',
       "missingEvidenceIds",
       "Missing production evidence",
@@ -3179,6 +3182,14 @@ describe("SENA model builder", () => {
       "Add a production evidence verified-at timestamp before recording identity production evidence."
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
+    });
+    [
+      "sena-enterprise-platform-decision-register/v1",
+      "rotationFreshnessChecks",
+      "rotationExpiredEvidenceIds",
+      "rotationDueSoonEvidenceIds"
+    ].forEach((requiredText) => {
+      expect(enterpriseContractsSource).toContain(requiredText);
     });
     const timestampedEvidenceSetSource = source.match(/const platformDecisionTimestampedEvidenceIds = new Set\(\[\n([\s\S]*?)\n]\);/)?.[1] ?? "";
     expect(timestampedEvidenceSetSource).toContain('"sso-provider-secrets"');
@@ -3306,6 +3317,7 @@ describe("SENA model builder", () => {
 
   it("exports native adapter certification dossiers for institution platform owners", () => {
     const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const enterpriseOptionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-options.ts", import.meta.url), "utf8");
     const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
     const routeSource = readFileSync(new URL("../../../app/api/sena/ops/native-adapters/route.ts", import.meta.url), "utf8");
     const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
@@ -3314,11 +3326,15 @@ describe("SENA model builder", () => {
       "SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters",
       "sena-enterprise-native-adapter-certification.json",
       'data-testid="enterprise-native-adapter-certification-export"',
-      "native-audit-siem-adapter",
-      "native-managed-backup-storage",
       "sena-enterprise-native-adapter-certification/v1"
     ].forEach((requiredText) => {
       expect(workspaceSource).toContain(requiredText);
+    });
+    [
+      "native-audit-siem-adapter",
+      "native-managed-backup-storage"
+    ].forEach((requiredText) => {
+      expect(enterpriseOptionsSource).toContain(requiredText);
     });
     expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters");
     [

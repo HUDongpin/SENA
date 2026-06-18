@@ -3,6 +3,8 @@ import {
   buildEnterpriseExpertReviewQuery,
   buildEnterpriseTeamQuery,
   buildSenaWorkspaceApiUrl,
+  requestSenaWorkspaceJson,
+  SenaWorkspaceApiError,
   SENA_WORKSPACE_API_ROUTES
 } from "../../../components/sena/workspace/api-client";
 
@@ -34,5 +36,26 @@ describe("SENA workspace API client contract", () => {
       artifact: "rollback-drill",
       teamId: "team 1"
     })).toBe("/api/sena/ops/go-live-rehearsal?artifact=rollback-drill&teamId=team+1");
+  });
+
+  it("reads typed JSON responses through the workspace API helper", async () => {
+    const payload = await requestSenaWorkspaceJson<{ ok: true }>("/api/sena/team", undefined, {
+      fetchImpl: async () => new Response(JSON.stringify({ ok: true }), { status: 200 })
+    });
+
+    expect(payload).toEqual({ ok: true });
+  });
+
+  it("throws a structured workspace API error for non-OK JSON responses", async () => {
+    await expect(requestSenaWorkspaceJson("/api/sena/team", undefined, {
+      errorMessage: "Could not load team state.",
+      fetchImpl: async () => new Response(JSON.stringify({ error: "team_not_found" }), { status: 404 })
+    })).rejects.toMatchObject({
+      name: "SenaWorkspaceApiError",
+      message: "team_not_found",
+      status: 404,
+      url: "/api/sena/team",
+      payload: { error: "team_not_found" }
+    } satisfies Partial<SenaWorkspaceApiError>);
   });
 });

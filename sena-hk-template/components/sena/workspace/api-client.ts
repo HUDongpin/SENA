@@ -47,6 +47,23 @@ export const SENA_WORKSPACE_API_ROUTES = {
 
 export type SenaWorkspaceApiRoute = string;
 export type SenaWorkspaceApiQueryValue = string | number | boolean | null | undefined;
+export type SenaWorkspaceFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export class SenaWorkspaceApiError extends Error {
+  readonly status: number;
+  readonly statusText: string;
+  readonly url: string;
+  readonly payload: unknown;
+
+  constructor(message: string, input: { status: number; statusText: string; url: string; payload: unknown }) {
+    super(message);
+    this.name = "SenaWorkspaceApiError";
+    this.status = input.status;
+    this.statusText = input.statusText;
+    this.url = input.url;
+    this.payload = input.payload;
+  }
+}
 
 export function buildEnterpriseTeamQuery(teamId?: string, prefix = "?") {
   return teamId ? `${prefix}teamId=${encodeURIComponent(teamId)}` : "";
@@ -73,4 +90,43 @@ export function buildSenaWorkspaceApiUrl(
   const queryString = params.toString();
   if (!queryString) return route;
   return `${route}${route.includes("?") ? "&" : "?"}${queryString}`;
+}
+
+async function readSenaWorkspaceResponseJson(response: Response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function getSenaWorkspaceErrorMessage(payload: unknown, fallback: string) {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error === "string" && error.length > 0) return error;
+  }
+  return fallback;
+}
+
+export async function requestSenaWorkspaceJson<T>(
+  url: string,
+  init?: RequestInit,
+  options: { errorMessage?: string; fetchImpl?: SenaWorkspaceFetch } = {}
+): Promise<T> {
+  const response = await (options.fetchImpl ?? fetch)(url, init);
+  const payload = await readSenaWorkspaceResponseJson(response);
+  if (!response.ok) {
+    throw new SenaWorkspaceApiError(
+      getSenaWorkspaceErrorMessage(payload, options.errorMessage ?? `SENA workspace API request failed with ${response.status}.`),
+      {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        payload
+      }
+    );
+  }
+  return payload as T;
 }
