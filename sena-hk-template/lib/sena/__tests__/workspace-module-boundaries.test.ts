@@ -58,4 +58,20 @@ describe("SENA workspace module boundaries", () => {
     expect(runtimeHookSource).toContain("const enterpriseCsrfRef = useRef<EnterpriseCsrfToken | null>(null)");
     expect(runtimeHookSource).toContain("requestSenaWorkspaceJson<Partial<EnterpriseCsrfToken>");
   });
+
+  it("keeps identity and team enterprise actions in a focused helper module", () => {
+    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
+    const actionsPath = path.join(process.cwd(), "components", "sena", "workspace", "enterprise-actions.ts");
+    const workspaceSource = readFileSync(workspacePath, "utf8");
+
+    expect(existsSync(actionsPath)).toBe(true);
+    expect(workspaceSource).toContain("from \"./workspace/enterprise-actions\"");
+    expect(workspaceSource).not.toContain("body: JSON.stringify({ action: \"setup\" })");
+    expect(workspaceSource).not.toContain("body: JSON.stringify(action ? { action } : { sessionId })");
+
+    const actionsSource = readFileSync(actionsPath, "utf8");
+    expect(actionsSource).toContain("export async function startEnterpriseMfaSetupAction");
+    expect(actionsSource).toContain("export async function createTeamInvitationAction");
+    expect(actionsSource).toContain("export async function deliverEnterpriseNotificationsAction");
+  });
 });

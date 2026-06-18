@@ -150,6 +150,20 @@ import {
   requestSenaWorkspaceJson,
   SENA_WORKSPACE_API_ROUTES
 } from "./workspace/api-client";
+import {
+  acceptTeamInvitationAction,
+  createTeamInvitationAction,
+  deliverEnterpriseNotificationsAction,
+  disableEnterpriseMfaAction,
+  enableEnterpriseMfaAction,
+  logoutEnterpriseSessionAction,
+  markEnterpriseNotificationReadAction,
+  revokeEnterpriseSessionAction,
+  revokeTeamInvitationAction,
+  runEnterpriseSsoPreflightAction,
+  startEnterpriseMfaSetupAction,
+  updateTeamMembershipAction
+} from "./workspace/enterprise-actions";
 import { useEnterpriseWorkspaceApi } from "./workspace/use-enterprise-runtime";
 import type {
   EnterpriseContext,
@@ -165,7 +179,6 @@ import type {
   EnterpriseSsoProvider,
   EnterpriseSsoProviderPreflight,
   EnterpriseSsoPreflight,
-  EnterpriseSsoProviderStatusResponse,
   EnterpriseDeploymentEnv,
   EnterpriseDeploymentServiceEndpoint,
   EnterpriseDeploymentPlatformDecision,
@@ -7108,15 +7121,9 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const preflightUrl = SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight;
-      const response = await fetch(provider ? `${preflightUrl}&provider=${encodeURIComponent(provider)}` : preflightUrl);
-      const payload = await response.json() as EnterpriseSsoProviderStatusResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Enterprise SSO preflight failed.");
-      if (!payload.preflight || payload.preflight.schemaVersion !== "sena-enterprise-sso-preflight/v1") {
-        throw new Error("Enterprise SSO preflight response did not include readiness evidence.");
-      }
-      setEnterpriseSsoPreflight(payload.preflight);
-      setEnterpriseMessage(`SSO preflight checked ${payload.preflight.summary.checked} provider${payload.preflight.summary.checked === 1 ? "" : "s"}: ${payload.preflight.summary.passed} passed, ${payload.preflight.summary.review} for review.`);
+      const preflight = await runEnterpriseSsoPreflightAction(provider);
+      setEnterpriseSsoPreflight(preflight);
+      setEnterpriseMessage(`SSO preflight checked ${preflight.summary.checked} provider${preflight.summary.checked === 1 ? "" : "s"}: ${preflight.summary.passed} passed, ${preflight.summary.review} for review.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Enterprise SSO preflight failed.");
     } finally {
@@ -7131,12 +7138,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.logout, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders()
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise logout failed.");
+      await logoutEnterpriseSessionAction({ jsonHeaders: enterpriseJsonHeaders });
       resetEnterpriseCsrfToken();
       setEnterpriseContext(null);
       setEnterpriseProjects([]);
@@ -7170,13 +7172,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.sessions, {
-        method: "DELETE",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify(action ? { action } : { sessionId })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Session revoke failed.");
+      const payload = await revokeEnterpriseSessionAction(
+        action ? { action } : { sessionId },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setEnterpriseSessionList({
         schemaVersion: "sena-enterprise-session-list/v1",
         generatedAt: payload.generatedAt ?? new Date().toISOString(),
@@ -7201,14 +7200,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ action: "setup" })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "MFA setup failed.");
-      setEnterpriseMfaSetup(payload as EnterpriseMfaSetup);
+      const payload = await startEnterpriseMfaSetupAction({ jsonHeaders: enterpriseJsonHeaders });
+      setEnterpriseMfaSetup(payload);
       setEnterpriseMfaEnableCode("");
       setEnterpriseMessage(`Authenticator setup started. Enter the 6-digit code before ${new Date(payload.expiresAt).toLocaleTimeString()}.`);
     } catch (error) {
@@ -7226,18 +7219,14 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "enable",
+      const payload = await enableEnterpriseMfaAction(
+        {
           setupToken: enterpriseMfaSetup.setupToken,
           code
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "MFA enable failed.");
-      setEnterpriseMfaStatus(payload as EnterpriseMfaStatus);
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
+      setEnterpriseMfaStatus(payload);
       setEnterpriseMfaSetup(null);
       setEnterpriseMfaEnableCode("");
       setEnterpriseMessage("Authenticator MFA enabled for this SENA account.");
@@ -7256,14 +7245,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
-        method: "DELETE",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ code })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "MFA disable failed.");
-      setEnterpriseMfaStatus(payload as EnterpriseMfaStatus);
+      const payload = await disableEnterpriseMfaAction({ code }, { jsonHeaders: enterpriseJsonHeaders });
+      setEnterpriseMfaStatus(payload);
       setEnterpriseMfaSetup(null);
       setEnterpriseMfaDisableCode("");
       setEnterpriseMessage("Authenticator MFA disabled for this SENA account.");
@@ -7282,17 +7265,14 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await createTeamInvitationAction(
+        {
           teamId: activeEnterpriseTeamId,
           email,
           role: teamInviteRole
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Invitation failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setTeamInviteEmail("");
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Invitation queued for ${payload.invitation?.email ?? email} as ${payload.invitation?.role ?? teamInviteRole}.`);
@@ -7311,13 +7291,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ inviteCode })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Invitation acceptance failed.");
+      const payload = await acceptTeamInvitationAction({ inviteCode }, { jsonHeaders: enterpriseJsonHeaders });
       setTeamInviteCode("");
       if (payload.context) setEnterpriseContext(payload.context as EnterpriseContext);
       await refreshEnterpriseState();
@@ -7333,13 +7307,7 @@ export function SenaFusionWorkspace() {
     if (!invitationId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
-        method: "DELETE",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ invitationId })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Invitation revoke failed.");
+      const payload = await revokeTeamInvitationAction({ invitationId }, { jsonHeaders: enterpriseJsonHeaders });
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Invitation revoked for ${payload.invitation?.email ?? invitationId}.`);
     } catch (error) {
@@ -7353,13 +7321,7 @@ export function SenaFusionWorkspace() {
     if (!membershipId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.memberships, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ membershipId, ...input })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Membership update failed.");
+      const payload = await updateTeamMembershipAction({ membershipId, ...input }, { jsonHeaders: enterpriseJsonHeaders });
       await refreshEnterpriseTeamState();
       await refreshEnterpriseState();
       setEnterpriseMessage(`Membership ${payload.membership?.id ?? membershipId} updated: ${payload.membership?.role ?? input.role ?? "role"} · ${payload.membership?.status ?? input.status ?? "status"}.`);
@@ -7374,13 +7336,7 @@ export function SenaFusionWorkspace() {
     if (!notificationId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ notificationId })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Notification update failed.");
+      const payload = await markEnterpriseNotificationReadAction({ notificationId }, { jsonHeaders: enterpriseJsonHeaders });
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Notification ${payload.notification?.id ?? notificationId} marked read.`);
     } catch (error) {
@@ -7397,13 +7353,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ action: "deliver", teamId: activeEnterpriseTeamId || undefined, force: true })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Notification delivery failed.");
+      const payload = await deliverEnterpriseNotificationsAction(
+        { delivery: "notifications", teamId: activeEnterpriseTeamId || undefined },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Notification webhook delivery checked ${payload.notifications?.length ?? 0} item${payload.notifications?.length === 1 ? "" : "s"}.`);
     } catch (error) {
@@ -7420,13 +7373,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ action: "deliver-email", teamId: activeEnterpriseTeamId || undefined, force: true })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Email delivery failed.");
+      const payload = await deliverEnterpriseNotificationsAction(
+        { delivery: "email", teamId: activeEnterpriseTeamId || undefined },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Institution email delivery checked ${payload.deliveries?.length ?? payload.emailDeliveries?.length ?? 0} item${(payload.deliveries?.length ?? payload.emailDeliveries?.length) === 1 ? "" : "s"}.`);
     } catch (error) {

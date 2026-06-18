@@ -2973,17 +2973,19 @@ describe("SENA model builder", () => {
 
   it("exposes enterprise SSO preflight controls in the SENA workspace", () => {
     const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const actionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-actions.ts", import.meta.url), "utf8");
     [
       'data-testid="enterprise-sso-preflight"',
       'data-visual-role="enterprise-sso-preflight"',
       'data-testid="enterprise-sso-preflight-run"',
       'data-testid="enterprise-sso-preflight-provider"',
-      "sena-enterprise-sso-preflight/v1",
       "runEnterpriseSsoPreflightFromWorkspace",
-      "SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight"
+      "runEnterpriseSsoPreflightAction"
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
     });
+    expect(actionsSource).toContain("sena-enterprise-sso-preflight/v1");
+    expect(actionsSource).toContain("SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight");
     expect(SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight).toBe("/api/auth/sso?status=1&preflight=1");
   });
 
@@ -3009,16 +3011,18 @@ describe("SENA model builder", () => {
 
   it("exposes enterprise session logout controls in the SENA workspace", () => {
     const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const actionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-actions.ts", import.meta.url), "utf8");
     [
       'data-testid="enterprise-session-logout"',
       "logoutEnterpriseSessionFromWorkspace",
-      "SENA_WORKSPACE_API_ROUTES.auth.logout",
+      "logoutEnterpriseSessionAction",
       "enterpriseJsonHeaders",
       "setEnterpriseContext(null)",
       "setEnterpriseSessionList(null)"
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
     });
+    expect(actionsSource).toContain("SENA_WORKSPACE_API_ROUTES.auth.logout");
   });
 
   it("exposes enterprise notification center controls in the SENA workspace", () => {
