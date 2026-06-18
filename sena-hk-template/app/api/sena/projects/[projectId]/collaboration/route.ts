@@ -6,7 +6,7 @@ import {
   listEnterpriseProjectCollaboration,
   resolveEnterpriseProjectComment,
   touchEnterpriseProjectPresence
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/team-project";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

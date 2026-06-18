@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { logoutEnterpriseSession, senaSessionCookieName } from "@/lib/sena/enterprise";
+import {
+  logoutEnterpriseSession,
+  senaSessionCookieName
+} from "@/lib/sena/enterprise/identity-auth";
 import { currentSessionToken, jsonError, requireApiSessionForMutation, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

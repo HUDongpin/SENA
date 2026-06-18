@@ -5,7 +5,7 @@ import {
   listEnterprisePlatformDecisionAcceptances,
   reviewEnterprisePlatformDecision,
   type SenaEnterprisePlatformDecisionAcceptanceInput
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
 import { identityOwnerRunbookHeaders, jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

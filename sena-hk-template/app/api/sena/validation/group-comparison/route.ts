@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   createEnterpriseValidationRun,
-  getEnterpriseProject,
   listEnterpriseValidationRuns,
   reviewEnterpriseValidationRun,
   type SenaEnterpriseValidationParityEvidenceInput
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/reliability-validation";
+import {
+  getEnterpriseProject
+} from "@/lib/sena/enterprise/team-project";
 import {
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,

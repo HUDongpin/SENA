@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import {
   createEnterpriseSsoAuthorization,
-  getEnterpriseIdentityProductionEvidence,
   getEnterpriseSsoProviderStatuses,
   isEnterpriseSsoProviderConfigured,
   preflightEnterpriseSsoProviders,
@@ -10,7 +9,10 @@ import {
   senaSessionCookieName,
   ssoEnterpriseUser,
   type SenaEnterpriseSsoProvider
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
+import {
+  getEnterpriseIdentityProductionEvidence
+} from "@/lib/sena/enterprise/ops-governance";
 import {
   authSessionHeaders,
   enforceAuthRateLimit,

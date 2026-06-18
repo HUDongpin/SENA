@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { enterpriseErrorResponse, provisionEnterpriseOrganization } from "@/lib/sena/enterprise";
+import {
+  enterpriseErrorResponse
+} from "@/lib/sena/enterprise/errors";
+import {
+  provisionEnterpriseOrganization
+} from "@/lib/sena/enterprise/identity-auth";
 import { jsonError } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 

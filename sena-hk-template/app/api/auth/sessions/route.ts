@@ -3,7 +3,7 @@ import {
   listEnterpriseSessions,
   revokeEnterpriseSessions,
   senaSessionCookieName
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
 import { jsonError, requireApiCsrf, requireApiSession, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

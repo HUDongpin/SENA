@@ -1,4 +1,6 @@
-import { listEnterpriseProjectCollaboration } from "@/lib/sena/enterprise";
+import {
+  listEnterpriseProjectCollaboration
+} from "@/lib/sena/enterprise/team-project";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

@@ -4,10 +4,12 @@ import {
   isEnterpriseAuditEvent,
   listEnterpriseAuditLog,
   recordEnterpriseAudit,
-  SenaEnterpriseError,
   verifyEnterpriseAuditIntegrity,
   type SenaEnterpriseAuditEvent
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
+import {
+  SenaEnterpriseError
+} from "@/lib/sena/enterprise/errors";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

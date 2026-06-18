@@ -145,6 +145,10 @@ import {
   type SenaValidation
 } from "@/lib/sena";
 import { cn } from "@/lib/utils";
+import {
+  buildSenaWorkspaceApiUrl,
+  SENA_WORKSPACE_API_ROUTES
+} from "./workspace/api-client";
 
 const SHOW_ARCHIVED_FORMULA_PANEL = false;
 const senaEnterpriseImportFileAccept = ".csv,.json,.xlsx,.xls,.txt,.md,.srt,.vtt,text/csv,application/json,text/plain,text/vtt,application/x-subrip";
@@ -372,7 +376,7 @@ type EnterpriseIdentityPlatformDecisionRequestPacket = {
   evidence: string[];
   submission: {
     method: "POST";
-    path: "/api/sena/ops/platform-decisions";
+    path: typeof SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions;
     responseSchema: "sena-enterprise-platform-decision-production-evidence-receipt/v1";
     requiredBodyFields: Array<
       "teamId" |
@@ -486,7 +490,7 @@ type EnterpriseIdentityInstitutionActionPlan = {
     missingTechnicalPrerequisites: number;
     rotationReviewLanes: number;
     cutoverBlockingItems: number;
-    submissionPath: "/api/sena/ops/platform-decisions";
+    submissionPath: typeof SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions;
   };
   lanes: Array<{
     id: "institution-idp-owner" | "institution-provisioning-owner";
@@ -7872,7 +7876,7 @@ export function SenaFusionWorkspace() {
 
   const enterpriseCsrfHeaders = useCallback(async (): Promise<Record<string, string>> => {
     if (!enterpriseCsrfRef.current) {
-      const response = await fetch("/api/auth/csrf");
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.csrf);
       const payload = await response.json();
       if (!response.ok || !payload.token) throw new Error(payload.error || "Could not prepare secure request token.");
       enterpriseCsrfRef.current = {
@@ -7893,7 +7897,7 @@ export function SenaFusionWorkspace() {
   }, [enterpriseCsrfHeaders]);
 
   const refreshEnterpriseTeamState = useCallback(async () => {
-    const response = await fetch("/api/sena/team");
+    const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.team);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load team state.");
     setEnterpriseTeamState(payload as EnterpriseTeamState);
@@ -7901,7 +7905,7 @@ export function SenaFusionWorkspace() {
   }, []);
 
   const refreshEnterpriseMfaState = useCallback(async () => {
-    const response = await fetch("/api/auth/mfa");
+    const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load MFA status.");
     setEnterpriseMfaStatus(payload as EnterpriseMfaStatus);
@@ -7909,7 +7913,7 @@ export function SenaFusionWorkspace() {
   }, []);
 
   const refreshEnterpriseSessionList = useCallback(async () => {
-    const response = await fetch("/api/auth/sessions");
+    const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.sessions);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load sessions.");
     setEnterpriseSessionList(payload as EnterpriseSessionList);
@@ -7921,7 +7925,7 @@ export function SenaFusionWorkspace() {
       setEnterprisePlatformDecisionState(null);
       return null;
     }
-    const response = await fetch(`/api/sena/ops/platform-decisions?teamId=${encodeURIComponent(teamId)}`);
+    const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions, { teamId }));
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load platform decisions.");
     setEnterprisePlatformDecisionState(payload as EnterprisePlatformDecisionState);
@@ -7933,7 +7937,7 @@ export function SenaFusionWorkspace() {
       setEnterpriseReleaseGateState(null);
       return null;
     }
-    const response = await fetch(`/api/sena/ops/release-gate?teamId=${encodeURIComponent(teamId)}`);
+    const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate, { teamId }));
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not load release gate reviews.");
     setEnterpriseReleaseGateState(payload as EnterpriseReleaseGateState);
@@ -7947,7 +7951,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const preflightUrl = "/api/auth/sso?status=1&preflight=1";
+      const preflightUrl = SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight;
       const response = await fetch(provider ? `${preflightUrl}&provider=${encodeURIComponent(provider)}` : preflightUrl);
       const payload = await response.json() as EnterpriseSsoProviderStatusResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || "Enterprise SSO preflight failed.");
@@ -7970,7 +7974,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/auth/logout", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.logout, {
         method: "POST",
         headers: await enterpriseJsonHeaders()
       });
@@ -8009,7 +8013,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/auth/sessions", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.sessions, {
         method: "DELETE",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify(action ? { action } : { sessionId })
@@ -8040,7 +8044,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/auth/mfa", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ action: "setup" })
@@ -8065,7 +8069,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/auth/mfa", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8095,7 +8099,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/auth/mfa", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.auth.mfa, {
         method: "DELETE",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ code })
@@ -8121,7 +8125,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/team/invitations", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8150,7 +8154,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/team/invitations", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ inviteCode })
@@ -8172,7 +8176,7 @@ export function SenaFusionWorkspace() {
     if (!invitationId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/team/invitations", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.invitations, {
         method: "DELETE",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ invitationId })
@@ -8192,7 +8196,7 @@ export function SenaFusionWorkspace() {
     if (!membershipId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/team/memberships", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.memberships, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ membershipId, ...input })
@@ -8213,7 +8217,7 @@ export function SenaFusionWorkspace() {
     if (!notificationId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/notifications", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ notificationId })
@@ -8236,7 +8240,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/notifications", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ action: "deliver", teamId: activeEnterpriseTeamId || undefined, force: true })
@@ -8259,7 +8263,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/notifications", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.notifications, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ action: "deliver-email", teamId: activeEnterpriseTeamId || undefined, force: true })
@@ -8285,7 +8289,7 @@ export function SenaFusionWorkspace() {
     if (options.verify) query.set("verify", "1");
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/uploads${query.toString() ? `?${query.toString()}` : ""}`);
+      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, Object.fromEntries(query)));
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Upload storage refresh failed.");
       setEnterpriseUploadStorage(payload as EnterpriseUploadStorageState);
@@ -8315,7 +8319,7 @@ export function SenaFusionWorkspace() {
       const form = new FormData();
       files.forEach((file) => form.append("files", file));
       form.append("teamId", activeEnterpriseTeamId);
-      const response = await fetch("/api/sena/uploads", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, {
         method: "POST",
         headers: await enterpriseCsrfHeaders(),
         body: form
@@ -8339,7 +8343,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/uploads", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8372,7 +8376,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/projects/${projectId}/collaboration`, {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId), {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8461,7 +8465,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/ops/platform-decisions", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8520,7 +8524,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/ops/release-gate", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8554,7 +8558,7 @@ export function SenaFusionWorkspace() {
 
   const refreshEnterpriseState = useCallback(async () => {
     try {
-      const meResponse = await fetch("/api/auth/me");
+      const meResponse = await fetch(SENA_WORKSPACE_API_ROUTES.auth.me);
       const me = await meResponse.json();
       if (!meResponse.ok || !me.user) {
         enterpriseCsrfRef.current = null;
@@ -8580,17 +8584,17 @@ export function SenaFusionWorkspace() {
       void refreshEnterpriseMfaState().catch(() => setEnterpriseMfaStatus(null));
       void refreshEnterpriseSessionList().catch(() => setEnterpriseSessionList(null));
 
-      const projectsResponse = await fetch("/api/sena/projects");
+      const projectsResponse = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.projects);
       const projects = await projectsResponse.json();
       if (projectsResponse.ok) setEnterpriseProjects(projects.projects ?? []);
       const teamId = nextContext.teams[0]?.id;
       if (teamId) {
         void refreshEnterprisePlatformDecisionState(teamId).catch(() => setEnterprisePlatformDecisionState(null));
         void refreshEnterpriseReleaseGateReviews(teamId).catch(() => setEnterpriseReleaseGateState(null));
-        const importsResponse = await fetch(`/api/sena/import?teamId=${encodeURIComponent(teamId)}`);
+        const importsResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.import, { teamId }));
         const imports = await importsResponse.json();
         if (importsResponse.ok) setEnterpriseImportRuns(imports.importRuns ?? []);
-        const analysisResponse = await fetch(`/api/sena/analyze?teamId=${encodeURIComponent(teamId)}`);
+        const analysisResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.analyze, { teamId }));
         const analysis = await analysisResponse.json();
         if (analysisResponse.ok) setEnterpriseAnalysisRuns(analysis.analysisRuns ?? []);
       }
@@ -8618,11 +8622,11 @@ export function SenaFusionWorkspace() {
       return;
     }
     try {
-      const response = await fetch(`/api/sena/projects/${projectId}/collaboration`);
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId));
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Could not load collaboration state.");
       setEnterpriseCollaboration(payload);
-      const claimResponse = await fetch(`/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`);
+      const claimResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.validationClaimPackage, { projectId }));
       const claimPayload = await claimResponse.json();
       setEnterpriseClaimPackage(claimResponse.ok ? claimPayload as EnterpriseClaimEvidencePackage : null);
     } catch (error) {
@@ -8634,7 +8638,7 @@ export function SenaFusionWorkspace() {
   async function touchEnterprisePresence(projectId = activeEnterpriseProjectId, options: { quiet?: boolean } = {}) {
     if (!projectId) return;
     try {
-      const response = await fetch(`/api/sena/projects/${projectId}/collaboration`, {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId), {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8657,7 +8661,7 @@ export function SenaFusionWorkspace() {
   async function addEnterpriseComment() {
     if (!activeEnterpriseProjectId || !enterpriseComment.trim()) return;
     try {
-      const response = await fetch(`/api/sena/projects/${activeEnterpriseProjectId}/collaboration`, {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8679,7 +8683,7 @@ export function SenaFusionWorkspace() {
   async function addEnterpriseAdjudication() {
     if (!activeEnterpriseProjectId || !adjudicationItemId.trim() || !adjudicationCodeId.trim()) return;
     try {
-      const response = await fetch(`/api/sena/projects/${activeEnterpriseProjectId}/collaboration`, {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8707,7 +8711,7 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseReliabilityRun) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/reliability", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.reliability, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8771,7 +8775,7 @@ export function SenaFusionWorkspace() {
     setEnterpriseBusy(true);
     try {
       const studySpecificInferenceReference = validationStudySpecificInferenceReference.trim();
-      const response = await fetch("/api/sena/validation/group-comparison", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.validationGroupComparison, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8868,7 +8872,7 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseValidationRun) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/validation/group-comparison", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.validationGroupComparison, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8896,7 +8900,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/validation/expert-review", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8933,7 +8937,7 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseExpertReview) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/validation/expert-review", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview, {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -8979,7 +8983,7 @@ export function SenaFusionWorkspace() {
         : `Imported SENA Project (${files.length} files)`;
       form.append("title", importTitle);
       form.append("description", `Created from enterprise import of ${files.map((file) => file.name).join(", ")}.`);
-      const response = await fetch("/api/sena/import", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.import, {
         method: "POST",
         headers: await enterpriseCsrfHeaders(),
         body: form
@@ -9067,7 +9071,9 @@ export function SenaFusionWorkspace() {
     try {
       const snapshot = buildCurrentProjectSnapshot();
       const method = activeEnterpriseProjectId ? "PUT" : "POST";
-      const url = activeEnterpriseProjectId ? `/api/sena/projects/${activeEnterpriseProjectId}` : "/api/sena/projects";
+      const url = activeEnterpriseProjectId
+        ? SENA_WORKSPACE_API_ROUTES.enterprise.project(activeEnterpriseProjectId)
+        : SENA_WORKSPACE_API_ROUTES.enterprise.projects;
       const activeProjectSummary = enterpriseProjects.find((project) => project.id === activeEnterpriseProjectId);
       const expectedVersion = activeEnterpriseProjectId
         ? enterpriseCollaboration?.project.id === activeEnterpriseProjectId
@@ -9114,7 +9120,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/analyze", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.analyze, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -9147,7 +9153,7 @@ export function SenaFusionWorkspace() {
     if (!projectId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/projects/${projectId}`);
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.project(projectId));
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Could not open project.");
       restoreProjectSnapshot(payload.project.snapshot, payload.project.title);
@@ -9166,7 +9172,7 @@ export function SenaFusionWorkspace() {
     if (!activeEnterpriseProjectId || !enterpriseCollaboration) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/projects/${activeEnterpriseProjectId}`, {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.project(activeEnterpriseProjectId), {
         method: "PATCH",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -9202,7 +9208,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/exports/publication", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.publicationExport, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -9246,7 +9252,7 @@ export function SenaFusionWorkspace() {
     }
 
     let closed = false;
-    const source = new EventSource(`/api/sena/projects/${activeEnterpriseProjectId}/collaboration/stream`);
+    const source = new EventSource(SENA_WORKSPACE_API_ROUTES.enterprise.collaborationStream(activeEnterpriseProjectId));
     source.addEventListener("collaboration", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as { collaboration?: EnterpriseCollaborationState };
@@ -9273,7 +9279,7 @@ export function SenaFusionWorkspace() {
     if (!activeEnterpriseProjectId || !enterpriseUserId) return undefined;
     const syncPresence = async () => {
       try {
-        await fetch(`/api/sena/projects/${activeEnterpriseProjectId}/collaboration`, {
+        await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
           method: "POST",
           headers: await enterpriseJsonHeaders(),
           body: JSON.stringify({
@@ -9634,7 +9640,7 @@ export function SenaFusionWorkspace() {
       if (activeEnterpriseTeamId) form.append("teamId", activeEnterpriseTeamId);
       if (activeEnterpriseProjectId) form.append("projectId", activeEnterpriseProjectId);
       if (reviewer || codingReliabilityReviewer) form.append("reviewer", codingReliabilityReviewer || reviewer);
-      const response = await fetch("/api/sena/reliability", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.reliability, {
         method: "POST",
         headers: await enterpriseCsrfHeaders(),
         body: form
@@ -9876,18 +9882,6 @@ export function SenaFusionWorkspace() {
     setEnterpriseMessage("Validation parity evidence exported.");
   }
 
-  function enterpriseTeamQuery(prefix = "?") {
-    return activeEnterpriseTeamId ? `${prefix}teamId=${encodeURIComponent(activeEnterpriseTeamId)}` : "";
-  }
-
-  function enterpriseExpertReviewQuery() {
-    const params = new URLSearchParams();
-    if (activeEnterpriseTeamId) params.set("teamId", activeEnterpriseTeamId);
-    if (activeEnterpriseProjectId) params.set("projectId", activeEnterpriseProjectId);
-    const query = params.toString();
-    return query ? `?${query}` : "";
-  }
-
   async function exportEnterpriseJsonArtifact(url: string, filename: string, label: string) {
     if (!enterpriseContext?.user) {
       setEnterpriseMessage("Sign in before exporting enterprise governance artifacts.");
@@ -9909,7 +9903,10 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseExpertReviewDossierJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/validation/expert-review${enterpriseExpertReviewQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview, {
+        teamId: activeEnterpriseTeamId || undefined,
+        projectId: activeEnterpriseProjectId || undefined
+      }),
       "sena-enterprise-expert-review-dossier.json",
       "Enterprise expert review dossier"
     );
@@ -9917,7 +9914,7 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseGovernanceHealthJson() {
     await exportEnterpriseJsonArtifact(
-      "/api/sena/governance/health",
+      SENA_WORKSPACE_API_ROUTES.enterprise.health,
       "sena-enterprise-governance-health.json",
       "Enterprise governance health"
     );
@@ -9925,7 +9922,7 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseSecurityPostureJson() {
     await exportEnterpriseJsonArtifact(
-      "/api/sena/governance/security",
+      SENA_WORKSPACE_API_ROUTES.enterprise.security,
       "sena-enterprise-security-posture.json",
       "Enterprise security posture"
     );
@@ -9933,7 +9930,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseBackupJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/governance/backup${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.backup, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-backup.json",
       "Enterprise backup"
     );
@@ -9946,7 +9945,11 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/governance/audit?format=csv&integrity=1${enterpriseTeamQuery("&")}`);
+      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.audit, {
+        format: "csv",
+        integrity: 1,
+        teamId: activeEnterpriseTeamId || undefined
+      }));
       const text = await response.text();
       if (!response.ok) {
         let message = "Enterprise audit CSV export failed.";
@@ -9973,7 +9976,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/governance/audit", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.audit, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -10000,7 +10003,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/governance/backup", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.backup, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -10026,7 +10029,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/governance/backup", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.backup, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -10047,7 +10050,7 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseOpsStatusJson() {
     await exportEnterpriseJsonArtifact(
-      "/api/sena/ops/status",
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsStatus,
       "sena-enterprise-ops-status.json",
       "Enterprise ops status"
     );
@@ -10055,7 +10058,7 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseOpsReadinessJson() {
     await exportEnterpriseJsonArtifact(
-      "/api/sena/ops/readiness",
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsReadiness,
       "sena-enterprise-deployment-readiness.json",
       "Enterprise deployment readiness"
     );
@@ -10063,7 +10066,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseDeploymentPackageJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/deployment${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-organization-deployment.json",
       "Enterprise deployment package"
     );
@@ -10071,7 +10076,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseCapabilityAuditJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/capability-audit${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-capability-audit.json",
       "Enterprise capability audit"
     );
@@ -10079,7 +10086,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseIdentityProductionEvidenceJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/identity-production-evidence${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-identity-production-evidence.json",
       "Enterprise identity production evidence"
     );
@@ -10087,7 +10096,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseNativeAdapterCertificationJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/native-adapters${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-native-adapter-certification.json",
       "Enterprise native adapter certification"
     );
@@ -10095,7 +10106,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseSaasOperationsReadinessJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/saas-operations${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-saas-operations-readiness.json",
       "Enterprise SaaS operations readiness"
     );
@@ -10103,7 +10116,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseGoLiveRehearsalJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/go-live-rehearsal${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-go-live-rehearsal.json",
       "Enterprise go-live rehearsal"
     );
@@ -10111,7 +10126,10 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseGoLiveRollbackDrillJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/go-live-rehearsal?artifact=rollback-drill${enterpriseTeamQuery("&")}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+        artifact: "rollback-drill",
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-go-live-rollback-drill.json",
       "Enterprise go-live rollback drill"
     );
@@ -10119,7 +10137,10 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseGoLiveMonitorJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/go-live-rehearsal?artifact=post-cutover-monitor${enterpriseTeamQuery("&")}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+        artifact: "post-cutover-monitor",
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-go-live-monitor.json",
       "Enterprise go-live monitor"
     );
@@ -10132,7 +10153,9 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(`/api/sena/ops/go-live-rehearsal${enterpriseTeamQuery()}`);
+      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+        teamId: activeEnterpriseTeamId || undefined
+      }));
       const payload = await response.json() as Partial<EnterpriseGoLiveRehearsal> & { error?: string };
       if (!response.ok || payload.schemaVersion !== "sena-enterprise-go-live-rehearsal/v1" || payload.releaseGateDraft?.schemaVersion !== "sena-enterprise-release-gate-draft/v1") {
         throw new Error(payload.error || "Go-live rehearsal did not include a release gate draft.");
@@ -10164,7 +10187,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/ops/go-live-rehearsal", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({
@@ -10196,7 +10219,10 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseGoLiveAttestationsJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/go-live-rehearsal?attestations=1${activeEnterpriseTeamId ? `&teamId=${encodeURIComponent(activeEnterpriseTeamId)}` : ""}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+        attestations: 1,
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-go-live-attestations.json",
       "Enterprise go-live attestations"
     );
@@ -10204,7 +10230,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterprisePlatformDecisionRegisterJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/platform-decisions${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-platform-decision-register.json",
       "Enterprise platform decision register"
     );
@@ -10212,7 +10240,9 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseReleaseGateReviewsJson() {
     await exportEnterpriseJsonArtifact(
-      `/api/sena/ops/release-gate${enterpriseTeamQuery()}`,
+      buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate, {
+        teamId: activeEnterpriseTeamId || undefined
+      }),
       "sena-enterprise-release-gate-reviews.json",
       "Enterprise release gate reviews"
     );
@@ -10226,8 +10256,12 @@ export function SenaFusionWorkspace() {
     if (!options.silent) setEnterpriseBusy(true);
     try {
       const [deploymentResponse, identityResponse] = await Promise.all([
-        fetch(`/api/sena/ops/deployment${enterpriseTeamQuery()}`),
-        fetch(`/api/sena/ops/identity-production-evidence${enterpriseTeamQuery()}`)
+        fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, {
+          teamId: activeEnterpriseTeamId || undefined
+        })),
+        fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence, {
+          teamId: activeEnterpriseTeamId || undefined
+        }))
       ]);
       const payload = await deploymentResponse.json() as Partial<EnterpriseOrganizationDeploymentPackage> & { error?: string };
       if (payload.schemaVersion !== "sena-enterprise-organization-deployment/v1") {
@@ -10274,7 +10308,7 @@ export function SenaFusionWorkspace() {
 
   async function exportEnterpriseOpsAlertsJson() {
     await exportEnterpriseJsonArtifact(
-      "/api/sena/ops/alerts",
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts,
       "sena-enterprise-ops-alerts.json",
       "Enterprise ops alerts"
     );
@@ -10287,7 +10321,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch("/api/sena/ops/alerts", {
+      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts, {
         method: "POST",
         headers: await enterpriseJsonHeaders(),
         body: JSON.stringify({ action: "deliver" })
@@ -11576,8 +11610,8 @@ export function SenaFusionWorkspace() {
                     )}
                     <div className="grid gap-2">
                       {(provisioningServiceEndpoints.length > 0 ? provisioningServiceEndpoints : [
-                        { id: "provisioning", method: "POST" as const, path: "/api/sena/provisioning", auth: "provisioning-bearer", schema: "sena-enterprise-provisioning/v1", purpose: "Institution organization provisioning" },
-                        { id: "scim-users", method: "POST" as const, path: "/api/sena/scim/v2/Users", auth: "provisioning-bearer", schema: "sena-scim-provisioning-bridge/v1", purpose: "SCIM user provisioning bridge" }
+                        { id: "provisioning", method: "POST" as const, path: SENA_WORKSPACE_API_ROUTES.enterprise.provisioning, auth: "provisioning-bearer", schema: "sena-enterprise-provisioning/v1", purpose: "Institution organization provisioning" },
+                        { id: "scim-users", method: "POST" as const, path: SENA_WORKSPACE_API_ROUTES.enterprise.scimUsers, auth: "provisioning-bearer", schema: "sena-scim-provisioning-bridge/v1", purpose: "SCIM user provisioning bridge" }
                       ]).slice(0, 3).map((endpoint) => (
                         <div key={endpoint.id} data-testid="enterprise-provisioning-endpoint" className="grid gap-1 rounded-lg border border-cardBorder/30 bg-background/30 p-2 text-xs font-semibold text-muted lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                           <div className="min-w-0">

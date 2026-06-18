@@ -4,6 +4,7 @@ import { buildSenaMethodProtocol } from "./method-protocol";
 import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaModel, SenaPilotPackageManifest, SenaReviewPacket, SenaReviewPacketArtifact, SenaReviewPacketAudit, SenaReviewPacketAuditItem, SenaTemporalWindow } from "./types";
 
 export type SenaReviewPacketOptions = SenaRuntimeBundleOptions;
@@ -13,7 +14,7 @@ const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifes
 const artifactManifest: SenaReviewPacketArtifact[] = [
   {
     filename: "sena-review-packet.json",
-    schemaVersion: "sena-review-packet/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reviewPacket,
     description: "Single-file reviewer handoff containing report Markdown, report JSON, runtime bundle, audits, evidence, walkthrough, and verification checklist."
   },
   {
@@ -28,7 +29,7 @@ const artifactManifest: SenaReviewPacketArtifact[] = [
   },
   {
     filename: "sena-runtime-bundle.json",
-    schemaVersion: "sena-runtime-bundle/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,
     description: "jENA, jSNA, SENA matrix, temporal, validation, audit, and evidence runtime bundle."
   },
   {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getEnterpriseSecurityPosture,
   type SenaEnterpriseSecurityPosture
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

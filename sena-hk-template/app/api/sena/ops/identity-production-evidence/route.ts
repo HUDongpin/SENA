@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
   getEnterpriseIdentityProductionEvidence,
-  listEnterprisePlatformDecisionAcceptances,
+  listEnterprisePlatformDecisionAcceptances
+} from "@/lib/sena/enterprise/ops-governance";
+import {
   SenaEnterpriseError
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/errors";
 import { identityOwnerRunbookHeaders, jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 

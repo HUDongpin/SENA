@@ -2,7 +2,7 @@ import {
   buildEnterpriseOpsMetrics,
   getEnterpriseDeploymentReadiness,
   getEnterpriseOpsStatus
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
 import { jsonError } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 

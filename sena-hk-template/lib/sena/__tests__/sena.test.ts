@@ -68,6 +68,10 @@ import {
 } from "../index";
 import { exampleSenaContract } from "../sample-data";
 import type { SenaDataset } from "../types";
+import {
+  buildSenaWorkspaceApiUrl,
+  SENA_WORKSPACE_API_ROUTES
+} from "../../../components/sena/workspace/api-client";
 
 type RSocialFixtureGraph = {
   name: string;
@@ -2438,7 +2442,7 @@ describe("SENA model builder", () => {
       'data-testid="enterprise-release-gate-submit"',
       "refreshEnterpriseReleaseGateReviews",
       "submitEnterpriseReleaseGateReview",
-      "/api/sena/ops/release-gate",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate",
       "release gate identity ${payload.review?.identityProductionSnapshot?.status",
       "verifier ${payload.review?.identityProductionSnapshot?.submissionVerifier.incompleteDecisions",
       "rotation ${payload.review?.identityProductionSnapshot?.rotationFreshness.status",
@@ -2463,7 +2467,8 @@ describe("SENA model builder", () => {
     const end = source.indexOf("useEffect(() =>", start);
     const exportPublicationSource = source.slice(start, end);
 
-    expect(exportPublicationSource).toContain("/api/sena/exports/publication");
+    expect(exportPublicationSource).toContain("SENA_WORKSPACE_API_ROUTES.publicationExport");
+    expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
     expect(exportPublicationSource).toContain("projectId: activeEnterpriseProjectId || undefined");
     expect(exportPublicationSource).toContain("snapshot: activeEnterpriseProjectId ? undefined : buildCurrentProjectSnapshot()");
     expect(exportPublicationSource).toContain("activeEnterpriseProjectId ? \"server project\" : \"workspace snapshot\"");
@@ -2925,7 +2930,9 @@ describe("SENA model builder", () => {
       expect(source).toContain(requiredText);
     });
     expect(source).not.toContain("setPlatformDecisionOwnerName((current) => current.trim() || request.submissionTemplate.ownerNamePlaceholder)");
-    expect(source).toContain("`/api/sena/ops/deployment${enterpriseTeamQuery()}`");
+    expect(source).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.deployment");
+    expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, { teamId: "team 1" }))
+      .toBe("/api/sena/ops/deployment?teamId=team+1");
     expect(source).toContain("identity evidence ${deployment.summary.identityProductionStatus}");
     expect(source).toContain("identity verifier ${deployment.summary.identitySubmissionVerifierIncomplete}");
     expect(source).toContain("secret rotation ${deployment.summary.identityRotationFreshness}");
@@ -2956,7 +2963,7 @@ describe("SENA model builder", () => {
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
     });
-    expect(source).toContain("fetch(`/api/sena/ops/deployment${enterpriseTeamQuery()}`)");
+    expect(source).toContain("buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment");
   });
 
   it("exposes enterprise SSO preflight controls in the SENA workspace", () => {
@@ -2968,10 +2975,11 @@ describe("SENA model builder", () => {
       'data-testid="enterprise-sso-preflight-provider"',
       "sena-enterprise-sso-preflight/v1",
       "runEnterpriseSsoPreflightFromWorkspace",
-      "/api/auth/sso?status=1&preflight=1"
+      "SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight"
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
     });
+    expect(SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight).toBe("/api/auth/sso?status=1&preflight=1");
   });
 
   it("exposes enterprise provisioning and SCIM readiness controls in the SENA workspace", () => {
@@ -2987,7 +2995,7 @@ describe("SENA model builder", () => {
       "sena-enterprise-provisioning/v1",
       "sena-scim-provisioning-bridge/v1",
       "refreshEnterpriseProvisioningReadiness",
-      "/api/sena/ops/deployment",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.deployment",
       "institution-provisioning-owner"
     ].forEach((requiredText) => {
       expect(source).toContain(requiredText);
@@ -2999,7 +3007,7 @@ describe("SENA model builder", () => {
     [
       'data-testid="enterprise-session-logout"',
       "logoutEnterpriseSessionFromWorkspace",
-      "/api/auth/logout",
+      "SENA_WORKSPACE_API_ROUTES.auth.logout",
       "enterpriseJsonHeaders",
       "setEnterpriseContext(null)",
       "setEnterpriseSessionList(null)"
@@ -3146,7 +3154,7 @@ describe("SENA model builder", () => {
     const readmeSource = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
     [
       "exportEnterprisePlatformDecisionRegisterJson",
-      "/api/sena/ops/platform-decisions",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions",
       "sena-enterprise-platform-decision-register.json",
       'data-testid="enterprise-platform-decision-register-export"',
       "sena-enterprise-platform-decision-register/v1",
@@ -3218,8 +3226,8 @@ describe("SENA model builder", () => {
     [
       "exportEnterpriseCapabilityAuditJson",
       "exportEnterpriseIdentityProductionEvidenceJson",
-      "/api/sena/ops/capability-audit",
-      "/api/sena/ops/identity-production-evidence",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence",
       "sena-enterprise-capability-audit.json",
       "sena-enterprise-identity-production-evidence.json",
       'data-testid="enterprise-capability-audit-export"',
@@ -3242,7 +3250,7 @@ describe("SENA model builder", () => {
     ].forEach((requiredText) => {
       expect(workspaceSource).toContain(requiredText);
     });
-    expect(workspaceSource).toContain("`/api/sena/ops/capability-audit${enterpriseTeamQuery()}`");
+    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit");
     [
       "getEnterpriseCapabilityAudit",
       "auth-login-register-sso",
@@ -3303,7 +3311,7 @@ describe("SENA model builder", () => {
     const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
     [
       "exportEnterpriseNativeAdapterCertificationJson",
-      "/api/sena/ops/native-adapters",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters",
       "sena-enterprise-native-adapter-certification.json",
       'data-testid="enterprise-native-adapter-certification-export"',
       "native-audit-siem-adapter",
@@ -3312,7 +3320,7 @@ describe("SENA model builder", () => {
     ].forEach((requiredText) => {
       expect(workspaceSource).toContain(requiredText);
     });
-    expect(workspaceSource).toContain("`/api/sena/ops/native-adapters${enterpriseTeamQuery()}`");
+    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters");
     [
       "getEnterpriseNativeAdapterCertification",
       "managed-database-adapter",
@@ -3341,14 +3349,14 @@ describe("SENA model builder", () => {
     const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
     [
       "exportEnterpriseSaasOperationsReadinessJson",
-      "/api/sena/ops/saas-operations",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations",
       "sena-enterprise-saas-operations-readiness.json",
       'data-testid="enterprise-saas-operations-readiness-export"',
       "sena-enterprise-saas-operations-readiness/v1"
     ].forEach((requiredText) => {
       expect(workspaceSource).toContain(requiredText);
     });
-    expect(workspaceSource).toContain("`/api/sena/ops/saas-operations${enterpriseTeamQuery()}`");
+    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations");
     [
       "getEnterpriseSaasOperationsReadiness",
       "saas-operating-model-approval-env-required",
@@ -3374,7 +3382,6 @@ describe("SENA model builder", () => {
     const docsSectionSource = readFileSync(new URL("../../../components/DocsSection.tsx", import.meta.url), "utf8");
     [
       "exportEnterpriseGoLiveRehearsalJson",
-      "/api/sena/ops/go-live-rehearsal",
       "sena-enterprise-go-live-rehearsal.json",
       'data-testid="enterprise-go-live-rehearsal-export"',
       'data-testid="enterprise-go-live-rollback-drill-export"',
@@ -3397,14 +3404,23 @@ describe("SENA model builder", () => {
       "identityProductionHandoffSnapshot",
       "identity handoff ${payload.attestation?.identityProductionHandoffSnapshot?.status",
       "handoff blockers ${payload.attestation?.identityProductionHandoffSnapshot?.platformRequestPacket.summary.blockingRequests",
-      "sena-enterprise-go-live-rehearsal/v1"
+      "sena-enterprise-go-live-rehearsal/v1",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal"
     ].forEach((requiredText) => {
       expect(workspaceSource).toContain(requiredText);
     });
-    expect(workspaceSource).toContain("`/api/sena/ops/go-live-rehearsal${enterpriseTeamQuery()}`");
-    expect(workspaceSource).toContain("`/api/sena/ops/go-live-rehearsal?artifact=rollback-drill${enterpriseTeamQuery(\"&\")}`");
-    expect(workspaceSource).toContain("`/api/sena/ops/go-live-rehearsal?artifact=post-cutover-monitor${enterpriseTeamQuery(\"&\")}`");
-    expect(workspaceSource).toContain("fetch(`/api/sena/ops/go-live-rehearsal${enterpriseTeamQuery()}`)");
+    expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+      artifact: "rollback-drill",
+      teamId: "team 1"
+    })).toBe("/api/sena/ops/go-live-rehearsal?artifact=rollback-drill&teamId=team+1");
+    expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+      artifact: "post-cutover-monitor",
+      teamId: "team 1"
+    })).toBe("/api/sena/ops/go-live-rehearsal?artifact=post-cutover-monitor&teamId=team+1");
+    expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+      attestations: 1,
+      teamId: "team 1"
+    })).toBe("/api/sena/ops/go-live-rehearsal?attestations=1&teamId=team+1");
     [
       "getEnterpriseGoLiveRehearsal",
       "buildEnterpriseReleaseGateDraft",
@@ -3446,7 +3462,7 @@ describe("SENA model builder", () => {
     const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
     [
       "exportEnterpriseExpertReviewDossierJson",
-      "/api/sena/validation/expert-review",
+      "SENA_WORKSPACE_API_ROUTES.enterprise.expertReview",
       "sena-enterprise-expert-review-dossier.json",
       'data-testid="enterprise-expert-review-dossier-export"',
       "sena-expert-review-list/v1",

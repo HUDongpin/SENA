@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { completeEnterprisePasswordReset, createEnterprisePasswordReset } from "@/lib/sena/enterprise";
+import {
+  completeEnterprisePasswordReset,
+  createEnterprisePasswordReset
+} from "@/lib/sena/enterprise/identity-auth";
 import { authProductionGateHeaders, enforceAuthRateLimit, jsonError } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

@@ -3,7 +3,7 @@ import {
   completeEnterpriseSsoCallback,
   senaSessionCookieName,
   type SenaEnterpriseSsoProvider
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
 import { authSessionHeaders, enforceAuthRateLimit, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

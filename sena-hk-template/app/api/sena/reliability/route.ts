@@ -6,7 +6,7 @@ import {
   createEnterpriseReliabilityRun,
   listEnterpriseReliabilityRuns,
   reviewEnterpriseReliabilityRun
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/reliability-validation";
 import { parseSenaCsv, type SenaImportRow } from "@/lib/sena/import";
 import {
   buildSenaReliabilityDashboard,

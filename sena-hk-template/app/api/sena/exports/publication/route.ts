@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { getEnterpriseClaimEvidencePackage, getEnterpriseProject, recordEnterpriseAudit, SenaEnterpriseError } from "@/lib/sena/enterprise";
+import {
+  getEnterpriseClaimEvidencePackage
+} from "@/lib/sena/enterprise/reliability-validation";
+import {
+  getEnterpriseProject
+} from "@/lib/sena/enterprise/team-project";
+import {
+  recordEnterpriseAudit
+} from "@/lib/sena/enterprise/ops-governance";
+import {
+  SenaEnterpriseError
+} from "@/lib/sena/enterprise/errors";
 import { buildSenaPublicationExport, type SenaPublicationEnterpriseProjectEvidence, type SenaPublicationFormat } from "@/lib/sena/publication-export";
 import { importSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";

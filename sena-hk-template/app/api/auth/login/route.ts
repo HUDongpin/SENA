@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { loginEnterpriseUser, sanitizeEnterpriseContext, senaSessionCookieName } from "@/lib/sena/enterprise";
+import {
+  loginEnterpriseUser,
+  sanitizeEnterpriseContext,
+  senaSessionCookieName
+} from "@/lib/sena/enterprise/identity-auth";
 import { authSessionHeaders, enforceAuthRateLimit, jsonError, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

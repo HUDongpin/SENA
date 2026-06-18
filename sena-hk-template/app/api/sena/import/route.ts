@@ -3,14 +3,18 @@ import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
 import {
   createEnterpriseAnalysisRun,
   createEnterpriseImportRun,
-  createEnterpriseProject,
   createEnterpriseUploads,
   listEnterpriseImportRuns,
-  SenaEnterpriseError,
   type SenaEnterpriseAnalysisRun,
-  type SenaEnterpriseImportRun,
+  type SenaEnterpriseImportRun
+} from "@/lib/sena/enterprise/import-analysis";
+import {
+  createEnterpriseProject,
   type SenaEnterpriseProject
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/team-project";
+import {
+  SenaEnterpriseError
+} from "@/lib/sena/enterprise/errors";
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
 import { importSenaEnterpriseFiles } from "@/lib/sena/import-adapters";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";

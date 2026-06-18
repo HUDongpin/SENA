@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import {
   createEnterpriseAnalysisRun,
+  listEnterpriseAnalysisRuns
+} from "@/lib/sena/enterprise/import-analysis";
+import {
   createEnterpriseProject,
   getEnterpriseProject,
-  listEnterpriseAnalysisRuns,
   updateEnterpriseProject
-} from "@/lib/sena/enterprise";
-import type { SenaEnterpriseAnalysisRun, SenaEnterpriseProject } from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/team-project";
+import type { SenaEnterpriseAnalysisRun } from "@/lib/sena/enterprise/import-analysis";
+import type { SenaEnterpriseProject } from "@/lib/sena/enterprise/team-project";
 import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
 
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
     const context = requireApiSession();
     const url = new URL(request.url);
     return NextResponse.json({
-      schemaVersion: "sena-analysis-run-list/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.analysisRunList,
       analysisRuns: listEnterpriseAnalysisRuns(context, {
         teamId: url.searchParams.get("teamId") || undefined,
         projectId: url.searchParams.get("projectId") || undefined

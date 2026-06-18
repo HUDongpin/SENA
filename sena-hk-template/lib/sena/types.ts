@@ -1,3 +1,5 @@
+import type { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+
 export type SenaLayer = "social" | "concept" | "bridge";
 
 export type SenaLayoutMode = "explanatory" | "ena-space" | "joint";
@@ -219,7 +221,7 @@ export type SenaCodingReliabilityReview = {
 };
 
 export type SenaDataGovernanceMetadata = {
-  schemaVersion: "sena-data-governance-metadata/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.dataGovernanceMetadata;
   status: "complete" | "needs-review";
   irbApprovalId: string;
   consentScope: string;
@@ -233,7 +235,7 @@ export type SenaDataGovernanceMetadata = {
 };
 
 export type SenaCodingReliabilityGate = {
-  schemaVersion: "sena-coding-reliability-gate/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityGate;
   status: "ready" | "review";
   claimUse: "coding-reliability-documented" | "coding-reliability-needed";
   review: SenaCodingReliabilityReview;
@@ -255,7 +257,7 @@ export type SenaEvidenceSource = SenaReportEvidenceSnippet["source"];
 export type SenaManifestRow = Record<string, string | number | boolean | null>;
 
 export type SenaEnaManifest = {
-  schemaVersion: "sena-ena-manifest/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enaManifest;
   status: "computed" | "skipped";
   engine: "jena-js";
   engineVersion: string;
@@ -303,7 +305,7 @@ export type SenaEnaManifest = {
 };
 
 export type SenaSnaManifest = {
-  schemaVersion: "sena-jsna-manifest/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.jsnaManifest;
   status: "computed" | "skipped";
   engine: "sna.js";
   engineAlias: "jSNA";
@@ -415,7 +417,7 @@ export type SenaTemporalStability = {
 };
 
 export type SenaNullModelCheck = {
-  schemaVersion: "sena-null-models/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.nullModels;
   seed: number;
   targetConceptPair: {
     id: string;
@@ -519,7 +521,7 @@ export type SenaReportCompletenessItem = {
 };
 
 export type SenaReportCompletenessAudit = {
-  schemaVersion: "sena-report-completeness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reportCompleteness;
   status: "complete" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -537,7 +539,7 @@ export type SenaDataContractAuditItem = {
 };
 
 export type SenaDataContractAudit = {
-  schemaVersion: "sena-data-contract-audit/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.dataContractAudit;
   status: "valid" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -546,7 +548,7 @@ export type SenaDataContractAudit = {
 };
 
 export type SenaDataContractAuditArtifact = {
-  schemaVersion: "sena-data-contract-audit-artifact/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.dataContractAuditArtifact;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -576,7 +578,7 @@ export type SenaRuntimeConsistencyItem = {
 };
 
 export type SenaRuntimeConsistencyAudit = {
-  schemaVersion: "sena-runtime-consistency/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.runtimeConsistency;
   status: "consistent" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -670,7 +672,7 @@ export type SenaMatrixFingerprint = {
 };
 
 export type SenaFusionMathAudit = {
-  schemaVersion: "sena-fusion-math-audit/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAudit;
   status: "verified" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -680,7 +682,7 @@ export type SenaFusionMathAudit = {
 };
 
 export type SenaFusionMathAuditArtifact = {
-  schemaVersion: "sena-fusion-math-audit-artifact/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAuditArtifact;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -742,7 +744,7 @@ export type SenaVisualGrammarReferenceAsset = {
 };
 
 export type SenaVisualGrammarArtifact = {
-  schemaVersion: "sena-visual-grammar/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.visualGrammar;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -753,7 +755,7 @@ export type SenaVisualGrammarArtifact = {
 };
 
 export type SenaMethodProtocol = {
-  schemaVersion: "sena-method-protocol/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.methodProtocol;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -807,7 +809,7 @@ export type SenaPilotReadinessItem = {
 };
 
 export type SenaPilotReadinessAudit = {
-  schemaVersion: "sena-pilot-readiness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.pilotReadiness;
   status: "ready" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -825,7 +827,7 @@ export type SenaClaimReadinessGateItem = {
 };
 
 export type SenaClaimReadinessGate = {
-  schemaVersion: "sena-claim-readiness-gate/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.claimReadinessGate;
   status: "ready" | "exploratory";
   claimUse: "research-claim-ready" | "exploratory-only";
   ready: number;
@@ -848,7 +850,7 @@ export type SenaDemoWalkthroughStep = {
 };
 
 export type SenaDemoWalkthrough = {
-  schemaVersion: "sena-demo-walkthrough/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.demoWalkthrough;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -892,7 +894,7 @@ export type SenaDemoVerificationCheck = {
 };
 
 export type SenaDemoVerification = {
-  schemaVersion: "sena-demo-verification/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.demoVerification;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -931,7 +933,7 @@ export type SenaDemoVerificationCompatibilityItem = {
 };
 
 export type SenaDemoVerificationCompatibilityAudit = {
-  schemaVersion: "sena-demo-verification-compatibility/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.demoVerificationCompatibility;
   status: "compatible" | "mismatch";
   passed: number;
   reviewNeeded: number;
@@ -953,7 +955,7 @@ export type SenaProductionPageContractVisualCheck = {
 };
 
 export type SenaProductionPageContract = {
-  schemaVersion: "sena-production-page-contract/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.productionPageContract;
   title: string;
   workspaceRoute: "/workspace/sena";
   description: string;
@@ -1028,7 +1030,7 @@ export type SenaNextStageDevelopmentPlan = {
 };
 
 export type SenaDevelopmentPlan = {
-  schemaVersion: "sena-development-plan/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.developmentPlan;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1074,7 +1076,7 @@ export type SenaDevelopmentPlan = {
 };
 
 export type SenaReport = {
-  schemaVersion: "sena-report/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.report;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -1137,7 +1139,7 @@ export type SenaReport = {
 };
 
 export type SenaEvidenceLedger = {
-  schemaVersion: "sena-evidence-ledger/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.evidenceLedger;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -1172,7 +1174,7 @@ export type SenaRuntimeArtifactEvidenceItem = {
 };
 
 export type SenaRuntimeBundle = {
-  schemaVersion: "sena-runtime-bundle/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.runtimeBundle;
   title: string;
   generatedAt: string;
   analysisWindow: SenaTemporalWindow | null;
@@ -1213,7 +1215,7 @@ export type SenaRuntimeBundle = {
 };
 
 export type SenaSnaReportArtifact = {
-  schemaVersion: "sena-sna-report/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.snaReport;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1230,7 +1232,7 @@ export type SenaSnaReportArtifact = {
 };
 
 export type SenaMetricProvenanceArtifact = {
-  schemaVersion: "sena-metric-provenance/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.metricProvenance;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1280,7 +1282,7 @@ export type SenaMetricProvenanceArtifact = {
 };
 
 export type SenaEnaReportArtifact = {
-  schemaVersion: "sena-ena-report/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enaReport;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1307,7 +1309,7 @@ export type SenaEnaReportArtifact = {
 };
 
 export type SenaPairContributionReportArtifact = {
-  schemaVersion: "sena-person-code-pair-g-report/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.personCodePairGReport;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1341,7 +1343,7 @@ export type SenaPilotAssetIntegrity = {
 };
 
 export type SenaPilotPackageManifest = {
-  schemaVersion: "sena-pilot-package-manifest/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.pilotPackageManifest;
   packageName: string;
   updatedOn: string;
   workspaceRoute: "/workspace/sena";
@@ -1395,7 +1397,7 @@ export type SenaReviewPacketAuditItem = {
 };
 
 export type SenaReviewPacketAudit = {
-  schemaVersion: "sena-review-packet-audit/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reviewPacketAudit;
   status: "complete" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -1404,7 +1406,7 @@ export type SenaReviewPacketAudit = {
 };
 
 export type SenaReviewPacket = {
-  schemaVersion: "sena-review-packet/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reviewPacket;
   title: string;
   generatedAt: string;
   workspaceRoute: "/workspace/sena";
@@ -1577,7 +1579,7 @@ export type SenaTemporalRuntimeTransition = {
 };
 
 export type SenaTemporalRuntimeTrace = {
-  schemaVersion: "sena-temporal-runtime-trace/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.temporalRuntimeTrace;
   generatedAt: string;
   sourceDatasetCounts: SenaTemporalRuntimeDatasetCounts;
   buildOptions: SenaResolvedBuildOptions;
@@ -1634,7 +1636,7 @@ export type SenaActiveWindowBriefSignal = {
 };
 
 export type SenaActiveWindowBrief = {
-  schemaVersion: "sena-active-window-brief/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.activeWindowBrief;
   window: {
     id: string;
     label: string;
@@ -1693,7 +1695,7 @@ export type SenaActiveWindowComparison = {
 };
 
 export type SenaProjectSnapshot = {
-  schemaVersion: "sena-project-snapshot/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.projectSnapshot;
   title: string;
   generatedAt: string;
   source: {

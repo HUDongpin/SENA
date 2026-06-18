@@ -6,9 +6,10 @@ import {
   restoreEnterpriseProjectRevision,
   updateEnterpriseProject,
   type SenaEnterpriseProject
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/team-project";
 import { importSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,7 @@ export async function GET(_request: Request, { params }: { params: { projectId: 
   try {
     const context = requireApiSession();
     const project = getEnterpriseProject(context, params.projectId);
-    return NextResponse.json({ schemaVersion: "sena-project/v1", project }, {
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       headers: projectLifecycleHeaders(project)
     });
   } catch (error) {
@@ -58,7 +59,7 @@ export async function PUT(request: Request, { params }: { params: { projectId: s
       snapshot: body.snapshot ? importSenaProjectSnapshot(body.snapshot) : undefined,
       expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
     });
-    return NextResponse.json({ schemaVersion: "sena-project/v1", project }, {
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       headers: projectLifecycleHeaders(project)
     });
   } catch (error) {

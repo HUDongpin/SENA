@@ -4,7 +4,7 @@ import {
   getEnterpriseDeploymentReadiness,
   getEnterpriseIdentityProductionEvidence,
   type SenaEnterpriseDeploymentReadiness
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import {
   enterpriseScimServiceProviderConfig,

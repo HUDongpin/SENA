@@ -6,7 +6,7 @@ import {
   markEnterpriseNotificationRead,
   type SenaEnterpriseNotificationKind,
   type SenaEnterpriseNotificationStatus
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/notifications-delivery";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

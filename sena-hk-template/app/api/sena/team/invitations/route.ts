@@ -6,7 +6,7 @@ import {
   sanitizeEnterpriseContext,
   type SenaEnterpriseInvitation,
   type SenaEnterpriseMembership
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
 import { jsonError, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

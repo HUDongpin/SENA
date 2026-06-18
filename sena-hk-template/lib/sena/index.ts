@@ -68,6 +68,14 @@ export {
   senaProductionPageContract
 } from "./production-page-contract";
 export {
+  getSenaSchemaVersion,
+  isSenaSchemaVersion,
+  listSenaSchemaVersions,
+  SENA_SCHEMA_VERSIONS,
+  type SenaSchemaVersion,
+  type SenaSchemaVersionKey
+} from "./schema-registry";
+export {
   buildSenaDemoVerificationCompatibilityAudit,
   buildSenaDemoVerification,
   importSenaDemoVerification,

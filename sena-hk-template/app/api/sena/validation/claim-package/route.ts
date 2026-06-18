@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { getEnterpriseClaimEvidencePackage } from "@/lib/sena/enterprise";
+import {
+  getEnterpriseClaimEvidencePackage
+} from "@/lib/sena/enterprise/reliability-validation";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

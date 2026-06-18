@@ -4,6 +4,7 @@ import { buildSenaDemoVerification, buildSenaDemoVerificationCompatibilityAudit 
 import { buildSenaDevelopmentPlan } from "./development-plan";
 import { buildSenaProductionPageContract } from "./production-page-contract";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import type { SenaDataset, SenaDemoVerificationCheck, SenaEvidenceLedger, SenaModel, SenaPilotPackageManifest, SenaReport, SenaRuntimeArtifactEvidenceItem, SenaRuntimeBundle, SenaTemporalRuntimeTrace } from "./types";
 
@@ -244,7 +245,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-runtime-bundle.json",
-      schemaVersion: "sena-runtime-bundle/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,
       runtimeRole: "sena-model",
       sourceRuntime: report.runtimeProvenance.senaModel.engine,
       downloadControl: "Export runtime bundle",
@@ -319,7 +320,7 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
   const artifactEvidence = buildRuntimeArtifactEvidence(model, report, evidenceLedger, temporalRuntimeTrace);
 
   return {
-    schemaVersion: "sena-runtime-bundle/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,
     title,
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,

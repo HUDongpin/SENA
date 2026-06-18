@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
-import { createEnterpriseCsrfToken } from "@/lib/sena/enterprise";
+import {
+  createEnterpriseCsrfToken
+} from "@/lib/sena/enterprise/identity-auth";
 
 export const runtime = "nodejs";
 

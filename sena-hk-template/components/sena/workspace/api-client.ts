@@ -1,0 +1,76 @@
+export const SENA_WORKSPACE_API_ROUTES = {
+  auth: {
+    csrf: "/api/auth/csrf",
+    me: "/api/auth/me",
+    logout: "/api/auth/logout",
+    mfa: "/api/auth/mfa",
+    sessions: "/api/auth/sessions",
+    ssoPreflight: "/api/auth/sso?status=1&preflight=1"
+  },
+  enterprise: {
+    analyze: "/api/sena/analyze",
+    audit: "/api/sena/governance/audit",
+    backup: "/api/sena/governance/backup",
+    capabilityAudit: "/api/sena/ops/capability-audit",
+    collaboration: (projectId: string) => `/api/sena/projects/${encodeURIComponent(projectId)}/collaboration`,
+    collaborationStream: (projectId: string) => `/api/sena/projects/${encodeURIComponent(projectId)}/collaboration/stream`,
+    deployment: "/api/sena/ops/deployment",
+    expertReview: "/api/sena/validation/expert-review",
+    goLiveRehearsal: "/api/sena/ops/go-live-rehearsal",
+    health: "/api/sena/governance/health",
+    identityProductionEvidence: "/api/sena/ops/identity-production-evidence",
+    import: "/api/sena/import",
+    invitations: "/api/sena/team/invitations",
+    memberships: "/api/sena/team/memberships",
+    nativeAdapters: "/api/sena/ops/native-adapters",
+    notifications: "/api/sena/notifications",
+    opsAlerts: "/api/sena/ops/alerts",
+    opsReadiness: "/api/sena/ops/readiness",
+    opsStatus: "/api/sena/ops/status",
+    platformDecisions: "/api/sena/ops/platform-decisions",
+    provisioning: "/api/sena/provisioning",
+    project: (projectId: string) => `/api/sena/projects/${encodeURIComponent(projectId)}`,
+    projects: "/api/sena/projects",
+    releaseGate: "/api/sena/ops/release-gate",
+    reliability: "/api/sena/reliability",
+    saasOperations: "/api/sena/ops/saas-operations",
+    security: "/api/sena/governance/security",
+    team: "/api/sena/team",
+    uploads: "/api/sena/uploads",
+    validationClaimPackage: "/api/sena/validation/claim-package",
+    validationGroupComparison: "/api/sena/validation/group-comparison",
+    scimUsers: "/api/sena/scim/v2/Users"
+  },
+  publicationExport: "/api/sena/exports/publication",
+  pilotSample: "/sena-pilot/sample/lesson-study-sena-contract.json"
+} as const;
+
+export type SenaWorkspaceApiRoute = string;
+export type SenaWorkspaceApiQueryValue = string | number | boolean | null | undefined;
+
+export function buildEnterpriseTeamQuery(teamId?: string, prefix = "?") {
+  return teamId ? `${prefix}teamId=${encodeURIComponent(teamId)}` : "";
+}
+
+export function buildEnterpriseExpertReviewQuery(input: { teamId?: string; projectId?: string }) {
+  const params = new URLSearchParams();
+  if (input.teamId) params.set("teamId", input.teamId);
+  if (input.projectId) params.set("projectId", input.projectId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export function buildSenaWorkspaceApiUrl(
+  route: SenaWorkspaceApiRoute,
+  query: Record<string, SenaWorkspaceApiQueryValue> = {}
+) {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
+    }
+  });
+  const queryString = params.toString();
+  if (!queryString) return route;
+  return `${route}${route.includes("?") ? "&" : "?"}${queryString}`;
+}

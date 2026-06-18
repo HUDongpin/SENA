@@ -8,6 +8,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 - Owns cross-session coordination, project memory, scope control, and handoff hygiene for `/Users/dongpinhu/Desktop/SENA` and the runnable app in `sena-hk-template`.
 - Keep `AGENTS.md`, `sena-hk-template/README.md`, session logs, and handoff notes aligned with the real project state after major changes.
+- Keep `CONTEXT.md` and `docs/adr/*` aligned with module-boundary decisions, especially schema registry, workspace API client, and enterprise state boundaries.
 - Preserve the current direction: SENA is a research-pilot delivery candidate, not a generic analytics dashboard or production SaaS claim without gate evidence.
 - Before creating new workstreams, check whether the task belongs to one of the agents below and keep edits inside that lane unless the user asks for broader coordination.
 - When summarizing progress, distinguish: local research pilot, enterprise runtime readiness loop, institution-owned production cutover, and academic/method paper work.
@@ -58,6 +59,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 - Owns review packets, runtime bundles, publication exports, reports, snapshots, and all schema-versioned handoff artifacts.
 - Primary files include `report.ts`, `snapshot.ts`, `runtime-bundle.ts`, `review-packet.ts`, `publication-export.ts`, `method-protocol.ts`, `development-plan.ts`, `pilot-readiness.ts`, `demo-verification.ts`, `demo-walkthrough.ts`, and `production-page-contract.ts`.
 - Keep these schema families stable unless intentionally versioning them: `sena-runtime-bundle/v1`, `sena-review-packet/v1`, `sena-fusion-math-audit/v1`, `sena-visual-grammar/v1`, `sena-development-plan/v1`, `sena-production-page-contract/v1`, `sena-coding-reliability-gate/v1`, and `sena-claim-readiness-gate/v1`.
+- Use `lib/sena/schema-registry.ts` for new or touched schema-versioned contracts instead of adding scattered `schemaVersion` literals.
 - Exported artifacts must keep data-contract audit, runtime provenance, matrix fingerprints, temporal trace, evidence ledger, guardrails, coding-reliability status, claim-readiness status, and artifact completeness checks aligned.
 - Publication exports currently include HTML/SVG/PNG/XLSX/DOCX/PDF/package-style outputs through the enterprise publication route; do not weaken source snapshot or claim-readiness evidence when polishing format.
 
@@ -73,6 +75,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 - Owns local enterprise runtime features: auth, SSO, CSRF, MFA, password reset, sessions, RBAC teams, invitations, memberships, saved projects, revisions, collaboration, notifications, provisioning, and SCIM.
 - Primary files include `enterprise.ts`, `enterprise-postgres.ts`, `api-helpers.ts`, `provisioning-auth.ts`, `scim.ts`, `analysis-run.ts`, auth routes, project routes, team routes, notifications, provisioning, and SCIM routes.
+- Prefer domain imports from `lib/sena/enterprise/*` for routes; keep `lib/sena/enterprise.ts` as the compatibility facade while the monolith is reduced.
 - The default local enterprise store is `.sena-enterprise/enterprise-db.json`; never treat it as production managed infrastructure by itself.
 - Preserve redaction rules for emails, secrets, hashes, audit entries, notification payloads, webhook evidence, SSO preflight status, and service-token provisioning.
 - Maintain optimistic `expectedVersion` conflicts, append-only revision restore, last-active-manager guardrails, CSRF requirements for cookie-auth mutations, and bearer-token separation for service/ops routes.

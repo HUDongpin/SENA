@@ -4,8 +4,9 @@ import {
   deliverEnterpriseUploadBlobs,
   listEnterpriseUploads,
   verifyEnterpriseUploadStorage
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/import-analysis";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const teamId = url.searchParams.get("teamId") || undefined;
     const verify = url.searchParams.get("verify") === "1" || url.searchParams.get("verify") === "true";
     return NextResponse.json({
-      schemaVersion: "sena-upload-list/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.uploadList,
       uploads: listEnterpriseUploads(context, teamId),
       storageVerification: verify ? verifyEnterpriseUploadStorage(context, { teamId }) : undefined
     });
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
       files: await uploadFiles(files)
     });
     return NextResponse.json({
-      schemaVersion: "sena-upload-list/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.uploadList,
       uploads
     }, { status: 201 });
   } catch (error) {

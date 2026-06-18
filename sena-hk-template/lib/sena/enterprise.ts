@@ -3,10 +3,12 @@ import type { JsonWebKey as CryptoJsonWebKey } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "./analysis-run";
+import { createEnterpriseStateStore, type SenaEnterpriseStateStore } from "./enterprise/state";
 import type { SenaGroupComparisonMetric, SenaGroupComparisonResult, SenaGroupComparisonValidationResult } from "./inference";
 import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } from "./import-adapters";
 import type { SenaReliabilityDashboard } from "./reliability";
 import { senaRuntimeProvenance } from "./runtime-constants";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaCodingReliabilityReview, SenaDataset, SenaProjectSnapshot, SenaRuntimeProvenance } from "./types";
 import { createEnterprisePostgresDatabaseSyncAdapterFromEnv, resolveEnterprisePostgresConfig, type SenaEnterprisePostgresConfig } from "./enterprise-postgres";
 
@@ -121,7 +123,7 @@ export type SenaEnterpriseSessionSummary = {
 };
 
 export type SenaEnterpriseSessionList = {
-  schemaVersion: "sena-enterprise-session-list/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSessionList;
   generatedAt: string;
   currentSessionId: string;
   sessionDays: number;
@@ -133,7 +135,7 @@ export type SenaEnterpriseSessionList = {
 };
 
 export type SenaEnterpriseSessionRevocation = {
-  schemaVersion: "sena-enterprise-session-revocation/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSessionRevocation;
   generatedAt: string;
   revokedSessionIds: string[];
   revokedCount: number;
@@ -142,7 +144,7 @@ export type SenaEnterpriseSessionRevocation = {
 };
 
 export type SenaEnterpriseCsrfToken = {
-  schemaVersion: "sena-enterprise-csrf-token/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseCsrfToken;
   generatedAt: string;
   headerName: typeof senaCsrfHeaderName;
   token: string;
@@ -233,7 +235,7 @@ export type SenaEnterprisePasswordResetRequest = {
 };
 
 export type SenaEnterpriseMfaStatus = {
-  schemaVersion: "sena-enterprise-mfa-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaStatus;
   enabled: boolean;
   method: "totp" | null;
   factorId?: string;
@@ -242,7 +244,7 @@ export type SenaEnterpriseMfaStatus = {
 };
 
 export type SenaEnterpriseMfaSetupResult = {
-  schemaVersion: "sena-enterprise-mfa-setup/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaSetup;
   method: "totp";
   setupToken: string;
   secret: string;
@@ -251,7 +253,7 @@ export type SenaEnterpriseMfaSetupResult = {
 };
 
 export type SenaEnterpriseMfaEnableResult = {
-  schemaVersion: "sena-enterprise-mfa-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaStatus;
   enabled: true;
   method: "totp";
   factorId: string;
@@ -259,7 +261,7 @@ export type SenaEnterpriseMfaEnableResult = {
 };
 
 export type SenaEnterpriseMfaDisableResult = {
-  schemaVersion: "sena-enterprise-mfa-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaStatus;
   enabled: false;
   method: null;
   disabledAt: string;
@@ -277,7 +279,7 @@ export type SenaEnterpriseLoginResult =
   | SenaEnterpriseLoginMfaChallenge;
 
 export type SenaEnterprisePasswordResetRequestResult = {
-  schemaVersion: "sena-enterprise-password-reset-request/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePasswordResetRequest;
   status: "queued";
   expiresAt: string;
   delivery: {
@@ -289,7 +291,7 @@ export type SenaEnterprisePasswordResetRequestResult = {
 };
 
 export type SenaEnterprisePasswordResetCompleteResult = {
-  schemaVersion: "sena-enterprise-password-reset-complete/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePasswordResetComplete;
   status: "completed";
   resetAt: string;
 };
@@ -351,7 +353,7 @@ export type SenaEnterpriseNotificationQuery = {
 };
 
 export type SenaEnterpriseNotificationResult = {
-  schemaVersion: "sena-enterprise-notifications/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseNotifications;
   generatedAt: string;
   scope: {
     mode: "user" | "team";
@@ -368,7 +370,7 @@ export type SenaEnterpriseNotificationResult = {
 };
 
 export type SenaEnterpriseNotificationDeliveryResult = {
-  schemaVersion: "sena-enterprise-notification-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseNotificationDelivery;
   generatedAt: string;
   provider: {
     mode: SenaEnterpriseWebhookProviderMode;
@@ -408,7 +410,7 @@ export type SenaEnterpriseEmailDeliveryKind = "auth.password_reset" | "team.invi
 export type SenaEnterpriseEmailDeliveryStatus = "pending" | "delivered" | "failed";
 
 export type SenaEnterpriseEmailDeliveryPayload = {
-  schemaVersion: "sena-enterprise-email-payload/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseEmailPayload;
   kind: SenaEnterpriseEmailDeliveryKind;
   recipient: {
     email: string;
@@ -447,7 +449,7 @@ export type SenaEnterpriseEmailDelivery = {
 };
 
 export type SenaEnterpriseEmailDeliveryResult = {
-  schemaVersion: "sena-enterprise-email-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseEmailDelivery;
   generatedAt: string;
   provider: {
     mode: SenaEnterpriseWebhookProviderMode;
@@ -520,7 +522,7 @@ export type SenaEnterpriseProvisioningInput = {
 };
 
 export type SenaEnterpriseProvisioningResult = {
-  schemaVersion: "sena-enterprise-provisioning/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseProvisioning;
   generatedAt: string;
   dryRun: boolean;
   source: SenaEnterpriseProvisioningSource;
@@ -557,7 +559,7 @@ export type SenaEnterpriseProvisioningResult = {
 };
 
 export type SenaEnterpriseProvisioningDirectory = {
-  schemaVersion: "sena-enterprise-provisioning-directory/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseProvisioningDirectory;
   generatedAt: string;
   source: SenaEnterpriseProvisioningSource;
   users: Array<{
@@ -690,7 +692,7 @@ export type SenaEnterpriseCollaborationPubSubEvent = {
 };
 
 export type SenaEnterpriseCollaborationPubSubDeliveryResult = {
-  schemaVersion: "sena-enterprise-collaboration-pubsub-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseCollaborationPubsubDelivery;
   generatedAt: string;
   provider: {
     mode: SenaEnterpriseWebhookProviderMode;
@@ -761,7 +763,7 @@ export type SenaEnterpriseUpload = {
 };
 
 export type SenaEnterpriseUploadStorageVerification = {
-  schemaVersion: "sena-enterprise-upload-storage-verification/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseUploadStorageVerification;
   generatedAt: string;
   status: "pass" | "review";
   scope: {
@@ -788,7 +790,7 @@ export type SenaEnterpriseUploadStorageVerification = {
 };
 
 export type SenaEnterpriseUploadObjectStorageDeliveryResult = {
-  schemaVersion: "sena-enterprise-upload-object-storage-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseUploadObjectStorageDelivery;
   generatedAt: string;
   status: "not-configured" | "completed" | "partial" | "failed";
   provider: {
@@ -878,7 +880,7 @@ export type SenaEnterpriseAnalysisRun = {
 export type SenaEnterpriseReliabilityRunStatus = "pending-review" | "pending-adjudication" | "approved" | "rejected";
 
 export type SenaEnterpriseReliabilityAdjudicationCoverage = {
-  schemaVersion: "sena-reliability-adjudication-coverage/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
   queuedDisagreements: number;
   resolvedDisagreements: number;
   unresolvedDisagreements: number;
@@ -921,7 +923,7 @@ export type SenaEnterpriseReliabilityRun = {
 };
 
 export type SenaEnterpriseReliabilityAdjudicationResult = {
-  schemaVersion: "sena-enterprise-reliability-adjudication/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReliabilityAdjudication;
   reliabilityRunId: string;
   projectId: string;
   teamId: string;
@@ -941,7 +943,7 @@ export type SenaEnterpriseReliabilityAdjudicationResult = {
 export type SenaEnterpriseValidationRunStatus = "pending-review" | "approved" | "rejected";
 
 export type SenaEnterpriseValidationPreregistrationPlan = {
-  schemaVersion: "sena-validation-preregistration-plan/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.validationPreregistrationPlan;
   planHash: string;
   hashAlgorithm: "sha256";
   analysis: "single-comparison" | "holm-suite";
@@ -982,7 +984,7 @@ export type SenaEnterpriseValidationParityEvidenceInput = {
 };
 
 export type SenaEnterpriseFormalInferenceReadiness = {
-  schemaVersion: "sena-formal-inference-readiness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.formalInferenceReadiness;
   status: "model-referenced" | "model-required" | "incomplete";
   resultSchemaVersion: SenaGroupComparisonValidationResult["schemaVersion"];
   analysis: SenaEnterpriseValidationPreregistrationPlan["analysis"];
@@ -1007,7 +1009,7 @@ export type SenaEnterpriseFormalInferenceReadiness = {
 };
 
 export type SenaEnterpriseValidationParityEvidence = {
-  schemaVersion: "sena-validation-parity-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.validationParityEvidence;
   status: "ready-for-review" | "incomplete";
   validationRunHash: string;
   hashAlgorithm: "sha256";
@@ -1114,7 +1116,7 @@ export type SenaEnterpriseClaimEvidencePackageStatus =
   | "not-claim-ready";
 
 export type SenaEnterpriseClaimEvidencePackage = {
-  schemaVersion: "sena-enterprise-claim-evidence-package/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
   generatedAt: string;
   status: SenaEnterpriseClaimEvidencePackageStatus;
   project: {
@@ -1127,7 +1129,7 @@ export type SenaEnterpriseClaimEvidencePackage = {
     datasetCounts: SenaEnterpriseProject["datasetCounts"];
   };
   sourceSnapshotEvidence: {
-    schemaVersion: "sena-enterprise-claim-source-snapshot/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimSourceSnapshot;
     projectVersion: number;
     revisionId?: string;
     revisionCreatedAt?: string;
@@ -1321,7 +1323,7 @@ export type SenaEnterpriseAuditLogEntry = {
 };
 
 export type SenaEnterpriseAuditDeliveryResult = {
-  schemaVersion: "sena-enterprise-audit-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseAuditDelivery;
   generatedAt: string;
   provider: {
     mode: SenaEnterpriseWebhookProviderMode;
@@ -1375,7 +1377,7 @@ export type SenaEnterpriseAuditLogQuery = {
 };
 
 export type SenaEnterpriseAuditLogResult = {
-  schemaVersion: "sena-enterprise-audit-log/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseAuditLog;
   generatedAt: string;
   scope: {
     teamIds: string[];
@@ -1399,7 +1401,7 @@ export type SenaEnterpriseAuditLogResult = {
 };
 
 export type SenaEnterpriseAuditIntegrity = {
-  schemaVersion: "sena-enterprise-audit-integrity/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseAuditIntegrity;
   generatedAt: string;
   status: "pass" | "review";
   scope: {
@@ -1426,7 +1428,7 @@ export type SenaEnterpriseAuditIntegrity = {
 };
 
 export type SenaEnterpriseOpsStatus = {
-  schemaVersion: "sena-enterprise-ops-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseOpsStatus;
   status: "ready" | "review" | "degraded";
   generatedAt: string;
   deployment: {
@@ -1502,7 +1504,7 @@ export type SenaEnterpriseDeploymentReadinessItem = {
 };
 
 export type SenaEnterpriseDeploymentReadiness = {
-  schemaVersion: "sena-enterprise-deployment-readiness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseDeploymentReadiness;
   status: "ready" | "review" | "blocked";
   generatedAt: string;
   environment: {
@@ -1558,7 +1560,7 @@ export type SenaEnterpriseSecurityControl = {
 };
 
 export type SenaEnterpriseSecurityPosture = {
-  schemaVersion: "sena-enterprise-security-posture/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSecurityPosture;
   status: "ready" | "review" | "blocked";
   generatedAt: string;
   evidenceSources: {
@@ -1612,7 +1614,7 @@ export type SenaEnterpriseOpsAlert = {
 };
 
 export type SenaEnterpriseOpsAlerts = {
-  schemaVersion: "sena-enterprise-ops-alerts/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseOpsAlerts;
   generatedAt: string;
   status: "clear" | "warning" | "critical";
   ownership: {
@@ -1631,7 +1633,7 @@ export type SenaEnterpriseOpsAlerts = {
 };
 
 export type SenaEnterpriseOpsAlertDeliveryResult = {
-  schemaVersion: "sena-enterprise-ops-alert-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseOpsAlertDelivery;
   status: "not-configured" | "delivered" | "failed";
   generatedAt: string;
   provider: {
@@ -1712,7 +1714,7 @@ export type SenaEnterprisePlatformDecisionRegisterDecision = SenaEnterpriseOrgan
 };
 
 export type SenaEnterprisePlatformDecisionRegister = {
-  schemaVersion: "sena-enterprise-platform-decision-register/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister;
   generatedAt: string;
   summary: {
     decisions: number;
@@ -1737,7 +1739,7 @@ export type SenaEnterpriseNativeAdapterCertificationStatus =
   | "open";
 
 export type SenaEnterpriseNativeAdapterCertification = {
-  schemaVersion: "sena-enterprise-native-adapter-certification/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification;
   generatedAt: string;
   redaction: {
     secretValuesExcluded: true;
@@ -1775,7 +1777,7 @@ export type SenaEnterpriseNativeAdapterCertification = {
 };
 
 export type SenaEnterpriseSaasOperationsReadiness = {
-  schemaVersion: "sena-enterprise-saas-operations-readiness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSaasOperationsReadiness;
   generatedAt: string;
   status: "ready" | "review" | "blocked";
   redaction: {
@@ -1826,7 +1828,7 @@ export type SenaEnterpriseCapabilityAuditItem = {
 };
 
 export type SenaEnterpriseCapabilityAudit = {
-  schemaVersion: "sena-enterprise-capability-audit/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseCapabilityAudit;
   generatedAt: string;
   status: SenaEnterpriseCapabilityAuditStatus;
   redaction: {
@@ -1854,14 +1856,14 @@ export type SenaEnterpriseCapabilityAudit = {
 };
 
 export type SenaEnterpriseReleaseGateDraft = {
-  schemaVersion: "sena-enterprise-release-gate-draft/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft;
   generatedAt: string;
   decision: SenaEnterpriseReleaseGateDecision;
   environment: string;
   releaseVersion: string;
   verificationCommand: string;
   verificationEvidence: {
-    schemaVersion: "sena-enterprise-release-verification-evidence/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence;
     command: string;
     status: SenaEnterpriseReleaseVerificationEvidence["status"];
     summary: string;
@@ -1872,7 +1874,7 @@ export type SenaEnterpriseReleaseGateDraft = {
 };
 
 export type SenaEnterpriseGoLiveRollbackDrill = {
-  schemaVersion: "sena-enterprise-go-live-rollback-drill/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveRollbackDrill;
   generatedAt: string;
   status: "ready" | "review" | "blocked";
   summary: {
@@ -1899,7 +1901,7 @@ export type SenaEnterpriseGoLiveRollbackDrill = {
 };
 
 export type SenaEnterpriseGoLiveMonitor = {
-  schemaVersion: "sena-enterprise-go-live-monitor/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveMonitor;
   generatedAt: string;
   status: "ready" | "watch" | "blocked";
   observationWindow: {
@@ -1943,7 +1945,7 @@ export type SenaEnterprisePostCutoverObservationSample = {
 };
 
 export type SenaEnterprisePostCutoverObservation = {
-  schemaVersion: "sena-enterprise-post-cutover-observation/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePostCutoverObservation;
   id: string;
   teamId: string;
   environment: string;
@@ -1960,7 +1962,7 @@ export type SenaEnterprisePostCutoverObservation = {
 };
 
 export type SenaEnterprisePostCutoverObservationList = {
-  schemaVersion: "sena-enterprise-post-cutover-observations/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePostCutoverObservations;
   generatedAt: string;
   scope: {
     mode: "selected-team" | "managed-teams";
@@ -1995,7 +1997,7 @@ export type SenaEnterprisePostCutoverObservationCompletionInput = {
 };
 
 export type SenaEnterpriseGoLiveChecklist = {
-  schemaVersion: "sena-enterprise-go-live-checklist/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveChecklist;
   rehearsalReviewed: boolean;
   releaseGateDraftReviewed: boolean;
   verificationEvidenceReviewed: boolean;
@@ -2008,7 +2010,7 @@ export type SenaEnterpriseGoLiveChecklist = {
 export type SenaEnterpriseGoLiveAttestationDecision = "approved" | "conditional" | "blocked";
 
 export type SenaEnterpriseGoLiveAttestation = {
-  schemaVersion: "sena-enterprise-go-live-attestation/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestation;
   id: string;
   teamId: string;
   environment: string;
@@ -2020,19 +2022,19 @@ export type SenaEnterpriseGoLiveAttestation = {
   notes: string;
   checklist: SenaEnterpriseGoLiveChecklist;
   goLiveRehearsalSnapshot: {
-    schemaVersion: "sena-enterprise-go-live-rehearsal/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal;
     generatedAt: string;
     status: SenaEnterpriseGoLiveRehearsal["status"];
     blockers: string[];
   };
   releaseGateDraftSnapshot: {
-    schemaVersion: "sena-enterprise-release-gate-draft/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft;
     decision: SenaEnterpriseReleaseGateDecision;
     verificationStatus: SenaEnterpriseReleaseVerificationEvidence["status"];
   };
   identityProductionHandoffSnapshot: SenaEnterpriseIdentityProductionEvidence;
   latestReleaseGateSnapshot?: {
-    schemaVersion: "sena-enterprise-release-gate-review/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview;
     id: string;
     decision: SenaEnterpriseReleaseGateDecision;
     verificationStatus: SenaEnterpriseReleaseVerificationEvidence["status"];
@@ -2098,7 +2100,7 @@ export type SenaEnterpriseGoLiveAttestationInput = {
 };
 
 export type SenaEnterpriseGoLiveAttestationList = {
-  schemaVersion: "sena-enterprise-go-live-attestations/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestations;
   generatedAt: string;
   scope: {
     mode: "selected-team" | "managed-teams";
@@ -2114,7 +2116,7 @@ export type SenaEnterpriseGoLiveAttestationList = {
 };
 
 export type SenaEnterpriseGoLiveRehearsal = {
-  schemaVersion: "sena-enterprise-go-live-rehearsal/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal;
   generatedAt: string;
   status: "ready" | "review" | "blocked";
   redaction: {
@@ -2164,7 +2166,7 @@ export type SenaEnterprisePlatformDecisionAcceptanceStatus =
   | "superseded";
 
 export type SenaEnterpriseIdentityTechnicalEvidenceBinding = {
-  schemaVersion: "sena-enterprise-identity-technical-evidence-binding/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityTechnicalEvidenceBinding;
   decisionId: string;
   provider?: SenaEnterpriseSsoProvider;
   status: "ready" | "review";
@@ -2230,7 +2232,7 @@ export type SenaEnterpriseIdentityTechnicalEvidenceBinding = {
 };
 
 export type SenaEnterprisePlatformDecisionProductionEvidenceReceipt = {
-  schemaVersion: "sena-enterprise-platform-decision-production-evidence-receipt/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionProductionEvidenceReceipt;
   decisionId: string;
   ownerNameHash?: string;
   productionEvidenceVerifiedAtHash?: string;
@@ -2278,7 +2280,7 @@ export type SenaEnterprisePlatformDecisionProductionEvidenceReceipt = {
 };
 
 export type SenaEnterpriseIdentityRotationFreshness = {
-  schemaVersion: "sena-enterprise-identity-rotation-freshness/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness;
   generatedAt: string;
   status: "ready" | "review";
   policy: {
@@ -2311,7 +2313,7 @@ export type SenaEnterpriseIdentityRotationFreshness = {
 };
 
 export type SenaEnterprisePlatformDecisionAcceptance = {
-  schemaVersion: "sena-enterprise-platform-decision-acceptance/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance;
   id: string;
   teamId: string;
   decisionId: string;
@@ -2339,7 +2341,7 @@ export type SenaEnterprisePlatformDecisionAcceptance = {
 };
 
 export type SenaEnterprisePlatformDecisionAcceptanceList = {
-  schemaVersion: "sena-enterprise-platform-decision-acceptances/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptances;
   generatedAt: string;
   scope: {
     mode: "managed-teams" | "selected-team";
@@ -2378,7 +2380,7 @@ export type SenaEnterpriseReleaseGateDecision = "approved" | "blocked" | "condit
 export type SenaEnterpriseReleaseVerificationStatus = "passed" | "failed" | "not-run";
 
 export type SenaEnterpriseReleaseVerificationEvidence = {
-  schemaVersion: "sena-enterprise-release-verification-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence;
   command: string;
   status: SenaEnterpriseReleaseVerificationStatus;
   summary: string;
@@ -2388,7 +2390,7 @@ export type SenaEnterpriseReleaseVerificationEvidence = {
 };
 
 export type SenaEnterpriseReleaseGateReview = {
-  schemaVersion: "sena-enterprise-release-gate-review/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview;
   id: string;
   teamId: string;
   environment: string;
@@ -2500,7 +2502,7 @@ export type SenaEnterpriseReleaseGateReview = {
 };
 
 export type SenaEnterpriseIdentityEvidenceUrlHostBinding = {
-  schemaVersion: "sena-enterprise-identity-evidence-url-host-binding/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityEvidenceUrlHostBinding;
   status: "ready" | "review";
   allowedHostConfigStatus: "configured" | "not-configured" | "invalid";
   allowedHostCount: number;
@@ -2531,7 +2533,7 @@ export type SenaEnterpriseReleaseGateReviewInput = {
 };
 
 export type SenaEnterpriseReleaseGateReviewList = {
-  schemaVersion: "sena-enterprise-release-gate-reviews/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReviews;
   generatedAt: string;
   scope: {
     mode: "managed-teams" | "selected-team";
@@ -2562,7 +2564,7 @@ export type SenaEnterpriseIdentityReceiptArchiveMissingInput =
   "rotationFreshness";
 
 export type SenaEnterpriseIdentityPlatformDecisionRequestPacket = {
-  schemaVersion: "sena-enterprise-identity-platform-decision-request-packet/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket;
   generatedAt: string;
   redaction: {
     secretValuesExcluded: true;
@@ -2802,7 +2804,7 @@ export type SenaEnterpriseIdentityPlatformDecisionRequestPacket = {
 };
 
 export type SenaEnterpriseIdentitySubmissionVerifier = {
-  schemaVersion: "sena-enterprise-identity-submission-verifier/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier;
   generatedAt: string;
   redaction: {
     secretValuesExcluded: true;
@@ -2839,7 +2841,7 @@ export type SenaEnterpriseIdentitySubmissionVerifier = {
 };
 
 export type SenaEnterpriseIdentityCutoverChecklist = {
-  schemaVersion: "sena-enterprise-identity-cutover-checklist/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist;
   generatedAt: string;
   status: "ready" | "review";
   summary: {
@@ -2865,7 +2867,7 @@ export type SenaEnterpriseIdentityCutoverChecklist = {
 };
 
 export type SenaEnterpriseIdentityReceiptArchiveManifest = {
-  schemaVersion: "sena-enterprise-identity-receipt-archive-manifest/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityReceiptArchiveManifest;
   generatedAt: string;
   archiveManifestDigestAlgorithm?: "sha256";
   archiveManifestDigestScope?: "identity-receipt-archive-manifest";
@@ -2927,7 +2929,7 @@ export type SenaEnterpriseIdentityInstitutionActionOwnerRole =
   "Institution provisioning owner";
 
 export type SenaEnterpriseIdentitySubmissionMatrix = {
-  schemaVersion: "sena-enterprise-identity-submission-matrix/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionMatrix;
   generatedAt: string;
   redaction: {
     secretValuesExcluded: true;
@@ -2972,7 +2974,7 @@ export type SenaEnterpriseIdentitySubmissionMatrix = {
 };
 
 export type SenaEnterpriseIdentityOwnerRunbooks = {
-  schemaVersion: "sena-enterprise-identity-owner-runbook/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityOwnerRunbook;
   generatedAt: string;
   digestAlgorithm?: "sha256";
   digestScope?: "identity-owner-runbook";
@@ -3038,7 +3040,7 @@ export type SenaEnterpriseIdentityOwnerRunbooks = {
 };
 
 export type SenaEnterpriseIdentityInstitutionActionPlan = {
-  schemaVersion: "sena-enterprise-identity-institution-action-plan/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityInstitutionActionPlan;
   generatedAt: string;
   status: "ready" | "review";
   digestAlgorithm?: "sha256";
@@ -3104,7 +3106,7 @@ export type SenaEnterpriseIdentityInstitutionActionPlan = {
 };
 
 export type SenaEnterpriseIdentityProductionEvidence = {
-  schemaVersion: "sena-enterprise-identity-production-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence;
   generatedAt: string;
   status: "ready" | "review";
   dossierDigestAlgorithm?: "sha256";
@@ -3164,7 +3166,7 @@ export type SenaEnterpriseIdentityProductionEvidence = {
     nextAction: string;
   }>;
   evidenceManifest: {
-    schemaVersion: "sena-enterprise-identity-production-evidence-manifest/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidenceManifest;
     requiredEvidenceIds: string[];
     acceptedEvidenceIds: string[];
     presentEvidenceIds: string[];
@@ -3238,7 +3240,7 @@ function isEnterpriseReleaseVerificationStatus(status: string): status is SenaEn
 }
 
 export type SenaEnterpriseOrganizationDeploymentPackage = {
-  schemaVersion: "sena-enterprise-organization-deployment/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment;
   generatedAt: string;
   status: "ready" | "review" | "blocked";
   redaction: {
@@ -3353,7 +3355,7 @@ export type SenaEnterpriseSsoProviderStatus = {
   endpointHostPolicy: "production" | "not-required" | "missing" | "invalid" | "non-https" | "local-or-private" | "sena-application-origin" | "reserved-example-or-test";
   mode: "oauth-oidc" | "local-pilot-fallback";
   fallbackPolicy: {
-    schemaVersion: "sena-enterprise-sso-fallback-policy/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy;
     enabled: boolean;
     productionRuntime: boolean;
     explicitOverride: boolean;
@@ -3391,7 +3393,7 @@ export type SenaEnterpriseSsoProviderPreflight = {
 };
 
 export type SenaEnterpriseSsoProviderPreflightResult = {
-  schemaVersion: "sena-enterprise-sso-preflight/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight;
   generatedAt: string;
   baseUrl: string;
   summary: {
@@ -3404,7 +3406,7 @@ export type SenaEnterpriseSsoProviderPreflightResult = {
 };
 
 export type SenaEnterpriseGovernanceStatus = {
-  schemaVersion: "sena-enterprise-governance/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGovernance;
   status: "ready" | "review";
   generatedAt: string;
   storage: {
@@ -3444,7 +3446,7 @@ export type SenaEnterpriseGovernanceStatus = {
       delivery: "email-provider-required" | "email-webhook" | "local-token";
     };
     passwordPolicy: {
-      schemaVersion: "sena-enterprise-password-policy/v1";
+      schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePasswordPolicy;
       minLength: number;
       requiresLetter: boolean;
       requiresNumber: boolean;
@@ -3528,7 +3530,7 @@ export type SenaEnterpriseBackupPayload = {
 };
 
 export type SenaEnterpriseBackupArtifact = {
-  schemaVersion: "sena-enterprise-backup/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseBackup;
   backupId: string;
   generatedAt: string;
   generatedBy: {
@@ -3567,7 +3569,7 @@ export type SenaEnterpriseBackupArtifact = {
 };
 
 export type SenaEnterpriseBackupVerification = {
-  schemaVersion: "sena-enterprise-backup-verification/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseBackupVerification;
   status: "pass" | "review";
   generatedAt: string;
   backupId: string;
@@ -3583,7 +3585,7 @@ export type SenaEnterpriseBackupVerification = {
 };
 
 export type SenaEnterpriseBackupDeliveryResult = {
-  schemaVersion: "sena-enterprise-backup-delivery/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseBackupDelivery;
   status: "not-configured" | "delivered" | "failed";
   generatedAt: string;
   provider: {
@@ -3613,7 +3615,7 @@ export type SenaEnterpriseBackupDeliveryResult = {
 };
 
 export type SenaEnterpriseDatabaseSyncResult = {
-  schemaVersion: "sena-enterprise-database-sync/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseDatabaseSync;
   status: "not-configured" | "delivered" | "failed";
   generatedAt: string;
   provider: {
@@ -3649,7 +3651,7 @@ export type SenaEnterpriseDatabaseSyncResult = {
 };
 
 export type SenaEnterpriseBackupRestoreResult = {
-  schemaVersion: "sena-enterprise-backup-restore/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseBackupRestore;
   status: "completed" | "dry-run";
   mode: "merge";
   generatedAt: string;
@@ -3702,7 +3704,7 @@ export type SenaEnterpriseBackupRestoreResult = {
 };
 
 export type SenaEnterpriseDb = {
-  schemaVersion: "sena-enterprise-db/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseDb;
   users: SenaEnterpriseUser[];
   teams: SenaEnterpriseTeam[];
   memberships: SenaEnterpriseMembership[];
@@ -3869,7 +3871,7 @@ const mfaTotpWindow = 1;
 const mfaIssuer = "SENA.HK";
 const passwordResetMinutes = positiveIntegerEnv("SENA_PASSWORD_RESET_MINUTES", 30);
 const enterprisePasswordPolicy = {
-  schemaVersion: "sena-enterprise-password-policy/v1" as const,
+  schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePasswordPolicy,
   minLength: 12,
   requiresLetter: true,
   requiresNumber: true,
@@ -4846,7 +4848,7 @@ export function enterpriseLocalSsoFallbackPolicy() {
   const explicitOverride = envValue("SENA_ALLOW_LOCAL_SSO_FALLBACK") === "1";
   const productionRuntime = process.env.NODE_ENV === "production";
   return {
-    schemaVersion: "sena-enterprise-sso-fallback-policy/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy,
     enabled: !productionRuntime || explicitOverride,
     productionRuntime,
     explicitOverride,
@@ -5174,7 +5176,7 @@ function buildEnterpriseIdentityTechnicalEvidenceBinding(
         ? "ready"
         : "review";
     return {
-      schemaVersion: "sena-enterprise-identity-technical-evidence-binding/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityTechnicalEvidenceBinding,
       decisionId,
       status,
       configBinding: "current",
@@ -5228,7 +5230,7 @@ function buildEnterpriseIdentityTechnicalEvidenceBinding(
       ? "ready"
       : "review";
   return {
-    schemaVersion: "sena-enterprise-identity-technical-evidence-binding/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityTechnicalEvidenceBinding,
     decisionId,
     provider: "institution",
     status,
@@ -5674,7 +5676,7 @@ export async function preflightEnterpriseSsoProviders(input: {
   saveDb(db);
   const passed = providers.filter((provider) => provider.status === "pass").length;
   return {
-    schemaVersion: "sena-enterprise-sso-preflight/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight,
     generatedAt,
     baseUrl,
     summary: {
@@ -5734,7 +5736,7 @@ async function resolveSsoProvider(provider: SenaEnterpriseSsoProvider, baseUrl?:
 
 function emptyDb(): SenaEnterpriseDb {
   return {
-    schemaVersion: "sena-enterprise-db/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDb,
     users: [],
     teams: [],
     memberships: [],
@@ -5804,7 +5806,7 @@ function buildReliabilityAdjudicationCoverage(
   const queuedDisagreements = queueKeys.size;
   const resolvedDisagreements = latestByDisagreement.size;
   return {
-    schemaVersion: "sena-reliability-adjudication-coverage/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
     queuedDisagreements,
     resolvedDisagreements,
     unresolvedDisagreements: Math.max(queuedDisagreements - resolvedDisagreements, 0),
@@ -5933,7 +5935,7 @@ export function readEnterpriseDb(): SenaEnterpriseDb {
   }
 
   const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb;
-  if (parsed.schemaVersion !== "sena-enterprise-db/v1") {
+  if (parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseDb) {
     throw new SenaEnterpriseError("Unsupported SENA enterprise database schema.", 500, "unsupported_enterprise_db");
   }
   return normalizeDb(parsed);
@@ -5985,6 +5987,14 @@ function saveDb(db: SenaEnterpriseDb) {
     passwordResetRequests: livePasswordResetRequests,
     emailDeliveries: retainedEmailDeliveries,
     collaborationEvents: retainedCollaborationEvents
+  });
+}
+
+export function createFileEnterpriseStateStore(): SenaEnterpriseStateStore {
+  return createEnterpriseStateStore({
+    read: readEnterpriseDb,
+    write: writeEnterpriseDb,
+    save: saveDb
   });
 }
 
@@ -6173,7 +6183,7 @@ export function enforceEnterpriseApiRateLimit(input: {
 
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-api-rate-limit/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseApiRateLimit,
     bucket,
     keyHash,
     requestCount: record.requestCount,
@@ -6584,7 +6594,7 @@ function notificationWebhookPayload(
   generatedAt: string
 ) {
   return {
-    schemaVersion: "sena-enterprise-notification-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNotificationWebhook,
     generatedAt,
     notification: {
       id: notification.id,
@@ -6689,7 +6699,7 @@ function queueEnterpriseEmail(db: SenaEnterpriseDb, input: {
   if (!provider.configured || !provider.endpointHash) return undefined;
   const recipientEmail = normalizeEmail(input.recipientEmail);
   const payload: SenaEnterpriseEmailDeliveryPayload = {
-    schemaVersion: "sena-enterprise-email-payload/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseEmailPayload,
     kind: input.kind,
     recipient: {
       email: recipientEmail,
@@ -6746,7 +6756,7 @@ function emailWebhookPayload(
 ): Record<string, unknown> {
   const payload = openEmailDeliveryPayload(emailDelivery);
   return {
-    schemaVersion: "sena-enterprise-email-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseEmailWebhook,
     generatedAt,
     email: {
       id: emailDelivery.id,
@@ -6882,7 +6892,7 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
   const db = dryRun ? dbWorkingCopy(savedDb) : savedDb;
   const syncedAt = now();
   const result: SenaEnterpriseProvisioningResult = {
-    schemaVersion: "sena-enterprise-provisioning/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseProvisioning,
     generatedAt: syncedAt,
     dryRun,
     source,
@@ -7087,7 +7097,7 @@ export function listEnterpriseProvisioningDirectory(source: SenaEnterpriseProvis
   const teamById = new Map(db.teams.map((team) => [team.id, team]));
   const userById = new Map(db.users.map((user) => [user.id, user]));
   return {
-    schemaVersion: "sena-enterprise-provisioning-directory/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseProvisioningDirectory,
     generatedAt: now(),
     source,
     users: users.map((user) => ({
@@ -7327,7 +7337,7 @@ export function getEnterpriseMfaStatus(context: SenaEnterpriseSessionContext): S
   const db = readEnterpriseDb();
   const factor = activeMfaFactor(db, context.user.id);
   return {
-    schemaVersion: "sena-enterprise-mfa-status/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
     enabled: Boolean(factor),
     method: factor ? "totp" : null,
     factorId: factor?.id,
@@ -7364,7 +7374,7 @@ export function createEnterpriseMfaSetup(context: SenaEnterpriseSessionContext):
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-mfa-setup/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaSetup,
     method: "totp",
     setupToken,
     secret,
@@ -7428,7 +7438,7 @@ export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-mfa-status/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
     enabled: true,
     method: "totp",
     factorId: factor.id,
@@ -7470,7 +7480,7 @@ export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, inpu
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-mfa-status/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
     enabled: false,
     method: null,
     disabledAt
@@ -7566,7 +7576,7 @@ export function createEnterprisePasswordReset(input: {
   }
 
   return {
-    schemaVersion: "sena-enterprise-password-reset-request/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePasswordResetRequest,
     status: "queued",
     expiresAt,
     delivery
@@ -7614,7 +7624,7 @@ export function completeEnterprisePasswordReset(input: {
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-password-reset-complete/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePasswordResetComplete,
     status: "completed",
     resetAt
   };
@@ -7723,7 +7733,7 @@ export async function createEnterpriseSsoAuthorization(input: {
   authorizationUrl.searchParams.set("code_challenge_method", "S256");
 
   return {
-    schemaVersion: "sena-sso-authorization/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.ssoAuthorization,
     mode: "oauth-oidc" as const,
     provider,
     authorizationUrl: authorizationUrl.toString(),
@@ -7984,7 +7994,7 @@ export function listEnterpriseSessions(context: SenaEnterpriseSessionContext): S
   const sessions = liveUserSessions(db, context.user.id);
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-session-list/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionList,
     generatedAt: now(),
     currentSessionId: context.session.id,
     sessionDays,
@@ -7998,7 +8008,7 @@ export function listEnterpriseSessions(context: SenaEnterpriseSessionContext): S
 
 export function createEnterpriseCsrfToken(context: SenaEnterpriseSessionContext): SenaEnterpriseCsrfToken {
   return {
-    schemaVersion: "sena-enterprise-csrf-token/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseCsrfToken,
     generatedAt: now(),
     headerName: senaCsrfHeaderName,
     token: csrfTokenForSession(context.session),
@@ -8070,7 +8080,7 @@ export function revokeEnterpriseSessions(context: SenaEnterpriseSessionContext, 
   saveDb(db);
   const remainingSessions = liveUserSessions(db, context.user.id);
   return {
-    schemaVersion: "sena-enterprise-session-revocation/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionRevocation,
     generatedAt: now(),
     revokedSessionIds,
     revokedCount: revokedSessionIds.length,
@@ -8303,7 +8313,7 @@ export function restoreEnterpriseProjectRevision(context: SenaEnterpriseSessionC
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-project-revision-restore/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.projectRevisionRestore,
     project,
     restoredFrom: {
       id: targetRevision.id,
@@ -8325,7 +8335,7 @@ export function deleteEnterpriseProject(context: SenaEnterpriseSessionContext, p
   requireEnterprisePermission(context, project.teamId, "project:delete");
   const deletedAt = now();
   const deletion = {
-    schemaVersion: "sena-project-delete/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.projectDelete,
     projectId: project.id,
     teamId: project.teamId,
     projectVersion: project.currentVersion,
@@ -8568,7 +8578,7 @@ export function verifyEnterpriseUploadStorage(context?: SenaEnterpriseSessionCon
     .filter((blob) => !registeredBlobKeys.has(`${blob.teamId}/${blob.storedName}`));
 
   return {
-    schemaVersion: "sena-enterprise-upload-storage-verification/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseUploadStorageVerification,
     generatedAt: now(),
     status: missing.length === 0 && corrupt.length === 0 && orphanBlobs.length === 0 ? "pass" : "review",
     scope: {
@@ -8629,7 +8639,7 @@ function uploadObjectStorageWebhookPayload(
   generatedAt: string
 ) {
   return {
-    schemaVersion: "sena-enterprise-upload-object-storage-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseUploadObjectStorageWebhook,
     generatedAt,
     upload: {
       id: upload.id,
@@ -8730,7 +8740,7 @@ export async function deliverEnterpriseUploadBlobs(
   const includeReview = Boolean(input.includeReview);
   const verification = verifyEnterpriseUploadStorage(context, { teamId: input.teamId ?? (teamIds.length === 1 ? teamIds[0] : undefined) });
   const result: SenaEnterpriseUploadObjectStorageDeliveryResult = {
-    schemaVersion: "sena-enterprise-upload-object-storage-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseUploadObjectStorageDelivery,
     generatedAt: now(),
     status: provider.configured ? "completed" : "not-configured",
     provider,
@@ -9073,7 +9083,7 @@ export function listEnterpriseNotifications(
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const notifications = filtered.slice(offset, offset + limit);
   return {
-    schemaVersion: "sena-enterprise-notifications/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNotifications,
     generatedAt: now(),
     scope: {
       mode: input.teamId ? "team" : "user",
@@ -9128,7 +9138,7 @@ export async function deliverEnterpriseNotifications(
   }
 
   const result: SenaEnterpriseNotificationDeliveryResult = {
-    schemaVersion: "sena-enterprise-notification-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNotificationDelivery,
     generatedAt: now(),
     provider,
     scope: {
@@ -9261,7 +9271,7 @@ export async function deliverEnterpriseEmails(
   }
 
   const result: SenaEnterpriseEmailDeliveryResult = {
-    schemaVersion: "sena-enterprise-email-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseEmailDelivery,
     generatedAt: now(),
     provider,
     scope: {
@@ -9842,7 +9852,7 @@ function buildEnterpriseIdentityEvidenceUrlHostBinding(
 ): SenaEnterpriseIdentityEvidenceUrlHostBinding {
   if (isSelfManagedEnterpriseMode()) {
     return {
-      schemaVersion: "sena-enterprise-identity-evidence-url-host-binding/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityEvidenceUrlHostBinding,
       status: "ready",
       allowedHostConfigStatus: "not-configured",
       allowedHostCount: 0,
@@ -9888,7 +9898,7 @@ function buildEnterpriseIdentityEvidenceUrlHostBinding(
   const status: SenaEnterpriseIdentityEvidenceUrlHostBinding["status"] =
     staleDecisionIds.length > 0 || missingDecisionIds.length > 0 ? "review" : "ready";
   return {
-    schemaVersion: "sena-enterprise-identity-evidence-url-host-binding/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityEvidenceUrlHostBinding,
     status,
     allowedHostConfigStatus,
     allowedHostCount: allowedHostConfig.hosts.length,
@@ -10205,7 +10215,7 @@ function buildEnterpriseIdentityRotationFreshness(
       nextAction: "Institution identity secret rotation evidence is not applicable in self-managed enterprise mode; rotate local secrets through the self-managed runbook."
     }));
     return {
-      schemaVersion: "sena-enterprise-identity-rotation-freshness/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness,
       generatedAt,
       status: "ready",
       policy: identityRotationFreshnessPolicy,
@@ -10234,7 +10244,7 @@ function buildEnterpriseIdentityRotationFreshness(
   const ready = checks.filter((check) => check.status === "ready").length;
   const status: SenaEnterpriseIdentityRotationFreshness["status"] = expired > 0 || missing > 0 ? "review" : "ready";
   return {
-    schemaVersion: "sena-enterprise-identity-rotation-freshness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness,
     generatedAt,
     status,
     policy: identityRotationFreshnessPolicy,
@@ -10280,7 +10290,7 @@ function platformDecisionProductionEvidenceFresh(
 
 function identityRequestPacketPolicyAnchor() {
   return {
-    schemaVersion: "sena-enterprise-identity-platform-decision-request-packet/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket,
     submission: {
       method: "POST" as const,
       path: "/api/sena/ops/platform-decisions" as const,
@@ -10497,7 +10507,7 @@ function platformDecisionProductionEvidenceReceipt(
     "submittedEvidenceDigestScope" |
     "submittedEvidenceDigest"
   > = {
-    schemaVersion: "sena-enterprise-platform-decision-production-evidence-receipt/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionProductionEvidenceReceipt,
     decisionId: acceptance.decisionId,
     ...(identityRequestPacketSchemaVersion ? { ownerNameHash: sha256Text(acceptance.ownerName) } : {}),
     ...(identityRequestPacketSchemaVersion && acceptance.productionEvidenceVerifiedAt ? {
@@ -10666,7 +10676,7 @@ export function reviewEnterprisePlatformDecision(
     ? buildEnterpriseIdentityTechnicalEvidenceBinding(input.decisionId, db)
     : undefined;
   const acceptance: SenaEnterprisePlatformDecisionAcceptance = {
-    schemaVersion: "sena-enterprise-platform-decision-acceptance/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance,
     id: id("platform-decision"),
     teamId: input.teamId,
     decisionId: input.decisionId,
@@ -10753,7 +10763,7 @@ export function listEnterprisePlatformDecisionAcceptances(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(redactEnterprisePlatformDecisionAcceptance);
   return {
-    schemaVersion: "sena-enterprise-platform-decision-acceptances/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptances,
     generatedAt: now(),
     scope: {
       mode: input.teamId ? "selected-team" : "managed-teams",
@@ -10793,7 +10803,7 @@ function normalizeReleaseVerificationEvidence(
     throw new SenaEnterpriseError("Release verification outputSha256 must be a 64-character SHA-256 hex digest.", 400, "invalid_release_verification_hash");
   }
   return {
-    schemaVersion: "sena-enterprise-release-verification-evidence/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence,
     command,
     status: rawStatus,
     summary: summary.slice(0, 2000),
@@ -10826,7 +10836,7 @@ function buildEnterpriseDeploymentReleaseGateEvidence(
     return evidence ? `${targetKey}=${evidence.slice(sourceKey.length + 1)}` : null;
   };
   return {
-    schemaVersion: "sena-enterprise-release-gate-reviews/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReviews,
     generatedAt: now(),
     summary: summarizeReleaseGateReviews(sortedReviews),
     latestReview: latestReview ? {
@@ -11017,7 +11027,7 @@ function enterpriseReleaseGateIdentityProductionSnapshot(input: {
     SenaEnterpriseReleaseGateReview["identityProductionSnapshot"],
     "dossierDigestAlgorithm" | "dossierDigestScope" | "dossierDigest"
   > = {
-    schemaVersion: "sena-enterprise-identity-production-evidence/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
     generatedAt: input.generatedAt,
     status,
     evidenceBindingDigestAlgorithm: identityProductionDossier.evidenceBindingDigestAlgorithm,
@@ -11351,7 +11361,7 @@ function buildEnterpriseIdentityCutoverChecklist(input: {
       nextActions: [selfManagedIdentityNextAction()]
     }));
     return {
-      schemaVersion: "sena-enterprise-identity-cutover-checklist/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist,
       generatedAt: input.generatedAt,
       status: "ready",
       summary: {
@@ -11437,7 +11447,7 @@ function buildEnterpriseIdentityCutoverChecklist(input: {
   const readyItems = items.filter((item) => item.status === "ready").length;
   const blockingItems = items.length - readyItems;
   return {
-    schemaVersion: "sena-enterprise-identity-cutover-checklist/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist,
     generatedAt: input.generatedAt,
     status: blockingItems === 0 ? "ready" : "review",
     summary: {
@@ -11598,7 +11608,7 @@ function buildEnterpriseIdentityPlatformDecisionRequestPacket(input: {
   const requestPacketPolicyHash = identityRequestPacketPolicyHash();
   const requestPacketPolicyBinding = `idp:${requests.find((request) => request.decisionId === "institution-idp-approval")?.latestReceiptRequestPacketPolicyBindingStatus ?? "missing"}|provisioning:${requests.find((request) => request.decisionId === "institution-provisioning-owner")?.latestReceiptRequestPacketPolicyBindingStatus ?? "missing"}`;
   return {
-    schemaVersion: "sena-enterprise-identity-platform-decision-request-packet/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket,
     generatedAt: input.generatedAt,
     redaction: {
       secretValuesExcluded: true,
@@ -11692,7 +11702,7 @@ function buildEnterpriseIdentitySubmissionVerifier(input: {
       requestPacketPolicyBindingStatus: "not-required"
     }));
     return {
-      schemaVersion: "sena-enterprise-identity-submission-verifier/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier,
       generatedAt: input.generatedAt,
       redaction: {
         secretValuesExcluded: true,
@@ -11768,7 +11778,7 @@ function buildEnterpriseIdentitySubmissionVerifier(input: {
   const requestPacketPolicyHash = identityRequestPacketPolicyHash();
   const requestPacketPolicyBinding = `idp:${expectedSubmissions.find((submission) => submission.decisionId === "institution-idp-approval")?.requestPacketPolicyBindingStatus ?? "missing"}|provisioning:${expectedSubmissions.find((submission) => submission.decisionId === "institution-provisioning-owner")?.requestPacketPolicyBindingStatus ?? "missing"}`;
   return {
-    schemaVersion: "sena-enterprise-identity-submission-verifier/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier,
     generatedAt: input.generatedAt,
     redaction: {
       secretValuesExcluded: true,
@@ -11938,7 +11948,7 @@ function buildEnterpriseIdentityReceiptArchiveManifest(input: {
       SenaEnterpriseIdentityReceiptArchiveManifest,
       "archiveManifestDigestAlgorithm" | "archiveManifestDigestScope" | "archiveManifestDigest"
     > = {
-      schemaVersion: "sena-enterprise-identity-receipt-archive-manifest/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityReceiptArchiveManifest,
       generatedAt: input.generatedAt,
       redaction: {
         secretValuesExcluded: true,
@@ -12066,7 +12076,7 @@ function buildEnterpriseIdentityReceiptArchiveManifest(input: {
     SenaEnterpriseIdentityReceiptArchiveManifest,
     "archiveManifestDigestAlgorithm" | "archiveManifestDigestScope" | "archiveManifestDigest"
   > = {
-    schemaVersion: "sena-enterprise-identity-receipt-archive-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityReceiptArchiveManifest,
     generatedAt: input.generatedAt,
     redaction: {
       secretValuesExcluded: true,
@@ -12196,7 +12206,7 @@ function buildEnterpriseIdentitySubmissionMatrix(input: {
   const requiredEvidenceUrlRows = rows.filter((row) => row.requiresEvidenceUrl).length;
   const blockingRows = rows.filter((row) => row.blocking).length;
   return {
-    schemaVersion: "sena-enterprise-identity-submission-matrix/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionMatrix,
     generatedAt: input.generatedAt,
     redaction: {
       secretValuesExcluded: true,
@@ -12402,7 +12412,7 @@ function buildEnterpriseIdentityOwnerRunbooks(input: {
   const receiptArchiveSteps = runbooks.reduce((total, runbook) => total + runbook.receiptArchiveSteps.length, 0);
   const releaseGateBlockers = runbooks.reduce((total, runbook) => total + runbook.releaseGateBlockers.length, 0);
   const runbookCore: Omit<SenaEnterpriseIdentityOwnerRunbooks, "digestAlgorithm" | "digestScope" | "digest"> = {
-    schemaVersion: "sena-enterprise-identity-owner-runbook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityOwnerRunbook,
     generatedAt: input.generatedAt,
     redaction: {
       secretValuesExcluded: true,
@@ -12552,7 +12562,7 @@ function buildEnterpriseIdentityInstitutionActionPlan(input: {
     SenaEnterpriseIdentityInstitutionActionPlan,
     "digestAlgorithm" | "digestScope" | "digest"
   > = {
-    schemaVersion: "sena-enterprise-identity-institution-action-plan/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityInstitutionActionPlan,
     generatedAt: input.generatedAt,
     status: blockingLanes === 0 ? "ready" : "review",
     redaction: {
@@ -12614,7 +12624,7 @@ function identityProductionEvidenceBindingDigest(
 ) {
   const receiptByDecision = new Map(acceptanceReceipts.map((receipt) => [receipt.decisionId, receipt]));
   return artifactSha256({
-    schemaVersion: "sena-enterprise-identity-production-evidence/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
     evidenceBindingDigestAlgorithm: "sha256",
     evidenceBindingDigestScope: "identity-production-evidence-binding",
     decisions: identityProductionDecisionIds.map((decisionId) => {
@@ -12708,7 +12718,7 @@ function buildEnterpriseIdentityProductionEvidenceDossier(input: {
   const uniqueEvidenceIds = (values: string[]) => Array.from(new Set(values));
   const acceptanceReceiptByDecision = new Map(acceptanceReceipts.map((receipt) => [receipt.decisionId, receipt]));
   const evidenceManifest: SenaEnterpriseIdentityProductionEvidence["evidenceManifest"] = {
-    schemaVersion: "sena-enterprise-identity-production-evidence-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidenceManifest,
     requiredEvidenceIds: uniqueEvidenceIds(productionRequirements.map((requirement) => requirement.id)),
     acceptedEvidenceIds: uniqueEvidenceIds(productionRequirements
       .filter((requirement) => requirement.status === "accepted")
@@ -12812,7 +12822,7 @@ function buildEnterpriseIdentityProductionEvidenceDossier(input: {
     SenaEnterpriseIdentityProductionEvidence,
     "dossierDigestAlgorithm" | "dossierDigestScope" | "dossierDigest"
   > = {
-    schemaVersion: "sena-enterprise-identity-production-evidence/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
     generatedAt,
     status,
     evidenceBindingDigestAlgorithm: "sha256",
@@ -13025,7 +13035,7 @@ export function createEnterpriseReleaseGateReview(
     }
   }
   const review: SenaEnterpriseReleaseGateReview = {
-    schemaVersion: "sena-enterprise-release-gate-review/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
     id: id("release-gate"),
     teamId: input.teamId,
     environment: requiredReleaseGateText(input.environment, "environment"),
@@ -13113,7 +13123,7 @@ export function listEnterpriseReleaseGateReviews(
     .filter((review) => teamIdSet.has(review.teamId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
-    schemaVersion: "sena-enterprise-release-gate-reviews/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReviews,
     generatedAt: now(),
     scope: {
       mode: input.teamId ? "selected-team" : "managed-teams",
@@ -13227,7 +13237,7 @@ export function listEnterpriseAuditLog(context: SenaEnterpriseSessionContext, in
 
   const events = filtered.slice(offset, offset + limit);
   return {
-    schemaVersion: "sena-enterprise-audit-log/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditLog,
     generatedAt: now(),
     scope: {
       teamIds,
@@ -13319,7 +13329,7 @@ export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionCo
     }
   ];
   return {
-    schemaVersion: "sena-enterprise-audit-integrity/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditIntegrity,
     generatedAt: now(),
     status: checks.every((check) => check.status === "pass") ? "pass" : "review",
     scope: {
@@ -13371,7 +13381,7 @@ function auditWebhookPayload(
   chainRow?: ReturnType<typeof auditChainRows>[number]
 ) {
   return {
-    schemaVersion: "sena-enterprise-audit-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditWebhook,
     generatedAt,
     audit: {
       id: entry.id,
@@ -13463,7 +13473,7 @@ export async function deliverEnterpriseAuditLog(
   const teamIds = auditTeamScope(context, input.teamId);
   const integrity = verifyEnterpriseAuditIntegrity(context, { teamId: input.teamId });
   const result: SenaEnterpriseAuditDeliveryResult = {
-    schemaVersion: "sena-enterprise-audit-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditDelivery,
     generatedAt: now(),
     provider,
     scope: {
@@ -13685,7 +13695,7 @@ export function createEnterpriseBackup(context: SenaEnterpriseSessionContext, in
   const payload = buildBackupPayload(db, teamIds);
   const payloadSha = backupPayloadSha256(payload);
   return {
-    schemaVersion: "sena-enterprise-backup/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackup,
     backupId: id("backup"),
     generatedAt: now(),
     generatedBy: {
@@ -13795,7 +13805,7 @@ export function verifyEnterpriseBackup(
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-backup-verification/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupVerification,
     status,
     generatedAt: now(),
     backupId: backup.backupId,
@@ -13822,7 +13832,7 @@ function backupWebhookPayload(
   generatedAt: string
 ) {
   return {
-    schemaVersion: "sena-enterprise-backup-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupWebhook,
     generatedAt,
     backup,
     verification,
@@ -13901,7 +13911,7 @@ export async function deliverEnterpriseBackup(
   }
 
   const result: SenaEnterpriseBackupDeliveryResult = {
-    schemaVersion: "sena-enterprise-backup-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupDelivery,
     status: provider.configured ? "failed" : "not-configured",
     generatedAt: now(),
     provider,
@@ -13966,7 +13976,7 @@ function databaseSyncWebhookPayload(
   generatedAt: string
 ) {
   return {
-    schemaVersion: "sena-enterprise-database-sync-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDatabaseSyncWebhook,
     generatedAt,
     sync: {
       kind: "sanitized-enterprise-state",
@@ -14090,7 +14100,7 @@ export async function deliverEnterpriseDatabaseSync(
   }
 
   const result: SenaEnterpriseDatabaseSyncResult = {
-    schemaVersion: "sena-enterprise-database-sync/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDatabaseSync,
     status: provider.configured ? "failed" : "not-configured",
     generatedAt: now(),
     provider,
@@ -14336,7 +14346,7 @@ export function restoreEnterpriseBackup(
   }
 
   return {
-    schemaVersion: "sena-enterprise-backup-restore/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupRestore,
     status: dryRun ? "dry-run" : "completed",
     mode,
     generatedAt: now(),
@@ -14468,7 +14478,7 @@ export function acceptEnterpriseInvitation(context: SenaEnterpriseSessionContext
   saveDb(db);
   const session = db.sessions.find((candidate) => candidate.id === context.session.id) ?? context.session;
   return {
-    schemaVersion: "sena-team-invitation-acceptance/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.teamInvitationAcceptance,
     invitation,
     membership,
     context: contextFromDb(db, session)
@@ -14604,7 +14614,7 @@ function collaborationPubSubEventPayload(
   generatedAt: string
 ) {
   return {
-    schemaVersion: "sena-enterprise-collaboration-pubsub-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseCollaborationPubsubWebhook,
     generatedAt,
     event: {
       id: event.id,
@@ -14700,7 +14710,7 @@ export async function deliverEnterpriseCollaborationPubSub(
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
   const force = Boolean(input.force);
   const result: SenaEnterpriseCollaborationPubSubDeliveryResult = {
-    schemaVersion: "sena-enterprise-collaboration-pubsub-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseCollaborationPubsubDelivery,
     generatedAt: now(),
     provider,
     scope: {
@@ -14822,7 +14832,7 @@ export function listEnterpriseProjectCollaboration(context: SenaEnterpriseSessio
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
   return {
-    schemaVersion: "sena-project-collaboration/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.projectCollaboration,
     project: {
       id: project.id,
       title: project.title,
@@ -15086,7 +15096,7 @@ export function createEnterpriseReliabilityRun(context: SenaEnterpriseSessionCon
     inputFiles: input.inputFiles,
     dashboard: input.dashboard,
     adjudicationCoverage: {
-      schemaVersion: "sena-reliability-adjudication-coverage/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
       queuedDisagreements: 0,
       resolvedDisagreements: 0,
       unresolvedDisagreements: 0,
@@ -15193,7 +15203,7 @@ export function createEnterpriseReliabilityAdjudications(context: SenaEnterprise
   });
   saveDb(db);
   return {
-    schemaVersion: "sena-enterprise-reliability-adjudication/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReliabilityAdjudication,
     reliabilityRunId: run.id,
     projectId: run.projectId,
     teamId: run.teamId,
@@ -15347,7 +15357,7 @@ function buildValidationPreregistrationPlan(input: {
     `seed=${parameters.seed}`
   ];
   const planBody = {
-    schemaVersion: "sena-validation-preregistration-plan/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.validationPreregistrationPlan,
     hashAlgorithm: "sha256" as const,
     analysis,
     primary: comparisonPlanRow(primary),
@@ -15495,7 +15505,7 @@ function buildFormalInferenceReadiness(input: {
       : "model-required";
 
   return {
-    schemaVersion: "sena-formal-inference-readiness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.formalInferenceReadiness,
     status,
     resultSchemaVersion: input.result.schemaVersion,
     analysis: input.preregistrationPlan.analysis,
@@ -15620,7 +15630,7 @@ function buildValidationParityEvidence(input: {
     ...(input.parityEvidence?.notes?.map((note) => note.trim()).filter(Boolean) ?? [])
   ];
   const manifestBody = {
-    schemaVersion: "sena-validation-parity-evidence/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.validationParityEvidence,
     hashAlgorithm: "sha256" as const,
     analysis: input.preregistrationPlan.analysis,
     preregistrationPlanHash: input.preregistrationPlan.planHash,
@@ -16021,7 +16031,7 @@ function claimPackageSourceSnapshotEvidence(
 ): SenaEnterpriseClaimEvidencePackage["sourceSnapshotEvidence"] {
   const activeWindow = project.snapshot.source.activeTemporalWindow;
   return {
-    schemaVersion: "sena-enterprise-claim-source-snapshot/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseClaimSourceSnapshot,
     projectVersion: project.currentVersion,
     revisionId: revision?.id,
     revisionCreatedAt: revision?.createdAt,
@@ -16148,7 +16158,7 @@ export function getEnterpriseClaimEvidencePackage(
   if (approvedReliability) {
     artifacts.push({
       id: "reliability-dashboard",
-      schemaVersion: "sena-coding-reliability-dashboard/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
       sourceId: approvedReliability.id,
       status: approvedReliability.status
     });
@@ -16178,7 +16188,7 @@ export function getEnterpriseClaimEvidencePackage(
   if (approvedExpertReview) {
     artifacts.push({
       id: "domain-expert-review",
-      schemaVersion: "sena-enterprise-expert-review/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseExpertReview,
       sourceId: approvedExpertReview.id,
       status: approvedExpertReview.status
     });
@@ -16191,7 +16201,7 @@ export function getEnterpriseClaimEvidencePackage(
       : "exploratory-only";
 
   return {
-    schemaVersion: "sena-enterprise-claim-evidence-package/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage,
     generatedAt: now(),
     status,
     project: {
@@ -16469,7 +16479,7 @@ export function getEnterpriseOpsStatus(): SenaEnterpriseOpsStatus {
     ? "degraded"
     : checks.every((check) => check.status === "pass") ? "ready" : "review";
   return {
-    schemaVersion: "sena-enterprise-ops-status/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOpsStatus,
     status,
     generatedAt,
     deployment: {
@@ -16756,7 +16766,7 @@ export function getEnterpriseOpsAlerts(
   const warning = alerts.filter((alert) => alert.severity === "warning").length;
   const info = alerts.filter((alert) => alert.severity === "info").length;
   return {
-    schemaVersion: "sena-enterprise-ops-alerts/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOpsAlerts,
     generatedAt,
     status: opsAlertStatus(alerts),
     ownership: {
@@ -16777,7 +16787,7 @@ export function getEnterpriseOpsAlerts(
 
 function opsAlertWebhookPayload(alerts: SenaEnterpriseOpsAlerts, endpointHash: string, generatedAt: string) {
   return {
-    schemaVersion: "sena-enterprise-ops-alert-webhook/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOpsAlertWebhook,
     generatedAt,
     alerts,
     delivery: {
@@ -16845,7 +16855,7 @@ export async function deliverEnterpriseOpsAlerts(input: {
   const provider = alertWebhookProvider();
   const alerts = getEnterpriseOpsAlerts(input.status, input.readiness);
   const result: SenaEnterpriseOpsAlertDeliveryResult = {
-    schemaVersion: "sena-enterprise-ops-alert-delivery/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOpsAlertDelivery,
     status: provider.configured ? "failed" : "not-configured",
     generatedAt: now(),
     provider,
@@ -17439,7 +17449,7 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
   const advisoryReview = advisory.length - advisoryPass;
 
   return {
-    schemaVersion: "sena-enterprise-deployment-readiness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDeploymentReadiness,
     status: blockingReview > 0 ? "blocked" : advisoryReview > 0 ? "review" : "ready",
     generatedAt: now(),
     environment: {
@@ -17582,7 +17592,7 @@ export function getEnterpriseSecurityPosture(): SenaEnterpriseSecurityPosture {
     .map((provider) => provider.provider);
 
   return {
-    schemaVersion: "sena-enterprise-security-posture/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSecurityPosture,
     status: blockingReview > 0 ? "blocked" : review > 0 ? "review" : "ready",
     generatedAt: now(),
     evidenceSources: {
@@ -18142,7 +18152,7 @@ function buildEnterprisePlatformDecisionRegister(
     });
 
   return {
-    schemaVersion: "sena-enterprise-platform-decision-register/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister,
     generatedAt: now(),
     summary: {
       decisions: registerDecisions.length,
@@ -18333,7 +18343,7 @@ function buildEnterpriseNativeAdapterCertification(
   });
 
   return {
-    schemaVersion: "sena-enterprise-native-adapter-certification/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
     generatedAt: now(),
     redaction: {
       secretValuesExcluded: true,
@@ -18415,7 +18425,7 @@ function buildEnterpriseSaasOperationsReadiness(input: {
   ].filter((action): action is string => Boolean(action));
 
   return {
-    schemaVersion: "sena-enterprise-saas-operations-readiness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSaasOperationsReadiness,
     generatedAt: now(),
     status: blockers.length === 0 ? "ready" : blockers.some((blocker) =>
       blocker.includes("required") ||
@@ -18544,14 +18554,14 @@ function buildEnterpriseReleaseGateDraft(input: {
   const latestReleaseGateIdentitySnapshot = input.latestReleaseGate?.identityProductionSnapshot;
 
   return {
-    schemaVersion: "sena-enterprise-release-gate-draft/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft,
     generatedAt: input.generatedAt,
     decision,
     environment: input.latestReleaseGate?.environment ?? "pilot-production",
     releaseVersion: input.latestReleaseGate?.releaseVersion ?? `${input.generatedAt.slice(0, 10)}-go-live-rehearsal`,
     verificationCommand,
     verificationEvidence: {
-      schemaVersion: "sena-enterprise-release-verification-evidence/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence,
       command: verificationCommand,
       status: verificationStatus,
       summary: `Generated from sena-enterprise-go-live-rehearsal/v1. Rehearsal status=${input.status}; blockers=${blockerSummary}. Run ${verificationCommand} and paste the real verification output summary before approving production release.`
@@ -18636,7 +18646,7 @@ function buildEnterpriseGoLiveRollbackDrill(input: {
   ].filter((action): action is string => Boolean(action))));
 
   return {
-    schemaVersion: "sena-enterprise-go-live-rollback-drill/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveRollbackDrill,
     generatedAt: input.generatedAt,
     status: blockers.length > 0 ? "blocked" : input.goLiveStatus === "ready" ? "ready" : "review",
     summary: {
@@ -18775,7 +18785,7 @@ function postCutoverObservationList(
 ): SenaEnterprisePostCutoverObservationList {
   const sorted = [...observations].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   return {
-    schemaVersion: "sena-enterprise-post-cutover-observations/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePostCutoverObservations,
     generatedAt: now(),
     scope: {
       mode: input.teamId ? "selected-team" : "managed-teams",
@@ -18910,7 +18920,7 @@ export function startEnterprisePostCutoverObservation(
   const startedAt = now();
   const requiredUntil = new Date(Date.parse(startedAt) + postCutoverObservationMinutes * 60 * 1000).toISOString();
   const observation: SenaEnterprisePostCutoverObservation = {
-    schemaVersion: "sena-enterprise-post-cutover-observation/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePostCutoverObservation,
     id: id("post-cutover"),
     teamId: input.teamId,
     environment: requiredReleaseGateText(input.environment, "environment"),
@@ -19216,7 +19226,7 @@ function buildEnterpriseGoLiveMonitor(input: {
   const status: SenaEnterpriseGoLiveMonitor["status"] = blockers.length > 0 ? "blocked" : watchItems.length > 0 ? "watch" : "ready";
 
   return {
-    schemaVersion: "sena-enterprise-go-live-monitor/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveMonitor,
     generatedAt: input.generatedAt,
     status,
     observationWindow: {
@@ -19377,7 +19387,7 @@ function buildEnterpriseGoLiveRehearsal(input: {
   const identityProductionHandoffHostBinding = input.deployment.identityProductionHandoff.evidenceUrlHostBinding;
 
   return {
-    schemaVersion: "sena-enterprise-go-live-rehearsal/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal,
     generatedAt,
     status,
     redaction: {
@@ -19978,7 +19988,7 @@ export function getEnterpriseCapabilityAudit(input: { teamId?: string } = {}): S
   ].filter((action): action is string => Boolean(action))));
 
   return {
-    schemaVersion: "sena-enterprise-capability-audit/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseCapabilityAudit,
     generatedAt: now(),
     status: enterpriseCapabilityAuditStatus(capabilities),
     redaction: {
@@ -20038,7 +20048,7 @@ function normalizeGoLiveChecklist(input: SenaEnterpriseGoLiveAttestationInput["c
     .filter((key) => !checks[key])
     .map((key) => labels[key]);
   return {
-    schemaVersion: "sena-enterprise-go-live-checklist/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveChecklist,
     ...checks,
     passed: missing.length === 0,
     missing
@@ -20092,7 +20102,7 @@ export function createEnterpriseGoLiveAttestation(
   const latestReleaseGateIdentityReceiptArchiveDecisions = identityReceiptArchiveDecisionAuditSummaries(latestReleaseGateIdentitySnapshot);
   const timestamp = now();
   const attestation: SenaEnterpriseGoLiveAttestation = {
-    schemaVersion: "sena-enterprise-go-live-attestation/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestation,
     id: id("go-live"),
     teamId: input.teamId,
     environment: requiredReleaseGateText(input.environment, "environment"),
@@ -20256,7 +20266,7 @@ export function listEnterpriseGoLiveAttestations(
     .filter((attestation) => scopeTeamIds.includes(attestation.teamId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return {
-    schemaVersion: "sena-enterprise-go-live-attestations/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestations,
     generatedAt: now(),
     scope: {
       mode: input.teamId ? "selected-team" : "managed-teams",
@@ -20733,7 +20743,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
   });
 
   return {
-    schemaVersion: "sena-enterprise-organization-deployment/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment,
     generatedAt,
     status: readiness.status === "blocked" || missingRequiredEnv.length > 0 ? "blocked" : openPlatformDecisions > 0 || readiness.status === "review" || governance.status === "review" ? "review" : "ready",
     redaction: {
@@ -21469,7 +21479,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
   ];
 
   return {
-    schemaVersion: "sena-enterprise-governance/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGovernance,
     status: checks.every((check) => check.status === "pass") ? "ready" : "review",
     generatedAt: now(),
     storage: {

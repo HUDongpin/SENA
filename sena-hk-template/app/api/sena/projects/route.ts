@@ -3,11 +3,14 @@ import { NextResponse } from "next/server";
 import {
   createEnterpriseProject,
   listEnterpriseProjects,
-  recordEnterpriseAudit,
   type SenaEnterpriseProject
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/team-project";
+import {
+  recordEnterpriseAudit
+} from "@/lib/sena/enterprise/ops-governance";
 import { importSenaProjectSnapshotFromHandoff } from "@/lib/sena/project-handoff";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
 
@@ -27,7 +30,7 @@ function projectLifecycleHeaders(project: SenaEnterpriseProject): HeadersInit {
 export async function GET() {
   try {
     const context = requireApiSession();
-    return NextResponse.json({ schemaVersion: "sena-project-list/v1", projects: listEnterpriseProjects(context) });
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.projectList, projects: listEnterpriseProjects(context) });
   } catch (error) {
     return jsonError(error);
   }
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
       projectId: project.id,
       detail: { source, people: project.datasetCounts.people, codes: project.datasetCounts.codes }
     });
-    return NextResponse.json({ schemaVersion: "sena-project/v1", project }, {
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       status: 201,
       headers: projectLifecycleHeaders(project)
     });

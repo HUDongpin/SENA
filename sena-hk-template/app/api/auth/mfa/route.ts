@@ -4,7 +4,7 @@ import {
   disableEnterpriseMfa,
   enableEnterpriseMfa,
   getEnterpriseMfaStatus
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
 import { authProductionGateHeaders, jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

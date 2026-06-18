@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import {
   deliverEnterpriseOpsAlerts,
   getEnterpriseOpsAlerts,
-  SenaEnterpriseError,
   type SenaEnterpriseOpsAlerts
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
+import {
+  SenaEnterpriseError
+} from "@/lib/sena/enterprise/errors";
 import { jsonError } from "@/lib/sena/api-helpers";
 import { requireOpsAccess, requireOpsMutationAccess } from "@/lib/sena/ops-api";
 

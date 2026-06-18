@@ -5,7 +5,7 @@ import {
   getEnterpriseIdentityProductionEvidence,
   type SenaEnterpriseDeploymentReadiness,
   type SenaEnterpriseGovernanceStatus
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/ops-governance";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

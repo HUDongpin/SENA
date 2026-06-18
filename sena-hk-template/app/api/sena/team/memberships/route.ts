@@ -3,7 +3,7 @@ import {
   updateEnterpriseMembership,
   type SenaEnterpriseMembership,
   type SenaEnterpriseRole
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/identity-auth";
 import { jsonError, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

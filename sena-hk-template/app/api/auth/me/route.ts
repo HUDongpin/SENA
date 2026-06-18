@@ -1,4 +1,6 @@
-import { getEnterpriseSession } from "@/lib/sena/enterprise";
+import {
+  getEnterpriseSession
+} from "@/lib/sena/enterprise/identity-auth";
 import { currentSessionToken, jsonError, sessionJson } from "@/lib/sena/api-helpers";
 import { NextResponse } from "next/server";
 

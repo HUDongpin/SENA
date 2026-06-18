@@ -4,7 +4,7 @@ import {
   listEnterpriseExpertReviews,
   reviewEnterpriseExpertReview,
   type SenaEnterpriseExpertReview
-} from "@/lib/sena/enterprise";
+} from "@/lib/sena/enterprise/reliability-validation";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
