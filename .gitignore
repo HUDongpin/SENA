@@ -21,6 +21,7 @@ tsconfig.tsbuildinfo
 !sena-hk-template/vendor/sna-js/dist/**
 
 # Local SENA runtime state and temporary artifacts
+.worktrees/
 .sena-enterprise/
 .tmp/
 .playwright-cli/
