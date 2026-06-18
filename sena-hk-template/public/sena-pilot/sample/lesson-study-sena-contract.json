@@ -1,0 +1,51 @@
+{
+  "people": [
+    { "id": "T1", "label": "Ms Lee", "role": "Lead teacher", "group": "Lesson Study Team", "initials": "ML" },
+    { "id": "T2", "label": "Mr Chan", "role": "Curriculum designer", "group": "Lesson Study Team", "initials": "MC" },
+    { "id": "T3", "label": "Dr Wong", "role": "Research mentor", "group": "Lesson Study Team", "initials": "DW" },
+    { "id": "T4", "label": "Ms Ho", "role": "Peer observer", "group": "Lesson Study Team", "initials": "MH" }
+  ],
+  "interactions": [
+    { "source": "T1", "target": "T2", "weight": 7, "channel": "reply", "stage": "Plan", "turnIndex": 1, "evidence": "Ms Lee asks Mr Chan to connect the learning goal to prior evidence；李老師請陳老師把學習目標連到證據" },
+    { "source": "T2", "target": "T3", "weight": 3, "channel": "mention", "stage": "Plan", "turnIndex": 2, "evidence": "Mr Chan invites Dr Wong to check whether the task supports explanation" },
+    { "source": "T3", "target": "T1", "weight": 4, "channel": "reply", "stage": "Plan", "turnIndex": 3, "evidence": "Dr Wong replies with a critique of the opening prompt" },
+    { "source": "T4", "target": "T1", "weight": 2, "channel": "observation", "stage": "Teach", "turnIndex": 5, "evidence": "Ms Ho notes how Ms Lee responds to student evidence" },
+    { "source": "T1", "target": "T4", "weight": 3, "channel": "reply", "stage": "Teach", "turnIndex": 6, "evidence": "Ms Lee asks Ms Ho to watch for explanation quality" },
+    { "source": "T2", "target": "T4", "weight": 6, "channel": "reply", "stage": "Reflect", "turnIndex": 8, "evidence": "Mr Chan builds on Ms Ho's observation during reflection" },
+    { "source": "T4", "target": "T3", "weight": 2, "channel": "mention", "stage": "Reflect", "turnIndex": 9, "evidence": "Ms Ho asks Dr Wong to help interpret the evidence pattern；何老師請黃博士協助解讀證據模式" },
+    { "source": "T3", "target": "T2", "weight": 6, "channel": "reply", "stage": "Reflect", "turnIndex": 10, "evidence": "Dr Wong links the critique back to the revised design" }
+  ],
+  "utterances": [
+    { "id": "u1", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 1, "text": "We need a question that makes students explain the pattern instead of only naming it", "timestamp": "2026-06-08T09:00:00Z" },
+    { "id": "u2", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 2, "text": "The worksheet can ask learners to compare two examples before they write a hypothesis", "timestamp": "2026-06-08T09:03:00Z" },
+    { "id": "u3", "personId": "T3", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 3, "text": "That is promising but the prompt needs a place for evidence and a place for explanation", "timestamp": "2026-06-08T09:06:00Z" },
+    { "id": "u4", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 4, "text": "Several students gave evidence but only one group explained why the pattern held；學生用圖形做證據但還未說清楚原因", "timestamp": "2026-06-08T10:10:00Z" },
+    { "id": "u5", "personId": "T4", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 5, "text": "I observed that the group with stronger coordination challenged each other before agreeing", "timestamp": "2026-06-08T10:14:00Z" },
+    { "id": "u6", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 6, "text": "So the next prompt should ask them to critique the first explanation before finalizing it", "timestamp": "2026-06-08T10:18:00Z" },
+    { "id": "u7", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 7, "text": "The evidence suggests the design improved participation but the explanation link is still uneven", "timestamp": "2026-06-08T11:00:00Z" },
+    { "id": "u8", "personId": "T4", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 8, "text": "I think the observer notes show when coordination became a bridge to reasoning；觀課紀錄顯示協作慢慢變成推理的橋", "timestamp": "2026-06-08T11:05:00Z" },
+    { "id": "u9", "personId": "T3", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 9, "text": "Our revision should keep the evidence comparison and add a reflection checkpoint", "timestamp": "2026-06-08T11:10:00Z" },
+    { "id": "u10", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 10, "text": "Then the next cycle can test whether critique strengthens the evidence explanation pair", "timestamp": "2026-06-08T11:15:00Z" }
+  ],
+  "coded_segments": [
+    { "segmentId": "s1", "utteranceId": "u1", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 1, "text": "We need a question that makes students explain the pattern instead of only naming it", "codes": ["question", "explanation"], "confidence": 1 },
+    { "segmentId": "s2", "utteranceId": "u2", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 2, "text": "The worksheet can ask learners to compare two examples before they write a hypothesis", "codes": ["hypothesis", "evidence"], "confidence": 0.9 },
+    { "segmentId": "s3", "utteranceId": "u3", "personId": "T3", "unitId": "lesson-study-cycle-1", "stanzaId": "plan-1", "stage": "Plan", "turnIndex": 3, "text": "That is promising but the prompt needs a place for evidence and a place for explanation", "codes": ["evidence", "explanation", "critique"], "confidence": 1 },
+    { "segmentId": "s4", "utteranceId": "u4", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 4, "text": "Several students gave evidence but only one group explained why the pattern held；學生用圖形做證據但還未說清楚原因", "codes": ["evidence", "explanation"], "confidence": 1 },
+    { "segmentId": "s5", "utteranceId": "u5", "personId": "T4", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 5, "text": "I observed that the group with stronger coordination challenged each other before agreeing", "codes": ["coordination", "critique", "evidence"], "confidence": 0.85 },
+    { "segmentId": "s6", "utteranceId": "u6", "personId": "T1", "unitId": "lesson-study-cycle-1", "stanzaId": "teach-1", "stage": "Teach", "turnIndex": 6, "text": "So the next prompt should ask them to critique the first explanation before finalizing it", "codes": ["critique", "explanation", "question"], "confidence": 0.95 },
+    { "segmentId": "s7", "utteranceId": "u7", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 7, "text": "The evidence suggests the design improved participation but the explanation link is still uneven", "codes": ["evidence", "explanation", "reflection"], "confidence": 1 },
+    { "segmentId": "s8", "utteranceId": "u8", "personId": "T4", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 8, "text": "I think the observer notes show when coordination became a bridge to reasoning；觀課紀錄顯示協作慢慢變成推理的橋", "codes": ["coordination", "evidence", "reflection"], "confidence": 0.9 },
+    { "segmentId": "s9", "utteranceId": "u9", "personId": "T3", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 9, "text": "Our revision should keep the evidence comparison and add a reflection checkpoint", "codes": ["evidence", "reflection", "hypothesis"], "confidence": 0.9 },
+    { "segmentId": "s10", "utteranceId": "u10", "personId": "T2", "unitId": "lesson-study-cycle-1", "stanzaId": "reflect-1", "stage": "Reflect", "turnIndex": 10, "text": "Then the next cycle can test whether critique strengthens the evidence explanation pair", "codes": ["critique", "evidence", "explanation", "hypothesis"], "confidence": 1 }
+  ],
+  "codebook": [
+    { "id": "question", "label": "Question", "family": "Inquiry", "description": "Problem framing and inquiry prompts", "color": "#7c3aed" },
+    { "id": "hypothesis", "label": "Hypothesis", "family": "Inquiry", "description": "Tentative design claims or predictions", "color": "#8b5cf6" },
+    { "id": "evidence", "label": "Evidence", "family": "Reasoning", "description": "Observation or data used to support a claim", "color": "#2563eb" },
+    { "id": "explanation", "label": "Explanation", "family": "Reasoning", "description": "Reasoned link between evidence and claim", "color": "#d946ef" },
+    { "id": "critique", "label": "Critique", "family": "Reasoning", "description": "Challenge limitation or revision move", "color": "#f97316" },
+    { "id": "reflection", "label": "Reflection", "family": "Metacognition", "description": "Review of learning design progress or quality", "color": "#ec4899" },
+    { "id": "coordination", "label": "Coordination", "family": "Collaboration", "description": "Task allocation role negotiation or shared planning", "color": "#14b8a6" }
+  ]
+}

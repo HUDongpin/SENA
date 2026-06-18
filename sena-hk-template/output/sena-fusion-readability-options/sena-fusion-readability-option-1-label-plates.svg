@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+    
+    <defs>
+      <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#334155" flood-opacity="0.16"/>
+      </filter>
+      <filter id="thinShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#334155" flood-opacity="0.14"/>
+      </filter>
+      <linearGradient id="canvasBg" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#f8fbff"/>
+        <stop offset="1" stop-color="#eef4fb"/>
+      </linearGradient>
+    </defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; }
+    </style>
+    <rect width="1600" height="900" fill="url(#canvasBg)"/>
+    <g><line x1="120" y1="40" x2="120" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="225" y1="40" x2="225" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="330" y1="40" x2="330" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="435" y1="40" x2="435" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="540" y1="40" x2="540" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="645" y1="40" x2="645" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="750" y1="40" x2="750" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="855" y1="40" x2="855" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="960" y1="40" x2="960" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1065" y1="40" x2="1065" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1170" y1="40" x2="1170" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1275" y1="40" x2="1275" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1380" y1="40" x2="1380" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1485" y1="40" x2="1485" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="85" x2="1510" y2="85" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="190" x2="1510" y2="190" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="295" x2="1510" y2="295" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="400" x2="1510" y2="400" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="505" x2="1510" y2="505" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="610" x2="1510" y2="610" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="715" x2="1510" y2="715" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="820" x2="1510" y2="820" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/></g>
+    
+    
+    <g transform="translate(68 48)">
+      <rect x="0" y="0" width="540" height="62" rx="14" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="22" y="27" font-size="21" font-weight="800" fill="#0f172a">Option 1 - Label Plate Canvas</text>
+      <text x="22" y="49" font-size="13" font-weight="650" fill="#475569">Keep A1 layout; add opaque labels, white halos, and stronger solid W mesh.</text>
+    </g>
+    
+    <g transform="translate(1110 52)">
+      <rect x="0" y="0" width="380" height="112" rx="16" fill="#ffffff" stroke="#d7e0ee"/>
+      
+        <g transform="translate(18 24)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#3777f6" stroke-width="8" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">S</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">SNA outer social arcs</text>
+        </g>
+        <g transform="translate(18 46)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#7c3aed" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">W</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">solid ENA concept mesh</text>
+        </g>
+        <g transform="translate(18 68)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#28c8dd" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">B</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">person-code bridge</text>
+        </g>
+        <g transform="translate(18 90)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#e85aa8" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">G</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">low-emphasis contribution</text>
+        </g>
+    </g>
+    <ellipse cx="800" cy="475" rx="365" ry="315" fill="#ffffff" opacity="0.32" stroke="#b9a7ff" stroke-width="2" stroke-dasharray="12 16"/>
+    <g opacity="0.98">
+      <path d="M 800 125 Q 1120.0769805350378 175.50471791400355 1300 445" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 125 Q 1120.0769805350378 175.50471791400355 1300 445" fill="none" stroke="#3f7df4" stroke-width="12" stroke-linecap="round" opacity="0.95" />
+      <path d="M 1300 445 Q 1119.294895327388 712.4918973450605 800 760" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.88" />
+      <path d="M 1300 445 Q 1119.294895327388 712.4918973450605 800 760" fill="none" stroke="#3f7df4" stroke-width="10" stroke-linecap="round" opacity="0.95" />
+      <path d="M 800 760 Q 502.02661092719285 678.6482366235034 300 445" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 760 Q 502.02661092719285 678.6482366235034 300 445" fill="none" stroke="#3f7df4" stroke-width="7" stroke-linecap="round" opacity="0.95" />
+      <path d="M 300 445 Q 500.4070599290502 207.51103113914095 800 125" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.88" />
+      <path d="M 300 445 Q 500.4070599290502 207.51103113914095 800 125" fill="none" stroke="#3f7df4" stroke-width="7" stroke-linecap="round" opacity="0.95" />
+      <path d="M 800 125 Q 760 442.5 800 760" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 125 Q 760 442.5 800 760" fill="none" stroke="#3f7df4" stroke-width="8" stroke-linecap="round" opacity="0.95" /></g>
+    <g>
+      <path d="M 800 125 Q 855 192.5 800 260" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 125 Q 855 192.5 800 260" fill="none" stroke="#2bcce3" stroke-width="7" stroke-linecap="round" opacity="0.7" />
+      <path d="M 1300 445 Q 1167.921744558562 526.5035854398213 1015 500" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.75" />
+      <path d="M 1300 445 Q 1167.921744558562 526.5035854398213 1015 500" fill="none" stroke="#2bcce3" stroke-width="6" stroke-linecap="round" opacity="0.7" />
+      <path d="M 800 760 Q 890.6225203453969 734.1386619401059 895 640" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 760 Q 890.6225203453969 734.1386619401059 895 640" fill="none" stroke="#2bcce3" stroke-width="7" stroke-linecap="round" opacity="0.7" />
+      <path d="M 800 760 Q 709.3774796546031 734.1386619401059 705 640" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 760 Q 709.3774796546031 734.1386619401059 705 640" fill="none" stroke="#2bcce3" stroke-width="5" stroke-linecap="round" opacity="0.7" />
+      <path d="M 300 445 Q 487.6222133253456 439.60045678797843 640 330" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.75" />
+      <path d="M 300 445 Q 487.6222133253456 439.60045678797843 640 330" fill="none" stroke="#2bcce3" stroke-width="4" stroke-linecap="round" opacity="0.7" />
+      <path d="M 1300 445 Q 1116.9008474103719 439.43669873545446 970 330" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.75" />
+      <path d="M 1300 445 Q 1116.9008474103719 439.43669873545446 970 330" fill="none" stroke="#2bcce3" stroke-width="4" stroke-linecap="round" opacity="0.7" /></g>
+    <g>
+      <line x1="800" y1="260" x2="970" y2="330" stroke="#ffffff" stroke-width="15.379999999999999" stroke-linecap="round" opacity="0.94" />
+      <line x1="800" y1="260" x2="970" y2="330" stroke="#7c3aed" stroke-width="7.38" stroke-linecap="round" opacity="0.86" />
+      <line x1="800" y1="260" x2="1015" y2="500" stroke="#ffffff" stroke-width="14.559999999999999" stroke-linecap="round" opacity="0.94" />
+      <line x1="800" y1="260" x2="1015" y2="500" stroke="#7c3aed" stroke-width="6.56" stroke-linecap="round" opacity="0.86" />
+      <line x1="800" y1="260" x2="895" y2="640" stroke="#ffffff" stroke-width="13.739999999999998" stroke-linecap="round" opacity="0.94" />
+      <line x1="800" y1="260" x2="895" y2="640" stroke="#7c3aed" stroke-width="5.739999999999999" stroke-linecap="round" opacity="0.86" />
+      <line x1="800" y1="260" x2="705" y2="640" stroke="#ffffff" stroke-width="13.739999999999998" stroke-linecap="round" opacity="0.94" />
+      <line x1="800" y1="260" x2="705" y2="640" stroke="#7c3aed" stroke-width="5.739999999999999" stroke-linecap="round" opacity="0.86" />
+      <line x1="970" y1="330" x2="1015" y2="500" stroke="#ffffff" stroke-width="15.379999999999999" stroke-linecap="round" opacity="0.94" />
+      <line x1="970" y1="330" x2="1015" y2="500" stroke="#7c3aed" stroke-width="7.38" stroke-linecap="round" opacity="0.86" />
+      <line x1="970" y1="330" x2="895" y2="640" stroke="#ffffff" stroke-width="12.92" stroke-linecap="round" opacity="0.94" />
+      <line x1="970" y1="330" x2="895" y2="640" stroke="#7c3aed" stroke-width="4.92" stroke-linecap="round" opacity="0.86" />
+      <line x1="970" y1="330" x2="705" y2="640" stroke="#ffffff" stroke-width="12.1" stroke-linecap="round" opacity="0.94" />
+      <line x1="970" y1="330" x2="705" y2="640" stroke="#7c3aed" stroke-width="4.1" stroke-linecap="round" opacity="0.86" />
+      <line x1="1015" y1="500" x2="895" y2="640" stroke="#ffffff" stroke-width="14.559999999999999" stroke-linecap="round" opacity="0.94" />
+      <line x1="1015" y1="500" x2="895" y2="640" stroke="#7c3aed" stroke-width="6.56" stroke-linecap="round" opacity="0.86" />
+      <line x1="1015" y1="500" x2="705" y2="640" stroke="#ffffff" stroke-width="12.92" stroke-linecap="round" opacity="0.94" />
+      <line x1="1015" y1="500" x2="705" y2="640" stroke="#7c3aed" stroke-width="4.92" stroke-linecap="round" opacity="0.86" />
+      <line x1="705" y1="640" x2="895" y2="640" stroke="#ffffff" stroke-width="12.92" stroke-linecap="round" opacity="0.94" />
+      <line x1="705" y1="640" x2="895" y2="640" stroke="#7c3aed" stroke-width="4.92" stroke-linecap="round" opacity="0.86" /></g>
+    <g filter="url(#thinShadow)">
+    <g>
+      <path d="M 842.4 284.5 L 800.0 309.0 L 757.6 284.5 L 757.6 235.5 L 800.0 211.0 L 842.4 235.5 Z" fill="#7048e8" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 845.0 286.0 L 800.0 312.0 L 755.0 286.0 L 755.0 234.0 L 800.0 208.0 L 845.0 234.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="800" y="268" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">?</text>
+      <rect x="745" y="318" width="110" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="800" y="340" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Question</text>
+    </g>
+    <g>
+      <path d="M 1012.4 354.5 L 970.0 379.0 L 927.6 354.5 L 927.6 305.5 L 970.0 281.0 L 1012.4 305.5 Z" fill="#7b5cf4" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 1015.0 356.0 L 970.0 382.0 L 925.0 356.0 L 925.0 304.0 L 970.0 278.0 L 1015.0 304.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="970" y="338" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">H</text>
+      <rect x="913" y="388" width="114" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="970" y="410" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Hypothesis</text>
+    </g>
+    <g>
+      <path d="M 1057.4 524.5 L 1015.0 549.0 L 972.6 524.5 L 972.6 475.5 L 1015.0 451.0 L 1057.4 475.5 Z" fill="#2f68df" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 1060.0 526.0 L 1015.0 552.0 L 970.0 526.0 L 970.0 474.0 L 1015.0 448.0 L 1060.0 474.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="1015" y="508" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">E</text>
+      <rect x="960" y="558" width="110" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="1015" y="580" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Evidence</text>
+    </g>
+    <g>
+      <path d="M 937.4 664.5 L 895.0 689.0 L 852.6 664.5 L 852.6 615.5 L 895.0 591.0 L 937.4 615.5 Z" fill="#cc39e4" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 940.0 666.0 L 895.0 692.0 L 850.0 666.0 L 850.0 614.0 L 895.0 588.0 L 940.0 614.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="895" y="648" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">X</text>
+      <rect x="833.5" y="698" width="123" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="895" y="720" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Explanation</text>
+    </g>
+    <g>
+      <path d="M 747.4 664.5 L 705.0 689.0 L 662.6 664.5 L 662.6 615.5 L 705.0 591.0 L 747.4 615.5 Z" fill="#f97316" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 750.0 666.0 L 705.0 692.0 L 660.0 666.0 L 660.0 614.0 L 705.0 588.0 L 750.0 614.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="705" y="648" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">C</text>
+      <rect x="650" y="698" width="110" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="705" y="720" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Critique</text>
+    </g>
+    <g>
+      <path d="M 642.4 524.5 L 600.0 549.0 L 557.6 524.5 L 557.6 475.5 L 600.0 451.0 L 642.4 475.5 Z" fill="#e3428b" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 645.0 526.0 L 600.0 552.0 L 555.0 526.0 L 555.0 474.0 L 600.0 448.0 L 645.0 474.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="600" y="508" text-anchor="middle" font-size="28" font-weight="900" fill="#ffffff">R</text>
+      <rect x="543" y="558" width="114" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="600" y="580" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Reflection</text>
+    </g>
+    <g>
+      <path d="M 682.4 354.5 L 640.0 379.0 L 597.6 354.5 L 597.6 305.5 L 640.0 281.0 L 682.4 305.5 Z" fill="#16b8b2" stroke="#ffffff" stroke-width="6"/>
+      <path d="M 685.0 356.0 L 640.0 382.0 L 595.0 356.0 L 595.0 304.0 L 640.0 278.0 L 685.0 304.0 Z" fill="none" stroke="#c7d2fe" stroke-width="2"/>
+      <text x="640" y="338" text-anchor="middle" font-size="18" font-weight="900" fill="#ffffff">Co</text>
+      <rect x="574" y="388" width="132" height="32" rx="16" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="640" y="410" text-anchor="middle" font-size="16" font-weight="850" fill="#111827">Coordination</text>
+    </g></g>
+    <g filter="url(#thinShadow)">
+    <g>
+      <circle cx="800" cy="125" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="800" cy="125" r="58" fill="#f8fbff" stroke="#22d3ee" stroke-width="4"/>
+      <text x="800" y="135" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">ML</text>
+      <rect x="747" y="185" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="800" y="208" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Ms Lee</text>
+    </g>
+    <g>
+      <circle cx="1300" cy="445" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="1300" cy="445" r="58" fill="#f8fbff" stroke="#22d3ee" stroke-width="4"/>
+      <text x="1300" y="455" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">MC</text>
+      <rect x="1247" y="505" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="1300" y="528" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Mr Chan</text>
+    </g>
+    <g>
+      <circle cx="800" cy="760" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="800" cy="760" r="58" fill="#f8fbff" stroke="#22d3ee" stroke-width="4"/>
+      <text x="800" y="770" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">DW</text>
+      <rect x="747" y="820" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="800" y="843" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Dr Wong</text>
+    </g>
+    <g>
+      <circle cx="300" cy="445" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="300" cy="445" r="58" fill="#f8fbff" stroke="#22d3ee" stroke-width="4"/>
+      <text x="300" y="455" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">MH</text>
+      <rect x="247" y="505" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="300" y="528" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Ms Ho</text>
+    </g></g>
+    <g transform="translate(68 786)">
+      <rect width="520" height="58" rx="14" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="20" y="25" font-size="15" font-weight="850" fill="#0f172a">Design move</text>
+      <text x="118" y="25" font-size="14" font-weight="650" fill="#475569">Concept names move to readable plates. Lines use white halo underlay.</text>
+      <text x="118" y="45" font-size="14" font-weight="650" fill="#475569">Best if we want the smallest implementation change.</text>
+    </g>
+  </svg>

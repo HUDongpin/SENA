@@ -1,0 +1,489 @@
+{
+  "file": "/Users/dongpinhu/Desktop/SENA/exports/session-outputs/SENA_formula_mathematical_paper_reviewed_comments.docx",
+  "comment_count": 21,
+  "comments": [
+    {
+      "id": "0",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "建议更精确地区分 heterogeneous typed graph 与经典 multilayer/multiplex network；当前 supra-adjacency 用法需要限定，避免被理解为同一节点跨层复制。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The formula sits at the intersection of four established literatures. First, SNA supplies the person-person graph layer . Second, ENA supplies the code-code co-occurrence logic and, separately, projec"
+            },
+            {
+              "where": "end",
+              "text": "The formula sits at the intersection of four established literatures. First, SNA supplies the person-person graph layer . Second, ENA supplies the code-code co-occurrence logic and, separately, projec"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "B 的语义建议从 contribution 降为 participation-weighted association/exposure，除非有 person-level code attribution。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The bridge matrix  answers which person contributed to which code. ENA edges, however, are code-code relations. To attribute an ENA edge to persons, define a person-code-pair tensor or matrix"
+            },
+            {
+              "where": "end",
+              "text": "The bridge matrix  answers which person contributed to which code. ENA edges, however, are code-code relations. To attribute an ENA edge to persons, define a person-code-pair tensor or matrix"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "G 不能自动证明 person 支持某条 ENA edge；多人窗口会产生归因混淆，建议改为 associated with windows containing the pair。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Thus  is appropriate for person-code bridge visualization, while  is more appropriate for claims such as “person  supported the Evidence-Explanation connection.” The current SENA implementation includ"
+            },
+            {
+              "where": "end",
+              "text": "Thus  is appropriate for person-code bridge visualization, while  is more appropriate for claims such as “person  supported the Evidence-Explanation connection.” The current SENA implementation includ"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "建议将 analytical embedding 与 force-directed layout 分开定义；force-directed layout 不应承担强距离或 inferential 解释。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Proof. Let  be an embedding operator, for example spectral embedding, Laplacian eigenmaps, multidimensional scaling on graph distances, or a specified force-directed layout. The displayed coordinates "
+            },
+            {
+              "where": "end",
+              "text": "Proof. Let  be an embedding operator, for example spectral embedding, Laplacian eigenmaps, multidimensional scaling on graph distances, or a specified force-directed layout. The displayed coordinates "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "typed graph 的 centrality 需要分类型解释；person centrality 与 code centrality 不宜直接排名比较。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Assumption 5 (Typed-node semantics).  The labels  and  belong to different node types. Distances or centralities computed from  must be interpreted with respect to this typed graph, not as if all node"
+            },
+            {
+              "where": "end",
+              "text": "Assumption 5 (Typed-node semantics).  The labels  and  belong to different node types. Distances or centralities computed from  must be interpreted with respect to this typed graph, not as if all node"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "请固定 diagonal/self-loop convention；self-loops 是否进入 A 会影响 degree、density、centrality 与 layout。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "where  denotes the co-occurrence strength between codes  and  within a specified unit, stanza, or moving window. In the usual ENA co-occurrence construction,  and diagonal entries are either zero or t"
+            },
+            {
+              "where": "end",
+              "text": "where  denotes the co-occurrence strength between codes  and  within a specified unit, stanza, or moving window. In the usual ENA co-occurrence construction,  and diagonal entries are either zero or t"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "W 是 ENA-style co-occurrence ingredient，不应被写成完整 ENA projection 或完整 ENA modeling pipeline。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The second equation is an ENA-style code co-occurrence object before dimensional reduction. The third equation is an affiliation or contribution object connecting persons to codes."
+            },
+            {
+              "where": "end",
+              "text": "The second equation is an ENA-style code co-occurrence object before dimensional reduction. The third equation is an affiliation or contribution object connecting persons to codes."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "author": "Network Analysis Reviewer",
+      "date": "2026-06-07T19:08:48Z",
+      "initials": null,
+      "resolved": false,
+      "text": "建议把 null models 与具体研究主张绑定，例如 bridge、group contrast、temporal change 分别检验。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Useful null models include code-label shuffling within learners, social-edge rewiring with degree preservation, stanza membership shuffling within temporal bands, group-label permutation, and bootstra"
+            },
+            {
+              "where": "end",
+              "text": "Useful null models include code-label shuffling within learners, social-edge rewiring with degree preservation, stanza membership shuffling within temporal bands, group-label permutation, and bootstra"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "请补充 admissible normalization 的正式定义，包括 domain/codomain、结构保持条件，并规定零矩阵归一化为零矩阵。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Definition 4 (Layer normalization).  A layer normalization is a map  applied separately to . Examples include"
+            },
+            {
+              "where": "end",
+              "text": "Definition 4 (Layer normalization).  A layer normalization is a map  applied separately to . Examples include"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "Theorem 1 需把归一化保持非负性和对称性的条件列入假设；否则证明中的 S-hat 与 W-hat 对称没有依据。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Theorem 1 (Weighted undirected heterogeneous graph).  Under Assumptions 1–3,  is a symmetric nonnegative adjacency matrix on the typed node set ."
+            },
+            {
+              "where": "end",
+              "text": "Theorem 1 (Weighted undirected heterogeneous graph).  Under Assumptions 1–3,  is a symmetric nonnegative adjacency matrix on the typed node set ."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "请明确自环/对角线处理；PSD 证明在当前 degree convention 下成立，但需避免与其他 loop-degree 约定混淆。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Corollary 1 (Laplacian positive semidefiniteness).  Let , where , and define . Under the assumptions of the theorem,  is positive semidefinite."
+            },
+            {
+              "where": "end",
+              "text": "Corollary 1 (Laplacian positive semidefiniteness).  Let , where , and define . Under the assumptions of the theorem,  is positive semidefinite."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "11",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "建议更醒目标注 A_fusion generally indefinite；Laplacian PSD 不意味着 adjacency matrix 可作为 PSD kernel 或 covariance matrix。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Remark 1.  This result concerns the graph Laplacian, not the adjacency matrix itself. A nonnegative symmetric adjacency matrix need not be positive semidefinite. For example,  has eigenvalues  and ."
+            },
+            {
+              "where": "end",
+              "text": "Remark 1.  This result concerns the graph Laplacian, not the adjacency matrix itself. A nonnegative symmetric adjacency matrix need not be positive semidefinite. For example,  has eigenvalues  and ."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "12",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "当前 scale-dependence 命题适用于 raw matrix formulation，不适用于已经使用 S-hat、W-hat、B-hat 的 normalized formula。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Proposition 3 (Scale dependence).  Let . Replacing  by  and replacing  leaves  unchanged."
+            },
+            {
+              "where": "end",
+              "text": "Proposition 3 (Scale dependence).  Let . Replacing  by  and replacing  leaves  unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "13",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "directed bridge 与 temporal comparison 需要更严格的维度、Laplacian 与归一化约定，否则 Delta A 的解释不稳定。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Directed and Temporal Extensions"
+            },
+            {
+              "where": "end",
+              "text": "Directed and Temporal Extensions"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "14",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "Directed bridge 需要独立声明 B^{PC} 属于 R^{n×m}、B^{CP} 属于 R^{m×n}，不能只靠转置表达一般有向关系。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "where  represents person-to-code activation and  represents code-to-person uptake, attribution, feedback, or recommendation."
+            },
+            {
+              "where": "end",
+              "text": "where  represents person-to-code activation and  represents code-to-person uptake, attribution, feedback, or recommendation."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "15",
+      "author": "Linear Algebra Reviewer",
+      "date": "2026-06-07T19:09:10Z",
+      "initials": null,
+      "resolved": false,
+      "text": "Temporal Delta A 需说明使用全局归一化还是逐时间片归一化；否则真实强度变化与重标定效应会混在一起。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Then temporal change can be studied using"
+            },
+            {
+              "where": "end",
+              "text": "Then temporal change can be studied using"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "16",
+      "author": "Codex Synthesis Reviewer",
+      "date": "2026-06-07T19:09:29Z",
+      "initials": null,
+      "resolved": false,
+      "text": "核心 novelty claim 是可防守的，但建议在正文中进一步说明与 heterogeneous information networks、multilayer networks、SENS/iSENS 的具体差异。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Social Network Analysis (SNA) represents relations among persons, while Epistemic Network Analysis (ENA) represents relations among coded epistemic elements. The proposed SENA fusion formula combines "
+            },
+            {
+              "where": "end",
+              "text": "Social Network Analysis (SNA) represents relations among persons, while Epistemic Network Analysis (ENA) represents relations among coded epistemic elements. The proposed SENA fusion formula combines "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "17",
+      "author": "Codex Synthesis Reviewer",
+      "date": "2026-06-07T19:09:29Z",
+      "initials": null,
+      "resolved": false,
+      "text": "中心主张基本成立，但需在加入 admissible normalization、typed centrality 与 attribution 限定后再作为论文主 claim。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "This paper analyzes the fusion matrix as a mathematical object. The central claim is:"
+            },
+            {
+              "where": "end",
+              "text": "This paper analyzes the fusion matrix as a mathematical object. The central claim is:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "18",
+      "author": "Codex Synthesis Reviewer",
+      "date": "2026-06-07T19:09:29Z",
+      "initials": null,
+      "resolved": false,
+      "text": "这里似乎有丢失的 in-text citation marker；请检查正文所有空引用痕迹，例如句末孤立空格加句点。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Collaborative learning is simultaneously social and epistemic. Learners interact with particular people while producing, connecting, challenging, and refining particular ideas. SNA gives mature tools "
+            },
+            {
+              "where": "end",
+              "text": "Collaborative learning is simultaneously social and epistemic. Learners interact with particular people while producing, connecting, challenging, and refining particular ideas. SNA gives mature tools "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "19",
+      "author": "Codex Synthesis Reviewer",
+      "date": "2026-06-07T19:09:29Z",
+      "initials": null,
+      "resolved": false,
+      "text": "结论方向很好，建议把这些条件前移为 formal checklist 或 theorem assumptions，让读者在主结果前就看到方法边界。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "is a valid weighted typed adjacency matrix. Its graph Laplacian is positive semidefinite in the undirected case, boundary cases reduce to recognizable SNA, ENA, and bipartite submodels, and joint embe"
+            },
+            {
+              "where": "end",
+              "text": "is a valid weighted typed adjacency matrix. Its graph Laplacian is positive semidefinite in the undirected case, boundary cases reduce to recognizable SNA, ENA, and bipartite submodels, and joint embe"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "20",
+      "author": "Codex Synthesis Reviewer",
+      "date": "2026-06-07T19:09:29Z",
+      "initials": null,
+      "resolved": false,
+      "text": "这里的 ‘99’ 似乎是页码或排版残留；建议删除或改为 References 标题，并检查 APA 7 格式。",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "99"
+            },
+            {
+              "where": "end",
+              "text": "99"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

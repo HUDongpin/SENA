@@ -1,0 +1,252 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+    <defs>
+      <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#111827" flood-opacity="0.14"/>
+      </filter>
+      <filter id="fine" x="-10%" y="-10%" width="120%" height="120%">
+        <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#111827" flood-opacity="0.12"/>
+      </filter>
+      <linearGradient id="railGlassActive" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#68eadb" stop-opacity="0.92"/>
+        <stop offset="1" stop-color="#2eb3a4" stop-opacity="0.9"/>
+      </linearGradient>
+      <linearGradient id="railGlassIdle" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
+      </linearGradient>
+      <filter id="railGlassShadow" x="-35%" y="-35%" width="170%" height="170%">
+        <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.3"/>
+      </filter>
+      <style>
+        text { font-family: Arial, Helvetica, sans-serif; }
+      </style>
+    </defs>
+    <rect width="1920" height="1080" fill="#e6eaee"/>
+    <rect x="0" y="0" width="1920" height="42" fill="#1f1f1f"/>
+    <rect x="0" y="40" width="1920" height="5" fill="#45b6a5"/>
+    <text x="24" y="29" fill="#ffffff" font-size="24" font-weight="900">SENA</text>
+    <text x="394" y="28" fill="#45b6a5" font-size="17" font-weight="900">A1</text>
+    <text x="468" y="28" fill="#f8fafc" font-size="17" font-weight="700">- SENA Plot Workbench</text>
+    
+    
+    <g>
+      <rect x="0" y="45" width="64" height="1035" fill="#202326"/>
+      <rect x="6" y="57" width="52" height="994" rx="26" fill="#ffffff" opacity="0.04"/>
+      <g>
+          <rect x="7" y="66" width="50" height="66" rx="16" fill="url(#railGlassActive)" stroke="#9ffaf0" stroke-opacity="0.52" filter="url(#railGlassShadow)"/>
+          <path d="M 18 73 C 22 68, 42 68, 46 73" fill="none" stroke="#ffffff" stroke-opacity="0.54" stroke-width="1.4"/>
+          
+      <g>
+        <circle cx="32" cy="85" r="21" fill="#ffffff" opacity="0.14"/>
+        <rect x="18" y="77" width="28" height="22" rx="6" fill="none" stroke="#ffffff" stroke-width="2.4"/>
+        <path d="M 23 71 H 41" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round"/>
+        <path d="M 26 66 H 38" stroke="#ffffff" stroke-width="1.9" stroke-linecap="round" opacity="0.76"/>
+      </g>
+          <text x="32" y="118" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="800">Sets</text>
+        </g><g>
+          <rect x="7" y="152" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 159 C 22 154, 42 154, 46 159" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+      <g>
+        
+        <circle cx="32" cy="160" r="4" fill="#c7ced7"/>
+        <circle cx="19" cy="179" r="4" fill="#c7ced7"/>
+        <circle cx="45" cy="179" r="4" fill="#c7ced7"/>
+        <path d="M 30 163 L 21 175 M 34 163 L 43 175 M 23 179 H 41" fill="none" stroke="#c7ced7" stroke-width="2.2" stroke-linecap="round"/>
+        <rect x="25" y="170" width="14" height="12" rx="3.5" fill="none" stroke="#c7ced7" stroke-opacity="0.78" stroke-width="1.6"/>
+      </g>
+          <text x="32" y="204" text-anchor="middle" fill="#c7ced7" font-size="10" font-weight="800">Model</text>
+        </g><g>
+          <rect x="7" y="238" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 245 C 22 240, 42 240, 46 245" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+      <g>
+        
+        <path d="M 18 270 H 47 M 19 270 V 244" fill="none" stroke="#c7ced7" stroke-width="2.3" stroke-linecap="round"/>
+        <path d="M 23 264 C 30 250, 40 255, 45 246" fill="none" stroke="#c7ced7" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="23" cy="264" r="2.8" fill="#c7ced7"/>
+        <circle cx="35" cy="254" r="2.8" fill="#c7ced7"/>
+        <circle cx="45" cy="246" r="2.8" fill="#c7ced7"/>
+      </g>
+          <text x="32" y="290" text-anchor="middle" fill="#c7ced7" font-size="9" font-weight="800">Plot Tools</text>
+        </g><g>
+          <rect x="7" y="324" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 331 C 22 326, 42 326, 46 331" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+    <g>
+      
+      <path d="M 17 356 H 47" stroke="#c7ced7" stroke-width="2.3" stroke-linecap="round"/>
+      <rect x="20" y="342" width="6.5" height="14" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <rect x="29" y="334" width="6.5" height="22" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <rect x="38" y="329" width="6.5" height="27" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <path d="M 18 330 C 25 322, 37 325, 46 318" fill="none" stroke="#c7ced7" stroke-width="1.9" stroke-linecap="round" opacity="0.75"/>
+    </g>
+          <text x="32" y="376" text-anchor="middle" fill="#c7ced7" font-size="10" font-weight="800">Stats</text>
+        </g>
+      <g transform="translate(18 1016)">
+        <path d="M0 0h22v22H0z" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <path d="M14 6l8 5-8 5" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+      </g>
+    </g>
+    
+    <g filter="url(#fine)">
+      <rect x="64" y="45" width="320" height="1015" fill="#ffffff" stroke="#cfd6dc"/>
+      <text x="86" y="75" fill="#7c7c7c" font-size="18" font-weight="900">SETS</text>
+      <rect x="86" y="107" width="276" height="34" rx="4" fill="#45b6a5"/>
+      <text x="224" y="129" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="800">Load lesson-study sample</text>
+      <text x="88" y="171" fill="#45b6a5" font-size="13" font-weight="900">SENA pilot package</text>
+      
+        <g transform="translate(86 201)">
+          <rect x="0" y="0" width="276" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Five-table data contract</text>
+        </g>
+        <g transform="translate(86 249)">
+          <rect x="0" y="0" width="276" height="36" rx="3" fill="#f1fbf8" stroke="#45b6a5"/>
+          <rect x="0" y="0" width="4" height="36" fill="#45b6a5"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="900">A1 Fusion Canvas model</text>
+        </g>
+        <g transform="translate(86 297)">
+          <rect x="0" y="0" width="276" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Temporal Fusion Arc trace</text>
+        </g>
+        <g transform="translate(86 345)">
+          <rect x="0" y="0" width="276" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Review packet handoff</text>
+        </g>
+      <line x1="64" y1="870" x2="384" y2="870" stroke="#e5e7eb"/>
+      <text x="86" y="902" fill="#6b7280" font-size="12" font-weight="900">ACTIVE MODEL</text>
+      
+    <g transform="translate(86 928)">
+      <rect x="0" y="0" width="276" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">People</text>
+      <text x="266" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">4</text>
+    </g>
+    <g transform="translate(86 959)">
+      <rect x="0" y="0" width="276" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">Codes</text>
+      <text x="266" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">7</text>
+    </g>
+    <g transform="translate(86 990)">
+      <rect x="0" y="0" width="276" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">S/W/B/G</text>
+      <text x="266" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">ready</text>
+    </g>
+    <g transform="translate(86 1021)">
+      <rect x="0" y="0" width="276" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">A_fusion</text>
+      <text x="266" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">13 x 13</text>
+    </g>
+    </g>
+    
+    <g>
+      
+    <rect x="404" y="72" width="1056" height="32" fill="#d9d9d9"/>
+    <text x="420" y="94" fill="#777" font-size="16" font-weight="900">FUSION COMPARISON PLOT</text>
+    <text x="1442" y="94" text-anchor="end" fill="#777" font-size="14" font-weight="800">export</text>
+      <rect x="404" y="104" width="1056" height="760" fill="#ffffff" stroke="#cfd6dc"/>
+      <line x1="444" y1="468" x2="1420" y2="468" stroke="#d8dde3"/>
+      <line x1="932" y1="144" x2="932" y2="820" stroke="#d8dde3"/>
+      <text x="448" y="812" fill="#1f2937" font-size="13" font-weight="900">Units: teacher group -> name</text>
+      <text x="448" y="834" fill="#1f2937" font-size="13" font-weight="900">Conversation: lesson window -> stage</text>
+      
+    <ellipse cx="932" cy="468" rx="345.6" ry="264.6" fill="none" stroke="#3f7df4" stroke-width="8.64" opacity="0.85"/>
+    <line x1="912.56" y1="342.72" x2="1052.96" y2="405.36" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="912.56" y1="342.72" x2="1052.96" y2="405.36" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="912.56" y1="342.72" x2="1081.04" y2="527.4" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="912.56" y1="342.72" x2="1081.04" y2="527.4" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="912.56" y1="342.72" x2="977.36" y2="617.04" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="912.56" y1="342.72" x2="977.36" y2="617.04" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="1052.96" y1="405.36" x2="1081.04" y2="527.4" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="1052.96" y1="405.36" x2="1081.04" y2="527.4" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="1052.96" y1="405.36" x2="977.36" y2="617.04" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="1052.96" y1="405.36" x2="977.36" y2="617.04" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="1081.04" y1="527.4" x2="977.36" y2="617.04" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="1081.04" y1="527.4" x2="977.36" y2="617.04" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="1081.04" y1="527.4" x2="817.52" y2="608.4" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="1081.04" y1="527.4" x2="817.52" y2="608.4" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/><line x1="977.36" y1="617.04" x2="817.52" y2="608.4" stroke="#ffffff" stroke-width="10.8" stroke-linecap="round"/>
+        <line x1="977.36" y1="617.04" x2="817.52" y2="608.4" stroke="#7c3aed" stroke-width="5.4" stroke-linecap="round" opacity="0.86"/>
+    <g><circle cx="912.56" cy="342.72" r="25.92" fill="#7048e8" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="878" y="372.96000000000004" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="912.56" y="388.08000000000004" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">Q</text></g><g><circle cx="1052.96" cy="405.36" r="25.92" fill="#7b5cf4" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="1018.4000000000001" y="435.6" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="1052.96" y="450.72" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">H</text></g><g><circle cx="1081.04" cy="527.4" r="25.92" fill="#2f68df" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="1046.48" y="557.64" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="1081.04" y="572.76" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">E</text></g><g><circle cx="977.36" cy="617.04" r="25.92" fill="#cc39e4" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="942.8" y="647.28" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="977.36" y="662.4" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">X</text></g><g><circle cx="817.52" cy="608.4" r="25.92" fill="#f97316" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="782.96" y="638.64" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="817.52" y="653.76" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">C</text></g><g><circle cx="750.56" cy="506.88" r="25.92" fill="#e3428b" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="716" y="537.12" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="750.56" y="552.24" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">R</text></g><g><circle cx="778.64" cy="398.88" r="25.92" fill="#16b8b2" stroke="#ffffff" stroke-width="4.32"/>
+        <rect x="744.0799999999999" y="429.12" width="69.12" height="21.6" rx="10.8" fill="#ffffff" stroke="#d7dde5"/>
+        <text x="778.64" y="444.24" text-anchor="middle" fill="#1f2937" font-size="10.8" font-weight="900">Co</text></g>
+    <g><circle cx="932" cy="235.79999999999998" r="37.800000000000004" fill="#f8fbff" stroke="#22d3ee" stroke-width="3.24"/>
+        <text x="932" y="242.27999999999997" text-anchor="middle" fill="#0f172a" font-size="19.44" font-weight="900">ML</text></g><g><circle cx="1256" cy="462.6" r="37.800000000000004" fill="#f8fbff" stroke="#22d3ee" stroke-width="3.24"/>
+        <text x="1256" y="469.08000000000004" text-anchor="middle" fill="#0f172a" font-size="19.44" font-weight="900">MC</text></g><g><circle cx="932" cy="716.4" r="37.800000000000004" fill="#f8fbff" stroke="#22d3ee" stroke-width="3.24"/>
+        <text x="932" y="722.88" text-anchor="middle" fill="#0f172a" font-size="19.44" font-weight="900">DW</text></g><g><circle cx="608" cy="462.6" r="37.800000000000004" fill="#f8fbff" stroke="#22d3ee" stroke-width="3.24"/>
+        <text x="608" y="469.08000000000004" text-anchor="middle" fill="#0f172a" font-size="19.44" font-weight="900">MH</text></g>
+      
+      
+      <circle cx="702" cy="448" r="5" fill="#cc3b35" opacity="0.94"/><circle cx="772" cy="588" r="5" fill="#cc3b35" opacity="0.94"/><circle cx="890" cy="363" r="5" fill="#2483b8" opacity="0.94"/><circle cx="1052" cy="448" r="5" fill="#2483b8" opacity="0.94"/><circle cx="1142" cy="558" r="5" fill="#2483b8" opacity="0.94"/><circle cx="972" cy="618" r="5" fill="#cc3b35" opacity="0.94"/>
+    </g>
+    
+    <g filter="url(#fine)">
+      
+    <rect x="1474" y="72" width="420" height="32" fill="#d9d9d9"/>
+    <text x="1490" y="94" fill="#777" font-size="16" font-weight="900">PRIMARY PLOT - ENA SPACE</text>
+    
+      <rect x="1474" y="104" width="420" height="354" fill="#ffffff" stroke="#cfd6dc"/>
+      <line x1="1502" y1="265" x2="1866" y2="265" stroke="#e1e5ea"/>
+      <line x1="1684" y1="134" x2="1684" y2="428" stroke="#e1e5ea"/>
+      
+    <g opacity="0.95">
+      <line x1="1597.2" y1="291.4" x2="1777" y2="266.6" stroke="#7c3aed" stroke-width="2.48" stroke-linecap="round"/>
+      <line x1="1628.2" y1="229.4" x2="1715" y2="341" stroke="#7c3aed" stroke-width="1.8599999999999999" stroke-linecap="round"/>
+      <circle cx="1609.6" cy="296.36" r="3.1" fill="#cc3b35"/>
+      <circle cx="1657.96" cy="239.32" r="3.1" fill="#cc3b35"/>
+      <circle cx="1722.44" cy="300.08" r="3.1" fill="#2483b8"/>
+      <circle cx="1765.84" cy="256.68" r="3.1" fill="#2483b8"/>
+      <rect x="1674.08" y="269.08" width="19.84" height="19.84" fill="none" stroke="#cc3b35" stroke-dasharray="4.34 4.34" stroke-width="1.24"/>
+      <rect x="1703.84" y="271.56" width="19.84" height="19.84" fill="none" stroke="#2483b8" stroke-dasharray="4.34 4.34" stroke-width="1.24"/>
+      <text x="1603.4" y="359.6" fill="#1f2937" font-size="7.4399999999999995" font-weight="900">ENA comparison</text>
+    </g>
+      
+      
+      
+      
+    </g>
+    
+    <g filter="url(#fine)">
+      
+    <rect x="1474" y="506" width="420" height="32" fill="#d9d9d9"/>
+    <text x="1490" y="528" fill="#777" font-size="16" font-weight="900">SECONDARY PLOT - TEMPORAL ARC</text>
+    
+      <rect x="1474" y="538" width="420" height="354" fill="#ffffff" stroke="#cfd6dc"/>
+      <line x1="1502" y1="699" x2="1866" y2="699" stroke="#e1e5ea"/>
+      <line x1="1684" y1="568" x2="1684" y2="862" stroke="#e1e5ea"/>
+      
+      
+      <g>
+      <rect x="1524" y="588" width="95.33333333333333" height="246" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="1542" y="618" fill="#1f2937" font-size="13" font-weight="900">Plan</text>
+      <circle cx="1571.6666666666667" cy="719" r="26" fill="#7048e8" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 1544 812 C 1571.6666666666667 772, 1571.6666666666667 842, 1599.3333333333333 798" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g><g>
+      <rect x="1641.3333333333333" y="588" width="95.33333333333333" height="246" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="1659.3333333333333" y="618" fill="#1f2937" font-size="13" font-weight="900">Teach</text>
+      <circle cx="1689" cy="719" r="26" fill="#2f68df" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 1661.3333333333333 812 C 1689 772, 1689 842, 1716.6666666666665 798" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g><g>
+      <rect x="1758.6666666666667" y="588" width="95.33333333333333" height="246" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="1776.6666666666667" y="618" fill="#1f2937" font-size="13" font-weight="900">Reflect</text>
+      <circle cx="1806.3333333333335" cy="719" r="26" fill="#e3428b" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 1778.6666666666667 812 C 1806.3333333333335 772, 1806.3333333333335 842, 1834 798" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g>
+      
+      
+    </g>
+    
+    <g filter="url(#fine)">
+      <rect x="404" y="892" width="1056" height="168" fill="#202326"/>
+      <text x="932" y="920" text-anchor="middle" fill="#e5e7eb" font-size="16" font-weight="800">Data View</text>
+      <text x="430" y="950" fill="#b7c0c8" font-size="12" font-weight="700">utterances | coded_segments | interactions | evidence ledger | runtime fingerprints</text>
+    </g>
+  
+  </svg>

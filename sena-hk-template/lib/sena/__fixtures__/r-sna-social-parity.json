@@ -1,0 +1,353 @@
+{
+  "pathPair": {
+    "name": "pathPair",
+    "people": ["A", "B", "C", "D", "E", "F"],
+    "interactions": [
+      {
+        "source": "A",
+        "target": "B",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "C",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "E",
+        "target": "F",
+        "weight": 1
+      },
+      {
+        "source": "F",
+        "target": "E",
+        "weight": 1
+      }
+    ],
+    "directedMatrix": [
+      [0, 1, 0, 0, 0, 0],
+      [1, 0, 1, 0, 0, 0],
+      [0, 0, 0, 1, 0, 0],
+      [0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 1],
+      [0, 0, 0, 0, 1, 0]
+    ],
+    "undirectedMatrix": [
+      [0, 2, 0, 0, 0, 0],
+      [2, 0, 1, 0, 0, 0],
+      [0, 1, 0, 1, 0, 0],
+      [0, 0, 1, 0, 0, 0],
+      [0, 0, 0, 0, 0, 2],
+      [0, 0, 0, 0, 2, 0]
+    ],
+    "degree": [1, 2, 2, 1, 1, 1],
+    "weightedDegree": [2, 3, 2, 1, 2, 2],
+    "betweenness": [0, 2, 2, 0, 0, 0],
+    "closeness": [0.5, 0.75, 0.75, 0.5, 1, 1],
+    "reachable": [3, 3, 3, 3, 1, 1],
+    "reciprocity": 0.66666666666666663,
+    "averagePathLength": 1.5714285714285714,
+    "componentCount": 2,
+    "componentLabels": [0, 0, 0, 0, 1, 1]
+  },
+  "twoCliques": {
+    "name": "twoCliques",
+    "people": ["A", "B", "C", "D", "E", "F"],
+    "interactions": [
+      {
+        "source": "A",
+        "target": "B",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "A",
+        "target": "C",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "C",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "B",
+        "weight": 1
+      },
+      {
+        "source": "D",
+        "target": "E",
+        "weight": 1
+      },
+      {
+        "source": "E",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "D",
+        "target": "F",
+        "weight": 1
+      },
+      {
+        "source": "F",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "E",
+        "target": "F",
+        "weight": 1
+      },
+      {
+        "source": "F",
+        "target": "E",
+        "weight": 1
+      }
+    ],
+    "directedMatrix": [
+      [0, 1, 1, 0, 0, 0],
+      [1, 0, 1, 0, 0, 0],
+      [1, 1, 0, 0, 0, 0],
+      [0, 0, 0, 0, 1, 1],
+      [0, 0, 0, 1, 0, 1],
+      [0, 0, 0, 1, 1, 0]
+    ],
+    "undirectedMatrix": [
+      [0, 2, 2, 0, 0, 0],
+      [2, 0, 2, 0, 0, 0],
+      [2, 2, 0, 0, 0, 0],
+      [0, 0, 0, 0, 2, 2],
+      [0, 0, 0, 2, 0, 2],
+      [0, 0, 0, 2, 2, 0]
+    ],
+    "degree": [2, 2, 2, 2, 2, 2],
+    "weightedDegree": [4, 4, 4, 4, 4, 4],
+    "betweenness": [0, 0, 0, 0, 0, 0],
+    "closeness": [1, 1, 1, 1, 1, 1],
+    "reachable": [2, 2, 2, 2, 2, 2],
+    "reciprocity": 1,
+    "averagePathLength": 1,
+    "componentCount": 2,
+    "componentLabels": [0, 0, 0, 1, 1, 1],
+    "communityLabels": [0, 0, 0, 1, 1, 1],
+    "communityCount": 2
+  },
+  "weightedBroker": {
+    "name": "weightedBroker",
+    "people": ["A", "B", "C", "D", "E", "F", "G", "H"],
+    "interactions": [
+      {
+        "source": "A",
+        "target": "B",
+        "weight": 3
+      },
+      {
+        "source": "B",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "C",
+        "weight": 2
+      },
+      {
+        "source": "C",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "D",
+        "target": "E",
+        "weight": 4
+      },
+      {
+        "source": "E",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "F",
+        "weight": 2
+      },
+      {
+        "source": "F",
+        "target": "G",
+        "weight": 1
+      },
+      {
+        "source": "G",
+        "target": "C",
+        "weight": 1
+      },
+      {
+        "source": "G",
+        "target": "H",
+        "weight": 2
+      }
+    ],
+    "directedMatrix": [
+      [0, 3, 0, 0, 0, 0, 0, 0],
+      [1, 0, 2, 0, 0, 0, 0, 0],
+      [0, 0, 0, 1, 0, 2, 0, 0],
+      [0, 0, 0, 0, 4, 0, 0, 0],
+      [0, 0, 0, 1, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 1, 0],
+      [0, 0, 1, 0, 0, 0, 0, 2],
+      [0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    "undirectedMatrix": [
+      [0, 4, 0, 0, 0, 0, 0, 0],
+      [4, 0, 2, 0, 0, 0, 0, 0],
+      [0, 2, 0, 1, 0, 2, 1, 0],
+      [0, 0, 1, 0, 5, 0, 0, 0],
+      [0, 0, 0, 5, 0, 0, 0, 0],
+      [0, 0, 2, 0, 0, 0, 1, 0],
+      [0, 0, 1, 0, 0, 1, 0, 2],
+      [0, 0, 0, 0, 0, 0, 2, 0]
+    ],
+    "degree": [1, 2, 4, 2, 1, 2, 3, 1],
+    "weightedDegree": [4, 6, 6, 6, 5, 3, 4, 2],
+    "betweenness": [0, 6, 16, 6, 0, 0, 6, 0],
+    "closeness": [0.34999999999999998, 0.5, 0.69999999999999996, 0.5, 0.34999999999999998, 0.5, 0.53846153846153844, 0.36842105263157893],
+    "reachable": [7, 7, 7, 7, 7, 7, 7, 7],
+    "reciprocity": 0.40000000000000002,
+    "averagePathLength": 2.2142857142857144,
+    "componentCount": 1,
+    "componentLabels": [0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "isolatesAndDyad": {
+    "name": "isolatesAndDyad",
+    "people": ["A", "B", "C", "D", "E", "F"],
+    "interactions": [
+      {
+        "source": "A",
+        "target": "B",
+        "weight": 2
+      },
+      {
+        "source": "B",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "D",
+        "weight": 1
+      }
+    ],
+    "directedMatrix": [
+      [0, 2, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0, 0],
+      [0, 0, 0, 1, 0, 0],
+      [0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0]
+    ],
+    "undirectedMatrix": [
+      [0, 3, 0, 0, 0, 0],
+      [3, 0, 0, 0, 0, 0],
+      [0, 0, 0, 1, 0, 0],
+      [0, 0, 1, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0]
+    ],
+    "degree": [1, 1, 1, 1, 0, 0],
+    "weightedDegree": [3, 3, 1, 1, 0, 0],
+    "betweenness": [0, 0, 0, 0, 0, 0],
+    "closeness": [1, 1, 1, 1, 0, 0],
+    "reachable": [1, 1, 1, 1, 0, 0],
+    "reciprocity": 0.66666666666666663,
+    "averagePathLength": 1,
+    "componentCount": 4,
+    "componentLabels": [0, 0, 1, 1, 2, 3]
+  },
+  "directedReciprocityStar": {
+    "name": "directedReciprocityStar",
+    "people": ["A", "B", "C", "D", "E", "F"],
+    "interactions": [
+      {
+        "source": "A",
+        "target": "B",
+        "weight": 1
+      },
+      {
+        "source": "A",
+        "target": "C",
+        "weight": 1
+      },
+      {
+        "source": "A",
+        "target": "D",
+        "weight": 1
+      },
+      {
+        "source": "B",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "C",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "E",
+        "target": "A",
+        "weight": 1
+      },
+      {
+        "source": "F",
+        "target": "E",
+        "weight": 1
+      }
+    ],
+    "directedMatrix": [
+      [0, 1, 1, 1, 0, 0],
+      [1, 0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 1, 0]
+    ],
+    "undirectedMatrix": [
+      [0, 2, 2, 1, 1, 0],
+      [2, 0, 0, 0, 0, 0],
+      [2, 0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0, 1],
+      [0, 0, 0, 0, 1, 0]
+    ],
+    "degree": [4, 1, 1, 1, 2, 1],
+    "weightedDegree": [6, 2, 2, 1, 2, 1],
+    "betweenness": [9, 0, 0, 0, 4, 0],
+    "closeness": [0.83333333333333337, 0.5, 0.5, 0.5, 0.625, 0.41666666666666669],
+    "reachable": [5, 5, 5, 5, 5, 5],
+    "reciprocity": 0.5714285714285714,
+    "averagePathLength": 1.8666666666666667,
+    "componentCount": 1,
+    "componentLabels": [0, 0, 0, 0, 0, 0]
+  }
+}

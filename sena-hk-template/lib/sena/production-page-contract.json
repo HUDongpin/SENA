@@ -1,0 +1,1679 @@
+{
+  "schemaVersion": "sena-production-page-contract/v1",
+  "title": "SENA Production Page Contract",
+  "workspaceRoute": "/workspace/sena",
+  "description": "Static contract for the local production smoke test and reviewer handoff. Each required text item should be present in the built /workspace/sena page.",
+  "sections": [
+    {
+      "id": "workflow",
+      "label": "Six-step research workflow",
+      "requiredText": [
+        "Data Import",
+        "Model Builder",
+        "Fusion Canvas",
+        "Evidence",
+        "Temporal Trace",
+        "Report"
+      ]
+    },
+    {
+      "id": "data-import",
+      "label": "Pilot data import",
+      "requiredText": [
+        "Research Pilot Assets",
+        "Load lesson-study sample",
+        "Package manifest",
+        "manifest fingerprints",
+        "Handoff checks",
+        "Restorable model JSON export",
+        "Local jENA and jSNA runtime manifests",
+        "Lesson-study JSON",
+        "JSON contract template",
+        "TXT/MD transcript cleaning",
+        "SRT/VTT subtitle transcripts"
+      ]
+    },
+    {
+      "id": "layout-controls",
+      "label": "Fusion canvas layout controls",
+      "requiredText": [
+        "Explanatory",
+        "Dual Lens",
+        "ENA Space",
+        "Joint",
+        "A1 Inner Solid Mesh",
+        "W solid ENA mesh",
+        "G pair contribution",
+        "Threshold"
+      ]
+    },
+    {
+      "id": "dual-lens",
+      "label": "Dual Lens Dashboard",
+      "requiredText": [
+        "Dual Lens Dashboard",
+        "Window-scoped conversation, SNA, and ENA",
+        "Raw Conversation Stream",
+        "SNA Split View",
+        "ENA Split View",
+        "Evidence-Explanation Drivers",
+        "jSNA social lens",
+        "jENA epistemic lens",
+        "SENA bridge lens"
+      ]
+    },
+    {
+      "id": "temporal-fusion",
+      "label": "Temporal Fusion Arc story view",
+      "requiredText": [
+        "Temporal Fusion Arc",
+        "Plan - Teach - Reflect story view",
+        "Plan",
+        "Teach",
+        "Reflect",
+        "Active",
+        "evidence refs",
+        "G pair contributions",
+        "G pairs",
+        "Raw G pairs",
+        "Top G pair",
+        "Top G pair in this window",
+        "Temporal transition evidence",
+        "Delta G",
+        "Delta A_fusion",
+        "A_fusion checksum"
+      ]
+    },
+    {
+      "id": "evidence-inspector",
+      "label": "Evidence inspector matrix provenance",
+      "requiredText": [
+        "Evidence Inspector",
+        "Matrix provenance",
+        "Runtime source",
+        "Matrix block",
+        "Formula factor",
+        "Fusion slot",
+        "Matrix fingerprint",
+        "A_fusion fingerprint",
+        "G attribution",
+        "G fingerprint",
+        "person-code-pair contribution",
+        "Lineage refs",
+        "table coded_segments",
+        "table interactions"
+      ]
+    },
+    {
+      "id": "method-validation",
+      "label": "Method validation provenance",
+      "requiredText": [
+        "Metric provenance",
+        "sena-metric-provenance/v1",
+        "sna.js",
+        "jena-js",
+        "sena-self-implemented",
+        "sena-composite",
+        "sna.js closeness()",
+        "sna.js labelPropagation()",
+        "R sna::betweenness fixtures",
+        "interpretation limits",
+        "Validation diagnostics are report gates"
+      ]
+    },
+    {
+      "id": "review-exports",
+      "label": "Report and review handoff",
+      "requiredText": [
+        "Production page contract",
+        "Demo verification compatibility audit",
+        "Pilot export artifact coverage",
+        "Review packet audit",
+        "Method protocol handoff",
+        "Export page contract",
+        "Export project snapshot",
+        "Export walkthrough JSON",
+        "Export verification JSON",
+        "Export compatibility audit",
+        "Export development plan",
+        "Export readiness JSON",
+        "Export reliability gate",
+        "Export reliability dashboard",
+        "Export claim gate JSON",
+        "Export HTML",
+        "Export figure SVG",
+        "Export figure PNG",
+        "Export Excel",
+        "Export DOCX",
+        "Export PDF",
+        "Export publication package",
+        "Export report JSON",
+        "Export report MD",
+        "sena-review-packet.json"
+      ]
+    },
+    {
+      "id": "delivery-candidate",
+      "label": "Local research pilot delivery candidate",
+      "requiredText": [
+        "Local research pilot delivery candidate",
+        "4-week-local-research-pilot",
+        "pilot-delivery",
+        "Freeze pilot baseline",
+        "Polish researcher workbench",
+        "Strengthen research handoff gates",
+        "Package delivery candidate",
+        "Verification gate",
+        "Handoff package",
+        "npm run sena:pilot:verify",
+        "sena-runtime-bundle.json",
+        "sena-review-packet.json"
+      ]
+    },
+    {
+      "id": "next-stage-plan",
+      "label": "Next-stage development plan",
+      "requiredText": [
+        "Next-stage development plan",
+        "post-delivery-candidate",
+        "research-validation-before-platform",
+        "Pilot Handoff Freeze",
+        "Researcher Walkthrough",
+        "Research Validation",
+        "Production Platform Acceptance",
+        "Release gate",
+        "Data cases",
+        "Public interfaces",
+        "exploratory-only",
+        "npm run sena:pilot:verify"
+      ]
+    },
+    {
+      "id": "claim-readiness",
+      "label": "Claim readiness gate",
+      "requiredText": [
+        "Claim readiness gate",
+        "sena-claim-readiness-gate/v1",
+        "sena-claim-readiness-gate.json",
+        "exploratory-only",
+        "Data contract",
+        "Runtime alignment",
+        "Fusion math",
+        "Evidence ledger",
+        "Method validation",
+        "Coding reliability",
+        "Data governance",
+        "Human review",
+        "Exploratory until coding reliability, data governance",
+        "Review blockers"
+      ]
+    },
+    {
+      "id": "coding-reliability",
+      "label": "Coding reliability gate",
+      "requiredText": [
+        "Coding reliability gate",
+        "sena-coding-reliability-gate/v1",
+        "sena-coding-reliability-gate.json",
+        "coding-reliability-needed",
+        "Coding reliability evidence",
+        "Reliability reviewer",
+        "Coding scheme",
+        "Agreement metric",
+        "Agreement value",
+        "Adjudication notes",
+        "Reliability limitations"
+      ]
+    },
+    {
+      "id": "research-artifact-exports",
+      "label": "Research artifact export controls",
+      "requiredText": [
+        "Export data audit",
+        "Export evidence ledger",
+        "Export metric provenance",
+        "Export ENA report",
+        "Export runtime bundle",
+        "Export runtime audit",
+        "Export SNA report",
+        "Export G report"
+      ]
+    }
+  ],
+  "visualChecks": [
+    {
+      "id": "fusion-canvas-svg-anchor",
+      "label": "Fusion canvas SVG anchor",
+      "requiredText": "data-testid=\"sena-fusion-canvas\"",
+      "expectedOutcome": "The built workspace exposes a stable Fusion Canvas SVG anchor for local visual smoke checks."
+    },
+    {
+      "id": "workspace-shell-rail",
+      "label": "C3 workspace left rail anchor",
+      "requiredText": "data-testid=\"sena-workspace-mode-rail\"",
+      "expectedOutcome": "The built workspace exposes the ENA-inspired Sets/Model/Plot Tools/Stats rail as a stable shell anchor."
+    },
+    {
+      "id": "workspace-shell-rail-role",
+      "label": "C3 workspace glass rail role",
+      "requiredText": "data-visual-role=\"workspace-shell-c3-glass-rail\"",
+      "expectedOutcome": "The left workspace rail keeps the compact Apple-style glass visual grammar selected for the SENA workbench."
+    },
+    {
+      "id": "delivery-candidate-plan",
+      "label": "Delivery candidate plan anchor",
+      "requiredText": "data-testid=\"delivery-candidate-plan\"",
+      "expectedOutcome": "The Report Generator exposes the local research pilot delivery-candidate plan before export."
+    },
+    {
+      "id": "delivery-candidate-plan-role",
+      "label": "Delivery candidate plan role",
+      "requiredText": "data-visual-role=\"local-research-pilot-delivery-candidate\"",
+      "expectedOutcome": "The delivery-candidate panel has a stable semantic visual role for browser smoke checks."
+    },
+    {
+      "id": "next-stage-development-plan",
+      "label": "Next-stage development plan anchor",
+      "requiredText": "data-testid=\"next-stage-development-plan\"",
+      "expectedOutcome": "The Report Generator exposes the post-delivery research-validation plan before export."
+    },
+    {
+      "id": "next-stage-development-plan-role",
+      "label": "Next-stage development plan role",
+      "requiredText": "data-visual-role=\"post-delivery-research-validation-plan\"",
+      "expectedOutcome": "The next-stage plan panel has a stable semantic role for browser smoke checks."
+    },
+    {
+      "id": "workspace-model-layer-stack-icon",
+      "label": "Model Layer Stack icon",
+      "requiredText": "data-icon-name=\"layer-stack\"",
+      "expectedOutcome": "The Model rail item uses the adopted Layer Stack glyph for model layers and fusion structure."
+    },
+    {
+      "id": "workspace-model-layout-explanatory",
+      "label": "Model explanatory layout control",
+      "requiredText": "data-testid=\"model-layout-explanatory\"",
+      "expectedOutcome": "The Model Builder rail exposes the explanatory Fusion Canvas layout as a real control."
+    },
+    {
+      "id": "workspace-model-layout-ena-space",
+      "label": "Model ENA Space layout control",
+      "requiredText": "data-testid=\"model-layout-ena-space\"",
+      "expectedOutcome": "The Model Builder rail exposes the jENA-projected ENA Space layout as a real control."
+    },
+    {
+      "id": "workspace-model-layout-joint",
+      "label": "Model joint layout control",
+      "requiredText": "data-testid=\"model-layout-joint\"",
+      "expectedOutcome": "The Model Builder rail exposes the deterministic A_fusion joint embedding layout as a real control."
+    },
+    {
+      "id": "workspace-model-layer-social-toggle",
+      "label": "Model social layer toggle",
+      "requiredText": "data-testid=\"model-layer-social-toggle\"",
+      "expectedOutcome": "The Model Builder rail exposes a real toggle for the S social layer."
+    },
+    {
+      "id": "workspace-model-layer-concept-toggle",
+      "label": "Model concept layer toggle",
+      "requiredText": "data-testid=\"model-layer-concept-toggle\"",
+      "expectedOutcome": "The Model Builder rail exposes a real toggle for the W ENA concept layer."
+    },
+    {
+      "id": "workspace-model-layer-bridge-toggle",
+      "label": "Model bridge layer toggle",
+      "requiredText": "data-testid=\"model-layer-bridge-toggle\"",
+      "expectedOutcome": "The Model Builder rail exposes a real toggle for the B bridge layer."
+    },
+    {
+      "id": "workspace-model-alpha-slider",
+      "label": "Model alpha SNA slider",
+      "requiredText": "data-testid=\"alpha-slider\"",
+      "expectedOutcome": "The Model Builder rail exposes alpha as a real SNA layer-weight slider."
+    },
+    {
+      "id": "workspace-model-beta-slider",
+      "label": "Model beta ENA slider",
+      "requiredText": "data-testid=\"beta-slider\"",
+      "expectedOutcome": "The Model Builder rail exposes beta as a real ENA layer-weight slider."
+    },
+    {
+      "id": "workspace-model-gamma-slider",
+      "label": "Model gamma bridge slider",
+      "requiredText": "data-testid=\"gamma-slider\"",
+      "expectedOutcome": "The Model Builder rail exposes gamma as a real bridge layer-weight slider."
+    },
+    {
+      "id": "workspace-model-threshold-slider",
+      "label": "Model edge-threshold slider",
+      "requiredText": "data-testid=\"edge-threshold-slider\"",
+      "expectedOutcome": "The Model Builder rail exposes the edge threshold as a real filtering slider."
+    },
+    {
+      "id": "workspace-model-normalization-select",
+      "label": "Model normalization select",
+      "requiredText": "data-testid=\"normalization-select\"",
+      "expectedOutcome": "The Model Builder rail exposes normalization mode as a real model-building option."
+    },
+    {
+      "id": "workspace-stats-network-metrics-icon",
+      "label": "Stats Network Metrics icon",
+      "requiredText": "data-icon-name=\"network-metrics\"",
+      "expectedOutcome": "The Stats rail item uses the adopted Network Metrics glyph that combines graph structure with metric bars."
+    },
+    {
+      "id": "workspace-stats-metric-provenance-summary",
+      "label": "Stats metric provenance summary",
+      "requiredText": "data-testid=\"stats-metric-provenance-summary\"",
+      "expectedOutcome": "The Stats rail panel exposes a compact provenance summary before researchers interpret metric values."
+    },
+    {
+      "id": "workspace-stats-metric-provenance-summary-role",
+      "label": "Stats metric provenance summary role",
+      "requiredText": "data-visual-role=\"stats-metric-provenance-summary\"",
+      "expectedOutcome": "The Stats metric provenance summary has a stable semantic hook for browser and production smoke checks."
+    },
+    {
+      "id": "workspace-stats-jena-concept-handoff",
+      "label": "Stats jENA concept-pair handoff",
+      "requiredText": "data-testid=\"stats-jena-concept-handoff\"",
+      "expectedOutcome": "The Stats rail exposes jENA adjacency and connection-count handoff coverage against the SENA W concept matrix."
+    },
+    {
+      "id": "workspace-stats-jena-concept-handoff-role",
+      "label": "Stats jENA concept-pair handoff role",
+      "requiredText": "data-visual-role=\"stats-jena-concept-pair-handoff\"",
+      "expectedOutcome": "The jENA-to-SENA-W handoff summary has a stable semantic hook for browser and production smoke checks."
+    },
+    {
+      "id": "workspace-stats-sna-report-export",
+      "label": "Stats SNA report export",
+      "requiredText": "data-testid=\"export-stats-sna-report\"",
+      "expectedOutcome": "The Stats rail exposes a stable real export control for the local jSNA social report."
+    },
+    {
+      "id": "workspace-stats-jena-manifest-export",
+      "label": "Stats jENA manifest export",
+      "requiredText": "data-testid=\"export-stats-jena-manifest\"",
+      "expectedOutcome": "The Stats rail exposes a stable real export control for the local jENA runtime manifest."
+    },
+    {
+      "id": "workspace-stats-jsna-manifest-export",
+      "label": "Stats jSNA manifest export",
+      "requiredText": "data-testid=\"export-stats-jsna-manifest\"",
+      "expectedOutcome": "The Stats rail exposes a stable real export control for the local jSNA runtime manifest."
+    },
+    {
+      "id": "workspace-stats-g-report-export",
+      "label": "Stats G report export",
+      "requiredText": "data-testid=\"export-stats-g-report\"",
+      "expectedOutcome": "The Stats rail exposes a stable real export control for SENA person-code-pair G contribution evidence."
+    },
+    {
+      "id": "workspace-stats-metric-provenance-export",
+      "label": "Stats metric provenance export",
+      "requiredText": "data-testid=\"export-stats-metric-provenance\"",
+      "expectedOutcome": "The Stats rail exposes a stable real export control for the metric-provenance artifact."
+    },
+    {
+      "id": "workspace-plot-switcher",
+      "label": "Collapsed plot switcher anchor",
+      "requiredText": "data-testid=\"workspace-plot-switcher\"",
+      "expectedOutcome": "The central plot deck exposes one collapsed Plots control instead of six persistent plot pills."
+    },
+    {
+      "id": "workspace-plot-switcher-role",
+      "label": "Collapsed plot switcher visual role",
+      "requiredText": "data-visual-role=\"workspace-shell-collapsed-plot-switcher\"",
+      "expectedOutcome": "The collapsed Plots control has a stable semantic hook for C3 workspace shell smoke checks."
+    },
+    {
+      "id": "workspace-plot-tools-dimensions-section",
+      "label": "Plot Tools Dimensions section",
+      "requiredText": "data-testid=\"plot-tools-dimensions-section\"",
+      "expectedOutcome": "The Plot Tools rail follows the webENA Dimensions grouping for plot coordinate/layout controls."
+    },
+    {
+      "id": "workspace-plot-tools-plotted-points-section",
+      "label": "Plot Tools Plotted Points section",
+      "requiredText": "data-testid=\"plot-tools-plotted-points-section\"",
+      "expectedOutcome": "The Plot Tools rail follows the webENA Plotted Points grouping for switching plot views."
+    },
+    {
+      "id": "workspace-plot-tools-network-graph-section",
+      "label": "Plot Tools Network Graph section",
+      "requiredText": "data-testid=\"plot-tools-network-graph-section\"",
+      "expectedOutcome": "The Plot Tools rail follows the webENA Network Graph grouping for layers and edge threshold."
+    },
+    {
+      "id": "workspace-plot-tools-temporal-framing-section",
+      "label": "Plot Tools Temporal Framing section",
+      "requiredText": "data-testid=\"plot-tools-temporal-framing-section\"",
+      "expectedOutcome": "The Plot Tools rail exposes SENA-specific temporal framing as a compact workbench control group."
+    },
+    {
+      "id": "workspace-plot-tools-advanced-drawer",
+      "label": "Plot Tools Advanced Options drawer",
+      "requiredText": "data-testid=\"plot-tools-advanced-drawer\"",
+      "expectedOutcome": "Advanced Plot Tools options are kept in a compact bottom drawer rather than crowding the main plot controls."
+    },
+    {
+      "id": "workspace-plot-tools-advanced-drawer-role",
+      "label": "Plot Tools Advanced Options drawer role",
+      "requiredText": "data-visual-role=\"webena-plot-tools-advanced-drawer\"",
+      "expectedOutcome": "The Advanced Options drawer has a stable semantic hook for webENA-inspired Plot Tools checks."
+    },
+    {
+      "id": "workspace-central-plot-deck",
+      "label": "Central plot deck anchor",
+      "requiredText": "data-testid=\"workspace-central-plot-deck\"",
+      "expectedOutcome": "The built workspace exposes the dominant central plot deck as the main research surface."
+    },
+    {
+      "id": "workspace-central-plot-deck-role",
+      "label": "Central plot deck visual role",
+      "requiredText": "data-visual-role=\"workspace-central-plot-deck\"",
+      "expectedOutcome": "The central plot deck has a stable semantic hook for layout and visual regression smoke checks."
+    },
+    {
+      "id": "workspace-central-default-fusion",
+      "label": "Central plot default Fusion view",
+      "requiredText": "data-default-plot-view=\"fusion\"",
+      "expectedOutcome": "The dominant central plot opens on the current-window Fusion Plot, not the Temporal Fusion Arc."
+    },
+    {
+      "id": "workspace-central-current-window-scope",
+      "label": "Central plot current-window scope",
+      "requiredText": "data-plot-scope=\"current-window\"",
+      "expectedOutcome": "The dominant central plot is scoped to one active temporal window by default."
+    },
+    {
+      "id": "workspace-bottom-data-view-drawer",
+      "label": "ENA-style bottom Data View drawer",
+      "requiredText": "data-testid=\"workspace-data-view-drawer\"",
+      "expectedOutcome": "The central plot deck exposes a collapsible webENA-style Data View drawer below the graph instead of replacing the workspace."
+    },
+    {
+      "id": "workspace-bottom-data-view-drawer-role",
+      "label": "Bottom Data View drawer visual role",
+      "requiredText": "data-visual-role=\"workspace-bottom-data-view-drawer\"",
+      "expectedOutcome": "The Data View drawer has a stable semantic hook for ENA-inspired workspace layout smoke checks."
+    },
+    {
+      "id": "workspace-bottom-data-view-toggle",
+      "label": "Bottom Data View drawer toggle",
+      "requiredText": "data-testid=\"workspace-data-view-toggle\"",
+      "expectedOutcome": "Researchers can expand raw utterances, coded segments, and interaction rows without leaving the central Fusion Plot."
+    },
+    {
+      "id": "central-fusion-analysis-scope",
+      "label": "Central Fusion active-window analysis scope",
+      "requiredText": "data-testid=\"central-fusion-analysis-scope\"",
+      "expectedOutcome": "The dominant central Fusion Plot exposes the active temporal window, current model counts, and A_fusion checksum."
+    },
+    {
+      "id": "central-fusion-analysis-scope-role",
+      "label": "Central Fusion active-window scope role",
+      "requiredText": "data-visual-role=\"active-window-fusion-scope\"",
+      "expectedOutcome": "The central Fusion Plot marks its analysis-scope provenance with a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "central-fusion-evidence-capsule",
+      "label": "Central Fusion current-window evidence capsule",
+      "requiredText": "data-testid=\"central-fusion-evidence-capsule\"",
+      "expectedOutcome": "The dominant central Fusion Plot exposes the strongest current-window S/W/B/G signals as readable inspection cues."
+    },
+    {
+      "id": "central-fusion-evidence-capsule-role",
+      "label": "Central Fusion evidence capsule role",
+      "requiredText": "data-visual-role=\"current-window-fusion-evidence-capsule\"",
+      "expectedOutcome": "The current-window S/W/B/G evidence capsule has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "central-active-window-brief",
+      "label": "Central active-window interpretation brief",
+      "requiredText": "data-testid=\"central-active-window-brief\"",
+      "expectedOutcome": "The central current-window Fusion Plot exposes a compact interpretation brief before researchers write claims."
+    },
+    {
+      "id": "central-active-window-brief-role",
+      "label": "Central active-window interpretation brief role",
+      "requiredText": "data-visual-role=\"active-window-interpretation-brief\"",
+      "expectedOutcome": "The active-window interpretation brief has a stable semantic hook for browser smoke and review-packet contracts."
+    },
+    {
+      "id": "central-fusion-transition-delta",
+      "label": "Central Fusion adjacent-window delta",
+      "requiredText": "data-testid=\"central-fusion-transition-delta\"",
+      "expectedOutcome": "The dominant central Fusion Plot exposes adjacent-window S/W/B/G/A_fusion deltas for temporal inspection."
+    },
+    {
+      "id": "central-fusion-transition-delta-role",
+      "label": "Central Fusion adjacent-window delta role",
+      "requiredText": "data-visual-role=\"active-window-fusion-transition-delta\"",
+      "expectedOutcome": "The central Fusion Plot marks adjacent-window delta provenance with a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "central-fusion-delta-g-pair",
+      "label": "Central Fusion top G-pair shift",
+      "requiredText": "data-testid=\"central-fusion-delta-g-pair\"",
+      "expectedOutcome": "The dominant central Fusion Plot exposes the strongest person-code-pair explanation across the adjacent-window transition."
+    },
+    {
+      "id": "central-fusion-delta-g-pair-role",
+      "label": "Central Fusion top G-pair shift role",
+      "requiredText": "data-visual-role=\"active-window-fusion-g-pair-driver\"",
+      "expectedOutcome": "The central Fusion Plot marks the top G-pair transition explanation with a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "workspace-primary-plot",
+      "label": "Primary plot viewport anchor",
+      "requiredText": "data-testid=\"workspace-primary-plot\"",
+      "expectedOutcome": "The right-side Primary Plot viewport remains available for Fusion Canvas comparison and layout controls."
+    },
+    {
+      "id": "workspace-primary-plot-role",
+      "label": "Primary plot viewport visual role",
+      "requiredText": "data-visual-role=\"workspace-primary-plot\"",
+      "expectedOutcome": "The Primary Plot viewport has a stable semantic hook in the ENA-inspired right plot column."
+    },
+    {
+      "id": "workspace-secondary-plot",
+      "label": "Secondary plot viewport anchor",
+      "requiredText": "data-testid=\"workspace-secondary-plot\"",
+      "expectedOutcome": "The right-side Secondary Plot viewport remains available for selected evidence and provenance inspection."
+    },
+    {
+      "id": "workspace-secondary-plot-role",
+      "label": "Secondary plot viewport visual role",
+      "requiredText": "data-visual-role=\"workspace-secondary-plot\"",
+      "expectedOutcome": "The Secondary Plot viewport has a stable semantic hook in the ENA-inspired right plot column."
+    },
+    {
+      "id": "workspace-secondary-comparison-lens",
+      "label": "Secondary Plot current-window comparison lens",
+      "requiredText": "data-testid=\"workspace-secondary-comparison-lens\"",
+      "expectedOutcome": "The right-side Secondary Plot compares the active temporal window against the full conversation before evidence inspection."
+    },
+    {
+      "id": "workspace-secondary-comparison-lens-role",
+      "label": "Secondary Plot comparison visual role",
+      "requiredText": "data-visual-role=\"secondary-plot-current-window-comparison\"",
+      "expectedOutcome": "The Secondary Plot comparison lens has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "workspace-secondary-ranking-context",
+      "label": "Secondary Plot signal ranking context",
+      "requiredText": "data-testid=\"workspace-secondary-ranking-context\"",
+      "expectedOutcome": "The right-side Secondary Plot ranks the active-window S/W/B/G top signals against the full conversation."
+    },
+    {
+      "id": "workspace-secondary-ranking-context-role",
+      "label": "Secondary Plot signal ranking visual role",
+      "requiredText": "data-visual-role=\"secondary-plot-signal-ranking-context\"",
+      "expectedOutcome": "The Secondary Plot ranking context has a stable semantic hook for browser smoke checks and review-packet contracts."
+    },
+    {
+      "id": "pilot-assets-panel",
+      "label": "Pilot assets panel anchor",
+      "requiredText": "data-testid=\"pilot-assets-panel\"",
+      "expectedOutcome": "The Data Import panel exposes a stable research pilot asset panel for local demo package checks."
+    },
+    {
+      "id": "pilot-assets-panel-role",
+      "label": "Pilot assets panel semantic role",
+      "requiredText": "data-visual-role=\"pilot-assets-panel\"",
+      "expectedOutcome": "The pilot assets panel has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "pilot-asset-link",
+      "label": "Pilot asset link anchor",
+      "requiredText": "data-testid=\"pilot-asset-link\"",
+      "expectedOutcome": "Pilot package manifest, sample, and template downloads are exposed as stable links."
+    },
+    {
+      "id": "pilot-asset-manifest-link",
+      "label": "Pilot manifest asset link",
+      "requiredText": "data-asset-kind=\"manifest\"",
+      "expectedOutcome": "The package manifest link is identifiable separately from sample and template assets."
+    },
+    {
+      "id": "pilot-asset-sample-link",
+      "label": "Pilot sample asset links",
+      "requiredText": "data-asset-kind=\"sample\"",
+      "expectedOutcome": "Lesson-study sample dataset links are identifiable for browser asset smoke checks."
+    },
+    {
+      "id": "pilot-asset-template-link",
+      "label": "Pilot template asset links",
+      "requiredText": "data-asset-kind=\"template\"",
+      "expectedOutcome": "Blank data-contract template links are identifiable for browser asset smoke checks."
+    },
+    {
+      "id": "pilot-asset-integrity",
+      "label": "Pilot asset integrity fingerprint signal",
+      "requiredText": "data-testid=\"pilot-asset-integrity\"",
+      "expectedOutcome": "The Data Import panel exposes that the package manifest includes sample/template integrity fingerprints."
+    },
+    {
+      "id": "pilot-asset-integrity-role",
+      "label": "Pilot asset integrity semantic role",
+      "requiredText": "data-visual-role=\"pilot-asset-integrity\"",
+      "expectedOutcome": "The asset integrity fingerprint signal has a stable semantic hook for production-page and browser smoke checks."
+    },
+    {
+      "id": "enterprise-team-operations",
+      "label": "Enterprise team operations anchor",
+      "requiredText": "data-testid=\"enterprise-team-operations\"",
+      "expectedOutcome": "The Enterprise runtime panel exposes team invitation, invitation acceptance, and membership lifecycle controls in the workbench."
+    },
+    {
+      "id": "enterprise-team-operations-role",
+      "label": "Enterprise team operations semantic role",
+      "requiredText": "data-visual-role=\"enterprise-rbac-team-operations\"",
+      "expectedOutcome": "The Team/RBAC operation area has a stable semantic hook for production-page and browser smoke checks."
+    },
+    {
+      "id": "enterprise-team-invite-email",
+      "label": "Enterprise team invitation email input",
+      "requiredText": "data-testid=\"enterprise-team-invite-email\"",
+      "expectedOutcome": "Team managers can enter an invitee email directly from the Enterprise runtime panel."
+    },
+    {
+      "id": "enterprise-team-invite-submit",
+      "label": "Enterprise team invitation submit control",
+      "requiredText": "data-testid=\"enterprise-team-invite-submit\"",
+      "expectedOutcome": "Team managers can create a team invitation without leaving the SENA workspace."
+    },
+    {
+      "id": "enterprise-team-accept-code",
+      "label": "Enterprise team invitation acceptance input",
+      "requiredText": "data-testid=\"enterprise-team-accept-code\"",
+      "expectedOutcome": "Signed-in invited users can paste an invitation code to join a SENA team from the workbench."
+    },
+    {
+      "id": "enterprise-team-member-row",
+      "label": "Enterprise team membership row",
+      "requiredText": "data-testid=\"enterprise-team-member-row\"",
+      "expectedOutcome": "Team memberships render as stable rows or empty-state hooks, with role and status controls available after sign-in."
+    },
+    {
+      "id": "enterprise-team-pending-invite",
+      "label": "Enterprise pending invitation row",
+      "requiredText": "data-testid=\"enterprise-team-pending-invite\"",
+      "expectedOutcome": "Pending invitations render as stable rows or empty-state hooks, with revocation controls and local-pilot invite-code evidence after sign-in."
+    },
+    {
+      "id": "enterprise-sso-preflight",
+      "label": "Enterprise SSO preflight panel",
+      "requiredText": "data-testid=\"enterprise-sso-preflight\"",
+      "expectedOutcome": "The Enterprise runtime panel exposes OAuth/OIDC provider preflight evidence before production SSO is claimed."
+    },
+    {
+      "id": "enterprise-sso-preflight-role",
+      "label": "Enterprise SSO preflight semantic role",
+      "requiredText": "data-visual-role=\"enterprise-sso-preflight\"",
+      "expectedOutcome": "The SSO preflight area has a stable semantic hook for authentication readiness smoke checks."
+    },
+    {
+      "id": "enterprise-sso-preflight-schema",
+      "label": "Enterprise SSO preflight schema",
+      "requiredText": "sena-enterprise-sso-preflight/v1",
+      "expectedOutcome": "The SSO preflight UI names the machine-readable OAuth/OIDC readiness schema."
+    },
+    {
+      "id": "enterprise-sso-preflight-run",
+      "label": "Enterprise SSO preflight run control",
+      "requiredText": "data-testid=\"enterprise-sso-preflight-run\"",
+      "expectedOutcome": "Authenticated users can run SSO provider preflight from the SENA workbench."
+    },
+    {
+      "id": "enterprise-sso-preflight-provider",
+      "label": "Enterprise SSO preflight provider row",
+      "requiredText": "data-testid=\"enterprise-sso-preflight-provider\"",
+      "expectedOutcome": "The SSO preflight panel renders provider-level configured/pass/review evidence without exposing secrets."
+    },
+    {
+      "id": "enterprise-provisioning-readiness",
+      "label": "Enterprise provisioning readiness panel",
+      "requiredText": "data-testid=\"enterprise-provisioning-readiness\"",
+      "expectedOutcome": "The Enterprise runtime panel exposes institution provisioning and SCIM readiness evidence from the redacted deployment handoff package."
+    },
+    {
+      "id": "enterprise-provisioning-readiness-role",
+      "label": "Enterprise provisioning readiness semantic role",
+      "requiredText": "data-visual-role=\"enterprise-provisioning-scim-readiness\"",
+      "expectedOutcome": "The provisioning readiness area has a stable semantic hook for IdP/SCIM lifecycle smoke checks."
+    },
+    {
+      "id": "enterprise-provisioning-readiness-schema",
+      "label": "Enterprise provisioning readiness schema",
+      "requiredText": "sena-enterprise-organization-deployment/v1",
+      "expectedOutcome": "The provisioning readiness UI names the redacted deployment handoff package schema used for platform review."
+    },
+    {
+      "id": "enterprise-provisioning-readiness-refresh",
+      "label": "Enterprise provisioning readiness refresh",
+      "requiredText": "data-testid=\"enterprise-provisioning-readiness-refresh\"",
+      "expectedOutcome": "Authenticated users can refresh provisioning and SCIM readiness evidence from the workbench."
+    },
+    {
+      "id": "enterprise-provisioning-endpoint",
+      "label": "Enterprise provisioning endpoint row",
+      "requiredText": "data-testid=\"enterprise-provisioning-endpoint\"",
+      "expectedOutcome": "The readiness panel renders redacted provisioning and SCIM endpoint metadata without exposing bearer tokens."
+    },
+    {
+      "id": "enterprise-provisioning-env",
+      "label": "Enterprise provisioning environment row",
+      "requiredText": "data-testid=\"enterprise-provisioning-env\"",
+      "expectedOutcome": "The readiness panel renders provisioning environment-variable status without exposing secret values."
+    },
+    {
+      "id": "enterprise-provisioning-owner-decision",
+      "label": "Enterprise provisioning owner decision",
+      "requiredText": "data-testid=\"enterprise-provisioning-owner-decision\"",
+      "expectedOutcome": "The readiness panel surfaces the institution provisioning owner platform-decision state before organization-wide rollout."
+    },
+    {
+      "id": "enterprise-account-security",
+      "label": "Enterprise account security anchor",
+      "requiredText": "data-testid=\"enterprise-account-security\"",
+      "expectedOutcome": "The Enterprise runtime panel exposes account security controls for authenticated researchers."
+    },
+    {
+      "id": "enterprise-account-security-role",
+      "label": "Enterprise account security semantic role",
+      "requiredText": "data-visual-role=\"enterprise-auth-mfa-controls\"",
+      "expectedOutcome": "The account security area has a stable semantic hook for MFA management smoke checks."
+    },
+    {
+      "id": "enterprise-mfa-status",
+      "label": "Enterprise MFA status",
+      "requiredText": "data-testid=\"enterprise-mfa-status\"",
+      "expectedOutcome": "The workbench exposes current authenticator MFA status close to the signed-in session controls."
+    },
+    {
+      "id": "enterprise-mfa-setup",
+      "label": "Enterprise MFA setup control",
+      "requiredText": "data-testid=\"enterprise-mfa-setup\"",
+      "expectedOutcome": "Authenticated users can start authenticator MFA setup without leaving the SENA workbench."
+    },
+    {
+      "id": "enterprise-mfa-enable-code",
+      "label": "Enterprise MFA enable code input",
+      "requiredText": "data-testid=\"enterprise-mfa-enable-code\"",
+      "expectedOutcome": "Authenticated users can enter a TOTP setup code to enable authenticator MFA."
+    },
+    {
+      "id": "enterprise-mfa-disable-code",
+      "label": "Enterprise MFA disable code input",
+      "requiredText": "data-testid=\"enterprise-mfa-disable-code\"",
+      "expectedOutcome": "Authenticated users can enter a TOTP code to disable authenticator MFA when needed."
+    },
+    {
+      "id": "enterprise-session-list",
+      "label": "Enterprise session list",
+      "requiredText": "data-testid=\"enterprise-session-list\"",
+      "expectedOutcome": "The workbench exposes the authenticated user's active session list from the session lifecycle API."
+    },
+    {
+      "id": "enterprise-session-row",
+      "label": "Enterprise session row",
+      "requiredText": "data-testid=\"enterprise-session-row\"",
+      "expectedOutcome": "Current and non-current sessions render as stable rows or empty-state hooks."
+    },
+    {
+      "id": "enterprise-session-revoke",
+      "label": "Enterprise session revoke control",
+      "requiredText": "data-testid=\"enterprise-session-revoke\"",
+      "expectedOutcome": "Authenticated users can revoke individual non-current sessions from the Account security panel."
+    },
+    {
+      "id": "enterprise-session-revoke-others",
+      "label": "Enterprise revoke other sessions control",
+      "requiredText": "data-testid=\"enterprise-session-revoke-others\"",
+      "expectedOutcome": "Authenticated users can revoke all other active sessions without leaving the workbench."
+    },
+    {
+      "id": "enterprise-session-logout",
+      "label": "Enterprise session logout control",
+      "requiredText": "data-testid=\"enterprise-session-logout\"",
+      "expectedOutcome": "Authenticated users can sign out of the current enterprise session from the Account security panel."
+    },
+    {
+      "id": "contract-template-export",
+      "label": "Contract template export control",
+      "requiredText": "data-testid=\"export-contract-template\"",
+      "expectedOutcome": "The Data Import panel exposes a stable export control for generating an empty JSON data-contract template."
+    },
+    {
+      "id": "pilot-handoff-checks",
+      "label": "Pilot handoff checks panel",
+      "requiredText": "data-testid=\"pilot-handoff-checks\"",
+      "expectedOutcome": "The Data Import panel exposes manifest-aligned reviewer handoff checks."
+    },
+    {
+      "id": "pilot-handoff-checks-role",
+      "label": "Pilot handoff checks semantic role",
+      "requiredText": "data-visual-role=\"pilot-handoff-checks\"",
+      "expectedOutcome": "The pilot handoff checks panel has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "pilot-handoff-check",
+      "label": "Pilot handoff check item",
+      "requiredText": "data-testid=\"pilot-handoff-check\"",
+      "expectedOutcome": "Each manifest handoff check is exposed as a stable item."
+    },
+    {
+      "id": "pilot-handoff-model-json",
+      "label": "Pilot model JSON handoff check",
+      "requiredText": "data-handoff-check-id=\"model-json-export\"",
+      "expectedOutcome": "The restorable model JSON handoff check is visible from Data Import."
+    },
+    {
+      "id": "fusion-canvas-center-region",
+      "label": "Fusion canvas center region",
+      "requiredText": "r=\"184\" fill=\"none\" stroke=\"#895dff\"",
+      "expectedOutcome": "The concept-layer center region is an unfilled violet guide, not a solid black circle."
+    },
+    {
+      "id": "fusion-canvas-center-guide-role",
+      "label": "Fusion canvas center guide role",
+      "requiredText": "data-visual-role=\"concept-space-guide\"",
+      "expectedOutcome": "The center guide is semantically marked as a concept-space guide rather than a data node or analysis result."
+    },
+    {
+      "id": "fusion-canvas-ena-solid-link",
+      "label": "Fusion canvas ENA solid concept link",
+      "requiredText": "data-visual-role=\"ena-solid-concept-link\"",
+      "expectedOutcome": "Traditional ENA concept-concept W links render as solid inner mesh links rather than dashed social-like or temporary links."
+    },
+    {
+      "id": "fusion-canvas-readable-link-halo",
+      "label": "Fusion canvas readable line halo",
+      "requiredText": "data-visual-role=\"fusion-readable-link-halo\"",
+      "expectedOutcome": "Day-mode S/W/B links use a light under-stroke so colored relations remain legible over the grid and other paths."
+    },
+    {
+      "id": "fusion-canvas-weighted-link-width",
+      "label": "Fusion canvas weighted link width",
+      "requiredText": "data-edge-visual-width=",
+      "expectedOutcome": "SNA outer arcs, ENA inner links, and bridge ribbons expose weight-scaled stroke widths instead of rendering every relation at one fixed width."
+    },
+    {
+      "id": "fusion-canvas-link-weight-provenance",
+      "label": "Fusion canvas link weight provenance",
+      "requiredText": "data-edge-scaled-weight=",
+      "expectedOutcome": "Each rendered S/W/B relation carries its scaled matrix weight so visual line emphasis can be audited against the model output."
+    },
+    {
+      "id": "fusion-canvas-link-visual-salience",
+      "label": "Fusion canvas link visual salience",
+      "requiredText": "data-edge-visual-salience=",
+      "expectedOutcome": "Each rendered S/W/B relation exposes the layer-relative visual salience used for stroke-width scaling, including concept-link tie breakers when active W weights are equal."
+    },
+    {
+      "id": "fusion-canvas-layer-key-line-weight-note",
+      "label": "Fusion canvas layer key line-weight note",
+      "requiredText": "data-testid=\"fusion-layer-key-line-weight-note\"",
+      "expectedOutcome": "The A1 layer key states that visible S/W/B line thickness is layer-relative salience rather than a fixed decorative stroke."
+    },
+    {
+      "id": "fusion-canvas-selected-edge-stroke-provenance",
+      "label": "Fusion canvas selected-edge stroke provenance",
+      "requiredText": "data-testid=\"edge-visual-stroke-provenance\"",
+      "expectedOutcome": "Selecting an S/W/B edge exposes the visual salience and stroke width used by the current Fusion Canvas."
+    },
+    {
+      "id": "fusion-canvas-selected-node-label-on-click",
+      "label": "Fusion canvas selected node label on click",
+      "requiredText": "data-testid=\"sena-node-",
+      "expectedOutcome": "Node labels are hidden by default; selecting a node renders one high-contrast label plate for the selected node."
+    },
+    {
+      "id": "fusion-canvas-question-node-q-glyph",
+      "label": "Fusion canvas Question node Q glyph",
+      "requiredText": "data-node-glyph=\"Q\"",
+      "expectedOutcome": "The Question concept node renders a Q monogram instead of a question-mark symbol."
+    },
+    {
+      "id": "fusion-canvas-ena-concept-circle-node",
+      "label": "Fusion canvas ENA concept circle node",
+      "requiredText": "data-visual-role=\"ena-concept-circle-node\"",
+      "expectedOutcome": "Inner ENA concept nodes render as circles so the epistemic layer is visually distinct from SNA actor nodes."
+    },
+    {
+      "id": "fusion-canvas-sna-person-hex-node",
+      "label": "Fusion canvas SNA person hex node",
+      "requiredText": "data-visual-role=\"sna-person-hex-node\"",
+      "expectedOutcome": "Outer SNA person nodes render as hexagons while retaining the social-layer cyan outline."
+    },
+    {
+      "id": "fusion-canvas-sna-outer-orbit",
+      "label": "Fusion canvas SNA outer-orbit social arc",
+      "requiredText": "data-arc-route=\"outer-orbit\"",
+      "expectedOutcome": "SNA person-person S links use outer-orbit blue arcs that stay visually separate from the internal ENA W concept mesh."
+    },
+    {
+      "id": "fusion-canvas-layer-key",
+      "label": "Fusion canvas A1 layer key",
+      "requiredText": "data-testid=\"fusion-layer-key\"",
+      "expectedOutcome": "The Fusion Canvas exposes a compact A1 layer key that binds S/W/B/G visual encodings to the current weights and threshold."
+    },
+    {
+      "id": "fusion-canvas-g-layer-key",
+      "label": "Fusion canvas G contribution key",
+      "requiredText": "data-visual-role=\"fusion-layer-key-g\"",
+      "expectedOutcome": "The A1 layer key includes the G person-code-pair contribution layer used by Temporal Fusion and report exports."
+    },
+    {
+      "id": "metric-provenance-panel",
+      "label": "Metric provenance panel",
+      "requiredText": "data-testid=\"metric-provenance-panel\"",
+      "expectedOutcome": "The Method Validation panel exposes metric source, parity, and interpretation-limit provenance for local research review."
+    },
+    {
+      "id": "metric-provenance-panel-role",
+      "label": "Metric provenance semantic role",
+      "requiredText": "data-visual-role=\"sena-metric-provenance\"",
+      "expectedOutcome": "The metric provenance panel has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "edge-matrix-provenance",
+      "label": "Selected edge matrix provenance",
+      "requiredText": "data-testid=\"edge-matrix-provenance\"",
+      "expectedOutcome": "The Evidence Inspector exposes the selected edge's runtime source, matrix block, formula factor, and fusion slot."
+    },
+    {
+      "id": "edge-matrix-provenance-role",
+      "label": "Selected edge matrix provenance role",
+      "requiredText": "data-visual-role=\"edge-matrix-provenance\"",
+      "expectedOutcome": "The selected-edge matrix provenance panel has a semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "edge-matrix-fingerprint",
+      "label": "Selected edge matrix fingerprint",
+      "requiredText": "data-testid=\"edge-matrix-fingerprint\"",
+      "expectedOutcome": "The Evidence Inspector exposes the selected edge's matrix-block and A_fusion checksums."
+    },
+    {
+      "id": "edge-matrix-fingerprint-role",
+      "label": "Selected edge matrix fingerprint role",
+      "requiredText": "data-visual-role=\"edge-matrix-fingerprint\"",
+      "expectedOutcome": "The selected-edge matrix fingerprint panel has a semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "evidence-lineage",
+      "label": "Five-table evidence lineage",
+      "requiredText": "data-testid=\"evidence-lineage\"",
+      "expectedOutcome": "Evidence snippets expose their source table, row id, and related utterance/segment/person/code identifiers."
+    },
+    {
+      "id": "evidence-lineage-role",
+      "label": "Five-table evidence lineage role",
+      "requiredText": "data-visual-role=\"five-table-evidence-lineage\"",
+      "expectedOutcome": "Evidence lineage has a stable semantic hook for browser smoke and reviewer handoff checks."
+    },
+    {
+      "id": "temporal-fusion-arc",
+      "label": "Temporal Fusion Arc anchor",
+      "requiredText": "data-testid=\"temporal-fusion-arc\"",
+      "expectedOutcome": "The Temporal Trace panel exposes a stable Plan-Teach-Reflect SVG story view for local lesson-study demos."
+    },
+    {
+      "id": "temporal-window-fingerprint",
+      "label": "Temporal window matrix fingerprint",
+      "requiredText": "data-testid=\"temporal-window-fingerprint\"",
+      "expectedOutcome": "The Temporal Runtime Trace table exposes per-window A_fusion checksums for temporal handoff review."
+    },
+    {
+      "id": "temporal-window-fingerprint-role",
+      "label": "Temporal window matrix fingerprint role",
+      "requiredText": "data-visual-role=\"temporal-window-fingerprint\"",
+      "expectedOutcome": "The per-window matrix fingerprint has a stable semantic hook for browser smoke checks."
+    },
+    {
+      "id": "temporal-fusion-g-pair-metric",
+      "label": "Temporal Fusion G pair metric",
+      "requiredText": "data-visual-role=\"temporal-g-pair-metric\"",
+      "expectedOutcome": "The Temporal Fusion Arc exposes G person-code-pair contribution bars alongside S/W/B temporal metrics."
+    },
+    {
+      "id": "temporal-trace-g-pair-line",
+      "label": "Temporal Trace G pair line",
+      "requiredText": "data-visual-role=\"temporal-trace-g-pair-line\"",
+      "expectedOutcome": "The compact Temporal Trace line chart includes a G pair-contribution series."
+    },
+    {
+      "id": "temporal-transition-evidence",
+      "label": "Temporal transition evidence",
+      "requiredText": "data-testid=\"temporal-transition-evidence\"",
+      "expectedOutcome": "The active temporal view exposes adjacent-window S/W/B/G deltas and top G-pair changes."
+    },
+    {
+      "id": "temporal-transition-summary",
+      "label": "Temporal transition summary",
+      "requiredText": "data-testid=\"temporal-transition-summary\"",
+      "expectedOutcome": "The Temporal Runtime Trace panel summarizes adjacent-window transition evidence for the full trace."
+    },
+    {
+      "id": "temporal-transition-summary-role",
+      "label": "Temporal transition summary role",
+      "requiredText": "data-visual-role=\"temporal-transition-summary\"",
+      "expectedOutcome": "The temporal transition summary has a stable semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "data-governance-metadata",
+      "label": "Data governance metadata gate",
+      "requiredText": "data-testid=\"data-governance-metadata\"",
+      "expectedOutcome": "The Report Generator exposes stable data-governance metadata controls for ethics approval, consent scope, retention, usage constraints, and stewardship before claim-ready exports."
+    },
+    {
+      "id": "claim-readiness-gate",
+      "label": "Claim readiness gate anchor",
+      "requiredText": "data-testid=\"claim-readiness-gate\"",
+      "expectedOutcome": "The Report Generator exposes a stable claim-readiness gate for research-claim handoff checks."
+    },
+    {
+      "id": "claim-readiness-gate-role",
+      "label": "Claim readiness semantic role",
+      "requiredText": "data-visual-role=\"claim-readiness-gate\"",
+      "expectedOutcome": "The claim-readiness panel has a stable semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "publication-html-export",
+      "label": "Publication HTML export",
+      "requiredText": "data-testid=\"export-publication-html\"",
+      "expectedOutcome": "The Report Generator exposes the standalone publication-ready HTML export in addition to package-bundled HTML."
+    },
+    {
+      "id": "publication-svg-export",
+      "label": "Publication SVG export",
+      "requiredText": "data-testid=\"export-publication-svg\"",
+      "expectedOutcome": "The Report Generator exposes a stable one-click SVG publication figure export."
+    },
+    {
+      "id": "publication-png-export",
+      "label": "Publication PNG export",
+      "requiredText": "data-testid=\"export-publication-png\"",
+      "expectedOutcome": "The Report Generator exposes a stable one-click PNG publication figure export."
+    },
+    {
+      "id": "publication-xlsx-export",
+      "label": "Publication Excel export",
+      "requiredText": "data-testid=\"export-publication-xlsx\"",
+      "expectedOutcome": "The Report Generator exposes a stable one-click XLSX workbook export for publication tables."
+    },
+    {
+      "id": "publication-docx-export",
+      "label": "Publication DOCX export",
+      "requiredText": "data-testid=\"export-publication-docx\"",
+      "expectedOutcome": "The Report Generator exposes a stable one-click DOCX report export."
+    },
+    {
+      "id": "publication-pdf-export",
+      "label": "Publication PDF export",
+      "requiredText": "data-testid=\"export-publication-pdf\"",
+      "expectedOutcome": "The Report Generator exposes a stable one-click PDF report export."
+    },
+    {
+      "id": "publication-package-export",
+      "label": "Publication package export",
+      "requiredText": "data-testid=\"export-publication-package\"",
+      "expectedOutcome": "The Report Generator exposes the manifest-backed publication package export covering SVG, PNG, HTML, XLSX, DOCX, and PDF artifacts."
+    },
+    {
+      "id": "enterprise-claim-evidence-package",
+      "label": "Enterprise claim evidence package",
+      "requiredText": "data-testid=\"enterprise-claim-evidence-package\"",
+      "expectedOutcome": "The enterprise workspace exposes a project-scoped claim evidence package for approved reliability, validation, preregistration, and expert-review evidence."
+    },
+    {
+      "id": "enterprise-claim-evidence-package-schema",
+      "label": "Enterprise claim evidence package schema",
+      "requiredText": "sena-enterprise-claim-evidence-package/v1",
+      "expectedOutcome": "The enterprise claim package UI names the machine-readable evidence package schema."
+    },
+    {
+      "id": "enterprise-expert-review-dossier-export",
+      "label": "Enterprise expert review dossier export",
+      "requiredText": "data-testid=\"enterprise-expert-review-dossier-export\"",
+      "expectedOutcome": "The enterprise workspace exposes domain expert review records as a standalone JSON dossier for claim-readiness review."
+    },
+    {
+      "id": "enterprise-validation-parity-evidence",
+      "label": "Enterprise validation parity evidence",
+      "requiredText": "data-testid=\"enterprise-validation-parity-evidence\"",
+      "expectedOutcome": "The enterprise workspace exposes validation parity, walkthrough, and runtime-fixture evidence for reviewer inspection."
+    },
+    {
+      "id": "enterprise-validation-parity-evidence-role",
+      "label": "Enterprise validation parity evidence semantic role",
+      "requiredText": "data-visual-role=\"enterprise-validation-parity-evidence\"",
+      "expectedOutcome": "The validation parity evidence panel has a stable semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "enterprise-validation-parity-evidence-schema",
+      "label": "Enterprise validation parity evidence schema",
+      "requiredText": "sena-validation-parity-evidence/v1",
+      "expectedOutcome": "The validation evidence UI names the parity manifest schema used by validation runs and claim packages."
+    },
+    {
+      "id": "enterprise-validation-walkthrough-evidence",
+      "label": "Enterprise validation walkthrough evidence",
+      "requiredText": "data-testid=\"enterprise-validation-walkthrough-evidence\"",
+      "expectedOutcome": "The validation panel exposes the project-linked walkthrough source and SHA-256 evidence anchor."
+    },
+    {
+      "id": "enterprise-validation-parity-export",
+      "label": "Enterprise validation parity export",
+      "requiredText": "data-testid=\"enterprise-validation-parity-export\"",
+      "expectedOutcome": "The validation evidence panel exposes a JSON export control for the parity manifest used in reviewer handoff."
+    },
+    {
+      "id": "local-validation-result-export",
+      "label": "Local validation result export",
+      "requiredText": "data-testid=\"export-local-validation-result\"",
+      "expectedOutcome": "The validation controls expose a standalone group-comparison JSON export after local or enterprise validation runs."
+    },
+    {
+      "id": "validation-preregistration-plan-export",
+      "label": "Validation preregistration plan export",
+      "requiredText": "data-testid=\"export-validation-preregistration-plan\"",
+      "expectedOutcome": "The validation controls expose the preregistered analysis plan as a standalone SHA-256-backed JSON artifact for reviewer handoff."
+    },
+    {
+      "id": "validation-holm-suite-run",
+      "label": "Validation Holm suite run",
+      "requiredText": "data-testid=\"run-validation-suite\"",
+      "expectedOutcome": "The validation controls expose a one-click Holm-corrected multi-metric suite workflow, not only a single metric comparison."
+    },
+    {
+      "id": "enterprise-validation-inference-reference",
+      "label": "Enterprise validation inference reference",
+      "requiredText": "data-testid=\"enterprise-validation-inference-reference\"",
+      "expectedOutcome": "The validation evidence panel exposes the study-specific inferential model or preregistration reference that must accompany publication claims."
+    },
+    {
+      "id": "enterprise-formal-inference-readiness",
+      "label": "Enterprise formal inference readiness",
+      "requiredText": "data-testid=\"enterprise-formal-inference-readiness\"",
+      "expectedOutcome": "The validation evidence panel exposes a formal inference readiness contract for preregistration, study-model, parity, walkthrough, multiplicity, and sample-size checks."
+    },
+    {
+      "id": "enterprise-formal-inference-readiness-schema",
+      "label": "Enterprise formal inference readiness schema",
+      "requiredText": "sena-formal-inference-readiness/v1",
+      "expectedOutcome": "The validation evidence UI names the formal inference readiness schema used by validation runs and claim packages."
+    },
+    {
+      "id": "enterprise-platform-decision-review",
+      "label": "Enterprise platform decision review",
+      "requiredText": "data-testid=\"enterprise-platform-decision-review\"",
+      "expectedOutcome": "The enterprise workspace exposes a team-RBAC platform decision review panel for bridge/native-adapter acceptance."
+    },
+    {
+      "id": "enterprise-platform-decision-review-schema",
+      "label": "Enterprise platform decision review schema",
+      "requiredText": "sena-enterprise-platform-decision-acceptance/v1",
+      "expectedOutcome": "The platform decision review UI names the persisted acceptance-record schema."
+    },
+    {
+      "id": "enterprise-platform-decision-select",
+      "label": "Enterprise platform decision selector",
+      "requiredText": "data-testid=\"enterprise-platform-decision-select\"",
+      "expectedOutcome": "The platform decision review UI lets a team manager choose the production platform decision being reviewed."
+    },
+    {
+      "id": "enterprise-platform-decision-status",
+      "label": "Enterprise platform decision status",
+      "requiredText": "data-testid=\"enterprise-platform-decision-status\"",
+      "expectedOutcome": "The platform decision review UI exposes accepted, rejected, native-adapter-required, and superseded statuses."
+    },
+    {
+      "id": "enterprise-platform-decision-owner",
+      "label": "Enterprise platform decision owner",
+      "requiredText": "data-testid=\"enterprise-platform-decision-owner\"",
+      "expectedOutcome": "The platform decision review UI captures a named platform owner and role for governance evidence."
+    },
+    {
+      "id": "enterprise-platform-decision-evidence",
+      "label": "Enterprise platform decision evidence",
+      "requiredText": "data-testid=\"enterprise-platform-decision-evidence\"",
+      "expectedOutcome": "The platform decision review UI captures evidence URL and notes without exposing secrets."
+    },
+    {
+      "id": "enterprise-platform-decision-production-evidence",
+      "label": "Enterprise platform decision production evidence",
+      "requiredText": "data-testid=\"enterprise-platform-decision-production-evidence\"",
+      "expectedOutcome": "The platform decision review UI lets institution owners explicitly select which production evidence requirements are covered by the signed acceptance."
+    },
+    {
+      "id": "enterprise-platform-decision-submit",
+      "label": "Enterprise platform decision submit",
+      "requiredText": "data-testid=\"enterprise-platform-decision-submit\"",
+      "expectedOutcome": "The platform decision review UI can submit a persisted acceptance record through the team-RBAC API."
+    },
+    {
+      "id": "enterprise-platform-decision-register-export",
+      "label": "Enterprise platform decision register export",
+      "requiredText": "data-testid=\"enterprise-platform-decision-register-export\"",
+      "expectedOutcome": "The platform decision review UI exports the bridge/native-adapter register for institution owner review before production deployment."
+    },
+    {
+      "id": "enterprise-capability-audit-export",
+      "label": "Enterprise capability audit export",
+      "requiredText": "data-testid=\"enterprise-capability-audit-export\"",
+      "expectedOutcome": "The enterprise workspace exports a capability audit that maps original missing-feature areas to runnable endpoint, artifact, UI contract, and platform-decision evidence."
+    },
+    {
+      "id": "enterprise-capability-audit-schema",
+      "label": "Enterprise capability audit schema",
+      "requiredText": "sena-enterprise-capability-audit/v1",
+      "expectedOutcome": "The ops export panel names the capability audit schema required for enterprise-readiness handoff."
+    },
+    {
+      "id": "enterprise-native-adapter-certification-export",
+      "label": "Enterprise native adapter certification export",
+      "requiredText": "data-testid=\"enterprise-native-adapter-certification-export\"",
+      "expectedOutcome": "The enterprise workspace exposes managed database, object storage, pub/sub, identity, email, audit, backup, alerting, and SaaS backend adapter certification as a standalone JSON dossier."
+    },
+    {
+      "id": "enterprise-native-adapter-certification-schema",
+      "label": "Enterprise native adapter certification schema",
+      "requiredText": "sena-enterprise-native-adapter-certification/v1",
+      "expectedOutcome": "The platform-decision workspace names the native adapter certification schema required by the production handoff."
+    },
+    {
+      "id": "enterprise-identity-production-evidence-export",
+      "label": "Enterprise identity production evidence export",
+      "requiredText": "data-testid=\"enterprise-identity-production-evidence-export\"",
+      "expectedOutcome": "The enterprise workspace exports the redacted IdP, SSO secret-rotation, SCIM ownership, bearer-token rotation, and lifecycle-guardrail evidence packet for institution identity platform review."
+    },
+    {
+      "id": "enterprise-identity-production-evidence-schema",
+      "label": "Enterprise identity production evidence schema",
+      "requiredText": "sena-enterprise-identity-production-evidence/v1",
+      "expectedOutcome": "The ops export panel names the identity production evidence schema that blocks release approval until institution IdP and SCIM evidence is complete."
+    },
+    {
+      "id": "enterprise-identity-platform-decision-request-packet-schema",
+      "label": "Enterprise identity platform decision request packet schema",
+      "requiredText": "sena-enterprise-identity-platform-decision-request-packet/v1",
+      "expectedOutcome": "The ops export panel names the platform decision request packet schema used to ask institution IdP and SCIM owners for structured production evidence."
+    },
+    {
+      "id": "enterprise-identity-submission-verifier-schema",
+      "label": "Enterprise identity submission verifier schema",
+      "requiredText": "sena-enterprise-identity-submission-verifier/v1",
+      "expectedOutcome": "The ops export panel names the submission verifier schema used to compare institution identity evidence submissions with the expected request packet."
+    },
+    {
+      "id": "enterprise-identity-rotation-freshness-schema",
+      "label": "Enterprise identity rotation freshness schema",
+      "requiredText": "sena-enterprise-identity-rotation-freshness/v1",
+      "expectedOutcome": "The ops export panel names the rotation freshness schema used to keep SSO secret and provisioning bearer-token rotation evidence from becoming stale."
+    },
+    {
+      "id": "enterprise-saas-operations-readiness-export",
+      "label": "Enterprise SaaS operations readiness export",
+      "requiredText": "data-testid=\"enterprise-saas-operations-readiness-export\"",
+      "expectedOutcome": "The enterprise workspace exposes a SaaS operations readiness dossier that links platform-owner approval, native adapter certification, and release-gate evidence."
+    },
+    {
+      "id": "enterprise-saas-operations-readiness-schema",
+      "label": "Enterprise SaaS operations readiness schema",
+      "requiredText": "sena-enterprise-saas-operations-readiness/v1",
+      "expectedOutcome": "The ops export panel names the SaaS operations readiness schema used to prevent environment-only production approval claims."
+    },
+    {
+      "id": "enterprise-go-live-rehearsal-export",
+      "label": "Enterprise go-live rehearsal export",
+      "requiredText": "data-testid=\"enterprise-go-live-rehearsal-export\"",
+      "expectedOutcome": "The enterprise workspace exposes a go-live rehearsal dossier that links readiness, native adapter certification, SaaS operations approval, and release-gate evidence."
+    },
+    {
+      "id": "enterprise-go-live-rehearsal-schema",
+      "label": "Enterprise go-live rehearsal schema",
+      "requiredText": "sena-enterprise-go-live-rehearsal/v1",
+      "expectedOutcome": "The ops export panel names the go-live rehearsal schema used for production cutover review."
+    },
+    {
+      "id": "enterprise-go-live-rollback-drill-schema",
+      "label": "Enterprise go-live rollback drill schema",
+      "requiredText": "sena-enterprise-go-live-rollback-drill/v1",
+      "expectedOutcome": "The ops export panel names the rollback drill schema used to prove backup, restore, alerting, and verifier evidence before cutover."
+    },
+    {
+      "id": "enterprise-go-live-rollback-drill-export",
+      "label": "Enterprise go-live rollback drill export",
+      "requiredText": "data-testid=\"enterprise-go-live-rollback-drill-export\"",
+      "expectedOutcome": "The enterprise workspace exposes a standalone rollback drill dossier for production incident-response handoff."
+    },
+    {
+      "id": "enterprise-go-live-monitor-schema",
+      "label": "Enterprise go-live monitor schema",
+      "requiredText": "sena-enterprise-go-live-monitor/v1",
+      "expectedOutcome": "The ops export panel names the post-cutover monitoring schema used for observation-window handoff."
+    },
+    {
+      "id": "enterprise-go-live-monitor-export",
+      "label": "Enterprise go-live monitor export",
+      "requiredText": "data-testid=\"enterprise-go-live-monitor-export\"",
+      "expectedOutcome": "The enterprise workspace exposes a standalone post-cutover monitor dossier for ops status, alert, rollback, release-gate, and verifier evidence."
+    },
+    {
+      "id": "enterprise-go-live-rehearsal-apply-draft",
+      "label": "Enterprise go-live rehearsal release gate draft",
+      "requiredText": "data-testid=\"enterprise-go-live-rehearsal-apply-draft\"",
+      "expectedOutcome": "The enterprise workspace can apply a go-live rehearsal draft to the release gate review form without auto-approving production."
+    },
+    {
+      "id": "enterprise-go-live-release-gate-draft-schema",
+      "label": "Enterprise go-live release gate draft schema",
+      "requiredText": "sena-enterprise-release-gate-draft/v1",
+      "expectedOutcome": "The ops export panel names the release gate draft schema generated from go-live rehearsal evidence."
+    },
+    {
+      "id": "enterprise-go-live-attestation-schema",
+      "label": "Enterprise go-live attestation schema",
+      "requiredText": "sena-enterprise-go-live-attestation/v1",
+      "expectedOutcome": "The ops export panel names the go-live attestation schema used for cutover approval evidence."
+    },
+    {
+      "id": "enterprise-go-live-attestation-submit",
+      "label": "Enterprise go-live attestation submit",
+      "requiredText": "data-testid=\"enterprise-go-live-attestation-submit\"",
+      "expectedOutcome": "The enterprise workspace can submit a team-RBAC go-live attestation without bypassing release gate evidence."
+    },
+    {
+      "id": "enterprise-go-live-attestation-export",
+      "label": "Enterprise go-live attestation export",
+      "requiredText": "data-testid=\"enterprise-go-live-attestation-export\"",
+      "expectedOutcome": "The enterprise workspace exposes go-live attestation records as JSON handoff evidence."
+    },
+    {
+      "id": "enterprise-release-gate-review",
+      "label": "Enterprise release gate review",
+      "requiredText": "data-testid=\"enterprise-release-gate-review\"",
+      "expectedOutcome": "The enterprise workspace exposes a team-RBAC release gate review panel before production handoff."
+    },
+    {
+      "id": "enterprise-release-gate-review-schema",
+      "label": "Enterprise release gate schema",
+      "requiredText": "sena-enterprise-release-gate-review/v1",
+      "expectedOutcome": "The release gate review UI names the persisted release-gate review schema."
+    },
+    {
+      "id": "enterprise-release-gate-identity-snapshot",
+      "label": "Enterprise release gate identity snapshot",
+      "requiredText": "data-testid=\"enterprise-release-gate-identity-snapshot\"",
+      "expectedOutcome": "The release gate review UI exposes the persisted identity production evidence snapshot before production approval."
+    },
+    {
+      "id": "enterprise-release-gate-identity-snapshot-schema",
+      "label": "Enterprise release gate identity snapshot schema",
+      "requiredText": "data-testid=\"enterprise-release-gate-identity-snapshot-schema\"",
+      "expectedOutcome": "The release gate review UI names the identity production evidence schema attached to release reviews."
+    },
+    {
+      "id": "enterprise-release-gate-decision",
+      "label": "Enterprise release gate decision",
+      "requiredText": "data-testid=\"enterprise-release-gate-decision\"",
+      "expectedOutcome": "The release gate review UI captures approved, conditional, or blocked decisions."
+    },
+    {
+      "id": "enterprise-release-gate-submit",
+      "label": "Enterprise release gate submit",
+      "requiredText": "data-testid=\"enterprise-release-gate-submit\"",
+      "expectedOutcome": "The release gate review UI can submit a persisted release decision through the team-RBAC API."
+    },
+    {
+      "id": "enterprise-release-gate-export",
+      "label": "Enterprise release gate export",
+      "requiredText": "data-testid=\"enterprise-release-gate-export\"",
+      "expectedOutcome": "The release gate review UI exposes a JSON handoff export for persisted release decisions and verification evidence."
+    },
+    {
+      "id": "enterprise-import-cleaning-manifest-export",
+      "label": "Enterprise import cleaning manifest export",
+      "requiredText": "data-testid=\"enterprise-import-cleaning-manifest-export\"",
+      "expectedOutcome": "The enterprise workspace exposes a stable export control for the latest sena-import-cleaning-manifest/v1 audit artifact."
+    },
+    {
+      "id": "enterprise-governance-exports",
+      "label": "Enterprise governance export panel",
+      "requiredText": "data-testid=\"enterprise-governance-exports\"",
+      "expectedOutcome": "The enterprise workspace exposes stable governance artifact export controls for deployment handoff evidence."
+    },
+    {
+      "id": "enterprise-governance-health-export",
+      "label": "Enterprise governance health export",
+      "requiredText": "data-testid=\"enterprise-governance-health-export\"",
+      "expectedOutcome": "The enterprise workspace can download the sena-enterprise-governance/v1 health artifact."
+    },
+    {
+      "id": "enterprise-governance-security-export",
+      "label": "Enterprise governance security export",
+      "requiredText": "data-testid=\"enterprise-governance-security-export\"",
+      "expectedOutcome": "The enterprise workspace can download the sena-enterprise-security-posture/v1 artifact."
+    },
+    {
+      "id": "enterprise-governance-audit-csv-export",
+      "label": "Enterprise governance audit CSV export",
+      "requiredText": "data-testid=\"enterprise-governance-audit-csv-export\"",
+      "expectedOutcome": "The enterprise workspace can download a filtered team audit CSV with integrity evidence."
+    },
+    {
+      "id": "enterprise-governance-backup-export",
+      "label": "Enterprise governance backup export",
+      "requiredText": "data-testid=\"enterprise-governance-backup-export\"",
+      "expectedOutcome": "The enterprise workspace can download the sanitized team backup JSON artifact."
+    },
+    {
+      "id": "enterprise-governance-audit-delivery",
+      "label": "Enterprise governance audit delivery",
+      "requiredText": "data-testid=\"enterprise-governance-audit-delivery\"",
+      "expectedOutcome": "The enterprise workspace can trigger signed audit/SIEM delivery through sena-enterprise-audit-delivery/v1."
+    },
+    {
+      "id": "enterprise-governance-backup-delivery",
+      "label": "Enterprise governance backup delivery",
+      "requiredText": "data-testid=\"enterprise-governance-backup-delivery\"",
+      "expectedOutcome": "The enterprise workspace can trigger signed managed-backup delivery through sena-enterprise-backup-delivery/v1."
+    },
+    {
+      "id": "enterprise-governance-database-sync",
+      "label": "Enterprise governance database sync",
+      "requiredText": "data-testid=\"enterprise-governance-database-sync\"",
+      "expectedOutcome": "The enterprise workspace can trigger signed managed-database sync through sena-enterprise-database-sync/v1."
+    },
+    {
+      "id": "enterprise-ops-exports",
+      "label": "Enterprise ops export panel",
+      "requiredText": "data-testid=\"enterprise-ops-exports\"",
+      "expectedOutcome": "The enterprise workspace exposes stable ops artifact export controls for deployment monitoring evidence."
+    },
+    {
+      "id": "enterprise-ops-status-export",
+      "label": "Enterprise ops status export",
+      "requiredText": "data-testid=\"enterprise-ops-status-export\"",
+      "expectedOutcome": "The enterprise workspace can download the sena-enterprise-ops-status/v1 artifact."
+    },
+    {
+      "id": "enterprise-ops-readiness-export",
+      "label": "Enterprise ops readiness export",
+      "requiredText": "data-testid=\"enterprise-ops-readiness-export\"",
+      "expectedOutcome": "The enterprise workspace can download the production-gate readiness artifact."
+    },
+    {
+      "id": "enterprise-ops-deployment-export",
+      "label": "Enterprise ops deployment export",
+      "requiredText": "data-testid=\"enterprise-ops-deployment-export\"",
+      "expectedOutcome": "The enterprise workspace can download the redacted organization deployment package."
+    },
+    {
+      "id": "enterprise-ops-alerts-export",
+      "label": "Enterprise ops alerts export",
+      "requiredText": "data-testid=\"enterprise-ops-alerts-export\"",
+      "expectedOutcome": "The enterprise workspace can download machine-readable firing alert evidence."
+    },
+    {
+      "id": "enterprise-ops-alert-delivery",
+      "label": "Enterprise ops alert delivery",
+      "requiredText": "data-testid=\"enterprise-ops-alert-delivery\"",
+      "expectedOutcome": "The enterprise workspace can trigger signed deployment alert delivery through sena-enterprise-ops-alert-delivery/v1."
+    },
+    {
+      "id": "enterprise-notification-center",
+      "label": "Enterprise notification center",
+      "requiredText": "data-testid=\"enterprise-notification-center\"",
+      "expectedOutcome": "The enterprise workspace exposes visible in-app notifications and delivery-worker evidence controls."
+    },
+    {
+      "id": "enterprise-notification-refresh",
+      "label": "Enterprise notification refresh",
+      "requiredText": "data-testid=\"enterprise-notification-refresh\"",
+      "expectedOutcome": "The notification center can refresh visible notification state from the team API."
+    },
+    {
+      "id": "enterprise-notification-deliver",
+      "label": "Enterprise notification webhook delivery",
+      "requiredText": "data-testid=\"enterprise-notification-deliver\"",
+      "expectedOutcome": "The notification center can run the signed notification webhook delivery worker."
+    },
+    {
+      "id": "enterprise-notification-deliver-email",
+      "label": "Enterprise notification email delivery",
+      "requiredText": "data-testid=\"enterprise-notification-deliver-email\"",
+      "expectedOutcome": "The notification center can run the signed institution email delivery worker."
+    },
+    {
+      "id": "enterprise-notification-mark-read",
+      "label": "Enterprise notification mark read",
+      "requiredText": "data-testid=\"enterprise-notification-mark-read\"",
+      "expectedOutcome": "The notification center can mark visible notification records as read."
+    },
+    {
+      "id": "enterprise-upload-storage",
+      "label": "Enterprise upload storage registry",
+      "requiredText": "data-testid=\"enterprise-upload-storage\"",
+      "expectedOutcome": "The enterprise workspace exposes upload registry, scan, blob-integrity, and object-storage delivery controls."
+    },
+    {
+      "id": "enterprise-upload-storage-refresh",
+      "label": "Enterprise upload storage refresh",
+      "requiredText": "data-testid=\"enterprise-upload-storage-refresh\"",
+      "expectedOutcome": "The upload storage panel can refresh team-scoped upload registry records."
+    },
+    {
+      "id": "enterprise-upload-storage-verify",
+      "label": "Enterprise upload storage verification",
+      "requiredText": "data-testid=\"enterprise-upload-storage-verify\"",
+      "expectedOutcome": "The upload storage panel can request sena-enterprise-upload-storage-verification/v1 evidence."
+    },
+    {
+      "id": "enterprise-upload-storage-deliver",
+      "label": "Enterprise upload object-storage delivery",
+      "requiredText": "data-testid=\"enterprise-upload-storage-deliver\"",
+      "expectedOutcome": "The upload storage panel can trigger signed object-storage bridge delivery for registered upload blobs."
+    },
+    {
+      "id": "enterprise-upload-storage-file-input",
+      "label": "Enterprise upload storage file input",
+      "requiredText": "data-testid=\"enterprise-upload-storage-file-input\"",
+      "expectedOutcome": "The upload storage panel can create private team upload registry records from local files."
+    },
+    {
+      "id": "enterprise-upload-storage-transcript-accept",
+      "label": "Enterprise transcript upload accept list",
+      "requiredText": ".srt,.vtt",
+      "expectedOutcome": "The workspace upload inputs expose subtitle transcript extensions so the cleaned-transcript adapter can be reached from the UI."
+    },
+    {
+      "id": "enterprise-collaboration-pubsub-delivery",
+      "label": "Enterprise collaboration pub/sub delivery",
+      "requiredText": "data-testid=\"enterprise-collaboration-pubsub-delivery\"",
+      "expectedOutcome": "The enterprise workspace can trigger signed collaboration pub/sub delivery for presence, comments, comment resolution, and adjudication events."
+    },
+    {
+      "id": "enterprise-collaboration-pubsub-schema",
+      "label": "Enterprise collaboration pub/sub delivery schema",
+      "requiredText": "sena-enterprise-collaboration-pubsub-delivery/v1",
+      "expectedOutcome": "The collaboration panel exposes the delivery artifact schema used by the pub/sub bridge."
+    },
+    {
+      "id": "coding-reliability-gate",
+      "label": "Coding reliability gate anchor",
+      "requiredText": "data-testid=\"coding-reliability-gate\"",
+      "expectedOutcome": "The Report Generator exposes a stable coding reliability gate before research-claim-ready handoff."
+    },
+    {
+      "id": "coding-reliability-gate-role",
+      "label": "Coding reliability semantic role",
+      "requiredText": "data-visual-role=\"coding-reliability-gate\"",
+      "expectedOutcome": "The coding reliability panel has a stable semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "coding-reliability-dashboard-export",
+      "label": "Coding reliability dashboard export",
+      "requiredText": "data-testid=\"export-reliability-dashboard\"",
+      "expectedOutcome": "The Report Generator exposes the computed Cohen kappa, Krippendorff alpha, code diagnostics, and disagreement queue as a standalone dashboard JSON export."
+    },
+    {
+      "id": "review-packet-audit",
+      "label": "Review packet audit anchor",
+      "requiredText": "data-testid=\"review-packet-audit\"",
+      "expectedOutcome": "The Report Generator exposes a stable review-packet audit for reviewer handoff checks."
+    },
+    {
+      "id": "review-packet-audit-role",
+      "label": "Review packet audit semantic role",
+      "requiredText": "data-visual-role=\"review-packet-audit\"",
+      "expectedOutcome": "The review-packet audit panel has a stable semantic hook for production and browser smoke checks."
+    },
+    {
+      "id": "review-packet-method-protocol-handoff",
+      "label": "Review packet method protocol handoff",
+      "requiredText": "data-audit-id=\"method-protocol-handoff\"",
+      "expectedOutcome": "The review-packet audit visibly verifies method protocol companion artifacts, including the standalone coding-reliability and claim-readiness gates."
+    },
+    {
+      "id": "review-packet-development-plan-handoff",
+      "label": "Review packet development plan handoff",
+      "requiredText": "data-audit-id=\"development-plan-handoff\"",
+      "expectedOutcome": "The review-packet audit visibly verifies local-pilot scope, runtime parity evidence, required artifacts, and deferred production boundaries."
+    },
+    {
+      "id": "review-packet-project-snapshot-handoff",
+      "label": "Review packet project snapshot handoff",
+      "requiredText": "data-audit-id=\"project-snapshot-handoff\"",
+      "expectedOutcome": "The review-packet audit visibly verifies the restorable model JSON snapshot, including graph, matrix, and temporal handoff evidence."
+    }
+  ],
+  "notes": [
+    "This contract verifies demo-critical page affordances in the built production HTML.",
+    "It is a smoke contract for local demo readiness, not a full visual regression suite.",
+    "The C3 workspace shell checks preserve the ENA-inspired workbench structure: left Sets/Model/Plot Tools/Stats rail, dominant central plot deck, collapsed plot switcher, and right-side Primary/Secondary plot viewports.",
+    "The Stats provenance checks keep metric values tied to direct jSNA, jENA, SENA-implemented, and composite source categories before interpretation.",
+    "The central Fusion analysis-scope checks make the default plot auditable as the active temporal-window model rather than an unscoped full-conversation graphic.",
+    "The central Fusion transition-delta checks keep adjacent-window S/W/B/G/A_fusion changes visible in the main plot surface for temporal interpretation.",
+    "The central Fusion G-pair shift checks expose the strongest person-code-pair explanation for adjacent-window change while preserving the non-causal interpretation guardrail.",
+    "The pilot asset checks keep the downloadable manifest, lesson-study sample files, and blank templates visible and reachable from Data Import.",
+    "The pilot handoff checks keep the Data Import entrypoint aligned with manifest-declared reviewer checks for model JSON, local runtimes, and review packet audit.",
+    "The center-region checks protect against the black-circle fusion-canvas regression observed during local review and preserve a stable SVG hook for future rendered-browser smoke tests.",
+    "The ENA solid-link and SNA outer-orbit checks preserve the adopted A1 Inner Solid Mesh visual grammar: S is an outer social arc, W is an inner solid concept mesh, and B remains a translucent bridge ribbon.",
+    "The readable link halo and label-plate checks preserve day-mode readability so labels and solid S/W/B paths remain legible over the grid.",
+    "The A1 layer-key checks keep the visible research legend aligned with the adopted S/W/B/G visual grammar and the active alpha/beta/gamma/threshold settings.",
+    "The runtime alignment chain check keeps the local JavaScript runtime story visible from five-table import through jENA, jSNA, SENA fusion, and review handoff.",
+    "The jENA concept-pair handoff checks keep the SENA W concept matrix visibly tied to jENA adjacency coverage and positive connection-count overlap without claiming W-weight equality.",
+    "The edge matrix provenance checks ensure selected graph relations can be traced to a runtime source, matrix block, formula factor, fusion slot, matrix fingerprint, evidence, and interpretation guardrail.",
+    "The concept-edge G attribution checks expose SENA's person-code-pair explanation for traditional ENA W concept links.",
+    "The Temporal Fusion Arc check preserves the adopted temporal visual direction for narrating lesson-study movement across Plan, Teach, and Reflect windows.",
+    "The temporal window fingerprint checks keep each Plan-Teach-Reflect window tied to stable S/W/B/G/A_fusion matrix checksums.",
+    "The G pair metric checks keep the temporal view aligned with the full S/W/B/G mathematical frame rather than only S/W/B summary metrics.",
+    "The claim-readiness checks keep research-use status visible: SENA outputs remain exploratory until human review and automated data/runtime/math/evidence/method gates all pass.",
+    "The review-packet audit checks keep the visible handoff panel aligned with the exported review packet, including project snapshot model JSON coverage, development-plan scope coverage, and method protocol companion-artifact coverage."
+  ]
+}

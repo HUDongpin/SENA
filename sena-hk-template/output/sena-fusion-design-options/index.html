@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SENA Fusion Display Design Options</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5f6f91;
+      --line-blue: #2f7cf6;
+      --line-cyan: #21c7da;
+      --line-violet: #8b5cf6;
+      --line-pink: #df4da7;
+      --surface: rgba(255,255,255,.82);
+      --stroke: rgba(90, 116, 165, .22);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #e9edf7;
+      color: var(--ink);
+    }
+
+    .board {
+      display: grid;
+      gap: 56px;
+      padding: 40px;
+    }
+
+    .frame {
+      position: relative;
+      width: 1440px;
+      height: 1024px;
+      overflow: hidden;
+      border-radius: 32px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,250,255,.94) 42%, rgba(238,245,255,.96)),
+        repeating-linear-gradient(0deg, rgba(47, 124, 246, .05), rgba(47, 124, 246, .05) 1px, transparent 1px, transparent 92px),
+        repeating-linear-gradient(90deg, rgba(139, 92, 246, .045), rgba(139, 92, 246, .045) 1px, transparent 1px, transparent 92px);
+      box-shadow: 0 34px 110px rgba(45, 64, 110, .18);
+      isolation: isolate;
+    }
+
+    .frame::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      border-radius: 26px;
+      border: 1px solid rgba(80, 112, 170, .18);
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .kicker {
+      position: absolute;
+      top: 28px;
+      left: 42px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #31456e;
+      font-size: 18px;
+      font-weight: 850;
+      letter-spacing: .02em;
+    }
+
+    .kicker span:first-child {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #11244a;
+      color: white;
+      font-size: 13px;
+    }
+
+    .caption {
+      position: absolute;
+      right: 40px;
+      top: 28px;
+      z-index: 10;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      color: #315e8b;
+      font-size: 13px;
+      font-weight: 800;
+      border: 1px solid rgba(47, 124, 246, .2);
+      background: rgba(255,255,255,.68);
+      backdrop-filter: blur(12px);
+    }
+
+    .legend {
+      position: absolute;
+      left: 44px;
+      bottom: 32px;
+      z-index: 12;
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 18px;
+      border: 1px solid rgba(90, 116, 165, .2);
+      background: rgba(255,255,255,.72);
+      box-shadow: 0 16px 36px rgba(50, 70, 120, .12);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      color: #40557b;
+      font-size: 12px;
+      font-weight: 850;
+      background: rgba(248,250,255,.84);
+      border: 1px solid rgba(90,116,165,.12);
+    }
+
+    .swatch { width: 28px; height: 6px; border-radius: 99px; }
+    .blue { background: var(--line-blue); }
+    .cyan { background: var(--line-cyan); }
+    .violet { background: var(--line-violet); }
+    .pink { background: var(--line-pink); }
+
+    svg.network {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      overflow: visible;
+    }
+
+    .soft-line {
+      fill: none;
+      stroke-linecap: round;
+      filter: drop-shadow(0 8px 16px rgba(58,92,160,.12));
+    }
+
+    .person {
+      position: absolute;
+      z-index: 6;
+      width: 164px;
+      text-align: center;
+      transform: translate(-50%, -50%);
+    }
+
+    .avatar {
+      position: relative;
+      margin: 0 auto;
+      width: 118px;
+      height: 118px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #10213c;
+      font-size: 42px;
+      font-weight: 950;
+      background: linear-gradient(145deg, #fff, #eef8ff);
+      border: 7px solid #f8fcff;
+      box-shadow:
+        0 0 0 3px rgba(33, 199, 218, .78),
+        0 0 0 7px rgba(139, 92, 246, .18),
+        0 18px 36px rgba(45, 92, 160, .2);
+    }
+
+    .avatar::after {
+      content: "";
+      position: absolute;
+      inset: 12px 18px 18px;
+      border-radius: 999px 999px 46px 46px;
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,.9) 0 16px, transparent 17px),
+        linear-gradient(145deg, rgba(47,124,246,.22), rgba(139,92,246,.16));
+      z-index: -1;
+    }
+
+    .person strong {
+      display: block;
+      margin-top: 12px;
+      font-size: 34px;
+      line-height: 1;
+      color: #162033;
+      text-shadow: 0 2px 0 white;
+    }
+
+    .person small {
+      display: block;
+      margin-top: 8px;
+      font-size: 18px;
+      color: #42567b;
+      font-weight: 850;
+    }
+
+    .chip {
+      display: inline-flex;
+      margin-top: 10px;
+      padding: 7px 13px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 900;
+      border: 1px solid rgba(47,124,246,.2);
+      color: #2867d8;
+      background: rgba(234,242,255,.84);
+    }
+
+    .chip.cyan { color: #087b8d; background: rgba(223, 251, 255, .88); }
+    .chip.violet { color: #6f42d8; background: rgba(242, 235, 255, .9); }
+
+    .concept {
+      position: absolute;
+      z-index: 8;
+      width: 150px;
+      height: 134px;
+      transform: translate(-50%, -50%);
+      clip-path: polygon(26% 4%, 74% 4%, 99% 50%, 74% 96%, 26% 96%, 1% 50%);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: white;
+      font-size: 18px;
+      font-weight: 950;
+      line-height: 1.1;
+      border: 1px solid rgba(255,255,255,.7);
+      box-shadow: 0 20px 48px rgba(99, 102, 241, .28), inset 0 0 0 2px rgba(255,255,255,.24);
+    }
+
+    .concept b {
+      display: block;
+      font-size: 34px;
+      line-height: .9;
+      margin-bottom: 10px;
+    }
+
+    .q { background: linear-gradient(145deg, #705cf5, #9b6cf7); }
+    .hyp { background: linear-gradient(145deg, #5f6cf6, #8358e8); }
+    .ev { background: linear-gradient(145deg, #684fe8, #9a61f6); }
+    .coord { background: linear-gradient(145deg, #ff7a1f, #ff9b3d); }
+    .expl { background: linear-gradient(145deg, #9538e7, #bc5ff5); }
+    .refl { background: linear-gradient(145deg, #e44995, #f06ab0); }
+
+    .node-note {
+      position: absolute;
+      z-index: 12;
+      width: 210px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.82);
+      border: 1px solid rgba(90, 116, 165, .18);
+      box-shadow: 0 20px 42px rgba(48, 70, 118, .13);
+      color: #3d4e70;
+      font-size: 13px;
+      font-weight: 750;
+      line-height: 1.35;
+    }
+
+    .node-note strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #172033;
+      font-size: 15px;
+    }
+
+    .panel {
+      position: absolute;
+      z-index: 14;
+      border: 1px solid rgba(90,116,165,.18);
+      background: rgba(255,255,255,.76);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 22px 54px rgba(50,70,120,.12);
+      border-radius: 22px;
+      padding: 18px;
+    }
+
+    .panel h3 {
+      margin: 0 0 12px;
+      font-size: 17px;
+      color: #172033;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(242,246,255,.86);
+      border: 1px solid rgba(90,116,165,.12);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      color: #10213c;
+    }
+
+    .metric span {
+      font-size: 11px;
+      font-weight: 850;
+      color: #687797;
+      text-transform: uppercase;
+    }
+
+    .option-a .person.a { left: 720px; top: 126px; }
+    .option-a .person.b { left: 1220px; top: 316px; }
+    .option-a .person.c { left: 1160px; top: 776px; }
+    .option-a .person.d { left: 198px; top: 790px; }
+    .option-a .person.e { left: 152px; top: 330px; }
+    .option-a .concept.q { left: 720px; top: 328px; }
+    .option-a .concept.hyp { left: 454px; top: 442px; }
+    .option-a .concept.ev { left: 940px; top: 442px; }
+    .option-a .concept.coord { left: 456px; top: 640px; }
+    .option-a .concept.expl { left: 936px; top: 642px; }
+    .option-a .concept.refl { left: 720px; top: 786px; }
+
+    .option-b {
+      background:
+        linear-gradient(135deg, #f7fbff, #fff 45%, #f1f7fb),
+        repeating-linear-gradient(0deg, rgba(20, 94, 135, .055), rgba(20, 94, 135, .055) 1px, transparent 1px, transparent 80px),
+        repeating-linear-gradient(90deg, rgba(17, 80, 120, .05), rgba(17, 80, 120, .05) 1px, transparent 1px, transparent 80px);
+    }
+
+    .option-b .lens {
+      position: absolute;
+      left: 330px;
+      top: 124px;
+      width: 760px;
+      height: 740px;
+      border-radius: 36px;
+      border: 1px solid rgba(30, 112, 154, .18);
+      background: linear-gradient(160deg, rgba(255,255,255,.6), rgba(228,248,251,.36));
+      box-shadow: inset 0 0 70px rgba(38, 194, 205, .08), 0 28px 70px rgba(20, 86, 135, .12);
+      z-index: 2;
+    }
+
+    .option-b .rail {
+      position: absolute;
+      top: 146px;
+      bottom: 120px;
+      width: 218px;
+      z-index: 8;
+      display: grid;
+      align-content: space-between;
+    }
+
+    .option-b .rail.left { left: 56px; }
+    .option-b .rail.right { right: 56px; }
+
+    .option-b .mini-person {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 22px;
+      border: 1px solid rgba(38, 129, 176, .18);
+      background: rgba(255,255,255,.82);
+      box-shadow: 0 14px 34px rgba(31, 86, 135, .1);
+    }
+
+    .mini-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #13324f;
+      font-weight: 950;
+      font-size: 22px;
+      background: linear-gradient(145deg, #fff, #dcfbff);
+      box-shadow: 0 0 0 3px #58d7e8, 0 0 0 6px rgba(47,124,246,.14);
+    }
+
+    .mini-person strong { display: block; font-size: 19px; }
+    .mini-person span { display: block; margin-top: 4px; font-size: 12px; font-weight: 850; color: #58708c; }
+
+    .option-b .concept {
+      width: 136px;
+      height: 122px;
+    }
+
+    .option-b .concept.q { left: 706px; top: 286px; }
+    .option-b .concept.hyp { left: 544px; top: 420px; }
+    .option-b .concept.ev { left: 856px; top: 420px; }
+    .option-b .concept.coord { left: 538px; top: 596px; }
+    .option-b .concept.expl { left: 856px; top: 596px; }
+    .option-b .concept.refl { left: 706px; top: 724px; }
+
+    .option-b .panel.metrics {
+      left: 518px;
+      bottom: 32px;
+      width: 420px;
+    }
+
+    .option-b .node-note {
+      right: 320px;
+      top: 168px;
+      width: 230px;
+    }
+
+    .option-c {
+      background:
+        linear-gradient(135deg, #ffffff, #f6f8ff 48%, #f3fbf9),
+        repeating-linear-gradient(0deg, rgba(57, 83, 130, .05), rgba(57, 83, 130, .05) 1px, transparent 1px, transparent 86px);
+    }
+
+    .option-c .stage-band {
+      position: absolute;
+      left: 110px;
+      right: 110px;
+      top: 210px;
+      height: 590px;
+      z-index: 2;
+      border-radius: 42px;
+      background: linear-gradient(90deg, rgba(234,245,255,.78), rgba(248,244,255,.72), rgba(238,252,248,.76));
+      border: 1px solid rgba(84, 112, 165, .16);
+      box-shadow: inset 0 0 90px rgba(47,124,246,.08), 0 28px 80px rgba(52,72,125,.1);
+    }
+
+    .option-c .stage-label {
+      position: absolute;
+      z-index: 9;
+      top: 150px;
+      width: 240px;
+      text-align: center;
+      color: #172033;
+      font-size: 22px;
+      font-weight: 950;
+    }
+
+    .option-c .stage-label small {
+      display: block;
+      margin-top: 8px;
+      color: #627395;
+      font-size: 13px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .option-c .stage-label.plan { left: 166px; }
+    .option-c .stage-label.teach { left: 602px; }
+    .option-c .stage-label.reflect { left: 1030px; }
+
+    .option-c .person {
+      width: 128px;
+    }
+
+    .option-c .avatar {
+      width: 86px;
+      height: 86px;
+      font-size: 30px;
+      border-width: 5px;
+    }
+
+    .option-c .person strong { font-size: 24px; margin-top: 8px; }
+    .option-c .person small { font-size: 13px; margin-top: 5px; }
+    .option-c .chip { display: none; }
+
+    .option-c .person.a { left: 260px; top: 822px; }
+    .option-c .person.b { left: 542px; top: 118px; }
+    .option-c .person.c { left: 866px; top: 118px; }
+    .option-c .person.d { left: 1128px; top: 822px; }
+    .option-c .person.e { left: 706px; top: 868px; }
+
+    .option-c .concept {
+      width: 126px;
+      height: 114px;
+      font-size: 16px;
+    }
+
+    .option-c .concept b { font-size: 28px; }
+    .option-c .concept.q { left: 324px; top: 382px; }
+    .option-c .concept.hyp { left: 512px; top: 504px; }
+    .option-c .concept.ev { left: 716px; top: 382px; }
+    .option-c .concept.coord { left: 716px; top: 630px; }
+    .option-c .concept.expl { left: 934px; top: 504px; }
+    .option-c .concept.refl { left: 1112px; top: 630px; }
+
+    .option-c .panel.temporal {
+      left: 42px;
+      top: 626px;
+      width: 270px;
+    }
+
+    .option-c .panel.temporal .bar {
+      height: 10px;
+      border-radius: 99px;
+      margin: 11px 0;
+      background: linear-gradient(90deg, #2f7cf6 0 36%, #8b5cf6 36% 72%, #21c7da 72%);
+    }
+
+    .option-c .node-note {
+      right: 54px;
+      top: 658px;
+      width: 248px;
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="frame option-a" data-shot="option-a">
+      <div class="kicker"><span>A</span>Halo Fusion Field</div>
+      <div class="caption">Closest to reference · circular actors + central ENA space</div>
+      <svg class="network" viewBox="0 0 1440 1024" aria-hidden="true">
+        <path class="soft-line" d="M720 126 C518 208 354 250 152 330" stroke="#2f7cf6" stroke-width="6" opacity=".9"/>
+        <path class="soft-line" d="M720 126 C890 210 1018 244 1220 316" stroke="#2f7cf6" stroke-width="6" opacity=".9"/>
+        <path class="soft-line" d="M152 330 C122 542 126 642 198 790" stroke="#2f7cf6" stroke-width="8" opacity=".55"/>
+        <path class="soft-line" d="M1220 316 C1212 516 1200 644 1160 776" stroke="#2f7cf6" stroke-width="8" opacity=".55"/>
+        <path class="soft-line" d="M198 790 C420 906 920 914 1160 776" stroke="#2f7cf6" stroke-width="6" opacity=".85"/>
+        <path class="soft-line" d="M152 330 C310 382 352 554 456 640" stroke="#21c7da" stroke-width="14" opacity=".24"/>
+        <path class="soft-line" d="M198 790 C354 690 366 526 454 442" stroke="#21c7da" stroke-width="13" opacity=".26"/>
+        <path class="soft-line" d="M1220 316 C1064 372 1056 554 936 642" stroke="#21c7da" stroke-width="13" opacity=".23"/>
+        <path class="soft-line" d="M1160 776 C1022 686 1034 534 940 442" stroke="#21c7da" stroke-width="13" opacity=".23"/>
+        <path class="soft-line" d="M720 126 C694 302 700 570 720 786" stroke="#8b5cf6" stroke-width="16" opacity=".18"/>
+        <path class="soft-line" d="M720 126 C580 292 486 470 456 640" stroke="#8b5cf6" stroke-width="14" opacity=".17"/>
+        <path class="soft-line" d="M720 126 C862 288 920 486 936 642" stroke="#8b5cf6" stroke-width="14" opacity=".17"/>
+        <path class="soft-line" d="M198 790 C372 722 568 720 720 786" stroke="#df4da7" stroke-width="13" opacity=".16"/>
+        <path class="soft-line" d="M1160 776 C1008 718 850 720 720 786" stroke="#df4da7" stroke-width="13" opacity=".16"/>
+        <path class="soft-line" d="M454 442 L720 328 L940 442 L936 642 L720 786 L456 640 Z" stroke="#8b5cf6" stroke-width="6" stroke-dasharray="18 18" opacity=".78"/>
+        <path class="soft-line" d="M454 442 L940 442 M456 640 L936 642 M454 442 L720 786 M940 442 L720 786 M720 328 L456 640 M720 328 L936 642" stroke="#8b5cf6" stroke-width="4" stroke-dasharray="16 16" opacity=".55"/>
+      </svg>
+
+      <div class="person a"><div class="avatar">ML</div><strong>ML</strong><small>Coordinator</small><span class="chip">High Epistemic Driver</span></div>
+      <div class="person b"><div class="avatar">MC</div><strong>MC</strong><small>Builder</small><span class="chip">Evidence Focused</span></div>
+      <div class="person c"><div class="avatar">DW</div><strong>DW</strong><small>Synthesizer</small><span class="chip violet">Reflection Driver</span></div>
+      <div class="person d"><div class="avatar">AR</div><strong>AR</strong><small>Supporter</small><span class="chip">Interaction Hub</span></div>
+      <div class="person e"><div class="avatar">MH</div><strong>MH</strong><small>Connector</small><span class="chip cyan">Bridge to Ideas</span></div>
+
+      <div class="concept q"><span><b>?</b>Question</span></div>
+      <div class="concept hyp"><span><b>△</b>Hypothesis</span></div>
+      <div class="concept ev"><span><b>⌕</b>Evidence</span></div>
+      <div class="concept coord"><span><b>•••</b>Coordination</span></div>
+      <div class="concept expl"><span><b>✦</b>Explanation</span></div>
+      <div class="concept refl"><span><b>◌</b>Reflection</span></div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="swatch blue"></span>S social ties</div>
+        <div class="legend-item"><span class="swatch violet"></span>W concept links</div>
+        <div class="legend-item"><span class="swatch cyan"></span>B person-code bridge</div>
+        <div class="legend-item"><span class="swatch pink"></span>G pair contribution</div>
+      </div>
+    </section>
+
+    <section class="frame option-b" data-shot="option-b">
+      <div class="kicker"><span>B</span>Analytic Lens Fusion</div>
+      <div class="caption">More research-dashboard friendly · readable edge provenance</div>
+      <div class="lens"></div>
+      <svg class="network" viewBox="0 0 1440 1024" aria-hidden="true">
+        <path class="soft-line" d="M274 202 C430 246 540 262 706 286" stroke="#2f7cf6" stroke-width="7" opacity=".55"/>
+        <path class="soft-line" d="M274 506 C408 472 456 432 544 420" stroke="#21c7da" stroke-width="14" opacity=".23"/>
+        <path class="soft-line" d="M274 756 C450 730 548 712 706 724" stroke="#df4da7" stroke-width="12" opacity=".19"/>
+        <path class="soft-line" d="M1166 202 C1030 246 920 260 706 286" stroke="#2f7cf6" stroke-width="7" opacity=".55"/>
+        <path class="soft-line" d="M1166 506 C1020 470 940 438 856 420" stroke="#21c7da" stroke-width="14" opacity=".23"/>
+        <path class="soft-line" d="M1166 756 C1012 728 880 704 706 724" stroke="#df4da7" stroke-width="12" opacity=".19"/>
+        <path class="soft-line" d="M706 286 L544 420 L538 596 L706 724 L856 596 L856 420 Z" stroke="#8b5cf6" stroke-width="6" stroke-dasharray="18 16" opacity=".74"/>
+        <path class="soft-line" d="M544 420 H856 M538 596 H856 M544 420 L856 596 M856 420 L538 596 M706 286 V724" stroke="#8b5cf6" stroke-width="4" stroke-dasharray="14 15" opacity=".48"/>
+        <path class="soft-line" d="M274 202 C470 370 538 514 538 596" stroke="#8b5cf6" stroke-width="18" opacity=".1"/>
+        <path class="soft-line" d="M1166 506 C966 578 840 612 706 724" stroke="#8b5cf6" stroke-width="18" opacity=".1"/>
+      </svg>
+
+      <div class="rail left">
+        <div class="mini-person"><div class="mini-avatar">ML</div><div><strong>Ms Lee</strong><span>Bridge 0.86 · Team lead</span></div></div>
+        <div class="mini-person"><div class="mini-avatar">MH</div><div><strong>Ms Ho</strong><span>Connector · evidence cue</span></div></div>
+        <div class="mini-person"><div class="mini-avatar">AR</div><div><strong>Alex</strong><span>Interaction hub</span></div></div>
+      </div>
+      <div class="rail right">
+        <div class="mini-person"><div class="mini-avatar">MC</div><div><strong>Mr Chan</strong><span>Evidence focused</span></div></div>
+        <div class="mini-person"><div class="mini-avatar">DW</div><div><strong>Dr Wong</strong><span>Reflection driver</span></div></div>
+        <div class="mini-person"><div class="mini-avatar">JT</div><div><strong>Jia</strong><span>Emerging synthesis</span></div></div>
+      </div>
+
+      <div class="concept q"><span><b>?</b>Question</span></div>
+      <div class="concept hyp"><span><b>△</b>Hypothesis</span></div>
+      <div class="concept ev"><span><b>⌕</b>Evidence</span></div>
+      <div class="concept coord"><span><b>•••</b>Coordination</span></div>
+      <div class="concept expl"><span><b>✦</b>Explanation</span></div>
+      <div class="concept refl"><span><b>◌</b>Reflection</span></div>
+
+      <div class="node-note"><strong>Selected bridge</strong> Ms Lee → Evidence<br/>B = 0.86 · G supports Question + Evidence pair through 4 snippets.</div>
+      <div class="panel metrics">
+        <h3>Active fusion window</h3>
+        <div class="metric-grid">
+          <div class="metric"><strong>.67</strong><span>S density</span></div>
+          <div class="metric"><strong>21</strong><span>W links</span></div>
+          <div class="metric"><strong>34</strong><span>Evidence refs</span></div>
+        </div>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch blue"></span>S</div>
+        <div class="legend-item"><span class="swatch violet"></span>W</div>
+        <div class="legend-item"><span class="swatch cyan"></span>B</div>
+        <div class="legend-item"><span class="swatch pink"></span>G</div>
+      </div>
+    </section>
+
+    <section class="frame option-c" data-shot="option-c">
+      <div class="kicker"><span>C</span>Temporal Fusion Arc</div>
+      <div class="caption">Best when the demo story is Plan → Teach → Reflect</div>
+      <div class="stage-band"></div>
+      <div class="stage-label plan">Plan<small>Question + hypothesis forming</small></div>
+      <div class="stage-label teach">Teach<small>Evidence building</small></div>
+      <div class="stage-label reflect">Reflect<small>Explanation + reflection</small></div>
+      <svg class="network" viewBox="0 0 1440 1024" aria-hidden="true">
+        <path class="soft-line" d="M260 822 C292 700 304 510 324 382 C410 310 550 316 716 382 C850 444 964 500 1112 630" stroke="#2f7cf6" stroke-width="7" opacity=".82"/>
+        <path class="soft-line" d="M542 118 C500 250 466 382 512 504 C566 612 626 638 716 630" stroke="#21c7da" stroke-width="15" opacity=".2"/>
+        <path class="soft-line" d="M866 118 C860 284 856 428 934 504 C1012 582 1080 616 1128 822" stroke="#8b5cf6" stroke-width="15" opacity=".18"/>
+        <path class="soft-line" d="M706 868 C700 760 704 692 716 630 C800 640 934 640 1112 630" stroke="#df4da7" stroke-width="13" opacity=".2"/>
+        <path class="soft-line" d="M324 382 L512 504 L716 382 L934 504 L1112 630 M512 504 L716 630 L934 504 M716 382 L716 630" stroke="#8b5cf6" stroke-width="5" stroke-dasharray="16 16" opacity=".65"/>
+        <path class="soft-line" d="M198 506 H1244" stroke="#2f7cf6" stroke-width="2" opacity=".16"/>
+      </svg>
+
+      <div class="person a"><div class="avatar">AR</div><strong>Alex</strong><small>Plan hub</small><span class="chip">Hub</span></div>
+      <div class="person b"><div class="avatar">ML</div><strong>Ms Lee</strong><small>Stage lead</small><span class="chip">Lead</span></div>
+      <div class="person c"><div class="avatar">MC</div><strong>Mr Chan</strong><small>Evidence</small><span class="chip">Evidence</span></div>
+      <div class="person d"><div class="avatar">DW</div><strong>Dr Wong</strong><small>Reflect</small><span class="chip">Reflect</span></div>
+      <div class="person e"><div class="avatar">MH</div><strong>Ms Ho</strong><small>Bridge</small><span class="chip">Bridge</span></div>
+
+      <div class="concept q"><span><b>?</b>Question</span></div>
+      <div class="concept hyp"><span><b>△</b>Hypothesis</span></div>
+      <div class="concept ev"><span><b>⌕</b>Evidence</span></div>
+      <div class="concept coord"><span><b>•••</b>Coordination</span></div>
+      <div class="concept expl"><span><b>✦</b>Explanation</span></div>
+      <div class="concept refl"><span><b>◌</b>Reflection</span></div>
+
+      <div class="panel temporal">
+        <h3>Temporal trace</h3>
+        <div class="bar"></div>
+        <div class="metric-grid">
+          <div class="metric"><strong>3</strong><span>windows</span></div>
+          <div class="metric"><strong>10</strong><span>turns</span></div>
+          <div class="metric"><strong>34</strong><span>refs</span></div>
+        </div>
+      </div>
+      <div class="node-note"><strong>Active story mode</strong> Every concept node can keep its S/W/B/G evidence, while the primary layout explains movement across lesson phases.</div>
+      <div class="legend">
+        <div class="legend-item"><span class="swatch blue"></span>social spine</div>
+        <div class="legend-item"><span class="swatch cyan"></span>bridge moments</div>
+        <div class="legend-item"><span class="swatch violet"></span>concept transitions</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

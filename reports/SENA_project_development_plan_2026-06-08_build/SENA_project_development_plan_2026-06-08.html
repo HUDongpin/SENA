@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Codex automation review for SENA.HK" />
+  <meta name="dcterms.date" content="2026-06-08" />
+  <title>SENA 项目开发计划</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">SENA 项目开发计划</h1>
+<p class="subtitle">面向 www.sena.hk 网站与当前 SENA 代码库</p>
+<p class="author">Codex automation review for SENA.HK</p>
+<p class="date">2026-06-08</p>
+</header>
+<h2 id="执行摘要">执行摘要</h2>
+<p>本报告面向 www.sena.hk 网站与当前本地 SENA
+项目代码库，目标是把已有研究原型、方法文档和 Next.js
+代码基础整理为一份可执行的开发计划。当前项目已经不是一个单纯的静态宣传页：<code>sena-hk-template</code>
+中的 <code>/workspace/ena</code> 可以通过本地 <code>jena-js</code> 运行
+ENA 分析，<code>/workspace/sena</code> 可以从 SENA
+五表数据契约构造社会层 <code>S</code>、概念层
+<code>W</code>、person-code 桥接层 <code>B</code>、person-code-pair
+贡献层 <code>G</code> 和加权 fusion matrix，并在浏览器中呈现 Fusion
+Canvas、SNA 指标、temporal windows、evidence inspector 与 JSON/Markdown
+报告导出。这个基础足以支持研究演示、教师协作试点和方法论文配套原型。</p>
+<p>但当前项目仍处于高质量 proof of concept 与 research platform template
+阶段，而不是 production SaaS。主要缺口集中在六类：第一，www.sena.hk
+当前线上访问在本次自动化检查中返回
+502，域名、部署、健康检查与告警需要纳入第一批运维工作；第二，登录和注册页面是企业级体验占位，尚未接入身份认证、角色权限、项目持久化和审计日志；第三，<code>npm run lint</code>
+已可非交互运行并通过，但 test/build/lint 还需要进入
+CI；第四，<code>jena-js</code> 已有随包 Vitest 与 rENA-derived golden
+parity，但 benchmark
+仍需扩展到更多公开数据集、参数组合和版本化差异说明；第五，<code>sna.js</code>
+已接入核心指标但仍是 starter port，R <code>sna</code>
+库的大量函数仍待移植或明确排除；第六，AI-assisted
+interpretation、匿名化、human review、IRB/consent metadata
+与报告模板还没有成为可保存、可审计、可复现的工作流。</p>
+<p>本报告建议将 SENA 的产品愿景定义为“面向教育研究与协作学习改进的
+evidence-traceable social-epistemic analytics
+platform”。近期不要把方向发散到通用组织监控、政策评分或广义
+SaaS，而应把研究、教育和 instructor-facing learning analytics
+做深。具体路线是：0-1 个月稳定 POC 和部署；1-3 个月形成研究/教育 pilot
+package；3-6 个月补项目平台、身份认证、保存分析与 human review；6-12
+个月进入机构试点，补匿名化、RBAC、审计日志、批处理与报告治理；12
+个月后再考虑开放 API、扩展统计模块和更广泛产品化。</p>
+<p>这个路线与项目已有技术形态一致。SENA 的核心优势不是“把 SNA 图和 ENA
+图叠在一起”，而是以 <code>S/W/B/G</code> 与 fusion matrix
+组织数据、证据、参数和解释边界。只要后续开发继续坚持数据契约、benchmark、human
+review 和隐私治理，SENA
+有机会成为一个既可发表、可教学、可复现，又能被机构逐步采用的研究平台。</p>
+<h2 id="项目愿景与目标用户">项目愿景与目标用户</h2>
+<p>SENA
+的长期愿景应当围绕一个清晰问题展开：在协作学习、教师团队、课程设计和知识建构场景中，研究者经常同时想知道“谁和谁互动”“哪些概念、论证动作或知识建构动作被连接起来”“谁推动了这些概念连接”“这些结构如何随时间变化”。传统
+SNA 能解释社会互动位置，却无法说明互动内容；传统 ENA
+能解释概念和话语动作之间的连接，却不天然说明这些连接由哪些人、角色或群体推动。SENA
+的机会正是在两者之间建立可计算、可视化、可审计的 bridge。</p>
+<p>因此，SENA
+不应首先被包装为泛化的数据可视化工具，而应定位为一种有方法论边界的
+research
+workflow。目标用户可以分为四层。第一层是教育研究者、学习分析研究者和
+CSCL 研究团队，他们需要将论坛、课堂转录、教师协作记录、lesson study
+语料或知识建构数据库转化为可发表的图、表、方法说明和证据链。第二层是课程团队、教师教育者和教学改进负责人，他们不一定追求论文发表，但需要用结构化证据复盘活动设计、支架效果、学生小组协作与教师团队对话。第三层是方法开发者和研究助理，他们需要管理
+codebook、导入数据、做
+benchmark、导出矩阵、复现实验并维护报告。第四层是机构管理者或伦理/数据治理负责人，他们关心权限、去标识化、审计、数据保留和误用边界。</p>
+<p>当前网站已经有面向这些用户的雏形：首页描述了 workflow
+modules、method、workspace preview、research cases、analytics
+gallery、ethics 和 docs；<code>/workspace/ena</code> 提供 jENA
+工作区；<code>/workspace/sena</code> 提供 SENA Fusion Studio
+MVP；登录注册页暗示未来的机构级 SSO、ORCID、Google
+与计划选择。但目标用户在真实使用时不应被要求先理解全部方法术语。产品上更稳妥的方式是围绕任务组织入口：创建项目、上传数据、选择或导入
+codebook、运行 ENA/SNA/SENA、检查证据、保存 snapshot、生成
+human-reviewed
+report。方法论解释仍然重要，但应嵌入每一步的参数说明、警告和导出元数据。</p>
+<p><strong>Table 1</strong></p>
+<p><em>Target users, core jobs, and product implications</em></p>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 23%" />
+<col style="width: 30%" />
+<col style="width: 23%" />
+</colgroup>
+<thead>
+<tr>
+<th>用户群体</th>
+<th>主要任务</th>
+<th style="text-align: right;">当前支持度</th>
+<th>下一步产品含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>教育/学习分析研究者</td>
+<td>导入语料、运行 ENA/SNA/SENA、形成可发表证据</td>
+<td style="text-align: right;">高</td>
+<td>优先补 benchmark、APA 报告、figure export、方法说明模板</td>
+</tr>
+<tr>
+<td>教师与课程团队</td>
+<td>复盘协作过程、识别阶段变化、连接证据与教学行动</td>
+<td style="text-align: right;">中高</td>
+<td>设计 teacher-facing dashboard、reflection prompts、低术语解释</td>
+</tr>
+<tr>
+<td>研究助理/方法开发者</td>
+<td>管理数据契约、codebook、参数、版本和导出</td>
+<td style="text-align: right;">中</td>
+<td>增加 project manifest、saved analyses、版本化 codebook</td>
+</tr>
+<tr>
+<td>机构管理员/伦理负责人</td>
+<td>审计访问、控制权限、管理匿名化和保留策略</td>
+<td style="text-align: right;">低</td>
+<td>后置但必须规划 RBAC、audit log、consent metadata、retention</td>
+</tr>
+<tr>
+<td>外部合作者/评审者</td>
+<td>查看报告、复核证据、理解限制</td>
+<td style="text-align: right;">中</td>
+<td>增加只读分享、review status、evidence appendix</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em>
+当前支持度依据本地代码、README、页面结构、测试结果与已有项目文档判断，不代表真实用户调研结果。</p>
+<h2 id="当前网站与代码库现状">当前网站与代码库现状</h2>
+<p>当前工作区根目录不是一个 Git 仓库，但 <code>sena-hk-template</code>
+是实际网站项目。项目技术栈包括 Next.js 14 App Router、React
+18、TypeScript、Tailwind CSS、Framer Motion、lucide-react、本地
+<code>jena-js</code> 和本地
+<code>sna.js</code>。<code>package.json</code> 中核心脚本为
+<code>dev</code>、<code>build</code>、<code>test</code>、<code>start</code>
+和 <code>lint</code>。本轮更新后的运行结果显示：<code>npm test</code> 在
+<code>sena-hk-template</code> 中通过 6 个测试文件、69
+项测试；<code>npm run build</code> 成功生成
+<code>/</code>、<code>/login</code>、<code>/register</code>、<code>/workspace/ena</code>、<code>/workspace/sena</code>
+和动态 <code>/api/ena/run</code>；<code>npm run lint</code>
+已非交互通过且无 warnings/errors；<code>vendor/sna-js</code> 的
+<code>npm test</code> 通过 12 项 starter graph
+tests；<code>vendor/jena-js</code> 的 <code>npm test</code> 通过 3
+个测试文件、24 项测试，并覆盖 toy 与 research-shaped rENA golden
+parity；<code>vendor/jena-js</code> 的 <code>npm run typecheck</code> 和
+<code>npm run build</code> 也通过。</p>
+<p>首页由 <code>app/page.tsx</code> 串联多个组件，包括
+<code>NavBar</code>、<code>Hero</code>、<code>Workflow</code>、<code>MethodSection</code>、<code>WorkspacePreview</code>、<code>ResearchCases</code>、<code>AnalyticsGallery</code>、<code>EthicsSection</code>、<code>DocsSection</code>
+和 <code>Footer</code>。这个结构适合展示方法和愿景，但还不是一个
+workbench-first 的产品首页。<code>NavBar</code> 支持
+ENG、繁体、简体三种语言，并通过 <code>LanguageProvider</code> 存储在
+localStorage；主题通过 <code>ThemeProvider</code> 在 localStorage 中保存
+day/night
+状态。多语言支持目前覆盖导航和主要营销段落，但组件内仍有大量英文硬编码，工作区表单、提示、按钮、图表标题和警告文案尚未完全国际化。</p>
+<p><code>/workspace/ena</code> 是可运行的 jENA 工作区。它支持 CSV
+sample、CSV upload、column mapping、model/window/weight/node-position
+参数选择、browser worker 与 Next API
+两种运行路径、运行取消、结果图、variance、points CSV、connections CSV 和
+JSON 导出。核心逻辑在 <code>lib/ena</code>，包括 CSV 解析、mapping
+inference、输入验证、<code>jena-js</code> 执行和 plot model
+构建。这个模块的价值在于证明浏览器内运行 ENA 是可行的，也提供了 SENA
+方法中 epistemic network 层的独立入口。</p>
+<p><code>/workspace/sena</code> 是当前项目的核心资产。它支持上传 JSON
+contract 或多个 CSV 表，按
+<code>people</code>、<code>interactions</code>、<code>utterances</code>、<code>coded_segments</code>、<code>codebook</code>
+进行 table inference 和 column mapping，随后构造模型、显示 Dual Lens
+Dashboard、Fusion Canvas、Inspector、SNA Metrics、Community
+Detection、Pair Contribution G、SENA Matrices、Temporal Window Builder
+和 Report Generator。这个页面已经把 SENA
+从概念变成可交互模型；但它仍主要在前端状态中运行，缺少 saved
+project、后端存储、权限控制、长期 job 管理和正式 report artifact
+pipeline。</p>
+<p>www.sena.hk 的生产状态需要单独处理。本次通过公开访问
+<code>https://www.sena.hk</code> 时未能获得可用页面，返回 502
+或没有可检索索引。这并不改变本地代码可构建的事实，但说明域名或部署链路已经是第一优先级运维风险。对于外部评审、合作者和试点学校来说，域名健康比本地
+build 成功更直接地影响可信度。</p>
+<p><strong>Table 2</strong></p>
+<p><em>Current codebase inventory and development implications</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>模块</th>
+<th>当前状态</th>
+<th>主要价值</th>
+<th>技术债或风险</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Next.js site shell</td>
+<td>App Router、Tailwind、主题与语言 provider 已成型</td>
+<td>快速演示、低后端依赖、可静态构建</td>
+<td>首页仍偏展示，工作区状态不可保存</td>
+</tr>
+<tr>
+<td>ENA workspace</td>
+<td>CSV、mapping、jENA worker/API、plot/export</td>
+<td>可运行 ENA 分析入口</td>
+<td>jENA 已有随包 parity tests，仍需公开基准与 CI 固化</td>
+</tr>
+<tr>
+<td>SENA workspace</td>
+<td>S/W/B/G、fusion、SNA metrics、temporal windows、report JSON/MD</td>
+<td>当前最强产品资产</td>
+<td>无持久化、无权限、无正式 DOCX/PDF pipeline</td>
+</tr>
+<tr>
+<td>SNA runtime</td>
+<td>本地 <code>sna.js</code> 已接核心指标</td>
+<td>浏览器/Node 可用 SNA 指标</td>
+<td>R <code>sna</code> 大量函数仍 pending</td>
+</tr>
+<tr>
+<td>Auth pages</td>
+<td>login/register UI 完成度较高</td>
+<td>为机构路线预留入口</td>
+<td>无真实身份、SSO、session 或 RBAC</td>
+</tr>
+<tr>
+<td>QA scripts</td>
+<td>Vitest、jENA parity、lint、typecheck 和 Next build 可运行</td>
+<td>可形成 CI 基础</td>
+<td>验证结果需进入 CI/release notes</td>
+</tr>
+<tr>
+<td>Deployment</td>
+<td>本地 build 成功</td>
+<td>可部署到 Vercel/Node</td>
+<td>www.sena.hk 当前健康异常，需监控</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 本表依据 2026-06-08
+本地检查结果。线上域名状态应在部署修复后重新记录。</p>
+<p><strong>Figure 1</strong></p>
+<p><em>SENA.HK current information architecture</em></p>
+<p><img src="figure_1_information_architecture.png" /></p>
+<p><em>Note.</em> The figure summarizes the current public-site and
+workspace surfaces inferred from the Next.js components and routes.</p>
+<h2 id="技术债与产品机会">技术债与产品机会</h2>
+<p>当前 SENA
+最值得肯定的地方，是研究模型已经进入可运行代码，而不是停留在概念页。也正因为已经可运行，技术债应当更具体地处理。第一类技术债是工程自动化债。测试、构建和
+lint 均可在本地非交互通过，但
+CI、部署健康和告警还没有自动检查。没有这些基础，后续任何
+UI、分析或报告改动都可能在合并后才暴露问题。第二类技术债是 runtime
+provenance 债。<code>jena-js</code> 和 <code>sna.js</code> 都是本地
+vendored packages，项目记忆明确要求不要误以为网站直接运行官方 rENA R
+包；但用户和报告读者需要知道当前 JavaScript runtime 与 R reference
+的关系、差异和验证状态。第三类技术债是状态管理债。当前工作区大量状态在浏览器中即时计算，适合
+POC，但项目、上传、报告、review
+和导出没有持久化对象。第四类技术债是治理债。登录注册页面、伦理区块和报告字段已经表达了治理愿景，但
+auth、RBAC、audit、consent
+metadata、匿名化和保留策略还未落到数据结构和流程。第五类技术债是解释边界债。页面已有
+guardrail，但导出报告和未来 AI interpretation
+也必须同样保留这些限制。</p>
+<p>产品机会则来自这些技术债背后的真实用户需求。研究者需要的不只是漂亮网络图，而是可以被审稿人追问时仍站得住的参数、证据和
+benchmark。教师团队需要的不只是
+matrix，而是能在复盘会议中讨论的阶段变化、原话证据和行动建议。机构需要的不只是
+dashboard，而是能回答“谁能看见什么、数据保留多久、AI
+是否参与、导出是否留痕”的治理能力。因此，SENA 的机会不是做又一个
+analytics gallery，而是把 social-epistemic analysis
+做成一个可复现、可审计、可教学的完整链条。</p>
+<p>从商业和学术传播角度看，最优机会也不是立即推通用
+SaaS。近期更现实的产品包是“研究/课程试点包”：标准数据模板、示例数据、codebook
+模板、SENA Fusion 工作区、报告模板、伦理声明和 benchmark
+appendix。这个产品包可以服务论文、研究基金、教师发展工作坊和课程改进项目。它的销售或合作对象可以是研究团队、教育学院、学习分析实验室、教师专业发展项目，而不是泛化企业客户。只有当试点证明方法稳定、报告有用、治理可控之后，才有理由扩展到机构平台。</p>
+<p><strong>Table 3</strong></p>
+<p><em>Technical debt and product opportunity map</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>技术债</th>
+<th>当前表现</th>
+<th>对用户的影响</th>
+<th>对应产品机会</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工程自动化</td>
+<td>lint 已非交互通过，线上健康异常</td>
+<td>外部 demo 可信度下降</td>
+<td>CI、health check、release checklist</td>
+</tr>
+<tr>
+<td>Runtime provenance</td>
+<td>本地 jENA/sna.js 与 R reference 关系需说明</td>
+<td>方法可信度依赖 benchmark</td>
+<td>Benchmark appendix 和版本化 runtime notes</td>
+</tr>
+<tr>
+<td>状态持久化</td>
+<td>工作区状态主要在浏览器中</td>
+<td>无法长期协作和复盘</td>
+<td>Saved projects、analysis snapshots、report history</td>
+</tr>
+<tr>
+<td>数据治理</td>
+<td>auth/RBAC/audit/匿名化未落地</td>
+<td>真实教育数据不能放心使用</td>
+<td>Institution-ready governance layer</td>
+</tr>
+<tr>
+<td>报告 artifact</td>
+<td>JSON/Markdown 有基础，DOCX/PDF 未内建</td>
+<td>难以直接用于论文和项目汇报</td>
+<td>APA report generator 和 evidence appendix</td>
+</tr>
+<tr>
+<td>解释边界</td>
+<td>页面 guardrail 有，导出和 AI 仍需强化</td>
+<td>用户可能过度解释图距离</td>
+<td>Human-reviewed interpretation workflow</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 技术债不是否定当前 POC，而是把 POC
+变成可信平台的路线入口。</p>
+<h2 id="核心方法论与-senaenasnafusion-技术架构">核心方法论与
+SENA/ENA/SNA/Fusion 技术架构</h2>
+<p>SENA 的方法论核心可以表达为三层异构网络：社会层表示 person-person
+interaction，概念层表示 code-code co-occurrence，桥接层表示 person-code
+contribution。当前代码还进一步引入 <code>G</code>，即 person-code-pair
+contribution，用于回答“谁推动了某个 ENA code-pair 连接”。这比只看
+<code>B</code> 更接近 ENA 的边解释，因为 ENA 的关键对象往往是 code
+pairs，而不是单个 code 的频次。</p>
+<p>当前实现中，<code>buildSenaModel</code> 的流程大致是：先索引 people
+和 codebook，随后从 interactions 构造社会矩阵 <code>S</code> 和 directed
+social matrix；从 stanza-level coded segments 构造概念共现矩阵
+<code>W</code>；从 person-coded segments 构造桥接矩阵 <code>B</code>；从
+code pair combinations 构造 <code>G</code>；通过 <code>sna.js</code>
+计算 density、tie count、degree、weighted degree、components、shortest
+path、closeness、reachable nodes 等社会指标；通过自实现算法计算
+betweenness、label propagation community、epistemic
+diversity、alignment、concept brokerage 和 bridge score；再按
+normalization 和 <code>alpha/beta/gamma</code> 构造 fusion matrix。</p>
+<p>ENA 技术架构更独立。<code>lib/ena/validation.ts</code> 将
+rows、units、conversation、codes、metadata 与运行参数转换为
+<code>jena-js</code> 的 ENAOptions。<code>lib/ena/server.ts</code> 通过
+<code>ena(prepared.options)</code> 在 API route
+中运行；<code>EnaWorkspaceClient</code> 则可通过 browser Worker
+运行同一套 options。结果通过 <code>buildEnaRunResult</code> 生成 summary
+和 plot model，包含 rows、units、codes、dimensions、variance、elapsedMs
+和 runtime。这一设计为后续 SENA 提供两个方向：其一，保留 ENA workspace
+作为教学和独立分析入口；其二，将 ENA 的 connection vectors、unit
+positions 和 node positions 更正式地接入 SENA Fusion，而不仅依赖当前
+SENA 里自建的 <code>W</code>。</p>
+<p>SNA 技术架构依赖本地 <code>sna.js</code>。当前 <code>sna.js</code>
+不是完整 R <code>sna</code> 移植，而是 browser/Node-safe starter
+port，已实现或接入
+<code>gden</code>、<code>nties</code>、<code>degree</code>、<code>geodist</code>、<code>components</code>
+和 <code>isConnected</code> 等核心函数。SENA 页面还在自身模型层实现了
+betweenness 和 deterministic weighted label
+propagation。短期内这很合理，因为 SENA
+需要的是可解释、可测试的核心指标，而不是一次性复刻整个 R
+包。但长期必须把“哪些 SNA 指标来自 <code>sna.js</code> parity，哪些是
+SENA 自实现，哪些只是 exploratory
+helper”清楚写入报告导出与方法文档。</p>
+<p>Fusion 技术架构的关键是解释边界。当前页面提供 explanatory、ENA space
+和 joint 三种布局，并在页面中加入 guardrail：explanatory 与 ENA-space
+模式下跨层距离主要用于可读性，不应解释为严格统计距离；joint mode 使用
+normalized fusion matrix 的 deterministic force embedding proof of
+concept，正式研究仍需导出权重、归一化、模型参数和稳定性检验。这个护栏非常重要。SENA
+的可信度不来自夸大可视化距离，而来自明确声明哪些是统计空间、哪些是展示布局、哪些是待验证
+embedding。</p>
+<p><strong>Figure 2</strong></p>
+<p><em>SENA data and analysis flow</em></p>
+<p><img src="figure_2_sena_data_flow.png" /></p>
+<p><em>Note.</em> The figure summarizes the current data contract, model
+construction, fusion, and output flow.</p>
+<h2 id="数据模型与分析流程">数据模型与分析流程</h2>
+<p>SENA 的数据模型应继续坚持五表契约。<code>people</code>
+定义参与者、角色、分组与显示标签；<code>interactions</code> 定义人到人的
+reply、mention、coordination 或其他 tie；<code>utterances</code>
+保留话轮、文本、阶段、时间与说话人；<code>coded_segments</code> 将
+utterances 或片段连接到 codes，并保留 unit、stanza、stage、turnIndex 和
+confidence；<code>codebook</code> 定义 codes 的
+id、label、family、description 和
+color。当前导入层已经有别名匹配与缺失字段警告，并能从 utterances 或
+interactions 推导 placeholder people，从 coded segments 推导 placeholder
+codes。这对演示友好，但正式研究报告中必须把 derived placeholders 标为
+warning，不能默默进入结论。</p>
+<p>推荐的分析流程分为八步。第一，创建项目并记录研究目的、数据来源、IRB/consent、保留策略、研究团队与版本。第二，导入五表数据或从平台数据源生成五表，执行字段映射、重复值检查、未知
+person/code 检查、turn/stage 顺序检查、权重极值检查。第三，选择 codebook
+与 coding provenance，区分人工编码、AI-assisted coding 和导入编码，记录
+coder、confidence、review status 和 reliability。第四，运行 ENA 与 SNA
+的独立分析，分别导出 connection counts、unit positions、SNA metrics
+和基础图。第五，构造 SENA <code>S/W/B/G</code>，设定
+normalization、<code>alpha/beta/gamma</code>、undirected/directed social
+layer 与 temporal mode。第六，在 Fusion Canvas 与 Dual Lens Dashboard
+中检查图、矩阵、evidence snippets 和 temporal trace。第七，研究者填写
+interpretation、limitations、next actions，并标记 human-reviewed
+status。第八，导出项目
+snapshot、报告、图表、矩阵、参数、方法说明与证据附录。</p>
+<p>当前实现已经覆盖第三至第七步的一部分，但第一、第二、第三和第八步仍不够系统。最关键的产品化差距不是“再加一个图”，而是“让研究对象、数据来源、编码、参数、输出和人工判断进入同一个可保存的
+manifest”。没有 manifest，就很难复现；没有 review status，就很难把
+AI-assisted interpretation 与正式研究结论区分开；没有 audit
+log，就很难进入学校或机构试点。</p>
+<p><strong>Table 4</strong></p>
+<p><em>Recommended SENA data contract and workflow controls</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>数据对象</th>
+<th>最小字段</th>
+<th>当前支持</th>
+<th>发展重点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>people</td>
+<td>id、label、role、group</td>
+<td>已支持</td>
+<td>增加匿名化显示名、属性 schema、consent scope</td>
+</tr>
+<tr>
+<td>interactions</td>
+<td>source、target、weight、channel、stage、turnIndex、evidence</td>
+<td>已支持</td>
+<td>增加 tie rule、source event、timestamp、directed policy</td>
+</tr>
+<tr>
+<td>utterances</td>
+<td>id、personId、unitId、stanzaId、stage、turnIndex、text</td>
+<td>已支持</td>
+<td>增加 redaction status、language、source file、line range</td>
+</tr>
+<tr>
+<td>coded_segments</td>
+<td>segmentId、utteranceId、personId、codes、confidence</td>
+<td>已支持</td>
+<td>增加 coderId、modelVersion、review state、agreement</td>
+</tr>
+<tr>
+<td>codebook</td>
+<td>id、label、family、description、color</td>
+<td>已支持</td>
+<td>增加 code definitions、examples、version、validity notes</td>
+</tr>
+<tr>
+<td>project manifest</td>
+<td>purpose、dataset version、parameters、reviewers</td>
+<td>待建</td>
+<td>作为所有报告和导出的根对象</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 当前 SENA contract 已可用于 POC 与试点，但
+production-grade research workflow 需要 provenance 与 review
+metadata。</p>
+<h2 id="前端信息架构与-ux-改进方向">前端信息架构与 UX 改进方向</h2>
+<p>当前前端的视觉完成度高，交互组件丰富，适合展示 SENA
+的方法吸引力。但从目标用户角度看，信息架构还需要从“方法展示页”转向“研究工作台”。首页的
+Hero 中主按钮目前指向 <code>/workspace/ena</code>，WorkspacePreview
+又同时提供 SENA POC 和 jENA
+Workspace；这在演示阶段可接受，但对新用户会产生入口选择压力。建议将首页主
+CTA 调整为“Start a SENA Project”或“Open SENA Fusion Studio”，并把 ENA
+workspace 作为二级入口，除非用户明确选择 standalone ENA analysis。</p>
+<p>导航层应减少营销页面与工作区之间的割裂。当前 <code>NavBar</code> 的
+demo 指向 <code>/workspace/sena</code>，docs 指向页面下方 docs
+section，login/register 是独立页面。未来应增加 <code>/projects</code> 或
+<code>/workspace</code>
+顶层路由，把“项目列表、最近分析、模板、导入、报告”组织到一个登录后的
+dashboard。未登录状态可以继续展示公开方法、案例、伦理与文档；登录后应直接进入项目和任务。</p>
+<p><code>/workspace/sena</code>
+的信息密度很高，是强项也是风险。研究者会喜欢矩阵、指标、导出和
+evidence，但教师或课程团队可能被过多参数压倒。建议提供三种
+mode：Research Mode 保留完整参数、矩阵和 JSON；Teacher Review Mode 聚焦
+raw conversation、阶段、evidence snippets、role profiles、reflection
+prompts；Methods Mode 聚焦 benchmark、normalization、embedding
+guardrails
+和可发表方法说明。这样可以在不牺牲严谨性的情况下让不同用户进入合适复杂度。</p>
+<p>可访问性方面，当前代码已经有一些良好实践，例如按钮 aria-label、SVG
+role 和 reduced-motion CSS；但仍需系统审计。优先检查键盘导航、focus
+visibility、表单 label、select multiple
+的可用性、图表替代文本、颜色对比、移动端表格横向滚动、motion
+reduction，以及语言切换后 <code>html lang</code>
+是否同步。国际化方面，LanguageProvider
+已支持三种语言，但工作区和错误提示还有大量英文硬编码；正式教育场景至少需要中英完整工作区文案、报告模板和数据导入说明。</p>
+<h2 id="研究与教育应用场景">研究与教育应用场景</h2>
+<p>近期最合适的应用场景是研究型协作学习分析、教师协作与 lesson
+study、课程团队复盘、知识建构课堂、MOOC/forum 分析和 instructor-facing
+learning
+analytics。原因很直接：这些场景都有话语、参与者、互动关系、codebook、阶段和证据解释需求，正好匹配
+SENA contract。它们也允许 human-reviewed
+interpretation，而不是要求系统自动给学生或教师打分。</p>
+<p>对研究场景，SENA 应提供论文友好的数据和方法出口：S/W/B/G
+矩阵预览、normalized values、parameter manifest、temporal windows、SNA
+metrics、ENA outputs、evidence snippets、figure caption、limitations 和
+reproducibility appendix。对教育场景，SENA
+应把研究术语转化为行动问题：哪个阶段讨论从问题提出转向证据解释？谁在连接
+evidence 和 critique？哪些小组互动很活跃但概念连接弱？教师支架是否增加了
+reflection 或 explanation
+的桥接贡献？这些问题可以由图和证据共同回答，而不必让教师先理解所有数学细节。</p>
+<p>不建议第一阶段进入高风险组织监控或政策评分。组织协作和政策评估确实可能受益于
+SENA，但它们对权限、匿名化、误用防范和统计稳健性的要求高得多。把
+centrality、bridge score 或 discourse quality
+直接用于绩效评价会带来伦理风险。当前项目页面的 EthicsSection 已经强调
+anonymization、RBAC、consent/IRB、audit logs、AI transparency、bias
+warnings、human review 和 reproducibility
+exports；这些不是附加项，而是进入高风险场景之前的门槛。</p>
+<h2 id="产品路线图">产品路线图</h2>
+<p>产品路线图应以“从可运行 POC 到可信研究平台”为主线。0-1
+个月的目标不是加大功能数量，而是稳定基础：修复 www.sena.hk
+部署健康，把非交互 lint/test/build 纳入 CI，整理 docs，补 project README
+与路线说明，确认 <code>/workspace/sena</code> 和
+<code>/workspace/ena</code>
+的演示数据、截图和导出都能稳定工作。这个阶段的成功标志是任何外部合作者打开网站、运行
+sample、导出报告时都不会被基础问题阻断。</p>
+<p>1-3 个月应形成 research/education pilot package。交付物包括 SENA data
+contract 模板、codebook 模板、示例
+CSV/JSON、教师/研究者导入指南、publication-ready figure export、DOCX/PDF
+report pipeline、rENA/jENA benchmark notes、sna.js parity
+notes、方法声明模板和至少两个高质量案例。这个阶段的目标是让 SENA
+可以支撑论文、工作坊或 grant demo。</p>
+<p>3-6
+个月应把项目从单页前端状态推进为平台：用户登录、项目列表、上传文件保存、analysis
+snapshots、review workflow、report templates、sharing links、role
+permissions 和 audit events。这个阶段不一定需要复杂 SaaS
+billing，但必须让一个研究团队能够保存项目、复盘版本、邀请 reviewer
+并生成稳定报告。</p>
+<p>6-12 个月才进入机构级试点：匿名化 pipeline、RBAC、IRB/consent
+metadata、retention policy、deployment monitoring、error logging、batch
+jobs、data export governance、tenant boundaries 和 security review。12
+个月后再考虑更广泛 API、第三方 LMS/LTI 集成、AI coding
+assistant、advanced statistics、organization collaboration
+和商业化路径。</p>
+<p><strong>Figure 3</strong></p>
+<p><em>Phased product roadmap and decision gates</em></p>
+<p><img src="figure_3_product_roadmap.png" /></p>
+<p><em>Note.</em> Gates are recommended decision points, not fixed
+calendar commitments.</p>
+<h2 id="分阶段开发计划">分阶段开发计划</h2>
+<p>0-1 个月的开发应被视为“可信入口”阶段。具体工作包括：修复 www.sena.hk
+的 502 问题；确认 production 和 preview deployment；把
+<code>npm test</code>、<code>npm run build</code>、非交互 lint 和基本
+Playwright smoke test 放入 CI；整理 README，让新成员可以在 10
+分钟内运行网站；给 <code>/workspace/sena</code> 和
+<code>/workspace/ena</code> 准备稳定 sample
+data；确认导出按钮不会生成空文件；记录当前 runtime version 和 build
+output。这个阶段还应补一个“known limitations” 页面或文档，明确 joint
+layout、jENA parity、sna.js coverage 和真实数据使用边界。</p>
+<p>1-3
+个月的开发重点是“研究与教育试点可交付”。需要把当前工作区的能力转化为试点材料：五表
+CSV/JSON 模板、字段说明、codebook 模板、sample lesson study
+dataset、导入教程、SENA 方法页、APA report template、figure
+export、benchmark notes 和教师复盘指南。工程上要实现从当前 model/report
+JSON 到 DOCX/PDF 的 report
+generation，至少支持封面、数据摘要、参数、矩阵、图、evidence
+snippets、human review、limitations、references 和
+appendix。这个阶段还应把工作区中硬编码英文提示逐步抽到 i18n
+dictionary，确保中文用户可以完成基本流程。</p>
+<p>3-6
+个月是“项目平台”阶段。此时才开始认真引入后端：登录、项目列表、上传文件保存、codebook
+version、analysis snapshot、report history、review fields
+和分享权限。实现上可以先用轻量后端，不必一次性做复杂 multi-tenant
+SaaS；但数据模型必须为以后扩展保留 user、role、project、artifact、audit
+event 和 deletion/retention metadata。这个阶段还应把 teacher mode 和
+research mode 分开，让教师用户不必直接面对全部矩阵和参数。</p>
+<p>6-12
+个月是“机构试点”阶段。进入这一阶段的前提是至少有稳定研究或教育试点。开发重点是安全与治理：RBAC、audit
+log、匿名化流程、consent
+metadata、数据保留策略、备份、错误监控、访问审查和导出审计。与此同时，benchmark
+要从 notes 变成持续维护的测试资产。对于大型数据，开始引入 server-side
+jobs 或
+queue，避免浏览器长时间卡顿。这个阶段的目标不是泛化销售，而是让一个学校、课程团队或研究中心可以在明确边界内使用真实数据。</p>
+<p>12 个月以后才进入“扩展与生态”阶段。可能方向包括 LMS/LTI
+集成、AI-assisted coding、advanced joint embedding、group
+comparison、permutation testing、interactive publication、public API
+和组织协作场景。每一个扩展都需要对应的治理和验证门槛。例如，AI coding
+必须有 prompt/version/confidence/reviewer；group comparison
+必须有统计假设和不确定性；LMS 集成必须有数据最小化和学生告知。</p>
+<p><strong>Table 5</strong></p>
+<p><em>Phased development plan</em></p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 30%" />
+<col style="width: 23%" />
+<col style="width: 23%" />
+</colgroup>
+<thead>
+<tr>
+<th>阶段</th>
+<th style="text-align: right;">时间</th>
+<th>目标</th>
+<th>关键交付物</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Stabilization</td>
+<td style="text-align: right;">0-1 个月</td>
+<td>修复部署与工程质量基础</td>
+<td>域名健康、CI、lint、README、demo QA</td>
+</tr>
+<tr>
+<td>Pilot package</td>
+<td style="text-align: right;">1-3 个月</td>
+<td>支撑研究和教育试点</td>
+<td>数据模板、报告 pipeline、benchmark notes、案例</td>
+</tr>
+<tr>
+<td>Project platform</td>
+<td style="text-align: right;">3-6 个月</td>
+<td>从 POC 变成可保存工作流</td>
+<td>Auth、projects、uploads、snapshots、review</td>
+</tr>
+<tr>
+<td>Institution pilot</td>
+<td style="text-align: right;">6-12 个月</td>
+<td>满足机构治理要求</td>
+<td>RBAC、audit、匿名化、retention、monitoring</td>
+</tr>
+<tr>
+<td>Scale</td>
+<td style="text-align: right;">12+ 个月</td>
+<td>扩展生态和统计能力</td>
+<td>API、LMS/LTI、advanced stats、SaaS readiness</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 阶段顺序应优先服从验证结果；若部署或 benchmark
+未通过，不应提前进入机构试点。</p>
+<h2 id="功能优先级与-backlog">功能优先级与 backlog</h2>
+<p>Backlog
+排序应基于用户价值、方法可信度和风险降低，而不是视觉新颖性。第一优先级是
+P0：修复线上访问、建立 CI、把 lint/test/build 设为质量门禁、固定 demo
+数据、生成可打开的正式报告、补 README 与 docs。第二优先级是
+P1：数据模板、codebook template、saved analysis、project
+manifest、report artifact、benchmark suite、accessibility
+audit。第三优先级是 P2：auth/RBAC、audit log、anonymization、human
+review workflow、share/review links、teacher mode。第四优先级是 P3：AI
+coding assistant、advanced joint embedding、permutation testing、group
+comparison、LMS integration、tenant admin、billing 或 generalized
+SaaS。</p>
+<p>当前最容易被低估的是 report artifact pipeline。SENA
+的用户最终需要把图、表、参数、证据和解释带到论文、课程会议、伦理审批或项目评估中。JSON/Markdown
+导出是基础，但不足以成为正式交付物。建议先做 DOCX/PDF 报告模板，再做
+interactive report。报告模板必须包含：数据摘要、参数、S/W/B/G 矩阵、SNA
+指标、ENA summary、temporal windows、evidence snippets、human review
+字段、limitations、AI-use statement、privacy statement 和 appendix。</p>
+<p><strong>Table 6</strong></p>
+<p><em>Prioritized product backlog</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>优先级</th>
+<th>Backlog item</th>
+<th>理由</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P0</td>
+<td>修复 www.sena.hk 线上健康</td>
+<td>外部可信度基础</td>
+<td>主页和两个 workspace 均可访问，有 health check</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>配置 CI lint/build/test</td>
+<td>防止质量漂移</td>
+<td>lint 非交互执行，test/build 在 CI 通过</td>
+</tr>
+<tr>
+<td>P0</td>
+<td>完整项目 README 与路线文档</td>
+<td>降低协作成本</td>
+<td>新成员可按文档运行、测试、理解数据流</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>SENA report DOCX/PDF pipeline</td>
+<td>研究用户核心交付</td>
+<td>从项目 snapshot 生成可复核报告</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>rENA/jENA 与 R sna benchmark</td>
+<td>方法可信度</td>
+<td>金标 fixture、误差阈值、差异说明</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>Project manifest 与 saved analysis</td>
+<td>可复现基础</td>
+<td>每次分析保存数据版本、参数、输出</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Auth、RBAC 与 audit log</td>
+<td>机构试点门槛</td>
+<td>用户、角色、访问事件和导出事件可追踪</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Anonymization workflow</td>
+<td>教育数据安全</td>
+<td>导入前后可标记脱敏状态和映射保管</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Teacher Review Mode</td>
+<td>扩展教育使用</td>
+<td>教师无需矩阵术语即可复盘证据</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>AI coding assistant</td>
+<td>提升效率但风险较高</td>
+<td>prompt/version/confidence/review 全部留痕</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Advanced joint embedding</td>
+<td>强化方法创新</td>
+<td>稳定性检验和解释边界写入报告</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> P0/P1 项应优先于新增装饰性页面或大范围视觉重构。</p>
+<h2 id="测试验证与-benchmark-计划">测试、验证与 benchmark 计划</h2>
+<p>当前测试基础比一般 POC
+更好，但仍不足以支撑研究平台。<code>sena-hk-template</code> 已有 ENA 和
+SENA 测试，覆盖 CSV parsing、input validation、jENA
+execution、worker/API result equivalence、S/W/B/G/fusion、temporal
+windows、scoped calculations、SENA report package、Markdown
+report、SNA.js metrics、bridge metrics 和 import
+mapping。这个基础应继续扩展到 edge cases：空图、单人、孤立节点、未知
+person/code、重复 IDs、长文本、非英文文本、极端权重、turnIndex
+缺失、stage 乱序、多 codebook 版本和 large dataset。</p>
+<p>Benchmark 计划应分三条线。第一条是 jENA 与 rENA parity：当前已用 R
+生成 toy 与 research-shaped goldens，并比较 connection counts、line
+weights、rotation、node positions、unit points 和
+variance；下一步应加入更多公开标准数据、极端参数和 plot model
+round-trip。第二条是 SNA.js 与 R <code>sna</code>
+parity：先覆盖当前实际使用的
+density、nties、degree、geodist、components、isConnected，再逐步加入
+closeness、betweenness、reciprocity、community 或明确使用 SENA
+自实现并给出差异说明。第三条是 SENA fusion validation：检查
+normalization sensitivity、<code>alpha/beta/gamma</code>
+sensitivity、temporal window stability、joint layout
+reproducibility、evidence trace completeness 和 report round-trip。</p>
+<p>UX 和可访问性测试也必须进入计划。SENA
+的图和表复杂，不能只靠单元测试。需要 Playwright
+测试上传、mapping、运行、切换
+runtime、导出、时间窗播放、图节点选择、报告填写、语言/主题切换和移动端布局。对于
+SVG
+图，应验证不是空白、文本不重叠、可通过键盘或列表替代入口访问关键证据。对于报告，应验证
+DOCX 可打开、表格不溢出、figures 有 captions、references
+格式正确、metadata 不泄露敏感信息。</p>
+<p><strong>Figure 4</strong></p>
+<p><em>Validation, benchmark, and deployment lifecycle</em></p>
+<p><img src="figure_4_validation_lifecycle.png" /></p>
+<p><em>Note.</em> The lifecycle joins method validation with normal
+frontend release checks.</p>
+<p><strong>Table 7</strong></p>
+<p><em>Testing and benchmark plan</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>测试层</th>
+<th>当前状态</th>
+<th>下一步</th>
+<th>成功标准</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit tests</td>
+<td>69 项网站测试通过，sna.js 12 项通过，jENA 24 项通过</td>
+<td>增加 edge cases 和 large fixtures</td>
+<td>核心模型无回归</td>
+</tr>
+<tr>
+<td>Build tests</td>
+<td>Next build 成功</td>
+<td>进入 CI 和 preview deploy</td>
+<td>每个 PR 自动验证</td>
+</tr>
+<tr>
+<td>Lint/type checks</td>
+<td>Type check 在 build 中执行，<code>npm run lint</code>
+无警告通过</td>
+<td>纳入 CI</td>
+<td>每个 PR 自动执行</td>
+</tr>
+<tr>
+<td>ENA benchmark</td>
+<td>toy 与 research-shaped rENA goldens 已通过</td>
+<td>扩展公开标准数据和参数组合</td>
+<td>数值差异在阈值内并写入 release notes</td>
+</tr>
+<tr>
+<td>SNA benchmark</td>
+<td>starter tests 可用</td>
+<td>R <code>sna</code> fixture</td>
+<td>指标 parity 或差异记录</td>
+</tr>
+<tr>
+<td>UX tests</td>
+<td>有历史截图</td>
+<td>Playwright flows</td>
+<td>上传、运行、导出、移动端可用</td>
+</tr>
+<tr>
+<td>DOCX QA</td>
+<td>可用 render workflow</td>
+<td>报告生成后渲染检查</td>
+<td>页面无明显溢出或空白</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> Benchmark 结果应写入报告和 release
+notes，而不是只留在开发日志中。</p>
+<h2 id="部署与运维计划">部署与运维计划</h2>
+<p>部署计划要从当前事实出发：本地 Next build 成功，但 www.sena.hk
+公开访问异常。第一阶段应确认域名 DNS、Vercel
+或其他托管平台配置、SSL、origin health、edge routing、environment
+variables 和 <code>/api/ena/run</code> 的 runtime
+行为。由于当前网站可以静态生成大部分页面，最简部署可以先使用 Vercel
+preview + production domain；但 <code>/api/ena/run</code> 是动态
+API，需要确认 Node runtime、bundle size、本地 <code>jena-js</code> file
+dependency 和 outputFileTracing 设置在目标平台的行为。</p>
+<p>运维上建议建立四个基本指标：availability、build success、client
+errors、analysis runtime。availability 通过 uptime check 覆盖
+<code>/</code>、<code>/workspace/ena</code>、<code>/workspace/sena</code>
+和 <code>/api/ena/run</code> smoke request；build success 通过 CI 和
+deploy hooks 记录；client errors 可先用轻量日志或 Vercel
+analytics/Sentry；analysis runtime 则记录 ENA/SENA 运行耗时、行数、code
+数、窗口数和失败原因。当前没有后端存储时，至少应把错误边界和用户可见
+warnings 做清楚。</p>
+<p>进入项目平台阶段后，需要持久化服务。推荐从简单结构开始：Postgres
+或等价关系型数据库存
+projects、users、roles、uploads、codebooks、analyses、reports、audit
+events；对象存储保存原始文件、导出图、DOCX/PDF 和 snapshots；queue 处理
+benchmark、report rendering、大型分析和 AI
+coding。不要过早引入复杂微服务，但要把隐私、权限、审计和保留策略作为数据库
+schema 的一部分。</p>
+<p><strong>Figure 5</strong></p>
+<p><em>Target architecture after the next two releases</em></p>
+<p><img src="figure_5_target_architecture.png" /></p>
+<p><em>Note.</em> The diagram separates client experience, analysis
+services, governance services, persistence, and delivery.</p>
+<h2 id="数据隐私伦理与安全">数据隐私、伦理与安全</h2>
+<p>SENA
+的数据通常包含学习者、教师或团队成员的对话、互动关系、角色、表现和解释性标签。即使系统不直接存储成绩，centrality、bridge
+score、concept contribution 和 evidence snippets
+也可能构成敏感画像。因此隐私和伦理不是后期合规包装，而是产品架构的一部分。</p>
+<p>第一项原则是 purpose
+limitation。每个项目必须记录研究或教学改进目的，避免把协作分析滑向个体监控。第二项原则是
+data minimization。导入前应允许用户删除不必要字段，导入后应以
+pseudonymous IDs 展示，原始身份映射单独保管。第三项原则是 consent and
+governance。项目应记录
+IRB/consent、数据来源、保留期限、可分享范围和导出限制。第四项原则是
+human review。AI 只能建议 coding
+或解释，不能自动成为研究结论；报告中必须标记 AI-generated
+draft、reviewer、reviewedAt、limitations 和 next actions。第五项原则是
+auditability。数据上传、映射、参数变更、报告导出、分享和删除都要有审计事件。</p>
+<p>安全路线应分阶段实现。POC
+阶段先写清楚本地演示数据与真实数据使用警告，不把敏感数据上传到没有权限控制的环境。Pilot
+阶段实现登录、项目级权限、私有 uploads 和导出提醒。机构阶段实现
+RBAC、audit log、encryption at rest、retention/deletion、DPA/IRB
+support、access review 和 incident response。AI coding
+或外部模型调用上线前，必须先定义哪些文本可发送、如何脱敏、如何记录
+prompt/model version、如何处理 provider 数据保留。</p>
+<p><strong>Table 8</strong></p>
+<p><em>Privacy, ethics, and security controls</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>控制项</th>
+<th>POC</th>
+<th>Pilot</th>
+<th>Institution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>敏感数据提示</td>
+<td>必须</td>
+<td>必须</td>
+<td>必须</td>
+</tr>
+<tr>
+<td>Pseudonymous display</td>
+<td>建议</td>
+<td>必须</td>
+<td>必须</td>
+</tr>
+<tr>
+<td>Auth/session</td>
+<td>可后置</td>
+<td>必须</td>
+<td>必须</td>
+</tr>
+<tr>
+<td>Project roles</td>
+<td>可后置</td>
+<td>基础角色</td>
+<td>完整 RBAC</td>
+</tr>
+<tr>
+<td>Audit log</td>
+<td>设计 schema</td>
+<td>记录关键事件</td>
+<td>可导出审计</td>
+</tr>
+<tr>
+<td>Anonymization</td>
+<td>手动模板</td>
+<td>导入流程</td>
+<td>管线和复核</td>
+</tr>
+<tr>
+<td>AI transparency</td>
+<td>报告声明</td>
+<td>prompt/version/confidence</td>
+<td>policy 和审计</td>
+</tr>
+<tr>
+<td>Retention/deletion</td>
+<td>文档说明</td>
+<td>项目级删除</td>
+<td>合规保留策略</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 对教育数据而言，centrality 和 contribution
+指标不应被设计成自动绩效评分。</p>
+<h2 id="可访问性与国际化">可访问性与国际化</h2>
+<p>可访问性目标应至少达到 WCAG 2.2 AA 的实用标准。SENA
+的难点在于图表、表格和复杂 controls。建议为 Fusion Canvas
+提供三种替代入口：一是节点和边列表，按权重、层和 evidence count
+排序；二是 inspector 的键盘选择和搜索；三是报告导出中的文本化
+summary。SVG 图应有 role、aria-label 和
+title，但这不足以让非视觉用户理解全部结构，需要可读列表。</p>
+<p>当前色彩系统以 cyan/violet/magenta 为核心，视觉辨识度高，但需要检查
+light/dark 下的对比度，尤其是 amber warning、muted text、card border 和
+small labels。动画方面已有 <code>prefers-reduced-motion</code>
+规则，应继续确保 Framer Motion、grid animation 和 temporal playback 在
+reduced motion 下不会影响使用。移动端方面，workspace 的多列表格和
+controls 需要专门 QA，防止按钮、select 和图表压缩到难以操作。</p>
+<p>国际化应从“语言切换”升级为“研究报告本地化”。目前 LanguageProvider
+支持
+ENG/繁/简，但工作区里许多按钮、labels、警告、报告字段仍是英文。短期目标是完整覆盖公共页与两个
+workspace 的 UI 文案；中期目标是支持中文/英文 report templates、APA
+caption 文案、数据模板说明和 ethics
+statements；长期目标是根据项目语言设置自动生成报告，并允许 codebook
+label 保留原始语言。</p>
+<h2 id="团队分工与里程碑">团队分工与里程碑</h2>
+<p>一个现实的小团队配置可以是：1 名 product/research
+lead，负责方法边界、用户试点、报告质量和路线优先级；1 名
+frontend/full-stack engineer，负责
+Next.js、workspaces、UX、accessibility 和 report UI；1 名 analytics
+engineer，负责 jENA、sna.js、SENA model、benchmark 和 large-data
+performance；1 名 backend/platform engineer，负责
+auth、persistence、RBAC、audit 和 deployment；0.5-1 名 research
+assistant/content specialist，负责 codebook templates、sample
+datasets、文档、APA 报告和案例。若资源有限，backend/platform 可以在前
+1-2 个月由 full-stack 兼任，但进入机构试点前必须补齐。</p>
+<p>里程碑应绑定验证证据。M1 是 public demo health：线上可访问、sample
+可运行、测试/build/lint 进入 CI。M2 是 research pilot
+readiness：数据模板、报告、benchmark notes 和两个案例可交付。M3 是 saved
+project beta：团队可以登录、上传、保存、复核和导出。M4 是 institution
+pilot readiness：隐私、安全、审计、监控和访问控制通过内部 review。M5 是
+scale
+decision：根据真实试点反馈决定是深化教育研究平台、扩展机构部署，还是探索更广泛
+SaaS。</p>
+<p><strong>Table 9</strong></p>
+<p><em>Team roles and milestone ownership</em></p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>角色</th>
+<th>主要职责</th>
+<th>近期里程碑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Product / research lead</td>
+<td>方法边界、用户试点、优先级、报告质量</td>
+<td>M1-M5 全程 owner</td>
+</tr>
+<tr>
+<td>Frontend / full-stack engineer</td>
+<td>Next.js、工作区 UX、accessibility、report UI</td>
+<td>M1、M2、M3</td>
+</tr>
+<tr>
+<td>Analytics engineer</td>
+<td>jENA、sna.js、SENA model、benchmark</td>
+<td>M1、M2、M5</td>
+</tr>
+<tr>
+<td>Backend / platform engineer</td>
+<td>Auth、persistence、RBAC、audit、deploy</td>
+<td>M3、M4</td>
+</tr>
+<tr>
+<td>Research assistant</td>
+<td>数据模板、codebook、案例、文档</td>
+<td>M2、M3</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 小团队可以合并角色，但不应省略 analytics validation 与
+privacy/platform ownership。</p>
+<h2 id="风险矩阵">风险矩阵</h2>
+<p>当前最大风险不是模型不可行，而是过早把 POC 当作生产平台。SENA
+数学和代码基础已经说明三层异构网络是可实现的；真正的风险在于 deployment
+不稳定、benchmark 不充分、用户误读图距离、隐私治理不足、AI
+interpretation 被当作自动结论、工程质量检查未进入
+CI，以及团队试图同时服务太多应用领域。风险管理应把这些问题写入 roadmap
+gates。</p>
+<p><strong>Table 10</strong></p>
+<p><em>Risk matrix</em></p>
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 28%" />
+<col style="width: 28%" />
+<col style="width: 21%" />
+</colgroup>
+<thead>
+<tr>
+<th>风险</th>
+<th style="text-align: right;">概率</th>
+<th style="text-align: right;">影响</th>
+<th>缓解措施</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>www.sena.hk 线上不可用或不稳定</td>
+<td style="text-align: right;">高</td>
+<td style="text-align: right;">高</td>
+<td>立即修复部署、增加 health checks、记录 release 状态</td>
+</tr>
+<tr>
+<td>用户误读 fusion layout 距离</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">高</td>
+<td>保留 guardrails，报告中写明 layout/embedding 边界</td>
+</tr>
+<tr>
+<td>jENA/rENA coverage 过窄或 sna.js/R parity 不清</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">高</td>
+<td>扩展 goldens、阈值、差异说明和 benchmark appendix</td>
+</tr>
+<tr>
+<td>敏感教育数据未脱敏</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">高</td>
+<td>Pseudonymization、consent metadata、导出警告、RBAC</td>
+</tr>
+<tr>
+<td>AI draft 被当成正式结论</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">高</td>
+<td>Human review status、AI-use statement、limitations 必填</td>
+</tr>
+<tr>
+<td>lint/test/build 未进 CI 导致质量漂移</td>
+<td style="text-align: right;">高</td>
+<td style="text-align: right;">中</td>
+<td>所有 PR 运行 test/build/lint</td>
+</tr>
+<tr>
+<td>工作区信息密度吓退教师用户</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">中</td>
+<td>增加 Teacher Review Mode 和任务型入口</td>
+</tr>
+<tr>
+<td>过早产品化到组织监控</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">高</td>
+<td>限定近期主航道为研究/教育/instructor-facing analytics</td>
+</tr>
+<tr>
+<td>大数据集导致浏览器卡顿</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">中</td>
+<td>Worker、sampling、server jobs、performance budget</td>
+</tr>
+<tr>
+<td>报告导出不符合学术格式</td>
+<td style="text-align: right;">中</td>
+<td style="text-align: right;">中</td>
+<td>DOCX/PDF render QA、APA table/figure style、模板测试</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 概率和影响是当前项目阶段的规划判断，应在每个 milestone
+后更新。</p>
+<h2 id="成功指标">成功指标</h2>
+<p>成功指标要覆盖技术、方法、用户和治理。技术指标包括线上
+uptime、build/test/lint
+通过率、分析运行耗时、导出成功率和错误率。方法指标包括 benchmark parity
+覆盖、SENA report 中参数完整率、evidence trace completeness、human
+review 完成率和 sensitivity
+checks。用户指标包括研究者从导入到报告的任务完成率、教师 review session
+的理解度、模板复用次数、pilot
+项目数量和导出报告数量。治理指标包括项目中记录 consent/IRB metadata
+的比例、匿名化状态、audit events 完整性、权限 review
+和数据删除完成时间。</p>
+<p>不建议把“页面访问量”作为早期核心指标。SENA
+早期更需要少量高质量试点，而不是高流量低使用深度。一个更好的 3
+个月目标是：2-3
+个真实或半真实研究/教育案例，所有案例都能导入五表、运行模型、生成报告、回溯证据，并清楚说明方法限制。6
+个月目标是：至少一个团队可以在登录后保存项目、邀请 reviewer、生成
+human-reviewed report。12 个月目标是：至少一个机构试点通过数据治理
+review。</p>
+<p><strong>Table 11</strong></p>
+<p><em>Success metrics by horizon</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>时间</th>
+<th>技术指标</th>
+<th>方法指标</th>
+<th>用户/治理指标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 个月</td>
+<td>uptime、CI、build/test/lint</td>
+<td>demo 数据可复现</td>
+<td>外部用户可访问并运行 sample</td>
+</tr>
+<tr>
+<td>3 个月</td>
+<td>report export 成功率、runtime</td>
+<td>rENA/sna benchmark notes</td>
+<td>2-3 个 pilot case 和模板</td>
+</tr>
+<tr>
+<td>6 个月</td>
+<td>saved project 稳定性</td>
+<td>review status 和 evidence completeness</td>
+<td>团队协作完成报告</td>
+</tr>
+<tr>
+<td>12 个月</td>
+<td>observability、job queue</td>
+<td>sensitivity/stability checks</td>
+<td>机构治理 review 通过</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em> 指标应绑定可检查 artifact，避免只记录主观进度。</p>
+<h2 id="预算与资源假设">预算与资源假设</h2>
+<p>如果以 12
+个月形成机构试点为目标，最低可行资源是一个小型核心团队和有限外部顾问。人员成本通常是主要预算。若采用
+4-5 人兼职/全职混合团队，重点支出包括工程开发、analytics
+validation、文档/案例、设计 QA
+和数据治理咨询。云成本在早期不会很高，因为当前大部分分析可在浏览器或轻量
+API 中运行；真正增加成本的是持久化、对象存储、report rendering、AI
+coding、benchmark jobs 和监控。</p>
+<p>预算规划应保守。前 3 个月避免大额基础设施投入，把资源放在可靠
+demo、报告和 benchmark。3-6 个月开始引入数据库、对象存储、auth
+provider、error monitoring 和 preview deployment。6-12
+个月如果进入机构试点，再增加安全
+review、备份、数据保留、日志、队列和可能的合规咨询。AI provider
+成本应等到 AI-assisted coding workflow
+的治理要求明确后再纳入，而不是先把模型调用嵌入核心流程。</p>
+<p><strong>Table 12</strong></p>
+<p><em>Budget and resource assumptions</em></p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th>类别</th>
+<th>0-3 个月</th>
+<th>3-6 个月</th>
+<th>6-12 个月</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>人员</td>
+<td>2-3 人核心开发与研究</td>
+<td>3-4 人补平台和报告</td>
+<td>4-5 人含治理/运维</td>
+</tr>
+<tr>
+<td>云服务</td>
+<td>Vercel/基础监控</td>
+<td>DB、对象存储、auth、Sentry</td>
+<td>queue、backup、audit、institution hosting</td>
+</tr>
+<tr>
+<td>方法验证</td>
+<td>toy 与 research-shaped goldens</td>
+<td>rENA/R sna parity 扩展</td>
+<td>stability、group comparison、外部 review</td>
+</tr>
+<tr>
+<td>内容/试点</td>
+<td>模板和样例</td>
+<td>2-3 个案例</td>
+<td>机构 pilot materials</td>
+</tr>
+<tr>
+<td>合规治理</td>
+<td>文档和警告</td>
+<td>基础 privacy workflow</td>
+<td>安全/伦理 review 支持</td>
+</tr>
+</tbody>
+</table>
+<p><em>Note.</em>
+预算数字应在确认团队地点、雇佣形式和托管平台后另行估算；本表只给资源结构。</p>
+<h2 id="未来扩展">未来扩展</h2>
+<p>未来扩展可以分为方法扩展、产品扩展和生态扩展。方法扩展包括正式 joint
+embedding、spectral or multilayer graph methods、permutation
+testing、group comparison、confidence intervals、coding
+reliability、dynamic network metrics 和 multimodal data。产品扩展包括
+AI-assisted coding studio、可交互报告、teacher intervention
+planner、shared review workspace、template marketplace 和 longitudinal
+project comparison。生态扩展包括 LMS/LTI、Moodle/Canvas、Knowledge
+Forum、Slack/Teams、GitHub issues、Zoom transcript、ORCID、institution
+SSO 和 public API。</p>
+<p>这些扩展都应服从一个原则：只有当数据契约、证据追溯、参数记录和人类复核能跟上时，才扩大自动化。SENA
+的品牌可信度应来自严谨和透明，而不是“自动给出结论”。如果未来引入
+LLM，最适合的角色是辅助编码建议、报告草稿、证据摘要和方法说明，而不是直接替代研究判断。</p>
+<h2 id="附录-a建议的项目-manifest">附录 A：建议的项目 manifest</h2>
+<p>每个 SENA 项目建议保存以下 manifest
+字段：projectId、title、purpose、owner、team、datasetVersion、sourceFiles、peopleTableVersion、interactionsTableVersion、utterancesTableVersion、codedSegmentsVersion、codebookVersion、codingProvenance、irbOrConsentMetadata、anonymizationStatus、analysisParameters、normalization、alphaBetaGamma、temporalMode、runtimeVersions、reportIds、reviewStatus、createdAt、updatedAt
+和 auditLogPointer。这个 manifest
+是复现、审计、报告和协作的共同根对象。</p>
+<h2 id="附录-b当前验证结果摘要">附录 B：当前验证结果摘要</h2>
+<p>本次自动化运行完成了以下检查：读取
+AGENTS.md、README、package/config、主要源码、vendor runtime
+文档、已有中文报告和测试文件；公开访问 www.sena.hk
+未获得可用页面，记录为部署风险；运行 <code>npm test</code> 于
+<code>sena-hk-template</code>，结果为 6 个测试文件、69 项测试通过；运行
+<code>npm run build</code>，Next.js production build 成功；运行
+<code>npm run lint</code>，Next.js ESLint 非交互通过且无
+warnings/errors；运行 <code>npm test</code> 于
+<code>vendor/sna-js</code>，结果为 1 个测试文件、12 项测试通过；运行
+<code>npm run goldens:r</code> 于 <code>vendor/jena-js</code>，用 rENA
+生成 toy 与 research-shaped golden fixtures；运行 <code>npm test</code>
+于 <code>vendor/jena-js</code>，结果为 3 个测试文件、24 项测试通过；运行
+<code>npm run typecheck</code> 与 <code>npm run build</code> 于
+<code>vendor/jena-js</code>，均通过。</p>
+<h2 id="附录-c参考的本地项目文件">附录 C：参考的本地项目文件</h2>
+<p>本报告主要参考了
+<code>AGENTS.md</code>、<code>sena-hk-template/README.md</code>、<code>sena-hk-template/package.json</code>、<code>next.config.mjs</code>、<code>tailwind.config.ts</code>、<code>app/page.tsx</code>、<code>app/layout.tsx</code>、<code>components/LanguageProvider.tsx</code>、<code>components/ThemeProvider.tsx</code>、<code>components/Hero.tsx</code>、<code>components/Workflow.tsx</code>、<code>components/MethodSection.tsx</code>、<code>components/WorkspacePreview.tsx</code>、<code>components/EthicsSection.tsx</code>、<code>components/DocsSection.tsx</code>、<code>app/workspace/ena/EnaWorkspaceClient.tsx</code>、<code>app/api/ena/run/route.ts</code>、<code>components/sena/SenaFusionWorkspace.tsx</code>、<code>lib/ena/*</code>、<code>lib/sena/*</code>、<code>vendor/jena-js/README.md</code>、<code>vendor/sna-js/README.md</code>、<code>vendor/sna-js/docs/*</code>、<code>SENA_web_tool_development_spec.md</code>、<code>SENA_feasibility_and_mvp_analysis.md</code>、<code>SENA_formula_formal_analysis.md</code>
+和已有 SENA 应用领域报告。</p>
+<h2 id="references">References</h2>
+<p>Bowman, N. A., Frank, K. A., &amp; Shaffer, D. W. (2021). The
+mathematical foundations of epistemic network analysis. In D. Williamson
+Shaffer (Ed.), <em>Computer-supported collaboration with epistemic
+network analysis</em> (pp. 91-108). Springer.
+https://doi.org/10.1007/978-3-030-67788-6_7</p>
+<p>Drachsler, H., &amp; Greller, W. (2016). Privacy and analytics: It’s
+a DELICATE issue. In <em>Proceedings of the Sixth International
+Conference on Learning Analytics &amp; Knowledge</em> (pp. 89-98). ACM.
+https://doi.org/10.1145/2883851.2883893</p>
+<p>Gašević, D., Joksimović, S., Eagan, B. R., &amp; Shaffer, D. W.
+(2019). SENS: Network analytics to combine social and cognitive
+perspectives of collaborative learning. <em>Computers in Human Behavior,
+92</em>, 562-577. https://doi.org/10.1016/j.chb.2018.07.003</p>
+<p>Kivelä, M., Arenas, A., Barthelemy, M., Gleeson, J. P., Moreno, Y.,
+&amp; Porter, M. A. (2014). Multilayer networks. <em>Journal of Complex
+Networks, 2</em>(3), 203-271. https://doi.org/10.1093/comnet/cnu016</p>
+<p>Ouyang, F., &amp; Dai, X. (2022). A three-layered social-cognitive
+network analysis framework for examining online collaborative learning.
+<em>Australasian Journal of Educational Technology, 38</em>(5), 74-91.
+https://doi.org/10.14742/ajet.7166</p>
+<p>Pantić, N., Brown, C., Florian, L., &amp; Jääskeläinen, A. (2022).
+Making sense of teacher agency for change with social and epistemic
+network analysis. <em>Journal of Educational Change, 23</em>, 717-739.
+https://doi.org/10.1007/s10833-021-09413-7</p>
+<p>SENA project repository. (2026). <em>SENA.HK website template, SENA
+Fusion workspace, and local jENA/sna.js runtime documentation</em>
+[Unpublished local source code and project documents].</p>
+<p>Shaffer, D. W., Collier, W., &amp; Ruis, A. R. (2016). A tutorial on
+epistemic network analysis: Analyzing the structure of connections in
+cognitive, social, and interaction data. <em>Journal of Learning
+Analytics, 3</em>(3), 9-45. https://doi.org/10.18608/jla.2016.33.3</p>
+<p>Siebert-Evenstone, A. L., Irgens, G. A., Collier, W., Swiecki, Z.,
+Ruis, A. R., &amp; Shaffer, D. W. (2017). In search of conversational
+grain size: Modeling semantic structure using moving stanza windows.
+<em>Journal of Learning Analytics, 4</em>(3), 123-139.
+https://doi.org/10.18608/jla.2017.43.7</p>
+<p>Slade, S., &amp; Prinsloo, P. (2013). Learning analytics: Ethical
+issues and dilemmas. <em>American Behavioral Scientist, 57</em>(10),
+1510-1529. https://doi.org/10.1177/0002764213479366</p>
+<p>Swiecki, Z., &amp; Shaffer, D. W. (2020). iSENS: An integrated
+approach to combining epistemic and social network analyses. In
+<em>Proceedings of the Tenth International Conference on Learning
+Analytics &amp; Knowledge</em> (pp. 177-181). ACM.
+https://doi.org/10.1145/3375462.3375505</p>
+<p>Yan, L., Martinez-Maldonado, R., Zhao, Y., Li, X., &amp; Gašević, D.
+(2023). SeNA: Modelling socio-spatial analytics on homophily by
+integrating social and epistemic network analysis. In <em>Proceedings of
+the 13th International Learning Analytics and Knowledge Conference</em>
+(pp. 455-466). ACM. https://doi.org/10.1145/3576050.3576054</p>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+    <defs>
+      <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#111827" flood-opacity="0.14"/>
+      </filter>
+      <filter id="fine" x="-10%" y="-10%" width="120%" height="120%">
+        <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#111827" flood-opacity="0.12"/>
+      </filter>
+      <linearGradient id="railGlassActive" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#68eadb" stop-opacity="0.92"/>
+        <stop offset="1" stop-color="#2eb3a4" stop-opacity="0.9"/>
+      </linearGradient>
+      <linearGradient id="railGlassIdle" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
+      </linearGradient>
+      <filter id="railGlassShadow" x="-35%" y="-35%" width="170%" height="170%">
+        <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#020617" flood-opacity="0.3"/>
+      </filter>
+      <style>
+        text { font-family: Arial, Helvetica, sans-serif; }
+      </style>
+    </defs>
+    <rect width="1920" height="1080" fill="#e6eaee"/>
+    <rect x="0" y="0" width="1920" height="42" fill="#1f1f1f"/>
+    <rect x="0" y="40" width="1920" height="5" fill="#45b6a5"/>
+    <text x="24" y="29" fill="#ffffff" font-size="24" font-weight="900">SENA</text>
+    <text x="394" y="28" fill="#45b6a5" font-size="17" font-weight="900">C3</text>
+    <text x="468" y="28" fill="#f8fafc" font-size="17" font-weight="700">- Temporal Fusion Studio</text>
+    
+    
+    <g>
+      <rect x="0" y="45" width="64" height="1035" fill="#202326"/>
+      <rect x="6" y="57" width="52" height="994" rx="26" fill="#ffffff" opacity="0.04"/>
+      <g>
+          <rect x="7" y="66" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 73 C 22 68, 42 68, 46 73" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+      <g>
+        
+        <rect x="18" y="77" width="28" height="22" rx="6" fill="none" stroke="#c7ced7" stroke-width="2.4"/>
+        <path d="M 23 71 H 41" stroke="#c7ced7" stroke-width="2.3" stroke-linecap="round"/>
+        <path d="M 26 66 H 38" stroke="#c7ced7" stroke-width="1.9" stroke-linecap="round" opacity="0.76"/>
+      </g>
+          <text x="32" y="118" text-anchor="middle" fill="#c7ced7" font-size="10" font-weight="800">Sets</text>
+        </g><g>
+          <rect x="7" y="152" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 159 C 22 154, 42 154, 46 159" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+      <g>
+        
+        <circle cx="32" cy="160" r="4" fill="#c7ced7"/>
+        <circle cx="19" cy="179" r="4" fill="#c7ced7"/>
+        <circle cx="45" cy="179" r="4" fill="#c7ced7"/>
+        <path d="M 30 163 L 21 175 M 34 163 L 43 175 M 23 179 H 41" fill="none" stroke="#c7ced7" stroke-width="2.2" stroke-linecap="round"/>
+        <rect x="25" y="170" width="14" height="12" rx="3.5" fill="none" stroke="#c7ced7" stroke-opacity="0.78" stroke-width="1.6"/>
+      </g>
+          <text x="32" y="204" text-anchor="middle" fill="#c7ced7" font-size="10" font-weight="800">Model</text>
+        </g><g>
+          <rect x="7" y="238" width="50" height="66" rx="16" fill="url(#railGlassActive)" stroke="#9ffaf0" stroke-opacity="0.52" filter="url(#railGlassShadow)"/>
+          <path d="M 18 245 C 22 240, 42 240, 46 245" fill="none" stroke="#ffffff" stroke-opacity="0.54" stroke-width="1.4"/>
+          
+      <g>
+        <circle cx="32" cy="257" r="21" fill="#ffffff" opacity="0.14"/>
+        <path d="M 18 270 H 47 M 19 270 V 244" fill="none" stroke="#ffffff" stroke-width="2.3" stroke-linecap="round"/>
+        <path d="M 23 264 C 30 250, 40 255, 45 246" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="23" cy="264" r="2.8" fill="#ffffff"/>
+        <circle cx="35" cy="254" r="2.8" fill="#ffffff"/>
+        <circle cx="45" cy="246" r="2.8" fill="#ffffff"/>
+      </g>
+          <text x="32" y="290" text-anchor="middle" fill="#ffffff" font-size="9" font-weight="800">Plot Tools</text>
+        </g><g>
+          <rect x="7" y="324" width="50" height="66" rx="16" fill="url(#railGlassIdle)" stroke="#ffffff" stroke-opacity="0.14" filter="url(#railGlassShadow)"/>
+          <path d="M 18 331 C 22 326, 42 326, 46 331" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="1.4"/>
+          
+    <g>
+      
+      <path d="M 17 356 H 47" stroke="#c7ced7" stroke-width="2.3" stroke-linecap="round"/>
+      <rect x="20" y="342" width="6.5" height="14" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <rect x="29" y="334" width="6.5" height="22" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <rect x="38" y="329" width="6.5" height="27" rx="2" fill="#c7ced7" opacity="0.9"/>
+      <path d="M 18 330 C 25 322, 37 325, 46 318" fill="none" stroke="#c7ced7" stroke-width="1.9" stroke-linecap="round" opacity="0.75"/>
+    </g>
+          <text x="32" y="376" text-anchor="middle" fill="#c7ced7" font-size="10" font-weight="800">Stats</text>
+        </g>
+      <g transform="translate(18 1016)">
+        <path d="M0 0h22v22H0z" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <path d="M14 6l8 5-8 5" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+      </g>
+    </g>
+    
+    <g filter="url(#fine)">
+      <rect x="64" y="45" width="304" height="1015" fill="#ffffff" stroke="#cfd6dc"/>
+      <text x="86" y="75" fill="#7c7c7c" font-size="18" font-weight="900">MODEL</text>
+      <rect x="86" y="107" width="260" height="34" rx="4" fill="#45b6a5"/>
+      <text x="216" y="129" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="800">Load lesson-study sample</text>
+      <text x="88" y="171" fill="#45b6a5" font-size="13" font-weight="900">SENA pilot package</text>
+      
+        <g transform="translate(86 201)">
+          <rect x="0" y="0" width="260" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Five-table data contract</text>
+        </g>
+        <g transform="translate(86 249)">
+          <rect x="0" y="0" width="260" height="36" rx="3" fill="#f1fbf8" stroke="#45b6a5"/>
+          <rect x="0" y="0" width="4" height="36" fill="#45b6a5"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="900">A1 Fusion Canvas model</text>
+        </g>
+        <g transform="translate(86 297)">
+          <rect x="0" y="0" width="260" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Temporal Fusion Arc trace</text>
+        </g>
+        <g transform="translate(86 345)">
+          <rect x="0" y="0" width="260" height="36" rx="3" fill="#ffffff" stroke="#e5e7eb"/>
+          <rect x="0" y="0" width="4" height="36" fill="transparent"/>
+          <text x="16" y="23" fill="#1f2937" font-size="13" font-weight="650">Review packet handoff</text>
+        </g>
+      <line x1="64" y1="870" x2="368" y2="870" stroke="#e5e7eb"/>
+      <text x="86" y="902" fill="#6b7280" font-size="12" font-weight="900">ACTIVE MODEL</text>
+      
+    <g transform="translate(86 928)">
+      <rect x="0" y="0" width="260" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">People</text>
+      <text x="250" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">4</text>
+    </g>
+    <g transform="translate(86 959)">
+      <rect x="0" y="0" width="260" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">Codes</text>
+      <text x="250" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">7</text>
+    </g>
+    <g transform="translate(86 990)">
+      <rect x="0" y="0" width="260" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">S/W/B/G</text>
+      <text x="250" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">ready</text>
+    </g>
+    <g transform="translate(86 1021)">
+      <rect x="0" y="0" width="260" height="25" rx="4" fill="#f8fafc" stroke="#e5e7eb"/>
+      <text x="10" y="17" fill="#6b7280" font-size="11" font-weight="800">A_fusion</text>
+      <text x="250" y="17" text-anchor="end" fill="#1f2937" font-size="11" font-weight="900">13 x 13</text>
+    </g>
+    </g>
+    <g filter="url(#fine)">
+      
+    <rect x="392" y="72" width="1098" height="32" fill="#d9d9d9"/>
+    <text x="408" y="94" fill="#777" font-size="16" font-weight="900">TEMPORAL FUSION PLOT - PLAN / TEACH / REFLECT</text>
+    <text x="1472" y="94" text-anchor="end" fill="#777" font-size="14" font-weight="800">playback</text>
+      <rect x="392" y="104" width="1098" height="744" fill="#ffffff" stroke="#cfd6dc"/>
+      <g>
+      <rect x="458" y="178" width="310.6666666666667" height="464" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="476" y="208" fill="#1f2937" font-size="13" font-weight="900">Plan</text>
+      <circle cx="613.3333333333334" cy="418" r="26" fill="#7048e8" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 478 620 C 613.3333333333334 580, 613.3333333333334 650, 748.6666666666667 606" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g><g>
+      <rect x="790.6666666666667" y="178" width="310.6666666666667" height="464" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="808.6666666666667" y="208" fill="#1f2937" font-size="13" font-weight="900">Teach</text>
+      <circle cx="946.0000000000001" cy="418" r="26" fill="#2f68df" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 810.6666666666667 620 C 946.0000000000001 580, 946.0000000000001 650, 1081.3333333333335 606" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g><g>
+      <rect x="1123.3333333333335" y="178" width="310.6666666666667" height="464" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="1141.3333333333335" y="208" fill="#1f2937" font-size="13" font-weight="900">Reflect</text>
+      <circle cx="1278.6666666666667" cy="418" r="26" fill="#e3428b" stroke="#ffffff" stroke-width="4"/>
+      <path d="M 1143.3333333333335 620 C 1278.6666666666667 580, 1278.6666666666667 650, 1414.0000000000002 606" fill="none" stroke="#22c7d9" stroke-width="5" opacity="0.62"/>
+    </g>
+      <path d="M 482 740 C 690 684, 950 812, 1360 720" fill="none" stroke="#3f7df4" stroke-width="8" stroke-linecap="round" opacity="0.5"/>
+      <rect x="462" y="702" width="902" height="86" rx="18" fill="#f8fbff" stroke="#dce3eb"/>
+      <text x="494" y="734" fill="#1f2937" font-size="15" font-weight="900">Temporal scrubber</text>
+      <text x="494" y="762" fill="#6b7280" font-size="13" font-weight="800">Stage, moving-window, and turn-window views keep A_fusion checksum and top G pair visible per window.</text>
+      
+    <g>
+      <g>
+          <rect x="494" y="806" width="96" height="32" rx="16" fill="#ffffff" stroke="#d5dce5"/>
+          <text x="542" y="827" text-anchor="middle" fill="#1f2937" font-size="12" font-weight="900">Fusion</text>
+        </g><g>
+          <rect x="602" y="806" width="96" height="32" rx="16" fill="#ffffff" stroke="#d5dce5"/>
+          <text x="650" y="827" text-anchor="middle" fill="#1f2937" font-size="12" font-weight="900">ENA Space</text>
+        </g><g>
+          <rect x="710" y="806" width="96" height="32" rx="16" fill="#ffffff" stroke="#d5dce5"/>
+          <text x="758" y="827" text-anchor="middle" fill="#1f2937" font-size="12" font-weight="900">SNA</text>
+        </g><g>
+          <rect x="818" y="806" width="96" height="32" rx="16" fill="#45b6a5" stroke="#45b6a5"/>
+          <text x="866" y="827" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="900">Temporal</text>
+        </g><g>
+          <rect x="926" y="806" width="96" height="32" rx="16" fill="#ffffff" stroke="#d5dce5"/>
+          <text x="974" y="827" text-anchor="middle" fill="#1f2937" font-size="12" font-weight="900">Evidence</text>
+        </g><g>
+          <rect x="1034" y="806" width="96" height="32" rx="16" fill="#ffffff" stroke="#d5dce5"/>
+          <text x="1082" y="827" text-anchor="middle" fill="#1f2937" font-size="12" font-weight="900">Matrix</text>
+        </g>
+    </g>
+    </g>
+    
+    <g filter="url(#fine)">
+      
+    <rect x="1510" y="72" width="384" height="32" fill="#d9d9d9"/>
+    <text x="1526" y="94" fill="#777" font-size="16" font-weight="900">PRIMARY PLOT - FUSION A1</text>
+    
+      <rect x="1510" y="104" width="384" height="354" fill="#ffffff" stroke="#cfd6dc"/>
+      <line x1="1538" y1="265" x2="1866" y2="265" stroke="#e1e5ea"/>
+      <line x1="1702" y1="134" x2="1702" y2="428" stroke="#e1e5ea"/>
+      
+      
+      
+      
+      
+    </g>
+    
+    <g filter="url(#fine)">
+      
+    <rect x="1510" y="506" width="384" height="32" fill="#d9d9d9"/>
+    <text x="1526" y="528" fill="#777" font-size="16" font-weight="900">SECONDARY PLOT - EVIDENCE</text>
+    
+      <rect x="1510" y="538" width="384" height="354" fill="#ffffff" stroke="#cfd6dc"/>
+      <line x1="1538" y1="699" x2="1866" y2="699" stroke="#e1e5ea"/>
+      <line x1="1702" y1="568" x2="1702" y2="862" stroke="#e1e5ea"/>
+      
+      
+      
+      
+      
+    <g transform="translate(1544 568)">
+      <rect x="0" y="0" width="316" height="44" rx="8" fill="#f8fbff" stroke="#dde4ec"/>
+      <text x="14" y="18" fill="#1f2937" font-size="12" font-weight="900">Evidence + Explanation</text>
+      <text x="14" y="34" fill="#6b7280" font-size="10" font-weight="800">table=coded_segments</text>
+    </g>
+    <g transform="translate(1544 626)">
+      <rect x="0" y="0" width="316" height="44" rx="8" fill="#f8fbff" stroke="#dde4ec"/>
+      <text x="14" y="18" fill="#1f2937" font-size="12" font-weight="900">Mr Chan contributes evidence</text>
+      <text x="14" y="34" fill="#6b7280" font-size="10" font-weight="800">person=MC</text>
+    </g>
+    <g transform="translate(1544 684)">
+      <rect x="0" y="0" width="316" height="44" rx="8" fill="#f8fbff" stroke="#dde4ec"/>
+      <text x="14" y="18" fill="#1f2937" font-size="12" font-weight="900">A_fusion checksum 0x...</text>
+      <text x="14" y="34" fill="#6b7280" font-size="10" font-weight="800">window=Teach</text>
+    </g>
+    </g>
+    
+    <g filter="url(#fine)">
+      <rect x="392" y="892" width="1098" height="168" fill="#202326"/>
+      <text x="941" y="920" text-anchor="middle" fill="#e5e7eb" font-size="16" font-weight="800">Temporal Runtime Trace</text>
+      <text x="418" y="950" fill="#b7c0c8" font-size="12" font-weight="700">utterances | coded_segments | interactions | evidence ledger | runtime fingerprints</text>
+    </g>
+  
+  </svg>

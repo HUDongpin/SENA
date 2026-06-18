@@ -1,0 +1,40 @@
+.DS_Store
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencies
+node_modules/
+
+# Next.js and build output
+.next/
+out/
+dist/
+build/
+tsconfig.tsbuildinfo
+!sena-hk-template/vendor/jena-js/dist/
+!sena-hk-template/vendor/jena-js/dist/**
+!sena-hk-template/vendor/sna-js/dist/
+!sena-hk-template/vendor/sna-js/dist/**
+
+# Local SENA runtime state and temporary artifacts
+.sena-enterprise/
+.tmp/
+.playwright-cli/
+
+# Deployment and tool state
+.vercel/
+.turbo/
+.cache/
+coverage/
+playwright-report/
+
+# Package manager and runtime logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log

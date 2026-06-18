@@ -1,0 +1,128 @@
+import { NextResponse } from "next/server";
+import {
+  createEnterpriseExpertReview,
+  listEnterpriseExpertReviews,
+  reviewEnterpriseExpertReview,
+  type SenaEnterpriseExpertReview
+} from "@/lib/sena/enterprise";
+import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+
+export const runtime = "nodejs";
+
+function targetFromBody(body: Record<string, unknown>): Partial<SenaEnterpriseExpertReview["target"]> {
+  const target = typeof body.target === "object" && body.target !== null && !Array.isArray(body.target)
+    ? body.target as Record<string, unknown>
+    : body;
+  return {
+    kind: target.kind === "validation-run" || target.kind === "reliability-run" || target.kind === "claim" || target.kind === "project"
+      ? target.kind
+      : "project",
+    id: target.id ? String(target.id) : undefined,
+    label: target.label ? String(target.label) : undefined
+  };
+}
+
+function ratingsFromBody(body: Record<string, unknown>): Partial<SenaEnterpriseExpertReview["ratings"]> {
+  const ratings = typeof body.ratings === "object" && body.ratings !== null && !Array.isArray(body.ratings)
+    ? body.ratings as Record<string, unknown>
+    : body;
+  return {
+    dataAdequacy: ratings.dataAdequacy === undefined ? undefined : Number(ratings.dataAdequacy),
+    methodFit: ratings.methodFit === undefined ? undefined : Number(ratings.methodFit),
+    interpretationValidity: ratings.interpretationValidity === undefined ? undefined : Number(ratings.interpretationValidity)
+  };
+}
+
+function statusFromBody(value: unknown): SenaEnterpriseExpertReview["status"] | undefined {
+  if (value === "requested" || value === "approved" || value === "changes-requested" || value === "rejected") return value;
+  return undefined;
+}
+
+function claimScopeFromBody(value: unknown): SenaEnterpriseExpertReview["claimScope"] | undefined {
+  if (value === "exploratory-only" || value === "claim-ready-with-limits" || value === "not-claim-ready") return value;
+  return undefined;
+}
+
+function expertReviewHeaders(review: SenaEnterpriseExpertReview): HeadersInit {
+  return {
+    "x-sena-expert-review-id": review.id,
+    "x-sena-project-id": review.projectId,
+    "x-sena-team-id": review.teamId,
+    "x-sena-expert-review-status": review.status,
+    "x-sena-expert-review-claim-scope": review.claimScope,
+    "x-sena-expert-review-target-kind": review.target.kind,
+    "x-sena-expert-review-target-id": review.target.id ?? "",
+    "x-sena-expert-review-data-adequacy": String(review.ratings.dataAdequacy),
+    "x-sena-expert-review-method-fit": String(review.ratings.methodFit),
+    "x-sena-expert-review-interpretation-validity": String(review.ratings.interpretationValidity)
+  };
+}
+
+export async function GET(request: Request) {
+  try {
+    const context = requireApiSession();
+    const url = new URL(request.url);
+    return NextResponse.json({
+      schemaVersion: "sena-expert-review-list/v1",
+      expertReviews: listEnterpriseExpertReviews(context, {
+        teamId: url.searchParams.get("teamId") || undefined,
+        projectId: url.searchParams.get("projectId") || undefined
+      })
+    });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const context = requireApiSessionForMutation(request);
+    const body = await request.json() as Record<string, unknown>;
+    const expertReview = createEnterpriseExpertReview(context, {
+      projectId: String(body.projectId ?? ""),
+      target: targetFromBody(body),
+      reviewerName: body.reviewerName ? String(body.reviewerName) : undefined,
+      reviewerRole: body.reviewerRole ? String(body.reviewerRole) : undefined,
+      expertiseArea: body.expertiseArea ? String(body.expertiseArea) : undefined,
+      status: statusFromBody(body.status),
+      claimScope: claimScopeFromBody(body.claimScope),
+      ratings: ratingsFromBody(body),
+      strengths: body.strengths ? String(body.strengths) : undefined,
+      concerns: body.concerns ? String(body.concerns) : undefined,
+      recommendations: body.recommendations ? String(body.recommendations) : undefined,
+      limitations: body.limitations ? String(body.limitations) : undefined
+    });
+    return NextResponse.json({
+      schemaVersion: "sena-expert-review-response/v1",
+      expertReview
+    }, {
+      headers: expertReviewHeaders(expertReview)
+    });
+  } catch (error) {
+    return jsonError(error);
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const context = requireApiSessionForMutation(request);
+    const body = await request.json() as Record<string, unknown>;
+    const expertReview = reviewEnterpriseExpertReview(context, String(body.reviewId ?? body.expertReviewId ?? ""), {
+      status: statusFromBody(body.status),
+      claimScope: claimScopeFromBody(body.claimScope),
+      ratings: ratingsFromBody(body),
+      strengths: body.strengths === undefined ? undefined : String(body.strengths),
+      concerns: body.concerns === undefined ? undefined : String(body.concerns),
+      recommendations: body.recommendations === undefined ? undefined : String(body.recommendations),
+      limitations: body.limitations === undefined ? undefined : String(body.limitations)
+    });
+    return NextResponse.json({
+      schemaVersion: "sena-expert-review-response/v1",
+      expertReview
+    }, {
+      headers: expertReviewHeaders(expertReview)
+    });
+  } catch (error) {
+    return jsonError(error);
+  }
+}

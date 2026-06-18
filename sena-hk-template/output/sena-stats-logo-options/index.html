@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENA Stats Logo Options</title>
+    <style>
+      :root {
+        --rail: #10181b;
+        --rail-edge: #263338;
+        --tile: #25c5d0;
+        --tile-deep: #0ea8b5;
+        --ink: #eef9fb;
+        --muted: #a9b7bd;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 18% 12%, rgba(36, 221, 238, 0.18), transparent 28%),
+          linear-gradient(135deg, #e8edf3 0%, #f7f9fc 54%, #dfe7ef 100%);
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .board {
+        width: 1220px;
+        padding: 34px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 30px;
+      }
+
+      .option {
+        min-height: 520px;
+        border-radius: 34px;
+        padding: 30px;
+        background:
+          linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(237, 244, 250, 0.72)),
+          rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(108, 129, 143, 0.18);
+        box-shadow: 0 26px 80px rgba(21, 34, 43, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      }
+
+      .option h2 {
+        margin: 0;
+        color: #111827;
+        font-size: 24px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .option p {
+        margin: 10px 0 0;
+        color: #4b5b66;
+        font-size: 15px;
+        line-height: 1.45;
+        font-weight: 650;
+      }
+
+      .stage {
+        margin-top: 30px;
+        min-height: 365px;
+        border-radius: 28px;
+        display: grid;
+        place-items: center;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 100%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 100%),
+          linear-gradient(180deg, #1b2428, #0f171a);
+        background-size: 22px 22px, 22px 22px, auto;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 20px 50px rgba(255, 255, 255, 0.03);
+      }
+
+      .rail {
+        width: 92px;
+        height: 310px;
+        display: grid;
+        place-items: center;
+        border-radius: 30px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 20%, transparent 80%, rgba(255, 255, 255, 0.06)),
+          var(--rail);
+        border-left: 1px solid rgba(255, 255, 255, 0.07);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.03), 0 24px 58px rgba(0, 0, 0, 0.42);
+      }
+
+      .tile {
+        width: 74px;
+        height: 106px;
+        border-radius: 28px;
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 33% 13%, rgba(255, 255, 255, 0.34), transparent 38%),
+          linear-gradient(145deg, rgba(78, 238, 233, 0.9), rgba(11, 166, 181, 0.95));
+        border: 1px solid rgba(134, 255, 255, 0.75);
+        box-shadow:
+          inset 0 2px 0 rgba(255, 255, 255, 0.34),
+          inset 0 -2px 0 rgba(0, 81, 91, 0.15),
+          0 0 0 4px rgba(34, 226, 235, 0.16),
+          0 22px 44px rgba(8, 149, 164, 0.32);
+      }
+
+      .tile-inner {
+        display: grid;
+        justify-items: center;
+        gap: 9px;
+      }
+
+      .glyph-wrap {
+        width: 46px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+      }
+
+      svg {
+        display: block;
+        overflow: visible;
+      }
+
+      .label {
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 950;
+        letter-spacing: 0;
+        text-shadow: 0 2px 8px rgba(0, 60, 70, 0.42);
+      }
+
+      .bars {
+        stroke: rgba(238, 255, 255, 0.42);
+        stroke-width: 3.2;
+        stroke-linecap: round;
+      }
+
+      .main-line {
+        stroke: #ffffff;
+        stroke-width: 4.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 2px 5px rgba(0, 68, 75, 0.32));
+      }
+
+      .main-dot {
+        fill: #ffffff;
+        filter: drop-shadow(0 2px 5px rgba(0, 68, 75, 0.32));
+      }
+
+      .micro {
+        stroke: rgba(255, 255, 255, 0.72);
+        stroke-width: 2.3;
+        stroke-linecap: round;
+      }
+
+      .note {
+        margin-top: 24px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(65, 84, 97, 0.14);
+        color: #283845;
+        font-size: 14px;
+        line-height: 1.45;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="board">
+      <section class="option" id="option-a">
+        <h2>A. Network Metrics</h2>
+        <p>Graph triangle in front, metric bars behind. Clearest match to SENA: graph plus summary.</p>
+        <div class="stage">
+          <div class="rail">
+            <div class="tile">
+              <div class="tile-inner">
+                <div class="glyph-wrap">
+                  <svg width="48" height="44" viewBox="0 0 48 44" aria-hidden="true">
+                    <path class="bars" d="M9 36V24M17 36V17M25 36V27M33 36V22M41 36V15" />
+                    <path class="main-line" d="M10 33L24 10L38 33M10 33H38" fill="none" />
+                    <circle class="main-dot" cx="10" cy="33" r="5.4" />
+                    <circle class="main-dot" cx="24" cy="10" r="5.4" />
+                    <circle class="main-dot" cx="38" cy="33" r="5.4" />
+                  </svg>
+                </div>
+                <div class="label">Stats</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Best for immediate recognition. It reads as network structure and quantitative metrics at rail size.</div>
+      </section>
+
+      <section class="option" id="option-b">
+        <h2>B. Metric Constellation</h2>
+        <p>Four-node graph with small baseline bars. More SNA-like, better for actor centrality and ties.</p>
+        <div class="stage">
+          <div class="rail">
+            <div class="tile">
+              <div class="tile-inner">
+                <div class="glyph-wrap">
+                  <svg width="48" height="44" viewBox="0 0 48 44" aria-hidden="true">
+                    <path class="bars" d="M12 36V28M20 36V22M28 36V25M36 36V18" />
+                    <path class="main-line" d="M12 30L24 12L37 20M24 12L31 34M12 30L31 34" fill="none" />
+                    <circle class="main-dot" cx="12" cy="30" r="4.9" />
+                    <circle class="main-dot" cx="24" cy="12" r="4.9" />
+                    <circle class="main-dot" cx="37" cy="20" r="4.9" />
+                    <circle class="main-dot" cx="31" cy="34" r="4.9" />
+                  </svg>
+                </div>
+                <div class="label">Stats</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Best if Stats should feel closer to jSNA actor metrics: centrality, connectivity, and community summaries.</div>
+      </section>
+
+      <section class="option" id="option-c">
+        <h2>C. Fusion Gauge</h2>
+        <p>Orbit plus nodes and compact metric ticks. Most SENA-specific, but slightly more abstract.</p>
+        <div class="stage">
+          <div class="rail">
+            <div class="tile">
+              <div class="tile-inner">
+                <div class="glyph-wrap">
+                  <svg width="48" height="44" viewBox="0 0 48 44" aria-hidden="true">
+                    <path class="bars" d="M14 36V29M22 36V25M30 36V21M38 36V27" />
+                    <ellipse cx="24" cy="22" rx="18" ry="12" fill="none" stroke="rgba(255,255,255,0.42)" stroke-width="2.4" />
+                    <path class="main-line" d="M13 25L24 12L36 25M24 12V34" fill="none" />
+                    <path class="micro" d="M17 35H31" />
+                    <circle class="main-dot" cx="13" cy="25" r="4.8" />
+                    <circle class="main-dot" cx="24" cy="12" r="4.8" />
+                    <circle class="main-dot" cx="36" cy="25" r="4.8" />
+                    <circle class="main-dot" cx="24" cy="34" r="4.8" />
+                  </svg>
+                </div>
+                <div class="label">Stats</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Best if Stats should belong to the SENA fusion grammar: graph metrics plus A_fusion inspection.</div>
+      </section>
+    </main>
+  </body>
+</html>

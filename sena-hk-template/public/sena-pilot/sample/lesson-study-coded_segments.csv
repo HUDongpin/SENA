@@ -1,0 +1,11 @@
+segment_id,utterance_id,person_id,unit_id,stanza_id,stage,turn_index,text,codes,confidence
+s1,u1,T1,lesson-study-cycle-1,plan-1,Plan,1,We need a question that makes students explain the pattern instead of only naming it,question|explanation,1
+s2,u2,T2,lesson-study-cycle-1,plan-1,Plan,2,The worksheet can ask learners to compare two examples before they write a hypothesis,hypothesis|evidence,0.9
+s3,u3,T3,lesson-study-cycle-1,plan-1,Plan,3,That is promising but the prompt needs a place for evidence and a place for explanation,evidence|explanation|critique,1
+s4,u4,T1,lesson-study-cycle-1,teach-1,Teach,4,Several students gave evidence but only one group explained why the pattern held；學生用圖形做證據但還未說清楚原因,evidence|explanation,1
+s5,u5,T4,lesson-study-cycle-1,teach-1,Teach,5,I observed that the group with stronger coordination challenged each other before agreeing,coordination|critique|evidence,0.85
+s6,u6,T1,lesson-study-cycle-1,teach-1,Teach,6,So the next prompt should ask them to critique the first explanation before finalizing it,critique|explanation|question,0.95
+s7,u7,T2,lesson-study-cycle-1,reflect-1,Reflect,7,The evidence suggests the design improved participation but the explanation link is still uneven,evidence|explanation|reflection,1
+s8,u8,T4,lesson-study-cycle-1,reflect-1,Reflect,8,I think the observer notes show when coordination became a bridge to reasoning；觀課紀錄顯示協作慢慢變成推理的橋,coordination|evidence|reflection,0.9
+s9,u9,T3,lesson-study-cycle-1,reflect-1,Reflect,9,Our revision should keep the evidence comparison and add a reflection checkpoint,evidence|reflection|hypothesis,0.9
+s10,u10,T2,lesson-study-cycle-1,reflect-1,Reflect,10,Then the next cycle can test whether critique strengthens the evidence explanation pair,critique|evidence|explanation|hypothesis,1

@@ -1,0 +1,11 @@
+utterance_id,person_id,unit_id,stanza_id,stage,turn_index,text,timestamp
+u1,T1,lesson-study-cycle-1,plan-1,Plan,1,We need a question that makes students explain the pattern instead of only naming it,2026-06-08T09:00:00Z
+u2,T2,lesson-study-cycle-1,plan-1,Plan,2,The worksheet can ask learners to compare two examples before they write a hypothesis,2026-06-08T09:03:00Z
+u3,T3,lesson-study-cycle-1,plan-1,Plan,3,That is promising but the prompt needs a place for evidence and a place for explanation,2026-06-08T09:06:00Z
+u4,T1,lesson-study-cycle-1,teach-1,Teach,4,Several students gave evidence but only one group explained why the pattern held；學生用圖形做證據但還未說清楚原因,2026-06-08T10:10:00Z
+u5,T4,lesson-study-cycle-1,teach-1,Teach,5,I observed that the group with stronger coordination challenged each other before agreeing,2026-06-08T10:14:00Z
+u6,T1,lesson-study-cycle-1,teach-1,Teach,6,So the next prompt should ask them to critique the first explanation before finalizing it,2026-06-08T10:18:00Z
+u7,T2,lesson-study-cycle-1,reflect-1,Reflect,7,The evidence suggests the design improved participation but the explanation link is still uneven,2026-06-08T11:00:00Z
+u8,T4,lesson-study-cycle-1,reflect-1,Reflect,8,I think the observer notes show when coordination became a bridge to reasoning；觀課紀錄顯示協作慢慢變成推理的橋,2026-06-08T11:05:00Z
+u9,T3,lesson-study-cycle-1,reflect-1,Reflect,9,Our revision should keep the evidence comparison and add a reflection checkpoint,2026-06-08T11:10:00Z
+u10,T2,lesson-study-cycle-1,reflect-1,Reflect,10,Then the next cycle can test whether critique strengthens the evidence explanation pair,2026-06-08T11:15:00Z

@@ -1,0 +1,1561 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SENA UI Design Options</title>
+    <style>
+      :root {
+        --ink: #eaf2ff;
+        --ink-soft: #aebcce;
+        --ink-faint: #7d8da4;
+        --panel: #0e1b31;
+        --panel-2: #13243d;
+        --panel-3: #172b49;
+        --line: #2d4262;
+        --cyan: #28d8ed;
+        --violet: #8a5cf6;
+        --magenta: #df4bd2;
+        --blue: #3478f6;
+        --green: #4bd5a1;
+        --amber: #f4b84f;
+        --white: #ffffff;
+        --paper: #f5f8fc;
+        --paper-2: #e9eef6;
+        --paper-ink: #162033;
+        --paper-soft: #59677d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #111827;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+      }
+
+      .page {
+        display: grid;
+        gap: 48px;
+        padding: 48px;
+      }
+
+      body.capture .page {
+        gap: 0;
+        padding: 0;
+      }
+
+      body.capture .frame {
+        border: 0;
+      }
+
+      .frame {
+        position: relative;
+        width: 1440px;
+        height: 980px;
+        overflow: hidden;
+        border: 1px solid #26354c;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(135deg, #061222 0%, #0b1931 48%, #14112d 100%);
+        background-size: 32px 32px, 32px 32px, auto;
+      }
+
+      .frame.light {
+        color: var(--paper-ink);
+        border-color: #ced7e5;
+        background:
+          linear-gradient(90deg, rgba(18, 32, 51, 0.05) 1px, transparent 1px),
+          linear-gradient(rgba(18, 32, 51, 0.05) 1px, transparent 1px),
+          linear-gradient(135deg, #fbfdff 0%, #eff5fb 54%, #eef1fb 100%);
+        background-size: 34px 34px, 34px 34px, auto;
+      }
+
+      .option-kicker {
+        position: absolute;
+        top: 24px;
+        left: 32px;
+        z-index: 5;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(40, 216, 237, 0.45);
+        border-radius: 8px;
+        background: rgba(40, 216, 237, 0.1);
+        color: #57e7f5;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .light .option-kicker {
+        color: #08788d;
+        border-color: rgba(8, 120, 141, 0.28);
+        background: rgba(40, 216, 237, 0.12);
+      }
+
+      .topbar {
+        position: absolute;
+        left: 40px;
+        right: 40px;
+        top: 68px;
+        z-index: 4;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 76px;
+        border: 1px solid rgba(123, 145, 178, 0.42);
+        border-radius: 8px;
+        background: rgba(9, 20, 38, 0.84);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(18px);
+        padding: 0 18px;
+      }
+
+      .light .topbar {
+        background: rgba(255, 255, 255, 0.86);
+        border-color: rgba(177, 190, 210, 0.75);
+        box-shadow: 0 20px 55px rgba(58, 76, 105, 0.14);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 250px;
+      }
+
+      .mark {
+        position: relative;
+        display: grid;
+        width: 48px;
+        height: 48px;
+        place-items: center;
+        border: 2px solid var(--cyan);
+        border-radius: 8px;
+        color: var(--ink);
+        font-weight: 900;
+      }
+
+      .mark:after {
+        content: "";
+        position: absolute;
+        inset: 8px;
+        border: 2px solid var(--violet);
+        border-radius: 6px;
+        transform: rotate(45deg);
+      }
+
+      .brand-title {
+        font-size: 21px;
+        font-weight: 900;
+        line-height: 1.05;
+      }
+
+      .brand-sub {
+        margin-top: 4px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .light .brand-sub {
+        color: var(--paper-soft);
+      }
+
+      .nav {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .nav span,
+      .chip,
+      .button,
+      .icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+      }
+
+      .nav span {
+        height: 40px;
+        padding: 0 14px;
+        border-radius: 8px;
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .light .nav span {
+        color: var(--paper-soft);
+      }
+
+      .nav .active {
+        background: rgba(40, 216, 237, 0.14);
+        color: var(--cyan);
+      }
+
+      .button-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .button {
+        height: 44px;
+        gap: 8px;
+        padding: 0 18px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .button.primary {
+        background: linear-gradient(90deg, var(--cyan), var(--violet), var(--magenta));
+        color: #ffffff;
+        box-shadow: 0 18px 44px rgba(40, 216, 237, 0.2);
+      }
+
+      .button.secondary {
+        border-color: rgba(123, 145, 178, 0.42);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ink);
+      }
+
+      .light .button.secondary {
+        color: var(--paper-ink);
+        background: rgba(255, 255, 255, 0.82);
+        border-color: #c8d3e4;
+      }
+
+      .icon-button {
+        width: 44px;
+        height: 44px;
+        border: 1px solid rgba(123, 145, 178, 0.42);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .hero-copy {
+        position: absolute;
+        left: 72px;
+        top: 218px;
+        width: 555px;
+      }
+
+      .eyebrow {
+        color: var(--cyan);
+        font-size: 14px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .headline {
+        margin: 16px 0 0;
+        color: var(--ink);
+        font-size: 68px;
+        font-weight: 950;
+        line-height: 0.94;
+      }
+
+      .light .headline {
+        color: var(--paper-ink);
+      }
+
+      .lead {
+        margin: 22px 0 0;
+        color: var(--ink-soft);
+        font-size: 20px;
+        font-weight: 650;
+        line-height: 1.55;
+      }
+
+      .light .lead {
+        color: var(--paper-soft);
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .proof-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-top: 34px;
+      }
+
+      .proof-card,
+      .card {
+        border: 1px solid rgba(123, 145, 178, 0.38);
+        border-radius: 8px;
+        background: rgba(14, 27, 49, 0.78);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.2);
+      }
+
+      .light .proof-card,
+      .light .card {
+        background: rgba(255, 255, 255, 0.84);
+        border-color: rgba(189, 201, 219, 0.88);
+        box-shadow: 0 18px 44px rgba(45, 62, 91, 0.12);
+      }
+
+      .proof-card {
+        min-height: 100px;
+        padding: 16px;
+      }
+
+      .proof-number {
+        color: var(--ink);
+        font-size: 26px;
+        font-weight: 950;
+      }
+
+      .light .proof-number {
+        color: var(--paper-ink);
+      }
+
+      .proof-label {
+        margin-top: 6px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.4;
+      }
+
+      .preview-shell {
+        position: absolute;
+        top: 200px;
+        right: 62px;
+        width: 676px;
+        height: 640px;
+        border: 1px solid rgba(123, 145, 178, 0.46);
+        border-radius: 8px;
+        background: rgba(9, 20, 38, 0.88);
+        box-shadow: 0 36px 90px rgba(0, 0, 0, 0.36);
+        overflow: hidden;
+      }
+
+      .preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 58px;
+        padding: 0 16px;
+        border-bottom: 1px solid rgba(123, 145, 178, 0.34);
+        background: rgba(19, 36, 61, 0.8);
+      }
+
+      .window-dots {
+        display: flex;
+        gap: 7px;
+      }
+
+      .window-dots i {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--ink-faint);
+      }
+
+      .screen-grid {
+        display: grid;
+        grid-template-columns: 166px 1fr 182px;
+        gap: 12px;
+        height: calc(100% - 58px);
+        padding: 12px;
+      }
+
+      .mini-panel {
+        border: 1px solid rgba(123, 145, 178, 0.34);
+        border-radius: 8px;
+        background: rgba(6, 18, 34, 0.55);
+        padding: 12px;
+      }
+
+      .mini-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .mini-title span {
+        color: var(--cyan);
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .metric {
+        min-height: 64px;
+        border: 1px solid rgba(123, 145, 178, 0.28);
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--ink);
+        font-size: 20px;
+      }
+
+      .metric small {
+        color: var(--ink-soft);
+        font-weight: 750;
+      }
+
+      .layer-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 34px;
+        margin-top: 8px;
+        padding: 0 10px;
+        border: 1px solid rgba(123, 145, 178, 0.32);
+        border-radius: 8px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .layer-btn.on {
+        color: var(--cyan);
+        border-color: rgba(40, 216, 237, 0.5);
+        background: rgba(40, 216, 237, 0.12);
+      }
+
+      .canvas {
+        position: relative;
+        height: 392px;
+        overflow: hidden;
+        border: 1px solid rgba(123, 145, 178, 0.34);
+        border-radius: 8px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          rgba(4, 15, 30, 0.72);
+        background-size: 22px 22px;
+      }
+
+      .node {
+        position: absolute;
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 50%;
+        border: 2px solid #dce9ff;
+        background: #061222;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 950;
+      }
+
+      .node.person {
+        box-shadow: 0 0 28px rgba(40, 216, 237, 0.36);
+      }
+
+      .node.code {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        border-color: rgba(223, 75, 210, 0.8);
+        background: rgba(223, 75, 210, 0.22);
+      }
+
+      .edge {
+        position: absolute;
+        height: 2px;
+        transform-origin: left center;
+        background: linear-gradient(90deg, rgba(40, 216, 237, 0.76), rgba(138, 92, 246, 0.72));
+      }
+
+      .inspector-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .evidence-row {
+        border: 1px solid rgba(123, 145, 178, 0.28);
+        border-radius: 8px;
+        padding: 10px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+
+      .evidence-row strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--ink);
+      }
+
+      .trace {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid rgba(123, 145, 178, 0.28);
+        border-radius: 8px;
+      }
+
+      svg {
+        display: block;
+      }
+
+      .option-1-footer {
+        position: absolute;
+        left: 72px;
+        right: 72px;
+        bottom: 42px;
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr;
+        gap: 16px;
+      }
+
+      .feature {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 12px;
+        align-items: start;
+        border: 1px solid rgba(123, 145, 178, 0.34);
+        border-radius: 8px;
+        background: rgba(14, 27, 49, 0.7);
+        padding: 18px;
+      }
+
+      .feature-icon {
+        display: grid;
+        width: 44px;
+        height: 44px;
+        place-items: center;
+        border-radius: 8px;
+        background: rgba(40, 216, 237, 0.13);
+        color: var(--cyan);
+        font-weight: 900;
+      }
+
+      .feature h3 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .feature p {
+        margin: 7px 0 0;
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 650;
+        line-height: 1.55;
+      }
+
+      /* Option 2 */
+      .app-shell {
+        position: absolute;
+        inset: 72px 36px 32px;
+        display: grid;
+        grid-template-rows: 62px 1fr;
+        border: 1px solid rgba(123, 145, 178, 0.42);
+        border-radius: 8px;
+        overflow: hidden;
+        background: rgba(6, 18, 34, 0.84);
+        box-shadow: 0 32px 90px rgba(0, 0, 0, 0.35);
+      }
+
+      .app-top {
+        display: grid;
+        grid-template-columns: 290px 1fr auto;
+        align-items: center;
+        gap: 16px;
+        border-bottom: 1px solid rgba(123, 145, 178, 0.36);
+        background: rgba(13, 26, 48, 0.9);
+        padding: 0 14px;
+      }
+
+      .project-title {
+        color: var(--ink);
+        font-size: 15px;
+        font-weight: 950;
+      }
+
+      .project-sub {
+        margin-top: 3px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .command-search {
+        height: 40px;
+        border: 1px solid rgba(123, 145, 178, 0.38);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 0 14px;
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 40px;
+      }
+
+      .app-main {
+        display: grid;
+        grid-template-columns: 250px 1fr 336px;
+        min-height: 0;
+      }
+
+      .rail {
+        border-right: 1px solid rgba(123, 145, 178, 0.36);
+        background: rgba(9, 20, 38, 0.7);
+        padding: 16px;
+      }
+
+      .rail-title {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .step-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 28px 1fr;
+        gap: 10px;
+        align-items: center;
+        min-height: 62px;
+        border: 1px solid rgba(123, 145, 178, 0.28);
+        border-radius: 8px;
+        padding: 10px;
+        color: var(--ink-soft);
+      }
+
+      .step.active {
+        color: var(--ink);
+        border-color: rgba(40, 216, 237, 0.6);
+        background: rgba(40, 216, 237, 0.12);
+      }
+
+      .step .num {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--cyan);
+        font-size: 11px;
+        font-weight: 950;
+      }
+
+      .step strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .step small {
+        display: block;
+        margin-top: 2px;
+        color: var(--ink-faint);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .rail-card {
+        margin-top: 16px;
+        border: 1px solid rgba(75, 213, 161, 0.38);
+        border-radius: 8px;
+        background: rgba(75, 213, 161, 0.1);
+        padding: 12px;
+      }
+
+      .rail-card strong {
+        color: #b9f9df;
+        font-size: 13px;
+      }
+
+      .rail-card p {
+        margin: 6px 0 0;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.5;
+      }
+
+      .workspace-center {
+        display: grid;
+        grid-template-rows: 88px 1fr 180px;
+        min-width: 0;
+        padding: 16px;
+      }
+
+      .canvas-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid rgba(123, 145, 178, 0.3);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 12px;
+      }
+
+      .view-title {
+        color: var(--ink);
+        font-size: 22px;
+        font-weight: 950;
+      }
+
+      .view-sub {
+        margin-top: 3px;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .segmented {
+        display: flex;
+        gap: 4px;
+        height: 38px;
+        border: 1px solid rgba(123, 145, 178, 0.34);
+        border-radius: 8px;
+        padding: 3px;
+      }
+
+      .segmented span {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 11px;
+        border-radius: 6px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .segmented .active {
+        background: var(--cyan);
+        color: #061222;
+      }
+
+      .large-canvas {
+        position: relative;
+        margin-top: 14px;
+        overflow: hidden;
+        border: 1px solid rgba(123, 145, 178, 0.36);
+        border-radius: 8px;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+          #061326;
+        background-size: 28px 28px;
+      }
+
+      .legend {
+        position: absolute;
+        left: 16px;
+        top: 16px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .legend span,
+      .chip {
+        height: 28px;
+        border: 1px solid rgba(123, 145, 178, 0.36);
+        border-radius: 8px;
+        padding: 0 9px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .legend .sna {
+        color: #80b7ff;
+        border-color: rgba(52, 120, 246, 0.55);
+        background: rgba(52, 120, 246, 0.11);
+      }
+
+      .legend .ena {
+        color: #c7afff;
+        border-color: rgba(138, 92, 246, 0.55);
+        background: rgba(138, 92, 246, 0.12);
+      }
+
+      .legend .sena {
+        color: #58e8f4;
+        border-color: rgba(40, 216, 237, 0.55);
+        background: rgba(40, 216, 237, 0.12);
+      }
+
+      .large-canvas .node {
+        transform: scale(1.22);
+      }
+
+      .bottom-metrics {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .metric-card {
+        border: 1px solid rgba(123, 145, 178, 0.32);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.045);
+        padding: 14px;
+      }
+
+      .metric-card .label {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .metric-card .value {
+        margin-top: 8px;
+        color: var(--ink);
+        font-size: 28px;
+        font-weight: 950;
+      }
+
+      .metric-card .bar {
+        height: 7px;
+        margin-top: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .metric-card .bar i {
+        display: block;
+        height: 7px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--cyan), var(--green));
+      }
+
+      .inspector {
+        border-left: 1px solid rgba(123, 145, 178, 0.36);
+        background: rgba(9, 20, 38, 0.73);
+        padding: 16px;
+      }
+
+      .inspector-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .inspector-head h2 {
+        margin: 0;
+        font-size: 19px;
+      }
+
+      .status-ready {
+        height: 28px;
+        border: 1px solid rgba(75, 213, 161, 0.48);
+        border-radius: 8px;
+        padding: 0 9px;
+        color: #b9f9df;
+        background: rgba(75, 213, 161, 0.11);
+        font-size: 11px;
+        font-weight: 900;
+        line-height: 26px;
+      }
+
+      .side-section {
+        margin-top: 16px;
+        border: 1px solid rgba(123, 145, 178, 0.32);
+        border-radius: 8px;
+        padding: 13px;
+      }
+
+      .side-section h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+
+      .side-section p {
+        margin: 8px 0 0;
+        color: var(--ink-soft);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.5;
+      }
+
+      .evidence-chip-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .mini-table {
+        display: grid;
+        gap: 6px;
+        margin-top: 12px;
+      }
+
+      .mini-table div {
+        display: grid;
+        grid-template-columns: 1fr 64px;
+        gap: 8px;
+        align-items: center;
+        min-height: 34px;
+        border: 1px solid rgba(123, 145, 178, 0.26);
+        border-radius: 8px;
+        padding: 0 10px;
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .mini-table strong {
+        color: var(--ink);
+        text-align: right;
+      }
+
+      /* Option 3 */
+      .wizard-layout {
+        position: absolute;
+        inset: 76px 56px 44px;
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 22px;
+      }
+
+      .wizard-left {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        border: 1px solid #cdd8e8;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 24px 70px rgba(58, 76, 105, 0.14);
+        padding: 24px;
+      }
+
+      .wizard-left h1 {
+        margin: 14px 0 0;
+        color: var(--paper-ink);
+        font-size: 42px;
+        font-weight: 950;
+        line-height: 1.02;
+      }
+
+      .wizard-left p {
+        margin: 14px 0 0;
+        color: var(--paper-soft);
+        font-size: 16px;
+        font-weight: 650;
+        line-height: 1.55;
+      }
+
+      .wizard-steps {
+        display: grid;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      .wizard-step {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        align-items: center;
+        min-height: 64px;
+        border: 1px solid #d5deeb;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 12px;
+      }
+
+      .wizard-step.active {
+        border-color: rgba(8, 120, 141, 0.55);
+        background: #e8fbff;
+      }
+
+      .wizard-step.done .circle {
+        background: #0e9f6e;
+        color: #fff;
+      }
+
+      .wizard-step .circle {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        background: #e8eef7;
+        color: #66758b;
+        font-size: 12px;
+        font-weight: 950;
+      }
+
+      .wizard-step strong {
+        display: block;
+        color: var(--paper-ink);
+        font-size: 14px;
+      }
+
+      .wizard-step small {
+        display: block;
+        margin-top: 2px;
+        color: var(--paper-soft);
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .wizard-help {
+        border: 1px solid rgba(244, 184, 79, 0.38);
+        border-radius: 8px;
+        background: #fff8e8;
+        padding: 14px;
+        color: #76531a;
+        font-size: 12px;
+        font-weight: 750;
+        line-height: 1.5;
+      }
+
+      .wizard-main {
+        display: grid;
+        grid-template-rows: 126px 1fr 124px;
+        gap: 16px;
+      }
+
+      .wizard-hero {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid #cdd8e8;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 20px 50px rgba(58, 76, 105, 0.11);
+        padding: 22px 24px;
+      }
+
+      .wizard-hero h2 {
+        margin: 0;
+        color: var(--paper-ink);
+        font-size: 28px;
+        font-weight: 950;
+      }
+
+      .wizard-hero p {
+        width: 570px;
+        margin: 8px 0 0;
+        color: var(--paper-soft);
+        font-size: 14px;
+        font-weight: 650;
+        line-height: 1.5;
+      }
+
+      .upload-zone {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .drop-card,
+      .contract-card {
+        border: 1px solid #cdd8e8;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 22px 58px rgba(58, 76, 105, 0.13);
+        padding: 22px;
+      }
+
+      .drop-area {
+        display: grid;
+        height: 238px;
+        place-items: center;
+        border: 2px dashed rgba(8, 120, 141, 0.36);
+        border-radius: 8px;
+        background: #ecfbff;
+        text-align: center;
+      }
+
+      .drop-area strong {
+        display: block;
+        color: var(--paper-ink);
+        font-size: 22px;
+      }
+
+      .drop-area span {
+        display: block;
+        margin-top: 8px;
+        color: var(--paper-soft);
+        font-size: 13px;
+        font-weight: 750;
+      }
+
+      .contract-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .contract-grid div {
+        border: 1px solid #d4deeb;
+        border-radius: 8px;
+        background: #f8fbff;
+        padding: 13px;
+      }
+
+      .contract-grid strong {
+        display: block;
+        color: var(--paper-ink);
+        font-size: 22px;
+      }
+
+      .contract-grid span {
+        color: var(--paper-soft);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .sample-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .sample-list div {
+        display: flex;
+        justify-content: space-between;
+        border: 1px solid #d4deeb;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 10px 12px;
+        color: var(--paper-soft);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .wizard-bottom {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+
+      .light-metric {
+        border: 1px solid #cdd8e8;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: 0 16px 42px rgba(58, 76, 105, 0.1);
+        padding: 16px;
+      }
+
+      .light-metric span {
+        color: var(--paper-soft);
+        font-size: 11px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .light-metric strong {
+        display: block;
+        margin-top: 8px;
+        color: var(--paper-ink);
+        font-size: 27px;
+        font-weight: 950;
+      }
+
+      .light-metric i {
+        display: block;
+        height: 6px;
+        margin-top: 12px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #28d8ed, #4bd5a1);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section id="option-1" class="frame">
+        <div class="option-kicker">Option 1 / Homepage Entry</div>
+        <header class="topbar">
+          <div class="brand">
+            <div class="mark">S</div>
+            <div>
+              <div class="brand-title">SENA</div>
+              <div class="brand-sub">Social-Epistemic Nexus Analytics</div>
+            </div>
+          </div>
+          <nav class="nav">
+            <span>Platform</span>
+            <span>Method</span>
+            <span class="active">SENA Analysis</span>
+            <span>Cases</span>
+            <span>Docs</span>
+          </nav>
+          <div class="button-row">
+            <span class="button secondary">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2h16v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Export
+            </span>
+            <span class="button primary">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Start Analysis
+            </span>
+          </div>
+        </header>
+
+        <div class="hero-copy">
+          <div class="eyebrow">New research tool</div>
+          <h1 class="headline">SENA Analysis Studio</h1>
+          <p class="lead">Turn coded collaboration data into SNA, ENA, bridge evidence, temporal traces, and review-ready research exports in one visible workflow.</p>
+          <div class="hero-actions">
+            <span class="button primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12h16M14 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Launch SENA Analysis
+            </span>
+            <span class="button secondary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+              Load Sample Study
+            </span>
+          </div>
+          <div class="proof-strip">
+            <div class="proof-card">
+              <div class="proof-number">3</div>
+              <div class="proof-label">Analytic layers: social, epistemic, bridge</div>
+            </div>
+            <div class="proof-card">
+              <div class="proof-number">6</div>
+              <div class="proof-label">Workflow states from data to report</div>
+            </div>
+            <div class="proof-card">
+              <div class="proof-number">100%</div>
+              <div class="proof-label">Evidence-linked interpretation trail</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="preview-shell">
+          <div class="preview-header">
+            <div class="window-dots"><i></i><i></i><i></i></div>
+            <div class="chip">SENA Fusion Canvas</div>
+            <div class="chip">Report Ready 82%</div>
+          </div>
+          <div class="screen-grid">
+            <div class="mini-panel">
+              <div class="mini-title">Data Contract <span>Ready</span></div>
+              <div class="metric-grid">
+                <div class="metric"><strong>6</strong><small>People</small></div>
+                <div class="metric"><strong>7</strong><small>Codes</small></div>
+                <div class="metric"><strong>26</strong><small>Bridge links</small></div>
+                <div class="metric"><strong>.64</strong><small>Fusion beta</small></div>
+              </div>
+              <div style="height:18px"></div>
+              <div class="mini-title">Layers</div>
+              <div class="layer-btn on">SNA <span>10</span></div>
+              <div class="layer-btn on">ENA <span>21</span></div>
+              <div class="layer-btn on">SENA <span>26</span></div>
+              <div style="height:18px"></div>
+              <div class="mini-title">Weights</div>
+              <svg width="100%" height="96" viewBox="0 0 140 96" aria-hidden="true">
+                <line x1="4" y1="18" x2="136" y2="18" stroke="#2d4262" stroke-width="7" stroke-linecap="round"/>
+                <line x1="4" y1="18" x2="108" y2="18" stroke="#28d8ed" stroke-width="7" stroke-linecap="round"/>
+                <line x1="4" y1="48" x2="136" y2="48" stroke="#2d4262" stroke-width="7" stroke-linecap="round"/>
+                <line x1="4" y1="48" x2="91" y2="48" stroke="#8a5cf6" stroke-width="7" stroke-linecap="round"/>
+                <line x1="4" y1="78" x2="136" y2="78" stroke="#2d4262" stroke-width="7" stroke-linecap="round"/>
+                <line x1="4" y1="78" x2="119" y2="78" stroke="#df4bd2" stroke-width="7" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <div class="canvas">
+                <div class="edge" style="left:74px;top:108px;width:150px;transform:rotate(24deg)"></div>
+                <div class="edge" style="left:92px;top:270px;width:146px;transform:rotate(-35deg);background:linear-gradient(90deg,#3478f6,#28d8ed)"></div>
+                <div class="edge" style="left:166px;top:88px;width:118px;transform:rotate(68deg);background:linear-gradient(90deg,#8a5cf6,#df4bd2)"></div>
+                <div class="edge" style="left:106px;top:178px;width:156px;transform:rotate(4deg)"></div>
+                <div class="edge" style="left:184px;top:254px;width:88px;transform:rotate(-56deg);background:linear-gradient(90deg,#df4bd2,#28d8ed)"></div>
+                <div class="node person" style="left:54px;top:82px">A</div>
+                <div class="node person" style="left:78px;top:251px">B</div>
+                <div class="node person" style="left:214px;top:72px">C</div>
+                <div class="node person" style="left:224px;top:237px">D</div>
+                <div class="node code" style="left:140px;top:157px">EV</div>
+                <div class="node code" style="left:184px;top:202px">HY</div>
+                <div class="node code" style="left:162px;top:103px">EX</div>
+              </div>
+              <div class="trace">
+                <div class="mini-title">Temporal SENA Trace <span>3 windows</span></div>
+                <svg width="100%" height="100" viewBox="0 0 300 100" aria-hidden="true">
+                  <line x1="12" y1="22" x2="286" y2="22" stroke="#2d4262"/>
+                  <line x1="12" y1="52" x2="286" y2="52" stroke="#2d4262"/>
+                  <line x1="12" y1="82" x2="286" y2="82" stroke="#2d4262"/>
+                  <polyline points="18,72 136,44 282,24" fill="none" stroke="#3478f6" stroke-width="4" stroke-linecap="round"/>
+                  <polyline points="18,78 136,60 282,25" fill="none" stroke="#df4bd2" stroke-width="4" stroke-linecap="round"/>
+                  <polyline points="18,73 136,48 282,25" fill="none" stroke="#28d8ed" stroke-width="4" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
+            <div class="mini-panel">
+              <div class="mini-title">Evidence Inspector <span>Active</span></div>
+              <div class="inspector-list">
+                <div class="evidence-row"><strong>Evidence + Explanation</strong>code-code co-occurrence, scaled .64</div>
+                <div class="evidence-row"><strong>Eli, turn 2</strong>Split the task: one checks evidence, one drafts the hypothesis.</div>
+                <div class="evidence-row"><strong>Ben, turn 4</strong>The object sank faster when mass increased.</div>
+                <div class="evidence-row"><strong>Guardrail</strong>Interpretation remains human-reviewed before export.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-1-footer">
+          <div class="feature">
+            <div class="feature-icon">S</div>
+            <div>
+              <h3>Primary site signal</h3>
+              <p>The new SENA analysis tool is visible in the hero, nav, and first call to action.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">G</div>
+            <div>
+              <h3>Real work preview</h3>
+              <p>The first screen shows canvas, evidence, trace, and export readiness.</p>
+            </div>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">R</div>
+            <div>
+              <h3>Research credibility</h3>
+              <p>Key metrics and guardrails make the tool feel scholarly, not decorative.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="option-2" class="frame">
+        <div class="option-kicker">Option 2 / Professional App Shell</div>
+        <div class="app-shell">
+          <div class="app-top">
+            <div class="brand">
+              <div class="mark">S</div>
+              <div>
+                <div class="project-title">SENA Analysis Studio</div>
+                <div class="project-sub">AI lesson study sample / local deterministic runtime</div>
+              </div>
+            </div>
+            <div class="command-search">Search evidence, actors, codes, matrices, exports...</div>
+            <div class="button-row">
+              <span class="button secondary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14m7-7H5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                Upload
+              </span>
+              <span class="button primary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 17v2h16v-2M12 4v10m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Export Report
+              </span>
+            </div>
+          </div>
+
+          <div class="app-main">
+            <aside class="rail">
+              <div class="rail-title">Workflow</div>
+              <div class="step-list">
+                <div class="step"><div class="num">01</div><div><strong>Data Import</strong><small>Contract tables ready</small></div></div>
+                <div class="step"><div class="num">02</div><div><strong>Model Builder</strong><small>S/W/B/G weights</small></div></div>
+                <div class="step active"><div class="num">03</div><div><strong>Fusion Canvas</strong><small>Layered graph active</small></div></div>
+                <div class="step"><div class="num">04</div><div><strong>Evidence</strong><small>Nodes and excerpts</small></div></div>
+                <div class="step"><div class="num">05</div><div><strong>Temporal Trace</strong><small>Stage windows</small></div></div>
+                <div class="step"><div class="num">06</div><div><strong>Report</strong><small>Human review export</small></div></div>
+              </div>
+              <div class="rail-card">
+                <strong>Review status: ready</strong>
+                <p>All visible claims can be exported with weights, source rows, and method parameters.</p>
+              </div>
+            </aside>
+
+            <section class="workspace-center">
+              <div class="canvas-toolbar">
+                <div>
+                  <div class="view-title">Fusion Canvas</div>
+                  <div class="view-sub">Joint SNA / ENA / SENA bridge view, threshold .16, max normalization</div>
+                </div>
+                <div class="segmented"><span>Explain</span><span>ENA Space</span><span class="active">Joint</span></div>
+              </div>
+              <div class="large-canvas">
+                <div class="legend"><span class="sna">SNA 10</span><span class="ena">ENA 21</span><span class="sena">SENA 26</span></div>
+                <div class="edge" style="left:214px;top:172px;width:328px;transform:rotate(13deg);height:3px"></div>
+                <div class="edge" style="left:250px;top:408px;width:310px;transform:rotate(-42deg);height:3px;background:linear-gradient(90deg,#3478f6,#28d8ed)"></div>
+                <div class="edge" style="left:512px;top:144px;width:178px;transform:rotate(72deg);height:3px;background:linear-gradient(90deg,#8a5cf6,#df4bd2)"></div>
+                <div class="edge" style="left:330px;top:298px;width:386px;transform:rotate(-4deg);height:3px"></div>
+                <div class="edge" style="left:552px;top:382px;width:158px;transform:rotate(-58deg);height:3px;background:linear-gradient(90deg,#df4bd2,#28d8ed)"></div>
+                <div class="edge" style="left:190px;top:328px;width:260px;transform:rotate(25deg);height:3px;background:linear-gradient(90deg,#4bd5a1,#28d8ed)"></div>
+                <div class="node person" style="left:176px;top:150px">A</div>
+                <div class="node person" style="left:216px;top:390px">B</div>
+                <div class="node person" style="left:650px;top:128px">C</div>
+                <div class="node person" style="left:660px;top:360px">D</div>
+                <div class="node person" style="left:430px;top:430px">E</div>
+                <div class="node code" style="left:400px;top:250px">EV</div>
+                <div class="node code" style="left:520px;top:305px">HY</div>
+                <div class="node code" style="left:505px;top:190px">EX</div>
+                <div class="node code" style="left:570px;top:230px">RF</div>
+              </div>
+              <div class="bottom-metrics">
+                <div class="metric-card"><div class="label">Social connectivity</div><div class="value">0.72</div><div class="bar"><i style="width:72%"></i></div></div>
+                <div class="metric-card"><div class="label">Concept connectivity</div><div class="value">0.64</div><div class="bar"><i style="width:64%;background:linear-gradient(90deg,#8a5cf6,#df4bd2)"></i></div></div>
+                <div class="metric-card"><div class="label">Bridge contribution</div><div class="value">0.86</div><div class="bar"><i style="width:86%;background:linear-gradient(90deg,#28d8ed,#4bd5a1)"></i></div></div>
+              </div>
+            </section>
+
+            <aside class="inspector">
+              <div class="inspector-head">
+                <h2>Evidence Inspector</h2>
+                <div class="status-ready">Ready</div>
+              </div>
+              <div class="side-section">
+                <h3>Selected edge: Evidence + Explanation</h3>
+                <p>Code-code co-occurrence with raw weight 5, normalized 1, scaled .64. Evidence is linked to source utterance rows.</p>
+                <div class="evidence-chip-row"><span class="chip">ENA</span><span class="chip">Bridge</span><span class="chip">Window 2</span></div>
+              </div>
+              <div class="side-section">
+                <h3>Original excerpts</h3>
+                <div class="inspector-list">
+                  <div class="evidence-row"><strong>Eli, turn 2</strong>Let's split the task first: one person checks evidence, one drafts the hypothesis.</div>
+                  <div class="evidence-row"><strong>Ben, turn 4</strong>The table shows the object sank faster when mass increased.</div>
+                  <div class="evidence-row"><strong>Daria, turn 5</strong>We need the claim to match both the data pattern and the group explanation.</div>
+                </div>
+              </div>
+              <div class="side-section">
+                <h3>Runtime validation</h3>
+                <div class="mini-table">
+                  <div><span>SNA.js density</span><strong>.42</strong></div>
+                  <div><span>jENA manifest</span><strong>OK</strong></div>
+                  <div><span>Report completeness</span><strong>82%</strong></div>
+                  <div><span>Human review</span><strong>Open</strong></div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="option-3" class="frame light">
+        <div class="option-kicker">Option 3 / Guided Analysis Flow</div>
+        <div class="wizard-layout">
+          <aside class="wizard-left">
+            <div>
+              <div class="brand">
+                <div class="mark" style="color:#162033">S</div>
+                <div>
+                  <div class="brand-title">SENA Analysis</div>
+                  <div class="brand-sub">Guided research workflow</div>
+                </div>
+              </div>
+              <h1>Build a review-ready SENA report.</h1>
+              <p>Designed for first-time users, workshops, and project demos. Each step reveals only the decisions needed now.</p>
+            </div>
+            <div class="wizard-steps">
+              <div class="wizard-step active"><div class="circle">1</div><div><strong>Upload data</strong><small>CSV or JSON contract tables</small></div></div>
+              <div class="wizard-step"><div class="circle">2</div><div><strong>Check contract</strong><small>People, codes, utterances</small></div></div>
+              <div class="wizard-step"><div class="circle">3</div><div><strong>Set model weights</strong><small>SNA, ENA, bridge contribution</small></div></div>
+              <div class="wizard-step"><div class="circle">4</div><div><strong>Inspect evidence</strong><small>Click nodes and edges</small></div></div>
+              <div class="wizard-step"><div class="circle">5</div><div><strong>Generate report</strong><small>Export JSON and markdown</small></div></div>
+            </div>
+            <div class="wizard-help">Best for onboarding: the user sees one clear next action, while advanced runtime details stay available after the core analysis is complete.</div>
+          </aside>
+
+          <main class="wizard-main">
+            <section class="wizard-hero">
+              <div>
+                <h2>Step 1: Upload or load a sample study</h2>
+                <p>Start with mapped SENA contract tables. The system checks required fields before building social, epistemic, bridge, and temporal layers.</p>
+              </div>
+              <div class="button-row">
+                <span class="button secondary" style="color:#162033;border-color:#c8d3e4;background:#fff">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14m7-7H5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  Use Sample
+                </span>
+                <span class="button primary">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 17v2h16v-2M12 4v10m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  Upload Files
+                </span>
+              </div>
+            </section>
+
+            <section class="upload-zone">
+              <div class="drop-card">
+                <div class="drop-area">
+                  <div>
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" style="margin:0 auto 18px;color:#08788d" aria-hidden="true"><path d="M12 16V4m0 0 4 4m-4-4-4 4M4 16v3h16v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <strong>Drop SENA data here</strong>
+                    <span>people.csv, codebook.csv, utterances.csv, interactions.csv</span>
+                  </div>
+                </div>
+                <div class="sample-list">
+                  <div><span>lesson-study-sample.json</span><strong>ready</strong></div>
+                  <div><span>sena-data-contract-template.json</span><strong>template</strong></div>
+                  <div><span>pilot-package-manifest.json</span><strong>docs</strong></div>
+                </div>
+              </div>
+
+              <div class="contract-card">
+                <div class="wizard-hero" style="height:auto;box-shadow:none;padding:0;border:0;background:transparent">
+                  <div>
+                    <h2 style="font-size:24px">Contract preview</h2>
+                    <p style="width:auto">The wizard validates fields before exposing the full workspace.</p>
+                  </div>
+                </div>
+                <div class="contract-grid">
+                  <div><strong>6</strong><span>People</span></div>
+                  <div><strong>7</strong><span>Codes</span></div>
+                  <div><strong>10</strong><span>Social ties</span></div>
+                  <div><strong>26</strong><span>Bridge links</span></div>
+                </div>
+                <svg width="100%" height="210" viewBox="0 0 400 210" style="margin-top:22px" aria-hidden="true">
+                  <rect x="0" y="0" width="400" height="210" rx="8" fill="#f8fbff" stroke="#d4deeb"/>
+                  <line x1="30" y1="48" x2="370" y2="48" stroke="#dbe4f1"/>
+                  <line x1="30" y1="95" x2="370" y2="95" stroke="#dbe4f1"/>
+                  <line x1="30" y1="142" x2="370" y2="142" stroke="#dbe4f1"/>
+                  <polyline points="36,158 146,130 256,84 364,50" fill="none" stroke="#3478f6" stroke-width="5" stroke-linecap="round"/>
+                  <polyline points="36,164 146,144 256,116 364,62" fill="none" stroke="#8a5cf6" stroke-width="5" stroke-linecap="round"/>
+                  <polyline points="36,170 146,138 256,98 364,54" fill="none" stroke="#28d8ed" stroke-width="5" stroke-linecap="round"/>
+                  <circle cx="36" cy="158" r="5" fill="#3478f6"/>
+                  <circle cx="146" cy="130" r="5" fill="#3478f6"/>
+                  <circle cx="256" cy="84" r="5" fill="#3478f6"/>
+                  <circle cx="364" cy="50" r="5" fill="#3478f6"/>
+                </svg>
+              </div>
+            </section>
+
+            <section class="wizard-bottom">
+              <div class="light-metric"><span>Next action</span><strong>Validate fields</strong><i style="width:78%"></i></div>
+              <div class="light-metric"><span>Data health</span><strong>92%</strong><i style="width:92%"></i></div>
+              <div class="light-metric"><span>Review risk</span><strong>Low</strong><i style="width:42%;background:linear-gradient(90deg,#4bd5a1,#f4b84f)"></i></div>
+              <div class="light-metric"><span>Report path</span><strong>5 steps</strong><i style="width:20%;background:linear-gradient(90deg,#8a5cf6,#df4bd2)"></i></div>
+            </section>
+          </main>
+        </div>
+      </section>
+    </main>
+    <script>
+      const requestedFrame = new URLSearchParams(window.location.search).get("frame");
+      if (requestedFrame) {
+        document.body.classList.add("capture");
+        for (const frame of document.querySelectorAll(".frame")) {
+          frame.hidden = frame.id !== requestedFrame;
+        }
+      }
+    </script>
+  </body>
+</html>

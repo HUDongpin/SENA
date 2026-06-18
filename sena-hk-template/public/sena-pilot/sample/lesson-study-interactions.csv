@@ -1,0 +1,9 @@
+source,target,weight,channel,stage,turn_index,evidence
+T1,T2,7,reply,Plan,1,Ms Lee asks Mr Chan to connect the learning goal to prior evidence；李老師請陳老師把學習目標連到證據
+T2,T3,3,mention,Plan,2,Mr Chan invites Dr Wong to check whether the task supports explanation
+T3,T1,4,reply,Plan,3,Dr Wong replies with a critique of the opening prompt
+T4,T1,2,observation,Teach,5,Ms Ho notes how Ms Lee responds to student evidence
+T1,T4,3,reply,Teach,6,Ms Lee asks Ms Ho to watch for explanation quality
+T2,T4,6,reply,Reflect,8,Mr Chan builds on Ms Ho's observation during reflection
+T4,T3,2,mention,Reflect,9,Ms Ho asks Dr Wong to help interpret the evidence pattern；何老師請黃博士協助解讀證據模式
+T3,T2,6,reply,Reflect,10,Dr Wong links the critique back to the revised design

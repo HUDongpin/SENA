@@ -1,0 +1,489 @@
+{
+  "file": "/Users/dongpinhu/Desktop/SENA/exports/session-outputs/SENA_formula_mathematical_paper_edited_version.docx",
+  "comment_count": 21,
+  "comments": [
+    {
+      "id": "0",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R1 terminology: Reviewer asked us to distinguish heterogeneous typed graph from strict multilayer/multiplex usage. Response: Accepted. The title, abstract, related-work section, and discussion now define SENA as a heterogeneous typed block-adjacency model; supra-adjacency is explicitly limited to a broad block-representation sense. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Consequently, a calibrated novelty claim is required. SENA does not invent block matrices, supra-adjacency notation, or multilayer graphs. Its contribution is the domain-specific formalization of a so"
+            },
+            {
+              "where": "end",
+              "text": "Consequently, a calibrated novelty claim is required. SENA does not invent block matrices, supra-adjacency notation, or multilayer graphs. Its contribution is the domain-specific formalization of a so"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R2 B semantics: Reviewer noted that B may indicate association/exposure rather than contribution. Response: Accepted. Definition 3 and the generative construction now describe B as association/exposure/use by default and reserve contribution claims for person-specific evidence or an explicit attribution rule. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "where  denotes the association, exposure, use, or activation strength linking person  to code . It should be interpreted as person-level contribution only when the data include person-specific coding "
+            },
+            {
+              "where": "end",
+              "text": "where  denotes the association, exposure, use, or activation strength linking person  to code . It should be interpreted as person-level contribution only when the data include person-specific coding "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R3 G attribution: Reviewer noted that G cannot prove that a person supported an ENA edge in multi-person windows. Response: Accepted. The attribution section now labels G as a participation-weighted association tensor and replaces strong support language with cautious association language unless person-specific evidence is available. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "This tensor is useful for reporting person-code-pair association, but it is not a block of . Moreover, without person-specific code-pair evidence,  does not prove that person  supported the code-code "
+            },
+            {
+              "where": "end",
+              "text": "This tensor is useful for reporting person-code-pair association, but it is not a block of . Moreover, without person-specific code-pair evidence,  does not prove that person  supported the code-code "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R4 embedding/layout: Reviewer asked us to separate analytical embedding from force-directed layout. Response: Accepted. Theorem 2 now discusses analytical operators separately, and a new paragraph states that force-directed layouts are exploratory unless separately justified. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Analytical embedding and visual layout are distinct. A force-directed layout can be useful for exploratory display, but its distances, angles, and clusters should not be given the same metric or infer"
+            },
+            {
+              "where": "end",
+              "text": "Analytical embedding and visual layout are distinct. A force-directed layout can be useful for exploratory display, but its distances, angles, and clusters should not be given the same metric or infer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R5 typed centrality: Reviewer warned against direct ranking of person and code nodes. Response: Accepted. A new Typed Centrality and Layout Interpretation section now separates within-type, cross-type, bridge, and whole-graph typed measures. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Typed graph centrality requires caution. A person node and a code node can both have degree, betweenness, eigenvector centrality, or PageRank scores, but these scores mix different empirical meanings:"
+            },
+            {
+              "where": "end",
+              "text": "Typed graph centrality requires caution. A person node and a code node can both have degree, betweenness, eigenvector centrality, or PageRank scores, but these scores mix different empirical meanings:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R6 diagonal convention: Reviewer requested a fixed diagonal/self-loop rule. Response: Accepted. Definitions 1 and 2 now state the default zero-diagonal convention and explain when self-loops or frequencies should be handled separately. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "where  denotes the co-occurrence strength between codes  and  within a specified unit, stanza, or moving window. In the usual ENA-style co-occurrence construction, . Unless a study explicitly analyzes"
+            },
+            {
+              "where": "end",
+              "text": "where  denotes the co-occurrence strength between codes  and  within a specified unit, stanza, or moving window. In the usual ENA-style co-occurrence construction, . Unless a study explicitly analyzes"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R7 ENA pipeline: Reviewer noted that W is not the full ENA model. Response: Accepted. The generative construction now calls W an ENA-style co-occurrence ingredient before unit-level normalization, rotation, or dimensional projection. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The  equation is an ENA-style co-occurrence ingredient before unit-level normalization, rotation, or dimensional projection. It is not the full ENA modeling pipeline. The  equation is a participation-"
+            },
+            {
+              "where": "end",
+              "text": "The  equation is an ENA-style co-occurrence ingredient before unit-level normalization, rotation, or dimensional projection. It is not the full ENA modeling pipeline. The  equation is a participation-"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R8 null models: Reviewer requested that null models be tied to claims. Response: Accepted. The Statistical Validation Framework now includes a claim-to-validation table linking claim types to data, matrices/statistics, and validation methods. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The following claim-to-validation table makes the validation requirement explicit."
+            },
+            {
+              "where": "end",
+              "text": "The following claim-to-validation table makes the validation requirement explicit."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R9 normalization definition: Reviewer requested domain/codomain, zero-matrix handling, and structure preservation. Response: Accepted. Definition 4 now defines admissible normalization, requires nonnegativity and symmetry preservation where applicable, and sets N_L(0)=0. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Definition 4 (Admissible layer normalization). For each layer , an admissible normalization is a map"
+            },
+            {
+              "where": "end",
+              "text": "Definition 4 (Admissible layer normalization). For each layer , an admissible normalization is a map"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R10 theorem assumptions: Reviewer noted that Theorem 1 depended on normalization properties. Response: Accepted. Theorem 1 now cites Assumptions 1-4 and its proof explicitly uses admissible normalization to justify nonnegativity and symmetry of normalized blocks. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Theorem 1 (Weighted undirected heterogeneous typed graph). Under Assumptions 1-4,  is a symmetric nonnegative adjacency matrix on the typed node set ."
+            },
+            {
+              "where": "end",
+              "text": "Theorem 1 (Weighted undirected heterogeneous typed graph). Under Assumptions 1-4,  is a symmetric nonnegative adjacency matrix on the typed node set ."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R11 Laplacian/self-loop convention: Reviewer asked us to state the convention. Response: Accepted. Corollary 1 now explains that self-loops do not affect the quadratic form under the stated degree convention. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "because . Thus . Under this Laplacian convention, diagonal self-loops do not affect the quadratic form because their contribution has ."
+            },
+            {
+              "where": "end",
+              "text": "because . Thus . Under this Laplacian convention, diagonal self-loops do not affect the quadratic form because their contribution has ."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "11",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R12 adjacency PSD: Reviewer asked us to make this warning more visible. Response: Accepted. Remark 1 is now titled Adjacency is not a kernel and states that A_fusion is generally not PSD. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Remark 1 (Adjacency is not a kernel). The preceding result concerns the graph Laplacian, not the adjacency matrix itself. In general,  is not a positive semidefinite kernel or covariance matrix. A non"
+            },
+            {
+              "where": "end",
+              "text": "Remark 1 (Adjacency is not a kernel). The preceding result concerns the graph Laplacian, not the adjacency matrix itself. In general,  is not a positive semidefinite kernel or covariance matrix. A non"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "12",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R13 scale dependence: Reviewer found that the old proposition applied only to raw matrices. Response: Accepted. Proposition 3 now covers A_raw only; the text separately explains that normalized SENA weights are convention-dependent rather than governed by the old raw-scale identity. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Proposition 3 (Unnormalized scale invariance). Let . Replacing  by  and replacing  by  leaves  unchanged."
+            },
+            {
+              "where": "end",
+              "text": "Proposition 3 (Unnormalized scale invariance). Let . Replacing  by  and replacing  by  leaves  unchanged."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "13",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R14 directed extension: Reviewer requested stricter directed-graph conditions. Response: Accepted. The directed section now states that directed Laplacians require a separate out-degree, random-walk, symmetrized, or other declared construction. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "If , the same block construction defines a directed heterogeneous graph rather than an undirected one. The undirected Laplacian result above does not apply without additional directed-graph choices, s"
+            },
+            {
+              "where": "end",
+              "text": "If , the same block construction defines a directed heterogeneous graph rather than an undirected one. The undirected Laplacian result above does not apply without additional directed-graph choices, s"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "14",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R15 directed bridge dimensions: Reviewer requested independent B^PC and B^CP declarations. Response: Accepted. The directed model now declares B^PC in R^{n x m} and B^CP in R^{m x n}, and notes that they need not be transposes in a genuinely directed model. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "where  represents person-to-code activation and  represents code-to-person uptake, attribution, feedback, or recommendation. These two blocks need not be transposes of each other in a genuinely direct"
+            },
+            {
+              "where": "end",
+              "text": "where  represents person-to-code activation and  represents code-to-person uptake, attribution, feedback, or recommendation. These two blocks need not be transposes of each other in a genuinely direct"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "15",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R16 temporal normalization: Reviewer asked us to clarify global vs within-time normalization. Response: Accepted. The temporal section now states the interpretive tradeoff between global and within-time normalization before using Delta A. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "or by distances such as Frobenius distance, spectral distance, graph edit distance, or permutation-tested group/time contrasts. Cross-time comparisons require a declared normalization policy. A global"
+            },
+            {
+              "where": "end",
+              "text": "or by distances such as Frobenius distance, spectral distance, graph edit distance, or permutation-tested group/time contrasts. Cross-time comparisons require a declared normalization policy. A global"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "16",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R17 novelty claim: Reviewer found the novelty defensible but asked for sharper boundaries. Response: Accepted. The revised introduction and related-context sections now emphasize domain-specific formalization rather than invention of block matrices, multilayer graphs, or supra-adjacency notation. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Consequently, a calibrated novelty claim is required. SENA does not invent block matrices, supra-adjacency notation, or multilayer graphs. Its contribution is the domain-specific formalization of a so"
+            },
+            {
+              "where": "end",
+              "text": "Consequently, a calibrated novelty claim is required. SENA does not invent block matrices, supra-adjacency notation, or multilayer graphs. Its contribution is the domain-specific formalization of a so"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "17",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R18 central claim scope: Reviewer asked us to condition the central claim on the added assumptions. Response: Accepted. The central claim now explicitly depends on declared construction, admissible normalization, and interpretation conventions. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "The SENA formula is mathematically valid as a normalized weighted heterogeneous typed adjacency matrix on the typed node set , provided that the matrix construction, normalization, and interpretation "
+            },
+            {
+              "where": "end",
+              "text": "The SENA formula is mathematically valid as a normalized weighted heterogeneous typed adjacency matrix on the typed node set , provided that the matrix construction, normalization, and interpretation "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "18",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R19 missing citations: Reviewer found blank citation markers in the original. Response: Accepted. The revised text restores author-year citations in the introduction and related-context section. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "Collaborative learning is simultaneously social and epistemic. Learners interact with particular people while producing, connecting, challenging, and refining particular ideas. SNA gives mature tools "
+            },
+            {
+              "where": "end",
+              "text": "Collaborative learning is simultaneously social and epistemic. Learners interact with particular people while producing, connecting, challenging, and refining particular ideas. SNA gives mature tools "
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "19",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R20 conclusion conditions: Reviewer suggested moving conditions into the paper earlier. Response: Accepted. The same requirements now appear in assumptions, admissible normalization, typed interpretation, and statistical validation sections before the conclusion. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "is a valid weighted typed adjacency matrix. Its graph Laplacian is positive semidefinite in the undirected case under the declared convention, boundary cases reduce to recognizable SNA, ENA-style co-o"
+            },
+            {
+              "where": "end",
+              "text": "is a valid weighted typed adjacency matrix. Its graph Laplacian is positive semidefinite in the undirected case under the declared convention, boundary cases reduce to recognizable SNA, ENA-style co-o"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "20",
+      "author": "Codex Response",
+      "date": "2026-06-08T01:29:34Z",
+      "initials": null,
+      "resolved": false,
+      "text": "R21 references formatting: Reviewer flagged the stray 99 before the references. Response: Accepted. The revised manuscript removes the stray 99 and restores References as a proper heading. Status: addressed.",
+      "anchors": [
+        {
+          "part": "word/document.xml",
+          "paragraphs": [
+            {
+              "where": "start",
+              "text": "References"
+            },
+            {
+              "where": "end",
+              "text": "References"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

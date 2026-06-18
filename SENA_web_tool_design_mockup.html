@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SENA Fusion Studio — Web Tool Design Mockup</title>
+  <style>
+    :root {
+      --bg: #f3f6ff;
+      --panel: rgba(255,255,255,0.86);
+      --panel-strong: rgba(255,255,255,0.96);
+      --line: #dbe3ff;
+      --text: #17213a;
+      --muted: #647193;
+      --blue: #2563eb;
+      --cyan: #29c7d8;
+      --purple: #7c3aed;
+      --violet: #a855f7;
+      --pink: #ec4899;
+      --orange: #f97316;
+      --green: #13b981;
+      --warning: #f59e0b;
+      --shadow: 0 22px 55px rgba(38, 77, 173, .13);
+      --radius: 26px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 4% 10%, #e6f4ff 0, transparent 28%),
+        radial-gradient(circle at 88% 7%, #f0e7ff 0, transparent 30%),
+        linear-gradient(135deg, #eef5ff, #faf7ff 58%, #eef9ff);
+      min-height: 100vh;
+    }
+    .app {
+      width: min(1540px, calc(100vw - 34px));
+      margin: 18px auto 28px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,.8);
+      border-radius: 34px;
+      background: rgba(255,255,255,.50);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 10px 12px 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 16px; }
+    .logo {
+      width: 52px; height: 52px; border-radius: 18px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, #2e76ff, #8b5cf6);
+      color: white; font-size: 25px; font-weight: 850;
+      box-shadow: 0 14px 25px rgba(37, 99, 235, .25);
+    }
+    h1 { margin: 0; font-size: 30px; letter-spacing: -0.03em; }
+    .subtitle { margin-top: 4px; color: var(--muted); font-size: 14px; }
+    .mode-pill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px; border-radius: 24px;
+      background: var(--panel-strong); border: 1px solid var(--line);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+    }
+    .mode-pill span {
+      padding: 10px 20px; border-radius: 18px; font-weight: 750; color: #1d2b58;
+      font-size: 14px;
+    }
+    .mode-pill .active {
+      color: white; background: linear-gradient(135deg, #2f73ff, #7857ff);
+      box-shadow: 0 10px 22px rgba(55, 94, 255, .28);
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1.1fr 1.35fr 1fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(219,227,255,.85);
+      border-radius: var(--radius);
+      box-shadow: 0 18px 35px rgba(40, 72, 158, .08);
+      backdrop-filter: blur(18px);
+    }
+    .mini-card { padding: 18px 20px; }
+    .card-title {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      margin-bottom: 14px; font-weight: 850; letter-spacing: -.02em;
+    }
+    .tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      color: #3152b6; background: #edf3ff; border: 1px solid #dbe6ff;
+      white-space: nowrap;
+    }
+    .data-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .data-item {
+      min-height: 70px; border-radius: 18px; padding: 11px;
+      border: 1px solid #e3e9ff; background: rgba(255,255,255,.72);
+    }
+    .data-item b { display: block; font-size: 13px; margin-bottom: 5px; }
+    .data-item small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .formula {
+      display: grid; grid-template-columns: 1fr 62px 1fr; gap: 12px; align-items: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #223161; font-size: 13px;
+    }
+    .matrix {
+      padding: 11px 12px; border-radius: 16px; background: #f7f8ff; border: 1px solid #e1e7ff;
+      line-height: 1.65;
+    }
+    .weights { display: flex; flex-direction: column; gap: 8px; }
+    .slider-row { display: grid; grid-template-columns: 28px 1fr 36px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .bar { height: 8px; border-radius: 999px; background: #e6ebff; overflow: hidden; }
+    .bar > i { display:block; height:100%; border-radius:999px; background: linear-gradient(90deg, #2f73ff, #a855f7); }
+    .layout-grid { display: grid; grid-template-columns: 300px 1fr 330px; gap: 18px; }
+    .side { padding: 18px; min-height: 700px; }
+    .canvas-card { position: relative; overflow: hidden; min-height: 700px; }
+    .canvas-header {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 18px 20px 8px;
+    }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab {
+      border: 1px solid #dce5ff; background: #fff; border-radius: 14px; padding: 8px 11px; font-size: 12px; color: #3b4670; font-weight: 750;
+    }
+    .tab.active { background: #eef3ff; color: var(--blue); border-color: #bfd1ff; }
+    .legend-inline { display:flex; gap:12px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+    .legend-inline i { display:inline-block; width:24px; height:4px; border-radius:999px; vertical-align:middle; margin-right:6px; }
+    .legend-inline .sna { background:#2e76ff; }
+    .legend-inline .ena { border-top:4px dashed #9b5cf6; background:transparent; border-radius:0; height:0; }
+    .legend-inline .sena { background:linear-gradient(90deg,#2e76ff,#2ed0d6,#b15cff); height:8px; }
+    .stage {
+      position: relative; margin: 8px 18px 16px; min-height: 610px; border-radius: 26px;
+      background:
+        radial-gradient(circle at 50% 42%, rgba(124,58,237,.10), transparent 26%),
+        radial-gradient(circle at 13% 20%, rgba(45, 199, 216,.10), transparent 25%),
+        radial-gradient(circle at 86% 25%, rgba(124,58,237,.08), transparent 28%),
+        linear-gradient(180deg, rgba(255,255,255,.7), rgba(247,249,255,.8));
+      border: 1px solid #e2e8ff;
+      overflow: hidden;
+    }
+    .stage::before {
+      content:""; position:absolute; inset:22px; border:1px dashed rgba(124,58,237,.18); border-radius:28px; pointer-events:none;
+    }
+    .left-flow, .right-flow { display:flex; flex-direction:column; gap:14px; }
+    .flow-step {
+      border: 1px solid #e2e8ff; border-radius: 18px; background: rgba(255,255,255,.68); padding: 13px;
+    }
+    .flow-step strong { display:block; font-size:14px; margin-bottom:6px; }
+    .flow-step p { margin:0; color:var(--muted); font-size:12px; line-height:1.48; }
+    .chipline { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+    .chip { padding:4px 8px; border-radius:999px; background:#f2f5ff; color:#40508c; font-size:11px; font-weight:700; border:1px solid #e0e7ff; }
+    .metric { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid #edf1ff; padding:11px 0; }
+    .metric span { color:var(--muted); font-size:12px; }
+    .metric b { font-size:15px; color:#1d2b58; }
+    .warning {
+      margin-top: 14px; padding: 12px; border-radius: 18px; background: #fff8e7; border: 1px solid #ffe1a3; color: #7a4a00; font-size:12px; line-height:1.45;
+    }
+    .table-mini { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; overflow:hidden; border-radius:14px; }
+    .table-mini th, .table-mini td { padding: 9px 8px; border-bottom: 1px solid #edf1ff; text-align:left; }
+    .table-mini th { color:#415087; background:#f5f7ff; font-weight:800; }
+    .bottom { display: grid; grid-template-columns: 1fr 1fr 1fr; gap:18px; margin-top: 18px; }
+    .export-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .btn { border:0; border-radius:14px; padding:10px 13px; background:#edf3ff; color:#2449af; font-weight:800; font-size:12px; }
+    .btn.primary { color:#fff; background:linear-gradient(135deg,#2e76ff,#7c3aed); }
+    svg text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .person-label { font-size: 15px; font-weight: 850; fill:#16223c; }
+    .role-label { font-size: 10px; fill:#50618f; font-weight:700; }
+    .concept-label { font-size: 12px; fill:white; font-weight:850; }
+    .concept-small { font-size: 9px; fill:rgba(255,255,255,.86); font-weight:700; }
+    @media (max-width: 1200px) {
+      .toolbar, .layout-grid, .bottom { grid-template-columns: 1fr; }
+      .side { min-height: auto; }
+      .canvas-card { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand">
+        <div class="logo">S</div>
+        <div>
+          <h1>SENA Fusion Studio</h1>
+          <div class="subtitle">把 SNA 的人际互动、ENA 的概念共现、人与概念贡献关系放入同一张 social–epistemic fusion canvas。</div>
+        </div>
+      </div>
+      <div class="mode-pill" aria-label="view mode selector">
+        <span>SNA</span><span>ENA</span><span class="active">SENA</span>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="card mini-card">
+        <div class="card-title">数据输入 <span class="tag">Data contract</span></div>
+        <div class="data-grid">
+          <div class="data-item"><b>People</b><small>person_id, role, group, attributes</small></div>
+          <div class="data-item"><b>Interactions</b><small>source, target, time, weight, channel</small></div>
+          <div class="data-item"><b>Utterances</b><small>speaker, text, turn, timestamp</small></div>
+          <div class="data-item"><b>Codes</b><small>code_id, label, family, color</small></div>
+        </div>
+      </div>
+      <div class="card mini-card">
+        <div class="card-title">核心融合模型 <span class="tag">S · W · B</span></div>
+        <div class="formula">
+          <div class="matrix">
+            S<sub>ij</sub>: person i ↔ person j<br />
+            W<sub>ab</sub>: code a ↔ code b<br />
+            B<sub>ia</sub>: person i → code a
+          </div>
+          <div style="text-align:center;font-weight:900;font-size:26px;color:#6d4df7;">→</div>
+          <div class="matrix">
+            A<sub>fusion</sub> = [ αS&nbsp;&nbsp; γB ]<br />
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[ γB<sup>T</sup> βW ]
+          </div>
+        </div>
+      </div>
+      <div class="card mini-card">
+        <div class="card-title">权重与归一化 <span class="tag">Layer scaling</span></div>
+        <div class="weights">
+          <div class="slider-row"><b>α</b><div class="bar"><i style="width:72%"></i></div><span>0.72</span></div>
+          <div class="slider-row"><b>β</b><div class="bar"><i style="width:64%"></i></div><span>0.64</span></div>
+          <div class="slider-row"><b>γ</b><div class="bar"><i style="width:86%"></i></div><span>0.86</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout-grid">
+      <aside class="card side">
+        <div class="card-title">建模流程 <span class="tag">Pipeline</span></div>
+        <div class="left-flow">
+          <div class="flow-step">
+            <strong>1. 上传与校验</strong>
+            <p>导入互动日志、讨论文本、编码结果与 codebook。系统检查 ID 是否一致、时间戳是否可排序、code 是否在 codebook 中。</p>
+            <div class="chipline"><span class="chip">CSV</span><span class="chip">JSONL</span><span class="chip">xAPI</span></div>
+          </div>
+          <div class="flow-step">
+            <strong>2. 构造 SNA 层 S</strong>
+            <p>按回复、共现、协作、提及或同组事件聚合 person–person 边。可选择 directed/undirected 与 time-sliced。</p>
+          </div>
+          <div class="flow-step">
+            <strong>3. 构造 ENA 层 W</strong>
+            <p>按 stanza / moving window / conversational turn 计算 code–code 共现，形成每个 unit 的 ENA connection vector。</p>
+          </div>
+          <div class="flow-step">
+            <strong>4. 构造桥接层 B</strong>
+            <p>统计每个 learner 对每个 code 的贡献，也可扩展为 person–code-pair 贡献，用于解释“谁推动了哪些概念连接”。</p>
+          </div>
+          <div class="flow-step">
+            <strong>5. 融合布局</strong>
+            <p>支持三种模式：解释型布局、ENA unit space 叠加 SNA 边、基于 A<sub>fusion</sub> 的 joint embedding。</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="card canvas-card">
+        <div class="canvas-header">
+          <div>
+            <div class="card-title" style="margin:0;">SENA Fusion Canvas <span class="tag">三层异构网络</span></div>
+          </div>
+          <div class="tabs">
+            <span class="tab active">Fusion</span><span class="tab">Time</span><span class="tab">Compare groups</span><span class="tab">Matrix</span>
+          </div>
+        </div>
+        <div class="legend-inline" style="padding: 0 24px 6px;">
+          <span><i class="sna"></i>SNA social tie</span>
+          <span><i class="ena"></i>ENA concept connection</span>
+          <span><i class="sena"></i>SENA person–concept link</span>
+        </div>
+        <div class="stage">
+          <svg viewBox="0 0 850 610" width="100%" height="610" role="img" aria-label="SENA fusion canvas mockup">
+            <defs>
+              <linearGradient id="ribbon1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2e76ff" stop-opacity=".30"/><stop offset=".45" stop-color="#2ed0d6" stop-opacity=".26"/><stop offset="1" stop-color="#a855f7" stop-opacity=".34"/></linearGradient>
+              <linearGradient id="ribbon2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#a855f7" stop-opacity=".26"/><stop offset="1" stop-color="#2e76ff" stop-opacity=".28"/></linearGradient>
+              <linearGradient id="conceptBlue" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#865dff"/><stop offset="1" stop-color="#5135d8"/></linearGradient>
+              <linearGradient id="conceptPink" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f05ca8"/><stop offset="1" stop-color="#c72e86"/></linearGradient>
+              <linearGradient id="conceptOrange" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a42"/><stop offset="1" stop-color="#f26116"/></linearGradient>
+              <linearGradient id="conceptPurple" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bb5cf6"/><stop offset="1" stop-color="#7533d4"/></linearGradient>
+              <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+                <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#4d5ccf" flood-opacity="0.22"/>
+              </filter>
+              <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="7" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            <!-- SENA person-code ribbons -->
+            <g fill="none" stroke-linecap="round" opacity=".92">
+              <path d="M425 84 C420 170, 390 215, 370 260" stroke="url(#ribbon2)" stroke-width="22"/>
+              <path d="M425 84 C474 168, 500 220, 545 267" stroke="url(#ribbon2)" stroke-width="18"/>
+              <path d="M128 190 C255 192, 310 210, 364 260" stroke="url(#ribbon1)" stroke-width="14"/>
+              <path d="M128 190 C260 248, 270 365, 344 394" stroke="url(#ribbon1)" stroke-width="16"/>
+              <path d="M722 190 C610 200, 572 230, 545 267" stroke="url(#ribbon2)" stroke-width="16"/>
+              <path d="M722 190 C620 250, 600 345, 555 393" stroke="url(#ribbon2)" stroke-width="22"/>
+              <path d="M170 470 C250 415, 290 393, 344 394" stroke="url(#ribbon1)" stroke-width="20"/>
+              <path d="M170 470 C300 475, 375 470, 425 452" stroke="url(#ribbon1)" stroke-width="14"/>
+              <path d="M680 470 C590 432, 570 400, 555 393" stroke="url(#ribbon2)" stroke-width="15"/>
+              <path d="M680 470 C570 478, 490 465, 425 452" stroke="url(#ribbon2)" stroke-width="16"/>
+            </g>
+
+            <!-- SNA social ties -->
+            <g fill="none" stroke="#2e76ff" stroke-width="3.2" stroke-linecap="round" opacity=".87">
+              <path d="M128 190 L425 84"/>
+              <path d="M425 84 L722 190"/>
+              <path d="M722 190 L680 470"/>
+              <path d="M680 470 L425 552"/>
+              <path d="M425 552 L170 470"/>
+              <path d="M170 470 L128 190"/>
+              <path d="M128 190 C270 290 548 286 722 190" stroke-opacity=".34"/>
+              <path d="M170 470 C330 515 548 512 680 470" stroke-opacity=".42"/>
+            </g>
+
+            <!-- ENA concept links -->
+            <g fill="none" stroke="#9b5cf6" stroke-width="3" stroke-dasharray="9 11" stroke-linecap="round" opacity=".78">
+              <path d="M425 245 L545 305"/>
+              <path d="M545 305 L555 393"/>
+              <path d="M555 393 L425 452"/>
+              <path d="M425 452 L344 394"/>
+              <path d="M344 394 L364 260"/>
+              <path d="M364 260 L425 245"/>
+              <path d="M364 260 L545 305"/>
+              <path d="M344 394 L555 393"/>
+              <path d="M425 245 L425 452"/>
+              <path d="M364 260 L555 393"/>
+              <path d="M545 305 L425 452"/>
+            </g>
+
+            <!-- bottom anchor for social hull -->
+            <circle cx="425" cy="552" r="5" fill="#2e76ff" opacity=".72"/>
+
+            <!-- Concept hexagons -->
+            <g filter="url(#shadow)">
+              <polygon points="425,200 469,223 469,267 425,290 381,267 381,223" fill="url(#conceptBlue)" stroke="#c4b5fd" stroke-width="2"/>
+              <text x="425" y="243" text-anchor="middle" class="concept-label" font-size="21">?</text>
+              <text x="425" y="263" text-anchor="middle" class="concept-label">Question</text>
+
+              <polygon points="364,215 407,239 407,283 364,307 321,283 321,239" fill="url(#conceptBlue)" stroke="#c4b5fd" stroke-width="2"/>
+              <text x="364" y="263" text-anchor="middle" class="concept-label">Hypothesis</text>
+              <text x="364" y="279" text-anchor="middle" class="concept-small">idea proposal</text>
+
+              <polygon points="545,260 588,284 588,328 545,352 502,328 502,284" fill="url(#conceptPurple)" stroke="#e9d5ff" stroke-width="2"/>
+              <text x="545" y="306" text-anchor="middle" class="concept-label">Evidence</text>
+              <text x="545" y="322" text-anchor="middle" class="concept-small">data backing</text>
+
+              <polygon points="344,349 387,373 387,417 344,441 301,417 301,373" fill="url(#conceptOrange)" stroke="#fed7aa" stroke-width="2"/>
+              <text x="344" y="397" text-anchor="middle" class="concept-label">Coordination</text>
+              <text x="344" y="413" text-anchor="middle" class="concept-small">team process</text>
+
+              <polygon points="555,348 598,372 598,416 555,440 512,416 512,372" fill="url(#conceptPurple)" stroke="#e9d5ff" stroke-width="2"/>
+              <text x="555" y="396" text-anchor="middle" class="concept-label">Explanation</text>
+              <text x="555" y="412" text-anchor="middle" class="concept-small">reasoning</text>
+
+              <polygon points="425,407 469,431 469,475 425,499 381,475 381,431" fill="url(#conceptPink)" stroke="#fbcfe8" stroke-width="2"/>
+              <text x="425" y="454" text-anchor="middle" class="concept-label">Reflection</text>
+              <text x="425" y="470" text-anchor="middle" class="concept-small">metacognition</text>
+            </g>
+
+            <!-- Person nodes -->
+            <g filter="url(#shadow)">
+              <g transform="translate(425 84)">
+                <circle r="48" fill="#f8fbff" stroke="#29c7d8" stroke-width="3"/>
+                <circle r="41" fill="#ffd9a6" stroke="#ffffff" stroke-width="4"/>
+                <text y="-5" text-anchor="middle" font-size="26">👩🏽‍🦱</text>
+                <text y="70" text-anchor="middle" class="person-label">A</text>
+                <text y="88" text-anchor="middle" class="role-label">Coordinator · high epistemic driver</text>
+              </g>
+              <g transform="translate(128 190)">
+                <circle r="45" fill="#f8fbff" stroke="#29c7d8" stroke-width="3"/>
+                <circle r="38" fill="#dff6ff" stroke="#ffffff" stroke-width="4"/>
+                <text y="-5" text-anchor="middle" font-size="25">👩🏻</text>
+                <text y="69" text-anchor="middle" class="person-label">E</text>
+                <text y="87" text-anchor="middle" class="role-label">Connector · bridge to ideas</text>
+              </g>
+              <g transform="translate(722 190)">
+                <circle r="45" fill="#f8fbff" stroke="#8b5cf6" stroke-width="3"/>
+                <circle r="38" fill="#dff6ff" stroke="#ffffff" stroke-width="4"/>
+                <text y="-5" text-anchor="middle" font-size="25">👨🏻</text>
+                <text y="69" text-anchor="middle" class="person-label">B</text>
+                <text y="87" text-anchor="middle" class="role-label">Builder · evidence focused</text>
+              </g>
+              <g transform="translate(170 470)">
+                <circle r="45" fill="#f8fbff" stroke="#29c7d8" stroke-width="3"/>
+                <circle r="38" fill="#eef3ff" stroke="#ffffff" stroke-width="4"/>
+                <text y="-5" text-anchor="middle" font-size="25">👨🏽</text>
+                <text y="70" text-anchor="middle" class="person-label">D</text>
+                <text y="88" text-anchor="middle" class="role-label">Supporter · interaction hub</text>
+              </g>
+              <g transform="translate(680 470)">
+                <circle r="45" fill="#f8fbff" stroke="#8b5cf6" stroke-width="3"/>
+                <circle r="38" fill="#eef3ff" stroke="#ffffff" stroke-width="4"/>
+                <text y="-5" text-anchor="middle" font-size="25">👨🏻‍💻</text>
+                <text y="70" text-anchor="middle" class="person-label">C</text>
+                <text y="88" text-anchor="middle" class="role-label">Synthesizer · reflection driver</text>
+              </g>
+            </g>
+
+            <!-- callouts -->
+            <g opacity=".94">
+              <rect x="280" y="32" width="290" height="34" rx="17" fill="#ffffff" stroke="#dbe3ff"/>
+              <text x="425" y="54" text-anchor="middle" fill="#3152b6" font-size="12" font-weight="800">Coordinate mode: explanatory layout · distances are visual, not statistical</text>
+              <rect x="250" y="543" width="350" height="32" rx="16" fill="#ffffff" stroke="#dbe3ff"/>
+              <text x="425" y="564" text-anchor="middle" fill="#647193" font-size="12" font-weight="700">Switch to Joint Embedding to interpret cross-layer distances</text>
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      <aside class="card side">
+        <div class="card-title">右侧 Inspector <span class="tag">Selection-aware</span></div>
+        <div class="flow-step">
+          <strong>当前选择：A · Coordinator</strong>
+          <p>A 在社会层中连接度高，同时对 Question、Evidence、Reflection 的贡献高。系统应能跳回原始话语证据。</p>
+          <div class="chipline"><span class="chip">degree 4.2</span><span class="chip">bridge 0.81</span><span class="chip">evidence links 17</span></div>
+        </div>
+        <div style="margin-top:14px;">
+          <div class="metric"><span>Social strength</span><b>0.78</b></div>
+          <div class="metric"><span>Epistemic contribution</span><b>0.84</b></div>
+          <div class="metric"><span>SENA bridge score</span><b>0.88</b></div>
+          <div class="metric"><span>Alignment with group ENA</span><b>0.71</b></div>
+        </div>
+        <div class="warning">
+          解释保护：当前为解释型融合布局。只有在 Joint Embedding 模式下，person–concept 距离才可被解释为同一 latent space 中的近远关系。
+        </div>
+        <table class="table-mini">
+          <thead><tr><th>Layer</th><th>Top signal</th><th>Weight</th></tr></thead>
+          <tbody>
+            <tr><td>SNA</td><td>A ↔ E</td><td>0.92</td></tr>
+            <tr><td>ENA</td><td>Question ↔ Evidence</td><td>0.76</td></tr>
+            <tr><td>SENA</td><td>A → Question</td><td>0.89</td></tr>
+            <tr><td>SENA</td><td>C → Reflection</td><td>0.82</td></tr>
+          </tbody>
+        </table>
+        <div class="export-row">
+          <button class="btn primary">Show evidence</button>
+          <button class="btn">Pin node</button>
+          <button class="btn">Export subgraph</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="bottom">
+      <div class="card mini-card">
+        <div class="card-title">时间与比较 <span class="tag">Temporal SENA</span></div>
+        <div class="weights">
+          <div class="slider-row"><b>T1</b><div class="bar"><i style="width:32%"></i></div><span>early</span></div>
+          <div class="slider-row"><b>T2</b><div class="bar"><i style="width:66%"></i></div><span>mid</span></div>
+          <div class="slider-row"><b>T3</b><div class="bar"><i style="width:92%"></i></div><span>late</span></div>
+        </div>
+      </div>
+      <div class="card mini-card">
+        <div class="card-title">图形语法 <span class="tag">Visual grammar</span></div>
+        <p style="color:var(--muted);font-size:13px;line-height:1.6;margin:0;">圆形节点表示 learner/person；六边形表示 epistemic code；蓝色实线表示 SNA 社会互动；紫色虚线表示 ENA code-pair 共现；渐变 ribbon 表示 person–code 贡献或 person–code-pair 贡献。</p>
+      </div>
+      <div class="card mini-card">
+        <div class="card-title">导出与复现 <span class="tag">Research-ready</span></div>
+        <p style="color:var(--muted);font-size:13px;line-height:1.6;margin:0;">导出 SVG/PNG、融合矩阵、ENA connection vectors、布局参数、随机种子、过滤条件、统计检验结果与可复现实验配置。</p>
+        <div class="export-row"><button class="btn primary">Export report</button><button class="btn">Download JSON</button><button class="btn">Copy API call</button></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

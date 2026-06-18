@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SENA Fusion Option A Solid ENA Variants</title>
+  <style>
+    :root {
+      --ink: #13203a;
+      --muted: #53668c;
+      --surface: rgba(255, 255, 255, .78);
+      --blue: #2f7df6;
+      --blue-soft: rgba(47, 125, 246, .22);
+      --cyan: #26c8d8;
+      --violet: #7d55ee;
+      --violet-2: #a160f7;
+      --pink: #e253a5;
+      --orange: #ff7f27;
+      --panel: rgba(255, 255, 255, .72);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #e7edf8;
+      color: var(--ink);
+    }
+
+    .board {
+      display: grid;
+      gap: 56px;
+      padding: 40px;
+    }
+
+    .frame {
+      position: relative;
+      width: 1440px;
+      height: 1024px;
+      overflow: hidden;
+      border-radius: 30px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,.98), rgba(250,252,255,.96) 46%, rgba(236,245,255,.95)),
+        repeating-linear-gradient(0deg, rgba(57, 100, 180, .045), rgba(57, 100, 180, .045) 1px, transparent 1px, transparent 92px),
+        repeating-linear-gradient(90deg, rgba(126, 92, 210, .04), rgba(126, 92, 210, .04) 1px, transparent 1px, transparent 92px);
+      box-shadow: 0 36px 110px rgba(40, 62, 110, .17);
+      isolation: isolate;
+    }
+
+    .frame::before {
+      content: "";
+      position: absolute;
+      inset: 18px;
+      z-index: 30;
+      border: 1px solid rgba(74, 111, 172, .2);
+      border-radius: 24px;
+      pointer-events: none;
+    }
+
+    .kicker {
+      position: absolute;
+      top: 28px;
+      left: 42px;
+      z-index: 28;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 18px;
+      font-weight: 900;
+      color: #2f456e;
+    }
+
+    .badge {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #10234a;
+      color: white;
+      font-size: 14px;
+      font-weight: 950;
+    }
+
+    .caption {
+      position: absolute;
+      top: 28px;
+      right: 42px;
+      z-index: 28;
+      max-width: 460px;
+      padding: 11px 16px;
+      border: 1px solid rgba(47, 125, 246, .2);
+      border-radius: 999px;
+      background: rgba(255,255,255,.78);
+      color: #245483;
+      font-size: 13px;
+      font-weight: 850;
+      box-shadow: 0 16px 34px rgba(47, 80, 140, .08);
+    }
+
+    svg.network {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      overflow: visible;
+    }
+
+    .person {
+      position: absolute;
+      z-index: 18;
+      width: 168px;
+      text-align: center;
+      transform: translate(-50%, -50%);
+    }
+
+    .avatar {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 118px;
+      height: 118px;
+      margin: 0 auto;
+      border: 7px solid #f8fcff;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #fff, #edf8ff);
+      box-shadow:
+        0 0 0 3px rgba(33, 199, 218, .82),
+        0 0 0 8px rgba(136, 96, 247, .18),
+        0 18px 36px rgba(47, 92, 160, .20);
+      color: #12223f;
+      font-size: 42px;
+      font-weight: 950;
+    }
+
+    .person strong {
+      display: block;
+      margin-top: 11px;
+      font-size: 32px;
+      line-height: 1;
+      color: #17223a;
+      text-shadow: 0 2px 0 rgba(255,255,255,.9);
+    }
+
+    .person small {
+      display: block;
+      margin-top: 8px;
+      color: #41567e;
+      font-size: 17px;
+      font-weight: 850;
+    }
+
+    .chip {
+      display: inline-flex;
+      margin-top: 10px;
+      padding: 7px 13px;
+      border: 1px solid rgba(47, 125, 246, .2);
+      border-radius: 999px;
+      background: rgba(234, 243, 255, .9);
+      color: #286adf;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .chip.cyan {
+      border-color: rgba(38, 200, 216, .25);
+      background: rgba(224, 251, 255, .88);
+      color: #087f8f;
+    }
+
+    .chip.violet {
+      border-color: rgba(126, 85, 238, .24);
+      background: rgba(242, 235, 255, .9);
+      color: #7045d8;
+    }
+
+    .concept {
+      position: absolute;
+      z-index: 20;
+      width: 152px;
+      height: 132px;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: white;
+      font-weight: 950;
+      filter: drop-shadow(0 16px 18px rgba(83, 62, 160, .24));
+    }
+
+    .concept::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%);
+      background: linear-gradient(145deg, #6866f1, #904cf0);
+      border: 3px solid rgba(255,255,255,.78);
+      z-index: -1;
+    }
+
+    .concept.orange::before { background: linear-gradient(145deg, #ff9a33, #ff6f1d); }
+    .concept.pink::before { background: linear-gradient(145deg, #ef66b0, #dd3e98); }
+    .concept.purple::before { background: linear-gradient(145deg, #9947ea, #b646e8); }
+
+    .concept .icon {
+      display: block;
+      height: 30px;
+      margin-bottom: 5px;
+      font-size: 36px;
+      line-height: 28px;
+      font-weight: 950;
+    }
+
+    .concept .label {
+      display: block;
+      font-size: 18px;
+      line-height: 1.05;
+    }
+
+    .legend {
+      position: absolute;
+      left: 44px;
+      bottom: 32px;
+      z-index: 28;
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid rgba(90, 116, 165, .2);
+      border-radius: 18px;
+      background: rgba(255,255,255,.78);
+      box-shadow: 0 16px 36px rgba(50, 70, 120, .12);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 8px 11px;
+      border: 1px solid rgba(90,116,165,.12);
+      border-radius: 999px;
+      background: rgba(248,250,255,.9);
+      color: #40557b;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .sample {
+      position: relative;
+      width: 36px;
+      height: 14px;
+      flex: 0 0 auto;
+    }
+
+    .sample::before,
+    .sample::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-radius: 99px;
+    }
+
+    .sample.s::before {
+      top: 4px;
+      height: 6px;
+      background: var(--blue);
+    }
+
+    .sample.w-solid::before {
+      top: 4px;
+      height: 5px;
+      background: linear-gradient(90deg, var(--violet), var(--violet-2));
+      box-shadow: 0 0 0 2px rgba(126, 85, 238, .13);
+    }
+
+    .sample.w-rail::before,
+    .sample.w-rail::after {
+      height: 3px;
+      background: var(--violet);
+    }
+
+    .sample.w-rail::before { top: 2px; }
+    .sample.w-rail::after { bottom: 2px; }
+
+    .sample.w-halo::before {
+      top: 4px;
+      height: 5px;
+      background: #ffffff;
+      box-shadow:
+        0 0 0 2px rgba(126, 85, 238, .75),
+        0 0 14px rgba(126, 85, 238, .45);
+    }
+
+    .sample.b::before {
+      top: 4px;
+      height: 6px;
+      background: var(--cyan);
+      opacity: .78;
+    }
+
+    .sample.g::before {
+      top: 4px;
+      height: 6px;
+      background: var(--pink);
+      opacity: .72;
+    }
+
+    .note-panel {
+      position: absolute;
+      right: 48px;
+      top: 430px;
+      z-index: 28;
+      width: 340px;
+      padding: 16px 18px;
+      border: 1px solid rgba(90,116,165,.2);
+      border-radius: 18px;
+      background: rgba(255,255,255,.82);
+      box-shadow: 0 18px 44px rgba(45, 72, 130, .12);
+      color: #35486b;
+    }
+
+    .note-panel strong {
+      display: block;
+      color: #13203a;
+      font-size: 15px;
+      font-weight: 950;
+    }
+
+    .note-panel p {
+      margin: 8px 0 0;
+      font-size: 13px;
+      line-height: 1.45;
+      font-weight: 750;
+    }
+
+    .social-line {
+      fill: none;
+      stroke: var(--blue);
+      stroke-linecap: round;
+      filter: drop-shadow(0 9px 14px rgba(47, 125, 246, .15));
+    }
+
+    .bridge-line {
+      fill: none;
+      stroke: rgba(38, 200, 216, .45);
+      stroke-linecap: round;
+      filter: drop-shadow(0 10px 18px rgba(38, 200, 216, .14));
+    }
+
+    .g-line {
+      fill: none;
+      stroke: rgba(226, 83, 165, .38);
+      stroke-linecap: round;
+    }
+
+    .ena-line {
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .frame-a1 .ena-line {
+      stroke: url(#ena-gradient-a1);
+      filter: drop-shadow(0 4px 10px rgba(126, 85, 238, .28));
+    }
+
+    .frame-a2 .ena-rail {
+      fill: none;
+      stroke: rgba(126, 85, 238, .88);
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      filter: drop-shadow(0 4px 8px rgba(126, 85, 238, .2));
+    }
+
+    .frame-a2 .ena-rail-core {
+      fill: none;
+      stroke: rgba(255, 255, 255, .62);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+    }
+
+    .frame-a3 .ena-line {
+      stroke: rgba(255, 255, 255, .96);
+      filter:
+        drop-shadow(0 0 0 rgba(126, 85, 238, 1))
+        drop-shadow(0 0 12px rgba(126, 85, 238, .38));
+    }
+
+    .frame-a3 .ena-outline {
+      fill: none;
+      stroke: rgba(126, 85, 238, .88);
+      stroke-width: 9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: .82;
+    }
+
+    .concept-space {
+      fill: rgba(255, 255, 255, .2);
+      stroke: rgba(126, 85, 238, .18);
+      stroke-width: 2;
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <section class="frame frame-a1" data-shot="a-solid-1">
+      <div class="kicker"><span class="badge">A1</span> Inner Solid Mesh</div>
+      <div class="caption">ENA W layer uses solid violet chords inside the concept space; SNA S layer stays as thick outer blue arcs.</div>
+
+      <svg class="network" viewBox="0 0 1440 1024" aria-label="SENA Fusion option A1 with solid ENA inner mesh">
+        <defs>
+          <linearGradient id="ena-gradient-a1" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stop-color="#685ff1" />
+            <stop offset="1" stop-color="#b04df1" />
+          </linearGradient>
+        </defs>
+        <path class="social-line" d="M 720 125 C 555 190 380 235 150 270" stroke-width="6" opacity=".92" />
+        <path class="social-line" d="M 720 125 C 910 176 1080 225 1220 270" stroke-width="6" opacity=".92" />
+        <path class="social-line" d="M 150 270 C 110 480 130 650 198 735" stroke-width="7" opacity=".55" />
+        <path class="social-line" d="M 1220 270 C 1245 465 1230 625 1160 735" stroke-width="7" opacity=".55" />
+        <path class="social-line" d="M 198 735 C 402 865 760 914 1160 735" stroke-width="6" opacity=".9" />
+
+        <path class="bridge-line" d="M 150 270 C 292 330 390 430 455 500" stroke-width="14" opacity=".36" />
+        <path class="bridge-line" d="M 198 735 C 294 665 372 560 455 405" stroke-width="13" opacity=".42" />
+        <path class="bridge-line" d="M 1220 270 C 1070 344 1005 444 935 500" stroke-width="14" opacity=".37" />
+        <path class="bridge-line" d="M 1160 735 C 1055 680 1006 594 935 620" stroke-width="13" opacity=".42" />
+        <path class="g-line" d="M 198 735 C 430 670 762 690 1160 735" stroke-width="13" opacity=".35" />
+
+        <ellipse class="concept-space" cx="720" cy="524" rx="326" ry="330" />
+
+        <path class="ena-line" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" stroke-width="6" opacity=".86" />
+        <path class="ena-line" d="M 455 445 L 935 445" stroke-width="4.5" opacity=".58" />
+        <path class="ena-line" d="M 455 620 L 935 620" stroke-width="4.5" opacity=".58" />
+        <path class="ena-line" d="M 455 445 L 720 760" stroke-width="4" opacity=".42" />
+        <path class="ena-line" d="M 935 445 L 720 760" stroke-width="4" opacity=".42" />
+        <path class="ena-line" d="M 720 330 L 455 620" stroke-width="4" opacity=".42" />
+        <path class="ena-line" d="M 720 330 L 935 620" stroke-width="4" opacity=".42" />
+
+        <path class="bridge-line" d="M 720 125 C 714 285 710 500 720 760" stroke-width="16" opacity=".18" />
+      </svg>
+
+      <div class="person" style="left:720px;top:96px"><div class="avatar">ML</div><strong>ML</strong><small>Coordinator</small><span class="chip">High Epistemic Driver</span></div>
+      <div class="person" style="left:150px;top:270px"><div class="avatar">MH</div><strong>MH</strong><small>Connector</small><span class="chip cyan">Bridge to Ideas</span></div>
+      <div class="person" style="left:1220px;top:270px"><div class="avatar">MC</div><strong>MC</strong><small>Builder</small><span class="chip">Evidence Focused</span></div>
+      <div class="person" style="left:198px;top:735px"><div class="avatar">AR</div><strong>AR</strong><small>Supporter</small><span class="chip">Interaction Hub</span></div>
+      <div class="person" style="left:1160px;top:735px"><div class="avatar">DW</div><strong>DW</strong><small>Synthesizer</small><span class="chip violet">Reflection Driver</span></div>
+
+      <div class="concept" style="left:720px;top:330px"><span><span class="icon">?</span><span class="label">Question</span></span></div>
+      <div class="concept" style="left:455px;top:445px"><span><span class="icon">△</span><span class="label">Hypothesis</span></span></div>
+      <div class="concept" style="left:935px;top:445px"><span><span class="icon">⌕</span><span class="label">Evidence</span></span></div>
+      <div class="concept orange" style="left:455px;top:620px"><span><span class="icon">•••</span><span class="label">Coordination</span></span></div>
+      <div class="concept purple" style="left:935px;top:620px"><span><span class="icon">✦</span><span class="label">Explanation</span></span></div>
+      <div class="concept pink" style="left:720px;top:760px"><span><span class="icon">◌</span><span class="label">Reflection</span></span></div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="sample s"></span>S social ties: outer solid arcs</div>
+        <div class="legend-item"><span class="sample w-solid"></span>W ENA links: inner solid mesh</div>
+        <div class="legend-item"><span class="sample b"></span>B bridges: translucent ribbons</div>
+        <div class="legend-item"><span class="sample g"></span>G pairs: low contribution arc</div>
+      </div>
+      <aside class="note-panel">
+        <strong>Distinction rule</strong>
+        <p>SNA is spatially outside and curved around people. ENA is spatially inside and straight between concepts, so both can be solid without competing.</p>
+      </aside>
+    </section>
+
+    <section class="frame frame-a2" data-shot="a-solid-2">
+      <div class="kicker"><span class="badge">A2</span> Dual-Rail ENA</div>
+      <div class="caption">Concept-concept links are still solid, but rendered as a double-track ENA rail; SNA remains a single blue social spine.</div>
+
+      <svg class="network" viewBox="0 0 1440 1024" aria-label="SENA Fusion option A2 with dual rail ENA solid links">
+        <path class="social-line" d="M 720 124 C 540 178 350 230 150 270" stroke-width="7" opacity=".92" />
+        <path class="social-line" d="M 720 124 C 900 178 1080 230 1220 270" stroke-width="7" opacity=".92" />
+        <path class="social-line" d="M 150 270 C 112 470 129 650 198 735" stroke-width="8" opacity=".53" />
+        <path class="social-line" d="M 1220 270 C 1246 475 1230 632 1160 735" stroke-width="8" opacity=".53" />
+        <path class="social-line" d="M 198 735 C 420 860 780 904 1160 735" stroke-width="7" opacity=".9" />
+
+        <path class="bridge-line" d="M 150 270 C 292 332 386 420 455 500" stroke-width="15" opacity=".34" />
+        <path class="bridge-line" d="M 198 735 C 292 660 365 552 455 405" stroke-width="13" opacity=".4" />
+        <path class="bridge-line" d="M 1220 270 C 1070 342 1004 444 935 500" stroke-width="15" opacity=".34" />
+        <path class="bridge-line" d="M 1160 735 C 1058 678 1002 592 935 620" stroke-width="13" opacity=".4" />
+        <path class="g-line" d="M 198 735 C 434 668 764 690 1160 735" stroke-width="13" opacity=".35" />
+
+        <ellipse class="concept-space" cx="720" cy="524" rx="326" ry="330" />
+
+        <path class="ena-rail" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" transform="translate(-5,-3)" opacity=".82" />
+        <path class="ena-rail" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" transform="translate(5,3)" opacity=".82" />
+        <path class="ena-rail-core" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" opacity=".86" />
+
+        <path class="ena-rail" d="M 455 445 L 935 445" transform="translate(0,-5)" opacity=".58" />
+        <path class="ena-rail" d="M 455 445 L 935 445" transform="translate(0,5)" opacity=".58" />
+        <path class="ena-rail" d="M 455 620 L 935 620" transform="translate(0,-5)" opacity=".58" />
+        <path class="ena-rail" d="M 455 620 L 935 620" transform="translate(0,5)" opacity=".58" />
+        <path class="ena-rail-core" d="M 455 445 L 935 445 M 455 620 L 935 620" opacity=".62" />
+
+        <path class="ena-rail" d="M 455 445 L 720 760 M 935 445 L 720 760 M 720 330 L 455 620 M 720 330 L 935 620" stroke-width="2.8" opacity=".38" />
+
+        <path class="bridge-line" d="M 720 124 C 714 285 710 500 720 760" stroke-width="16" opacity=".16" />
+      </svg>
+
+      <div class="person" style="left:720px;top:96px"><div class="avatar">ML</div><strong>ML</strong><small>Coordinator</small><span class="chip">High Epistemic Driver</span></div>
+      <div class="person" style="left:150px;top:270px"><div class="avatar">MH</div><strong>MH</strong><small>Connector</small><span class="chip cyan">Bridge to Ideas</span></div>
+      <div class="person" style="left:1220px;top:270px"><div class="avatar">MC</div><strong>MC</strong><small>Builder</small><span class="chip">Evidence Focused</span></div>
+      <div class="person" style="left:198px;top:735px"><div class="avatar">AR</div><strong>AR</strong><small>Supporter</small><span class="chip">Interaction Hub</span></div>
+      <div class="person" style="left:1160px;top:735px"><div class="avatar">DW</div><strong>DW</strong><small>Synthesizer</small><span class="chip violet">Reflection Driver</span></div>
+
+      <div class="concept" style="left:720px;top:330px"><span><span class="icon">?</span><span class="label">Question</span></span></div>
+      <div class="concept" style="left:455px;top:445px"><span><span class="icon">△</span><span class="label">Hypothesis</span></span></div>
+      <div class="concept" style="left:935px;top:445px"><span><span class="icon">⌕</span><span class="label">Evidence</span></span></div>
+      <div class="concept orange" style="left:455px;top:620px"><span><span class="icon">•••</span><span class="label">Coordination</span></span></div>
+      <div class="concept purple" style="left:935px;top:620px"><span><span class="icon">✦</span><span class="label">Explanation</span></span></div>
+      <div class="concept pink" style="left:720px;top:760px"><span><span class="icon">◌</span><span class="label">Reflection</span></span></div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="sample s"></span>S social ties: single blue solid</div>
+        <div class="legend-item"><span class="sample w-rail"></span>W ENA links: solid double rail</div>
+        <div class="legend-item"><span class="sample b"></span>B bridges: translucent ribbons</div>
+        <div class="legend-item"><span class="sample g"></span>G pairs: low contribution arc</div>
+      </div>
+      <aside class="note-panel">
+        <strong>Distinction rule</strong>
+        <p>Double-rail ENA keeps traditional solid concept links while giving W a unique grammar that cannot be mistaken for a person-person tie.</p>
+      </aside>
+    </section>
+
+    <section class="frame frame-a3" data-shot="a-solid-3">
+      <div class="kicker"><span class="badge">A3</span> White-Core ENA</div>
+      <div class="caption">A brighter ENA grammar: violet outline plus white core, useful when many W links overlap in the central concept field.</div>
+
+      <svg class="network" viewBox="0 0 1440 1024" aria-label="SENA Fusion option A3 with white core ENA solid links">
+        <path class="social-line" d="M 720 124 C 540 178 350 230 150 270" stroke-width="7" opacity=".9" />
+        <path class="social-line" d="M 720 124 C 900 178 1080 230 1220 270" stroke-width="7" opacity=".9" />
+        <path class="social-line" d="M 150 270 C 112 470 129 650 198 735" stroke-width="8" opacity=".52" />
+        <path class="social-line" d="M 1220 270 C 1246 475 1230 632 1160 735" stroke-width="8" opacity=".52" />
+        <path class="social-line" d="M 198 735 C 420 860 780 904 1160 735" stroke-width="7" opacity=".9" />
+
+        <path class="bridge-line" d="M 150 270 C 292 332 386 420 455 500" stroke-width="15" opacity=".32" />
+        <path class="bridge-line" d="M 198 735 C 292 660 365 552 455 405" stroke-width="13" opacity=".38" />
+        <path class="bridge-line" d="M 1220 270 C 1070 342 1004 444 935 500" stroke-width="15" opacity=".32" />
+        <path class="bridge-line" d="M 1160 735 C 1058 678 1002 592 935 620" stroke-width="13" opacity=".38" />
+        <path class="g-line" d="M 198 735 C 434 668 764 690 1160 735" stroke-width="13" opacity=".34" />
+
+        <ellipse class="concept-space" cx="720" cy="524" rx="326" ry="330" />
+
+        <path class="ena-outline" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" />
+        <path class="ena-line" d="M 720 330 L 455 445 L 455 620 L 720 760 L 935 620 L 935 445 Z" stroke-width="4.2" />
+
+        <path class="ena-outline" d="M 455 445 L 935 445 M 455 620 L 935 620" opacity=".58" stroke-width="7" />
+        <path class="ena-line" d="M 455 445 L 935 445 M 455 620 L 935 620" stroke-width="3.4" opacity=".96" />
+
+        <path class="ena-outline" d="M 455 445 L 720 760 M 935 445 L 720 760 M 720 330 L 455 620 M 720 330 L 935 620" opacity=".34" stroke-width="6" />
+        <path class="ena-line" d="M 455 445 L 720 760 M 935 445 L 720 760 M 720 330 L 455 620 M 720 330 L 935 620" stroke-width="2.6" opacity=".86" />
+
+        <circle cx="587" cy="387" r="7" fill="#ffffff" stroke="#7d55ee" stroke-width="4" />
+        <circle cx="827" cy="387" r="7" fill="#ffffff" stroke="#7d55ee" stroke-width="4" />
+        <circle cx="829" cy="690" r="7" fill="#ffffff" stroke="#7d55ee" stroke-width="4" />
+        <circle cx="587" cy="690" r="7" fill="#ffffff" stroke="#7d55ee" stroke-width="4" />
+
+        <path class="bridge-line" d="M 720 124 C 714 285 710 500 720 760" stroke-width="16" opacity=".14" />
+      </svg>
+
+      <div class="person" style="left:720px;top:96px"><div class="avatar">ML</div><strong>ML</strong><small>Coordinator</small><span class="chip">High Epistemic Driver</span></div>
+      <div class="person" style="left:150px;top:270px"><div class="avatar">MH</div><strong>MH</strong><small>Connector</small><span class="chip cyan">Bridge to Ideas</span></div>
+      <div class="person" style="left:1220px;top:270px"><div class="avatar">MC</div><strong>MC</strong><small>Builder</small><span class="chip">Evidence Focused</span></div>
+      <div class="person" style="left:198px;top:735px"><div class="avatar">AR</div><strong>AR</strong><small>Supporter</small><span class="chip">Interaction Hub</span></div>
+      <div class="person" style="left:1160px;top:735px"><div class="avatar">DW</div><strong>DW</strong><small>Synthesizer</small><span class="chip violet">Reflection Driver</span></div>
+
+      <div class="concept" style="left:720px;top:330px"><span><span class="icon">?</span><span class="label">Question</span></span></div>
+      <div class="concept" style="left:455px;top:445px"><span><span class="icon">△</span><span class="label">Hypothesis</span></span></div>
+      <div class="concept" style="left:935px;top:445px"><span><span class="icon">⌕</span><span class="label">Evidence</span></span></div>
+      <div class="concept orange" style="left:455px;top:620px"><span><span class="icon">•••</span><span class="label">Coordination</span></span></div>
+      <div class="concept purple" style="left:935px;top:620px"><span><span class="icon">✦</span><span class="label">Explanation</span></span></div>
+      <div class="concept pink" style="left:720px;top:760px"><span><span class="icon">◌</span><span class="label">Reflection</span></span></div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="sample s"></span>S social ties: outer blue solid</div>
+        <div class="legend-item"><span class="sample w-halo"></span>W ENA links: white-core solid</div>
+        <div class="legend-item"><span class="sample b"></span>B bridges: translucent ribbons</div>
+        <div class="legend-item"><span class="sample g"></span>G pairs: low contribution arc</div>
+      </div>
+      <aside class="note-panel">
+        <strong>Distinction rule</strong>
+        <p>The white-core W line reads like an analytic ENA layer, while SNA remains a heavier blue social layer around the actor ring.</p>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

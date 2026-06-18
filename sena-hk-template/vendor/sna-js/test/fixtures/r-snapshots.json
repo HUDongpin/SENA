@@ -1,0 +1,32 @@
+{
+  "directedPath3": {
+    "gden": 0.3333333333333333,
+    "degreeOut": [1,1,0],
+    "degreeIn": [0,1,1],
+    "degreeTotal": [1,2,1],
+    "geodist": [[0,1,2],["Inf",0,1],["Inf","Inf",0]],
+    "geodistCounts": [[1,1,1],[0,1,1],[0,0,1]],
+    "betweenness": [0,1,0],
+    "closeness": [0.6666666666666666,1,0],
+    "reachable": [2,1,0],
+    "averagePathLength": 1.3333333333333333,
+    "grecipEdgewise": 0,
+    "grecipDyadic": 0.3333333333333333,
+    "grecipDyadicNonnull": 0,
+    "grecipCorrelation": -0.5
+  },
+  "triangle3": {
+    "nties": 3,
+    "gden": 1,
+    "degree": [2,2,2],
+    "betweenness": [0,0,0],
+    "closeness": [1,1,1],
+    "reachable": [2,2,2],
+    "averagePathLength": 1,
+    "communityLabels": [0,0,0],
+    "grecipEdgewise": 1,
+    "grecipDyadic": 1,
+    "grecipDyadicNonnull": 1,
+    "grecipCorrelation": 1
+  }
+}

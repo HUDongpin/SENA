@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+    
+    <defs>
+      <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#334155" flood-opacity="0.16"/>
+      </filter>
+      <filter id="thinShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#334155" flood-opacity="0.14"/>
+      </filter>
+      <linearGradient id="canvasBg" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#f8fbff"/>
+        <stop offset="1" stop-color="#eef4fb"/>
+      </linearGradient>
+    </defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; }
+    </style>
+    <rect width="1600" height="900" fill="url(#canvasBg)"/>
+    <g><line x1="120" y1="40" x2="120" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="225" y1="40" x2="225" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="330" y1="40" x2="330" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="435" y1="40" x2="435" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="540" y1="40" x2="540" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="645" y1="40" x2="645" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="750" y1="40" x2="750" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="855" y1="40" x2="855" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="960" y1="40" x2="960" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1065" y1="40" x2="1065" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1170" y1="40" x2="1170" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1275" y1="40" x2="1275" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1380" y1="40" x2="1380" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="1485" y1="40" x2="1485" y2="860" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="85" x2="1510" y2="85" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="190" x2="1510" y2="190" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="295" x2="1510" y2="295" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="400" x2="1510" y2="400" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="505" x2="1510" y2="505" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="610" x2="1510" y2="610" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="715" x2="1510" y2="715" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/><line x1="90" y1="820" x2="1510" y2="820" stroke="#d8e2f1" stroke-width="1" opacity="0.55"/></g>
+    
+    
+    <g transform="translate(68 48)">
+      <rect x="0" y="0" width="540" height="62" rx="14" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="22" y="27" font-size="21" font-weight="800" fill="#0f172a">Option 2 - Research Plate</text>
+      <text x="22" y="49" font-size="13" font-weight="650" fill="#475569">Separate the ENA plane from social arcs; use dark text tags beside color marks.</text>
+    </g>
+    
+    <g transform="translate(1110 52)">
+      <rect x="0" y="0" width="380" height="112" rx="16" fill="#ffffff" stroke="#d7e0ee"/>
+      
+        <g transform="translate(18 24)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#3777f6" stroke-width="8" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">S</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">SNA outer social arcs</text>
+        </g>
+        <g transform="translate(18 46)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#7c3aed" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">W</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">solid ENA concept mesh</text>
+        </g>
+        <g transform="translate(18 68)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#28c8dd" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">B</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">person-code bridge</text>
+        </g>
+        <g transform="translate(18 90)">
+          <line x1="0" y1="0" x2="34" y2="0" stroke="#e85aa8" stroke-width="5" stroke-linecap="round"/>
+          <text x="48" y="5" font-size="13" font-weight="800" fill="#0f172a">G</text>
+          <text x="75" y="5" font-size="13" font-weight="600" fill="#475569">low-emphasis contribution</text>
+        </g>
+    </g>
+    <g filter="url(#softShadow)">
+      <rect x="455" y="185" width="690" height="590" rx="34" fill="#ffffff" stroke="#dbe5f2"/>
+      <rect x="483" y="216" width="634" height="528" rx="26" fill="#f8fbff" stroke="#e4eaf5"/>
+      <text x="520" y="250" font-size="13" font-weight="850" fill="#64748b">INNER ENA PLATE - solid W links</text>
+    </g>
+    <g opacity="0.78">
+      <path d="M 800 125 Q 1120.0769805350378 175.50471791400355 1300 445" fill="none" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 125 Q 1120.0769805350378 175.50471791400355 1300 445" fill="none" stroke="#3f7df4" stroke-width="10" stroke-linecap="round" opacity="0.74" />
+      <path d="M 1300 445 Q 1119.294895327388 712.4918973450605 800 760" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.88" />
+      <path d="M 1300 445 Q 1119.294895327388 712.4918973450605 800 760" fill="none" stroke="#3f7df4" stroke-width="8" stroke-linecap="round" opacity="0.74" />
+      <path d="M 800 760 Q 502.02661092719285 678.6482366235034 300 445" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 760 Q 502.02661092719285 678.6482366235034 300 445" fill="none" stroke="#3f7df4" stroke-width="5" stroke-linecap="round" opacity="0.74" />
+      <path d="M 300 445 Q 500.4070599290502 207.51103113914095 800 125" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" opacity="0.88" />
+      <path d="M 300 445 Q 500.4070599290502 207.51103113914095 800 125" fill="none" stroke="#3f7df4" stroke-width="5" stroke-linecap="round" opacity="0.74" />
+      <path d="M 800 125 Q 760 442.5 800 760" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.88" />
+      <path d="M 800 125 Q 760 442.5 800 760" fill="none" stroke="#3f7df4" stroke-width="6" stroke-linecap="round" opacity="0.74" /></g>
+    <g opacity="0.72">
+      <path d="M 800 125 Q 855 192.5 800 260" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 125 Q 855 192.5 800 260" fill="none" stroke="#2bcce3" stroke-width="7" stroke-linecap="round" opacity="0.64" />
+      <path d="M 1300 445 Q 1167.921744558562 526.5035854398213 1015 500" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.75" />
+      <path d="M 1300 445 Q 1167.921744558562 526.5035854398213 1015 500" fill="none" stroke="#2bcce3" stroke-width="6" stroke-linecap="round" opacity="0.64" />
+      <path d="M 800 760 Q 890.6225203453969 734.1386619401059 895 640" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 760 Q 890.6225203453969 734.1386619401059 895 640" fill="none" stroke="#2bcce3" stroke-width="7" stroke-linecap="round" opacity="0.64" />
+      <path d="M 800 760 Q 709.3774796546031 734.1386619401059 705 640" fill="none" stroke="#ffffff" stroke-width="13" stroke-linecap="round" opacity="0.75" />
+      <path d="M 800 760 Q 709.3774796546031 734.1386619401059 705 640" fill="none" stroke="#2bcce3" stroke-width="5" stroke-linecap="round" opacity="0.64" />
+      <path d="M 300 445 Q 487.6222133253456 439.60045678797843 640 330" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.75" />
+      <path d="M 300 445 Q 487.6222133253456 439.60045678797843 640 330" fill="none" stroke="#2bcce3" stroke-width="4" stroke-linecap="round" opacity="0.64" />
+      <path d="M 1300 445 Q 1116.9008474103719 439.43669873545446 970 330" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.75" />
+      <path d="M 1300 445 Q 1116.9008474103719 439.43669873545446 970 330" fill="none" stroke="#2bcce3" stroke-width="4" stroke-linecap="round" opacity="0.64" /></g>
+    <g><line x1="800" y1="260" x2="970" y2="330" stroke="#ffffff" stroke-width="19" stroke-linecap="round" opacity="0.95" /><line x1="800" y1="260" x2="970" y2="330" stroke="#6d28d9" stroke-width="9" stroke-linecap="round" opacity="0.88" /><line x1="800" y1="260" x2="1015" y2="500" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.95" /><line x1="800" y1="260" x2="1015" y2="500" stroke="#6d28d9" stroke-width="8" stroke-linecap="round" opacity="0.88" /><line x1="800" y1="260" x2="895" y2="640" stroke="#ffffff" stroke-width="17" stroke-linecap="round" opacity="0.95" /><line x1="800" y1="260" x2="895" y2="640" stroke="#6d28d9" stroke-width="7" stroke-linecap="round" opacity="0.88" /><line x1="800" y1="260" x2="705" y2="640" stroke="#ffffff" stroke-width="17" stroke-linecap="round" opacity="0.95" /><line x1="800" y1="260" x2="705" y2="640" stroke="#6d28d9" stroke-width="7" stroke-linecap="round" opacity="0.88" /><line x1="970" y1="330" x2="1015" y2="500" stroke="#ffffff" stroke-width="19" stroke-linecap="round" opacity="0.95" /><line x1="970" y1="330" x2="1015" y2="500" stroke="#6d28d9" stroke-width="9" stroke-linecap="round" opacity="0.88" /><line x1="970" y1="330" x2="895" y2="640" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.95" /><line x1="970" y1="330" x2="895" y2="640" stroke="#6d28d9" stroke-width="6" stroke-linecap="round" opacity="0.88" /><line x1="970" y1="330" x2="705" y2="640" stroke="#ffffff" stroke-width="15" stroke-linecap="round" opacity="0.95" /><line x1="970" y1="330" x2="705" y2="640" stroke="#6d28d9" stroke-width="5" stroke-linecap="round" opacity="0.88" /><line x1="1015" y1="500" x2="895" y2="640" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.95" /><line x1="1015" y1="500" x2="895" y2="640" stroke="#6d28d9" stroke-width="8" stroke-linecap="round" opacity="0.88" /><line x1="1015" y1="500" x2="705" y2="640" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.95" /><line x1="1015" y1="500" x2="705" y2="640" stroke="#6d28d9" stroke-width="6" stroke-linecap="round" opacity="0.88" /><line x1="705" y1="640" x2="895" y2="640" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.95" /><line x1="705" y1="640" x2="895" y2="640" stroke="#6d28d9" stroke-width="6" stroke-linecap="round" opacity="0.88" /></g>
+    <g filter="url(#thinShadow)">
+      <g>
+        <path d="M 801.4 277.0 L 772.0 294.0 L 742.6 277.0 L 742.6 243.0 L 772.0 226.0 L 801.4 243.0 Z" fill="#7048e8" stroke="#ffffff" stroke-width="5"/>
+        <rect x="760" y="238" width="124" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="760" y="238" width="8" height="44" rx="4" fill="#7048e8"/>
+        <text x="786" y="267" font-size="18" font-weight="850" fill="#0f172a">Question</text>
+      </g>
+      <g>
+        <path d="M 961.4 347.0 L 932.0 364.0 L 902.6 347.0 L 902.6 313.0 L 932.0 296.0 L 961.4 313.0 Z" fill="#7b5cf4" stroke="#ffffff" stroke-width="5"/>
+        <rect x="920" y="308" width="144" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="920" y="308" width="8" height="44" rx="4" fill="#7b5cf4"/>
+        <text x="946" y="337" font-size="18" font-weight="850" fill="#0f172a">Hypothesis</text>
+      </g>
+      <g>
+        <path d="M 1016.4 517.0 L 987.0 534.0 L 957.6 517.0 L 957.6 483.0 L 987.0 466.0 L 1016.4 483.0 Z" fill="#2f68df" stroke="#ffffff" stroke-width="5"/>
+        <rect x="975" y="478" width="124" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="975" y="478" width="8" height="44" rx="4" fill="#2f68df"/>
+        <text x="1001" y="507" font-size="18" font-weight="850" fill="#0f172a">Evidence</text>
+      </g>
+      <g>
+        <path d="M 881.4 657.0 L 852.0 674.0 L 822.6 657.0 L 822.6 623.0 L 852.0 606.0 L 881.4 623.0 Z" fill="#cc39e4" stroke="#ffffff" stroke-width="5"/>
+        <rect x="840" y="618" width="154" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="840" y="618" width="8" height="44" rx="4" fill="#cc39e4"/>
+        <text x="866" y="647" font-size="18" font-weight="850" fill="#0f172a">Explanation</text>
+      </g>
+      <g>
+        <path d="M 706.4 657.0 L 677.0 674.0 L 647.6 657.0 L 647.6 623.0 L 677.0 606.0 L 706.4 623.0 Z" fill="#f97316" stroke="#ffffff" stroke-width="5"/>
+        <rect x="665" y="618" width="124" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="665" y="618" width="8" height="44" rx="4" fill="#f97316"/>
+        <text x="691" y="647" font-size="18" font-weight="850" fill="#0f172a">Critique</text>
+      </g>
+      <g>
+        <path d="M 575.4 517.0 L 546.0 534.0 L 516.6 517.0 L 516.6 483.0 L 546.0 466.0 L 575.4 483.0 Z" fill="#e3428b" stroke="#ffffff" stroke-width="5"/>
+        <rect x="534" y="478" width="144" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="534" y="478" width="8" height="44" rx="4" fill="#e3428b"/>
+        <text x="560" y="507" font-size="18" font-weight="850" fill="#0f172a">Reflection</text>
+      </g>
+      <g>
+        <path d="M 601.4 347.0 L 572.0 364.0 L 542.6 347.0 L 542.6 313.0 L 572.0 296.0 L 601.4 313.0 Z" fill="#16b8b2" stroke="#ffffff" stroke-width="5"/>
+        <rect x="560" y="308" width="164" height="44" rx="13" fill="#ffffff" stroke="#d8e2f1"/>
+        <rect x="560" y="308" width="8" height="44" rx="4" fill="#16b8b2"/>
+        <text x="586" y="337" font-size="18" font-weight="850" fill="#0f172a">Coordination</text>
+      </g></g>
+    <g filter="url(#thinShadow)">
+    <g>
+      <circle cx="800" cy="125" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="800" cy="125" r="58" fill="#f8fbff" stroke="#60a5fa" stroke-width="4"/>
+      <text x="800" y="135" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">ML</text>
+      <rect x="747" y="185" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="800" y="208" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Ms Lee</text>
+    </g>
+    <g>
+      <circle cx="1300" cy="445" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="1300" cy="445" r="58" fill="#f8fbff" stroke="#60a5fa" stroke-width="4"/>
+      <text x="1300" y="455" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">MC</text>
+      <rect x="1247" y="505" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="1300" y="528" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Mr Chan</text>
+    </g>
+    <g>
+      <circle cx="800" cy="760" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="800" cy="760" r="58" fill="#f8fbff" stroke="#60a5fa" stroke-width="4"/>
+      <text x="800" y="770" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">DW</text>
+      <rect x="747" y="820" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="800" y="843" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Dr Wong</text>
+    </g>
+    <g>
+      <circle cx="300" cy="445" r="58" fill="#f8fbff" stroke="#ffffff" stroke-width="12"/>
+      <circle cx="300" cy="445" r="58" fill="#f8fbff" stroke="#60a5fa" stroke-width="4"/>
+      <text x="300" y="455" text-anchor="middle" font-size="30" font-weight="900" fill="#0f172a">MH</text>
+      <rect x="247" y="505" width="106" height="34" rx="17" fill="#ffffff" stroke="#d6e1ef"/>
+      <text x="300" y="528" text-anchor="middle" font-size="18" font-weight="850" fill="#111827">Ms Ho</text>
+    </g></g>
+    <g transform="translate(68 786)">
+      <rect width="570" height="58" rx="14" fill="#ffffff" stroke="#d8e2f1"/>
+      <text x="20" y="25" font-size="15" font-weight="850" fill="#0f172a">Design move</text>
+      <text x="118" y="25" font-size="14" font-weight="650" fill="#475569">A visible white ENA plate makes purple concept links readable in day mode.</text>
+      <text x="118" y="45" font-size="14" font-weight="650" fill="#475569">Best if dense concept meshes need publication-like clarity.</text>
+    </g>
+  </svg>

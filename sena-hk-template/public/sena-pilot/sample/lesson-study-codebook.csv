@@ -1,0 +1,8 @@
+code_id,label,family,description,color
+question,Question,Inquiry,Problem framing and inquiry prompts,#7c3aed
+hypothesis,Hypothesis,Inquiry,Tentative design claims or predictions,#8b5cf6
+evidence,Evidence,Reasoning,Observation or data used to support a claim,#2563eb
+explanation,Explanation,Reasoning,Reasoned link between evidence and claim,#d946ef
+critique,Critique,Reasoning,Challenge limitation or revision move,#f97316
+reflection,Reflection,Metacognition,Review of learning design progress or quality,#ec4899
+coordination,Coordination,Collaboration,Task allocation role negotiation or shared planning,#14b8a6

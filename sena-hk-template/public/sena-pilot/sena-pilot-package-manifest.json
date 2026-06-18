@@ -1,0 +1,284 @@
+{
+  "schemaVersion": "sena-pilot-package-manifest/v1",
+  "packageName": "SENA Research Pilot Package",
+  "updatedOn": "2026-06-14",
+  "workspaceRoute": "/workspace/sena",
+  "runtimeRoles": {
+    "sena": "Browser-side TypeScript model builder for S/W/B/G and A_fusion.",
+    "jena": "Local jena-js runtime for ENA manifest outputs.",
+    "jsna": "Local sna.js runtime, aliased as jSNA, for social-network metrics."
+  },
+  "sampleDataset": {
+    "name": "Lesson-study sample collaboration dataset",
+    "contract": "/sena-pilot/sample/lesson-study-sena-contract.json",
+    "expectedCounts": {
+      "people": 4,
+      "interactions": 8,
+      "utterances": 10,
+      "codedSegments": 10,
+      "codes": 7
+    },
+    "expectedStages": ["Plan", "Teach", "Reflect"],
+    "expectedRuntime": {
+      "jena": "computed",
+      "jsna": "computed",
+      "dataContractAudit": "valid",
+      "fusionMathAudit": "verified",
+      "pilotReadinessBeforeHumanReview": "needs-review"
+    }
+  },
+  "exportArtifacts": [
+    "sena-pilot-package-manifest.json",
+    "sena-project-snapshot.json",
+    "sena-runtime-bundle.json",
+    "sena-jena-manifest.json",
+    "sena-ena-report.json",
+    "sena-jsna-manifest.json",
+    "sena-sna-report.json",
+    "sena-metric-provenance.json",
+    "sena-person-code-pair-g-report.json",
+    "sena-data-contract-audit.json",
+    "sena-runtime-consistency-audit.json",
+    "sena-method-protocol.json",
+    "sena-visual-grammar.json",
+    "sena-development-plan.json",
+    "sena-fusion-math-audit.json",
+    "sena-demo-walkthrough.json",
+    "sena-demo-verification.json",
+    "sena-demo-verification-compatibility-audit.json",
+    "sena-production-page-contract.json",
+    "sena-temporal-runtime-trace.json",
+    "sena-evidence-ledger.json",
+    "sena-pilot-readiness-audit.json",
+    "sena-coding-reliability-gate.json",
+    "sena-claim-readiness-gate.json",
+    "sena-review-packet.json",
+    "sena-analysis-report.json",
+    "sena-analysis-report.md"
+  ],
+  "exportArtifactSchemas": {
+    "sena-pilot-package-manifest.json": "sena-pilot-package-manifest/v1",
+    "sena-project-snapshot.json": "sena-project-snapshot/v1",
+    "sena-runtime-bundle.json": "sena-runtime-bundle/v1",
+    "sena-jena-manifest.json": "sena-ena-manifest/v1",
+    "sena-ena-report.json": "sena-ena-report/v1",
+    "sena-jsna-manifest.json": "sena-jsna-manifest/v1",
+    "sena-sna-report.json": "sena-sna-report/v1",
+    "sena-metric-provenance.json": "sena-metric-provenance/v1",
+    "sena-person-code-pair-g-report.json": "sena-person-code-pair-g-report/v1",
+    "sena-data-contract-audit.json": "sena-data-contract-audit/v1",
+    "sena-runtime-consistency-audit.json": "sena-runtime-consistency/v1",
+    "sena-method-protocol.json": "sena-method-protocol/v1",
+    "sena-visual-grammar.json": "sena-visual-grammar/v1",
+    "sena-development-plan.json": "sena-development-plan/v1",
+    "sena-fusion-math-audit.json": "sena-fusion-math-audit/v1",
+    "sena-demo-walkthrough.json": "sena-demo-walkthrough/v1",
+    "sena-demo-verification.json": "sena-demo-verification/v1",
+    "sena-demo-verification-compatibility-audit.json": "sena-demo-verification-compatibility/v1",
+    "sena-production-page-contract.json": "sena-production-page-contract/v1",
+    "sena-temporal-runtime-trace.json": "sena-temporal-runtime-trace/v1",
+    "sena-evidence-ledger.json": "sena-evidence-ledger/v1",
+    "sena-pilot-readiness-audit.json": "sena-pilot-readiness/v1",
+    "sena-coding-reliability-gate.json": "sena-coding-reliability-gate/v1",
+    "sena-claim-readiness-gate.json": "sena-claim-readiness-gate/v1",
+    "sena-review-packet.json": "sena-review-packet/v1",
+    "sena-analysis-report.json": "sena-report/v1",
+    "sena-analysis-report.md": "markdown"
+  },
+  "assets": {
+    "sample": [
+      "/sena-pilot/sample/lesson-study-sena-contract.json",
+      "/sena-pilot/sample/lesson-study-people.csv",
+      "/sena-pilot/sample/lesson-study-interactions.csv",
+      "/sena-pilot/sample/lesson-study-utterances.csv",
+      "/sena-pilot/sample/lesson-study-coded_segments.csv",
+      "/sena-pilot/sample/lesson-study-codebook.csv"
+    ],
+    "templates": [
+      "/sena-pilot/templates/sena-data-contract-template.json",
+      "/sena-pilot/templates/people.csv",
+      "/sena-pilot/templates/interactions.csv",
+      "/sena-pilot/templates/utterances.csv",
+      "/sena-pilot/templates/coded_segments.csv",
+      "/sena-pilot/templates/codebook.csv"
+    ]
+  },
+  "assetIntegrity": [
+    {
+      "href": "/sena-pilot/sample/lesson-study-sena-contract.json",
+      "kind": "sample",
+      "format": "json",
+      "bytes": 9276,
+      "sha256": "e2525b3db948a3e606e53355cc9fb91a33fcde60928bdde96294a0eb23dc5b29"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-people.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 224,
+      "sha256": "b026d078f8d888b25bf2568027978a919e1c0d04dfd7567482acd31c52fc0677"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-interactions.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 807,
+      "sha256": "6d7d1831cb094dfb3629e709e714e74b227a9c9847004e9594e0bc543d0ebe4c"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-utterances.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 1693,
+      "sha256": "529d6c3541400a47286bbd2cff4693eb202388b8474e6a9ac5ebcfacc71b8b0e"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-coded_segments.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 1854,
+      "sha256": "acdd1a865754ae2d920bba1f88562bd0b52fb4f002578e733145ae388cf34121"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-codebook.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 613,
+      "sha256": "3b0cd89c8a1208499f4a9a547c2c82f7662270842a489bd08980fed9982c7822"
+    },
+    {
+      "href": "/sena-pilot/templates/sena-data-contract-template.json",
+      "kind": "template",
+      "format": "json",
+      "bytes": 103,
+      "sha256": "7e05e7ff625494cf318da66d8a1a7ad75a2b565f9daf67f4b5add22e561fd1cb"
+    },
+    {
+      "href": "/sena-pilot/templates/people.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 36,
+      "sha256": "0065df6f04b33c8fc157a6f4042da7de7629d08076d31ab1db1226c4addd2ea1"
+    },
+    {
+      "href": "/sena-pilot/templates/interactions.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 55,
+      "sha256": "e13d76e94b60e29ba46177d8db6386214ed3a2bc05cbef4c636e97bc85b7fb54"
+    },
+    {
+      "href": "/sena-pilot/templates/utterances.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 73,
+      "sha256": "c0ef4570e33063abcfe7ad382600911ff3d37d98b594eec3a64b6acfab2bee5f"
+    },
+    {
+      "href": "/sena-pilot/templates/coded_segments.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 91,
+      "sha256": "c2cce8a673063612279a5f6ae6788c41c9f6c252e5af5ed7f0d83e2f64c69698"
+    },
+    {
+      "href": "/sena-pilot/templates/codebook.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 39,
+      "sha256": "4a59ad2604989c00d8e491ba186dd64a82eeac9be05741afe46765aa3b92f8e4"
+    }
+  ],
+  "handoffChecks": [
+    {
+      "id": "model-json-export",
+      "label": "Restorable model JSON export",
+      "artifact": "sena-project-snapshot.json",
+      "expectedEvidence": [
+        "graph nodes",
+        "typed edge layers",
+        "S/W/B/G matrices",
+        "A_fusion matrix",
+        "temporal trace windows"
+      ]
+    },
+    {
+      "id": "local-runtime-manifests",
+      "label": "Local jENA and jSNA runtime manifests",
+      "artifact": "sena-runtime-bundle.json",
+      "expectedEvidence": [
+        "sena-jena-manifest.json",
+        "sena-ena-report.json",
+        "sena-jsna-manifest.json",
+        "sena-runtime-consistency-audit.json",
+        "jena-api-surface",
+        "jsna-api-surface",
+        "jena-rena-parity",
+        "jsna-r-sna-parity",
+        "matrix-fingerprints",
+        "file:vendor/jena-js",
+        "file:vendor/sna-js"
+      ]
+    },
+    {
+      "id": "pilot-asset-integrity",
+      "label": "Pilot sample and template asset integrity",
+      "artifact": "sena-pilot-package-manifest.json",
+      "expectedEvidence": [
+        "assetIntegrity",
+        "bytes",
+        "sha256",
+        "sample assets",
+        "template assets"
+      ]
+    },
+    {
+      "id": "review-packet-audit",
+      "label": "Single-file review packet audit",
+      "artifact": "sena-review-packet.json",
+      "expectedEvidence": [
+        "project-snapshot-handoff",
+        "method-protocol-handoff",
+        "visual-grammar-handoff",
+        "claim-readiness gate"
+      ]
+    },
+    {
+      "id": "coding-reliability-gate",
+      "label": "Standalone coding reliability gate",
+      "artifact": "sena-coding-reliability-gate.json",
+      "expectedEvidence": [
+        "coding scheme",
+        "unit of coding",
+        "coder count",
+        "agreement metric",
+        "agreement value",
+        "adjudication notes",
+        "limitations"
+      ]
+    },
+    {
+      "id": "metric-provenance",
+      "label": "Standalone metric provenance",
+      "artifact": "sena-metric-provenance.json",
+      "expectedEvidence": [
+        "metric source",
+        "parity status",
+        "interpretation limits",
+        "sna.js",
+        "jena-js",
+        "sena-derived-from-sna.js",
+        "sena-self-implemented",
+        "sena-composite",
+        "socialMetricSnapshot",
+        "epistemicMetricSnapshot",
+        "fusionMetricSnapshot"
+      ]
+    }
+  ],
+  "reviewGuardrails": [
+    "The pilot package supports local demo readiness, not production deployment.",
+    "Human review is required before publication, assessment, or instructional decisions.",
+    "jENA and jSNA artifacts should be treated as runtime provenance in exported reports."
+  ]
+}

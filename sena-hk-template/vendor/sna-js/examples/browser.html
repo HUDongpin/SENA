@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SNA.js browser example</title>
+  </head>
+  <body>
+    <pre id="output"></pre>
+    <script type="module">
+      import { degree, gden } from "../dist/index.js";
+
+      const graph = [
+        [0, 1, 0],
+        [0, 0, 1],
+        [0, 0, 0],
+      ];
+
+      document.getElementById("output").textContent = JSON.stringify(
+        {
+          density: gden(graph, { mode: "digraph" }),
+          outdegree: degree(graph, { mode: "digraph", cmode: "outdegree" }),
+        },
+        null,
+        2,
+      );
+    </script>
+  </body>
+</html>

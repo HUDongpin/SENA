@@ -1,0 +1,16 @@
+SNA.js project template
+
+This repository is intended as a JavaScript/TypeScript port of the R package `sna` 2.8.
+The original reference source is included under `reference/r-sna-2.8/` for porting only.
+
+Original package metadata:
+- Package: sna
+- Version: 2.8
+- Title: Tools for Social Network Analysis
+- Author/Maintainer: Carter T. Butts
+- License: GPL (>= 2)
+- CRAN publication date in DESCRIPTION: 2024-09-08
+
+Because the intended implementation is a port/derivative of GPL-licensed code, keep this
+project under a GPL-compatible license unless you obtain separate permission from the
+original copyright holder.
