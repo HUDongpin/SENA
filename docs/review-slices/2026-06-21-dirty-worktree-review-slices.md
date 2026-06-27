@@ -30,14 +30,16 @@ Fresh gate notes:
 - `npm run sena:pilot:verify -- --check-only` initially blocked while a local SENA `next-server` was listening from `sena-hk-template` on port 3005.
 - After stopping that local server, `npm run sena:pilot:verify` completed successfully on 2026-06-27, including pilot smoke, full Vitest, Next production build, production server smoke, and browser smoke.
 - Fresh Temporal Fusion screenshots were captured separately in `sena-hk-template/output/playwright/sena-temporal-fusion-2026-06-27-desktop.png` and `sena-hk-template/output/playwright/sena-temporal-fusion-2026-06-27-mobile.png`.
-- `npm run sena:go-live:check` still exits `blocked`; current blockers include deployment-readiness backup freshness, go-live rehearsal blocked by deployment readiness, rollback drill blocked by deployment readiness and missing fresh managed backup, post-cutover monitor blockers, and capability-audit blockers for production security governance and go-live operations.
-- The 2026-06-17 full gate remains historical evidence; the 2026-06-27 full gate is the current local release-handoff verification result, while enterprise cutover remains blocked.
+- Earlier in the 2026-06-27 refresh, `npm run sena:go-live:check` exited `blocked`; blockers included deployment-readiness backup freshness, go-live rehearsal blocked by deployment readiness, rollback drill blocked by deployment readiness and missing fresh managed backup, post-cutover monitor blockers, and capability-audit blockers for production security governance and go-live operations.
+- The 2026-06-17 full gate remains historical evidence; the 2026-06-27 full gate is the current local release-handoff verification result. Later self-managed closeout evidence below supersedes the earlier blocked go-live observation.
+
+Later 2026-06-27 self-managed closeout update: `npm run sena:self-managed:workflow` refreshed backup, restore, audit, release-gate, rollback, and active post-cutover observation evidence; `SENA_POST_CUTOVER_SAMPLE_MINUTES=1 npm run sena:post-cutover:observe -- --watch --attest` completed observation `post-cutover_b2dc7a52dcda978e4bf5386e` with 57 samples and an approved self-managed attestation; `npm run sena:go-live:check` exited successfully at `2026-06-27T16:59:26.260Z` with overall `status: "ready"`. Treat this as configured self-managed closeout evidence, not institution-owned SaaS cutover evidence.
 
 ## 2026-06-27 Checkpoint Closeout
 
 Final closeout inventory before checkpoint was 250 dirty entries: 127 modified, 4 deleted, and 119 untracked. The extra EOF blank line in `sena-hk-template/lib/sena/api-docs.ts` was removed, global `git diff --check` exited cleanly, and `npm run sena:pilot:verify` completed successfully again after the whitespace fix.
 
-This document is retained as the recovery map for future broad dirty worktrees. After the checkpoint closeout, do not treat the counts above as the current worktree state; re-run `git status --short` before starting a new slice.
+This document is retained as the recovery map for future broad dirty worktrees. After the checkpoint closeout, do not treat the counts above as the current worktree state; re-run `git status --short` before starting a new slice. For enterprise status, re-run `npm run sena:go-live:check` because backup freshness and post-cutover evidence are time-sensitive.
 
 ## Operating Rules
 

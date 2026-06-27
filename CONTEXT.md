@@ -24,9 +24,9 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 - The app runs local `sna.js` from `sena-hk-template/vendor/sna-js`; it does not directly run the official R `sna` package in the browser.
 - The default enterprise persistence store is `.sena-enterprise/enterprise-db.json`. This file-backed store is a local readiness adapter, not production managed infrastructure.
 - Managed database, identity provider, object storage, pub/sub, SIEM, backup, email, alerting, and staffed operations remain platform-owner decisions until accepted through native-ready evidence.
-- Self-managed closeout evidence is generated with `npm run sena:self-managed:workflow`, `npm run sena:post-cutover:observe -- --watch --attest`, and `npm run sena:go-live:check`; a fresh blocked go-live check supersedes any older closeout note, and the flow never reclassifies the default file-backed adapter as institution-managed SaaS infrastructure.
+- Self-managed closeout evidence is generated with `npm run sena:self-managed:workflow`, `npm run sena:post-cutover:observe -- --watch --attest`, and `npm run sena:go-live:check`; a fresh go-live check supersedes any older closeout note, and the flow never reclassifies the default file-backed adapter as institution-managed SaaS infrastructure.
 - The 2026-06-27 `npm run sena:pilot:verify` release handoff gate passed after the blocking local SENA server on port 3005 was stopped.
-- The 2026-06-27 go-live check is currently `blocked` on deployment readiness, rollback drill, post-cutover monitor, and capability-audit evidence; do not summarize enterprise cutover as complete until a fresh `npm run sena:go-live:check` exits successfully.
+- The 2026-06-27T16:59:26Z self-managed go-live check exited `ready` after `npm run sena:self-managed:workflow` refreshed backup/release evidence and `npm run sena:post-cutover:observe -- --watch --attest` completed the real 60-minute post-cutover observation. This proves the configured self-managed enterprise closeout gate, not institution-owned SaaS cutover.
 
 ## Code Ownership Lanes
 
