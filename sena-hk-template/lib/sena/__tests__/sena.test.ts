@@ -67,6 +67,57 @@ import {
   type SenaImportTable
 } from "../index";
 import { exampleSenaContract } from "../sample-data";
+import { projectSenaPilotPackageArtifactCatalog } from "../artifact-catalog";
+import {
+  SENA_AUTH_PAGE_MANIFEST,
+  SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST
+} from "../auth-page-manifest";
+import { SENA_BROWSER_SMOKE_MANIFEST } from "../browser-smoke-manifest";
+import { buildSenaApiDocumentation } from "../api-docs";
+import { SENA_IMPLEMENTED_API_ROUTES } from "../api-route-manifest";
+import {
+  getEnterpriseNativeAdapterCertification,
+  getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseSaasOperationsReadiness
+} from "../enterprise/ops-deployment";
+import {
+  getEnterpriseCapabilityAudit
+} from "../enterprise/ops-capability-audit";
+import {
+  getEnterpriseIdentityProductionEvidence
+} from "../enterprise/identity-production-evidence";
+import { buildSenaGroupComparisonSuite } from "../inference";
+import { importSenaEnterpriseFiles } from "../import-adapters";
+import { importSenaReliabilityFiles } from "../reliability-adapters";
+import {
+  buildSenaSecurityHeaders,
+  SENA_SECURITY_HEADER_MANIFEST
+} from "../security-headers";
+import {
+  createEnterpriseUploadRegistryFilesAction,
+  deliverEnterpriseCollaborationPubSubAction,
+  deliverEnterpriseNotificationsAction,
+  deliverEnterpriseUploadObjectStorageAction,
+  exportEnterprisePublicationAction,
+  logoutEnterpriseSessionAction,
+  markEnterpriseNotificationReadAction,
+  refreshEnterpriseUploadStorageAction,
+  runEnterpriseSsoPreflightAction,
+  runEnterpriseValidationComparisonAction
+} from "../../../components/sena/workspace/enterprise-actions";
+import {
+  deliverEnterpriseAuditLogAction,
+  deliverEnterpriseBackupAction,
+  deliverEnterpriseOpsAlertsAction,
+  exportEnterpriseAuditCsvAction,
+  exportEnterpriseJsonArtifactAction,
+  getEnterpriseGoLiveRehearsalAction,
+  refreshEnterpriseProvisioningReadinessAction,
+  submitEnterpriseGoLiveAttestationAction,
+  submitEnterprisePlatformDecisionReviewAction,
+  syncEnterpriseDatabaseAction
+} from "../../../components/sena/workspace/enterprise-ops-actions";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
 import {
   buildSenaWorkspaceApiUrl,
@@ -126,6 +177,46 @@ function readWorkspaceBytes(path: string) {
 
 function sha256Hex(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function parseRecordedBody(init?: RequestInit) {
+  if (typeof init?.body !== "string") return undefined;
+  return JSON.parse(init.body) as unknown;
+}
+
+function createJsonFetchRecorder(responsePayload: unknown = { ok: true }) {
+  const calls: Array<{ url: string; init?: RequestInit; body: unknown }> = [];
+  return {
+    calls,
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        init,
+        body: parseRecordedBody(init)
+      });
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  };
+}
+
+function uploadLike(name: string, text: string) {
+  const bytes = new TextEncoder().encode(text);
+  return {
+    name,
+    size: bytes.byteLength,
+    text: async () => text,
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  };
+}
+
+async function testEnterpriseJsonHeaders() {
+  return {
+    "content-type": "application/json",
+    "x-sena-csrf-token": "test-csrf-token"
+  };
 }
 
 const documentedCodingReliability = {
@@ -1574,7 +1665,7 @@ describe("SENA model builder", () => {
     expect(plan.scope.inScope).toContain("Five-table SENA data contract import, templates, lesson-study sample data, and asset-integrity fingerprints.");
     expect(plan.scope.inScope).toContain("Restorable model JSON snapshot export with graph nodes, typed edges, S/W/B/G, fusion matrix, and temporal trace.");
     expect(plan.scope.inScope).toContain("Local enterprise-runtime vertical slice for auth, RBAC teams, server-side projects, imports, reliability, validation, publication exports, ops readiness, and redacted organization deployment handoff evidence.");
-    expect(plan.scope.inScope).toContain("Production SaaS backend readiness with native adapter certification, platform-owner bridge acceptance, release-gate evidence, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
+    expect(plan.scope.inScope).toContain("Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
     expect(plan.scope.outOfScope).not.toContain("Native managed database, object-storage, collaboration pub/sub, audit/SIEM, and backup/restore adapters beyond the signed webhook bridge handoffs.");
     expect(plan.scope.outOfScope).not.toContain("Billing, tenant administration at SaaS scale, incident escalation ownership, and full SaaS operations backend.");
     expect(plan.workflowAnchors.map((anchor) => anchor.anchor)).toContain("#workflow-report");
@@ -1622,8 +1713,11 @@ describe("SENA model builder", () => {
       "Production Platform Acceptance"
     ]);
     expect(plan.nextStage.phases.find((phase) => phase.id === "pilot-handoff-freeze")?.status).toBe("active");
+    expect(plan.nextStage.phases.find((phase) => phase.id === "research-validation")?.deliverables).toContain("real research dataset validation notes");
     expect(plan.nextStage.phases.find((phase) => phase.id === "research-validation")?.deliverables).toContain("expanded jENA/rENA parity evidence");
     expect(plan.nextStage.phases.find((phase) => phase.id === "research-validation")?.deliverables).toContain("expanded jSNA/R sna parity evidence");
+    expect(plan.nextStage.phases.find((phase) => phase.id === "research-validation")?.blockedUntil?.join(" ")).toContain("real research datasets");
+    expect(plan.nextStage.phases.find((phase) => phase.id === "research-validation")?.blockedUntil?.join(" ")).toContain("Coding reliability, uncertainty/stability, and domain expert review evidence");
     expect(plan.nextStage.phases.find((phase) => phase.id === "platform-decision-gate")?.acceptanceCriteria.join(" ")).toContain("accepted bridge, native-ready, or blocked decision evidence");
     expect(plan.nextStage.releaseGate.command).toBe("npm run sena:pilot:verify");
     expect(plan.nextStage.releaseGate.browserAcceptanceScenarios.join(" ")).toContain("Switch Fusion Canvas layouts");
@@ -1633,6 +1727,7 @@ describe("SENA model builder", () => {
     expect(plan.nextStage.publicInterfacePolicy.join(" ")).toContain("/workspace/sena");
     expect(plan.nextStage.publicInterfacePolicy.join(" ")).toContain("sena-project-snapshot/v1");
     expect(plan.nextStage.assumptions.join(" ")).toContain("exploratory-only");
+    expect(plan.nextStage.assumptions.join(" ")).toContain("real-data walkthrough evidence");
     expect(plan.phases.find((phase) => phase.id === "runtime-foundation")?.deliverables).toContain("restorable model JSON snapshot");
     expect(plan.phases.find((phase) => phase.id === "runtime-foundation")?.deliverables).toContain("jENA/rENA parity evidence");
     expect(plan.phases.find((phase) => phase.id === "runtime-foundation")?.deliverables).toContain("jSNA/R sna + igraph parity evidence");
@@ -1644,6 +1739,8 @@ describe("SENA model builder", () => {
     expect(plan.phases.find((phase) => phase.id === "local-research-pilot")?.exitCriteria.join(" ")).toContain("parity evidence");
     expect(plan.phases.find((phase) => phase.id === "research-validation")?.deliverables).toContain("SNA metric parity expansion beyond bundled R sna + igraph fixtures");
     expect(plan.phases.find((phase) => phase.id === "production-platform")?.status).toBe("active");
+    expect(plan.phases.find((phase) => phase.id === "production-platform")?.label).toBe("Institution cutover acceptance evidence");
+    expect(plan.phases.find((phase) => phase.id === "production-platform")?.scope).toContain("without marking production cutover complete");
     expect(plan.phases.find((phase) => phase.id === "production-platform")?.deliverables).toContain("redacted organization deployment handoff package");
     expect(plan.phases.find((phase) => phase.id === "production-platform")?.evidence).toContain("deploymentPackage=sena-enterprise-organization-deployment/v1");
     expect(plan.phases.find((phase) => phase.id === "production-platform")?.evidence).toContain("nativeAdapterCertification=sena-enterprise-native-adapter-certification/v1");
@@ -2372,902 +2469,674 @@ describe("SENA model builder", () => {
   });
 
   it("exposes enterprise platform decision review controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-platform-decision-review"',
-      "sena-enterprise-platform-decision-acceptance/v1",
-      'data-testid="enterprise-platform-decision-select"',
-      'data-testid="enterprise-platform-decision-status"',
-      'data-testid="enterprise-platform-decision-owner"',
-      'data-testid="enterprise-platform-decision-evidence"',
-      'data-testid="enterprise-platform-decision-production-evidence"',
-      "No production evidence checklist for this decision.",
-      'data-testid="enterprise-platform-decision-submit"',
-      'data-testid="enterprise-release-gate-review"',
-      "sena-enterprise-release-gate-review/v1",
-      'data-testid="enterprise-release-gate-identity-snapshot"',
-      'data-testid="enterprise-release-gate-identity-snapshot-schema"',
-      'data-testid="enterprise-release-gate-identity-policy-binding"',
-      "identityProductionSnapshot",
-      "latestReleaseGateIdentitySnapshot?.platformRequestPacket.evidence.find((entry) => entry.startsWith(\"requestPacketPolicyHash=\"))",
-      "latestReleaseGateIdentitySnapshot?.platformRequestPacket.evidence.find((entry) => entry.startsWith(\"requestPacketPolicyBinding=\"))",
-      "sena-enterprise-identity-production-evidence/v1",
-      "sena-enterprise-identity-submission-verifier/v1",
-      "sena-enterprise-identity-rotation-freshness/v1",
-      "sena-enterprise-identity-cutover-checklist/v1",
-      "sena-enterprise-release-gate-draft/v1",
-      'data-testid="enterprise-go-live-rehearsal-apply-draft"',
-      "applyEnterpriseGoLiveRehearsalDraft",
-      "sena-enterprise-go-live-attestation/v1",
-      'data-testid="enterprise-go-live-attestation-submit"',
-      'data-testid="enterprise-go-live-attestation-export"',
-      "submitEnterpriseGoLiveAttestation",
-      "exportEnterpriseGoLiveAttestationsJson",
-      'data-testid="enterprise-release-gate-decision"',
-      'data-testid="enterprise-release-gate-verification-status"',
-      'data-testid="enterprise-release-gate-verification-summary"',
-      'data-testid="enterprise-release-gate-verification-hash"',
-      "releaseGateVerificationStatus",
-      "verificationEvidence:",
-      'data-testid="enterprise-reliability-adjudication-coverage"',
-      'data-testid="enterprise-validation-parity-evidence"',
-      'data-visual-role="enterprise-validation-parity-evidence"',
-      'data-testid="enterprise-validation-walkthrough-evidence"',
-      'data-testid="enterprise-validation-parity-export"',
-      'data-testid="enterprise-validation-inference-reference"',
-      'data-testid="enterprise-formal-inference-readiness"',
-      "sena-formal-inference-readiness/v1",
-      "parityEvidence.formalInference",
-      "validationStudySpecificInferenceReference",
-      "studySpecificInferenceReference",
-      "sena-validation-parity-evidence/v1",
-      "parityEvidence.runtimeParity",
-      "parityEvidence.walkthrough",
-      "exportEnterpriseValidationParityEvidenceJson",
-      "sena-validation-parity-evidence.json",
-      'data-testid="export-publication-html"',
-      'onExportPublication("html")',
-      'data-testid="export-publication-svg"',
-      'onExportPublication("svg")',
-      'data-testid="export-publication-png"',
-      'onExportPublication("png")',
-      'data-testid="export-publication-xlsx"',
-      'onExportPublication("xlsx")',
-      'data-testid="export-publication-docx"',
-      'onExportPublication("docx")',
-      'data-testid="export-publication-pdf"',
-      'onExportPublication("pdf")',
-      'data-testid="export-publication-package"',
-      'onExportPublication("package")',
-      'data-testid="enterprise-release-gate-submit"',
-      "refreshEnterpriseReleaseGateReviews",
-      "submitEnterpriseReleaseGateReview",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate",
-      "release gate identity ${payload.review?.identityProductionSnapshot?.status",
-      "verifier ${payload.review?.identityProductionSnapshot?.submissionVerifier.incompleteDecisions",
-      "rotation ${payload.review?.identityProductionSnapshot?.rotationFreshness.status",
-      "cutover ${payload.review?.identityProductionSnapshot?.cutoverChecklist.status",
-      "cutover blockers ${payload.review?.identityProductionSnapshot?.cutoverChecklist.summary.blockingItems",
-      'data-testid="enterprise-release-gate-export"',
-      "exportEnterpriseReleaseGateReviewsJson",
-      "sena-enterprise-release-gate-reviews.json",
-      'data-testid="enterprise-import-cleaning-manifest-export"',
-      "exportEnterpriseCleaningManifestJson"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-    expect(source.indexOf('data-testid="enterprise-expert-review-dossier-export"')).toBeLessThan(
-      source.indexOf("activeEnterpriseProjectId && enterpriseCollaboration")
-    );
-  });
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+    const platformEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-platform-decisions");
+    const releaseGateEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-release-gate");
+    const goLiveEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-go-live-rehearsal");
+    const validationEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison");
+    const publicationEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export");
 
-  it("uses the active server project as the publication export source", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const start = source.indexOf("async function exportPublication");
-    const end = source.indexOf("useEffect(() =>", start);
-    const exportPublicationSource = source.slice(start, end);
-
-    expect(exportPublicationSource).toContain("SENA_WORKSPACE_API_ROUTES.publicationExport");
-    expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
-    expect(exportPublicationSource).toContain("projectId: activeEnterpriseProjectId || undefined");
-    expect(exportPublicationSource).toContain("snapshot: activeEnterpriseProjectId ? undefined : buildCurrentProjectSnapshot()");
-    expect(exportPublicationSource).toContain("activeEnterpriseProjectId ? \"server project\" : \"workspace snapshot\"");
-  });
-
-  it("wires login remember-me to enterprise session policy", () => {
-    const source = readFileSync(new URL("../../../app/login/page.tsx", import.meta.url), "utf8");
-    [
-      "const [rememberSession, setRememberSession]",
-      "rememberSession,",
-      'checked={rememberSession}',
-      "setRememberSession(event.currentTarget.checked)",
-      'data-testid="login-remember-session"'
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-  });
-
-  it("exposes stable auth form selectors for browser-level login and registration smoke", () => {
-    const loginSource = readFileSync(new URL("../../../app/login/page.tsx", import.meta.url), "utf8");
-    const registerSource = readFileSync(new URL("../../../app/register/page.tsx", import.meta.url), "utf8");
-
-    [
-      'data-testid="login-form"',
-      'data-testid="login-email"',
-      'data-testid="login-password"',
-      'data-testid="login-submit"'
-    ].forEach((requiredText) => {
-      expect(loginSource).toContain(requiredText);
-    });
-
-    [
-      'data-testid="register-form"',
-      'data-testid="register-full-name"',
-      'data-testid="register-email"',
-      'data-testid="register-organization"',
-      'data-testid="register-password"',
-      'data-testid="register-confirm-password"',
-      'data-testid="register-terms"',
-      'data-testid="register-submit"'
-    ].forEach((requiredText) => {
-      expect(registerSource).toContain(requiredText);
-    });
-  });
-
-  it("includes auth entry pages in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const authSmoke = readFileSync(new URL("../../../scripts/verify-sena-auth-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaAuthBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify auth browser smoke");
-    [
-      "/register",
-      "/login",
-      "/api/auth/me",
-      "x-sena-auth-flow",
-      "x-sena-auth-session-id",
-      "password-register",
-      "password-login"
-    ].forEach((requiredText) => {
-      expect(authSmoke).toContain(requiredText);
-    });
-  });
-
-  it("includes SSO provider preflight and OAuth fallback sessions in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const ssoSmoke = readFileSync(new URL("../../../scripts/verify-sena-sso-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaSsoBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify SSO browser smoke");
-    expect(pilotVerifier).toContain("SENA_ALLOW_LOCAL_SSO_FALLBACK");
-    [
-      "/api/auth/sso?status=1&preflight=1",
-      "/api/auth/sso",
-      "/api/auth/me",
-      "sena-sso-provider-status/v1",
-      "sena-enterprise-sso-preflight/v1",
-      "sena-enterprise-sso-fallback-policy/v1",
-      "identityProductionGate",
-      "sena-enterprise-identity-production-gate-summary/v1",
-      "x-sena-identity-institution-action-plan-digest",
-      "secretValuesExcluded",
-      "institution",
-      "orcid",
-      "google",
-      "x-sena-auth-flow",
-      "sso-local-fallback",
-      "x-sena-sso-provider",
-      "x-sena-sso-mode",
-      "local-pilot-fallback",
-      "x-sena-auth-session-id",
-      "x-sena-auth-team-id"
-    ].forEach((requiredText) => {
-      expect(ssoSmoke).toContain(requiredText);
-    });
-  });
-
-  it("includes enterprise import-to-publication APIs in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const enterpriseApiSmoke = readFileSync(new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaEnterpriseApiBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify enterprise API browser smoke");
-    expect(pilotVerifier).toContain("SENA_PROVISIONING_TOKEN");
-    expect(pilotVerifier).toContain("sena-pilot-provisioning-token");
-    expect(pilotVerifier).toContain("verifySenaEnterpriseApiBrowserSmoke(url, {");
-    [
-      "/api/sena/scim/v2/ServiceProviderConfig",
-      "urn:sena:params:scim:schemas:extension:identity-production:2.0:ServiceProviderConfig",
-      "sena-scim-identity-production-gate/v1",
-      "x-sena-scim-production-owner-gate",
-      "x-sena-identity-institution-action-plan-digest",
-      "x-sena-identity-owner-runbook-digest",
-      "x-sena-identity-owner-runbook-blocking",
-      "x-sena-identity-owner-runbook-preflight-checks",
-      "secretValuesExcluded",
-      "evidenceUrlValuesExcluded",
-      "/api/auth/csrf",
-      "/api/sena/ops/platform-decisions",
-      "institution-idp-approval",
-      "x-sena-auth-membership-role",
-      "Expected owner registration role",
-      "{ requiredFormats: requiredPublicationFormats, teamId, provisioningToken }",
-      "provisioningToken: bearerToken",
-      "Bearer ${bearerToken}",
-      "identityProductionEvidence",
-	      "sena-enterprise-identity-production-evidence/v1",
-	      "sena-enterprise-identity-submission-matrix/v1",
-	      "institutionActionPlan?.submissionMatrix",
-	      "submissionMatrix.rows",
-	      "sena-enterprise-identity-owner-runbook/v1",
-	      "institutionActionPlan?.ownerRunbooks",
-	      "ownerRunbooks.runbooks",
-	      "ownerRunbooks.digest",
-	      "ownerRunbooks.summary.blockingRunbooks",
-	      "platformRequestPacket.summary.blockingRequests",
-      "submissionVerifier.summary.incompleteDecisions",
-      "cutoverChecklist",
-      "sena-enterprise-identity-cutover-checklist/v1",
-      "cutoverChecklist.summary.blockingItems",
-      "idp-tenant-approval",
-      "sso-secret-custody",
-      "scim-idp-ownership",
-      "identity-secret-rotation",
-      "/api/sena/import",
-      "/api/sena/exports/publication",
-      "action",
-      "create-project",
-      "x-sena-import-run-id",
-      "x-sena-project-id",
-      "x-sena-analysis-run-id",
-      "x-sena-import-profiles",
-      "cleaned-transcript",
-      "format: \"package\"",
-      "x-sena-publication-package-sha256",
-      "x-sena-publication-formats",
+    expect(platformEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions);
+    expect(platformEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionProductionEvidenceReceipt,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+    ]));
+    expect(releaseGateEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate);
+    expect(releaseGateEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist
+    ]));
+    expect(releaseGateEndpoint?.request)
+      .toEqual(expect.stringContaining("identityProductionSnapshot.cutoverChecklist"));
+    expect(goLiveEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal);
+    expect(goLiveEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal,
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft,
+      SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestation
+    ]));
+    expect(validationEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+      SENA_SCHEMA_VERSIONS.formalInferenceReadiness,
+      SENA_SCHEMA_VERSIONS.validationRunReview
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.schemaVersions).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+      SENA_SCHEMA_VERSIONS.expertReviewResponse,
+      SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage
+    ]));
+    expect(SENA_SCHEMA_VERSIONS.validationParityEvidence).toBe("sena-validation-parity-evidence/v1");
+    expect(SENA_SCHEMA_VERSIONS.formalInferenceReadiness).toBe("sena-formal-inference-readiness/v1");
+    expect(publicationEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.publicationExport);
+    expect(publicationEndpoint?.request).toEqual(expect.stringContaining("html|svg|png|xlsx|docx|pdf|package"));
+    expect(publicationEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.publicationPackage,
+      SENA_SCHEMA_VERSIONS.publicationSourceSnapshot,
+      SENA_SCHEMA_VERSIONS.publicationVerificationCertificate
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.publicationFormats).toEqual(expect.arrayContaining([
       "svg",
       "png",
       "xlsx",
       "docx",
       "pdf"
-    ].forEach((requiredText) => {
-      expect(enterpriseApiSmoke).toContain(requiredText);
-    });
+    ]));
   });
 
-  it("includes RBAC team collaboration APIs in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const rbacCollaborationSmoke = readFileSync(new URL("../../../scripts/verify-sena-rbac-collaboration-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaRbacCollaborationBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify RBAC collaboration browser smoke");
-    [
-      "/api/sena/team/invitations",
-      "/api/sena/projects",
-      "/api/sena/projects/${projectId}",
-      "/api/sena/projects/${projectId}/collaboration",
-      "/api/sena/projects/${projectId}/collaboration/stream",
-      "x-sena-invitation-id",
-      "x-sena-invitation-status",
-      "x-sena-membership-role",
-      "reviewer",
-      "presence",
-      "comment",
-      "resolve-comment",
-      "x-sena-collaboration-stream-auth",
-      "session-rbac-project-read"
-    ].forEach((requiredText) => {
-      expect(rbacCollaborationSmoke).toContain(requiredText);
-    });
-  });
-
-  it("includes reliability adjudication APIs in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const reliabilitySmoke = readFileSync(new URL("../../../scripts/verify-sena-reliability-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaReliabilityBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify reliability browser smoke");
-    [
-      "/api/sena/reliability",
-      "/api/sena/validation/claim-package",
-      "/api/sena/projects/${projectId}/collaboration",
-      "sena-reliability-json-request/v1",
-      "sena-coding-reliability-dashboard/v1",
-      "sena-reliability-adjudication-response/v1",
-      "sena-reliability-run-review/v1",
-      "x-sena-reliability-run-id",
-      "x-sena-mean-pairwise-kappa",
-      "x-sena-krippendorff-alpha",
-      "x-sena-reliability-coverage-rate",
-      "x-sena-unresolved-disagreements",
-      "approved",
-      "evidence.reliability",
-      "reliability-dashboard"
-    ].forEach((requiredText) => {
-      expect(reliabilitySmoke).toContain(requiredText);
-    });
-  });
-
-  it("includes validation and expert-review claim readiness in the production browser smoke verifier", () => {
-    const pilotVerifier = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
-    const validationSmoke = readFileSync(new URL("../../../scripts/verify-sena-validation-claim-browser-smoke.mjs", import.meta.url), "utf8");
-
-    expect(pilotVerifier).toContain("verifySenaValidationClaimBrowserSmoke");
-    expect(pilotVerifier).toContain("Verify validation claim browser smoke");
-    [
-      "/api/sena/validation/group-comparison",
-      "/api/sena/validation/expert-review",
-      "/api/sena/validation/claim-package",
-      "sena-group-comparison-suite/v1",
-      "sena-validation-run-review/v1",
-      "sena-expert-review-response/v1",
-      "sena-enterprise-claim-evidence-package/v1",
-      "x-sena-validation-run-id",
-      "x-sena-validation-preregistration-sha256",
-      "x-sena-validation-parity-status",
-      "x-sena-formal-inference-status",
-      "x-sena-expert-review-id",
-      "claim-ready-with-limits",
-      "evidence.validation",
-      "evidence.expertReview",
-      "validation-preregistration-plan",
-      "validation-parity-evidence",
-      "domain-expert-review"
-    ].forEach((requiredText) => {
-      expect(validationSmoke).toContain(requiredText);
-    });
-  });
-
-  it("shows SSO preflight evidence on auth entry pages", () => {
-    const loginSource = readFileSync(new URL("../../../app/login/page.tsx", import.meta.url), "utf8");
-    const registerSource = readFileSync(new URL("../../../app/register/page.tsx", import.meta.url), "utf8");
-    [loginSource, registerSource].forEach((source) => {
-      [
-        'data-testid="auth-sso-preflight-evidence"',
-        'data-testid="auth-identity-production-gate"',
-        'data-testid="auth-sso-provider-evidence"',
-        "SsoPreflightResult",
-        "IdentityProductionGateSummary",
-        "sena-enterprise-sso-preflight/v1",
-        "sena-enterprise-identity-production-gate-summary/v1",
-        "/api/auth/sso?status=1&preflight=1",
-        "preflight?.summary",
-        "identityProductionGate?.institutionActionPlan.summary.blockingLanes",
-        "providerStatus.mode",
-        "providerStatus.configured",
-        "sena-enterprise-sso-fallback-policy/v1",
-        "fallback disabled"
-      ].forEach((requiredText) => {
-        expect(source).toContain(requiredText);
+  it("uses the active server project as the publication export source", async () => {
+    const calls: Array<{ url: string; init?: RequestInit; body: unknown }> = [];
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        init,
+        body: parseRecordedBody(init)
       });
-    });
-  });
-
-  it("surfaces enterprise password policy on registration and reset pages", () => {
-    const registerSource = readFileSync(new URL("../../../app/register/page.tsx", import.meta.url), "utf8");
-    const resetSource = readFileSync(new URL("../../../app/reset-password/page.tsx", import.meta.url), "utf8");
-    [registerSource, resetSource].forEach((source) => {
-      [
-        'data-testid="enterprise-password-policy"',
-        "At least 12 characters",
-        "letters and numbers",
-        "minLength={12}"
-      ].forEach((requiredText) => {
-        expect(source).toContain(requiredText);
+      return new Response("publication", {
+        status: 200,
+        headers: { "content-disposition": 'attachment; filename="sena-publication.pdf"' }
       });
+    };
+
+    const serverProjectExport = await exportEnterprisePublicationAction(
+      {
+        teamId: "team-1",
+        format: "pdf",
+        projectId: "project-1"
+      },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
+    );
+    const snapshotExport = await exportEnterprisePublicationAction(
+      {
+        teamId: "team-1",
+        format: "package",
+        snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
+      },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
+    );
+
+    expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
+    expect(serverProjectExport.filename).toBe("sena-publication.pdf");
+    expect(snapshotExport.filename).toBe("sena-publication.pdf");
+    expect(calls.map((call) => call.url)).toEqual([
+      SENA_WORKSPACE_API_ROUTES.publicationExport,
+      SENA_WORKSPACE_API_ROUTES.publicationExport
+    ]);
+    expect(calls[0].body).toEqual({
+      teamId: "team-1",
+      format: "pdf",
+      projectId: "project-1"
+    });
+    expect(calls[1].body).toEqual({
+      teamId: "team-1",
+      format: "package",
+      snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
     });
   });
 
   it("uses server session expiry for SSO session cookies", () => {
-    const ssoRoute = readFileSync(new URL("../../../app/api/auth/sso/route.ts", import.meta.url), "utf8");
-    const ssoCallbackRoute = readFileSync(new URL("../../../app/api/auth/sso/callback/route.ts", import.meta.url), "utf8");
-    [ssoRoute, ssoCallbackRoute].forEach((source) => {
-      expect(source).toContain("sessionCookieMaxAgeSeconds");
-      expect(source).toContain("sessionCookieOptions(sessionCookieMaxAgeSeconds(result.context.session.expiresAt))");
+    const ssoCookieRoutes = SENA_IMPLEMENTED_API_ROUTES.filter((route) => route.sessionCookie?.maxAgeSource === "session.expiresAt");
+
+    expect(ssoCookieRoutes.map((route) => route.id)).toEqual(expect.arrayContaining([
+      "auth-login",
+      "auth-register",
+      "auth-sso",
+      "auth-sso-callback"
+    ]));
+    expect(ssoCookieRoutes.find((route) => route.id === "auth-sso")).toMatchObject({
+      path: "/api/auth/sso",
+      sessionCookie: {
+        name: "sena_session",
+        maxAgeSource: "session.expiresAt",
+        optionsHelper: "sessionCookieOptions",
+        maxAgeHelper: "sessionCookieMaxAgeSeconds"
+      }
+    });
+    expect(ssoCookieRoutes.find((route) => route.id === "auth-sso-callback")).toMatchObject({
+      path: "/api/auth/sso/callback",
+      sessionCookie: {
+        maxAgeSource: "session.expiresAt"
+      }
     });
   });
 
-  it("sets production browser security headers in middleware", () => {
-    const source = readFileSync(new URL("../../../middleware.ts", import.meta.url), "utf8");
-    [
-      '"content-security-policy-report-only"',
+  it("sets production browser security headers in the Next proxy", () => {
+    const headers = buildSenaSecurityHeaders();
+
+    expect(SENA_SECURITY_HEADER_MANIFEST.cspDirectives).toEqual(expect.arrayContaining([
       "default-src 'self'",
       "frame-ancestors 'none'",
-      "upgrade-insecure-requests",
-      '"x-content-type-options", "nosniff"',
-      '"x-frame-options", "DENY"',
-      '"permissions-policy"',
-      '"strict-transport-security"',
-      "max-age=63072000; includeSubDomains; preload",
-      '"cross-origin-opener-policy", "same-origin"',
-      '"cross-origin-resource-policy", "same-origin"'
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+      "upgrade-insecure-requests"
+    ]));
+    expect(headers).toMatchObject({
+      "content-security-policy-report-only": expect.stringContaining("default-src 'self'"),
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
+      "cross-origin-opener-policy": "same-origin",
+      "cross-origin-resource-policy": "same-origin",
+      "x-sena-runtime": "enterprise-local"
     });
   });
 
-  it("exposes enterprise governance export controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-governance-exports"',
-      'data-testid="enterprise-governance-health-export"',
-      'data-testid="enterprise-governance-security-export"',
-      'data-testid="enterprise-governance-audit-csv-export"',
-      'data-testid="enterprise-governance-backup-export"',
-      "exportEnterpriseGovernanceHealthJson",
-      "exportEnterpriseSecurityPostureJson",
-      "exportEnterpriseAuditCsv",
-      "exportEnterpriseBackupJson"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise governance export controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGovernance
     });
+    const csvCalls: string[] = [];
+    const csvFetch: typeof fetch = async (input) => {
+      csvCalls.push(String(input));
+      return new Response("created_at,event\n2026-06-21T00:00:00.000Z,export\n", { status: 200 });
+    };
+
+    await exportEnterpriseJsonArtifactAction(
+      SENA_WORKSPACE_API_ROUTES.enterprise.health,
+      "Enterprise governance health",
+      { fetchImpl: recorder.fetchImpl }
+    );
+    await exportEnterpriseJsonArtifactAction(
+      SENA_WORKSPACE_API_ROUTES.enterprise.security,
+      "Enterprise security posture",
+      { fetchImpl: recorder.fetchImpl }
+    );
+    const auditCsv = await exportEnterpriseAuditCsvAction({ teamId: "team 1" }, { fetchImpl: csvFetch });
+    await exportEnterpriseJsonArtifactAction(
+      SENA_WORKSPACE_API_ROUTES.enterprise.backup,
+      "Enterprise backup",
+      { fetchImpl: recorder.fetchImpl }
+    );
+
+    expect(recorder.calls.map((call) => call.url)).toEqual([
+      SENA_WORKSPACE_API_ROUTES.enterprise.health,
+      SENA_WORKSPACE_API_ROUTES.enterprise.security,
+      SENA_WORKSPACE_API_ROUTES.enterprise.backup
+    ]);
+    expect(csvCalls).toEqual(["/api/sena/governance/audit?format=csv&integrity=1&teamId=team+1"]);
+    expect(auditCsv).toContain("created_at,event");
   });
 
   it("wires data-governance metadata controls through workspace reports and snapshots", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="data-governance-metadata"',
-      'data-testid="data-governance-irb-approval"',
-      'data-testid="data-governance-consent-scope"',
-      'data-testid="data-governance-retention-policy"',
-      'data-testid="data-governance-usage-constraints"',
-      'data-testid="data-governance-data-steward"',
-      "const [dataGovernanceIrbApprovalId",
-      "const [dataGovernanceConsentScope",
-      "const [dataGovernanceRetentionPolicy",
-      "const [dataGovernanceUsageConstraints",
-      "const [dataGovernanceDataSteward",
-      "dataGovernanceReview",
-      "dataGovernance:",
-      "setDataGovernanceIrbApprovalId",
-      "setDataGovernanceConsentScope",
-      "setDataGovernanceRetentionPolicy",
-      "setDataGovernanceUsageConstraints",
-      "setDataGovernanceDataSteward",
-      "Exploratory until coding reliability, data governance, human review, and all automated gates pass.",
-      "snapshot.report.dataGovernance"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+    const model = buildSenaModel(exampleSenaContract);
+    const governance = {
+      irbApprovalId: "HKLS-GOV-2026",
+      consentScope: "Teacher lesson-study discussion research use.",
+      retentionPolicy: "De-identified data retained through the pilot closeout.",
+      usageConstraints: ["internal research team only", "no production claim without review"],
+      dataSteward: "Pilot data steward"
+    };
+    const report = buildSenaReport(model, {
+      generatedAt: "2026-06-21T00:00:00.000Z",
+      dataGovernance: governance
     });
+    const snapshot = buildSenaProjectSnapshot(model, {
+      generatedAt: "2026-06-21T00:00:00.000Z",
+      dataGovernance: governance
+    });
+
+    expect(report.dataGovernance).toMatchObject({
+      schemaVersion: SENA_SCHEMA_VERSIONS.dataGovernanceMetadata,
+      status: "complete",
+      irbApprovalId: "HKLS-GOV-2026",
+      dataSteward: "Pilot data steward"
+    });
+    expect(report.dataGovernance.usageConstraints).toEqual(governance.usageConstraints);
+    expect(report.claimReadinessGate.items.find((item) => item.id === "data-governance")?.status).toBe("ready");
+    expect(snapshot.dataGovernance).toEqual(report.dataGovernance);
+    expect(snapshot.report.dataGovernance).toEqual(report.dataGovernance);
   });
 
-  it("exposes enterprise ops export controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseContractsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-contracts.ts", import.meta.url), "utf8");
-    const deploymentRouteSource = readFileSync(new URL("../../../app/api/sena/ops/deployment/route.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-ops-exports"',
-      'data-testid="enterprise-ops-status-export"',
-      'data-testid="enterprise-ops-readiness-export"',
-      'data-testid="enterprise-ops-deployment-export"',
-      'data-testid="enterprise-ops-alerts-export"',
-      "exportEnterpriseOpsStatusJson",
-      "exportEnterpriseOpsReadinessJson",
-      "exportEnterpriseDeploymentPackageJson",
-      "exportEnterpriseOpsAlertsJson",
-      "identityProductionEvidence",
-      "identityProductionHandoff",
-      "identityProductionHandoff.platformRequestPacket.summary.blockingRequests",
-      "identityProductionHandoff.evidenceManifest.missingEvidenceIds",
-      "identityProductionHandoff.institutionActionPlan.summary.blockingLanes",
-      "identityProductionStatus",
-      "identitySubmissionVerifierIncomplete",
-      "identityRotationFreshness",
-      "identityProductionRequestPacket",
-      "identityInstitutionActionPlan",
-      "enterprise-identity-institution-action-plan",
-      "enterprise-identity-institution-action-plan-lane",
-      "enterprise-identity-action-plan-redaction",
-      "enterprise-identity-action-plan-archive",
-      "institutionActionPlan.summary.blockingLanes",
-      "institutionActionPlan.redaction.secretValuesExcluded",
-      "lane.receiptArchiveBodyPaths.join",
-      "lane.submissionDrafts.length",
-      "lane.missingProductionEvidenceIds.join",
-      "platformRequestPacket.summary.blockingRequests",
-      "platformRequestPacket.summary.missingProductionEvidence",
-      "platformRequestPacket.summary.receiptReviewRequests",
-      "platformRequestPacket.evidence.find((entry) => entry.startsWith(\"requestPacketPolicyHash=\"))",
-      "requestPacketPolicyBinding=",
-      'data-testid="enterprise-identity-request-policy-binding"',
-      'data-testid="enterprise-identity-request-receipt-policy-binding"',
-      "request.latestReceiptRequestPacketPolicyBindingStatus",
-      "platformRequestPacket.submission.path",
-      "platformRequestPacket.submission.requiredBodyFields.join",
-      "platformRequestPacket.submission.identityProductionEvidenceBodyFields.join",
-      'data-testid="enterprise-identity-request-evidence-url-policy"',
-      "platformRequestPacket.submission.evidenceUrlPolicy.requiredProtocol",
-      "platformRequestPacket.submission.evidenceUrlPolicy.evidenceUrlRequiredForEvidenceIds.length",
-      "platformRequestPacket.submission.evidenceUrlPolicy.allowedHostConfigStatus",
-      "platformRequestPacket.submission.evidenceUrlPolicy.senaAppOriginConfigured",
-      "platformRequestPacket.submission.evidenceUrlPolicy.embeddedCredentialsRejected",
-      "platformRequestPacket.submission.evidenceUrlPolicy.fragmentsRejected",
-      "platformRequestPacket.submission.evidenceUrlPolicy.sensitiveQueryParametersRejected",
-      "platformRequestPacket.submission.evidenceUrlPolicy.rejectedSensitiveQueryParameters.join",
-      "Evidence URL secret carriers",
-      "must not include embedded credentials, fragments, or sensitive query parameters",
-      "platformDecisionEvidenceUrlParsed.username",
-      "platformDecisionEvidenceUrlParsed.hash",
-      "platformDecisionRejectedSensitiveQueryParameters.length",
-      'data-testid="enterprise-identity-request-owner-role-policy"',
-      "platformRequestPacket.submission.ownerRolePolicy.forbiddenTokens.join",
-      "platformRequestPacket.submission.ownerRolePolicy.institutionOwnerTokens.join",
-      "platformRequestPacket.submission.ownerRolePolicy.requiredSemanticTokensByDecision[request.decisionId].join",
-      'data-testid="enterprise-identity-request-secret-policy"',
-      "platformRequestPacket.submission.notesPolicy.secretValuesRejected",
-      "platformRequestPacket.submission.freeTextPolicy.fields.join",
-      "raw secrets rejected",
-      "bearer tokens rejected",
-      'data-testid="enterprise-identity-request-next-actions"',
-      'data-testid="enterprise-identity-request-acceptance-criteria"',
-      "request.nextActions.join",
-      "request.acceptanceCriteria.join",
-      "request.submissionTemplate.ownerNamePolicy.specificInstitutionOwnerRequired",
-      "request.submissionTemplate.productionEvidenceVerifiedAtPolicy.validPastOrPresentRequired",
-      "request.submissionTemplate.productionEvidenceVerifiedAtPolicy.canonicalIsoTimestampRequired",
-      "canonical ISO required",
-      "request.submissionTemplate.rotationFreshnessPolicy.maxAgeDays",
-      "platformDecisionRequiresIdentityEvidenceUrl",
-      "Add an institution HTTPS evidence URL before recording identity production evidence.",
-      "applyEnterpriseIdentityRequestToPlatformDecision",
-      'data-testid="enterprise-identity-request-apply"',
-      'placeholder="Named institution platform owner"',
-      'placeholder="Institution HTTPS evidence URL"',
-      'title="Institution production evidence verified-at timestamp"',
-      "setPlatformDecisionId(request.decisionId as EnterprisePlatformDecisionId)",
-      "setPlatformDecisionProductionEvidenceIds(request.submissionTemplate.productionEvidenceIds)",
-      "async function refreshEnterpriseProvisioningReadiness(options: { silent?: boolean } = {})",
-      "await refreshEnterpriseProvisioningReadiness({ silent: true })",
-      "payload.identityProductionEvidence",
-      "setEnterpriseIdentityProductionEvidence(payload.identityProductionEvidence as EnterpriseIdentityProductionEvidenceDossier)",
-      "identity verifier ${payload.identityProductionEvidence.submissionVerifier.summary.incompleteDecisions}",
-      "identity blockers ${payload.identityProductionEvidence.platformRequestPacket.summary.blockingRequests}",
-      'setPlatformDecisionOwnerName("");',
-      "Enter the named institution identity platform owner"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise ops export controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({ schemaVersion: "sena-enterprise-ops-export-fixture/v1" });
+    const deployment = getEnterpriseOrganizationDeploymentPackage({ teamId: "team 1" });
+    const deploymentEndpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-ops-deployment");
+
+    await exportEnterpriseJsonArtifactAction(SENA_WORKSPACE_API_ROUTES.enterprise.opsStatus, "Enterprise ops status", {
+      fetchImpl: recorder.fetchImpl
     });
-    [
-      "requiredBodyFields: Array<",
-      "identityProductionEvidenceBodyFields: Array<"
-    ].forEach((requiredText) => {
-      expect(enterpriseContractsSource).toContain(requiredText);
+    await exportEnterpriseJsonArtifactAction(SENA_WORKSPACE_API_ROUTES.enterprise.opsReadiness, "Enterprise ops readiness", {
+      fetchImpl: recorder.fetchImpl
     });
-    expect(source).not.toContain("setPlatformDecisionOwnerName((current) => current.trim() || request.submissionTemplate.ownerNamePlaceholder)");
-    expect(source).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.deployment");
+    await exportEnterpriseJsonArtifactAction(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, "Enterprise deployment package", {
+      fetchImpl: recorder.fetchImpl
+    });
+    await exportEnterpriseJsonArtifactAction(SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts, "Enterprise ops alerts", {
+      fetchImpl: recorder.fetchImpl
+    });
+
+    expect(recorder.calls.map((call) => call.url)).toEqual([
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsStatus,
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsReadiness,
+      SENA_WORKSPACE_API_ROUTES.enterprise.deployment,
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts
+    ]);
     expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, { teamId: "team 1" }))
       .toBe("/api/sena/ops/deployment?teamId=team+1");
-    expect(source).toContain("identity evidence ${deployment.summary.identityProductionStatus}");
-    expect(source).toContain("identity verifier ${deployment.summary.identitySubmissionVerifierIncomplete}");
-    expect(source).toContain("secret rotation ${deployment.summary.identityRotationFreshness}");
-    expect(deploymentRouteSource).toContain("getEnterpriseOrganizationDeploymentPackage({ teamId })");
-    expect(deploymentRouteSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(deploymentRouteSource).toContain("deployment_package_team_required");
-    expect(apiDocsSource).toContain("team-scoped organization deployment handoff package");
-    expect(apiDocsSource).toContain("identityProductionHandoff includes the redacted identity production evidence dossier");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-production-evidence/v1");
+    expect(deployment.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment);
+    expect(deployment.identityProductionHandoff.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence);
+    expect(deployment.identityProductionHandoff.platformRequestPacket.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket);
+    expect(deployment.identityProductionHandoff.institutionActionPlan.redaction.secretValuesExcluded).toBe(true);
+    expect(deployment.identityProductionHandoff.platformRequestPacket.evidence).toEqual(expect.arrayContaining([
+      expect.stringContaining("requestPacketPolicyHash="),
+      expect.stringContaining("requestPacketPolicyBinding=")
+    ]));
+    expect(deployment.identityProductionHandoff.platformRequestPacket.submission.requiredBodyFields.length)
+      .toBeGreaterThan(0);
+    expect(deployment.identityProductionHandoff.platformRequestPacket.submission.identityProductionEvidenceBodyFields.length)
+      .toBeGreaterThan(0);
+    expect(deploymentEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.deployment);
+    expect(deploymentEndpoint?.request).toEqual(expect.stringContaining("team-scoped organization deployment handoff package"));
+    expect(deploymentEndpoint?.request).toEqual(expect.stringContaining("identityProductionHandoff includes the redacted identity production evidence dossier"));
+    expect(deploymentEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+    ]));
   });
 
-  it("exposes enterprise signed delivery bridge controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-governance-audit-delivery"',
-      'data-testid="enterprise-governance-backup-delivery"',
-      'data-testid="enterprise-governance-database-sync"',
-      'data-testid="enterprise-ops-alert-delivery"',
-      "sena-enterprise-audit-delivery/v1",
-      "sena-enterprise-backup-delivery/v1",
-      "sena-enterprise-database-sync/v1",
-      "sena-enterprise-ops-alert-delivery/v1",
-      "deliverEnterpriseAuditLogFromWorkspace",
-      "deliverEnterpriseBackupFromWorkspace",
-      "syncEnterpriseDatabaseFromWorkspace",
-      "deliverEnterpriseOpsAlertsFromWorkspace",
-      "sync-database"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise signed delivery bridge controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({
+      status: "accepted",
+      summary: { delivered: 1, failed: 0, skipped: 0 }
     });
-    expect(source).toContain("buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment");
+
+    await deliverEnterpriseAuditLogAction({ teamId: "team-1" }, {
+      jsonHeaders: testEnterpriseJsonHeaders,
+      fetchImpl: recorder.fetchImpl
+    });
+    await deliverEnterpriseBackupAction({ teamId: "team-1" }, {
+      jsonHeaders: testEnterpriseJsonHeaders,
+      fetchImpl: recorder.fetchImpl
+    });
+    await syncEnterpriseDatabaseAction({ teamId: "team-1" }, {
+      jsonHeaders: testEnterpriseJsonHeaders,
+      fetchImpl: recorder.fetchImpl
+    });
+    await deliverEnterpriseOpsAlertsAction({
+      jsonHeaders: testEnterpriseJsonHeaders,
+      fetchImpl: recorder.fetchImpl
+    });
+
+    expect(recorder.calls.map((call) => call.url)).toEqual([
+      SENA_WORKSPACE_API_ROUTES.enterprise.audit,
+      SENA_WORKSPACE_API_ROUTES.enterprise.backup,
+      SENA_WORKSPACE_API_ROUTES.enterprise.backup,
+      SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts
+    ]);
+    expect(recorder.calls.map((call) => call.init?.method)).toEqual(["POST", "POST", "POST", "POST"]);
+    expect(recorder.calls[0].body).toEqual({ teamId: "team-1", force: true, limit: 100 });
+    expect(recorder.calls[1].body).toEqual({ action: "deliver", teamId: "team-1" });
+    expect(recorder.calls[2].body).toEqual({ action: "sync-database", teamId: "team-1" });
+    expect(recorder.calls[3].body).toEqual({ action: "deliver" });
   });
 
-  it("exposes enterprise SSO preflight controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const actionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-actions.ts", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-sso-preflight"',
-      'data-visual-role="enterprise-sso-preflight"',
-      'data-testid="enterprise-sso-preflight-run"',
-      'data-testid="enterprise-sso-preflight-provider"',
-      "runEnterpriseSsoPreflightFromWorkspace",
-      "runEnterpriseSsoPreflightAction"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise SSO preflight controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({
+      preflight: {
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight,
+        generatedAt: "2026-06-21T00:00:00.000Z",
+        baseUrl: "https://sena.example.test",
+        summary: {
+          checked: 1,
+          passed: 1,
+          review: 0,
+          configuredProviders: 1
+        },
+        providers: [
+          {
+            provider: "google",
+            status: "pass",
+            mode: "oauth-oidc",
+            configured: true,
+            generatedAt: "2026-06-21T00:00:00.000Z",
+            endpointHashes: {},
+            checks: []
+          }
+        ]
+      }
     });
-    expect(actionsSource).toContain("sena-enterprise-sso-preflight/v1");
-    expect(actionsSource).toContain("SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight");
+
+    const preflight = await runEnterpriseSsoPreflightAction("google", {
+      fetchImpl: recorder.fetchImpl
+    });
+
     expect(SENA_WORKSPACE_API_ROUTES.auth.ssoPreflight).toBe("/api/auth/sso?status=1&preflight=1");
+    expect(recorder.calls).toHaveLength(1);
+    expect(recorder.calls[0].url).toBe("/api/auth/sso?status=1&preflight=1&provider=google");
+    expect(preflight.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight);
+    expect(preflight.providers[0]?.provider).toBe("google");
   });
 
-  it("exposes enterprise provisioning and SCIM readiness controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-provisioning-readiness"',
-      'data-visual-role="enterprise-provisioning-scim-readiness"',
-      'data-testid="enterprise-provisioning-readiness-refresh"',
-      'data-testid="enterprise-provisioning-endpoint"',
-      'data-testid="enterprise-provisioning-env"',
-      'data-testid="enterprise-provisioning-owner-decision"',
-      "sena-enterprise-organization-deployment/v1",
-      "sena-enterprise-provisioning/v1",
-      "sena-scim-provisioning-bridge/v1",
-      "refreshEnterpriseProvisioningReadiness",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.deployment",
-      "institution-provisioning-owner"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise provisioning and SCIM readiness controls in the SENA workspace", async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.startsWith(SENA_WORKSPACE_API_ROUTES.enterprise.deployment)) {
+        return new Response(JSON.stringify({
+          schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment,
+          status: "review",
+          summary: {
+            identityProductionStatus: "review",
+            identitySubmissionVerifierIncomplete: 1,
+            identityRotationFreshness: "stale",
+            openPlatformDecisions: 2
+          }
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+        platformRequestPacket: {
+          summary: {
+            blockingRequests: 1
+          }
+        },
+        institutionActionPlan: {
+          lanes: [
+            {
+              laneId: "institution-provisioning-owner",
+              missingProductionEvidenceIds: []
+            }
+          ]
+        }
+      }), { status: 200 });
+    };
+
+    const readiness = await refreshEnterpriseProvisioningReadinessAction(
+      { teamId: "team 1" },
+      { fetchImpl }
+    );
+
+    expect(calls).toEqual([
+      "/api/sena/ops/deployment?teamId=team+1",
+      "/api/sena/ops/identity-production-evidence?teamId=team+1"
+    ]);
+    expect(readiness.deployment.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment);
+    expect(readiness.identityEvidence.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence);
+    expect(readiness.identityEvidence.institutionActionPlan.lanes[0]?.laneId).toBe("institution-provisioning-owner");
+  });
+
+  it("exposes enterprise session logout controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({ ok: true });
+
+    await logoutEnterpriseSessionAction({
+      jsonHeaders: testEnterpriseJsonHeaders,
+      fetchImpl: recorder.fetchImpl
+    });
+
+    expect(SENA_WORKSPACE_API_ROUTES.auth.logout).toBe("/api/auth/logout");
+    expect(recorder.calls).toHaveLength(1);
+    expect(recorder.calls[0]).toMatchObject({
+      url: SENA_WORKSPACE_API_ROUTES.auth.logout,
+      body: undefined
+    });
+    expect(recorder.calls[0].init?.method).toBe("POST");
+  });
+
+  it("exposes enterprise notification center controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({ notifications: [] });
+
+    await deliverEnterpriseNotificationsAction(
+      { delivery: "notifications", teamId: "team-1" },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl: recorder.fetchImpl }
+    );
+    await deliverEnterpriseNotificationsAction(
+      { delivery: "email", teamId: "team-1" },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl: recorder.fetchImpl }
+    );
+    await markEnterpriseNotificationReadAction(
+      { notificationId: "notification-1" },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl: recorder.fetchImpl }
+    );
+
+    expect(recorder.calls.map((call) => call.url)).toEqual([
+      SENA_WORKSPACE_API_ROUTES.enterprise.notifications,
+      SENA_WORKSPACE_API_ROUTES.enterprise.notifications,
+      SENA_WORKSPACE_API_ROUTES.enterprise.notifications
+    ]);
+    expect(recorder.calls.map((call) => call.init?.method)).toEqual(["POST", "POST", "PATCH"]);
+    expect(recorder.calls[0].body).toEqual({ action: "deliver", teamId: "team-1", force: true });
+    expect(recorder.calls[1].body).toEqual({ action: "deliver-email", teamId: "team-1", force: true });
+    expect(recorder.calls[2].body).toEqual({ notificationId: "notification-1" });
+  });
+
+  it("exposes enterprise upload storage controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({
+      schemaVersion: SENA_SCHEMA_VERSIONS.uploadList,
+      uploads: []
+    });
+
+    await refreshEnterpriseUploadStorageAction({ teamId: "team-1", verify: true }, {
+      fetchImpl: recorder.fetchImpl
+    });
+    await createEnterpriseUploadRegistryFilesAction(
+      {
+        teamId: "team-1",
+        files: [new File(["person_id,name\np1,Ada"], "people.csv", { type: "text/csv" })]
+      },
+      {
+        csrfHeaders: testEnterpriseJsonHeaders,
+        fetchImpl: recorder.fetchImpl
+      }
+    );
+    await deliverEnterpriseUploadObjectStorageAction(
+      { teamId: "team-1", uploadId: "upload-1" },
+      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl: recorder.fetchImpl }
+    );
+
+    expect(recorder.calls.map((call) => call.url)).toEqual([
+      "/api/sena/uploads?teamId=team-1&verify=1",
+      SENA_WORKSPACE_API_ROUTES.enterprise.uploads,
+      SENA_WORKSPACE_API_ROUTES.enterprise.uploads
+    ]);
+    expect(recorder.calls.map((call) => call.init?.method ?? "GET")).toEqual(["GET", "POST", "POST"]);
+    expect(recorder.calls[2].body).toEqual({
+      action: "deliver-object-storage",
+      teamId: "team-1",
+      uploadId: "upload-1",
+      limit: 1,
+      includeReview: true
     });
   });
 
-  it("exposes enterprise session logout controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const actionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-actions.ts", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-session-logout"',
-      "logoutEnterpriseSessionFromWorkspace",
-      "logoutEnterpriseSessionAction",
-      "enterpriseJsonHeaders",
-      "setEnterpriseContext(null)",
-      "setEnterpriseSessionList(null)"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-    expect(actionsSource).toContain("SENA_WORKSPACE_API_ROUTES.auth.logout");
+  it("keeps broad enterprise import adapters usable before sign-in", async () => {
+    const result = await importSenaEnterpriseFiles([
+      uploadLike("local-lesson-study.srt", [
+        "1",
+        "00:00:01,000 --> 00:00:03,000",
+        "Ada: We should ask a better #Question and gather #Evidence.",
+        "",
+        "2",
+        "00:00:04,000 --> 00:00:06,000",
+        "Ben: The graph gives #Evidence for the emerging #Claim."
+      ].join("\n"))
+    ]);
+
+    expect(result.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseImport);
+    expect(result.sources.map((source) => source.profile)).toContain("cleaned-transcript");
+    expect(result.cleaningManifest.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.importCleaningManifest);
+    expect(result.cleaningManifest.summary.adapterProfiles).toContain("cleaned-transcript");
+    expect(result.dataset.people.length).toBeGreaterThan(0);
+    expect(result.dataset.coded_segments.length).toBeGreaterThan(0);
   });
 
-  it("exposes enterprise notification center controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-notification-center"',
-      'data-testid="enterprise-notification-refresh"',
-      'data-testid="enterprise-notification-deliver"',
-      'data-testid="enterprise-notification-deliver-email"',
-      'data-testid="enterprise-notification-mark-read"',
-      "deliverEnterpriseNotifications",
-      "deliverEnterpriseEmailsFromWorkspace",
-      "markEnterpriseNotificationReadFromWorkspace"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-  });
+  it("keeps coding reliability diagnostics usable before sign-in", async () => {
+    const result = await importSenaReliabilityFiles([
+      uploadLike("local-reliability.csv", [
+        "coder_id,item_id,code_id,value",
+        "coder-a,u1,Question,1",
+        "coder-b,u1,Question,1",
+        "coder-a,u2,Evidence,1",
+        "coder-b,u2,Evidence,0"
+      ].join("\n"))
+    ], "Local reliability reviewer");
 
-  it("exposes enterprise upload storage controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-upload-storage"',
-      'data-testid="enterprise-upload-storage-refresh"',
-      'data-testid="enterprise-upload-storage-verify"',
-      'data-testid="enterprise-upload-storage-deliver"',
-      'data-testid="enterprise-upload-storage-file-input"',
-      "senaEnterpriseImportFileAccept",
-      ".srt,.vtt",
-      "refreshEnterpriseUploadStorage",
-      "deliverEnterpriseUploadObjectStorage",
-      "createEnterpriseUploadRegistryFiles"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+    expect(result.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.localReliabilityImport);
+    expect(result.dashboard.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.codingReliabilityDashboard);
+    expect(result.fileCount).toBe(1);
+    expect(result.annotationCount).toBe(4);
+    expect(result.reviewPatch).toMatchObject({
+      reviewer: "Local reliability reviewer",
+      codingScheme: "Uploaded multi-coder annotation file"
     });
-  });
-
-  it("keeps broad enterprise import adapters usable before sign-in", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'await import("@/lib/sena/import-adapters")',
-      "localEnterpriseImportResult",
-      "importFilesLocallyWithEnterpriseAdapters",
-      "if (!enterpriseContext?.user) {",
-      "await importFilesLocallyWithEnterpriseAdapters(files)",
-      "latestImportCleaningManifest",
-      "sena-import-cleaning-manifest.json"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-  });
-
-  it("keeps coding reliability diagnostics usable before sign-in", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const reliabilityRouteSource = readFileSync(new URL("../../../app/api/sena/reliability/route.ts", import.meta.url), "utf8");
-    [
-      'await import("@/lib/sena/reliability-adapters")',
-      "localEnterpriseReliabilityResult",
-      "importReliabilityFilesLocally",
-      "if (!enterpriseContext?.user) {",
-      "await importReliabilityFilesLocally(files)",
-      "latestReliabilityDashboard",
-      'data-testid="export-reliability-dashboard"',
-      "sena-coding-reliability-dashboard.json"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
-    [
-      "prepareSenaReliabilityJsonRequest",
-      "application/json",
-      "sena-reliability-json-request/v1"
-    ].forEach((requiredText) => {
-      expect(reliabilityRouteSource).toContain(requiredText);
-    });
+    expect(result.dashboard.disagreementCount).toBeGreaterThan(0);
   });
 
   it("keeps group-comparison validation usable before sign-in", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'await import("@/lib/sena/inference")',
-      "localEnterpriseValidationResult",
-      "runValidationComparisonLocally",
-      "if (!enterpriseContext?.user || !activeEnterpriseTeamId) {",
-      "await runValidationComparisonLocally()",
-      "latestValidationResult",
-      'data-testid="local-validation-controls"',
-      'data-testid="local-validation-result"',
-      'data-testid="export-local-validation-result"',
-      "sena-group-comparison-validation.json"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+    const suite = buildSenaGroupComparisonSuite({
+      dataset: exampleSenaContract,
+      comparisons: [
+        { groupField: "role", groupA: "Facilitator", groupB: "Evidence builder", metric: "bridgeScore" },
+        { groupField: "role", groupA: "Facilitator", groupB: "Evidence builder", metric: "socialStrength" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 42,
+      alpha: 0.05
     });
-    const localControlsIndex = source.indexOf('data-testid="local-validation-controls"');
-    const collaborationGateIndex = source.indexOf("activeEnterpriseProjectId && enterpriseCollaboration");
-    expect(localControlsIndex).toBeGreaterThan(-1);
-    expect(collaborationGateIndex).toBeGreaterThan(-1);
-    expect(localControlsIndex).toBeLessThan(collaborationGateIndex);
+
+    expect(suite.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.groupComparisonSuite);
+    expect(suite.correction).toBe("holm");
+    expect(suite.comparisonCount).toBe(2);
+    expect(suite.diagnostics.metrics).toEqual(["bridgeScore", "socialStrength"]);
+    expect(suite.guardrail).toContain("descriptive validation support");
   });
 
-  it("exposes Holm-corrected validation suites from the workspace controls", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      "buildSenaGroupComparisonSuite",
-      "runEnterpriseValidationComparison(\"suite\")",
-      "runValidationComparisonLocally(\"suite\")",
-      "suite: true",
-      "metrics: enterpriseValidationMetrics.map",
-      'data-testid="run-validation-suite"',
-      'data-testid="local-validation-suite-summary"',
-      "Holm suite"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes Holm-corrected validation suites from the workspace controls", async () => {
+    const recorder = createJsonFetchRecorder({
+      schemaVersion: "sena-group-comparison-suite/v1",
+      metric: "suite",
+      groupA: "coach",
+      groupB: "teacher",
+      permutation: { pTwoSided: 0.25 }
     });
+
+    await runEnterpriseValidationComparisonAction(
+      {
+        teamId: "team-1",
+        projectId: "project-1",
+        snapshot: { schemaVersion: "sena-project-snapshot/v1" },
+        groupField: "role",
+        groupA: "coach",
+        groupB: "teacher",
+        suite: true,
+        metrics: ["bridgeScore", "socialStrength"],
+        iterations: 99,
+        seed: 42,
+        preregistrationNote: "Holm suite preregistration",
+        methodNote: "Holm correction across metrics"
+      },
+      {
+        jsonHeaders: testEnterpriseJsonHeaders,
+        fetchImpl: recorder.fetchImpl
+      }
+    );
+
+    expect(recorder.calls).toHaveLength(1);
+    expect(recorder.calls[0].url).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.validationGroupComparison);
+    expect(recorder.calls[0].body).toMatchObject({
+      teamId: "team-1",
+      projectId: "project-1",
+      suite: true,
+      metrics: ["bridgeScore", "socialStrength"],
+      iterations: 99,
+      seed: 42
+    });
+    expect(recorder.calls[0].body).not.toHaveProperty("metric");
   });
 
   it("exports validation preregistration plans from local and enterprise validation runs", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      "buildLocalValidationPreregistrationPlan",
-      "localEnterpriseValidationResult?.preregistrationPlan",
-      "latestEnterpriseValidationRun?.preregistrationPlan",
-      "latestValidationPreregistrationPlan",
-      "exportValidationPreregistrationPlanJson",
-      "sena-validation-preregistration-plan.json",
-      'data-testid="export-validation-preregistration-plan"',
-      'data-testid="local-validation-preregistration-plan"',
-      'data-testid="enterprise-validation-preregistration-plan"',
-      "planHash"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
+    const model = buildSenaModel(exampleSenaContract);
+    const contract = buildSenaRuntimeBundle(model).productionPageContract;
+    const validationEndpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison");
+
+    expect(contract.visualChecks.map((check) => check.requiredText)).toContain('data-testid="export-validation-preregistration-plan"');
+    expect(SENA_SCHEMA_VERSIONS.validationPreregistrationPlan).toBe("sena-validation-preregistration-plan/v1");
+    expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.artifacts).toContain("validation-preregistration-plan");
+    expect(validationEndpoint?.request).toEqual(expect.stringContaining("validationRun.preregistrationPlan.planHash"));
+    expect(validationEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+      SENA_SCHEMA_VERSIONS.validationRunReview
+    ]));
   });
 
-  it("exports platform decision registers for institution adapter ownership review", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseContractsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-contracts.ts", import.meta.url), "utf8");
-    const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
-    const routeSource = readFileSync(new URL("../../../app/api/sena/ops/platform-decisions/route.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    const readmeSource = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
-    [
-      "exportEnterprisePlatformDecisionRegisterJson",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions",
-      "sena-enterprise-platform-decision-register.json",
-      'data-testid="enterprise-platform-decision-register-export"',
-      "sena-enterprise-platform-decision-register/v1",
-      'data-testid="enterprise-platform-decision-evidence-checklist"',
-      "evidenceChecklist",
-      "productionEvidenceIds",
-      "productionEvidenceVerifiedAt",
-      "productionEvidenceReceipt",
-      "latestReceiptEvidenceUrlHostBindingStatus",
-      'data-testid="enterprise-identity-request-host-binding"',
-      'data-testid="enterprise-identity-request-rotation-receipt"',
-      "missingEvidenceIds",
-      "Missing production evidence",
-      "acceptedBridgeMissingEvidence",
-      "platformDecisionTimestampedEvidenceIds",
-      "platformDecisionRequiresIdentityEvidenceTimestamp",
-      "productionEvidenceVerifiedAtMs > Date.now()",
-      "Production evidence verified-at cannot be in the future.",
-      "Add a production evidence verified-at timestamp before recording identity production evidence."
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exports platform decision registers for institution adapter ownership review", async () => {
+    const recorder = createJsonFetchRecorder({
+      acceptance: { id: "acceptance-1" },
+      platformDecisionRegister: {
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister
+      },
+      identityProductionEvidence: {
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+      }
     });
-    [
-      "sena-enterprise-platform-decision-register/v1",
-      "rotationFreshnessChecks",
-      "rotationExpiredEvidenceIds",
-      "rotationDueSoonEvidenceIds"
-    ].forEach((requiredText) => {
-      expect(enterpriseContractsSource).toContain(requiredText);
+
+    await submitEnterprisePlatformDecisionReviewAction(
+      {
+        teamId: "team-1",
+        decisionId: "institution-idp-approval",
+        status: "accepted",
+        acceptedBridge: false,
+        ownerName: "Named institution platform owner",
+        ownerRole: "Institution IdP owner",
+        environment: "production",
+        evidenceUrl: "https://evidence.example.test/idp",
+        productionEvidenceIds: ["idp-tenant-approval", "sso-provider-secrets"],
+        productionEvidenceVerifiedAt: "2026-06-01T00:00:00.000Z",
+        requestPacketPolicyHash: "policy-hash",
+        notes: "External evidence artifact archived by institution owner."
+      },
+      {
+        jsonHeaders: testEnterpriseJsonHeaders,
+        fetchImpl: recorder.fetchImpl
+      }
+    );
+
+    const platformEndpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-ops-platform-decisions");
+
+    expect(SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister).toBe("sena-enterprise-platform-decision-register/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionProductionEvidenceReceipt)
+      .toBe("sena-enterprise-platform-decision-production-evidence-receipt/v1");
+    expect(recorder.calls).toHaveLength(1);
+    expect(recorder.calls[0].url).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions);
+    expect(recorder.calls[0].body).toMatchObject({
+      teamId: "team-1",
+      decisionId: "institution-idp-approval",
+      status: "accepted",
+      productionEvidenceIds: ["idp-tenant-approval", "sso-provider-secrets"],
+      productionEvidenceVerifiedAt: "2026-06-01T00:00:00.000Z",
+      requestPacketPolicyHash: "policy-hash"
     });
-    const timestampedEvidenceSetSource = source.match(/const platformDecisionTimestampedEvidenceIds = new Set\(\[\n([\s\S]*?)\n]\);/)?.[1] ?? "";
-    expect(timestampedEvidenceSetSource).toContain('"sso-provider-secrets"');
-    expect(timestampedEvidenceSetSource).toContain('"sso-secret-store-reference"');
-    expect(enterpriseSource).toContain("getEnterprisePlatformDecisionRegister");
-    expect(enterpriseSource).toContain("evidenceUrlHostHash");
-    expect(enterpriseSource).toContain("evidenceUrlAllowedHostHash");
-    expect(enterpriseSource).toContain("evidenceUrlHostBindingStatus");
-    expect(enterpriseSource).toContain("identityEvidenceUrlHostBindingStatus");
-    expect(routeSource).toContain("getEnterprisePlatformDecisionRegister({ teamId })");
-    expect(routeSource).toContain("getEnterprisePlatformDecisionRegister({ teamId: acceptance.teamId })");
-    expect(routeSource).toContain("getEnterpriseIdentityProductionEvidence({ teamId: acceptance.teamId })");
-    expect(routeSource).toContain("identityProductionEvidence");
-    expect(routeSource).toContain("productionEvidenceVerifiedAt: body.productionEvidenceVerifiedAt ? String(body.productionEvidenceVerifiedAt) : undefined");
-    expect(apiDocsSource).toContain("sena-enterprise-platform-decision-production-evidence-receipt/v1");
-    expect(apiDocsSource).toContain("POST responses include refreshed identityProductionEvidence for immediate verifier/blocker feedback");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-production-evidence/v1");
-    expect(apiDocsSource).toContain("productionEvidenceVerifiedAt");
-    expect(apiDocsSource).toContain("ownerNamePolicy requires a specific institution identity platform owner");
-    expect(apiDocsSource).toContain("productionEvidenceVerifiedAtPolicy requires a valid past-or-present timestamp");
-    expect(apiDocsSource).toContain("rotationFreshnessPolicy lists SSO and bearer-token rotation max-age and warning windows");
-    expect(apiDocsSource).toContain("production evidence receipts include evidenceUrlHostBindingStatus");
-    expect(apiDocsSource).toContain("SENA_SSO_*_CLIENT_SECRET_VERSION and SENA_PROVISIONING_TOKEN_VERSION");
-    expect(apiDocsSource).toContain("production NODE_ENV requires SENA_SSO_*_CLIENT_SECRET_VERSION");
-    expect(apiDocsSource).toContain("production NODE_ENV requires SENA_SSO_INSTITUTION_CLIENT_SECRET_REF and SENA_PROVISIONING_TOKEN_SECRET_REF");
-    expect(apiDocsSource).toContain("production NODE_ENV requires SENA_IDENTITY_SECRET_ROTATION_CADENCE_DAYS");
-    expect(apiDocsSource).toContain("production NODE_ENV requires SENA_SSO_INSTITUTION_TENANT_ID");
-    expect(apiDocsSource).toContain("production NODE_ENV requires SENA_IDENTITY_LIFECYCLE_OWNER_MODE");
-    expect(apiDocsSource).toContain("technicalBindingStatus");
-    expect(apiDocsSource).toContain("evidenceUrlHostHash/evidenceUrlAllowedHostHash");
-    expect(apiDocsSource).toContain("rotationFreshnessChecks");
-    expect(apiDocsSource).toContain("rotationExpiredEvidenceIds");
-    expect(apiDocsSource).toContain("productionEvidenceVerifiedAt is required when productionEvidenceIds include identity production evidence ids");
-    expect(apiDocsSource).toContain("productionEvidenceVerifiedAt must not be in the future");
-    expect(readmeSource).toContain("IdP production evidence IDs: `idp-tenant-approval`, `idp-callback-approval`, `sso-provider-secrets`, `sso-secret-store-reference`, and `sso-secret-rotation`.");
-    expect(readmeSource).toContain("Provisioning production evidence IDs: `provisioning-owner`, `scim-or-idp-ownership`, `bearer-token-rotation`, and `lifecycle-guardrails`.");
+    expect(platformEndpoint?.responses).toEqual(expect.arrayContaining([
+      "sena-enterprise-platform-decision-register/v1",
+      "sena-enterprise-platform-decision-production-evidence-receipt/v1",
+      "sena-enterprise-identity-production-evidence/v1"
+    ]));
+    expect(platformEndpoint?.request)
+      .toEqual(expect.stringContaining("productionEvidenceVerifiedAt is required when productionEvidenceIds include identity production evidence ids"));
+    expect(platformEndpoint?.request)
+      .toEqual(expect.stringContaining("production evidence receipts include evidenceUrlHostBindingStatus"));
   });
 
   it("exports enterprise capability audit dossiers for original missing-feature evidence", () => {
-    const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    const capabilityAuditRouteSource = readFileSync(new URL("../../../app/api/sena/ops/capability-audit/route.ts", import.meta.url), "utf8");
-    const identityEvidenceRouteSource = readFileSync(new URL("../../../app/api/sena/ops/identity-production-evidence/route.ts", import.meta.url), "utf8");
-    [
-      "exportEnterpriseCapabilityAuditJson",
-      "exportEnterpriseIdentityProductionEvidenceJson",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence",
-      "sena-enterprise-capability-audit.json",
-      "sena-enterprise-identity-production-evidence.json",
-      'data-testid="enterprise-capability-audit-export"',
-      'data-testid="enterprise-identity-production-evidence-export"',
-      'data-testid="enterprise-identity-production-evidence-schema"',
-      'data-testid="enterprise-identity-platform-decision-request-packet-schema"',
-      'data-testid="enterprise-identity-submission-verifier-schema"',
-      'data-testid="enterprise-identity-rotation-freshness-schema"',
-      'data-testid="enterprise-identity-cutover-checklist-schema"',
-      'data-testid="enterprise-identity-cutover-checklist"',
-      "sena-enterprise-identity-production-evidence/v1",
-      "sena-enterprise-identity-platform-decision-request-packet/v1",
-      "sena-enterprise-identity-submission-verifier/v1",
-      "sena-enterprise-identity-rotation-freshness/v1",
-      "sena-enterprise-identity-cutover-checklist/v1",
-      'data-testid="enterprise-identity-submission-verifier-policy-binding"',
-      "submissionVerifier.evidence.find((entry) => entry.startsWith(\"requestPacketPolicyHash=\"))",
-      "submissionVerifier.evidence.find((entry) => entry.startsWith(\"requestPacketPolicyBinding=\"))",
-      "sena-enterprise-capability-audit/v1"
-    ].forEach((requiredText) => {
-      expect(workspaceSource).toContain(requiredText);
-    });
-    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit");
-    [
-      "getEnterpriseCapabilityAudit",
+    const audit = getEnterpriseCapabilityAudit({ teamId: "team-1" });
+    const identityEvidence = getEnterpriseIdentityProductionEvidence({ teamId: "team-1" });
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+    const capabilityEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-capability-audit");
+    const identityEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-identity-production-evidence");
+
+    expect(SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit).toBe("/api/sena/ops/capability-audit");
+    expect(SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence).toBe("/api/sena/ops/identity-production-evidence");
+    expect(audit.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseCapabilityAudit);
+    expect(audit.capabilities.map((capability) => capability.id)).toEqual(expect.arrayContaining([
       "auth-login-register-sso",
       "rbac-team-collaboration",
       "server-persistence-database",
@@ -3277,158 +3146,158 @@ describe("SENA model builder", () => {
       "research-validation-inference",
       "publication-exports",
       "production-security-governance",
-      "go-live-operations",
-      "getEnterpriseIdentityProductionEvidence",
-      "sena-enterprise-identity-production-evidence/v1",
-      "sena-enterprise-identity-platform-decision-request-packet/v1",
-      "sena-enterprise-identity-submission-verifier/v1",
-      "sena-enterprise-identity-rotation-freshness/v1",
-      "SenaEnterpriseIdentityCutoverChecklist",
-      "buildEnterpriseIdentityCutoverChecklist",
-      "cutoverChecklist",
-      "sena-enterprise-identity-cutover-checklist/v1",
-      "sena-enterprise-capability-audit/v1"
-    ].forEach((requiredText) => {
-      expect(enterpriseSource).toContain(requiredText);
-    });
-    expect(apiDocsSource).toContain("/api/sena/ops/capability-audit");
-    expect(apiDocsSource).toContain("team-scoped enterprise capability audit");
-    expect(apiDocsSource).toContain("sena-enterprise-capability-audit/v1");
-    expect(apiDocsSource).toContain("/api/sena/ops/identity-production-evidence");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-production-evidence/v1");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-production-evidence-manifest/v1");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-platform-decision-request-packet/v1");
-    expect(apiDocsSource).toContain("platformRequestPacket.evidence includes requestPacketPolicyHash and requestPacketPolicyBinding");
-    expect(apiDocsSource).toContain("submissionVerifier.evidence repeats requestPacketPolicyHash and requestPacketPolicyBinding for release reviewers");
-    expect(apiDocsSource).toContain("submissionTemplate.ownerNamePolicy");
-    expect(apiDocsSource).toContain("submissionTemplate.productionEvidenceVerifiedAtPolicy");
-    expect(apiDocsSource).toContain("submissionTemplate.rotationFreshnessPolicy");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-submission-verifier/v1");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-rotation-freshness/v1");
-    expect(apiDocsSource).toContain("cutoverChecklist summarizes IdP tenant, SSO secret custody, SCIM/IdP ownership, and identity secret rotation blockers");
-    expect(apiDocsSource).toContain("sena-enterprise-identity-cutover-checklist/v1");
-    expect(apiDocsSource).toContain("production evidence receipts include requestPacketPolicyHash, requestPacketPolicyBindingStatus");
-    expect(apiDocsSource).toContain("release-gate identity snapshots expose platformRequestPacket.evidence requestPacketPolicyHash/requestPacketPolicyBinding");
-    expect(capabilityAuditRouteSource).toContain("getEnterpriseCapabilityAudit");
-    expect(capabilityAuditRouteSource).toContain("getEnterpriseCapabilityAudit({ teamId })");
-    expect(capabilityAuditRouteSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(capabilityAuditRouteSource).toContain("capability_audit_team_required");
-    expect(identityEvidenceRouteSource).toContain("getEnterpriseIdentityProductionEvidence");
-    expect(identityEvidenceRouteSource).toContain("requireApiSession");
-    expect(identityEvidenceRouteSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(capabilityAuditRouteSource).not.toContain('audit.status === "blocked" ? 503 : 200');
+      "go-live-operations"
+    ]));
+    expect(audit.capabilities.find((capability) => capability.id === "auth-login-register-sso")?.requiredArtifacts)
+      .toEqual(expect.arrayContaining([
+        SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight,
+        SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+        SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist
+      ]));
+    expect(identityEvidence.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence);
+    expect(identityEvidence.platformRequestPacket.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket);
+    expect(identityEvidence.submissionVerifier.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier);
+    expect(identityEvidence.rotationFreshness.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness);
+    expect(identityEvidence.cutoverChecklist.schemaVersion)
+      .toBe(SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist);
+    expect(identityEvidence.submissionVerifier.evidence).toEqual(expect.arrayContaining([
+      expect.stringContaining("requestPacketPolicyHash="),
+      expect.stringContaining("requestPacketPolicyBinding=")
+    ]));
+    expect(capabilityEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.capabilityAudit);
+    expect(capabilityEndpoint?.summary).toEqual(expect.stringContaining("capability audit"));
+    expect(capabilityEndpoint?.request).toEqual(expect.stringContaining("team-scoped enterprise capability audit"));
+    expect(capabilityEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseCapabilityAudit,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist
+    ]));
+    expect(identityEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence);
+    expect(identityEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidenceManifest,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist,
+      SENA_SCHEMA_VERSIONS.enterpriseCapabilityAudit
+    ]));
+    expect(identityEndpoint?.request)
+      .toEqual(expect.stringContaining("platformRequestPacket.evidence includes requestPacketPolicyHash and requestPacketPolicyBinding"));
   });
 
   it("exports native adapter certification dossiers for institution platform owners", () => {
-    const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseOptionsSource = readFileSync(new URL("../../../components/sena/workspace/enterprise-options.ts", import.meta.url), "utf8");
-    const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
-    const routeSource = readFileSync(new URL("../../../app/api/sena/ops/native-adapters/route.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    [
-      "exportEnterpriseNativeAdapterCertificationJson",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters",
-      "sena-enterprise-native-adapter-certification.json",
-      'data-testid="enterprise-native-adapter-certification-export"',
-      "sena-enterprise-native-adapter-certification/v1"
-    ].forEach((requiredText) => {
-      expect(workspaceSource).toContain(requiredText);
+    const certification = getEnterpriseNativeAdapterCertification({ teamId: "team-1" });
+    const endpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((candidate) => candidate.id === "sena-ops-native-adapters");
+
+    expect(SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters).toBe("/api/sena/ops/native-adapters");
+    expect(certification.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification);
+    expect(certification.export).toEqual({
+      api: SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters,
+      filename: "sena-enterprise-native-adapter-certification.json"
     });
-    [
+    expect(certification.adapters.map((adapter) => adapter.id)).toEqual(expect.arrayContaining([
+      "managed-database-adapter",
+      "institution-audit-siem-adapter",
+      "managed-backup-storage-adapter"
+    ]));
+    expect(certification.adapters.map((adapter) => adapter.decisionId)).toEqual(expect.arrayContaining([
+      "native-managed-database",
       "native-audit-siem-adapter",
       "native-managed-backup-storage"
-    ].forEach((requiredText) => {
-      expect(enterpriseOptionsSource).toContain(requiredText);
-    });
-    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters");
-    [
-      "getEnterpriseNativeAdapterCertification",
-      "managed-database-adapter",
-      "native-managed-database",
-      "institution-audit-siem-adapter",
-      "managed-backup-storage-adapter",
-      "sena-enterprise-database-sync-webhook/v1",
-      "sena-enterprise-audit-webhook/v1",
-      "sena-enterprise-backup-webhook/v1",
-      "sena-enterprise-native-adapter-certification/v1"
-    ].forEach((requiredText) => {
-      expect(enterpriseSource).toContain(requiredText);
-    });
-    expect(routeSource).toContain("getEnterpriseNativeAdapterCertification({ teamId })");
-    expect(routeSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(routeSource).toContain("native_adapter_certification_team_required");
-    expect(apiDocsSource).toContain("/api/sena/ops/native-adapters");
-    expect(apiDocsSource).toContain("team-scoped native adapter certification dossier");
-    expect(apiDocsSource).toContain("sena-enterprise-native-adapter-certification/v1");
+    ]));
+    expect(certification.adapters.map((adapter) => adapter.bridgeSchema).filter(Boolean)).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseDatabaseSyncWebhook,
+      SENA_SCHEMA_VERSIONS.enterpriseAuditWebhook,
+      SENA_SCHEMA_VERSIONS.enterpriseBackupWebhook
+    ]));
+    expect(endpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.nativeAdapters);
+    expect(endpoint?.request).toEqual(expect.stringContaining("team-scoped native adapter certification dossier"));
+    expect(endpoint?.responses).toContain(SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification);
   });
 
   it("exports SaaS operations readiness dossiers for production backend approval", () => {
-    const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
-    const routeSource = readFileSync(new URL("../../../app/api/sena/ops/saas-operations/route.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    [
-      "exportEnterpriseSaasOperationsReadinessJson",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations",
-      "sena-enterprise-saas-operations-readiness.json",
-      'data-testid="enterprise-saas-operations-readiness-export"',
-      "sena-enterprise-saas-operations-readiness/v1"
-    ].forEach((requiredText) => {
-      expect(workspaceSource).toContain(requiredText);
+    const readiness = getEnterpriseSaasOperationsReadiness({ teamId: "team-1" });
+    const endpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((candidate) => candidate.id === "sena-ops-saas-operations");
+
+    expect(SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations).toBe("/api/sena/ops/saas-operations");
+    expect(readiness.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseSaasOperationsReadiness);
+    expect(readiness.export).toEqual({
+      api: SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations,
+      filename: "sena-enterprise-saas-operations-readiness.json"
     });
-    expect(workspaceSource).toContain("SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations");
-    [
-      "getEnterpriseSaasOperationsReadiness",
+    expect(readiness.summary.blockers).toEqual(expect.arrayContaining([
       "saas-operating-model-approval-env-required",
       "full-saas-platform-decision-acceptance-required",
-      "native-adapter-certification-production-blockers",
-      "sena-enterprise-saas-operations-readiness/v1"
-    ].forEach((requiredText) => {
-      expect(enterpriseSource).toContain(requiredText);
-    });
-    expect(routeSource).toContain("getEnterpriseSaasOperationsReadiness({ teamId })");
-    expect(routeSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(routeSource).toContain("saas_operations_team_required");
-    expect(apiDocsSource).toContain("/api/sena/ops/saas-operations");
-    expect(apiDocsSource).toContain("team-scoped SaaS operations readiness dossier");
-    expect(apiDocsSource).toContain("sena-enterprise-saas-operations-readiness/v1");
+      "native-adapter-certification-production-blockers"
+    ]));
+    expect(readiness.requiredEvidence).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance,
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+    ]));
+    expect(readiness.evidence).toEqual(expect.arrayContaining([
+      expect.stringContaining("nativeAdapterCertification="),
+      expect.stringContaining("identityProductionReleaseGateDigestBinding=")
+    ]));
+    expect(endpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.saasOperations);
+    expect(endpoint?.request).toEqual(expect.stringContaining("team-scoped SaaS operations readiness dossier"));
+    expect(endpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.enterpriseSaasOperationsReadiness,
+      SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+    ]));
   });
 
-  it("exports go-live rehearsal dossiers that link readiness, adapters, SaaS operations, and release gates", () => {
-    const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    const enterpriseSource = readFileSync(new URL("../enterprise.ts", import.meta.url), "utf8");
-    const routeSource = readFileSync(new URL("../../../app/api/sena/ops/go-live-rehearsal/route.ts", import.meta.url), "utf8");
-    const apiDocsSource = readFileSync(new URL("../api-docs.ts", import.meta.url), "utf8");
-    const docsSectionSource = readFileSync(new URL("../../../components/DocsSection.tsx", import.meta.url), "utf8");
-    [
-      "exportEnterpriseGoLiveRehearsalJson",
-      "sena-enterprise-go-live-rehearsal.json",
-      'data-testid="enterprise-go-live-rehearsal-export"',
-      'data-testid="enterprise-go-live-rollback-drill-export"',
-      'data-testid="enterprise-go-live-monitor-export"',
-      'data-testid="enterprise-go-live-rehearsal-apply-draft"',
-      "applyEnterpriseGoLiveRehearsalDraft",
-      "exportEnterpriseGoLiveRollbackDrillJson",
-      "exportEnterpriseGoLiveMonitorJson",
-      "sena-enterprise-release-gate-draft/v1",
-      "sena-enterprise-go-live-rollback-drill/v1",
-      "sena-enterprise-go-live-monitor/v1",
-      "sena-enterprise-go-live-attestation/v1",
-      "submitEnterpriseGoLiveAttestation",
-      "exportEnterpriseGoLiveAttestationsJson",
-      "go-live identity ${payload.attestation?.latestReleaseGateSnapshot?.identityProductionStatus",
-      "identity verifier ${payload.attestation?.latestReleaseGateSnapshot?.identitySubmissionVerifierIncomplete",
-      "identity rotation ${payload.attestation?.latestReleaseGateSnapshot?.identityRotationFreshness",
-      "identity cutover ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistStatus",
-      "cutover blockers ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistBlockingItems",
-      "identityProductionHandoffSnapshot",
-      "identity handoff ${payload.attestation?.identityProductionHandoffSnapshot?.status",
-      "handoff blockers ${payload.attestation?.identityProductionHandoffSnapshot?.platformRequestPacket.summary.blockingRequests",
-      "sena-enterprise-go-live-rehearsal/v1",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal"
-    ].forEach((requiredText) => {
-      expect(workspaceSource).toContain(requiredText);
+  it("exports go-live rehearsal dossiers that link readiness, adapters, SaaS operations, and release gates", async () => {
+    const rehearsalRecorder = createJsonFetchRecorder({
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal,
+      releaseGateDraft: {
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft
+      }
     });
+    const attestationRecorder = createJsonFetchRecorder({
+      attestation: {
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestation
+      }
+    });
+
+    const rehearsal = await getEnterpriseGoLiveRehearsalAction(
+      { teamId: "team 1" },
+      { fetchImpl: rehearsalRecorder.fetchImpl }
+    );
+    await submitEnterpriseGoLiveAttestationAction(
+      {
+        teamId: "team 1",
+        environment: "production",
+        releaseVersion: "2026-06-21",
+        decision: "conditional",
+        attesterName: "Release owner",
+        attesterRole: "Platform owner",
+        notes: "Go-live rehearsal reviewed.",
+        checklist: {
+          rehearsalReviewed: true,
+          releaseGateDraftReviewed: true,
+          verificationEvidenceReviewed: true,
+          rollbackOwnerConfirmed: true,
+          platformOwnerDecisionReviewed: true
+        }
+      },
+      {
+        jsonHeaders: testEnterpriseJsonHeaders,
+        fetchImpl: attestationRecorder.fetchImpl
+      }
+    );
+
+    expect(rehearsal.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal);
+    expect(rehearsal.releaseGateDraft.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft);
     expect(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
       artifact: "rollback-drill",
       teamId: "team 1"
@@ -3441,68 +3310,84 @@ describe("SENA model builder", () => {
       attestations: 1,
       teamId: "team 1"
     })).toBe("/api/sena/ops/go-live-rehearsal?attestations=1&teamId=team+1");
-    [
-      "getEnterpriseGoLiveRehearsal",
-      "buildEnterpriseReleaseGateDraft",
-      "buildEnterpriseGoLiveRollbackDrill",
-      "buildEnterpriseGoLiveMonitor",
-      "createEnterpriseGoLiveAttestation",
-      "listEnterpriseGoLiveAttestations",
-      "identityProductionHandoffSnapshot: SenaEnterpriseIdentityProductionEvidence",
-      "identityProductionHandoffSnapshot=${identityProductionHandoffSnapshot.schemaVersion}",
-      "identityProductionHandoffSnapshotStatus=${identityProductionHandoffSnapshot.status}",
-      "identityProductionHandoffSnapshotMissingEvidence=${identityProductionHandoffSnapshot.evidenceManifest.missingEvidenceIds.length}",
-      "identityProductionHandoffSnapshotRequestBlockers=${identityProductionHandoffSnapshot.platformRequestPacket.summary.blockingRequests}",
-      "identityProductionHandoff: SenaEnterpriseIdentityProductionEvidence",
-      "identityProductionHandoff=${input.deployment.identityProductionHandoff.schemaVersion}",
-      "identityProductionHandoffStatus=${input.deployment.identityProductionHandoff.status}",
-      "identityProductionHandoffMissingEvidence=${input.deployment.identityProductionHandoff.evidenceManifest.missingEvidenceIds.length}",
-      "identityProductionRequestBlockers=${input.deployment.identityProductionHandoff.platformRequestPacket.summary.blockingRequests}",
-      "deployment-readiness-blocking-items",
-      "native-adapter-certification-production-blockers",
-      "saas-operations-not-ready",
-      "sena-enterprise-go-live-attestation/v1",
-      "sena-enterprise-release-gate-draft/v1",
-      "sena-enterprise-go-live-rehearsal/v1"
-    ].forEach((requiredText) => {
-      expect(enterpriseSource).toContain(requiredText);
+    expect(rehearsalRecorder.calls).toEqual([
+      {
+        url: "/api/sena/ops/go-live-rehearsal?teamId=team+1",
+        init: undefined,
+        body: undefined
+      }
+    ]);
+    expect(attestationRecorder.calls[0].url).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal);
+    expect(attestationRecorder.calls[0].body).toMatchObject({
+      teamId: "team 1",
+      environment: "production",
+      releaseVersion: "2026-06-21",
+      decision: "conditional",
+      checklist: {
+        rehearsalReviewed: true,
+        releaseGateDraftReviewed: true,
+        verificationEvidenceReviewed: true,
+        rollbackOwnerConfirmed: true,
+        platformOwnerDecisionReviewed: true
+      }
     });
-    expect(routeSource).toContain("getEnterpriseGoLiveRehearsal({ teamId })");
-    expect(routeSource).toContain("go_live_rehearsal_team_required");
-    expect(routeSource).toContain("listEnterprisePlatformDecisionAcceptances(context, { teamId })");
-    expect(apiDocsSource).toContain("/api/sena/ops/go-live-rehearsal");
-    expect(apiDocsSource).toContain("team-scoped go-live rehearsal dossier");
-    expect(apiDocsSource).toContain("identityProductionHandoff");
-    expect(apiDocsSource).toContain("identityProductionHandoffSnapshot");
-    expect(apiDocsSource).toContain("sena-enterprise-go-live-rehearsal/v1");
-    expect(docsSectionSource).toContain("sena-enterprise-identity-production-evidence/v1");
+
+    const goLiveEndpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-ops-go-live-rehearsal");
+    expect(goLiveEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal);
+    expect(goLiveEndpoint?.summary).toEqual(expect.stringContaining("go-live rehearsal dossier"));
+    expect(goLiveEndpoint?.request).toEqual(expect.stringContaining("identityProductionHandoff"));
+    expect(goLiveEndpoint?.responses).toEqual(expect.arrayContaining([
+      "sena-enterprise-go-live-rehearsal/v1",
+      "sena-enterprise-release-gate-draft/v1",
+      "sena-enterprise-go-live-attestation/v1",
+      "sena-enterprise-identity-production-evidence/v1"
+    ]));
   });
 
   it("exports domain expert review dossiers for claim-readiness evidence", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      "exportEnterpriseExpertReviewDossierJson",
-      "SENA_WORKSPACE_API_ROUTES.enterprise.expertReview",
-      "sena-enterprise-expert-review-dossier.json",
-      'data-testid="enterprise-expert-review-dossier-export"',
-      "sena-expert-review-list/v1",
-      "sena-enterprise-expert-review/v1"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
-    });
+    const model = buildSenaModel(exampleSenaContract);
+    const contract = buildSenaRuntimeBundle(model).productionPageContract;
+    const expertReviewEndpoint = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-validation-expert-review");
+
+    expect(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview).toBe("/api/sena/validation/expert-review");
+    expect(contract.visualChecks.map((check) => check.requiredText))
+      .toContain('data-testid="enterprise-expert-review-dossier-export"');
+    expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.artifacts).toContain("domain-expert-review");
+    expect(expertReviewEndpoint?.path).toBe(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview);
+    expect(expertReviewEndpoint?.responses).toEqual(expect.arrayContaining([
+      SENA_SCHEMA_VERSIONS.expertReviewList,
+      SENA_SCHEMA_VERSIONS.expertReviewResponse
+    ]));
+    expect(SENA_SCHEMA_VERSIONS.enterpriseExpertReview).toBe("sena-enterprise-expert-review/v1");
   });
 
-  it("exposes enterprise collaboration pub/sub delivery controls in the SENA workspace", () => {
-    const source = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
-    [
-      'data-testid="enterprise-collaboration-pubsub-delivery"',
-      'data-testid="enterprise-collaboration-pubsub-schema"',
-      "sena-enterprise-collaboration-pubsub-delivery/v1",
-      "deliverEnterpriseCollaborationPubSubFromWorkspace",
-      "deliver-pubsub"
-    ].forEach((requiredText) => {
-      expect(source).toContain(requiredText);
+  it("exposes enterprise collaboration pub/sub delivery controls in the SENA workspace", async () => {
+    const recorder = createJsonFetchRecorder({
+      schemaVersion: "sena-enterprise-collaboration-pubsub-delivery/v1",
+      summary: { delivered: 1, failed: 0, skipped: 0 }
     });
+
+    await deliverEnterpriseCollaborationPubSubAction(
+      { projectId: "project 1" },
+      {
+        jsonHeaders: testEnterpriseJsonHeaders,
+        fetchImpl: recorder.fetchImpl
+      }
+    );
+
+    expect(recorder.calls).toHaveLength(1);
+    expect(recorder.calls[0].url).toBe("/api/sena/projects/project%201/collaboration");
+    expect(recorder.calls[0].init?.method).toBe("POST");
+    expect(recorder.calls[0].body).toEqual({
+      action: "deliver-pubsub",
+      force: true,
+      limit: 50
+    });
+    expect(buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" })
+      .endpoints.find((endpoint) => endpoint.id === "sena-collaboration")?.responses)
+      .toContain("sena-enterprise-collaboration-pubsub-delivery/v1");
   });
 
   it("builds a single-file review packet for local pilot handoff", () => {
@@ -3787,7 +3672,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup")?.sha256).toBe("bc7c350686c6f3e3af9f0ed3acd3fcaee10bc423cd8be95a36bf88010392d7aa");
     expect(packet.contents.developmentPlan.schemaVersion).toBe("sena-development-plan/v1");
     expect(packet.contents.developmentPlan.runtimeParityEvidence.map((evidence) => evidence.id)).toEqual(["jena-rena-sample-parity", "jsna-r-sna-social-parity"]);
-    expect(packet.contents.developmentPlan.scope.inScope).toContain("Production SaaS backend readiness with native adapter certification, platform-owner bridge acceptance, release-gate evidence, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
+    expect(packet.contents.developmentPlan.scope.inScope).toContain("Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
     expect(packet.contents.developmentPlan.scope.outOfScope).not.toContain("Native managed database, object-storage, collaboration pub/sub, audit/SIEM, and backup/restore adapters beyond the signed webhook bridge handoffs.");
     expect(packet.contents.codingReliabilityGate).toEqual(packet.contents.runtimeBundle.codingReliabilityGate);
     expect(packet.contents.codingReliabilityGate).toEqual(packet.contents.reportJson.codingReliabilityGate);
@@ -4860,38 +4745,19 @@ describe("SENA model builder", () => {
       expect(integrity.sha256).toBe(sha256Hex(bytes));
     }
     expect(packageManifest.assetIntegrity.map((asset) => asset.href).sort()).toEqual([...sampleHrefs, ...templateHrefs].sort());
-    expect(packageManifest.exportArtifacts).toContain("sena-data-contract-audit.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-runtime-consistency-audit.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-jena-manifest.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-ena-report.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-jsna-manifest.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-sna-report.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-metric-provenance.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-person-code-pair-g-report.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-visual-grammar.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-coding-reliability-gate.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-claim-readiness-gate.json");
+    const pilotArtifactCatalog = projectSenaPilotPackageArtifactCatalog();
+    expect([...packageManifest.exportArtifacts].sort()).toEqual([...pilotArtifactCatalog.exportArtifacts].sort());
     expect(packageManifest.exportArtifacts.every((artifact) => packageManifest.exportArtifactSchemas[artifact])).toBe(true);
     expect(Object.keys(packageManifest.exportArtifactSchemas).sort()).toEqual([...packageManifest.exportArtifacts].sort());
-    expect(packageManifest.exportArtifactSchemas["sena-jena-manifest.json"]).toBe("sena-ena-manifest/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-ena-report.json"]).toBe("sena-ena-report/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-jsna-manifest.json"]).toBe("sena-jsna-manifest/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-sna-report.json"]).toBe("sena-sna-report/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-metric-provenance.json"]).toBe("sena-metric-provenance/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-person-code-pair-g-report.json"]).toBe("sena-person-code-pair-g-report/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-runtime-consistency-audit.json"]).toBe("sena-runtime-consistency/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-visual-grammar.json"]).toBe("sena-visual-grammar/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"]).toBe("sena-coding-reliability-gate/v1");
-    expect(packageManifest.exportArtifactSchemas["sena-claim-readiness-gate.json"]).toBe("sena-claim-readiness-gate/v1");
-    expect(packageManifest.exportArtifacts).toContain("sena-method-protocol.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-development-plan.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-fusion-math-audit.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-demo-walkthrough.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-demo-verification.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-demo-verification-compatibility-audit.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-production-page-contract.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-runtime-bundle.json");
-    expect(packageManifest.exportArtifacts).toContain("sena-review-packet.json");
+    expect(packageManifest.exportArtifactSchemas).toEqual(pilotArtifactCatalog.exportArtifactSchemas);
+    expect(pilotArtifactCatalog.runtimeArtifactEvidence).toEqual(expect.arrayContaining([
+      "sena-jena-manifest.json",
+      "sena-ena-report.json",
+      "sena-jsna-manifest.json",
+      "sena-sna-report.json",
+      "sena-runtime-consistency-audit.json",
+      "sena-runtime-bundle.json"
+    ]));
     expect(packageManifest.handoffChecks.map((check) => check.id)).toEqual([
       "model-json-export",
       "local-runtime-manifests",

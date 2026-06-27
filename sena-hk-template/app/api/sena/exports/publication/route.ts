@@ -1,13 +1,14 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
 import {
   getEnterpriseClaimEvidencePackage
-} from "@/lib/sena/enterprise/reliability-validation";
+} from "@/lib/sena/enterprise/claim-evidence-package";
 import {
   getEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
 import {
   recordEnterpriseAudit
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-audit";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
@@ -54,7 +55,7 @@ function publicationPackageHeaders(format: SenaPublicationFormat, body: string |
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const requestBody = await request.json();
     const format = formats.has(requestBody.format) ? requestBody.format : "html";
     const projectId = requestBody.projectId ? String(requestBody.projectId) : "";
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       source = "project";
       projectVersion = project.currentVersion;
       enterpriseProjectEvidence = {
-        schemaVersion: "sena-publication-enterprise-project-evidence/v1",
+        schemaVersion: SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence,
         projectId: project.id,
         teamId: project.teamId,
         currentVersion: project.currentVersion,

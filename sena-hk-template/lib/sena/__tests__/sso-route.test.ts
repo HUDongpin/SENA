@@ -134,19 +134,13 @@ describe("SENA SSO route production fallback policy", () => {
       memberships: [{ id: "membership-sso-callback", teamId: "team-sso-callback", userId: "user-sso-callback", role: "reviewer", status: "active" }]
     };
     vi.resetModules();
-    vi.doMock("@/lib/sena/enterprise", () => ({
+    vi.doMock("@/lib/sena/enterprise/auth-sso", () => ({
       completeEnterpriseSsoCallback: async () => ({
         token: "sena-callback-token",
         redirectTo: "/workspace/sena?rail=sets",
         context
       }),
-      enforceEnterpriseApiRateLimit: () => ({ allowed: true }),
-      enterpriseErrorResponse: () => ({ status: 500, body: { error: "mock error" } }),
-      requireEnterpriseSession: () => context,
-      sanitizeEnterpriseContext: () => context,
-      senaCsrfHeaderName: "x-sena-csrf-token",
-      senaSessionCookieName: "sena_session",
-      verifyEnterpriseCsrfToken: () => true
+      senaSessionCookieName: "sena_session"
     }));
     vi.doMock("@/lib/sena/api-helpers", () => ({
       authSessionHeaders: () => ({
@@ -190,6 +184,8 @@ describe("SENA SSO route production fallback policy", () => {
       expect(response.headers.get("x-sena-auth-production-gate")).toBe("review");
       expect(response.headers.get("x-sena-identity-missing-evidence-ids")).toBe("idp-tenant-approval|scim-or-idp-ownership");
     } finally {
+      vi.doUnmock("@/lib/sena/enterprise/auth-sso");
+      vi.doUnmock("@/lib/sena/api-helpers");
       vi.resetModules();
     }
   });

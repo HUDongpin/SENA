@@ -188,3 +188,33 @@ export function listSenaSchemaVersions(): SenaSchemaVersion[] {
 export function isSenaSchemaVersion(value: unknown): value is SenaSchemaVersion {
   return typeof value === "string" && senaSchemaVersionSet.has(value);
 }
+
+export function createSenaSchemaPayload<Key extends SenaSchemaVersionKey, Payload extends Record<string, unknown>>(
+  key: Key,
+  payload: Payload
+): { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } & Payload {
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS[key],
+    ...payload
+  };
+}
+
+export function hasSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): value is { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { schemaVersion?: unknown }).schemaVersion === SENA_SCHEMA_VERSIONS[key]
+  );
+}
+
+export function assertSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } {
+  if (hasSenaSchemaVersion(value, key)) return value;
+  throw new Error(`Expected ${SENA_SCHEMA_VERSIONS[key]} schemaVersion.`);
+}

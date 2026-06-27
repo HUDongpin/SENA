@@ -5,6 +5,8 @@ import { patchEnterpriseScimUser, provisionEnterpriseScimUser, type SenaScimProv
 
 export const runtime = "nodejs";
 
+type ScimResourceRouteContext = { params: Promise<{ resourceId: string }> };
+
 function scimOptions(request: Request): SenaScimProvisioningOptions {
   const url = new URL(request.url);
   return {
@@ -24,16 +26,18 @@ async function upsertUser(request: Request, resourceId: string) {
   return NextResponse.json(bridge.resource);
 }
 
-export async function PUT(request: Request, { params }: { params: { resourceId: string } }) {
+export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
   try {
-    return await upsertUser(request, params.resourceId);
+    const { resourceId } = await params;
+    return await upsertUser(request, resourceId);
   } catch (error) {
     return jsonError(error);
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { resourceId: string } }) {
+export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
   try {
+    const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     const body = await request.json();
     const schemas = typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray(body.schemas)
@@ -42,12 +46,12 @@ export async function PATCH(request: Request, { params }: { params: { resourceId
     const isPatchOp = schemas.some((schema: unknown) => String(schema).toLowerCase().includes("patchop")) ||
       (typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray((body as { Operations?: unknown }).Operations));
     if (isPatchOp) {
-      const bridge = patchEnterpriseScimUser(params.resourceId, body, scimOptions(request));
+      const bridge = patchEnterpriseScimUser(resourceId, body, scimOptions(request));
       return NextResponse.json(bridge.resource);
     }
     const resource = typeof body === "object" && body !== null && !Array.isArray(body)
-      ? { id: params.resourceId, ...body }
-      : { id: params.resourceId };
+      ? { id: resourceId, ...body }
+      : { id: resourceId };
     const bridge = provisionEnterpriseScimUser(resource, scimOptions(request));
     return NextResponse.json(bridge.resource);
   } catch (error) {

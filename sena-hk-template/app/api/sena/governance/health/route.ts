@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import {
   getEnterpriseDeploymentReadiness,
+  type SenaEnterpriseDeploymentReadiness
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import {
   getEnterpriseGovernanceStatus,
-  getEnterpriseIdentityProductionEvidence,
-  type SenaEnterpriseDeploymentReadiness,
   type SenaEnterpriseGovernanceStatus
 } from "@/lib/sena/enterprise/ops-governance";
+import {
+  getEnterpriseIdentityProductionEvidence
+} from "@/lib/sena/enterprise/identity-production-evidence";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -53,7 +57,7 @@ function governanceHealthHeaders(
 
 export async function GET() {
   try {
-    requireApiSession();
+    await requireApiSession();
     const governance = getEnterpriseGovernanceStatus();
     const readiness = getEnterpriseDeploymentReadiness();
     const identityEvidence = getEnterpriseIdentityProductionEvidence();

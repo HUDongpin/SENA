@@ -1,5 +1,6 @@
 "use client";
 
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import Link from "next/link";
 import type { ChangeEvent, ElementType, ReactNode, SVGProps } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -67,7 +68,6 @@ import {
   buildSenaEvidenceLedger,
   buildSenaEnaManifest,
   buildSenaEnaReportArtifact,
-  buildSenaEnaSpaceCoordinateMap,
   buildSenaFusionMathAudit,
   buildSenaClaimReadinessGate,
   buildSenaMethodProtocol,
@@ -143,27 +143,75 @@ import {
   type SenaTemporalRuntimeTrace,
   type SenaTemporalWindow,
   type SenaValidation
-} from "@/lib/sena";
+} from "./workspace/analysis-runtime";
 import { cn } from "@/lib/utils";
+import {
+  computeFusionLayout,
+  fusionCanvasCenter as center,
+  fusionCanvasHeight as height,
+  fusionCanvasWidth as width,
+  fusionConceptGuideRadius as conceptGuideRadius,
+  type PositionedSenaNode as PositionedNode
+} from "./workspace/fusion-layout";
+import { ReportGenerator, type PublicationFormat } from "./workspace/report-generator";
+import { TemporalFusionArc } from "./workspace/temporal-fusion-arc";
 import {
   buildSenaWorkspaceApiUrl,
   requestSenaWorkspaceJson,
+  SenaWorkspaceApiError,
   SENA_WORKSPACE_API_ROUTES
 } from "./workspace/api-client";
 import {
   acceptTeamInvitationAction,
+  addEnterpriseAdjudicationAction,
+  addEnterpriseCommentAction,
   createTeamInvitationAction,
+  createEnterpriseUploadRegistryFilesAction,
+  deliverEnterpriseCollaborationPubSubAction,
   deliverEnterpriseNotificationsAction,
+  deliverEnterpriseUploadObjectStorageAction,
   disableEnterpriseMfaAction,
   enableEnterpriseMfaAction,
+  exportEnterprisePublicationAction,
+  getEnterpriseAnalysisRunsAction,
+  getEnterpriseImportRunsAction,
+  getEnterpriseProjectsAction,
+  importEnterpriseFilesAction,
+  importEnterpriseReliabilityFilesAction,
   logoutEnterpriseSessionAction,
   markEnterpriseNotificationReadAction,
+  openEnterpriseProjectAction,
+  refreshEnterpriseClaimPackageAction,
+  refreshEnterpriseCollaborationAction,
+  refreshEnterpriseUploadStorageAction,
+  reviewEnterpriseReliabilityRunAction,
+  reviewEnterpriseValidationRunAction,
   revokeEnterpriseSessionAction,
   revokeTeamInvitationAction,
+  restoreEnterpriseProjectRevisionAction,
+  runEnterpriseAnalysisAction,
+  runEnterpriseValidationComparisonAction,
   runEnterpriseSsoPreflightAction,
+  saveEnterpriseProjectAction,
   startEnterpriseMfaSetupAction,
+  submitEnterpriseExpertReviewAction,
+  touchEnterprisePresenceAction,
+  updateEnterpriseExpertReviewAction,
   updateTeamMembershipAction
 } from "./workspace/enterprise-actions";
+import {
+  deliverEnterpriseAuditLogAction,
+  deliverEnterpriseBackupAction,
+  deliverEnterpriseOpsAlertsAction,
+  exportEnterpriseAuditCsvAction,
+  exportEnterpriseJsonArtifactAction,
+  getEnterpriseGoLiveRehearsalAction,
+  refreshEnterpriseProvisioningReadinessAction,
+  submitEnterpriseGoLiveAttestationAction,
+  submitEnterprisePlatformDecisionReviewAction,
+  submitEnterpriseReleaseGateReviewAction,
+  syncEnterpriseDatabaseAction
+} from "./workspace/enterprise-ops-actions";
 import { useEnterpriseWorkspaceApi } from "./workspace/use-enterprise-runtime";
 import type {
   EnterpriseContext,
@@ -197,14 +245,9 @@ import type {
   EnterpriseClaimEvidencePackage,
   EnterprisePlatformDecisionId,
   EnterprisePlatformDecisionStatus,
-  EnterprisePlatformDecisionAcceptance,
-  EnterprisePlatformDecisionRegister,
   EnterprisePlatformDecisionState,
   EnterpriseReleaseGateDecision,
   EnterpriseReleaseVerificationStatus,
-  EnterpriseReleaseGateDraft,
-  EnterpriseGoLiveRehearsal,
-  EnterpriseGoLiveAttestation,
   EnterpriseReleaseGateReview,
   EnterpriseReleaseGateState
 } from "./workspace/enterprise-contracts";
@@ -217,7 +260,7 @@ import {
 } from "./workspace/enterprise-options";
 
 const SHOW_ARCHIVED_FORMULA_PANEL = false;
-const senaEnterpriseImportFileAccept = ".csv,.json,.xlsx,.xls,.txt,.md,.srt,.vtt,text/csv,application/json,text/plain,text/vtt,application/x-subrip";
+const senaEnterpriseImportFileAccept = ".csv,.json,.xlsx,.txt,.md,.srt,.vtt,text/csv,application/json,text/plain,text/vtt,application/x-subrip";
 const platformDecisionTimestampedEvidenceIds = new Set([
   "idp-tenant-approval",
   "idp-callback-approval",
@@ -230,11 +273,6 @@ const platformDecisionTimestampedEvidenceIds = new Set([
   "lifecycle-guardrails"
 ]);
 
-type PositionedNode = SenaNode & {
-  x: number;
-  y: number;
-};
-
 type LayerVisibility = Record<SenaLayer, boolean>;
 
 type UploadedSenaTable = SenaMappedTable & { id: string };
@@ -242,13 +280,8 @@ type UploadedSenaTable = SenaMappedTable & { id: string };
 type EvidenceSourceFilter = SenaEvidenceSource | "all";
 type WorkspaceRailMode = "sets" | "model" | "plots" | "stats";
 type SenaPlotView = "temporal" | "fusion" | "dual" | "ena" | "sna" | "evidence" | "matrix";
-type PublicationFormat = "svg" | "png" | "html" | "xlsx" | "docx" | "pdf" | "package";
 
 type DemoManualReviewState = Record<string, SenaDemoVerificationCheck["manualReview"]>;
-const width = 900;
-const height = 620;
-const center = { x: width / 2, y: height / 2 };
-const conceptGuideRadius = 184;
 const fusionPlotZoomMin = 0.75;
 const fusionPlotZoomMax = 2;
 const fusionPlotZoomStep = 0.125;
@@ -473,7 +506,7 @@ function formatPercentValue(value: number | undefined, digits = 1) {
 }
 
 function primaryGroupComparison(result: SenaGroupComparisonValidationResult): SenaGroupComparisonResult {
-  return result.schemaVersion === "sena-group-comparison-suite/v1" ? result.primary : result;
+  return result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? result.primary : result;
 }
 
 function validationResultSummary(result: SenaGroupComparisonValidationResult) {
@@ -482,7 +515,7 @@ function validationResultSummary(result: SenaGroupComparisonValidationResult) {
 }
 
 function validationSuiteSummary(result: SenaGroupComparisonValidationResult) {
-  if (result.schemaVersion !== "sena-group-comparison-suite/v1") return null;
+  if (result.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite) return null;
   const minimumAdjustedP = result.comparisons.reduce((minimum, comparison) => Math.min(minimum, comparison.holmAdjustedP), 1);
   return `Holm suite ${result.comparisonCount} comparisons, ${result.significantHolmCount} significant at alpha ${formatNumber(result.alpha, 3)}, min adjusted p=${formatNumber(minimumAdjustedP, 4)}`;
 }
@@ -522,7 +555,7 @@ async function buildLocalValidationPreregistrationPlan(input: {
   methodNote: string;
 }): Promise<LocalValidationPreregistrationPlan> {
   const primary = primaryGroupComparison(input.result);
-  const suite = input.result.schemaVersion === "sena-group-comparison-suite/v1" ? input.result : null;
+  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
   const analysis: LocalValidationPreregistrationPlan["analysis"] = suite ? "holm-suite" : "single-comparison";
   const comparisons = suite
     ? suite.comparisons.map(validationComparisonPlanRow)
@@ -540,7 +573,7 @@ async function buildLocalValidationPreregistrationPlan(input: {
     sha256Text(methodNote)
   ]);
   const planBody: Omit<LocalValidationPreregistrationPlan, "planHash"> = {
-    schemaVersion: "sena-validation-preregistration-plan/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.validationPreregistrationPlan,
     hashAlgorithm: "sha256",
     analysis,
     primary: validationComparisonPlanRow(primary),
@@ -712,150 +745,6 @@ function downloadText(filename: string, text: string, mimeType: string) {
     URL.revokeObjectURL(url);
     anchor.remove();
   }, 1000);
-}
-
-function socialNodePositions(people: SenaModel["people"]) {
-  const positions = new Map<string, { x: number; y: number }>();
-  const radiusX = 335;
-  const radiusY = 235;
-
-  people.forEach((person, index) => {
-    const angle = -Math.PI / 2 + (index * Math.PI * 2) / people.length;
-    positions.set(person.id, {
-      x: center.x + Math.cos(angle) * radiusX,
-      y: center.y + Math.sin(angle) * radiusY
-    });
-  });
-
-  return positions;
-}
-
-function conceptAnchorPositions(model: SenaModel, radius = 148) {
-  const positions = new Map<string, { x: number; y: number }>();
-  model.codes.forEach((code, index) => {
-    const angle = -Math.PI / 2 + (index * Math.PI * 2) / model.codes.length;
-    positions.set(code.id, {
-      x: center.x + Math.cos(angle) * radius,
-      y: center.y + Math.sin(angle) * radius
-    });
-  });
-  return positions;
-}
-
-function explanatoryLayout(model: SenaModel): PositionedNode[] {
-  const people = socialNodePositions(model.people);
-  const concepts = conceptAnchorPositions(model, 150);
-
-  return model.nodes.map((node) => {
-    const position = node.kind === "person" ? people.get(node.id) : concepts.get(node.id);
-    return { ...node, x: position?.x ?? center.x, y: position?.y ?? center.y };
-  });
-}
-
-function enaSpaceLayout(model: SenaModel, enaManifest?: SenaEnaManifest): PositionedNode[] {
-  if (enaManifest) {
-    const jenaCoordinates = buildSenaEnaSpaceCoordinateMap(enaManifest, model.people, model.codes, {
-      width,
-      height,
-      marginX: 92,
-      marginY: 78
-    });
-    if (jenaCoordinates.status === "computed") {
-      const fallback = explanatoryLayout(model);
-      return model.nodes.map((node, index) => {
-        const position = jenaCoordinates.coordinates[node.id] ?? fallback[index];
-        return { ...node, x: position?.x ?? center.x, y: position?.y ?? center.y };
-      });
-    }
-  }
-
-  const concepts = conceptAnchorPositions(model, 178);
-  const codeOrder = model.codes.map((code) => code.id);
-
-  return model.nodes.map((node, index) => {
-    if (node.kind === "concept") {
-      const position = concepts.get(node.id);
-      return { ...node, x: position?.x ?? center.x, y: position?.y ?? center.y };
-    }
-
-    const rowIndex = model.people.findIndex((person) => person.id === node.id);
-    const contribution = model.matrices.B.normalized[rowIndex] ?? [];
-    const total = contribution.reduce((acc, value) => acc + value, 0);
-    if (total === 0) return { ...node, x: center.x - 270 + index * 20, y: center.y + 210 };
-
-    const position = codeOrder.reduce(
-      (acc, codeId, codeIndex) => {
-        const anchor = concepts.get(codeId) ?? center;
-        const weight = contribution[codeIndex] ?? 0;
-        return {
-          x: acc.x + anchor.x * weight,
-          y: acc.y + anchor.y * weight
-        };
-      },
-      { x: 0, y: 0 }
-    );
-
-    const offset = (rowIndex - model.people.length / 2) * 12;
-    return {
-      ...node,
-      x: center.x + (position.x / total - center.x) * 1.28 + offset,
-      y: center.y + (position.y / total - center.y) * 1.28 - offset * 0.5
-    };
-  });
-}
-
-// Deterministic force layout over A_fusion weights; this is a visual embedding, not an inferential distance model.
-function jointLayout(model: SenaModel): PositionedNode[] {
-  const initial = explanatoryLayout(model);
-  const coords = initial.map((node) => ({
-    x: (node.x - center.x) / 310,
-    y: (node.y - center.y) / 245
-  }));
-  const weights = model.matrices.fusion.values;
-
-  for (let iteration = 0; iteration < 130; iteration += 1) {
-    const forces = coords.map(() => ({ x: 0, y: 0 }));
-
-    for (let i = 0; i < coords.length; i += 1) {
-      for (let j = i + 1; j < coords.length; j += 1) {
-        const dx = coords[j].x - coords[i].x;
-        const dy = coords[j].y - coords[i].y;
-        const distance = Math.max(0.08, Math.sqrt(dx * dx + dy * dy));
-        const repulsion = 0.006 / (distance * distance);
-        forces[i].x -= (dx / distance) * repulsion;
-        forces[i].y -= (dy / distance) * repulsion;
-        forces[j].x += (dx / distance) * repulsion;
-        forces[j].y += (dy / distance) * repulsion;
-
-        const attraction = Math.max(weights[i]?.[j] ?? 0, weights[j]?.[i] ?? 0);
-        if (attraction > 0) {
-          const target = Math.max(0.28, 1.1 - attraction * 0.55);
-          const pull = (distance - target) * 0.018 * attraction;
-          forces[i].x += (dx / distance) * pull;
-          forces[i].y += (dy / distance) * pull;
-          forces[j].x -= (dx / distance) * pull;
-          forces[j].y -= (dy / distance) * pull;
-        }
-      }
-    }
-
-    for (let i = 0; i < coords.length; i += 1) {
-      coords[i].x = Math.max(-1.35, Math.min(1.35, coords[i].x + forces[i].x));
-      coords[i].y = Math.max(-1.22, Math.min(1.22, coords[i].y + forces[i].y));
-    }
-  }
-
-  return initial.map((node, index) => ({
-    ...node,
-    x: center.x + coords[index].x * 285,
-    y: center.y + coords[index].y * 230
-  }));
-}
-
-function computeLayout(model: SenaModel, layout: SenaLayoutMode, enaManifest?: SenaEnaManifest) {
-  if (layout === "ena-space") return enaSpaceLayout(model, enaManifest);
-  if (layout === "joint") return jointLayout(model);
-  return explanatoryLayout(model);
 }
 
 function hexPoints(x: number, y: number, radius: number) {
@@ -2617,332 +2506,6 @@ function MatrixPreview({
   );
 }
 
-const temporalFusionPhases = [
-  {
-    label: "Plan",
-    subtitle: "Question + hypothesis",
-    match: /(plan|brainstorm|question|hypothesis|forming)/i,
-    tint: "#dbeafe"
-  },
-  {
-    label: "Teach",
-    subtitle: "Evidence building",
-    match: /(teach|evidence|build|lesson|inquiry)/i,
-    tint: "#e0f7ff"
-  },
-  {
-    label: "Reflect",
-    subtitle: "Explanation + reflection",
-    match: /(reflect|reflection|explain|synthesis|review)/i,
-    tint: "#f4e8ff"
-  }
-] as const;
-
-function temporalPhaseIndex(window: SenaTemporalWindow, index: number, total: number) {
-  const source = `${window.label} ${window.stages.join(" ")}`;
-  const matched = temporalFusionPhases.findIndex((phase) => phase.match.test(source));
-  if (matched >= 0) return matched;
-  return Math.min(temporalFusionPhases.length - 1, Math.floor((index / Math.max(1, total)) * temporalFusionPhases.length));
-}
-
-function truncateSvgText(value: string, maxLength = 13) {
-  return value.length > maxLength ? `${value.slice(0, Math.max(1, maxLength - 1))}.` : value;
-}
-
-function TemporalFusionArc({
-  windows,
-  activeIndex,
-  people,
-  codes,
-  temporalRuntimeTrace,
-  onSelect
-}: {
-  windows: SenaTemporalWindow[];
-  activeIndex: number;
-  people: SenaModel["people"];
-  codes: SenaModel["codes"];
-  temporalRuntimeTrace?: SenaTemporalRuntimeTrace;
-  onSelect: (index: number) => void;
-}) {
-  const chartWidth = 760;
-  const chartHeight = 360;
-  const activeWindow = windows[activeIndex];
-  const codeColor = new Map(codes.map((code) => [code.id, code.color]));
-  const codeLabel = new Map(codes.map((code) => [code.id, code.label]));
-  const traceByWindowId = new Map((temporalRuntimeTrace?.windows ?? []).map((entry) => [entry.window.id, entry]));
-  const gTotals = windows.map((window) => traceByWindowId.get(window.id)?.sena.matrixTotals.G ?? 0);
-  const gTotalMax = Math.max(1, ...gTotals);
-  const gForWindow = (window?: SenaTemporalWindow) => {
-    if (!window) return { normalized: 0, total: 0, activePairs: 0, strongestPair: undefined };
-    const entry = traceByWindowId.get(window.id);
-    const total = entry?.sena.matrixTotals.G ?? 0;
-    return {
-      normalized: total / gTotalMax,
-      total,
-      activePairs: entry?.sena.activeGPairs ?? 0,
-      strongestPair: entry?.sena.strongestGPair
-    };
-  };
-  const personInitials = new Map(people.map((person) => {
-    const fallback = person.label.split(/\s+/).map((part: string) => part[0]).join("").slice(0, 2).toUpperCase();
-    return [person.id, person.initials ?? (fallback || person.id.slice(0, 2).toUpperCase())];
-  }));
-
-  if (windows.length === 0) {
-    return (
-      <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-4 text-sm font-semibold text-muted">
-        Temporal Fusion Arc will appear when stage or turn windows are available.
-      </div>
-    );
-  }
-
-  const phaseGroups = temporalFusionPhases.map((phase, phaseIndex) => ({
-    ...phase,
-    index: phaseIndex,
-    x: 130 + phaseIndex * 250,
-    windows: windows
-      .map((window, windowIndex) => ({ window, windowIndex }))
-      .filter(({ window, windowIndex }) => temporalPhaseIndex(window, windowIndex, windows.length) === phaseIndex)
-  }));
-
-  const activePhaseIndex = activeWindow ? temporalPhaseIndex(activeWindow, activeIndex, windows.length) : 0;
-  const phaseConcepts = phaseGroups.map((phase) => {
-    const scores = new Map<string, { label: string; weight: number; color: string }>();
-    for (const { window } of phase.windows) {
-      for (const code of window.topCodes) {
-        const current = scores.get(code.id);
-        scores.set(code.id, {
-          label: codeLabel.get(code.id) ?? code.label,
-          weight: Math.max(current?.weight ?? 0, code.weight),
-          color: codeColor.get(code.id) ?? "#8b5cf6"
-        });
-      }
-    }
-    return Array.from(scores.values()).sort((a, b) => b.weight - a.weight).slice(0, 2);
-  });
-
-  const phaseActors = phaseGroups.map((phase) => {
-    const counts = new Map<string, number>();
-    for (const { window } of phase.windows) {
-      for (const snippet of window.evidence) {
-        if (!snippet.personId) continue;
-        counts.set(snippet.personId, (counts.get(snippet.personId) ?? 0) + 1);
-      }
-    }
-    const [personId] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0] ?? [];
-    return personId ? personInitials.get(personId) ?? personId.slice(0, 2).toUpperCase() : "";
-  });
-
-  const conceptNodes = phaseGroups.flatMap((phase, phaseIndex) => {
-    const concepts = phaseConcepts[phaseIndex];
-    const fallbackLabel = phaseIndex === 0 ? "Question" : phaseIndex === 1 ? "Evidence" : "Reflection";
-    const rows = concepts.length > 0 ? concepts : [{ label: fallbackLabel, weight: 0, color: phaseIndex === 2 ? "#e253a5" : "#8b5cf6" }];
-    return rows.map((concept, conceptIndex) => ({
-      ...concept,
-      phaseIndex,
-      x: phase.x + (conceptIndex === 0 ? -32 : 32),
-      y: conceptIndex === 0 ? 145 : 216,
-      radius: 35 + Math.min(9, Math.max(0, concept.weight) * 0.8)
-    }));
-  });
-
-  const representativeIndex = (phaseIndex: number) => {
-    const activeInPhase = phaseGroups[phaseIndex].windows.find(({ windowIndex }) => windowIndex === activeIndex);
-    return activeInPhase?.windowIndex ?? phaseGroups[phaseIndex].windows[0]?.windowIndex ?? 0;
-  };
-  const phaseSummaries = phaseGroups.map((phase) => {
-    const windowIndex = representativeIndex(phase.index);
-    const window = windows[windowIndex];
-    return {
-      phase,
-      window,
-      windowIndex,
-      evidenceCount: phase.windows.reduce((total, entry) => total + entry.window.evidence.length, 0)
-    };
-  });
-
-  return (
-    <div data-testid="temporal-fusion-arc" className="overflow-hidden rounded-lg border border-slate-200 bg-white text-slate-950 shadow-[inset_0_1px_0_rgb(255_255_255/0.75)]">
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-slate-950">Temporal Fusion Arc</div>
-          <div className="mt-1 text-xs font-semibold text-slate-600">Plan - Teach - Reflect story view linked to the active temporal window.</div>
-        </div>
-        <div className="flex flex-wrap gap-2 text-[0.68rem] font-black text-slate-600">
-          <span className="rounded-full border border-blue-400/25 bg-blue-400/10 px-2 py-1">S social spine</span>
-          <span className="rounded-full border border-violetGlow/25 bg-violetGlow/10 px-2 py-1">W concept transitions</span>
-          <span className="rounded-full border border-cyanGlow/25 bg-cyanGlow/10 px-2 py-1">B bridge moments</span>
-          <span className="rounded-full border border-rose-300/25 bg-rose-400/10 px-2 py-1">G pair contributions</span>
-          <span className="rounded-full border border-rose-200/20 bg-rose-300/8 px-2 py-1">Top G pair</span>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[22rem] w-full" role="img" aria-label="Temporal Fusion Arc Plan Teach Reflect">
-        <defs>
-          <linearGradient id="temporal-bridge-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#24dcee" />
-            <stop offset="100%" stopColor="#7aa7ff" />
-          </linearGradient>
-          <linearGradient id="temporal-concept-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#735cf6" />
-            <stop offset="100%" stopColor="#b14cf1" />
-          </linearGradient>
-          <linearGradient id="temporal-g-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#fb7185" />
-            <stop offset="100%" stopColor="#e253a5" />
-          </linearGradient>
-        </defs>
-        <rect x="0" y="0" width={chartWidth} height={chartHeight} rx="12" fill="#ffffff" />
-        {phaseGroups.map((phase) => (
-          <g key={phase.label} onClick={() => onSelect(representativeIndex(phase.index))} className="cursor-pointer">
-            <rect
-              x={phase.x - 106}
-              y="34"
-              width="212"
-              height="282"
-              rx="22"
-              fill={phase.tint}
-              opacity={phase.index === activePhaseIndex ? 0.72 : 0.42}
-              stroke={phase.index === activePhaseIndex ? "#24dcee" : "#cbd5e1"}
-              strokeWidth={phase.index === activePhaseIndex ? 1.8 : 1}
-            />
-            <text x={phase.x} y="64" textAnchor="middle" fill="#0f172a" fontSize="20" fontWeight="950">
-              {phase.label}
-            </text>
-            <text x={phase.x} y="84" textAnchor="middle" fill="#475569" fontSize="10" fontWeight="900">
-              {phase.subtitle.toUpperCase()}
-            </text>
-            <title>{`${phase.label}: ${phase.windows.map(({ window }) => window.label).join(", ") || "no windows"}`}</title>
-          </g>
-        ))}
-
-        <path d="M 90 274 C 220 92 415 92 670 274" fill="none" stroke="#2f73ff" strokeWidth="5.5" strokeLinecap="round" opacity="0.72" />
-        <path d="M 104 260 C 250 200 485 200 656 260" fill="none" stroke="url(#temporal-bridge-gradient)" strokeWidth="9" strokeLinecap="round" opacity="0.34" />
-        <path d="M 130 216 C 270 130 510 130 630 216" fill="none" stroke="url(#temporal-concept-gradient)" strokeWidth="4.5" strokeLinecap="round" opacity="0.62" />
-        <path
-          data-visual-role="temporal-g-pair-arc"
-          d="M 122 286 C 260 322 492 322 638 286"
-          fill="none"
-          stroke="url(#temporal-g-gradient)"
-          strokeWidth="4"
-          strokeLinecap="round"
-          opacity="0.58"
-        />
-
-        {conceptNodes.slice(0, -1).map((node, index) => {
-          const next = conceptNodes[index + 1];
-          return (
-            <path
-              key={`${node.label}-${index}`}
-              d={`M ${node.x} ${node.y} L ${next.x} ${next.y}`}
-              fill="none"
-              stroke="url(#temporal-concept-gradient)"
-              strokeWidth="2.8"
-              strokeLinecap="round"
-              opacity="0.42"
-            />
-          );
-        })}
-
-        {conceptNodes.map((node, index) => {
-          const active = node.phaseIndex === activePhaseIndex;
-          return (
-            <g key={`${node.phaseIndex}-${node.label}-${index}`}>
-              <polygon
-                points={hexPoints(node.x, node.y, node.radius)}
-                fill={node.color}
-                opacity={active ? 0.96 : 0.78}
-                stroke={active ? "#ffffff" : "rgb(var(--background))"}
-                strokeWidth={active ? 3 : 1.8}
-              />
-              <text x={node.x} y={node.y + 4} textAnchor="middle" fill="white" fontSize="11" fontWeight="950">
-                {truncateSvgText(node.label)}
-              </text>
-              <title>{`${node.label}: W ${formatNumber(node.weight, 1)}`}</title>
-            </g>
-          );
-        })}
-
-        {phaseGroups.map((phase, index) => {
-          const actor = phaseActors[index];
-          if (!actor) return null;
-          return (
-            <g key={`${phase.label}-actor`}>
-              <line x1={phase.x} y1="252" x2={phase.x} y2="292" stroke="#24dcee" strokeWidth="6" strokeLinecap="round" opacity="0.28" />
-              <circle cx={phase.x} cy="292" r="24" fill="#f8fbff" stroke="#24dcee" strokeWidth="2.4" />
-              <text x={phase.x} y="299" textAnchor="middle" fill="#0f172a" fontSize="14" fontWeight="950">
-                {actor}
-              </text>
-            </g>
-          );
-        })}
-
-        {phaseGroups.map((phase) => {
-          const representative = phase.windows.find(({ windowIndex }) => windowIndex === activeIndex)?.window ?? phase.windows[0]?.window;
-          const y = 336;
-          const socialWidth = Math.max(8, Math.min(54, (representative?.socialConnectivity ?? 0) * 54));
-          const conceptWidth = Math.max(8, Math.min(54, (representative?.conceptConnectivity ?? 0) * 54));
-          const bridgeWidth = Math.max(8, Math.min(54, (representative?.bridgeIntegration ?? 0) * 54));
-          const gMetric = gForWindow(representative);
-          const gWidth = Math.max(8, Math.min(54, gMetric.normalized * 54));
-          return (
-            <g key={`${phase.label}-metrics`}>
-              <rect x={phase.x - 60} y={y - 34} width="120" height="52" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + socialWidth} y1={y - 17} y2={y - 17} stroke="#2f73ff" strokeWidth="4" strokeLinecap="round" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + conceptWidth} y1={y - 7} y2={y - 7} stroke="#a855f7" strokeWidth="4" strokeLinecap="round" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + bridgeWidth} y1={y + 3} y2={y + 3} stroke="#24dcee" strokeWidth="4" strokeLinecap="round" />
-              <line
-                data-visual-role="temporal-g-pair-metric"
-                x1={phase.x - 48}
-                x2={phase.x - 48 + gWidth}
-                y1={y + 13}
-                y2={y + 13}
-                stroke="#fb7185"
-                strokeWidth="4"
-                strokeLinecap="round"
-              />
-              <title>{`${phase.label} G pair contributions: total ${formatNumber(gMetric.total, 1)}, active pairs ${gMetric.activePairs}`}</title>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="grid gap-2 border-t border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
-        {phaseSummaries.map(({ phase, window, windowIndex, evidenceCount }) => {
-          const active = phase.index === activePhaseIndex;
-          const gMetric = gForWindow(window);
-          return (
-            <button
-              key={phase.label}
-              type="button"
-              data-testid={`temporal-fusion-phase-${phase.label.toLowerCase()}`}
-              aria-pressed={active}
-              onClick={() => onSelect(windowIndex)}
-              className={cn(
-                "grid gap-1 rounded-lg border px-3 py-2 text-left transition",
-                active ? "border-cyanGlow/65 bg-cyanGlow/12 text-slate-950" : "border-slate-200 bg-white text-slate-600 hover:border-cyanGlow/45 hover:text-slate-950"
-              )}
-            >
-              <span className="flex items-center justify-between gap-2 text-xs font-black uppercase">
-                {phase.label}
-                {active && <span className="rounded-full border border-cyanGlow/35 px-2 py-0.5 text-[0.62rem] text-cyanGlow">Active</span>}
-              </span>
-              <span className="truncate text-sm font-black">{window?.label ?? "No window"}</span>
-              <span className="text-xs font-semibold">
-                {window ? `Turns ${window.startTurn}-${window.endTurn} · ${evidenceCount} evidence refs` : "No temporal evidence yet"}
-              </span>
-              <span className="text-xs font-semibold text-rose-600">
-                {window ? `${gMetric.activePairs} G pairs · G ${formatNumber(gMetric.total, 1)}` : "No G pair contributions yet"}
-              </span>
-              <span className="truncate text-xs font-semibold text-slate-500">
-                {gMetric.strongestPair ? `Top G pair: ${gMetric.strongestPair.label}` : "Top G pair: NA"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function TimelineTrace({
   windows,
   activeIndex,
@@ -3426,234 +2989,6 @@ function TemporalRuntimeTracePanel({
   );
 }
 
-function ReportCompletenessAuditPanel({ audit }: { audit: SenaReportCompletenessAudit }) {
-  const reviewItems = audit.items.filter((item) => item.status === "review");
-  const visibleItems = reviewItems.length > 0 ? reviewItems : audit.items;
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Report completeness audit</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {audit.schemaVersion}; {audit.status}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-          <MetricCell label="Passed" value={audit.passed} />
-          <MetricCell label="Review" value={audit.reviewNeeded} />
-        </div>
-      </div>
-
-      <div className="grid max-h-72 gap-2 overflow-auto pr-1">
-        {visibleItems.map((item) => {
-          const Icon = item.status === "pass" ? CheckCircle2 : AlertTriangle;
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                item.status === "pass" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.status === "pass" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0">
-                  <div className="text-sm font-black text-foreground">{item.label}</div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">{item.summary}</div>
-                  {item.evidence.length > 0 && (
-                    <div className="mt-1 truncate text-xs font-semibold text-foreground/72">
-                      {item.evidence.slice(0, 3).join("; ")}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {audit.notes.length > 0 && (
-        <div className="text-xs font-semibold leading-5 text-muted">
-          {audit.notes[0]}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ReviewPacketAuditPanel({ audit }: { audit: SenaReviewPacketAudit }) {
-  const reviewItems = audit.items.filter((item) => item.status === "review");
-  const visibleItems = reviewItems.length > 0 ? reviewItems : audit.items;
-
-  return (
-    <div data-testid="review-packet-audit" data-visual-role="review-packet-audit" className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Review packet audit</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {audit.schemaVersion}; {audit.status}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-          <MetricCell label="Passed" value={audit.passed} />
-          <MetricCell label="Review" value={audit.reviewNeeded} />
-        </div>
-      </div>
-
-      <div className="grid max-h-64 gap-2 overflow-auto pr-1">
-        {visibleItems.map((item) => {
-          const Icon = item.status === "pass" ? CheckCircle2 : AlertTriangle;
-          return (
-            <div
-              key={item.id}
-              data-testid={`review-packet-audit-${item.id}`}
-              data-audit-id={item.id}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                item.status === "pass" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.status === "pass" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0">
-                  <div className="text-sm font-black text-foreground">{item.label}</div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">{item.actual}</div>
-                  {item.evidence.length > 0 && (
-                    <div className="mt-1 truncate text-xs font-semibold text-foreground/72">
-                      {item.evidence.slice(0, 3).join("; ")}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {audit.notes.length > 0 && (
-        <div className="text-xs font-semibold leading-5 text-muted">
-          {audit.notes[0]}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DemoVerificationCompatibilityAuditPanel({ audit }: { audit: SenaDemoVerificationCompatibilityAudit }) {
-  const reviewItems = audit.items.filter((item) => item.status === "review");
-  const visibleItems = reviewItems.length > 0 ? reviewItems : audit.items;
-
-  return (
-    <div data-testid="demo-verification-compatibility-audit" className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Demo verification compatibility audit</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {audit.schemaVersion}; {audit.status}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-          <MetricCell label="Passed" value={audit.passed} testId="demo-verification-compatibility-passed" />
-          <MetricCell label="Review" value={audit.reviewNeeded} testId="demo-verification-compatibility-review" />
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        {visibleItems.map((item) => {
-          const Icon = item.status === "pass" ? CheckCircle2 : AlertTriangle;
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                item.status === "pass" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.status === "pass" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0">
-                  <div className="text-sm font-black text-foreground">{item.label}</div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">
-                    Expected: {item.expected}
-                  </div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-foreground/72">
-                    Actual: {item.actual}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {audit.notes.length > 0 && (
-        <div className="text-xs font-semibold leading-5 text-muted">
-          {audit.notes[0]}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProductionPageContractPanel({ contract }: { contract: SenaProductionPageContract }) {
-  const requiredTextCount = contract.sections.reduce((total, section) => total + section.requiredText.length, 0);
-
-  return (
-    <div data-testid="production-page-contract" className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Production page contract</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {contract.schemaVersion}; {contract.workspaceRoute}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-          <MetricCell label="Text checks" value={requiredTextCount} />
-          <MetricCell label="Visual checks" value={contract.visualChecks.length} />
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        {contract.sections.map((section) => (
-          <div key={section.id} className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="text-sm font-black text-foreground">{section.label}</div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {section.requiredText.map((text) => (
-                <span key={`${section.id}-${text}`} className="rounded-md border border-cardBorder/35 bg-background/35 px-2 py-1 text-[0.68rem] font-semibold text-muted">
-                  {text}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-2">
-        {contract.visualChecks.map((check) => (
-          <div key={check.id} className="rounded-lg border border-violetGlow/35 bg-violetGlow/10 p-3">
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-black text-foreground">{check.label}</div>
-                <div className="mt-1 text-xs font-semibold leading-5 text-muted">{check.expectedOutcome}</div>
-              </div>
-              <code className="break-all rounded-md border border-cardBorder/35 bg-slate-950/70 px-2 py-1 text-[0.68rem] font-black text-cyanGlow">
-                {check.requiredText}
-              </code>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {contract.notes.length > 0 && (
-        <div className="text-xs font-semibold leading-5 text-muted">
-          {contract.notes[0]}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function DataContractAuditPanel({
   audit,
   onExport
@@ -3716,950 +3051,6 @@ function DataContractAuditPanel({
           {audit.notes[0]}
         </div>
       )}
-    </div>
-  );
-}
-
-function PilotReadinessAuditPanel({ audit }: { audit: SenaPilotReadinessAudit }) {
-  const reviewItems = audit.items.filter((item) => item.status === "review");
-  const visibleItems = reviewItems.length > 0 ? reviewItems : audit.items;
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Pilot readiness audit</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {audit.schemaVersion}; {audit.status}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-56">
-          <MetricCell label="Ready" value={audit.passed} />
-          <MetricCell label="Review" value={audit.reviewNeeded} />
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2">
-        {visibleItems.map((item) => {
-          const Icon = item.status === "ready" ? CheckCircle2 : AlertTriangle;
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                item.status === "ready" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.status === "ready" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-black text-foreground">{item.label}</div>
-                    <span className="rounded border border-cardBorder/40 px-1.5 py-0.5 text-[0.64rem] font-black uppercase text-cyanGlow">
-                      {item.category}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">{item.summary}</div>
-                  {item.status === "review" && (
-                    <div className="mt-1 text-xs font-semibold leading-5 text-amber-100">{item.nextAction}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {audit.notes.length > 0 && (
-        <div className="text-xs font-semibold leading-5 text-muted">
-          {audit.notes[0]}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ClaimReadinessGatePanel({ gate }: { gate: SenaClaimReadinessGate }) {
-  return (
-    <div
-      data-testid="claim-readiness-gate"
-      data-visual-role="claim-readiness-gate"
-      className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3"
-    >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Claim readiness gate</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {gate.schemaVersion}; {gate.claimUse}
-          </div>
-          <div className="mt-2 text-xs font-semibold leading-5 text-amber-100">
-            Exploratory until coding reliability, data governance, human review, and all automated gates pass.
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 sm:min-w-80">
-          <MetricCell label="Status" value={gate.status} />
-          <MetricCell label="Ready" value={gate.ready} />
-          <MetricCell label="Review" value={gate.reviewNeeded} />
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {gate.items.map((item) => {
-          const Icon = item.status === "ready" ? CheckCircle2 : AlertTriangle;
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                item.status === "ready" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", item.status === "ready" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-black text-foreground">{item.label}</div>
-                    <span className="rounded border border-cardBorder/40 px-1.5 py-0.5 text-[0.64rem] font-black uppercase text-cyanGlow">
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">{item.summary}</div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-foreground/72">{item.guardrail}</div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="rounded-lg border border-cardBorder/30 bg-background/30 px-3 py-2 text-xs font-semibold leading-5 text-muted">
-        Review blockers: {gate.blockers.length > 0 ? gate.blockers.join(", ") : "None"}.
-      </div>
-    </div>
-  );
-}
-
-function CodingReliabilityGatePanel({ gate }: { gate: SenaCodingReliabilityGate }) {
-  const Icon = gate.status === "ready" ? CheckCircle2 : AlertTriangle;
-
-  return (
-    <div
-      data-testid="coding-reliability-gate"
-      data-visual-role="coding-reliability-gate"
-      className={cn(
-        "grid gap-3 rounded-lg border p-3",
-        gate.status === "ready" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-      )}
-    >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex items-start gap-2">
-          <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", gate.status === "ready" ? "text-emerald-200" : "text-amber-100")} />
-          <div>
-            <div className="text-sm font-black text-foreground">Coding reliability gate</div>
-            <div className="mt-1 text-xs font-semibold text-muted">
-              {gate.schemaVersion}; {gate.claimUse}
-            </div>
-            <div className="mt-2 text-xs font-semibold leading-5 text-muted">{gate.guardrail}</div>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2 sm:min-w-80">
-          <MetricCell label="Status" value={gate.status} />
-          <MetricCell label="Coders" value={gate.review.coderCount} />
-          <MetricCell label="Blockers" value={gate.blockers.length} />
-        </div>
-      </div>
-
-      <div className="grid gap-2 text-xs font-semibold leading-5 text-muted md:grid-cols-3">
-        <div className="rounded-lg border border-cardBorder/30 bg-background/30 p-2">
-          <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Scheme</div>
-          <div className="mt-1">{gate.review.codingScheme}</div>
-        </div>
-        <div className="rounded-lg border border-cardBorder/30 bg-background/30 p-2">
-          <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Agreement</div>
-          <div className="mt-1">{gate.review.agreementMetric}: {gate.review.agreementValue}</div>
-        </div>
-        <div className="rounded-lg border border-cardBorder/30 bg-background/30 p-2">
-          <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Reviewer</div>
-          <div className="mt-1">{gate.review.reviewer || "Unassigned"}</div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-cardBorder/30 bg-background/30 px-3 py-2 text-xs font-semibold leading-5 text-muted">
-        {gate.blockers.length > 0 ? `Blockers: ${gate.blockers.join(" ")}` : "Blockers: None."}
-      </div>
-    </div>
-  );
-}
-
-function DevelopmentPlanPanel({ plan }: { plan: SenaDevelopmentPlan }) {
-  const activePhase = plan.phases.find((phase) => phase.status === "active") ?? plan.phases[0];
-  const productionPhase = plan.phases.find((phase) => phase.id === "production-platform");
-  const deliveryCandidate = plan.deliveryCandidate;
-  const nextStage = plan.nextStage;
-  const phaseStyles: Record<SenaDevelopmentPlan["phases"][number]["status"], string> = {
-    complete: "border-emerald-300/35 bg-emerald-300/10 text-emerald-100",
-    active: "border-cyanGlow/45 bg-cyanGlow/10 text-cyanGlow",
-    deferred: "border-amber-300/35 bg-amber-300/10 text-amber-100"
-  };
-  const nextStagePhaseStyles: Record<SenaDevelopmentPlan["nextStage"]["phases"][number]["status"], string> = {
-    active: "border-cyanGlow/45 bg-cyanGlow/10 text-cyanGlow",
-    next: "border-sky-300/35 bg-sky-300/10 text-sky-100",
-    deferred: "border-amber-300/35 bg-amber-300/10 text-amber-100",
-    gate: "border-violet-300/35 bg-violet-300/10 text-violet-100"
-  };
-
-  return (
-    <div className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Development plan</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {plan.schemaVersion}; {plan.milestone}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-[34rem] md:grid-cols-5">
-          <MetricCell label="Gate" value={plan.currentGate.pilotReadinessStatus} />
-          <MetricCell label="Checks" value={`${plan.currentGate.automatedVerification.passed}/${plan.currentGate.automatedVerification.totalChecks}`} />
-          <MetricCell label="Manual pending" value={plan.currentGate.automatedVerification.manualPending} />
-          <MetricCell label="Manual failed" value={plan.currentGate.automatedVerification.manualFailed} />
-          <MetricCell label="Artifacts" value={plan.requiredArtifacts.length} />
-        </div>
-      </div>
-
-      <div
-        data-testid="delivery-candidate-plan"
-        data-visual-role="local-research-pilot-delivery-candidate"
-        className="grid gap-3 rounded-lg border border-cyanGlow/35 bg-cyanGlow/10 p-3"
-      >
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="text-sm font-black text-foreground">Local research pilot delivery candidate</div>
-            <div className="mt-1 text-xs font-semibold text-muted">
-              {deliveryCandidate.horizon}; {deliveryCandidate.priority}; {deliveryCandidate.status}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:min-w-80">
-            <MetricCell label="Weeks" value={deliveryCandidate.weeklyPlan.length} />
-            <MetricCell label="Commands" value={deliveryCandidate.verificationCommands.length} />
-            <MetricCell label="Handoff" value={deliveryCandidate.handoffPackage.length} />
-          </div>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {deliveryCandidate.weeklyPlan.map((week) => (
-            <div key={week.week} className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-              <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Week {week.week}</div>
-              <div className="mt-1 text-sm font-black text-foreground">{week.label}</div>
-              <div className="mt-1 text-xs font-semibold leading-5 text-muted">{week.focus}</div>
-            </div>
-          ))}
-        </div>
-        <div className="grid gap-2 text-xs font-semibold leading-5 text-muted md:grid-cols-2">
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="mb-1 font-black text-cyanGlow">Verification gate</div>
-            {deliveryCandidate.verificationCommands.slice(0, 5).map((command) => <div key={command}>- {command}</div>)}
-          </div>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="mb-1 font-black text-cyanGlow">Handoff package</div>
-            {deliveryCandidate.handoffPackage.slice(0, 5).map((artifact) => <div key={artifact}>- {artifact}</div>)}
-          </div>
-        </div>
-      </div>
-
-      <div
-        data-testid="next-stage-development-plan"
-        data-visual-role="post-delivery-research-validation-plan"
-        className="grid gap-3 rounded-lg border border-sky-300/35 bg-sky-300/10 p-3"
-      >
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="text-sm font-black text-foreground">Next-stage development plan</div>
-            <div className="mt-1 text-xs font-semibold text-muted">
-              {nextStage.horizon}; {nextStage.priority}; {nextStage.status}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:min-w-80">
-            <MetricCell label="Phases" value={nextStage.phases.length} />
-            <MetricCell label="Release gate" value={nextStage.releaseGate.command} />
-            <MetricCell label="Data cases" value={nextStage.releaseGate.dataScenarios.length} />
-          </div>
-        </div>
-
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          {nextStage.phases.map((phase) => (
-            <div key={phase.id} className={cn("rounded-lg border p-3", nextStagePhaseStyles[phase.status])}>
-              <div className="text-[0.64rem] font-black uppercase">{phase.status}</div>
-              <div className="mt-1 text-sm font-black text-foreground">{phase.label}</div>
-              <div className="mt-1 text-xs font-semibold leading-5 text-muted">{phase.goal}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-2 text-xs font-semibold leading-5 text-muted md:grid-cols-3">
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="mb-1 font-black text-cyanGlow">Release gate</div>
-            <div>{nextStage.baseline.command}</div>
-            <div className="mt-1">{nextStage.baseline.expectedResult}</div>
-          </div>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="mb-1 font-black text-cyanGlow">Claim gate</div>
-            <div>{nextStage.assumptions.find((assumption) => assumption.includes("exploratory-only")) ?? "Reports remain exploratory-only until review gates pass."}</div>
-          </div>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            <div className="mb-1 font-black text-cyanGlow">Public interfaces</div>
-            {nextStage.publicInterfacePolicy.slice(0, 2).map((policy) => <div key={policy}>- {policy}</div>)}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
-        <div className="grid gap-2">
-          <div className="text-xs font-black uppercase text-cyanGlow">Current focus</div>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3 text-sm leading-6">
-            <div className="font-black text-foreground">{activePhase?.label ?? "Local research pilot"}</div>
-            <div className="mt-1 text-muted">{activePhase?.scope ?? "Local pilot scope is being prepared for research walkthroughs."}</div>
-          </div>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3 text-sm leading-6">
-            <div className="font-black text-foreground">{productionPhase?.label ?? "Production platform"}</div>
-            <div className="mt-1 text-muted">{productionPhase?.scope ?? "Production platform work remains deferred."}</div>
-          </div>
-        </div>
-
-        <div className="grid gap-2">
-          <div className="text-xs font-black uppercase text-cyanGlow">Scope boundary</div>
-          <div className="grid gap-2 text-xs font-semibold leading-5 text-muted sm:grid-cols-2">
-            <div className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 p-3">
-              <div className="mb-1 font-black text-emerald-100">In scope</div>
-              {plan.scope.inScope.slice(0, 3).map((item) => <div key={item}>- {item}</div>)}
-            </div>
-            <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 p-3">
-              <div className="mb-1 font-black text-amber-100">Deferred</div>
-              {plan.scope.outOfScope.slice(0, 3).map((item) => <div key={item}>- {item}</div>)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-2 md:grid-cols-4">
-        {plan.phases.map((phase) => (
-          <div key={phase.id} className={cn("rounded-lg border px-3 py-2", phaseStyles[phase.status])}>
-            <div className="text-sm font-black text-foreground">{phase.label}</div>
-            <div className="mt-1 text-[0.64rem] font-black uppercase">{phase.status}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-2 text-xs font-semibold leading-5 text-muted md:grid-cols-3">
-        {plan.nextDecisions.slice(0, 3).map((decision) => (
-          <div key={decision} className="rounded-lg border border-cardBorder/35 bg-background/30 p-3">
-            {decision}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DemoVerificationPanel({
-  verification,
-  defaultReviewer,
-  onManualReviewChange
-}: {
-  verification: SenaDemoVerification;
-  defaultReviewer: string;
-  onManualReviewChange: (checkId: string, patch: Partial<SenaDemoVerificationCheck["manualReview"]>) => void;
-}) {
-  const reviewChecks = verification.checks.filter((check) => check.status === "review");
-  const visibleChecks = reviewChecks.length > 0
-    ? [...reviewChecks, ...verification.checks.filter((check) => check.status !== "review")]
-    : verification.checks;
-
-  return (
-    <div className="rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-black text-foreground">Demo verification checklist</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            {verification.schemaVersion}; {verification.summary.pilotReadinessStatus}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:min-w-[34rem] sm:grid-cols-5">
-          <MetricCell label="Auto pass" value={verification.summary.automatedPass} testId="demo-verification-summary-pass" />
-          <MetricCell label="Auto review" value={verification.summary.automatedReview} testId="demo-verification-summary-review" />
-          <MetricCell label="Pending" value={verification.summary.manualPending} testId="demo-verification-summary-manual-pending" />
-          <MetricCell label="Passed" value={verification.summary.manualPassed} testId="demo-verification-summary-manual-passed" />
-          <MetricCell label="Failed" value={verification.summary.manualFailed} testId="demo-verification-summary-manual-failed" />
-        </div>
-      </div>
-
-      <div className="mt-3 rounded-lg border border-cardBorder/30 bg-background/30 px-3 py-2 text-xs font-semibold leading-5 text-muted">
-        Required artifacts: {verification.summary.requiredArtifacts.join(", ")}
-      </div>
-
-      <div className="mt-3 grid gap-2">
-        {visibleChecks.map((check) => {
-          const Icon = check.status === "pass" ? CheckCircle2 : AlertTriangle;
-          const evidence = check.observedEvidence.slice(0, 4);
-          const setManualStatus = (status: SenaDemoVerificationCheck["manualReview"]["status"]) => {
-            onManualReviewChange(check.id, {
-              status,
-              reviewer: check.manualReview.reviewer || defaultReviewer,
-              verifiedAt: status === "pending" ? "" : new Date().toISOString()
-            });
-          };
-          return (
-            <div
-              key={check.id}
-              data-testid={`demo-verification-check-${check.id}`}
-              className={cn(
-                "rounded-lg border px-3 py-2",
-                check.status === "pass" ? "border-emerald-300/35 bg-emerald-300/10" : "border-amber-300/35 bg-amber-300/10"
-              )}
-            >
-              <div className="flex items-start gap-2">
-                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", check.status === "pass" ? "text-emerald-200" : "text-amber-100")} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-sm font-black text-foreground">{check.label}</div>
-                    <a href={check.anchor} className="text-xs font-black text-cyanGlow hover:text-foreground">{check.anchor}</a>
-                  </div>
-                  <div className="mt-1 text-xs font-semibold leading-5 text-muted">{check.manualAction}</div>
-                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                    <div className="rounded-lg border border-cardBorder/25 bg-background/25 p-2">
-                      <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Expected</div>
-                      <div className="mt-1 text-xs font-semibold leading-5 text-muted">{check.expectedOutcome}</div>
-                    </div>
-                    <div className="rounded-lg border border-cardBorder/25 bg-background/25 p-2">
-                      <div className="text-[0.64rem] font-black uppercase text-cyanGlow">Observed evidence</div>
-                      <div className="mt-1 text-xs font-semibold leading-5 text-muted">
-                        {evidence.join("; ")}
-                        {check.observedEvidence.length > evidence.length ? `; +${check.observedEvidence.length - evidence.length} more` : ""}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs font-semibold leading-5 text-muted">
-                    Artifacts: {check.requiredArtifacts.join(", ")}
-                  </div>
-                  <div className="mt-3 grid gap-2 rounded-lg border border-cardBorder/25 bg-background/25 p-2 lg:grid-cols-[9rem_1fr_1.2fr]">
-                    <label className="grid gap-1 text-xs font-bold text-muted">
-                      Manual status
-                      <select
-                        data-testid={`demo-verification-status-${check.id}`}
-                        value={check.manualReview.status}
-                        onChange={(event) => setManualStatus(event.currentTarget.value as SenaDemoVerificationCheck["manualReview"]["status"])}
-                        className="h-9 rounded-lg border border-cardBorder/55 bg-background/55 px-2 text-xs font-semibold text-foreground outline-none focus:border-cyanGlow"
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="passed">Passed</option>
-                        <option value="failed">Failed</option>
-                      </select>
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-muted">
-                      Reviewer
-                      <input
-                        data-testid={`demo-verification-reviewer-${check.id}`}
-                        value={check.manualReview.reviewer}
-                        onChange={(event) => onManualReviewChange(check.id, { reviewer: event.currentTarget.value })}
-                        className="h-9 rounded-lg border border-cardBorder/55 bg-background/55 px-2 text-xs font-semibold text-foreground outline-none focus:border-cyanGlow"
-                      />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-muted">
-                      Notes
-                      <input
-                        data-testid={`demo-verification-notes-${check.id}`}
-                        value={check.manualReview.notes}
-                        onChange={(event) => onManualReviewChange(check.id, { notes: event.currentTarget.value })}
-                        className="h-9 rounded-lg border border-cardBorder/55 bg-background/55 px-2 text-xs font-semibold text-foreground outline-none focus:border-cyanGlow"
-                      />
-                    </label>
-                    {check.manualReview.verifiedAt && (
-                      <div className="text-xs font-semibold leading-5 text-muted lg:col-span-3">
-                        Verified at: {check.manualReview.verifiedAt}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ReportGenerator({
-  model,
-  completenessAudit,
-  reviewPacketAudit,
-  pilotReadinessAudit,
-  claimReadinessGate,
-  codingReliabilityGate,
-  developmentPlan,
-  demoVerification,
-  demoVerificationCompatibilityAudit,
-  productionPageContract,
-  onDemoManualReviewChange,
-  reportTitle,
-  onReportTitleChange,
-  reviewStatus,
-  onReviewStatusChange,
-  reviewer,
-  onReviewerChange,
-  interpretation,
-  onInterpretationChange,
-  limitations,
-  onLimitationsChange,
-  nextActions,
-  onNextActionsChange,
-  dataGovernanceIrbApprovalId,
-  onDataGovernanceIrbApprovalIdChange,
-  dataGovernanceConsentScope,
-  onDataGovernanceConsentScopeChange,
-  dataGovernanceRetentionPolicy,
-  onDataGovernanceRetentionPolicyChange,
-  dataGovernanceUsageConstraints,
-  onDataGovernanceUsageConstraintsChange,
-  dataGovernanceDataSteward,
-  onDataGovernanceDataStewardChange,
-  codingReliabilityStatus,
-  onCodingReliabilityStatusChange,
-  codingReliabilityReviewer,
-  onCodingReliabilityReviewerChange,
-  codingScheme,
-  onCodingSchemeChange,
-  unitOfCoding,
-  onUnitOfCodingChange,
-  coderCount,
-  onCoderCountChange,
-  agreementMetric,
-  onAgreementMetricChange,
-  agreementValue,
-  onAgreementValueChange,
-  adjudicationNotes,
-  onAdjudicationNotesChange,
-  reliabilityLimitations,
-  onReliabilityLimitationsChange,
-  onExportWalkthroughJson,
-  onExportVerificationJson,
-  onExportVerificationCompatibilityJson,
-  onExportProductionPageContractJson,
-  onExportProjectSnapshot,
-  onExportDevelopmentPlanJson,
-  onExportEnaReport,
-  onExportRuntimeBundleJson,
-  onExportRuntimeConsistencyAuditJson,
-  onExportReadinessJson,
-  onExportCodingReliabilityJson,
-  onExportReliabilityDashboardJson,
-  onExportClaimReadinessJson,
-  onExportReviewPacket,
-  onExportJson,
-  onExportMarkdown,
-  onReliabilityUpload,
-  hasReliabilityDashboard,
-  onExportPublication
-}: {
-  model: SenaModel;
-  completenessAudit: SenaReportCompletenessAudit;
-  reviewPacketAudit: SenaReviewPacketAudit;
-  pilotReadinessAudit: SenaPilotReadinessAudit;
-  claimReadinessGate: SenaClaimReadinessGate;
-  codingReliabilityGate: SenaCodingReliabilityGate;
-  developmentPlan: SenaDevelopmentPlan;
-  demoVerification: SenaDemoVerification;
-  demoVerificationCompatibilityAudit: SenaDemoVerificationCompatibilityAudit;
-  productionPageContract: SenaProductionPageContract;
-  onDemoManualReviewChange: (checkId: string, patch: Partial<SenaDemoVerificationCheck["manualReview"]>) => void;
-  reportTitle: string;
-  onReportTitleChange: (value: string) => void;
-  reviewStatus: SenaReportHumanReview["status"];
-  onReviewStatusChange: (value: SenaReportHumanReview["status"]) => void;
-  reviewer: string;
-  onReviewerChange: (value: string) => void;
-  interpretation: string;
-  onInterpretationChange: (value: string) => void;
-  limitations: string;
-  onLimitationsChange: (value: string) => void;
-  nextActions: string;
-  onNextActionsChange: (value: string) => void;
-  dataGovernanceIrbApprovalId: string;
-  onDataGovernanceIrbApprovalIdChange: (value: string) => void;
-  dataGovernanceConsentScope: string;
-  onDataGovernanceConsentScopeChange: (value: string) => void;
-  dataGovernanceRetentionPolicy: string;
-  onDataGovernanceRetentionPolicyChange: (value: string) => void;
-  dataGovernanceUsageConstraints: string;
-  onDataGovernanceUsageConstraintsChange: (value: string) => void;
-  dataGovernanceDataSteward: string;
-  onDataGovernanceDataStewardChange: (value: string) => void;
-  codingReliabilityStatus: SenaCodingReliabilityReview["status"];
-  onCodingReliabilityStatusChange: (value: SenaCodingReliabilityReview["status"]) => void;
-  codingReliabilityReviewer: string;
-  onCodingReliabilityReviewerChange: (value: string) => void;
-  codingScheme: string;
-  onCodingSchemeChange: (value: string) => void;
-  unitOfCoding: string;
-  onUnitOfCodingChange: (value: string) => void;
-  coderCount: number;
-  onCoderCountChange: (value: number) => void;
-  agreementMetric: string;
-  onAgreementMetricChange: (value: string) => void;
-  agreementValue: string;
-  onAgreementValueChange: (value: string) => void;
-  adjudicationNotes: string;
-  onAdjudicationNotesChange: (value: string) => void;
-  reliabilityLimitations: string;
-  onReliabilityLimitationsChange: (value: string) => void;
-  onExportWalkthroughJson: () => void;
-  onExportVerificationJson: () => void;
-  onExportVerificationCompatibilityJson: () => void;
-  onExportProductionPageContractJson: () => void;
-  onExportProjectSnapshot: () => void;
-  onExportDevelopmentPlanJson: () => void;
-  onExportEnaReport: () => void;
-  onExportRuntimeBundleJson: () => void;
-  onExportRuntimeConsistencyAuditJson: () => void;
-  onExportReadinessJson: () => void;
-  onExportCodingReliabilityJson: () => void;
-  onExportReliabilityDashboardJson: () => void;
-  onExportClaimReadinessJson: () => void;
-  onExportReviewPacket: () => void;
-  onExportJson: () => void;
-  onExportMarkdown: () => void;
-  onReliabilityUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  hasReliabilityDashboard: boolean;
-  onExportPublication: (format: PublicationFormat) => void;
-}) {
-  const edgeEvidenceCount = model.edges.reduce((total, edge) => total + edge.evidence.length, 0);
-  const pairEvidenceCount = model.pairReport.reduce((total, pair) => total + pair.evidence.length, 0);
-  const temporalEvidenceCount = model.temporal.windows.reduce((total, window) => total + window.evidence.length, 0);
-
-  return (
-    <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MetricCell label="Matrices" value={5} />
-        <MetricCell label="Figures" value={3} />
-        <MetricCell label="Evidence refs" value={edgeEvidenceCount + pairEvidenceCount + temporalEvidenceCount} />
-        <MetricCell label="Review" value={reviewStatus === "human-reviewed" ? "Reviewed" : "Draft"} />
-      </div>
-
-      <PilotReadinessAuditPanel audit={pilotReadinessAudit} />
-
-      <ClaimReadinessGatePanel gate={claimReadinessGate} />
-
-      <CodingReliabilityGatePanel gate={codingReliabilityGate} />
-
-      <DevelopmentPlanPanel plan={developmentPlan} />
-
-      <DemoVerificationPanel verification={demoVerification} defaultReviewer={reviewer} onManualReviewChange={onDemoManualReviewChange} />
-
-      <DemoVerificationCompatibilityAuditPanel audit={demoVerificationCompatibilityAudit} />
-
-      <ProductionPageContractPanel contract={productionPageContract} />
-
-      <ReportCompletenessAuditPanel audit={completenessAudit} />
-
-      <ReviewPacketAuditPanel audit={reviewPacketAudit} />
-
-      <div className="grid gap-3 lg:grid-cols-[1fr_12rem_14rem]">
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Report title
-          <input
-            value={reportTitle}
-            onChange={(event) => onReportTitleChange(event.currentTarget.value)}
-            className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Status
-          <select
-            value={reviewStatus}
-            onChange={(event) => onReviewStatusChange(event.currentTarget.value as SenaReportHumanReview["status"])}
-            className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-          >
-            <option value="draft">Draft</option>
-            <option value="human-reviewed">Human-reviewed</option>
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Reviewer
-          <input
-            value={reviewer}
-            onChange={(event) => onReviewerChange(event.currentTarget.value)}
-            className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-          />
-        </label>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Interpretation
-          <textarea
-            value={interpretation}
-            onChange={(event) => onInterpretationChange(event.currentTarget.value)}
-            className="min-h-36 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Limitations
-          <textarea
-            value={limitations}
-            onChange={(event) => onLimitationsChange(event.currentTarget.value)}
-            className="min-h-36 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-bold text-muted">
-          Next actions
-          <textarea
-            value={nextActions}
-            onChange={(event) => onNextActionsChange(event.currentTarget.value)}
-            className="min-h-36 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-          />
-        </label>
-      </div>
-
-      <div data-testid="data-governance-metadata" className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="text-sm font-black text-foreground">Data governance metadata</div>
-            <div className="mt-1 text-xs font-semibold text-muted">
-              Captured in report, snapshot, review packet, runtime bundle, and publication package exports.
-            </div>
-          </div>
-          <div className="text-xs font-black text-muted">sena-data-governance-metadata/v1</div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            IRB / ethics approval ID
-            <input
-              data-testid="data-governance-irb-approval"
-              value={dataGovernanceIrbApprovalId}
-              onChange={(event) => onDataGovernanceIrbApprovalIdChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Data steward
-            <input
-              data-testid="data-governance-data-steward"
-              value={dataGovernanceDataSteward}
-              onChange={(event) => onDataGovernanceDataStewardChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Consent scope
-            <textarea
-              data-testid="data-governance-consent-scope"
-              value={dataGovernanceConsentScope}
-              onChange={(event) => onDataGovernanceConsentScopeChange(event.currentTarget.value)}
-              className="min-h-24 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Retention policy
-            <textarea
-              data-testid="data-governance-retention-policy"
-              value={dataGovernanceRetentionPolicy}
-              onChange={(event) => onDataGovernanceRetentionPolicyChange(event.currentTarget.value)}
-              className="min-h-24 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Usage constraints
-            <textarea
-              data-testid="data-governance-usage-constraints"
-              value={dataGovernanceUsageConstraints}
-              onChange={(event) => onDataGovernanceUsageConstraintsChange(event.currentTarget.value)}
-              className="min-h-24 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
-        <div>
-          <div className="text-sm font-black text-foreground">Coding reliability evidence</div>
-          <div className="mt-1 text-xs font-semibold text-muted">
-            Used by the coding reliability gate before any research-claim-ready export.
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <label className={buttonStyles({ variant: "secondary", size: "sm" })}>
-            <Upload className="h-4 w-4" /> Upload coder annotations
-            <input type="file" accept=".csv,.json,.xlsx,.xls,text/csv,application/json" multiple className="sr-only" onChange={onReliabilityUpload} />
-          </label>
-          <div className="rounded-lg border border-cardBorder/35 bg-background/30 px-3 py-2 text-xs font-semibold leading-5 text-muted">
-            Columns: coder_id, item_id or segment_id, code_id or codes, optional value.
-          </div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-[12rem_1fr_1fr_8rem]">
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Status
-            <select
-              data-testid="coding-reliability-status"
-              value={codingReliabilityStatus}
-              onChange={(event) => onCodingReliabilityStatusChange(event.currentTarget.value as SenaCodingReliabilityReview["status"])}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            >
-              <option value="not-documented">Not documented</option>
-              <option value="documented">Documented</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Reliability reviewer
-            <input
-              data-testid="coding-reliability-reviewer"
-              value={codingReliabilityReviewer}
-              onChange={(event) => onCodingReliabilityReviewerChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Coding scheme
-            <input
-              data-testid="coding-scheme"
-              value={codingScheme}
-              onChange={(event) => onCodingSchemeChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Coders
-            <input
-              data-testid="coder-count"
-              type="number"
-              min={0}
-              value={coderCount}
-              onChange={(event) => onCoderCountChange(Number(event.currentTarget.value))}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Unit of coding
-            <input
-              data-testid="unit-of-coding"
-              value={unitOfCoding}
-              onChange={(event) => onUnitOfCodingChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Agreement metric
-            <input
-              data-testid="agreement-metric"
-              value={agreementMetric}
-              onChange={(event) => onAgreementMetricChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Agreement value
-            <input
-              data-testid="agreement-value"
-              value={agreementValue}
-              onChange={(event) => onAgreementValueChange(event.currentTarget.value)}
-              className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Adjudication notes
-            <textarea
-              data-testid="adjudication-notes"
-              value={adjudicationNotes}
-              onChange={(event) => onAdjudicationNotesChange(event.currentTarget.value)}
-              className="min-h-24 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-          <label className="grid gap-1 text-xs font-bold text-muted">
-            Reliability limitations
-            <textarea
-              data-testid="reliability-limitations"
-              value={reliabilityLimitations}
-              onChange={(event) => onReliabilityLimitationsChange(event.currentTarget.value)}
-              className="min-h-24 resize-y rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold leading-6 text-foreground outline-none focus:border-cyanGlow"
-            />
-          </label>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <button onClick={onExportWalkthroughJson} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export walkthrough JSON
-        </button>
-        <button onClick={onExportVerificationJson} className={buttonStyles({ variant: "secondary" })}>
-          <CheckCircle2 className="h-4 w-4" /> Export verification JSON
-        </button>
-        <button data-testid="export-demo-verification-compatibility" onClick={onExportVerificationCompatibilityJson} className={buttonStyles({ variant: "secondary" })}>
-          <CheckCircle2 className="h-4 w-4" /> Export compatibility audit
-        </button>
-        <button onClick={onExportProductionPageContractJson} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export page contract
-        </button>
-        <button data-testid="export-project-snapshot" onClick={onExportProjectSnapshot} className={buttonStyles({ variant: "secondary" })}>
-          <Database className="h-4 w-4" /> Export project snapshot
-        </button>
-        <button onClick={onExportDevelopmentPlanJson} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export development plan
-        </button>
-        <button onClick={onExportEnaReport} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export ENA report
-        </button>
-        <button onClick={onExportRuntimeBundleJson} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export runtime bundle
-        </button>
-        <button onClick={onExportRuntimeConsistencyAuditJson} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export runtime audit
-        </button>
-        <button onClick={onExportReadinessJson} className={buttonStyles({ variant: "secondary" })}>
-          <CheckCircle2 className="h-4 w-4" /> Export readiness JSON
-        </button>
-        <button onClick={onExportCodingReliabilityJson} className={buttonStyles({ variant: "secondary" })}>
-          <CheckCircle2 className="h-4 w-4" /> Export reliability gate
-        </button>
-        <button data-testid="export-reliability-dashboard" onClick={onExportReliabilityDashboardJson} disabled={!hasReliabilityDashboard} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export reliability dashboard
-        </button>
-        <button onClick={onExportClaimReadinessJson} className={buttonStyles({ variant: "secondary" })}>
-          <CheckCircle2 className="h-4 w-4" /> Export claim gate JSON
-        </button>
-        <button onClick={onExportReviewPacket} className={buttonStyles()}>
-          <Download className="h-4 w-4" /> Export review packet
-        </button>
-        <button onClick={onExportJson} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export report JSON
-        </button>
-        <button onClick={onExportMarkdown} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export report MD
-        </button>
-        <button data-testid="export-publication-html" onClick={() => onExportPublication("html")} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export HTML
-        </button>
-        <button data-testid="export-publication-svg" onClick={() => onExportPublication("svg")} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export figure SVG
-        </button>
-        <button data-testid="export-publication-png" onClick={() => onExportPublication("png")} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export figure PNG
-        </button>
-        <button data-testid="export-publication-xlsx" onClick={() => onExportPublication("xlsx")} className={buttonStyles({ variant: "secondary" })}>
-          <Download className="h-4 w-4" /> Export Excel
-        </button>
-        <button data-testid="export-publication-docx" onClick={() => onExportPublication("docx")} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export DOCX
-        </button>
-        <button data-testid="export-publication-pdf" onClick={() => onExportPublication("pdf")} className={buttonStyles({ variant: "secondary" })}>
-          <FileText className="h-4 w-4" /> Export PDF
-        </button>
-        <button data-testid="export-publication-package" onClick={() => onExportPublication("package")} className={buttonStyles()}>
-          <Download className="h-4 w-4" /> Export publication package
-        </button>
-      </div>
     </div>
   );
 }
@@ -6089,7 +4480,7 @@ function Canvas({
   zoom?: number;
   className?: string;
 }) {
-  const nodes = useMemo(() => computeLayout(model, layout, enaManifest), [enaManifest, layout, model]);
+  const nodes = useMemo(() => computeFusionLayout(model, layout, enaManifest), [enaManifest, layout, model]);
   const positions = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const revealedLabelSet = useMemo(() => new Set(revealedLabelIds), [revealedLabelIds]);
   const edges = model.edges.filter((edge) => layers[edge.layer] && edge.normalizedWeight >= threshold);
@@ -7177,7 +5568,7 @@ export function SenaFusionWorkspace() {
         { jsonHeaders: enterpriseJsonHeaders }
       );
       setEnterpriseSessionList({
-        schemaVersion: "sena-enterprise-session-list/v1",
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionList,
         generatedAt: payload.generatedAt ?? new Date().toISOString(),
         currentSessionId: enterpriseSessionList?.currentSessionId ?? "",
         sessionDays: enterpriseSessionList?.sessionDays ?? 0,
@@ -7391,20 +5782,18 @@ export function SenaFusionWorkspace() {
       setEnterpriseMessage("Sign in before loading enterprise upload storage.");
       return null;
     }
-    const query = new URLSearchParams();
-    if (activeEnterpriseTeamId) query.set("teamId", activeEnterpriseTeamId);
-    if (options.verify) query.set("verify", "1");
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, Object.fromEntries(query)));
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Upload storage refresh failed.");
-      setEnterpriseUploadStorage(payload as EnterpriseUploadStorageState);
+      const payload = await refreshEnterpriseUploadStorageAction({
+        teamId: activeEnterpriseTeamId || undefined,
+        verify: options.verify
+      });
+      setEnterpriseUploadStorage(payload);
       const verification = payload.storageVerification as EnterpriseUploadStorageVerification | undefined;
       setEnterpriseMessage(verification
         ? `Upload storage ${verification.status}: ${verification.summary.verifiedBlobs}/${verification.summary.registeredUploads} blobs verified.`
         : `Upload registry loaded ${payload.uploads?.length ?? 0} upload${payload.uploads?.length === 1 ? "" : "s"}.`);
-      return payload as EnterpriseUploadStorageState;
+      return payload;
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Upload storage refresh failed.");
       return null;
@@ -7423,17 +5812,11 @@ export function SenaFusionWorkspace() {
     if (files.length === 0) return;
     setEnterpriseBusy(true);
     try {
-      const form = new FormData();
-      files.forEach((file) => form.append("files", file));
-      form.append("teamId", activeEnterpriseTeamId);
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, {
-        method: "POST",
-        headers: await enterpriseCsrfHeaders(),
-        body: form
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise upload failed.");
-      setEnterpriseUploadStorage(payload as EnterpriseUploadStorageState);
+      const payload = await createEnterpriseUploadRegistryFilesAction(
+        { files, teamId: activeEnterpriseTeamId },
+        { csrfHeaders: enterpriseCsrfHeaders }
+      );
+      setEnterpriseUploadStorage(payload);
       await refreshEnterpriseUploadStorage({ verify: true });
       setEnterpriseMessage(`Enterprise upload registry created ${payload.uploads?.length ?? files.length} file${files.length === 1 ? "" : "s"}.`);
     } catch (error) {
@@ -7450,19 +5833,13 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.uploads, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "deliver-object-storage",
+      const payload = await deliverEnterpriseUploadObjectStorageAction(
+        {
           teamId: activeEnterpriseTeamId || undefined,
-          uploadId,
-          limit: uploadId ? 1 : 25,
-          includeReview: true
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Object-storage delivery failed.");
+          uploadId
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseUploadStorage({ verify: true });
       setEnterpriseMessage(`Object-storage delivery ${payload.status ?? "checked"}: ${payload.summary?.delivered ?? 0} delivered, ${payload.summary?.failed ?? 0} failed, ${payload.summary?.skipped ?? 0} skipped.`);
     } catch (error) {
@@ -7483,17 +5860,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId), {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "deliver-pubsub",
-          force: true,
-          limit: 50
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Collaboration pub/sub delivery failed.");
+      const payload = await deliverEnterpriseCollaborationPubSubAction(
+        { projectId },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseCollaboration(projectId);
       setEnterpriseMessage(`Collaboration pub/sub delivery checked: ${payload.summary?.delivered ?? 0} delivered, ${payload.summary?.failed ?? 0} failed, ${payload.summary?.skipped ?? 0} skipped.`);
     } catch (error) {
@@ -7572,10 +5942,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await submitEnterprisePlatformDecisionReviewAction(
+        {
           teamId: activeEnterpriseTeamId,
           decisionId: platformDecisionId,
           status: platformDecisionStatus,
@@ -7588,16 +5956,15 @@ export function SenaFusionWorkspace() {
           productionEvidenceVerifiedAt: productionEvidenceVerifiedAtIso,
           requestPacketPolicyHash,
           notes: platformDecisionNotes
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Platform decision review failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setPlatformDecisionEvidenceUrl("");
       setPlatformDecisionProductionEvidenceIds([]);
       setPlatformDecisionProductionEvidenceVerifiedAt("");
       setPlatformDecisionNotes("");
       if (payload.platformDecisionRegister || payload.acceptance) {
-        if (payload.identityProductionEvidence?.schemaVersion === "sena-enterprise-identity-production-evidence/v1") {
+        if (payload.identityProductionEvidence?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence) {
           setEnterpriseIdentityProductionEvidence(payload.identityProductionEvidence as EnterpriseIdentityProductionEvidenceDossier);
         }
         await refreshEnterprisePlatformDecisionState(activeEnterpriseTeamId);
@@ -7609,7 +5976,7 @@ export function SenaFusionWorkspace() {
       const productionEvidenceReceiptMessage = missingProductionEvidenceIds.length > 0
         ? ` Missing production evidence: ${missingProductionEvidenceIds.join(", ")}.`
         : "";
-      const identityProductionEvidenceMessage = payload.identityProductionEvidence?.schemaVersion === "sena-enterprise-identity-production-evidence/v1"
+      const identityProductionEvidenceMessage = payload.identityProductionEvidence?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
         ? ` identity verifier ${payload.identityProductionEvidence.submissionVerifier.summary.incompleteDecisions} incomplete · identity blockers ${payload.identityProductionEvidence.platformRequestPacket.summary.blockingRequests}.`
         : "";
       setEnterpriseMessage(`Platform decision recorded: ${payload.acceptance?.decisionId ?? platformDecisionId} · ${payload.acceptance?.status ?? platformDecisionStatus}.${productionEvidenceReceiptMessage}${identityProductionEvidenceMessage}`);
@@ -7631,10 +5998,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await submitEnterpriseReleaseGateReviewAction(
+        {
           teamId: activeEnterpriseTeamId,
           environment: releaseGateEnvironment,
           releaseVersion: releaseGateVersion,
@@ -7648,10 +6013,9 @@ export function SenaFusionWorkspace() {
             summary: releaseGateVerificationSummary,
             outputSha256: /^[a-f0-9]{64}$/i.test(releaseGateVerificationHash.trim()) ? releaseGateVerificationHash.trim() : undefined
           }
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Release gate review failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setReleaseGateNotes("");
       await refreshEnterpriseReleaseGateReviews(activeEnterpriseTeamId);
       await refreshEnterpriseProvisioningReadiness();
@@ -7665,9 +6029,12 @@ export function SenaFusionWorkspace() {
 
   const refreshEnterpriseState = useCallback(async () => {
     try {
-      const meResponse = await fetch(SENA_WORKSPACE_API_ROUTES.auth.me);
-      const me = await meResponse.json();
-      if (!meResponse.ok || !me.user) {
+      const me = await requestSenaWorkspaceJson<EnterpriseContext>(
+        SENA_WORKSPACE_API_ROUTES.auth.me,
+        undefined,
+        { errorMessage: "Could not load enterprise session." }
+      ).catch(() => null);
+      if (!me?.user) {
         resetEnterpriseCsrfToken();
         setEnterpriseContext(null);
         setEnterpriseProjects([]);
@@ -7685,25 +6052,22 @@ export function SenaFusionWorkspace() {
         setEnterpriseReleaseGateState(null);
         return;
       }
-      const nextContext = me as EnterpriseContext;
+      const nextContext = me;
       setEnterpriseContext(nextContext);
       void refreshEnterpriseTeamState().catch(() => setEnterpriseTeamState(null));
       void refreshEnterpriseMfaState().catch(() => setEnterpriseMfaStatus(null));
       void refreshEnterpriseSessionList().catch(() => setEnterpriseSessionList(null));
 
-      const projectsResponse = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.projects);
-      const projects = await projectsResponse.json();
-      if (projectsResponse.ok) setEnterpriseProjects(projects.projects ?? []);
+      const projects = await getEnterpriseProjectsAction().catch(() => null);
+      if (projects) setEnterpriseProjects(projects.projects ?? []);
       const teamId = nextContext.teams[0]?.id;
       if (teamId) {
         void refreshEnterprisePlatformDecisionState(teamId).catch(() => setEnterprisePlatformDecisionState(null));
         void refreshEnterpriseReleaseGateReviews(teamId).catch(() => setEnterpriseReleaseGateState(null));
-        const importsResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.import, { teamId }));
-        const imports = await importsResponse.json();
-        if (importsResponse.ok) setEnterpriseImportRuns(imports.importRuns ?? []);
-        const analysisResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.analyze, { teamId }));
-        const analysis = await analysisResponse.json();
-        if (analysisResponse.ok) setEnterpriseAnalysisRuns(analysis.analysisRuns ?? []);
+        const imports = await getEnterpriseImportRunsAction({ teamId }).catch(() => null);
+        if (imports) setEnterpriseImportRuns(imports.importRuns ?? []);
+        const analysis = await getEnterpriseAnalysisRunsAction({ teamId }).catch(() => null);
+        if (analysis) setEnterpriseAnalysisRuns(analysis.analysisRuns ?? []);
       }
     } catch {
       setEnterpriseContext(null);
@@ -7729,13 +6093,10 @@ export function SenaFusionWorkspace() {
       return;
     }
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId));
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not load collaboration state.");
+      const payload = await refreshEnterpriseCollaborationAction({ projectId });
       setEnterpriseCollaboration(payload);
-      const claimResponse = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.validationClaimPackage, { projectId }));
-      const claimPayload = await claimResponse.json();
-      setEnterpriseClaimPackage(claimResponse.ok ? claimPayload as EnterpriseClaimEvidencePackage : null);
+      const claimPayload = await refreshEnterpriseClaimPackageAction({ projectId }).catch(() => null);
+      setEnterpriseClaimPackage(claimPayload);
     } catch (error) {
       setEnterpriseClaimPackage(null);
       setEnterpriseMessage(error instanceof Error ? error.message : "Could not load collaboration state.");
@@ -7745,17 +6106,14 @@ export function SenaFusionWorkspace() {
   async function touchEnterprisePresence(projectId = activeEnterpriseProjectId, options: { quiet?: boolean } = {}) {
     if (!projectId) return;
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(projectId), {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "presence",
+      await touchEnterprisePresenceAction(
+        {
+          projectId,
           activeView: workspaceRailMode,
           cursorLabel: activePlotView
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Presence update failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       if (!options.quiet) {
         await refreshEnterpriseCollaboration(projectId);
         setEnterpriseMessage("Presence synced for the active SENA project.");
@@ -7768,17 +6126,14 @@ export function SenaFusionWorkspace() {
   async function addEnterpriseComment() {
     if (!activeEnterpriseProjectId || !enterpriseComment.trim()) return;
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "comment",
+      await addEnterpriseCommentAction(
+        {
+          projectId: activeEnterpriseProjectId,
           body: enterpriseComment,
           target: { kind: selected && "layer" in selected ? "edge" : selected?.kind === "person" || selected?.kind === "concept" ? "node" : "project", id: selected?.id, label: selected?.label }
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Comment failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setEnterpriseComment("");
       await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
       setEnterpriseMessage("Project comment added.");
@@ -7790,20 +6145,17 @@ export function SenaFusionWorkspace() {
   async function addEnterpriseAdjudication() {
     if (!activeEnterpriseProjectId || !adjudicationItemId.trim() || !adjudicationCodeId.trim()) return;
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "adjudication",
+      await addEnterpriseAdjudicationAction(
+        {
+          projectId: activeEnterpriseProjectId,
           reliabilityRunId: latestEnterpriseReliabilityRun?.id,
           itemId: adjudicationItemId,
           codeId: adjudicationCodeId,
           decision: adjudicationDecision,
           notes: adjudicationNotesQuick
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Adjudication failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setAdjudicationItemId("");
       setAdjudicationCodeId("");
       setAdjudicationNotesQuick("");
@@ -7818,17 +6170,14 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseReliabilityRun) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.reliability, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await reviewEnterpriseReliabilityRunAction(
+        {
           runId: latestEnterpriseReliabilityRun.id,
           status,
           notes: reliabilityReviewNote
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Reliability review failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setReliabilityReviewNote("");
       if (activeEnterpriseProjectId) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
       setEnterpriseMessage(`Reliability run ${payload.reliabilityRun.id} marked ${payload.reliabilityRun.status}.`);
@@ -7882,22 +6231,17 @@ export function SenaFusionWorkspace() {
     setEnterpriseBusy(true);
     try {
       const studySpecificInferenceReference = validationStudySpecificInferenceReference.trim();
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.validationGroupComparison, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await runEnterpriseValidationComparisonAction(
+        {
           teamId: activeEnterpriseTeamId,
           projectId: activeEnterpriseProjectId || undefined,
           snapshot: buildCurrentProjectSnapshot(),
           groupField: validationGroupField,
           groupA: selectedValidationGroupA,
           groupB: selectedValidationGroupB,
-          ...(mode === "suite" ? {
-            suite: true,
-            metrics: enterpriseValidationMetrics.map((metric) => metric.value)
-          } : {
-            metric: validationMetric
-          }),
+          suite: mode === "suite",
+          metrics: mode === "suite" ? enterpriseValidationMetrics.map((metric) => metric.value) : undefined,
+          metric: mode === "suite" ? undefined : validationMetric,
           iterations: 1000,
           seed: 20260611,
           preregistrationNote: validationPreregistrationNote,
@@ -7905,13 +6249,12 @@ export function SenaFusionWorkspace() {
           parityEvidence: studySpecificInferenceReference ? {
             studySpecificInferenceReference
           } : undefined
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Group-comparison validation failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setLocalEnterpriseValidationResult(null);
       if (activeEnterpriseProjectId) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
-      const suiteSummary = payload.schemaVersion === "sena-group-comparison-suite/v1"
+      const suiteSummary = payload.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
         ? `Holm suite ${payload.comparisonCount} comparisons, min adjusted p=${payload.validationRun?.minHolmAdjustedP ?? payload.primary?.holmAdjustedP}.`
         : `${payload.metric} ${payload.groupA} vs ${payload.groupB}, p=${payload.permutation.pTwoSided}.`;
       setEnterpriseMessage(`Validation run ${payload.validationRun?.id ?? "local"} saved: ${suiteSummary}`);
@@ -7958,7 +6301,7 @@ export function SenaFusionWorkspace() {
         methodNote: validationMethodNote
       });
       const localRun: LocalEnterpriseValidationResult = {
-        schemaVersion: "sena-local-validation-run/v1",
+        schemaVersion: SENA_SCHEMA_VERSIONS.localValidationRun,
         generatedAt: new Date().toISOString(),
         result,
         preregistrationNote: validationPreregistrationNote,
@@ -7979,17 +6322,14 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseValidationRun) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.validationGroupComparison, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await reviewEnterpriseValidationRunAction(
+        {
           runId: latestEnterpriseValidationRun.id,
           status,
           notes: validationReviewNote
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Validation review failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setValidationReviewNote("");
       if (activeEnterpriseProjectId) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
       setEnterpriseMessage(`Validation run ${payload.validationRun.id} marked ${payload.validationRun.status}.`);
@@ -8007,10 +6347,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await submitEnterpriseExpertReviewAction(
+        {
           projectId: activeEnterpriseProjectId,
           target: { kind: latestEnterpriseValidationRun ? "validation-run" : "project", id: latestEnterpriseValidationRun?.id, label: latestEnterpriseValidationRun ? "Latest validation run" : "Project claim review" },
           reviewerName: expertReviewerName || undefined,
@@ -8025,10 +6363,9 @@ export function SenaFusionWorkspace() {
           concerns: expertConcerns,
           recommendations: expertRecommendations,
           limitations
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Expert review failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setExpertConcerns("");
       setExpertRecommendations("");
       await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
@@ -8044,10 +6381,8 @@ export function SenaFusionWorkspace() {
     if (!latestEnterpriseExpertReview) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.expertReview, {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await updateEnterpriseExpertReviewAction(
+        {
           reviewId: latestEnterpriseExpertReview.id,
           status,
           claimScope: expertClaimScope,
@@ -8059,10 +6394,9 @@ export function SenaFusionWorkspace() {
           concerns: expertConcerns || latestEnterpriseExpertReview.concerns,
           recommendations: expertRecommendations || latestEnterpriseExpertReview.recommendations,
           limitations
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Expert review update failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       if (activeEnterpriseProjectId) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
       setEnterpriseMessage(`Expert review ${payload.expertReview.id} marked ${payload.expertReview.status}.`);
     } catch (error) {
@@ -8080,23 +6414,20 @@ export function SenaFusionWorkspace() {
     setEnterpriseBusy(true);
     setWorkspaceRailMode("sets");
     try {
-      const form = new FormData();
-      files.forEach((file) => form.append("files", file));
-      if (activeEnterpriseTeamId) form.append("teamId", activeEnterpriseTeamId);
-      form.append("action", "create-project");
-      form.append("includeRuntimeBundle", "true");
       const importTitle = files.length === 1
         ? files[0].name.replace(/\.[^.]+$/, "") || "Imported SENA Project"
         : `Imported SENA Project (${files.length} files)`;
-      form.append("title", importTitle);
-      form.append("description", `Created from enterprise import of ${files.map((file) => file.name).join(", ")}.`);
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.import, {
-        method: "POST",
-        headers: await enterpriseCsrfHeaders(),
-        body: form
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise import failed.");
+      const payload = await importEnterpriseFilesAction(
+        {
+          files,
+          teamId: activeEnterpriseTeamId || undefined,
+          createProject: true,
+          includeRuntimeBundle: true,
+          title: importTitle,
+          description: `Created from enterprise import of ${files.map((file) => file.name).join(", ")}.`
+        },
+        { csrfHeaders: enterpriseCsrfHeaders }
+      );
       if (payload.persistedProject?.snapshot) {
         restoreProjectSnapshot(payload.persistedProject.snapshot, payload.persistedProject.title);
         setActiveEnterpriseProjectId(payload.persistedProject.id);
@@ -8108,17 +6439,20 @@ export function SenaFusionWorkspace() {
       }
       setImportMessage(`Enterprise import loaded ${files.length} file${files.length === 1 ? "" : "s"}: ${payload.sources?.map((source: { profile: string }) => source.profile).join(", ") || "adapter"}.`);
       setImportError(payload.warnings?.length ? payload.warnings.slice(0, 3).join(" ") : null);
-      if (payload.importRun) setEnterpriseImportRuns((runs) => [payload.importRun, ...runs.filter((run) => run.id !== payload.importRun.id)]);
-      if (payload.persistedProject) {
+      const importRun = payload.importRun;
+      if (importRun) setEnterpriseImportRuns((runs) => [importRun, ...runs.filter((run) => run.id !== importRun.id)]);
+      const persistedProject = payload.persistedProject;
+      if (persistedProject) {
         setEnterpriseProjects((projects) => [
-          payload.persistedProject,
-          ...projects.filter((project) => project.id !== payload.persistedProject.id)
+          persistedProject,
+          ...projects.filter((project) => project.id !== persistedProject.id)
         ]);
       }
-      if (payload.enterpriseAnalysisRun) {
+      const enterpriseAnalysisRun = payload.enterpriseAnalysisRun;
+      if (enterpriseAnalysisRun) {
         setEnterpriseAnalysisRuns((runs) => [
-          payload.enterpriseAnalysisRun,
-          ...runs.filter((run) => run.id !== payload.enterpriseAnalysisRun.id)
+          enterpriseAnalysisRun,
+          ...runs.filter((run) => run.id !== enterpriseAnalysisRun.id)
         ]);
       }
       const scanSummary = payload.uploads?.map((upload: { scanStatus?: string }) => upload.scanStatus ?? "unscanned").join(", ") || "unscanned";
@@ -8177,44 +6511,36 @@ export function SenaFusionWorkspace() {
     setEnterpriseBusy(true);
     try {
       const snapshot = buildCurrentProjectSnapshot();
-      const method = activeEnterpriseProjectId ? "PUT" : "POST";
-      const url = activeEnterpriseProjectId
-        ? SENA_WORKSPACE_API_ROUTES.enterprise.project(activeEnterpriseProjectId)
-        : SENA_WORKSPACE_API_ROUTES.enterprise.projects;
       const activeProjectSummary = enterpriseProjects.find((project) => project.id === activeEnterpriseProjectId);
       const expectedVersion = activeEnterpriseProjectId
         ? enterpriseCollaboration?.project.id === activeEnterpriseProjectId
           ? enterpriseCollaboration.project.currentVersion
           : activeProjectSummary?.currentVersion
         : undefined;
-      const response = await fetch(url, {
-        method,
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await saveEnterpriseProjectAction(
+        {
           teamId: activeEnterpriseTeamId,
           title: reportTitle,
           description: `Saved from /workspace/sena with ${model.summary.people} people and ${model.summary.concepts} codes.`,
+          projectId: activeEnterpriseProjectId || undefined,
           expectedVersion,
           snapshot
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        if (response.status === 409 && activeEnterpriseProjectId) {
-          await refreshEnterpriseState();
-          await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
-        }
-        throw new Error(response.status === 409
-          ? `${payload.error || "Project version conflict."} Refresh the server project before saving again.`
-          : payload.error || "Project save failed.");
-      }
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setActiveEnterpriseProjectId(payload.project.id);
       setEnterpriseMessage(`${payload.project.title} saved to ${enterpriseContext.teams[0]?.name ?? "SENA team"} at version ${payload.project.currentVersion}.`);
       await refreshEnterpriseState();
       await refreshEnterpriseCollaboration(payload.project.id);
       await touchEnterprisePresence(payload.project.id);
     } catch (error) {
-      setEnterpriseMessage(error instanceof Error ? error.message : "Project save failed.");
+      if (error instanceof SenaWorkspaceApiError && error.status === 409 && activeEnterpriseProjectId) {
+        await refreshEnterpriseState();
+        await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
+        setEnterpriseMessage(`${error.message || "Project version conflict."} Refresh the server project before saving again.`);
+      } else {
+        setEnterpriseMessage(error instanceof Error ? error.message : "Project save failed.");
+      }
     } finally {
       setEnterpriseBusy(false);
     }
@@ -8227,24 +6553,22 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.analyze, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await runEnterpriseAnalysisAction(
+        {
           teamId: activeEnterpriseTeamId,
           projectId: activeEnterpriseProjectId || undefined,
           snapshot: activeEnterpriseProjectId ? undefined : buildCurrentProjectSnapshot(),
           title: reportTitle,
           includeRuntimeBundle: true,
           persist: false
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Server-side SENA analysis failed.");
-      if (payload.enterpriseAnalysisRun) {
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
+      const enterpriseAnalysisRun = payload.enterpriseAnalysisRun;
+      if (enterpriseAnalysisRun) {
         setEnterpriseAnalysisRuns((runs) => [
-          payload.enterpriseAnalysisRun,
-          ...runs.filter((run) => run.id !== payload.enterpriseAnalysisRun.id)
+          enterpriseAnalysisRun,
+          ...runs.filter((run) => run.id !== enterpriseAnalysisRun.id)
         ]);
       }
       setEnterpriseMessage(`Server analysis ${payload.enterpriseAnalysisRun?.id ?? "run"} recorded: ${payload.summary.people} people, ${payload.summary.concepts} codes, ${payload.summary.claimUse}.`);
@@ -8260,9 +6584,7 @@ export function SenaFusionWorkspace() {
     if (!projectId) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.project(projectId));
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Could not open project.");
+      const payload = await openEnterpriseProjectAction({ projectId });
       restoreProjectSnapshot(payload.project.snapshot, payload.project.title);
       setActiveEnterpriseProjectId(projectId);
       setEnterpriseMessage(`${payload.project.title} opened from server project storage.`);
@@ -8279,22 +6601,14 @@ export function SenaFusionWorkspace() {
     if (!activeEnterpriseProjectId || !enterpriseCollaboration) return;
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.project(activeEnterpriseProjectId), {
-        method: "PATCH",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "restore-revision",
+      const payload = await restoreEnterpriseProjectRevisionAction(
+        {
+          projectId: activeEnterpriseProjectId,
           revisionId,
           expectedVersion: enterpriseCollaboration.project.currentVersion
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        if (response.status === 409) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
-        throw new Error(response.status === 409
-          ? `${payload.error || "Project revision restore conflict."} Refresh the project history before restoring again.`
-          : payload.error || "Project revision restore failed.");
-      }
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       restoreProjectSnapshot(payload.project.snapshot, `${payload.project.title} v${payload.restoredFrom.version}`);
       setActiveEnterpriseProjectId(payload.project.id);
       setEnterpriseMessage(`${payload.project.title} restored from version ${payload.restoredFrom.version} into version ${payload.project.currentVersion}.`);
@@ -8302,7 +6616,12 @@ export function SenaFusionWorkspace() {
       await refreshEnterpriseCollaboration(payload.project.id);
       await touchEnterprisePresence(payload.project.id);
     } catch (error) {
-      setEnterpriseMessage(error instanceof Error ? error.message : "Project revision restore failed.");
+      if (error instanceof SenaWorkspaceApiError && error.status === 409) {
+        await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
+        setEnterpriseMessage(`${error.message || "Project revision restore conflict."} Refresh the project history before restoring again.`);
+      } else {
+        setEnterpriseMessage(error instanceof Error ? error.message : "Project revision restore failed.");
+      }
     } finally {
       setEnterpriseBusy(false);
     }
@@ -8315,32 +6634,23 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.publicationExport, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await exportEnterprisePublicationAction(
+        {
           teamId: activeEnterpriseTeamId,
           format,
           projectId: activeEnterpriseProjectId || undefined,
           snapshot: activeEnterpriseProjectId ? undefined : buildCurrentProjectSnapshot()
-        })
-      });
-      if (!response.ok) {
-        const payload = await response.json();
-        throw new Error(payload.error || "Publication export failed.");
-      }
-      const blob = await response.blob();
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? `sena-publication.${format}`;
-      const url = URL.createObjectURL(blob);
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
+      const url = URL.createObjectURL(payload.blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = filename;
+      anchor.download = payload.filename;
       anchor.click();
       URL.revokeObjectURL(url);
       const exportSource = activeEnterpriseProjectId ? "server project" : "workspace snapshot";
-      setEnterpriseMessage(`${filename} exported from the enterprise publication API using ${exportSource}.`);
+      setEnterpriseMessage(`${payload.filename} exported from the enterprise publication API using ${exportSource}.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Publication export failed.");
     } finally {
@@ -8386,15 +6696,14 @@ export function SenaFusionWorkspace() {
     if (!activeEnterpriseProjectId || !enterpriseUserId) return undefined;
     const syncPresence = async () => {
       try {
-        await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.collaboration(activeEnterpriseProjectId), {
-          method: "POST",
-          headers: await enterpriseJsonHeaders(),
-          body: JSON.stringify({
-            action: "presence",
+        await touchEnterprisePresenceAction(
+          {
+            projectId: activeEnterpriseProjectId,
             activeView: workspaceRailMode,
             cursorLabel: activePlotView
-          })
-        });
+          },
+          { jsonHeaders: enterpriseJsonHeaders }
+        );
       } catch {
         setEnterpriseCollaborationTransport("reconnecting");
       }
@@ -8601,7 +6910,7 @@ export function SenaFusionWorkspace() {
             typeof parsed === "object" &&
             parsed !== null &&
             !Array.isArray(parsed) &&
-            (parsed as Record<string, unknown>).schemaVersion === "sena-project-snapshot/v1"
+            (parsed as Record<string, unknown>).schemaVersion === SENA_SCHEMA_VERSIONS.projectSnapshot
           ) {
             restoreProjectSnapshot(importSenaProjectSnapshot(parsed), file.name);
             continue;
@@ -8611,7 +6920,7 @@ export function SenaFusionWorkspace() {
             typeof parsed === "object" &&
             parsed !== null &&
             !Array.isArray(parsed) &&
-            (parsed as Record<string, unknown>).schemaVersion === "sena-review-packet/v1"
+            (parsed as Record<string, unknown>).schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket
           ) {
             const packet = importSenaReviewPacket(parsed);
             restoreProjectSnapshot(packet.contents.projectSnapshot, file.name);
@@ -8624,7 +6933,7 @@ export function SenaFusionWorkspace() {
             typeof parsed === "object" &&
             parsed !== null &&
             !Array.isArray(parsed) &&
-            (parsed as Record<string, unknown>).schemaVersion === "sena-demo-verification/v1"
+            (parsed as Record<string, unknown>).schemaVersion === SENA_SCHEMA_VERSIONS.demoVerification
           ) {
             applyDemoVerificationManualReviews(importSenaDemoVerification(parsed), file.name);
             continue;
@@ -8703,9 +7012,12 @@ export function SenaFusionWorkspace() {
     setWorkspaceRailMode("sets");
     setIsLoadingSample(true);
     try {
-      const response = await fetch(lessonStudySampleUrl);
-      if (!response.ok) throw new Error(`Could not load sample data (${response.status}).`);
-      const result = importSenaJsonContract(await response.text());
+      const sample = await requestSenaWorkspaceJson<unknown>(
+        lessonStudySampleUrl,
+        undefined,
+        { errorMessage: "Could not load the lesson-study sample." }
+      );
+      const result = importSenaJsonContract(sample);
       setDataset(result.dataset);
       setUploadedTables([]);
       setLocalEnterpriseImportResult(null);
@@ -8742,18 +7054,15 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const form = new FormData();
-      files.forEach((file) => form.append("files", file));
-      if (activeEnterpriseTeamId) form.append("teamId", activeEnterpriseTeamId);
-      if (activeEnterpriseProjectId) form.append("projectId", activeEnterpriseProjectId);
-      if (reviewer || codingReliabilityReviewer) form.append("reviewer", codingReliabilityReviewer || reviewer);
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.reliability, {
-        method: "POST",
-        headers: await enterpriseCsrfHeaders(),
-        body: form
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Reliability calculation failed.");
+      const payload = await importEnterpriseReliabilityFilesAction(
+        {
+          files,
+          teamId: activeEnterpriseTeamId || undefined,
+          projectId: activeEnterpriseProjectId || undefined,
+          reviewer: codingReliabilityReviewer || reviewer || undefined
+        },
+        { csrfHeaders: enterpriseCsrfHeaders }
+      );
       const review = payload.reviewPatch ?? {};
       applyReliabilityReviewPatch(review);
       setLocalEnterpriseReliabilityResult(null);
@@ -8996,9 +7305,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(url);
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || `${label} export failed.`);
+      const payload = await exportEnterpriseJsonArtifactAction(url, label);
       downloadText(filename, JSON.stringify(payload, null, 2), "application/json");
       setEnterpriseMessage(`${label} exported.`);
     } catch (error) {
@@ -9052,21 +7359,9 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.audit, {
-        format: "csv",
-        integrity: 1,
+      const text = await exportEnterpriseAuditCsvAction({
         teamId: activeEnterpriseTeamId || undefined
-      }));
-      const text = await response.text();
-      if (!response.ok) {
-        let message = "Enterprise audit CSV export failed.";
-        try {
-          message = JSON.parse(text).error || message;
-        } catch {
-          message = text || message;
-        }
-        throw new Error(message);
-      }
+      });
       downloadText("sena-enterprise-audit-log.csv", text, "text/csv");
       setEnterpriseMessage("Enterprise audit CSV exported.");
     } catch (error) {
@@ -9083,17 +7378,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.audit, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          teamId: activeEnterpriseTeamId || undefined,
-          force: true,
-          limit: 100
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise audit delivery failed.");
+      const payload = await deliverEnterpriseAuditLogAction(
+        { teamId: activeEnterpriseTeamId || undefined },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Audit delivery checked: ${payload.summary?.delivered ?? 0} delivered, ${payload.summary?.failed ?? 0} failed, ${payload.summary?.skipped ?? 0} skipped.`);
     } catch (error) {
@@ -9110,16 +7398,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.backup, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "deliver",
-          teamId: activeEnterpriseTeamId || undefined
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise backup delivery failed.");
+      const payload = await deliverEnterpriseBackupAction(
+        { teamId: activeEnterpriseTeamId || undefined },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Backup delivery ${payload.status ?? "checked"}: ${payload.backup?.recordCounts?.projects ?? 0} projects, ${payload.backup?.recordCounts?.auditEvents ?? 0} audit events.`);
     } catch (error) {
@@ -9136,16 +7418,10 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.backup, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
-          action: "sync-database",
-          teamId: activeEnterpriseTeamId || undefined
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise database sync failed.");
+      const payload = await syncEnterpriseDatabaseAction(
+        { teamId: activeEnterpriseTeamId || undefined },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       await refreshEnterpriseTeamState();
       setEnterpriseMessage(`Database sync ${payload.status ?? "checked"}: ${payload.backup?.recordCounts?.teams ?? 0} teams, ${payload.backup?.recordCounts?.projects ?? 0} projects.`);
     } catch (error) {
@@ -9260,13 +7536,9 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
+      const payload = await getEnterpriseGoLiveRehearsalAction({
         teamId: activeEnterpriseTeamId || undefined
-      }));
-      const payload = await response.json() as Partial<EnterpriseGoLiveRehearsal> & { error?: string };
-      if (!response.ok || payload.schemaVersion !== "sena-enterprise-go-live-rehearsal/v1" || payload.releaseGateDraft?.schemaVersion !== "sena-enterprise-release-gate-draft/v1") {
-        throw new Error(payload.error || "Go-live rehearsal did not include a release gate draft.");
-      }
+      });
       const draft = payload.releaseGateDraft;
       setReleaseGateDecision(draft.decision);
       setReleaseGateEnvironment(draft.environment);
@@ -9294,10 +7566,8 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.goLiveRehearsal, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({
+      const payload = await submitEnterpriseGoLiveAttestationAction(
+        {
           teamId: activeEnterpriseTeamId,
           environment: releaseGateEnvironment,
           releaseVersion: releaseGateVersion,
@@ -9312,10 +7582,9 @@ export function SenaFusionWorkspace() {
             rollbackOwnerConfirmed: true,
             platformOwnerDecisionReviewed: true
           }
-        })
-      });
-      const payload = await response.json() as { attestation?: EnterpriseGoLiveAttestation; error?: string };
-      if (!response.ok) throw new Error(payload.error || "Go-live attestation failed.");
+        },
+        { jsonHeaders: enterpriseJsonHeaders }
+      );
       setEnterpriseMessage(`Go-live attestation recorded: ${payload.attestation?.releaseVersion ?? releaseGateVersion} · ${payload.attestation?.decision ?? releaseGateDecision} · go-live identity ${payload.attestation?.latestReleaseGateSnapshot?.identityProductionStatus ?? "missing"} · identity verifier ${payload.attestation?.latestReleaseGateSnapshot?.identitySubmissionVerifierIncomplete ?? "missing"} incomplete · identity rotation ${payload.attestation?.latestReleaseGateSnapshot?.identityRotationFreshness ?? "missing"} · identity cutover ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistStatus ?? "missing"} · cutover blockers ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistBlockingItems ?? "missing"} · identity handoff ${payload.attestation?.identityProductionHandoffSnapshot?.status ?? "missing"} · handoff blockers ${payload.attestation?.identityProductionHandoffSnapshot?.platformRequestPacket.summary.blockingRequests ?? "missing"} · blocked ${payload.attestation?.latestReleaseGateSnapshot?.identityReleaseGateBlocked ? "yes" : "no"}.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Go-live attestation failed.");
@@ -9362,24 +7631,9 @@ export function SenaFusionWorkspace() {
     }
     if (!options.silent) setEnterpriseBusy(true);
     try {
-      const [deploymentResponse, identityResponse] = await Promise.all([
-        fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.deployment, {
-          teamId: activeEnterpriseTeamId || undefined
-        })),
-        fetch(buildSenaWorkspaceApiUrl(SENA_WORKSPACE_API_ROUTES.enterprise.identityProductionEvidence, {
-          teamId: activeEnterpriseTeamId || undefined
-        }))
-      ]);
-      const payload = await deploymentResponse.json() as Partial<EnterpriseOrganizationDeploymentPackage> & { error?: string };
-      if (payload.schemaVersion !== "sena-enterprise-organization-deployment/v1") {
-        throw new Error(payload.error || "Enterprise deployment package did not include provisioning readiness evidence.");
-      }
-      const identityPayload = await identityResponse.json() as Partial<EnterpriseIdentityProductionEvidenceDossier> & { error?: string };
-      if (identityPayload.schemaVersion !== "sena-enterprise-identity-production-evidence/v1") {
-        throw new Error(identityPayload.error || "Enterprise identity production evidence did not include a platform request packet.");
-      }
-      const deployment = payload as EnterpriseOrganizationDeploymentPackage;
-      const identityEvidence = identityPayload as EnterpriseIdentityProductionEvidenceDossier;
+      const { deployment, identityEvidence } = await refreshEnterpriseProvisioningReadinessAction({
+        teamId: activeEnterpriseTeamId || undefined
+      });
       setEnterpriseDeploymentPackage(deployment);
       setEnterpriseIdentityProductionEvidence(identityEvidence);
       const endpointCount = deployment.serviceEndpoints.filter((endpoint) => endpoint.id === "provisioning" || endpoint.id.startsWith("scim-")).length;
@@ -9428,13 +7682,7 @@ export function SenaFusionWorkspace() {
     }
     setEnterpriseBusy(true);
     try {
-      const response = await fetch(SENA_WORKSPACE_API_ROUTES.enterprise.opsAlerts, {
-        method: "POST",
-        headers: await enterpriseJsonHeaders(),
-        body: JSON.stringify({ action: "deliver" })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Enterprise ops alert delivery failed.");
+      const payload = await deliverEnterpriseOpsAlertsAction({ jsonHeaders: enterpriseJsonHeaders });
       setEnterpriseMessage(`Ops alert delivery ${payload.status ?? "checked"}: ${payload.alerts?.summary?.firing ?? 0} firing, ${payload.alerts?.summary?.critical ?? 0} critical.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Enterprise ops alert delivery failed.");
@@ -9727,7 +7975,7 @@ export function SenaFusionWorkspace() {
   }
 
   return (
-    <section data-theme="light" className="min-h-screen bg-[#e6eaee] text-slate-950">
+    <section data-theme="light" className="min-h-screen bg-background text-slate-950">
       {isFusionPlotMaximized && (
         <FusionPlotMaximizedOverlay
           model={model}
@@ -9750,7 +7998,7 @@ export function SenaFusionWorkspace() {
 	          revealedLabelIds={revealedNodeLabelIds}
 	        />
       )}
-      <div className="mx-auto min-h-screen overflow-hidden border border-slate-300/70 bg-[#e1e6ec] shadow-soft 2xl:max-w-[118rem]">
+      <div className="mx-auto min-h-screen overflow-hidden border border-cardBorder/70 bg-background/80 shadow-soft 2xl:max-w-[118rem]">
         <header className="grid min-h-11 gap-3 border-b-4 border-cyanGlow bg-[#1f1f1f] px-4 py-2 text-white lg:grid-cols-[18rem_1fr_auto] lg:items-center">
           <Link href="/" className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/18 bg-white/8 text-cyanGlow">
@@ -10764,7 +9012,7 @@ export function SenaFusionWorkspace() {
                         </span>
                       </div>
                       <div className="truncate">
-                        institution-provisioning-owner · {provisioningGovernanceCheck?.status ?? "review"} · register {enterpriseDeploymentPackage?.platformDecisionRegister.schemaVersion ?? "sena-enterprise-platform-decision-register/v1"}
+                        institution-provisioning-owner · {provisioningGovernanceCheck?.status ?? "review"} · register {enterpriseDeploymentPackage?.platformDecisionRegister.schemaVersion ?? SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister}
                       </div>
                       <div className="line-clamp-2">
                         {provisioningOwnerDecision?.nextAction ?? "Assign the institution provisioning owner and configure SENA_PROVISIONING_TOKEN before claiming institution-managed lifecycle sync."}
@@ -12300,7 +10548,7 @@ export function SenaFusionWorkspace() {
             </WorkspaceShellPanel>
           </main>
 
-          <aside className="order-3 grid min-w-0 content-start gap-4 border-t border-slate-300/70 bg-[#e1e6ec] p-4 xl:order-none xl:border-l xl:border-t-0">
+          <aside className="order-3 grid min-w-0 content-start gap-4 border-t border-cardBorder/70 bg-background/70 p-4 xl:order-none xl:border-l xl:border-t-0">
             <WorkspaceViewportPanel
               id="workflow-canvas"
               testId="workspace-primary-plot"

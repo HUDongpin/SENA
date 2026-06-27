@@ -2,7 +2,6 @@ import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "nod
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 import {
   buildSenaAnalysisRun,
@@ -16,6 +15,7 @@ import {
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview
 } from "../index";
+import { buildXlsxWorkbookBuffer, readXlsxWorkbookRows } from "../excel-workbook";
 import { importSenaEnterpriseFiles } from "../import-adapters";
 import { buildSenaPublicationExport } from "../publication-export";
 
@@ -158,29 +158,32 @@ describe("SENA enterprise runtime", () => {
   });
 
   it("adapts LMS forum Excel exports into SENA analysis tables", async () => {
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+    const workbookBuffer = await buildXlsxWorkbookBuffer([
       {
-        discussion_id: "thread-b",
-        post_id: "post-a",
-        author_id: "coach-1",
-        author_name: "Coach Lee",
-        posted_at: "2026-06-02T10:00:00Z",
-        message: "What evidence supports the design? #Evidence",
-        tags: "Evidence"
-      },
-      {
-        discussion_id: "thread-b",
-        post_id: "post-b",
-        parent_post_id: "post-a",
-        author_id: "teacher-2",
-        author_name: "Teacher Ng",
-        posted_at: "2026-06-02T10:05:00Z",
-        message: "The student response supports the explanation.",
-        tags: "Explanation"
+        name: "discussion",
+        rows: [
+          {
+            discussion_id: "thread-b",
+            post_id: "post-a",
+            author_id: "coach-1",
+            author_name: "Coach Lee",
+            posted_at: "2026-06-02T10:00:00Z",
+            message: "What evidence supports the design? #Evidence",
+            tags: "Evidence"
+          },
+          {
+            discussion_id: "thread-b",
+            post_id: "post-b",
+            parent_post_id: "post-a",
+            author_id: "teacher-2",
+            author_name: "Teacher Ng",
+            posted_at: "2026-06-02T10:05:00Z",
+            message: "The student response supports the explanation.",
+            tags: "Explanation"
+          }
+        ]
       }
-    ]), "discussion");
-    const workbookBuffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+    ]);
 
     const imported = await importSenaEnterpriseFiles([
       uploadLike("moodle-discussion.xlsx", workbookBuffer)
@@ -2763,25 +2766,37 @@ describe("SENA enterprise runtime", () => {
     expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
       .toContain("historyApi=GET:/api/sena/analyze");
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { person_id: "p1", label: "Ada", role: "Teacher", group: "A" },
-      { person_id: "p2", label: "Ben", role: "Student", group: "B" }
-    ]), "people");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, text: "Claim with evidence" },
-      { utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, text: "Explanation follows" }
-    ]), "utterances");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { segment_id: "cs1", utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, codes: "Claim|Evidence" },
-      { segment_id: "cs2", utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, codes: "Explanation" }
-    ]), "coded_segments");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { code_id: "Claim", label: "Claim" },
-      { code_id: "Evidence", label: "Evidence" },
-      { code_id: "Explanation", label: "Explanation" }
-    ]), "codebook");
-    const workbookBuffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+    const workbookBuffer = await buildXlsxWorkbookBuffer([
+      {
+        name: "people",
+        rows: [
+          { person_id: "p1", label: "Ada", role: "Teacher", group: "A" },
+          { person_id: "p2", label: "Ben", role: "Student", group: "B" }
+        ]
+      },
+      {
+        name: "utterances",
+        rows: [
+          { utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, text: "Claim with evidence" },
+          { utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, text: "Explanation follows" }
+        ]
+      },
+      {
+        name: "coded_segments",
+        rows: [
+          { segment_id: "cs1", utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, codes: "Claim|Evidence" },
+          { segment_id: "cs2", utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, codes: "Explanation" }
+        ]
+      },
+      {
+        name: "codebook",
+        rows: [
+          { code_id: "Claim", label: "Claim" },
+          { code_id: "Evidence", label: "Evidence" },
+          { code_id: "Explanation", label: "Explanation" }
+        ]
+      }
+    ]);
     const transcriptSrtBytes = Buffer.from([
       "1",
       "00:00:01,000 --> 00:00:03,000",
@@ -3313,8 +3328,10 @@ describe("SENA enterprise runtime", () => {
     expect(Buffer.isBuffer(png.body)).toBe(true);
     expect((png.body as Buffer).subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(Buffer.isBuffer(xlsx.body)).toBe(true);
-    const publicationWorkbook = XLSX.read(xlsx.body as Buffer, { type: "buffer" });
-    expect(publicationWorkbook.SheetNames).toEqual(expect.arrayContaining([
+    const publicationWorkbook = await readXlsxWorkbookRows(xlsx.body as Buffer);
+    const publicationSheetNames = publicationWorkbook.map((sheet) => sheet.name);
+    const publicationRows = (sheetName: string) => publicationWorkbook.find((sheet) => sheet.name === sheetName)?.rows ?? [];
+    expect(publicationSheetNames).toEqual(expect.arrayContaining([
       "Summary",
       "Claim readiness",
       "Coding reliability",
@@ -3322,7 +3339,7 @@ describe("SENA enterprise runtime", () => {
       "Matrix fingerprints",
       "Evidence snippets"
     ]));
-    const claimRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Claim readiness"]);
+    const claimRows = publicationRows("Claim readiness");
     expect(claimRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
         gate: "Claim readiness",
@@ -3330,7 +3347,7 @@ describe("SENA enterprise runtime", () => {
         claimUse: snapshot.report.claimReadinessGate.claimUse
       })
     ]));
-    const codingRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Coding reliability"]);
+    const codingRows = publicationRows("Coding reliability");
     expect(codingRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
         schemaVersion: "sena-coding-reliability-gate/v1",
@@ -3338,10 +3355,10 @@ describe("SENA enterprise runtime", () => {
         reviewer: snapshot.report.codingReliabilityGate.review.reviewer
       })
     ]));
-    const matrixRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Matrix fingerprints"]);
+    const matrixRows = publicationRows("Matrix fingerprints");
     expect(matrixRows.map((row) => row.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
     expect(matrixRows.every((row) => String(row.checksum).startsWith("0x"))).toBe(true);
-    const evidenceRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Evidence snippets"]);
+    const evidenceRows = publicationRows("Evidence snippets");
     expect(evidenceRows.length).toBeGreaterThan(0);
     expect(evidenceRows[0]).toEqual(expect.objectContaining({
       activeWindow: snapshot.report.analysisWindow?.label ?? "Full conversation"

@@ -19,3 +19,4 @@ SENA is described as a research-pilot delivery candidate with an enterprise read
 - Claims stay exploratory-only until the relevant readiness gates pass.
 - UI copy, exports, README notes, and governance artifacts should distinguish local pilot readiness from institution-owned production cutover.
 - Enterprise routes may keep production-readiness artifacts, but those artifacts remain evidence requests or rehearsal records unless platform-owner acceptance is present.
+- A blocked `npm run sena:go-live:check` is authoritative for cutover status even when earlier local verification or self-managed workflow evidence exists.

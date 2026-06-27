@@ -7,7 +7,7 @@ import {
 } from "@/lib/sena/enterprise/team-project";
 import {
   recordEnterpriseAudit
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-audit";
 import { importSenaProjectSnapshotFromHandoff } from "@/lib/sena/project-handoff";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
@@ -29,7 +29,7 @@ function projectLifecycleHeaders(project: SenaEnterpriseProject): HeadersInit {
 
 export async function GET() {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.projectList, projects: listEnterpriseProjects(context) });
   } catch (error) {
     return jsonError(error);
@@ -38,11 +38,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const snapshot = importSenaProjectSnapshotFromHandoff(body);
     const teamId = String(body.teamId || context.teams[0]?.id || "");
-    const source = body.reviewPacket || body.packet || body.schemaVersion === "sena-review-packet/v1"
+    const source = body.reviewPacket || body.packet || body.schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket
       ? "review-packet-save"
       : "project-save";
     const project = createEnterpriseProject(context, {

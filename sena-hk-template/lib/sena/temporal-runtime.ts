@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaMatrixFingerprints } from "./fusion-math";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
@@ -187,7 +188,7 @@ export function buildSenaTemporalRuntimeTrace(
   });
 
   return {
-    schemaVersion: "sena-temporal-runtime-trace/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.temporalRuntimeTrace,
     generatedAt,
     sourceDatasetCounts: datasetCounts(dataset),
     buildOptions: timelineModel.options,

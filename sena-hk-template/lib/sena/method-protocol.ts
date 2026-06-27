@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaFusionMathAudit } from "./fusion-math";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaRuntimeConsistencyAudit } from "./runtime-consistency";
@@ -146,7 +147,7 @@ export function buildSenaMethodProtocol(model: SenaModel, options: SenaMethodPro
   });
 
   return {
-    schemaVersion: "sena-method-protocol/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.methodProtocol,
     title: options.title?.trim() || "SENA Method Protocol",
     generatedAt,
     analysisWindow: activeTemporalWindow,

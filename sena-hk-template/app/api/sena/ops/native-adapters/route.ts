@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseNativeAdapterCertification,
+  getEnterpriseNativeAdapterCertification
+} from "@/lib/sena/enterprise/ops-deployment";
+import {
   listEnterprisePlatformDecisionAcceptances
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-platform-decisions";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
@@ -13,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const access = requireOpsAccess(request);
+    const access = await requireOpsAccess(request);
     const teamId = new URL(request.url).searchParams.get("teamId")?.trim() || undefined;
     if (access.mode === "session") {
       if (!teamId) {
@@ -23,7 +25,7 @@ export async function GET(request: Request) {
           "native_adapter_certification_team_required"
         );
       }
-      const context = requireApiSession();
+      const context = await requireApiSession();
       listEnterprisePlatformDecisionAcceptances(context, { teamId });
     }
     return NextResponse.json({

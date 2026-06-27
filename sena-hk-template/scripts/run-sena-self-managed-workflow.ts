@@ -131,7 +131,19 @@ const releaseGate = enterprise.createEnterpriseReleaseGateReview(registered.cont
 });
 
 const goLiveAfterRelease = enterprise.getEnterpriseGoLiveRehearsal({ teamId });
-const goLiveAttestation = goLiveAfterRelease.status === "ready"
+const postCutoverObservation = goLiveAfterRelease.status === "ready" &&
+  goLiveAfterRelease.postCutoverMonitor.latestObservation.summary.latestStatus === "missing"
+  ? enterprise.startEnterprisePostCutoverObservation(registered.context, {
+    teamId,
+    environment: "self-managed-production",
+    releaseVersion
+  })
+  : null;
+const goLiveAfterObservationStart = postCutoverObservation
+  ? enterprise.getEnterpriseGoLiveRehearsal({ teamId })
+  : goLiveAfterRelease;
+const postCutoverMonitorReady = goLiveAfterObservationStart.postCutoverMonitor.status === "ready";
+const goLiveAttestation = goLiveAfterObservationStart.status === "ready" && postCutoverMonitorReady
   ? enterprise.createEnterpriseGoLiveAttestation(registered.context, {
     teamId,
     environment: "self-managed-production",
@@ -187,6 +199,9 @@ const summary = {
   releaseGateIdentityVerifierIncomplete: releaseGate.identityProductionSnapshot.submissionVerifier.incompleteDecisions,
   goLiveStatus: goLive.status,
   goLiveBlockers: goLive.summary.blockers,
+  postCutoverObservationStarted: Boolean(postCutoverObservation),
+  postCutoverObservationStatus: goLive.postCutoverMonitor.latestObservation.summary.latestStatus,
+  postCutoverObservationId: goLive.postCutoverMonitor.latestObservation.summary.latestObservationId ?? "none",
   goLiveAttestationStatus: goLiveAttestation?.status ?? "not-created",
   postCutoverMonitorStatus: goLive.postCutoverMonitor.status,
   capabilityStatus: capabilityAudit.status,

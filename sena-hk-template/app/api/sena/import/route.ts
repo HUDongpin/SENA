@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
 import {
@@ -76,11 +77,11 @@ function importResponseHeaders(input: {
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId") || undefined;
     return NextResponse.json({
-      schemaVersion: "sena-import-run-list/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.importRunList,
       importRuns: listEnterpriseImportRuns(context, teamId)
     });
   } catch (error) {
@@ -90,7 +91,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const form = await request.formData();
     const files = form.getAll("files").filter((value): value is File => value instanceof File);
     const bufferedFiles = await Promise.all(files.map(async (file) => {

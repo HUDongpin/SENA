@@ -67,21 +67,21 @@ describe("SENA collaboration stream route", () => {
 
       sessionToken = "";
       const unauthenticated = await route.GET(new Request(`https://sena.example.test/api/sena/projects/${project.id}/collaboration/stream`), {
-        params: { projectId: project.id }
+        params: Promise.resolve({ projectId: project.id })
       });
       expect(unauthenticated.status).toBe(401);
       await expect(unauthenticated.json()).resolves.toEqual(expect.objectContaining({ code: "auth_required" }));
 
       sessionToken = outsider.token;
       const forbidden = await route.GET(new Request(`https://sena.example.test/api/sena/projects/${project.id}/collaboration/stream`), {
-        params: { projectId: project.id }
+        params: Promise.resolve({ projectId: project.id })
       });
       expect(forbidden.status).toBe(403);
       await expect(forbidden.json()).resolves.toEqual(expect.objectContaining({ code: "permission_denied" }));
 
       sessionToken = owner.token;
       const allowed = await route.GET(new Request(`https://sena.example.test/api/sena/projects/${project.id}/collaboration/stream`), {
-        params: { projectId: project.id }
+        params: Promise.resolve({ projectId: project.id })
       });
       expect(allowed.status).toBe(200);
       expect(allowed.headers.get("content-type")).toContain("text/event-stream");

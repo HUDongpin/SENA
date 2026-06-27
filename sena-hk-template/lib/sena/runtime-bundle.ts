@@ -62,7 +62,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-ena-report.json",
-      schemaVersion: "sena-ena-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enaReport,
       runtimeRole: "jena-epistemic",
       sourceRuntime: report.runtimeProvenance.enaRuntime.engine,
       downloadControl: "Export ENA report",
@@ -110,7 +110,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-sna-report.json",
-      schemaVersion: "sena-sna-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.snaReport,
       runtimeRole: "jsna-social",
       sourceRuntime: report.runtimeProvenance.snaRuntime.engine,
       downloadControl: "Export SNA report",
@@ -134,7 +134,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-metric-provenance.json",
-      schemaVersion: "sena-metric-provenance/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.metricProvenance,
       runtimeRole: "review-handoff",
       sourceRuntime: "sna.js+sena-js+jena-js",
       downloadControl: "Export metric provenance",
@@ -157,7 +157,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-person-code-pair-g-report.json",
-      schemaVersion: "sena-person-code-pair-g-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.personCodePairGReport,
       runtimeRole: "sena-fusion",
       sourceRuntime: report.runtimeProvenance.senaModel.engine,
       downloadControl: "Export G report",

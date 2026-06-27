@@ -1,5 +1,6 @@
 "use client";
 
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -7,6 +8,7 @@ import { Building2, Chrome, FlaskConical, LockKeyhole, Mail, ShieldCheck, Sparkl
 import { NavBar } from "@/components/NavBar";
 import { Button, Card } from "@/components/Primitives";
 import { useLanguage } from "@/components/LanguageProvider";
+import { SENA_AUTH_PAGE_MANIFEST, SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST } from "@/lib/sena/auth-page-manifest";
 
 const plans = [
   { title: "Individual Researcher", icon: UserRound, text: "For graduate students and independent research projects." },
@@ -21,7 +23,7 @@ type SsoProviderStatus = {
   configured: boolean;
   mode?: "oauth-oidc" | "local-pilot-fallback";
   fallbackPolicy?: {
-    schemaVersion: "sena-enterprise-sso-fallback-policy/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy;
     enabled: boolean;
     productionRuntime: boolean;
     explicitOverride: boolean;
@@ -30,7 +32,7 @@ type SsoProviderStatus = {
 };
 
 type SsoPreflightResult = {
-  schemaVersion: "sena-enterprise-sso-preflight/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight;
   summary: {
     checked: number;
     passed: number;
@@ -47,7 +49,7 @@ type SsoPreflightResult = {
 };
 
 type IdentityProductionGateSummary = {
-  schemaVersion: "sena-enterprise-identity-production-gate-summary/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary;
   status: "review" | "ready";
   missingEvidenceIds: string[];
   institutionActionPlan: {
@@ -127,8 +129,8 @@ export default function RegisterPage() {
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => {
         if (payload?.providers) setSsoStatuses(payload.providers as SsoProviderStatus[]);
-        if (payload?.preflight?.schemaVersion === "sena-enterprise-sso-preflight/v1") setPreflight(payload.preflight as SsoPreflightResult);
-        if (payload?.identityProductionGate?.schemaVersion === "sena-enterprise-identity-production-gate-summary/v1") {
+        if (payload?.preflight?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight) setPreflight(payload.preflight as SsoPreflightResult);
+        if (payload?.identityProductionGate?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary) {
           setIdentityProductionGate(payload.identityProductionGate as IdentityProductionGateSummary);
         }
       })
@@ -145,7 +147,7 @@ export default function RegisterPage() {
 
   function ssoProviderAvailabilityLabel(providerStatus: SsoProviderStatus) {
     if (providerStatus.configured) return "configured";
-    if (providerStatus.fallbackPolicy?.schemaVersion === "sena-enterprise-sso-fallback-policy/v1" && !providerStatus.fallbackPolicy.enabled) {
+    if (providerStatus.fallbackPolicy?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy && !providerStatus.fallbackPolicy.enabled) {
       return "fallback disabled";
     }
     return "fallback";
@@ -236,7 +238,7 @@ export default function RegisterPage() {
               <p className="mt-3 text-base leading-7 text-muted">Start an individual project, research lab workspace, or institution-ready deployment.</p>
             </div>
 
-            <form data-testid="register-form" className="grid gap-5" onSubmit={(event) => {
+            <form data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.form} className="grid gap-5" onSubmit={(event) => {
               event.preventDefault();
               void submitRegister();
             }}>
@@ -245,14 +247,14 @@ export default function RegisterPage() {
                   {copy.labels.fullName}
                   <span className="relative">
                     <UserRound className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
-                    <input data-testid="register-full-name" required value={fullName} onChange={(event) => setFullName(event.currentTarget.value)} placeholder="Dr. Ada Chen" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
+                    <input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.fullName} required value={fullName} onChange={(event) => setFullName(event.currentTarget.value)} placeholder="Dr. Ada Chen" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
                   </span>
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-foreground/80">
                   {copy.labels.email}
                   <span className="relative">
                     <Mail className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
-                    <input data-testid="register-email" required type="email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} placeholder="researcher@university.edu" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
+                    <input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.email} required type="email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} placeholder="researcher@university.edu" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
                   </span>
                 </label>
               </div>
@@ -260,7 +262,7 @@ export default function RegisterPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm font-bold text-foreground/80">
                   {copy.labels.organization}
-                  <input data-testid="register-organization" required value={organization} onChange={(event) => setOrganization(event.currentTarget.value)} placeholder="University / Lab" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-4 py-4 text-foreground outline-none focus:border-cyanGlow" />
+                  <input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.organization} required value={organization} onChange={(event) => setOrganization(event.currentTarget.value)} placeholder="University / Lab" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-4 py-4 text-foreground outline-none focus:border-cyanGlow" />
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-foreground/80">
                   {copy.labels.role}
@@ -279,16 +281,16 @@ export default function RegisterPage() {
                   {copy.labels.password}
                   <span className="relative">
                     <LockKeyhole className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
-                    <input data-testid="register-password" required minLength={12} type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} placeholder="••••••••••••" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
+                    <input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.password} required minLength={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.minLength} type="password" value={password} onChange={(event) => setPassword(event.currentTarget.value)} placeholder="••••••••••••" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-12 py-4 text-foreground outline-none focus:border-cyanGlow" />
                   </span>
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-foreground/80">
                   {copy.labels.confirmPassword}
-                  <input data-testid="register-confirm-password" required minLength={12} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.currentTarget.value)} placeholder="••••••••••••" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-4 py-4 text-foreground outline-none focus:border-cyanGlow" />
+                  <input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.confirmPassword} required minLength={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.minLength} type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.currentTarget.value)} placeholder="••••••••••••" className="w-full rounded-2xl border border-cardBorder/55 bg-background/45 px-4 py-4 text-foreground outline-none focus:border-cyanGlow" />
                 </label>
               </div>
-              <p data-testid="enterprise-password-policy" className="rounded-2xl border border-cardBorder/45 bg-background/35 px-4 py-3 text-xs font-semibold leading-5 text-muted">
-                Enterprise password policy: At least 12 characters with letters and numbers; avoid common passwords and the email name.
+              <p data-testid={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.testId} className="rounded-2xl border border-cardBorder/45 bg-background/35 px-4 py-3 text-xs font-semibold leading-5 text-muted">
+                {SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.label}
               </p>
 
               <label className="grid gap-2 text-sm font-bold text-foreground/80">
@@ -321,7 +323,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="grid gap-3 text-sm text-muted">
-                <label className="flex gap-3"><input data-testid="register-terms" required type="checkbox" className="mt-1 h-4 w-4" /> I agree to the Terms and responsible AI use policy.</label>
+                <label className="flex gap-3"><input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.terms} required type="checkbox" className="mt-1 h-4 w-4" /> I agree to the Terms and responsible AI use policy.</label>
                 <label className="flex gap-3"><input type="checkbox" className="mt-1 h-4 w-4" /> Receive product updates and research-platform announcements.</label>
               </div>
 
@@ -331,7 +333,7 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <Button data-testid="register-submit" type="submit" size="lg" className="w-full" disabled={status === "loading"}>
+              <Button data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.submit} type="submit" size="lg" className="w-full" disabled={status === "loading"}>
                 <Sparkles className="h-5 w-5" />{status === "loading" ? "Creating workspace..." : copy.nav.register}
               </Button>
             </form>

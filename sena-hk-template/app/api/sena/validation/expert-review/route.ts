@@ -1,10 +1,11 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
   createEnterpriseExpertReview,
   listEnterpriseExpertReviews,
   reviewEnterpriseExpertReview,
   type SenaEnterpriseExpertReview
-} from "@/lib/sena/enterprise/reliability-validation";
+} from "@/lib/sena/enterprise/expert-review";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -60,10 +61,10 @@ function expertReviewHeaders(review: SenaEnterpriseExpertReview): HeadersInit {
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     return NextResponse.json({
-      schemaVersion: "sena-expert-review-list/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.expertReviewList,
       expertReviews: listEnterpriseExpertReviews(context, {
         teamId: url.searchParams.get("teamId") || undefined,
         projectId: url.searchParams.get("projectId") || undefined
@@ -76,7 +77,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
     const expertReview = createEnterpriseExpertReview(context, {
       projectId: String(body.projectId ?? ""),
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
       limitations: body.limitations ? String(body.limitations) : undefined
     });
     return NextResponse.json({
-      schemaVersion: "sena-expert-review-response/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.expertReviewResponse,
       expertReview
     }, {
       headers: expertReviewHeaders(expertReview)
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
     const expertReview = reviewEnterpriseExpertReview(context, String(body.reviewId ?? body.expertReviewId ?? ""), {
       status: statusFromBody(body.status),
@@ -117,7 +118,7 @@ export async function PATCH(request: Request) {
       limitations: body.limitations === undefined ? undefined : String(body.limitations)
     });
     return NextResponse.json({
-      schemaVersion: "sena-expert-review-response/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.expertReviewResponse,
       expertReview
     }, {
       headers: expertReviewHeaders(expertReview)

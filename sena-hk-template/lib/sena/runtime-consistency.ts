@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaEnaManifest,
   SenaModel,
@@ -176,7 +177,7 @@ export function buildSenaRuntimeConsistencyAudit({
     item(
       "jena-engine",
       "jENA engine identity",
-      enaManifest.engine === "jena-js" && enaManifest.schemaVersion === "sena-ena-manifest/v1",
+      enaManifest.engine === "jena-js" && enaManifest.schemaVersion === SENA_SCHEMA_VERSIONS.enaManifest,
       "sena-ena-manifest/v1 from jena-js",
       `${enaManifest.schemaVersion} from ${enaManifest.engine}`,
       [`status=${enaManifest.status}`, `version=${enaManifest.engineVersion}`]
@@ -273,7 +274,7 @@ export function buildSenaRuntimeConsistencyAudit({
       "jSNA engine identity",
       snaManifest.engine === "sna.js" &&
         snaManifest.engineAlias === "jSNA" &&
-        snaManifest.schemaVersion === "sena-jsna-manifest/v1",
+        snaManifest.schemaVersion === SENA_SCHEMA_VERSIONS.jsnaManifest,
       "sena-jsna-manifest/v1 from jSNA/sna.js",
       `${snaManifest.schemaVersion} from ${snaManifest.engineAlias}/${snaManifest.engine}`,
       [`status=${snaManifest.status}`, `version=${snaManifest.engineVersion}`]
@@ -406,7 +407,7 @@ export function buildSenaRuntimeConsistencyAudit({
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-runtime-consistency/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.runtimeConsistency,
     status: reviewNeeded === 0 ? "consistent" : "needs-review",
     passed,
     reviewNeeded,

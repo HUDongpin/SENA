@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaReport, type SenaReportOptions } from "./report";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
 import type {
@@ -42,7 +43,7 @@ export function buildSenaProjectSnapshot(model: SenaModel, options: SenaProjectS
   );
 
   return {
-    schemaVersion: "sena-project-snapshot/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.projectSnapshot,
     title: report.title,
     generatedAt,
     source: {
@@ -133,7 +134,7 @@ function assertWorkspaceState(value: unknown) {
 
 function assertDataGovernance(value: unknown, context: string) {
   const governance = asRecord(value, context);
-  if (governance.schemaVersion !== "sena-data-governance-metadata/v1") {
+  if (governance.schemaVersion !== SENA_SCHEMA_VERSIONS.dataGovernanceMetadata) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
   if (governance.status !== "complete" && governance.status !== "needs-review") {
@@ -174,7 +175,7 @@ function assertBuildOptions(value: unknown) {
 
 function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProjectSnapshot {
   const root = asRecord(value, "project snapshot");
-  if (root.schemaVersion !== "sena-project-snapshot/v1") {
+  if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.projectSnapshot) {
     throw new Error("JSON is not a SENA project snapshot.");
   }
 
@@ -214,7 +215,7 @@ function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProject
   }
 
   const report = asRecord(root.report, "project snapshot.report");
-  if (report.schemaVersion !== "sena-report/v1") {
+  if (report.schemaVersion !== SENA_SCHEMA_VERSIONS.report) {
     throw new Error("project snapshot.report must be a SENA report.");
   }
   if (report.dataGovernance !== undefined) {

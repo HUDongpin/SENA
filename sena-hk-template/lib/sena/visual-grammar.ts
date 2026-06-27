@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaTemporalWindow, SenaVisualGrammarArtifact, SenaVisualGrammarItem, SenaVisualGrammarReferenceAsset } from "./types";
 
 export const senaVisualGrammar: SenaVisualGrammarItem[] = [
@@ -90,7 +91,7 @@ export function buildSenaVisualGrammarArtifact(
   options: SenaVisualGrammarArtifactOptions = {}
 ): SenaVisualGrammarArtifact {
   return {
-    schemaVersion: "sena-visual-grammar/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.visualGrammar,
     title: options.title?.trim() || "SENA Visual Grammar",
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     workspaceRoute: "/workspace/sena",

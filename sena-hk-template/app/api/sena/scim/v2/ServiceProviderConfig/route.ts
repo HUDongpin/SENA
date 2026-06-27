@@ -1,10 +1,13 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import { identityInstitutionActionPlanHeaders, jsonError } from "@/lib/sena/api-helpers";
 import {
   getEnterpriseDeploymentReadiness,
-  getEnterpriseIdentityProductionEvidence,
   type SenaEnterpriseDeploymentReadiness
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import {
+  getEnterpriseIdentityProductionEvidence
+} from "@/lib/sena/enterprise/identity-production-evidence";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import {
   enterpriseScimServiceProviderConfig,
@@ -48,7 +51,7 @@ function scimIdentityProductionExtension(
   const provisioningRequest = evidence.platformRequestPacket.requests
     .find((request) => request.decisionId === "institution-provisioning-owner");
   return {
-    schemaVersion: "sena-scim-identity-production-gate/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimIdentityProductionGate,
     generatedAt: evidence.generatedAt,
     status: evidence.status,
     provisioningOwnerGate: evidence.status,

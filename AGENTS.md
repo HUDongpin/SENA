@@ -7,8 +7,8 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 ### SENA-A01 Coordination and Handoff Agent
 
 - Owns cross-session coordination, project memory, scope control, and handoff hygiene for `/Users/dongpinhu/Desktop/SENA` and the runnable app in `sena-hk-template`.
-- Keep `AGENTS.md`, `sena-hk-template/README.md`, session logs, and handoff notes aligned with the real project state after major changes.
-- Keep `CONTEXT.md` and `docs/adr/*` aligned with module-boundary decisions, especially schema registry, workspace API client, and enterprise state boundaries.
+- Keep `AGENTS.md`, `CONTEXT.md`, `sena-hk-template/README.md`, session logs, and handoff notes aligned with the real project state after major changes.
+- Coordinate `docs/adr/*` updates for cross-agent architecture decisions, while leaving API contracts to SENA-A14 and schema/artifact/module-boundary ownership to SENA-A15.
 - Preserve the current direction: SENA is a research-pilot delivery candidate, not a generic analytics dashboard or production SaaS claim without gate evidence.
 - Before creating new workstreams, check whether the task belongs to one of the agents below and keep edits inside that lane unless the user asks for broader coordination.
 - When summarizing progress, distinguish: local research pilot, enterprise runtime readiness loop, institution-owned production cutover, and academic/method paper work.
@@ -56,9 +56,10 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 ### SENA-A07 Evidence Export and Publication Agent
 
-- Owns review packets, runtime bundles, publication exports, reports, snapshots, and all schema-versioned handoff artifacts.
+- Owns the content and generation logic for review packets, runtime bundles, publication exports, reports, snapshots, and schema-versioned handoff artifacts.
 - Primary files include `report.ts`, `snapshot.ts`, `runtime-bundle.ts`, `review-packet.ts`, `publication-export.ts`, `method-protocol.ts`, `development-plan.ts`, `pilot-readiness.ts`, `demo-verification.ts`, `demo-walkthrough.ts`, and `production-page-contract.ts`.
 - Keep these schema families stable unless intentionally versioning them: `sena-runtime-bundle/v1`, `sena-review-packet/v1`, `sena-fusion-math-audit/v1`, `sena-visual-grammar/v1`, `sena-development-plan/v1`, `sena-production-page-contract/v1`, `sena-coding-reliability-gate/v1`, and `sena-claim-readiness-gate/v1`.
+- Coordinate with SENA-A15 when adding, removing, renaming, or remapping exported artifact files, schema identifiers, review-packet catalog entries, or artifact completeness checks.
 - Use `lib/sena/schema-registry.ts` for new or touched schema-versioned contracts instead of adding scattered `schemaVersion` literals.
 - Exported artifacts must keep data-contract audit, runtime provenance, matrix fingerprints, temporal trace, evidence ledger, guardrails, coding-reliability status, claim-readiness status, and artifact completeness checks aligned.
 - Publication exports currently include HTML/SVG/PNG/XLSX/DOCX/PDF/package-style outputs through the enterprise publication route; do not weaken source snapshot or claim-readiness evidence when polishing format.
@@ -75,7 +76,9 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 - Owns local enterprise runtime features: auth, SSO, CSRF, MFA, password reset, sessions, RBAC teams, invitations, memberships, saved projects, revisions, collaboration, notifications, provisioning, and SCIM.
 - Primary files include `enterprise.ts`, `enterprise-postgres.ts`, `api-helpers.ts`, `provisioning-auth.ts`, `scim.ts`, `analysis-run.ts`, auth routes, project routes, team routes, notifications, provisioning, and SCIM routes.
-- Prefer domain imports from `lib/sena/enterprise/*` for routes; keep `lib/sena/enterprise.ts` as the compatibility facade while the monolith is reduced.
+- Prefer domain imports from `lib/sena/enterprise/*` for routes; coordinate with SENA-A15 before changing enterprise module-boundary tests, facade import rules, state-store boundaries, or compatibility exports.
+- Coordinate with SENA-A14 when enterprise route methods, response headers, auth modes, or public API request/response shapes change.
+- Keep `lib/sena/enterprise.ts` as the compatibility facade while the monolith is reduced.
 - The default local enterprise store is `.sena-enterprise/enterprise-db.json`; never treat it as production managed infrastructure by itself.
 - Preserve redaction rules for emails, secrets, hashes, audit entries, notification payloads, webhook evidence, SSO preflight status, and service-token provisioning.
 - Maintain optimistic `expectedVersion` conflicts, append-only revision restore, last-active-manager guardrails, CSRF requirements for cookie-auth mutations, and bearer-token separation for service/ops routes.
@@ -94,6 +97,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 - Primary commands are `npm test`, `npm run build`, `npm run lint`, `npm run sena:pilot:smoke`, `npm run sena:pilot:browser-smoke`, and especially `npm run sena:pilot:verify` from `sena-hk-template`.
 - `npm run sena:pilot:verify` is the release handoff gate; it expects local `next dev` or `next start` processes for this project to be stopped before it clears `.next`, builds, starts a temporary production server, runs browser smoke, and stops it.
 - Browser smoke should continue to cover sample/template downloads, JSON contract upload, five CSV upload, built-in lesson-study sample, layout switches, alpha/beta/gamma controls, temporal modes, SVG evidence, downloads, review-packet restore, and project-snapshot restore.
+- Treat API documentation coverage failures as SENA-A14 contract issues and schema/artifact/module-boundary failures as SENA-A15 boundary issues, while preserving A11 ownership of running and maintaining the verification gates.
 - Keep screenshots in `sena-hk-template/output/playwright` and `.tmp` as evidence when doing visual or acceptance-significant changes, but do not confuse old screenshots with fresh verification.
 
 ### SENA-A12 Academic Manuscript and Literature Agent
@@ -112,6 +116,25 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 - Maintain boundary-case coherence for `gamma=0`, `alpha=0`, `beta=0`, `B=0`, directed social layers, person-code-only bipartite structure, and temporal `A_fusion(t)` extensions.
 - Own layer-normalization reasoning, relative interpretation of `alpha`, `beta`, and `gamma`, Laplacian/spectral admissibility claims, directed-vs-undirected distinctions, and statistical validation requirements.
 - Coordinate with SENA-A02 so implementation and exports remain faithful to the mathematical model; coordinate with SENA-A12 when formal results are written into manuscripts, reports, or literature-gap arguments.
+
+### SENA-A14 API Contract and Developer Experience Agent
+
+- Owns the machine-readable SENA API contract, OpenAPI output, API documentation route, and developer-facing API documentation surfaces.
+- Primary files include `lib/sena/api-docs.ts`, `app/api/sena/docs/route.ts`, `components/DocsSection.tsx`, `lib/sena/__tests__/api-docs.test.ts`, and API documentation sections in `sena-hk-template/README.md`.
+- Keep implemented Next API route methods, documented endpoint paths, auth modes, CSRF expectations, response headers, action names, and response schema labels aligned.
+- Coordinate with SENA-A09 and SENA-A10 when enterprise, governance, ops, auth, provisioning, SCIM, or collaboration routes change public behavior.
+- Coordinate with SENA-A07 and SENA-A15 when API docs reference exported artifacts, schema-versioned payloads, review packets, publication packages, or artifact catalog entries.
+- Do not let `/api/sena/docs`, OpenAPI 3.1 output, homepage API docs, or README API route summaries drift away from the implemented route surface.
+
+### SENA-A15 Contract Registry, Artifact Catalog, and Module Boundary Agent
+
+- Owns schema-version registry hygiene, review-packet artifact catalog mapping, module-boundary tests, workspace API client boundaries, enterprise facade boundaries, and ADR alignment for these contracts.
+- Primary files include `lib/sena/schema-registry.ts`, `lib/sena/artifact-catalog.ts`, `components/sena/workspace/api-client.ts`, `lib/sena/__tests__/schema-registry.test.ts`, `lib/sena/__tests__/artifact-catalog.test.ts`, `lib/sena/__tests__/workspace-module-boundaries.test.ts`, `lib/sena/__tests__/enterprise-module-boundaries.test.ts`, and `docs/adr/*`.
+- Require touched schema-versioned contracts to use `SENA_SCHEMA_VERSIONS` rather than scattered `schemaVersion` literals, unless a deliberate migration or external literal boundary is documented.
+- Keep review-packet filenames, artifact schema labels, content-key mappings, exported artifact manifests, and completeness checks synchronized with SENA-A07's generated artifacts.
+- Keep `SenaFusionWorkspace.tsx` from accumulating direct `/api/...` fetch literals, enterprise response type sprawl, or request-token state that belongs in focused workspace modules.
+- Keep enterprise API routes importing from `lib/sena/enterprise/*` domain modules rather than the monolithic compatibility facade, unless a temporary exception is documented.
+- Coordinate with SENA-A01 for project memory and ADR updates, with SENA-A09 for enterprise module split changes, and with SENA-A14 when API contracts expose schema or artifact-boundary changes.
 
 ## Local ENA Runtime
 

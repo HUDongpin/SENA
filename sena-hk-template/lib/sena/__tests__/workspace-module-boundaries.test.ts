@@ -1,77 +1,200 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  buildSenaModel,
+  buildSenaReport,
+  importSenaJsonContract
+} from "../../../components/sena/workspace/analysis-runtime";
+import {
+  requestSenaWorkspaceJson,
+  SENA_WORKSPACE_API_ROUTES
+} from "../../../components/sena/workspace/api-client";
+import {
+  createTeamInvitationAction,
+  deliverEnterpriseNotificationsAction,
+  startEnterpriseMfaSetupAction
+} from "../../../components/sena/workspace/enterprise-actions";
+import type {
+  EnterpriseContext,
+  EnterprisePlatformDecisionState,
+  EnterpriseReleaseGateState,
+  EnterpriseTeamState
+} from "../../../components/sena/workspace/enterprise-contracts";
+import {
+  enterprisePlatformDecisionOptions,
+  enterpriseSsoProviderOptions,
+  enterpriseValidationMetrics
+} from "../../../components/sena/workspace/enterprise-options";
+import {
+  SENA_WORKSPACE_MODULE_BOUNDARIES,
+  type SenaWorkspaceBoundaryModule,
+  type SenaWorkspaceBoundaryModuleId
+} from "../../../components/sena/workspace/module-boundaries";
+import { ReportGenerator } from "../../../components/sena/workspace/report-generator";
+import { TemporalFusionArc } from "../../../components/sena/workspace/temporal-fusion-arc";
+import { useEnterpriseWorkspaceApi } from "../../../components/sena/workspace/use-enterprise-runtime";
+
+type EnterpriseWorkspaceContractTypes = {
+  EnterpriseContext: EnterpriseContext;
+  EnterprisePlatformDecisionState: EnterprisePlatformDecisionState;
+  EnterpriseReleaseGateState: EnterpriseReleaseGateState;
+  EnterpriseTeamState: EnterpriseTeamState;
+};
+
+const requiredContractTypes = [
+  "EnterpriseContext",
+  "EnterprisePlatformDecisionState",
+  "EnterpriseReleaseGateState",
+  "EnterpriseTeamState"
+] as const satisfies ReadonlyArray<keyof EnterpriseWorkspaceContractTypes>;
+
+function boundaryModule(id: SenaWorkspaceBoundaryModuleId): SenaWorkspaceBoundaryModule {
+  const boundary = SENA_WORKSPACE_MODULE_BOUNDARIES.modules.find((candidate) => candidate.id === id);
+  expect(boundary, `Missing workspace boundary module ${id}`).toBeDefined();
+  return boundary! as SenaWorkspaceBoundaryModule;
+}
 
 describe("SENA workspace module boundaries", () => {
-  it("keeps enterprise response contracts out of the main workspace container", () => {
-    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
-    const contractsPath = path.join(process.cwd(), "components", "sena", "workspace", "enterprise-contracts.ts");
-    const workspaceSource = readFileSync(workspacePath, "utf8");
+  it("declares the main workspace container boundaries as typed manifest data", () => {
+    expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container).toMatchObject({
+      id: "SenaFusionWorkspace",
+      directFetchPolicy: "forbidden",
+      requestTokenState: "delegated-to-runtime-hook"
+    });
+    expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container.delegatedModules).toEqual([
+      "enterprise-contracts",
+      "enterprise-options",
+      "analysis-runtime",
+      "api-client",
+      "use-enterprise-runtime",
+      "enterprise-actions",
+      "enterprise-ops-actions",
+      "report-generator",
+      "temporal-fusion-arc"
+    ]);
+  });
 
-    expect(existsSync(contractsPath)).toBe(true);
-    expect(workspaceSource).not.toContain("type EnterpriseContext =");
-    expect(workspaceSource).not.toContain("type EnterpriseReleaseGateState =");
-    expect(workspaceSource).toContain("from \"./workspace/enterprise-contracts\"");
+  it("keeps the main workspace container under an explicit extraction budget", () => {
+    const workspaceSource = readFileSync(new URL("../../../components/sena/SenaFusionWorkspace.tsx", import.meta.url), "utf8");
+    const lineCount = workspaceSource.split(/\r?\n/).length;
+    const budget = SENA_WORKSPACE_MODULE_BOUNDARIES.container.sizeBudget;
 
-    const contractsSource = readFileSync(contractsPath, "utf8");
-    expect(contractsSource).toContain("export type EnterpriseContext");
-    expect(contractsSource).toContain("export type EnterpriseReleaseGateState");
+    expect(lineCount).toBeLessThanOrEqual(budget.maxLinesBeforeNextExtraction);
+    expect(budget.observedLines).toBeGreaterThanOrEqual(10000);
+    expect(budget.nextExtractionTarget).toBe("enterprise-ops-and-go-live-panel");
+    expect(budget.nextExtractionCandidates).toContain("go-live rehearsal and attestation panel");
+  });
+
+  it("keeps enterprise response contracts in a focused typed contracts module", () => {
+    const contracts = boundaryModule("enterprise-contracts");
+
+    expect(contracts.typeExports).toEqual(expect.arrayContaining([...requiredContractTypes]));
+    expect(contracts.containerResponsibilities).toEqual([
+      "consume imported enterprise response types",
+      "avoid redeclaring enterprise response contracts inline"
+    ]);
   });
 
   it("keeps enterprise workspace option sets in a focused module", () => {
-    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
-    const optionsPath = path.join(process.cwd(), "components", "sena", "workspace", "enterprise-options.ts");
-    const workspaceSource = readFileSync(workspacePath, "utf8");
+    const options = boundaryModule("enterprise-options");
 
-    expect(existsSync(optionsPath)).toBe(true);
-    expect(workspaceSource).not.toContain("const enterpriseValidationMetrics");
-    expect(workspaceSource).not.toContain("const enterprisePlatformDecisionOptions");
-    expect(workspaceSource).toContain("from \"./workspace/enterprise-options\"");
+    expect(options.runtimeExports).toMatchObject({
+      enterprisePlatformDecisionOptions,
+      enterpriseSsoProviderOptions,
+      enterpriseValidationMetrics
+    });
+    expect(options.containerResponsibilities).toEqual([
+      "render imported option collections",
+      "avoid declaring enterprise option arrays inline"
+    ]);
+  });
 
-    const optionsSource = readFileSync(optionsPath, "utf8");
-    expect(optionsSource).toContain("export const enterpriseValidationMetrics");
-    expect(optionsSource).toContain("export const enterpriseSsoProviderOptions");
+  it("keeps SENA analysis runtime imports behind a client-safe adapter seam", () => {
+    const analysisRuntime = boundaryModule("analysis-runtime");
+
+    expect(analysisRuntime.runtimeExports).toMatchObject({
+      buildSenaModel,
+      buildSenaReport,
+      importSenaJsonContract
+    });
+    expect(analysisRuntime.containerResponsibilities).toEqual([
+      "call imported runtime adapter functions",
+      "avoid importing from the lib/sena barrel in client workspace modules"
+    ]);
   });
 
   it("routes enterprise JSON refresh calls through the workspace API helper", () => {
-    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
-    const workspaceSource = readFileSync(workspacePath, "utf8");
+    const apiClient = boundaryModule("api-client");
 
-    expect(workspaceSource).toContain("requestSenaWorkspaceJson");
-    expect(workspaceSource).toContain("requestSenaWorkspaceJson<EnterpriseTeamState>");
-    expect(workspaceSource).toContain("requestSenaWorkspaceJson<EnterprisePlatformDecisionState>");
-    expect(workspaceSource).toContain("requestSenaWorkspaceJson<EnterpriseReleaseGateState>");
+    expect(apiClient.runtimeExports).toMatchObject({
+      requestSenaWorkspaceJson,
+      SENA_WORKSPACE_API_ROUTES
+    });
+    expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container.refreshContracts).toEqual([
+      {
+        state: "EnterpriseTeamState",
+        route: SENA_WORKSPACE_API_ROUTES.enterprise.team,
+        transport: "requestSenaWorkspaceJson"
+      },
+      {
+        state: "EnterprisePlatformDecisionState",
+        route: SENA_WORKSPACE_API_ROUTES.enterprise.platformDecisions,
+        transport: "requestSenaWorkspaceJson"
+      },
+      {
+        state: "EnterpriseReleaseGateState",
+        route: SENA_WORKSPACE_API_ROUTES.enterprise.releaseGate,
+        transport: "requestSenaWorkspaceJson"
+      }
+    ]);
   });
 
   it("keeps enterprise request token state in a runtime hook", () => {
-    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
-    const runtimeHookPath = path.join(process.cwd(), "components", "sena", "workspace", "use-enterprise-runtime.ts");
-    const workspaceSource = readFileSync(workspacePath, "utf8");
+    const runtimeHook = boundaryModule("use-enterprise-runtime");
 
-    expect(existsSync(runtimeHookPath)).toBe(true);
-    expect(workspaceSource).toContain("useEnterpriseWorkspaceApi");
-    expect(workspaceSource).toContain("resetEnterpriseCsrfToken");
-    expect(workspaceSource).not.toContain("const enterpriseCsrfRef = useRef");
-
-    const runtimeHookSource = readFileSync(runtimeHookPath, "utf8");
-    expect(runtimeHookSource).toContain("export function useEnterpriseWorkspaceApi");
-    expect(runtimeHookSource).toContain("const enterpriseCsrfRef = useRef<EnterpriseCsrfToken | null>(null)");
-    expect(runtimeHookSource).toContain("requestSenaWorkspaceJson<Partial<EnterpriseCsrfToken>");
+    expect(runtimeHook.runtimeExports).toMatchObject({
+      useEnterpriseWorkspaceApi
+    });
+    expect(runtimeHook.ownedState).toEqual(["EnterpriseCsrfToken"]);
+    expect(runtimeHook.containerResponsibilities).toEqual([
+      "call useEnterpriseWorkspaceApi",
+      "reset CSRF state through resetEnterpriseCsrfToken"
+    ]);
   });
 
   it("keeps identity and team enterprise actions in a focused helper module", () => {
-    const workspacePath = path.join(process.cwd(), "components", "sena", "SenaFusionWorkspace.tsx");
-    const actionsPath = path.join(process.cwd(), "components", "sena", "workspace", "enterprise-actions.ts");
-    const workspaceSource = readFileSync(workspacePath, "utf8");
+    const actions = boundaryModule("enterprise-actions");
 
-    expect(existsSync(actionsPath)).toBe(true);
-    expect(workspaceSource).toContain("from \"./workspace/enterprise-actions\"");
-    expect(workspaceSource).not.toContain("body: JSON.stringify({ action: \"setup\" })");
-    expect(workspaceSource).not.toContain("body: JSON.stringify(action ? { action } : { sessionId })");
+    expect(actions.runtimeExports).toMatchObject({
+      createTeamInvitationAction,
+      deliverEnterpriseNotificationsAction,
+      startEnterpriseMfaSetupAction
+    });
+    expect(actions.containerResponsibilities).toEqual([
+      "call typed enterprise action helpers",
+      "avoid inline identity/team request bodies"
+    ]);
+  });
 
-    const actionsSource = readFileSync(actionsPath, "utf8");
-    expect(actionsSource).toContain("export async function startEnterpriseMfaSetupAction");
-    expect(actionsSource).toContain("export async function createTeamInvitationAction");
-    expect(actionsSource).toContain("export async function deliverEnterpriseNotificationsAction");
+  it("keeps report and export panel implementation in a focused module", () => {
+    const reportGenerator = boundaryModule("report-generator");
+
+    expect(reportGenerator.runtimeExports).toMatchObject({
+      ReportGenerator
+    });
+    expect(reportGenerator.containerResponsibilities).toEqual([
+      "render ReportGenerator with prepared audits and export callbacks",
+      "avoid keeping report gate JSX in the main workspace container"
+    ]);
+  });
+
+  it("keeps the Temporal Fusion Arc view in a focused workspace module", () => {
+    const temporalArc = boundaryModule("temporal-fusion-arc");
+
+    expect(temporalArc.runtimeExports).toMatchObject({
+      TemporalFusionArc
+    });
+    expect(temporalArc.testIds).toContain("temporal-fusion-arc");
+    expect(temporalArc.storyPhases).toEqual(["Plan", "Teach", "Reflect"]);
   });
 });

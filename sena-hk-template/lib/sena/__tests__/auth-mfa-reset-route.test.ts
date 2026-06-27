@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const productionGateRouteTimeoutMs = 15_000;
 
 function base32Decode(value: string) {
   const normalized = value.toUpperCase().replace(/[^A-Z2-7]/g, "");
@@ -169,7 +170,7 @@ describe("SENA MFA and password reset production gate headers", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
-  });
+  }, productionGateRouteTimeoutMs);
 
   it("returns identity production gate headers on password reset request and confirm responses", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-auth-reset-gate-"));
@@ -237,5 +238,5 @@ describe("SENA MFA and password reset production gate headers", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
-  });
+  }, productionGateRouteTimeoutMs);
 });

@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaRuntimeProvenance } from "./runtime-constants";
 import type {
   SenaDemoVerification,
@@ -28,7 +29,7 @@ const inScope = [
   "Local jENA and jSNA JavaScript runtime provenance, manifests, parity fixture evidence, and traceable exports.",
   "Evidence inspection, temporal runtime trace, report exports, and human-review handoff.",
   "Local enterprise-runtime vertical slice for auth, RBAC teams, server-side projects, imports, reliability, validation, publication exports, ops readiness, and redacted organization deployment handoff evidence.",
-  "Production SaaS backend readiness with native adapter certification, platform-owner bridge acceptance, release-gate evidence, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning."
+  "Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning."
 ];
 
 const outOfScope = [
@@ -94,7 +95,7 @@ const nextStagePublicInterfacePolicy = [
   "Keep /workspace/sena, /workspace/ena, and /api/ena/run as the stable public routes for the current pilot.",
   "Keep sena-project-snapshot/v1, sena-runtime-bundle/v1, sena-review-packet/v1, sena-report/v1, and sena-claim-readiness-gate/v1 export schemas backward compatible.",
   "Do not introduce a live R runtime; local vendor/jena-js and vendor/sna-js remain the website runtimes, with R-derived fixtures used only as validation evidence.",
-  "Do not make an external production-managed database a required pilot dependency; adapter certification and platform-owner acceptance records remain the production SaaS backend handoff path while sena-project-snapshot.json stays portable."
+  "Do not make an external production-managed database a required pilot dependency; adapter certification and platform-owner acceptance records remain the institution cutover handoff path while sena-project-snapshot.json stays portable."
 ];
 
 function uniqueStrings(values: string[]) {
@@ -185,9 +186,9 @@ function buildPhases(model: SenaModel, options: SenaDevelopmentPlanOptions): Sen
     },
     {
       id: "production-platform",
-      label: "Production SaaS backend readiness",
+      label: "Institution cutover acceptance evidence",
       status: "active",
-      scope: "Run the enterprise backend readiness loop with native adapter certification, platform-owner acceptance, release-gate review, go-live rehearsal, and redacted handoff evidence.",
+      scope: "Run the enterprise backend readiness loop for native adapter certification, platform-owner acceptance, release-gate review, go-live rehearsal, and redacted handoff evidence without marking production cutover complete.",
       deliverables: [
         "native adapter certification dossier",
         "platform decision acceptance register",
@@ -428,6 +429,7 @@ function buildNextStageDevelopmentPlan(
         status: "deferred",
         goal: "Strengthen claims beyond local demo readiness through parity, reliability, uncertainty, and domain review evidence.",
         deliverables: [
+          "real research dataset validation notes",
           "expanded jENA/rENA parity evidence",
           "expanded jSNA/R sna parity evidence",
           "coding reliability evidence",
@@ -438,11 +440,14 @@ function buildNextStageDevelopmentPlan(
         acceptanceCriteria: [
           "Report and review packet are accepted as reproducibility artifacts by the research team.",
           "Coding reliability, human review, evidence ledger, method validation, and runtime alignment gates are ready for any research claim.",
+          "Real research datasets, uncertainty/stability checks, and domain expert review are complete before any stronger-than-exploratory claim is made.",
           "Limitations clearly separate exploratory network evidence from causal, assessment, or publication claims."
         ],
         blockedUntil: [
           "Pilot handoff package is frozen.",
-          "At least one researcher walkthrough has been completed and reviewed."
+          "At least one researcher walkthrough has been completed and reviewed.",
+          "One or two real research datasets have completed import, evidence inspection, and review-packet export.",
+          "Coding reliability, uncertainty/stability, and domain expert review evidence are attached."
         ]
       },
       {
@@ -479,7 +484,7 @@ function buildNextStageDevelopmentPlan(
       "Near-term priority remains research, education, and instructor-facing learning analytics.",
       "Generalized SaaS operations, native managed database/object-storage/pub-sub/audit-SIEM/backup-restore adapters, institution SCIM/IdP approval, production deployment escalation ownership, and institution-owned email-provider operations are represented by acceptance, certification, and release-gate artifacts in the enterprise backend.",
       "The current verified local pilot is the baseline for next-stage work.",
-      "Research claims require human review and coding-reliability evidence; otherwise reports remain exploratory-only."
+      "Research claims require human review, coding-reliability evidence, real-data walkthrough evidence, uncertainty/stability checks, and domain review; otherwise reports remain exploratory-only."
     ]
   };
 }
@@ -506,7 +511,7 @@ export function buildSenaDevelopmentPlan(model: SenaModel, options: SenaDevelopm
   const nextStage = buildNextStageDevelopmentPlan(generatedAt, deliveryCandidate);
 
   return {
-    schemaVersion: "sena-development-plan/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.developmentPlan,
     title: options.title?.trim() || "SENA Development Plan",
     generatedAt,
     workspaceRoute: "/workspace/sena",

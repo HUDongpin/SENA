@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaDemoVerification,
   SenaDemoVerificationCompatibilityAudit,
@@ -254,7 +255,7 @@ export function buildSenaDemoVerificationCompatibilityAudit(
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-demo-verification-compatibility/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.demoVerificationCompatibility,
     status: reviewNeeded === 0 ? "compatible" : "mismatch",
     passed,
     reviewNeeded,
@@ -293,7 +294,7 @@ export function buildSenaDemoVerification(model: SenaModel, options: SenaDemoVer
   const manualFailed = checks.filter((check) => check.manualReview.status === "failed").length;
 
   return {
-    schemaVersion: "sena-demo-verification/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.demoVerification,
     title: options.title?.trim() || "SENA Demo Verification Checklist",
     generatedAt,
     workspaceRoute: "/workspace/sena",
@@ -359,7 +360,7 @@ function assertManualReview(value: unknown, context: string) {
 
 function assertDemoVerification(value: unknown): asserts value is SenaDemoVerification {
   const root = asRecord(value, "demo verification");
-  if (root.schemaVersion !== "sena-demo-verification/v1") {
+  if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.demoVerification) {
     throw new Error("JSON is not a SENA demo verification checklist.");
   }
   assertString(root.title, "demo verification.title");

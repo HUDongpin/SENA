@@ -34,7 +34,7 @@ function analysisRunHeaders(run: SenaEnterpriseAnalysisRun, project?: SenaEnterp
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.analysisRunList,
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const sourceProject = body.projectId ? getEnterpriseProject(context, String(body.projectId)) : null;
     const run = buildSenaAnalysisRun({

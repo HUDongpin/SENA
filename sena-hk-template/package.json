@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "ena:parity:r": "Rscript scripts/generate-ena-r-parity-fixture.R",
     "sna:parity:r": "Rscript scripts/generate-sena-sna-r-parity-fixture.R",
     "sena:pilot:smoke": "vitest run lib/sena/__tests__/pilot-smoke.test.ts",
@@ -13,38 +13,54 @@
     "sena:go-live:check": "NODE_ENV=production vite-node scripts/check-sena-go-live-readiness.ts",
     "sena:self-managed:env": "node scripts/setup-sena-self-managed-env.mjs",
     "sena:self-managed:workflow": "vite-node scripts/run-sena-self-managed-workflow.ts",
+    "sena:post-cutover:observe": "NODE_ENV=production vite-node scripts/run-sena-post-cutover-observation.ts",
     "sena:neon:verify": "SENA_ENTERPRISE_POSTGRES_LIVE_TEST=1 vitest run lib/sena/__tests__/enterprise-postgres.live.test.ts",
     "test": "node scripts/run-vitest-with-enterprise-temp-db.mjs",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",
+    "@vercel/analytics": "^2.0.1",
     "autoprefixer": "^10.4.18",
     "clsx": "^2.1.0",
     "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "framer-motion": "^11.0.8",
     "jena-js": "file:vendor/jena-js",
     "lucide-react": "^0.468.0",
-    "next": "^14.2.3",
+    "next": "^16.2.9",
     "pdf-lib": "^1.17.1",
     "pg": "^8.21.0",
-    "postcss": "^8.4.35",
+    "postcss": "^8.5.15",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sna.js": "file:vendor/sna-js",
     "tailwind-merge": "^2.2.1",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.4.2",
-    "xlsx": "^0.18.5"
+    "typescript": "^5.4.2"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.35",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.9",
     "playwright": "^1.60.0",
     "vitest": "^4.1.7"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "postcss": "^8.5.15",
+    "tsup": {
+      "esbuild": "0.28.1"
+    },
+    "uuid": "11.1.1",
+    "vite": {
+      "esbuild": "0.28.1"
+    },
+    "vite-node": {
+      "vite": "^8.0.16"
+    }
   }
 }

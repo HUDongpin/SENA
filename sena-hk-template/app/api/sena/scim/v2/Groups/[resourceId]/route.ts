@@ -5,6 +5,8 @@ import { provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "
 
 export const runtime = "nodejs";
 
+type ScimResourceRouteContext = { params: Promise<{ resourceId: string }> };
+
 function scimOptions(request: Request): SenaScimProvisioningOptions {
   const url = new URL(request.url);
   return {
@@ -24,17 +26,19 @@ async function upsertGroup(request: Request, resourceId: string) {
   return NextResponse.json(bridge.resource);
 }
 
-export async function PUT(request: Request, { params }: { params: { resourceId: string } }) {
+export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
   try {
-    return await upsertGroup(request, params.resourceId);
+    const { resourceId } = await params;
+    return await upsertGroup(request, resourceId);
   } catch (error) {
     return jsonError(error);
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { resourceId: string } }) {
+export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
   try {
-    return await upsertGroup(request, params.resourceId);
+    const { resourceId } = await params;
+    return await upsertGroup(request, resourceId);
   } catch (error) {
     return jsonError(error);
   }

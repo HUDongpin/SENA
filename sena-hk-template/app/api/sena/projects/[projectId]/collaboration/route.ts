@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
   createEnterpriseAdjudicationRecord,
@@ -6,29 +7,33 @@ import {
   listEnterpriseProjectCollaboration,
   resolveEnterpriseProjectComment,
   touchEnterpriseProjectPresence
-} from "@/lib/sena/enterprise/team-project";
+} from "@/lib/sena/enterprise/team-collaboration";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
-export async function GET(_request: Request, { params }: { params: { projectId: string } }) {
+type ProjectRouteContext = { params: Promise<{ projectId: string }> };
+
+export async function GET(_request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSession();
-    return NextResponse.json(listEnterpriseProjectCollaboration(context, params.projectId));
+    const { projectId } = await params;
+    const context = await requireApiSession();
+    return NextResponse.json(listEnterpriseProjectCollaboration(context, projectId));
   } catch (error) {
     return jsonError(error);
   }
 }
 
-export async function POST(request: Request, { params }: { params: { projectId: string } }) {
+export async function POST(request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const { projectId } = await params;
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const action = String(body.action ?? "presence");
 
     if (action === "deliver-pubsub") {
       return NextResponse.json(await deliverEnterpriseCollaborationPubSub(context, {
-        projectId: params.projectId,
+        projectId,
         limit: body.limit,
         force: Boolean(body.force),
         eventId: body.eventId ? String(body.eventId) : undefined
@@ -37,8 +42,8 @@ export async function POST(request: Request, { params }: { params: { projectId: 
 
     if (action === "presence") {
       return NextResponse.json({
-        schemaVersion: "sena-project-presence/v1",
-        presence: touchEnterpriseProjectPresence(context, params.projectId, {
+        schemaVersion: SENA_SCHEMA_VERSIONS.projectPresence,
+        presence: touchEnterpriseProjectPresence(context, projectId, {
           activeView: body.activeView ? String(body.activeView) : undefined,
           cursorLabel: body.cursorLabel ? String(body.cursorLabel) : undefined
         })
@@ -47,8 +52,8 @@ export async function POST(request: Request, { params }: { params: { projectId: 
 
     if (action === "comment") {
       return NextResponse.json({
-        schemaVersion: "sena-project-comment/v1",
-        comment: createEnterpriseProjectComment(context, params.projectId, {
+        schemaVersion: SENA_SCHEMA_VERSIONS.projectComment,
+        comment: createEnterpriseProjectComment(context, projectId, {
           body: String(body.body ?? ""),
           target: body.target && typeof body.target === "object" ? body.target : { kind: "project" }
         })
@@ -57,16 +62,16 @@ export async function POST(request: Request, { params }: { params: { projectId: 
 
     if (action === "resolve-comment") {
       return NextResponse.json({
-        schemaVersion: "sena-project-comment/v1",
-        comment: resolveEnterpriseProjectComment(context, params.projectId, String(body.commentId ?? ""))
+        schemaVersion: SENA_SCHEMA_VERSIONS.projectComment,
+        comment: resolveEnterpriseProjectComment(context, projectId, String(body.commentId ?? ""))
       });
     }
 
     if (action === "adjudication") {
       const decision = body.decision === "exclude" || body.decision === "revise" ? body.decision : "include";
       return NextResponse.json({
-        schemaVersion: "sena-project-adjudication/v1",
-        adjudication: createEnterpriseAdjudicationRecord(context, params.projectId, {
+        schemaVersion: SENA_SCHEMA_VERSIONS.projectAdjudication,
+        adjudication: createEnterpriseAdjudicationRecord(context, projectId, {
           reliabilityRunId: body.reliabilityRunId ? String(body.reliabilityRunId) : undefined,
           itemId: String(body.itemId ?? ""),
           codeId: String(body.codeId ?? ""),

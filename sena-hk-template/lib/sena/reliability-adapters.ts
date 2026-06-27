@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { parseSenaCsv, type SenaImportRow } from "./import";
 import {
   buildSenaReliabilityDashboard,
@@ -16,7 +16,7 @@ export type SenaReliabilityUploadLike = {
 };
 
 export type SenaLocalReliabilityImportResult = {
-  schemaVersion: "sena-local-reliability-import/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.localReliabilityImport;
   dashboard: SenaReliabilityDashboard;
   reviewPatch: Partial<SenaCodingReliabilityReview>;
   fileCount: number;
@@ -40,14 +40,7 @@ function rowsFromJson(value: unknown): SenaImportRow[] {
 async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
   const lowerName = file.name.toLowerCase();
   if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    return {
-      rows: workbook.SheetNames.flatMap((sheetName) => {
-        const sheet = workbook.Sheets[sheetName];
-        return sheet ? XLSX.utils.sheet_to_json<SenaImportRow>(sheet, { defval: "" }) : [];
-      }),
-      warnings: []
-    };
+    throw new Error(`${file.name}: local reliability import accepts CSV or JSON only. Sign in to process .xlsx files on the server, or export this worksheet as CSV.`);
   }
 
   const text = await file.text();
@@ -80,7 +73,7 @@ export async function importSenaReliabilityFiles(
   };
 
   return {
-    schemaVersion: "sena-local-reliability-import/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.localReliabilityImport,
     dashboard: dashboardWithWarnings,
     reviewPatch: reliabilityDashboardToReview(dashboardWithWarnings, reviewer),
     fileCount: files.length,

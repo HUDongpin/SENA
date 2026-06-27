@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
   getEnterpriseDeploymentReadiness,
+  type SenaEnterpriseDeploymentReadiness
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import {
   getEnterpriseOpsStatus,
-  type SenaEnterpriseDeploymentReadiness,
   type SenaEnterpriseOpsStatus
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-status";
 import { jsonError } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
@@ -45,7 +47,7 @@ function opsStatusHeaders(
 
 export async function GET(request: Request) {
   try {
-    const access = requireOpsAccess(request);
+    const access = await requireOpsAccess(request);
     const status = getEnterpriseOpsStatus();
     const readiness = getEnterpriseDeploymentReadiness();
     return NextResponse.json({

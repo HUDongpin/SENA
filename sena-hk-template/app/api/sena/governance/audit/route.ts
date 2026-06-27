@@ -6,7 +6,7 @@ import {
   recordEnterpriseAudit,
   verifyEnterpriseAuditIntegrity,
   type SenaEnterpriseAuditEvent
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-audit";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
@@ -51,7 +51,7 @@ function auditCsv(events: ReturnType<typeof listEnterpriseAuditLog>["events"]) {
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     const result = listEnterpriseAuditLog(context, {
       teamId: url.searchParams.get("teamId") || undefined,
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const delivery = await deliverEnterpriseAuditLog(context, {
       teamId: body.teamId ? String(body.teamId) : undefined,

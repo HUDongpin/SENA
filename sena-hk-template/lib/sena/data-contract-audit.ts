@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaDataContractAudit,
   SenaDataContractAuditArtifact,
@@ -259,7 +260,7 @@ export function buildSenaDataContractAudit(
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-data-contract-audit/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.dataContractAudit,
     status: reviewNeeded === 0 ? "valid" : "needs-review",
     passed,
     reviewNeeded,
@@ -279,7 +280,7 @@ export function buildSenaDataContractAuditArtifact(
   const warnings = uniqueWarnings([...(model.dataset.warnings ?? []), ...model.summary.warnings, ...(options.modelWarnings ?? [])]);
 
   return {
-    schemaVersion: "sena-data-contract-audit-artifact/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.dataContractAuditArtifact,
     title: options.title?.trim() || "SENA Data Contract Audit",
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,

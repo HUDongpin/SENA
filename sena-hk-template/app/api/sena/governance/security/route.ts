@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   getEnterpriseSecurityPosture,
   type SenaEnterpriseSecurityPosture
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-security";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -40,7 +40,7 @@ function securityPostureHeaders(posture: SenaEnterpriseSecurityPosture): Record<
 
 export async function GET() {
   try {
-    requireApiSession();
+    await requireApiSession();
     const posture = getEnterpriseSecurityPosture();
     return NextResponse.json(posture, {
       headers: securityPostureHeaders(posture)

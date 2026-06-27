@@ -1,11 +1,12 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { createHash } from "node:crypto";
 import { Pool, type PoolConfig } from "pg";
 import type {
   SenaEnterpriseBackupArtifact,
   SenaEnterpriseBackupRecordCounts,
-  SenaEnterpriseBackupVerification,
-  SenaEnterpriseDb
+  SenaEnterpriseBackupVerification
 } from "./enterprise";
+import type { SenaEnterpriseDb } from "./enterprise/state";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
@@ -159,7 +160,7 @@ function roundTripJson<T>(value: T): T {
 
 function normalizeStoredDb(value: unknown): SenaEnterpriseDb {
   const db = typeof value === "string" ? JSON.parse(value) as SenaEnterpriseDb : value as SenaEnterpriseDb;
-  if (!db || typeof db !== "object" || db.schemaVersion !== "sena-enterprise-db/v1") {
+  if (!db || typeof db !== "object" || db.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseDb) {
     throw new SenaEnterprisePostgresError("Unsupported SENA enterprise Postgres state schema.", 500, "unsupported_postgres_state_schema");
   }
   return roundTripJson(db);

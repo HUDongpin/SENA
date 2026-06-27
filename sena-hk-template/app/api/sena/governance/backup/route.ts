@@ -2,18 +2,22 @@ import { NextResponse } from "next/server";
 import {
   createEnterpriseBackup,
   deliverEnterpriseBackup,
-  deliverEnterpriseDatabaseSync,
-  restoreEnterpriseBackup,
   verifyEnterpriseBackup,
   type SenaEnterpriseBackupArtifact
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-backup";
+import {
+  deliverEnterpriseDatabaseSync
+} from "@/lib/sena/enterprise/ops-database-sync";
+import {
+  restoreEnterpriseBackup
+} from "@/lib/sena/enterprise/ops-backup-restore";
 import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId") || undefined;
     return NextResponse.json(createEnterpriseBackup(context, { teamId }));
@@ -24,7 +28,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     if (body.action === "deliver") {
       const backup = (body.artifact ?? body.backup) as SenaEnterpriseBackupArtifact | undefined;

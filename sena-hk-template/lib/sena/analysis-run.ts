@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
 import { buildSenaRuntimeBundle } from "./runtime-bundle";
 import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "./snapshot";
@@ -113,7 +114,7 @@ export function buildSenaAnalysisRun(input: SenaAnalysisRunInput) {
     : undefined;
 
   return {
-    schemaVersion: "sena-analysis-run/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.analysisRun,
     generatedAt,
     source: {
       kind: source.kind,

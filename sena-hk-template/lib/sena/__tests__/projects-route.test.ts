@@ -113,7 +113,7 @@ describe("SENA projects route", () => {
           snapshot: updateSnapshot,
           expectedVersion: 1
         })
-      }), { params: { projectId: String(createBody.project?.id) } });
+      }), { params: Promise.resolve({ projectId: String(createBody.project?.id) }) });
       const updateBody = await updateResponse.json() as {
         project?: { id?: string; currentVersion?: number; snapshot?: unknown };
       };
@@ -136,7 +136,7 @@ describe("SENA projects route", () => {
           version: 1,
           expectedVersion: 2
         })
-      }), { params: { projectId: String(createBody.project?.id) } });
+      }), { params: Promise.resolve({ projectId: String(createBody.project?.id) }) });
       const restoreBody = await restoreResponse.json() as {
         schemaVersion?: string;
         project?: { id?: string; currentVersion?: number; snapshot?: unknown };
@@ -161,7 +161,7 @@ describe("SENA projects route", () => {
           "content-type": "application/json",
           "x-sena-csrf-token": deleteCsrf.token
         }
-      }), { params: { projectId: String(createBody.project?.id) } });
+      }), { params: Promise.resolve({ projectId: String(createBody.project?.id) }) });
       const deleteBody = await deleteResponse.json() as {
         schemaVersion?: string;
         projectId?: string;

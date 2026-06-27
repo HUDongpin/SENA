@@ -4,14 +4,14 @@ import {
   disableEnterpriseMfa,
   enableEnterpriseMfa,
   getEnterpriseMfaStatus
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-mfa";
 import { authProductionGateHeaders, jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     return NextResponse.json(getEnterpriseMfaStatus(context), {
       headers: authProductionGateHeaders()
     });
@@ -22,7 +22,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const action = String(body.action ?? "setup");
     if (action === "setup") {
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json().catch(() => ({}));
     return NextResponse.json(disableEnterpriseMfa(context, {
       code: String(body.code ?? "")

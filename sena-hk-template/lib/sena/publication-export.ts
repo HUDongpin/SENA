@@ -2,9 +2,10 @@ import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, 
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
-import * as XLSX from "xlsx";
+import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
 import { buildSenaMarkdownReport } from "./report";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
 export type SenaPublicationFormat = "html" | "svg" | "png" | "xlsx" | "docx" | "pdf" | "package";
@@ -16,7 +17,7 @@ export type SenaPublicationExport = {
 };
 
 export type SenaPublicationEnterpriseProjectEvidence = {
-  schemaVersion: "sena-publication-enterprise-project-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence;
   projectId: string;
   teamId: string;
   currentVersion: number;
@@ -26,7 +27,7 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   sourceSnapshotSha256: string;
   reportSha256: string;
   claimPackage: {
-    schemaVersion: "sena-enterprise-claim-evidence-package/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
     status: string;
     blockers: number;
     warnings: number;
@@ -291,120 +292,143 @@ export function buildSenaPublicationHtml(report: SenaReport) {
 </html>`;
 }
 
-function worksheetFromRows(rows: Array<Record<string, string | number | boolean | null>>) {
-  return XLSX.utils.json_to_sheet(rows);
-}
-
-export function buildSenaPublicationWorkbook(model: SenaModel, report: SenaReport) {
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(metricRows(model).map(([metric, value]) => ({ metric, value }))), "Summary");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows([
+export async function buildSenaPublicationWorkbook(model: SenaModel, report: SenaReport) {
+  return buildXlsxWorkbookBuffer([
     {
-      gate: "Claim readiness",
-      schemaVersion: report.claimReadinessGate.schemaVersion,
-      status: report.claimReadinessGate.status,
-      claimUse: report.claimReadinessGate.claimUse,
-      blockers: report.claimReadinessGate.blockers.join("; "),
-      guardrail: report.claimReadinessGate.guardrail
+      name: "Summary",
+      rows: metricRows(model).map(([metric, value]) => ({ metric, value }))
     },
     {
-      gate: "Completeness",
-      schemaVersion: report.completenessAudit.schemaVersion,
-      status: report.completenessAudit.status,
-      passed: report.completenessAudit.passed,
-      reviewNeeded: report.completenessAudit.reviewNeeded,
-      blockers: report.completenessAudit.items.filter((item) => item.status === "review").map((item) => item.label).join("; ")
+      name: "Claim readiness",
+      rows: [
+        {
+          gate: "Claim readiness",
+          schemaVersion: report.claimReadinessGate.schemaVersion,
+          status: report.claimReadinessGate.status,
+          claimUse: report.claimReadinessGate.claimUse,
+          blockers: report.claimReadinessGate.blockers.join("; "),
+          guardrail: report.claimReadinessGate.guardrail
+        },
+        {
+          gate: "Completeness",
+          schemaVersion: report.completenessAudit.schemaVersion,
+          status: report.completenessAudit.status,
+          passed: report.completenessAudit.passed,
+          reviewNeeded: report.completenessAudit.reviewNeeded,
+          blockers: report.completenessAudit.items.filter((item) => item.status === "review").map((item) => item.label).join("; ")
+        },
+        {
+          gate: "Human review",
+          schemaVersion: SENA_SCHEMA_VERSIONS.humanReview,
+          status: report.humanReview.status,
+          reviewer: report.humanReview.reviewer,
+          reviewedAt: report.humanReview.reviewedAt,
+          blockers: report.humanReview.status === "human-reviewed" ? "" : "human review not completed"
+        }
+      ]
     },
     {
-      gate: "Human review",
-      schemaVersion: "sena-human-review/v1",
-      status: report.humanReview.status,
-      reviewer: report.humanReview.reviewer,
-      reviewedAt: report.humanReview.reviewedAt,
-      blockers: report.humanReview.status === "human-reviewed" ? "" : "human review not completed"
-    }
-  ]), "Claim readiness");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows([
+      name: "Coding reliability",
+      rows: [
+        {
+          schemaVersion: report.codingReliabilityGate.schemaVersion,
+          status: report.codingReliabilityGate.status,
+          claimUse: report.codingReliabilityGate.claimUse,
+          reviewer: report.codingReliabilityGate.review.reviewer,
+          reviewedAt: report.codingReliabilityGate.review.reviewedAt,
+          codingScheme: report.codingReliabilityGate.review.codingScheme,
+          unitOfCoding: report.codingReliabilityGate.review.unitOfCoding,
+          coderCount: report.codingReliabilityGate.review.coderCount,
+          agreementMetric: report.codingReliabilityGate.review.agreementMetric,
+          agreementValue: report.codingReliabilityGate.review.agreementValue,
+          adjudicationNotes: report.codingReliabilityGate.review.adjudicationNotes,
+          blockers: report.codingReliabilityGate.blockers.join("; "),
+          guardrail: report.codingReliabilityGate.guardrail
+        }
+      ]
+    },
     {
-      schemaVersion: report.codingReliabilityGate.schemaVersion,
-      status: report.codingReliabilityGate.status,
-      claimUse: report.codingReliabilityGate.claimUse,
-      reviewer: report.codingReliabilityGate.review.reviewer,
-      reviewedAt: report.codingReliabilityGate.review.reviewedAt,
-      codingScheme: report.codingReliabilityGate.review.codingScheme,
-      unitOfCoding: report.codingReliabilityGate.review.unitOfCoding,
-      coderCount: report.codingReliabilityGate.review.coderCount,
-      agreementMetric: report.codingReliabilityGate.review.agreementMetric,
-      agreementValue: report.codingReliabilityGate.review.agreementValue,
-      adjudicationNotes: report.codingReliabilityGate.review.adjudicationNotes,
-      blockers: report.codingReliabilityGate.blockers.join("; "),
-      guardrail: report.codingReliabilityGate.guardrail
-    }
-  ]), "Coding reliability");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows([
+      name: "Data governance",
+      rows: [
+        {
+          schemaVersion: report.dataGovernance.schemaVersion,
+          status: report.dataGovernance.status,
+          irbApprovalId: report.dataGovernance.irbApprovalId,
+          consentScope: report.dataGovernance.consentScope,
+          retentionPolicy: report.dataGovernance.retentionPolicy,
+          usageConstraints: report.dataGovernance.usageConstraints.join("; "),
+          dataSteward: report.dataGovernance.dataSteward,
+          reviewedAt: report.dataGovernance.reviewedAt,
+          blockers: report.dataGovernance.blockers.join("; "),
+          guardrail: report.dataGovernance.guardrail
+        }
+      ]
+    },
     {
-      schemaVersion: report.dataGovernance.schemaVersion,
-      status: report.dataGovernance.status,
-      irbApprovalId: report.dataGovernance.irbApprovalId,
-      consentScope: report.dataGovernance.consentScope,
-      retentionPolicy: report.dataGovernance.retentionPolicy,
-      usageConstraints: report.dataGovernance.usageConstraints.join("; "),
-      dataSteward: report.dataGovernance.dataSteward,
-      reviewedAt: report.dataGovernance.reviewedAt,
-      blockers: report.dataGovernance.blockers.join("; "),
-      guardrail: report.dataGovernance.guardrail
+      name: "Matrix fingerprints",
+      rows: report.fusionMathAudit.matrixFingerprints.map((fingerprint) => ({
+        id: fingerprint.id,
+        label: fingerprint.label,
+        shape: fingerprint.shape,
+        checksumAlgorithm: fingerprint.checksumAlgorithm,
+        checksum: fingerprint.checksum,
+        valueKinds: fingerprint.valueKinds.join("|"),
+        rawTotal: fingerprint.totals.raw ?? null,
+        normalizedTotal: fingerprint.totals.normalized ?? null,
+        valuesTotal: fingerprint.totals.values ?? null,
+        rawNonZero: fingerprint.nonZero.raw ?? null,
+        normalizedNonZero: fingerprint.nonZero.normalized ?? null,
+        valuesNonZero: fingerprint.nonZero.values ?? null
+      }))
+    },
+    {
+      name: "Evidence snippets",
+      rows: report.evidenceSnippets.slice(0, 80).map((snippet, index) => ({
+        index: index + 1,
+        activeWindow: report.analysisWindow?.label ?? "Full conversation",
+        source: snippet.source,
+        sourceId: snippet.sourceId,
+        sourceLabel: snippet.sourceLabel,
+        evidenceId: snippet.id,
+        stage: snippet.stage,
+        personId: snippet.personId ?? null,
+        label: snippet.label,
+        codes: snippet.codes?.join("|") ?? "",
+        text: snippet.text,
+        lineageTable: snippet.lineage?.table ?? null,
+        lineageRowId: snippet.lineage?.rowId ?? null
+      }))
+    },
+    {
+      name: "SNA actors",
+      rows: model.socialReport.actors.map((actor) => ({
+        id: actor.id,
+        label: actor.label,
+        degree: actor.degree,
+        strength: actor.strength,
+        closeness: actor.closeness,
+        component: actor.component,
+        community: actor.community
+      }))
+    },
+    {
+      name: "G pairs",
+      rows: model.pairReport.map((pair) => ({
+        pair: pair.label,
+        totalContribution: pair.totalContribution,
+        contributors: pair.topContributors.map((contributor) => `${contributor.label}:${contributor.weight}`).join("; ")
+      }))
+    },
+    {
+      name: "Metric provenance",
+      rows: report.validation.metricProvenance.map((metric) => ({
+        metric: metric.label,
+        source: metric.source,
+        parityStatus: metric.parityStatus,
+        interpretationLimit: metric.interpretationLimit
+      }))
     }
-  ]), "Data governance");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(report.fusionMathAudit.matrixFingerprints.map((fingerprint) => ({
-    id: fingerprint.id,
-    label: fingerprint.label,
-    shape: fingerprint.shape,
-    checksumAlgorithm: fingerprint.checksumAlgorithm,
-    checksum: fingerprint.checksum,
-    valueKinds: fingerprint.valueKinds.join("|"),
-    rawTotal: fingerprint.totals.raw ?? null,
-    normalizedTotal: fingerprint.totals.normalized ?? null,
-    valuesTotal: fingerprint.totals.values ?? null,
-    rawNonZero: fingerprint.nonZero.raw ?? null,
-    normalizedNonZero: fingerprint.nonZero.normalized ?? null,
-    valuesNonZero: fingerprint.nonZero.values ?? null
-  }))), "Matrix fingerprints");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(report.evidenceSnippets.slice(0, 80).map((snippet, index) => ({
-    index: index + 1,
-    activeWindow: report.analysisWindow?.label ?? "Full conversation",
-    source: snippet.source,
-    sourceId: snippet.sourceId,
-    sourceLabel: snippet.sourceLabel,
-    evidenceId: snippet.id,
-    stage: snippet.stage,
-    personId: snippet.personId ?? null,
-    label: snippet.label,
-    codes: snippet.codes?.join("|") ?? "",
-    text: snippet.text,
-    lineageTable: snippet.lineage?.table ?? null,
-    lineageRowId: snippet.lineage?.rowId ?? null
-  }))), "Evidence snippets");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(model.socialReport.actors.map((actor) => ({
-    id: actor.id,
-    label: actor.label,
-    degree: actor.degree,
-    strength: actor.strength,
-    closeness: actor.closeness,
-    component: actor.component,
-    community: actor.community
-  }))), "SNA actors");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(model.pairReport.map((pair) => ({
-    pair: pair.label,
-    totalContribution: pair.totalContribution,
-    contributors: pair.topContributors.map((contributor) => `${contributor.label}:${contributor.weight}`).join("; ")
-  }))), "G pairs");
-  XLSX.utils.book_append_sheet(workbook, worksheetFromRows(report.validation.metricProvenance.map((metric) => ({
-    metric: metric.label,
-    source: metric.source,
-    parityStatus: metric.parityStatus,
-    interpretationLimit: metric.interpretationLimit
-  }))), "Metric provenance");
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+  ]);
 }
 
 export async function buildSenaPublicationDocx(model: SenaModel, report: SenaReport) {
@@ -508,7 +532,7 @@ async function buildSingleSenaPublicationExport(
     return {
       filename: `${safeTitle}.xlsx`,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      body: buildSenaPublicationWorkbook(model, report)
+      body: await buildSenaPublicationWorkbook(model, report)
     };
   }
   if (format === "docx") {
@@ -546,7 +570,7 @@ export async function buildSenaPublicationPackage(
   }));
   const artifactManifest = artifacts.map(({ bodyBase64: _bodyBase64, ...artifact }) => artifact);
   const sourceSnapshotEvidence = {
-    schemaVersion: "sena-publication-source-snapshot/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationSourceSnapshot,
     snapshotSchemaVersion: snapshot?.schemaVersion ?? "derived-from-report",
     snapshotTitle: snapshot?.title ?? report.title,
     snapshotGeneratedAt: snapshot?.generatedAt ?? report.generatedAt,
@@ -592,7 +616,7 @@ export async function buildSenaPublicationPackage(
     ]
   };
   const verificationCertificate = {
-    schemaVersion: "sena-publication-verification-certificate/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationVerificationCertificate,
     status: artifactManifest.every((artifact) => artifact.bytes > 0 && artifact.sha256.length === 64) ? "verified" : "needs-review",
     generatedAt: report.generatedAt,
     sourceSnapshotSha256: sourceSnapshotEvidence.snapshotSha256,
@@ -621,7 +645,7 @@ export async function buildSenaPublicationPackage(
     enterpriseProjectEvidence
   };
   return {
-    schemaVersion: "sena-publication-package/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationPackage,
     manifest: {
       title: report.title,
       formats: [...packagedPublicationFormats],

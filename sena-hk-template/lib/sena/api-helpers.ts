@@ -1,17 +1,17 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { enforceEnterpriseApiRateLimit } from "./enterprise/auth-security";
 import {
   senaCsrfHeaderName,
-  enforceEnterpriseApiRateLimit,
-  enterpriseErrorResponse,
-  getEnterpriseIdentityProductionEvidence,
   requireEnterpriseSession,
   sanitizeEnterpriseContext,
   senaSessionCookieName,
   verifyEnterpriseCsrfToken,
-  type SenaEnterpriseIdentityInstitutionActionPlan,
   type SenaEnterpriseSessionContext
-} from "./enterprise";
+} from "./enterprise/auth-session";
+import { enterpriseErrorResponse } from "./enterprise/errors";
+import { getEnterpriseIdentityProductionEvidence } from "./enterprise/identity-production-evidence";
+import type { SenaEnterpriseIdentityInstitutionActionPlan } from "./enterprise/identity-action-plan";
 
 export function sessionCookieOptions(maxAgeSeconds = 7 * 24 * 60 * 60) {
   return {
@@ -32,20 +32,20 @@ export function jsonError(error: unknown) {
   return NextResponse.json(response.body, { status: response.status });
 }
 
-export function currentSessionToken() {
-  return cookies().get(senaSessionCookieName)?.value;
+export async function currentSessionToken() {
+  return (await cookies()).get(senaSessionCookieName)?.value;
 }
 
-export function requireApiSession(): SenaEnterpriseSessionContext {
-  return requireEnterpriseSession(currentSessionToken());
+export async function requireApiSession(): Promise<SenaEnterpriseSessionContext> {
+  return requireEnterpriseSession(await currentSessionToken());
 }
 
 export function requireApiCsrf(request: Request, context: SenaEnterpriseSessionContext) {
   return verifyEnterpriseCsrfToken(context, request.headers.get(senaCsrfHeaderName));
 }
 
-export function requireApiSessionForMutation(request: Request): SenaEnterpriseSessionContext {
-  const context = requireApiSession();
+export async function requireApiSessionForMutation(request: Request): Promise<SenaEnterpriseSessionContext> {
+  const context = await requireApiSession();
   requireApiCsrf(request, context);
   return context;
 }

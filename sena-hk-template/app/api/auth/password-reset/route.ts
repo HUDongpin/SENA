@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   completeEnterprisePasswordReset,
   createEnterprisePasswordReset
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-password-reset";
 import { authProductionGateHeaders, enforceAuthRateLimit, jsonError } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

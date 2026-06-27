@@ -13,6 +13,8 @@ import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
 
+type ProjectRouteContext = { params: Promise<{ projectId: string }> };
+
 function projectSnapshotSha256(project: SenaEnterpriseProject) {
   return createHash("sha256").update(JSON.stringify(project.snapshot)).digest("hex");
 }
@@ -37,10 +39,11 @@ function projectDeletionHeaders(deletion: ReturnType<typeof deleteEnterpriseProj
   };
 }
 
-export async function GET(_request: Request, { params }: { params: { projectId: string } }) {
+export async function GET(_request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSession();
-    const project = getEnterpriseProject(context, params.projectId);
+    const { projectId } = await params;
+    const context = await requireApiSession();
+    const project = getEnterpriseProject(context, projectId);
     return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       headers: projectLifecycleHeaders(project)
     });
@@ -49,11 +52,12 @@ export async function GET(_request: Request, { params }: { params: { projectId: 
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { projectId: string } }) {
+export async function PUT(request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const { projectId } = await params;
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const project = updateEnterpriseProject(context, params.projectId, {
+    const project = updateEnterpriseProject(context, projectId, {
       title: body.title === undefined ? undefined : String(body.title),
       description: body.description === undefined ? undefined : String(body.description),
       snapshot: body.snapshot ? importSenaProjectSnapshot(body.snapshot) : undefined,
@@ -67,13 +71,14 @@ export async function PUT(request: Request, { params }: { params: { projectId: s
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { projectId: string } }) {
+export async function PATCH(request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const { projectId } = await params;
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const action = String(body.action ?? "");
     if (action === "restore-revision") {
-      const result = restoreEnterpriseProjectRevision(context, params.projectId, {
+      const result = restoreEnterpriseProjectRevision(context, projectId, {
         revisionId: body.revisionId === undefined ? undefined : String(body.revisionId),
         version: body.version === undefined ? undefined : Number(body.version),
         expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
@@ -91,10 +96,11 @@ export async function PATCH(request: Request, { params }: { params: { projectId:
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { projectId: string } }) {
+export async function DELETE(request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSessionForMutation(request);
-    const deletion = deleteEnterpriseProject(context, params.projectId);
+    const { projectId } = await params;
+    const context = await requireApiSessionForMutation(request);
+    const deletion = deleteEnterpriseProject(context, projectId);
     return NextResponse.json(deletion, {
       headers: projectDeletionHeaders(deletion)
     });

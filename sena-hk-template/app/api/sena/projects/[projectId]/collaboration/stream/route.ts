@@ -1,6 +1,6 @@
 import {
   listEnterpriseProjectCollaboration
-} from "@/lib/sena/enterprise/team-project";
+} from "@/lib/sena/enterprise/team-collaboration";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -8,10 +8,13 @@ export const dynamic = "force-dynamic";
 
 const streamSchemaVersion = "sena-project-collaboration-stream/v1";
 
-export async function GET(request: Request, { params }: { params: { projectId: string } }) {
+type ProjectRouteContext = { params: Promise<{ projectId: string }> };
+
+export async function GET(request: Request, { params }: ProjectRouteContext) {
   try {
-    const context = requireApiSession();
-    const initialCollaboration = listEnterpriseProjectCollaboration(context, params.projectId);
+    const { projectId } = await params;
+    const context = await requireApiSession();
+    const initialCollaboration = listEnterpriseProjectCollaboration(context, projectId);
     const encoder = new TextEncoder();
     let sequence = 0;
     let currentCollaboration: ReturnType<typeof listEnterpriseProjectCollaboration> | null = initialCollaboration;
@@ -29,7 +32,7 @@ export async function GET(request: Request, { params }: { params: { projectId: s
         const pushState = () => {
           try {
             sequence += 1;
-            const collaboration = currentCollaboration ?? listEnterpriseProjectCollaboration(context, params.projectId);
+            const collaboration = currentCollaboration ?? listEnterpriseProjectCollaboration(context, projectId);
             currentCollaboration = null;
             writeEvent("collaboration", {
               schemaVersion: streamSchemaVersion,

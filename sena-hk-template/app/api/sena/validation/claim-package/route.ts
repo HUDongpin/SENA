@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   getEnterpriseClaimEvidencePackage
-} from "@/lib/sena/enterprise/reliability-validation";
+} from "@/lib/sena/enterprise/claim-evidence-package";
 import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     const claimPackage = getEnterpriseClaimEvidencePackage(context, {
       projectId: String(url.searchParams.get("projectId") ?? "")

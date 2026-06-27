@@ -1,16 +1,17 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type { SenaEnterpriseRole } from "./enterprise/access-control";
+import type { SenaEnterpriseSsoProvider } from "./enterprise";
+import { SenaEnterpriseError } from "./enterprise/errors";
 import {
   listEnterpriseProvisioningDirectory,
   provisionEnterpriseOrganization,
-  SenaEnterpriseError,
   type SenaEnterpriseProvisioningDirectory,
   type SenaEnterpriseProvisioningInput,
   type SenaEnterpriseProvisioningMembershipInput,
   type SenaEnterpriseProvisioningResult,
   type SenaEnterpriseProvisioningTeamInput,
-  type SenaEnterpriseProvisioningUserInput,
-  type SenaEnterpriseRole,
-  type SenaEnterpriseSsoProvider
-} from "./enterprise";
+  type SenaEnterpriseProvisioningUserInput
+} from "./enterprise/provisioning";
 
 export const scimCoreUserSchema = "urn:ietf:params:scim:schemas:core:2.0:User";
 export const scimCoreGroupSchema = "urn:ietf:params:scim:schemas:core:2.0:Group";
@@ -33,7 +34,7 @@ export type SenaScimProvisioningOptions = {
 };
 
 export type SenaScimProvisioningBridgeResult = {
-  schemaVersion: "sena-scim-provisioning-bridge/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.scimProvisioningBridge;
   resourceType: "User" | "Group";
   generatedAt: string;
   organization: string;
@@ -281,7 +282,7 @@ export function provisionEnterpriseScimUser(resourceInput: unknown, options: Sen
     users: [user]
   });
   return {
-    schemaVersion: "sena-scim-provisioning-bridge/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimProvisioningBridge,
     resourceType: "User",
     generatedAt: provisioning.generatedAt,
     organization: provisioning.organization,
@@ -299,7 +300,7 @@ export function provisionEnterpriseScimGroup(resourceInput: unknown, options: Se
   const id = group?.id ?? asString(resource.id) ?? asString(resource.externalId) ?? asString(resource.displayName);
   const location = options.locationBase ? `${options.locationBase.replace(/\/$/, "")}/Groups/${encodeURIComponent(id)}` : undefined;
   return {
-    schemaVersion: "sena-scim-provisioning-bridge/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimProvisioningBridge,
     resourceType: "Group",
     generatedAt: provisioning.generatedAt,
     organization: provisioning.organization,
@@ -339,7 +340,7 @@ export function enterpriseScimServiceProviderConfig(
       "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig",
       ...Object.keys(extensions)
     ],
-    schemaVersion: "sena-scim-service-provider-config/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimServiceProviderConfig,
     documentationUri: "/api/sena/scim/v2/ServiceProviderConfig",
     patch: { supported: true },
     bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
@@ -525,7 +526,7 @@ export function listEnterpriseScimUsers(locationBase?: string) {
   const directory = listEnterpriseProvisioningDirectory("scim");
   return {
     ...listResponse(directory.users.map((user) => directoryUserToScim(user, locationBase))),
-    schemaVersion: "sena-scim-users-list/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimUsersList,
     directorySchemaVersion: directory.schemaVersion
   };
 }
@@ -534,7 +535,7 @@ export function listEnterpriseScimGroups(locationBase?: string) {
   const directory = listEnterpriseProvisioningDirectory("scim");
   return {
     ...listResponse(directory.teams.map((team) => directoryGroupToScim(team, locationBase))),
-    schemaVersion: "sena-scim-groups-list/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.scimGroupsList,
     directorySchemaVersion: directory.schemaVersion
   };
 }

@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaClaimReadinessGate,
   SenaClaimReadinessGateItem,
@@ -160,7 +161,7 @@ export function buildSenaClaimReadinessGate(audit: SenaPilotReadinessAudit): Sen
   const status = reviewNeeded === 0 ? "ready" : "exploratory";
 
   return {
-    schemaVersion: "sena-claim-readiness-gate/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.claimReadinessGate,
     status,
     claimUse: status === "ready" ? "research-claim-ready" : "exploratory-only",
     ready,
@@ -352,7 +353,7 @@ export function buildSenaPilotReadinessAudit({
         ? `Data governance documented by ${dataGovernance?.dataSteward || "assigned steward"}`
         : `${dataGovernanceBlockers.length} data-governance blocker${dataGovernanceBlockers.length === 1 ? "" : "s"}`,
       [
-        dataGovernance?.schemaVersion ?? "sena-data-governance-metadata/v1",
+        dataGovernance?.schemaVersion ?? SENA_SCHEMA_VERSIONS.dataGovernanceMetadata,
         `status=${dataGovernance?.status ?? (dataGovernanceBlockers.length === 0 ? "complete" : "needs-review")}`,
         `irb=${dataGovernance?.irbApprovalId?.trim() ? "present" : "missing"}`,
         `consent=${dataGovernance?.consentScope?.trim() ? "present" : "missing"}`,
@@ -392,7 +393,7 @@ export function buildSenaPilotReadinessAudit({
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-pilot-readiness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.pilotReadiness,
     status: reviewNeeded === 0 ? "ready" : "needs-review",
     passed,
     reviewNeeded,

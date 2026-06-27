@@ -3,7 +3,7 @@ import {
   deliverEnterpriseOpsAlerts,
   getEnterpriseOpsAlerts,
   type SenaEnterpriseOpsAlerts
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-alerts";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
@@ -34,7 +34,7 @@ function opsAlertHeaders(alerts: SenaEnterpriseOpsAlerts): Record<string, string
 
 export async function GET(request: Request) {
   try {
-    const access = requireOpsAccess(request);
+    const access = await requireOpsAccess(request);
     const alerts = getEnterpriseOpsAlerts();
     return NextResponse.json({
       ...alerts,
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const access = requireOpsMutationAccess(request);
+    const access = await requireOpsMutationAccess(request);
     const body = await request.json().catch(() => ({})) as { action?: string };
     if (!body.action || body.action === "deliver") {
       const delivery = await deliverEnterpriseOpsAlerts();

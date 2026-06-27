@@ -18,16 +18,33 @@ const projectRoot = cwd();
 const smokePortStart = parsePortStart(process.env.SENA_VERIFY_SMOKE_PORT ?? "3101");
 const productionPageContract = readJson("lib/sena/production-page-contract.json");
 const provisioningSmokeToken = "sena-pilot-provisioning-token";
-const deferredPlotViewSectionIds = new Set(["temporal-fusion"]);
-const deferredPlotViewVisualCheckPrefixes = ["temporal-"];
+const browserSmokeCoveredPlotViewVisualCheckIds = new Set([
+  "temporal-fusion-arc",
+  "temporal-window-fingerprint",
+  "temporal-window-fingerprint-role",
+  "temporal-fusion-g-pair-metric",
+  "temporal-trace-g-pair-line",
+  "temporal-transition-evidence",
+  "temporal-transition-summary",
+  "temporal-transition-summary-role"
+]);
 const productionPageRequiredText = [
-  ...productionPageContract.sections
-    .filter((section) => !deferredPlotViewSectionIds.has(section.id))
-    .flatMap((section) => section.requiredText),
+  ...productionPageContract.sections.flatMap((section) => section.requiredText),
   ...productionPageContract.visualChecks
-    .filter((check) => !deferredPlotViewVisualCheckPrefixes.some((prefix) => check.id.startsWith(prefix)))
+    .filter((check) => !browserSmokeCoveredPlotViewVisualCheckIds.has(check.id))
     .map((check) => check.requiredText)
 ];
+
+function verifyInteractiveVisualCheckCoverage() {
+  const visualCheckIds = new Set(productionPageContract.visualChecks.map((check) => check.id));
+  const missing = Array.from(browserSmokeCoveredPlotViewVisualCheckIds)
+    .filter((id) => !visualCheckIds.has(id));
+  if (missing.length > 0) {
+    console.error("Browser-smoke-covered visual checks are missing from the production page contract:");
+    missing.forEach((id) => console.error(`  ${id}`));
+    process.exit(1);
+  }
+}
 
 function parsePortStart(value) {
   const port = Number(value);
@@ -91,6 +108,55 @@ function run(label, args, env = {}) {
   }
 }
 
+function projectNextBuildProcesses() {
+  if (process.platform === "win32") return [];
+
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8"
+  });
+  if (result.status !== 0 || !result.stdout) return [];
+
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.includes(projectRoot))
+    .filter((line) => /\bnext\s+build\b/.test(line));
+}
+
+async function waitForNextBuildProcessesToSettle() {
+  const startedAt = Date.now();
+  while (projectNextBuildProcesses().length > 0 && Date.now() - startedAt < 10_000) {
+    await sleep(500);
+  }
+}
+
+async function runNextProductionBuild() {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    console.log(`\n> Next production build${attempt > 1 ? ` (retry ${attempt})` : ""}`);
+    const result = spawnSync("npm", ["run", "build"], {
+      env: process.env,
+      encoding: "utf8",
+      maxBuffer: 20 * 1024 * 1024,
+      shell: process.platform === "win32"
+    });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.status === 0) return;
+
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    const isKnownProxyTraceRace = output.includes("proxy.js.nft.json") && output.includes("ENOENT");
+    if (!isKnownProxyTraceRace || attempt === maxAttempts) {
+      process.exit(result.status ?? 1);
+    }
+
+    console.warn("Next webpack build hit the known transient proxy trace artifact race; retrying once from a clean .next.");
+    await waitForNextBuildProcessesToSettle();
+    cleanNextBuildDirectory();
+  }
+}
+
 function cleanNextBuildDirectory() {
   console.log("\n> Clean .next");
   rmSync(".next", { force: true, recursive: true });
@@ -132,9 +198,8 @@ function verifyNextArtifacts() {
     ".next/server/app-paths-manifest.json",
     ".next/server/middleware-manifest.json",
     ".next/server/pages-manifest.json",
-    ".next/server/pages/_app.js",
-    ".next/server/pages/_document.js",
-    ".next/server/pages/_error.js"
+    ".next/server/pages/404.html",
+    ".next/server/pages/500.html"
   ];
   const missing = requiredFiles.filter((path) => !existsSync(path));
 
@@ -148,8 +213,8 @@ function verifyNextArtifacts() {
   const pages = readJson(".next/server/pages-manifest.json");
   const manifestIssues = [
     appPaths["/workspace/sena/page"] === "app/workspace/sena/page.js" ? null : "app-paths-manifest missing /workspace/sena/page",
-    pages["/_error"] === "pages/_error.js" ? null : "pages-manifest missing /_error",
-    pages["/_document"] === "pages/_document.js" ? null : "pages-manifest missing /_document"
+    pages["/404"] === "pages/404.html" ? null : "pages-manifest missing /404",
+    pages["/500"] === "pages/500.html" ? null : "pages-manifest missing /500"
   ].filter(Boolean);
 
   if (manifestIssues.length > 0) {
@@ -706,6 +771,8 @@ if ((nextServers.length > 0 || nodeListeners.length > 0) && !allowRunningServer)
   process.exit(1);
 }
 
+verifyInteractiveVisualCheckCoverage();
+
 if (checkOnly) {
   console.log(nextServers.length > 0 || nodeListeners.length > 0
     ? "A local server is running, but the guard is bypassed."
@@ -721,7 +788,7 @@ try {
   rmSync(enterpriseTestDbDir, { force: true, recursive: true });
 }
 cleanNextBuildDirectory();
-run("Next production build", ["run", "build"]);
+await runNextProductionBuild();
 verifyNextArtifacts();
 await verifyProductionServerSmoke();
 

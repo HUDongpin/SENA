@@ -1,18 +1,21 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
+import {
+  getEnterpriseIdentityProductionEvidence
+} from "@/lib/sena/enterprise/identity-production-evidence";
 import {
   createEnterpriseSsoAuthorization,
   getEnterpriseSsoProviderStatuses,
   isEnterpriseSsoProviderConfigured,
   preflightEnterpriseSsoProviders,
   requireEnterpriseLocalSsoFallbackAllowed,
-  sanitizeEnterpriseContext,
-  senaSessionCookieName,
   ssoEnterpriseUser,
   type SenaEnterpriseSsoProvider
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-sso";
 import {
-  getEnterpriseIdentityProductionEvidence
-} from "@/lib/sena/enterprise/ops-governance";
+  sanitizeEnterpriseContext,
+  senaSessionCookieName
+} from "@/lib/sena/enterprise/auth-session";
 import {
   authSessionHeaders,
   enforceAuthRateLimit,
@@ -53,7 +56,7 @@ function identityProductionGateSummary(
   evidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
 ) {
   return {
-    schemaVersion: "sena-enterprise-identity-production-gate-summary/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary,
     generatedAt: evidence.generatedAt,
     status: evidence.status,
     releaseGateBlocked: evidence.releaseGate.approvalBlocked,
@@ -99,7 +102,7 @@ export async function GET(request: Request) {
         });
         const provider = url.searchParams.get("provider");
         return NextResponse.json({
-          schemaVersion: "sena-sso-provider-status/v1",
+          schemaVersion: SENA_SCHEMA_VERSIONS.ssoProviderStatus,
           providers: getEnterpriseSsoProviderStatuses(),
           identityProductionGate: identityProductionGateSummary(identityEvidence),
           preflight: await preflightEnterpriseSsoProviders({
@@ -111,7 +114,7 @@ export async function GET(request: Request) {
         });
       }
       return NextResponse.json({
-        schemaVersion: "sena-sso-provider-status/v1",
+        schemaVersion: SENA_SCHEMA_VERSIONS.ssoProviderStatus,
         providers: getEnterpriseSsoProviderStatuses(),
         identityProductionGate: identityProductionGateSummary(identityEvidence)
       }, {

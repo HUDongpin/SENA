@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaFusionMathAudit, SenaFusionMathAuditArtifact, SenaFusionMathAuditItem, SenaMatrixFingerprint, SenaModel, SenaTemporalWindow } from "./types";
 
 const defaultTolerance = 1e-9;
@@ -338,7 +339,7 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
   const matrixFingerprints = buildSenaMatrixFingerprints(model);
 
   return {
-    schemaVersion: "sena-fusion-math-audit/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit,
     status: reviewNeeded === 0 ? "verified" : "needs-review",
     passed,
     reviewNeeded,
@@ -359,7 +360,7 @@ export function buildSenaFusionMathAuditArtifact(
   const generatedAt = options.generatedAt ?? new Date().toISOString();
 
   return {
-    schemaVersion: "sena-fusion-math-audit-artifact/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAuditArtifact,
     title: options.title?.trim() || "SENA Fusion Math Audit",
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,

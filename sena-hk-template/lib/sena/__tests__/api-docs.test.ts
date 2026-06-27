@@ -1,88 +1,88 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildSenaApiDocumentation,
   buildSenaOpenApiDocument,
   SENA_API_ENDPOINTS
 } from "../api-docs";
+import { SENA_API_DOCS_SECTION_MANIFEST } from "../api-docs-section";
+import { SENA_API_EVIDENCE_NOTES } from "../api-evidence-notes";
+import { SENA_API_ENDPOINT_FACTS } from "../api-route-facts";
+import { SENA_IMPLEMENTED_API_ROUTES } from "../api-route-manifest";
 
-const routeMethodPattern = /export async function (GET|POST|PUT|PATCH|DELETE)\b/g;
 const identityOwnerRunbookHeaderList = "x-sena-identity-owner-runbook-digest, x-sena-identity-owner-runbook-blocking, x-sena-identity-owner-runbook-preflight-checks, x-sena-identity-owner-runbook-submission-steps, and x-sena-identity-owner-runbook-receipt-archive-steps";
-
-function collectRouteFiles(directory: string): string[] {
-  return readdirSync(directory).flatMap((entry) => {
-    const absolute = path.join(directory, entry);
-    if (statSync(absolute).isDirectory()) return collectRouteFiles(absolute);
-    return entry === "route.ts" ? [absolute] : [];
-  });
-}
-
-function routePathFor(file: string) {
-  const apiRoot = path.join(process.cwd(), "app", "api");
-  const relativeRouteDirectory = path.relative(apiRoot, path.dirname(file));
-  const routeSegments = relativeRouteDirectory.split(path.sep).map((segment) => {
-    const dynamicMatch = segment.match(/^\[(.+)]$/);
-    return dynamicMatch ? `{${dynamicMatch[1]}}` : segment;
-  });
-  return `/api/${routeSegments.join("/")}`;
-}
-
-function routeFileForPath(apiPath: string) {
-  const routeSegments = apiPath.replace(/^\/api\//, "").split("/").map((segment) => {
-    const dynamicMatch = segment.match(/^\{(.+)}$/);
-    return dynamicMatch ? `[${dynamicMatch[1]}]` : segment;
-  });
-  return path.join(process.cwd(), "app", "api", ...routeSegments, "route.ts");
-}
-
-function routeMethodsFor(file: string) {
-  return Array.from(readFileSync(file, "utf8").matchAll(routeMethodPattern)).map((match) => match[1]);
-}
 
 describe("SENA API documentation contract", () => {
   it("renders the homepage API docs panel from the full endpoint group manifest", () => {
-    const source = readFileSync(path.join(process.cwd(), "components", "DocsSection.tsx"), "utf8");
-    expect(source).toContain('data-testid="sena-api-docs-panel"');
-    expect(source).toContain('data-testid="sena-api-docs-group"');
-    expect(source).toContain('data-testid="sena-api-docs-ops-handoff"');
-    expect(source).toContain("sena-enterprise-organization-deployment/v1");
-    expect(source).toContain("sena-enterprise-release-gate-reviews/v1");
-    expect(source).toContain("SENA_API_GROUPS.map");
-    expect(source).toContain('data-testid="sena-api-docs-endpoint-row"');
-    expect(source).toContain("SENA_API_ENDPOINTS.map");
-    expect(source).toContain("endpoint.auth");
-    expect(source).toContain("endpoint.methods.join");
-    expect(source).toContain("endpoint.responses.slice(0, 2)");
-    expect(source).not.toContain(".filter((group)");
+    expect(SENA_API_DOCS_SECTION_MANIFEST.testIds).toEqual({
+      panel: "sena-api-docs-panel",
+      group: "sena-api-docs-group",
+      opsHandoff: "sena-api-docs-ops-handoff",
+      endpointMatrix: "sena-api-docs-endpoint-matrix",
+      endpointRow: "sena-api-docs-endpoint-row"
+    });
+    expect(SENA_API_DOCS_SECTION_MANIFEST.opsHandoffSchemas).toEqual(expect.arrayContaining([
+      "sena-enterprise-organization-deployment/v1",
+      "sena-enterprise-release-gate-reviews/v1"
+    ]));
+    expect(SENA_API_DOCS_SECTION_MANIFEST.groupCards.map((group) => group.id))
+      .toEqual(SENA_API_DOCS_SECTION_MANIFEST.sourceGroups.map((group) => group.id));
+    expect(SENA_API_DOCS_SECTION_MANIFEST.endpointRows).toHaveLength(SENA_API_ENDPOINTS.length);
+    expect(SENA_API_DOCS_SECTION_MANIFEST.endpointRows.find((endpoint) => endpoint.id === "auth-login"))
+      .toMatchObject({
+        auth: "public",
+        group: "auth",
+        methods: "POST",
+        responsesPreview: "sena-auth-login/v1 · sena-auth-mfa-challenge/v1"
+      });
   });
 
   it("documents every implemented Next API route method", () => {
-    const routeFiles = collectRouteFiles(path.join(process.cwd(), "app", "api"));
-    const actual = routeFiles.flatMap((file) => (
-      routeMethodsFor(file).map((method) => `${method} ${routePathFor(file)}`)
+    const actual = SENA_IMPLEMENTED_API_ROUTES.flatMap((route) => (
+      route.methods.map((method) => `${method} ${route.path}`)
     )).sort();
     const documented = SENA_API_ENDPOINTS.flatMap((endpoint) => (
       endpoint.methods.map((method) => `${method} ${endpoint.path}`)
     )).sort();
 
     expect(actual).toContain("GET /api/sena/docs");
+    expect(SENA_IMPLEMENTED_API_ROUTES.find((route) => route.path === "/api/sena/docs"))
+      .toMatchObject({
+        id: "sena-docs",
+        sourceFile: "app/api/sena/docs/route.ts",
+        mutationProtection: "not-required"
+      });
     expect(actual).toHaveLength(documented.length);
     expect(documented).toEqual(actual);
   });
 
+  it("keeps route facts, evidence notes, and renderer output separated", () => {
+    const factsWithNotes = SENA_API_ENDPOINT_FACTS.filter((endpoint) => endpoint.evidenceNoteId);
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+
+    expect(factsWithNotes.length).toBeGreaterThan(30);
+    for (const endpoint of factsWithNotes) {
+      expect(endpoint).not.toHaveProperty("request");
+      expect(SENA_API_EVIDENCE_NOTES[endpoint.evidenceNoteId!]).toBeTruthy();
+      expect(documentation.endpoints.find((candidate) => candidate.id === endpoint.id)?.request)
+        .toBe(SENA_API_EVIDENCE_NOTES[endpoint.evidenceNoteId!]);
+    }
+  });
+
   it("requires CSRF enforcement for documented session mutating routes", () => {
-    const sessionMutatingEndpoints = SENA_API_ENDPOINTS.filter((endpoint) => (
-      (endpoint.auth === "session" || endpoint.auth === "session-or-ops-bearer") &&
-      endpoint.methods.some((method) => method !== "GET")
+    const sessionMutatingRoutes = SENA_IMPLEMENTED_API_ROUTES.filter((route) => (
+      (route.auth === "session" || route.auth === "session-or-ops-bearer") &&
+      route.methods.some((method) => method !== "GET")
     ));
 
-    expect(sessionMutatingEndpoints.length).toBeGreaterThan(10);
-    for (const endpoint of sessionMutatingEndpoints) {
-      const routeSource = readFileSync(routeFileForPath(endpoint.path), "utf8");
-      expect(routeSource, endpoint.path)
-        .toMatch(/requireApiSessionForMutation|requireApiCsrf|requireOpsMutationAccess/);
-    }
+    expect(sessionMutatingRoutes.length).toBeGreaterThan(10);
+    expect(sessionMutatingRoutes.map((route) => route.mutationProtection))
+      .not.toContain("not-required");
+    expect(sessionMutatingRoutes.every((route) => route.mutationProtection === "csrf-or-ops-mutation-access")).toBe(true);
+    expect(sessionMutatingRoutes.find((route) => route.path === "/api/sena/projects/{projectId}/collaboration"))
+      .toMatchObject({
+        methods: ["GET", "POST"],
+        mutationProtection: "csrf-or-ops-mutation-access"
+      });
   });
 
   it("builds JSON and OpenAPI artifacts from the same manifest", () => {

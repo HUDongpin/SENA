@@ -55,6 +55,7 @@ import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
 import { buildSenaJenaConceptPairHandoffRows } from "./jena-handoff";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
 import { senaRuntimeProvenance } from "./runtime-constants";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 
 export type SenaReportOptions = {
@@ -261,7 +262,7 @@ function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: 
   ].filter((item): item is string => Boolean(item));
 
   return {
-    schemaVersion: "sena-data-governance-metadata/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.dataGovernanceMetadata,
     status: blockers.length === 0 ? "complete" : "needs-review",
     irbApprovalId,
     consentScope,
@@ -654,7 +655,7 @@ export function buildSenaActiveWindowBrief(
   ];
 
   return {
-    schemaVersion: "sena-active-window-brief/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.activeWindowBrief,
     window: {
       id: activeWindow.id,
       label: activeWindow.label,
@@ -980,7 +981,7 @@ export function buildSenaReportCompletenessAudit({
         ? `Data governance reviewed by ${dataGovernance?.dataSteward || "assigned steward"}`
         : `${dataGovernanceBlockers.length} data-governance blocker${dataGovernanceBlockers.length === 1 ? "" : "s"}`,
       [
-        dataGovernance?.schemaVersion ?? "sena-data-governance-metadata/v1",
+        dataGovernance?.schemaVersion ?? SENA_SCHEMA_VERSIONS.dataGovernanceMetadata,
         `status=${dataGovernance?.status ?? (dataGovernanceBlockers.length === 0 ? "complete" : "needs-review")}`,
         `irb=${dataGovernance?.irbApprovalId?.trim() ? "present" : "missing"}`,
         `consent=${dataGovernance?.consentScope?.trim() ? "present" : "missing"}`,
@@ -1015,7 +1016,7 @@ export function buildSenaReportCompletenessAudit({
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-report-completeness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reportCompleteness,
     status: reviewNeeded === 0 ? "complete" : "needs-review",
     passed,
     reviewNeeded,
@@ -1068,7 +1069,7 @@ export function buildSenaCodingReliabilityGate(
   const status = blockers.length === 0 ? "ready" : "review";
 
   return {
-    schemaVersion: "sena-coding-reliability-gate/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
     status,
     claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
     review,
@@ -1452,7 +1453,7 @@ function buildNullModelChecks(model: SenaModel, iterations = defaultNullModelIte
   });
 
   return {
-    schemaVersion: "sena-null-models/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.nullModels,
     seed: nullModelSeed,
     targetConceptPair: target,
     permutation: {
@@ -1502,7 +1503,7 @@ export function buildSenaEvidenceLedger(model: SenaModel, options: SenaEvidenceL
   const snippets = collectEvidenceSnippets(model, evidenceLimit);
 
   return {
-    schemaVersion: "sena-evidence-ledger/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.evidenceLedger,
     title: options.title?.trim() || "SENA Evidence Ledger",
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,
@@ -1581,7 +1582,7 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
   });
 
   return {
-    schemaVersion: "sena-report/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.report,
     title: options.title?.trim() || "SENA Analysis Report",
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,
@@ -2102,7 +2103,7 @@ export function buildSenaSnaReportArtifact(model: SenaModel, options: SenaSnaRep
   const socialTieHandoff = buildSenaJsnaSocialTieHandoffRows(model, manifest);
 
   return {
-    schemaVersion: "sena-sna-report/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.snaReport,
     title,
     generatedAt,
     workspaceRoute: "/workspace/sena",
@@ -2148,7 +2149,7 @@ export function buildSenaMetricProvenanceArtifact(
   const layerTotals = fusionLayerTotals(model);
 
   return {
-    schemaVersion: "sena-metric-provenance/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.metricProvenance,
     title,
     generatedAt,
     workspaceRoute: "/workspace/sena",
@@ -2221,7 +2222,7 @@ export function buildSenaEnaReportArtifact(model: SenaModel, options: SenaEnaRep
   const conceptPairHandoff = buildSenaJenaConceptPairHandoffRows(model, manifest);
 
   return {
-    schemaVersion: "sena-ena-report/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enaReport,
     title,
     generatedAt,
     workspaceRoute: "/workspace/sena",
@@ -2258,7 +2259,7 @@ export function buildSenaPairContributionReportArtifact(model: SenaModel, option
   const title = options.title?.trim() || "SENA Person-Code-Pair G Report";
 
   return {
-    schemaVersion: "sena-person-code-pair-g-report/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.personCodePairGReport,
     title,
     generatedAt,
     workspaceRoute: "/workspace/sena",

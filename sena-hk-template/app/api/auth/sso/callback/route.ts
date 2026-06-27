@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
   completeEnterpriseSsoCallback,
-  senaSessionCookieName,
   type SenaEnterpriseSsoProvider
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-sso";
+import {
+  senaSessionCookieName
+} from "@/lib/sena/enterprise/auth-session";
 import { authSessionHeaders, enforceAuthRateLimit, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";

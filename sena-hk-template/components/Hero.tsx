@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, Bot, GitBranch, Layers3, Network, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bot, GitBranch, Network, ShieldCheck } from "lucide-react";
 import { useLanguage } from "./LanguageProvider";
 import { Card, buttonStyles } from "./Primitives";
 import { NetworkVisualization } from "./NetworkVisualization";
@@ -43,7 +43,7 @@ export function Hero() {
               {copy.hero.launch}
               <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" />
             </a>
-            <a href="#method" className={buttonStyles({ variant: "secondary", size: "lg" })}>
+            <a href="/method" className={buttonStyles({ variant: "secondary", size: "lg" })}>
               {copy.hero.method}
             </a>
           </motion.div>
@@ -86,7 +86,6 @@ export function Hero() {
       </div>
 
       <div className="pointer-events-none absolute bottom-[-18rem] left-1/2 h-[36rem] w-[90rem] -translate-x-1/2 rounded-[50%] border border-cyanGlow/20 bg-cyanGlow/5 blur-sm" />
-      <Layers3 className="pointer-events-none absolute bottom-20 right-12 h-20 w-20 text-violetGlow/10" />
     </section>
   );
 }

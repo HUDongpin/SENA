@@ -12,10 +12,10 @@ function bearerToken(request: Request) {
   return match?.[1]?.trim();
 }
 
-export function requireOpsAccess(request: Request) {
+export async function requireOpsAccess(request: Request) {
   const configured = process.env.SENA_OPS_TOKEN?.trim();
   if (!configured) {
-    requireApiSession();
+    await requireApiSession();
     return { mode: "session" as const };
   }
   const provided = bearerToken(request);
@@ -28,12 +28,12 @@ export function requireOpsAccess(request: Request) {
   return { mode: "bearer" as const };
 }
 
-export function requireOpsMutationAccess(request: Request) {
+export async function requireOpsMutationAccess(request: Request) {
   const configured = process.env.SENA_OPS_TOKEN?.trim();
   if (!configured) {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     requireApiCsrf(request, context);
     return { mode: "session" as const };
   }
-  return requireOpsAccess(request);
+  return await requireOpsAccess(request);
 }

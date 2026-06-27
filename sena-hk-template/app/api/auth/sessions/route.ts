@@ -3,14 +3,14 @@ import {
   listEnterpriseSessions,
   revokeEnterpriseSessions,
   senaSessionCookieName
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-session";
 import { jsonError, requireApiCsrf, requireApiSession, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     return NextResponse.json(listEnterpriseSessions(context));
   } catch (error) {
     return jsonError(error);
@@ -19,7 +19,7 @@ export async function GET() {
 
 export async function DELETE(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     requireApiCsrf(request, context);
     const body = await request.json().catch(() => ({}));
     const action = String(body.action ?? "");

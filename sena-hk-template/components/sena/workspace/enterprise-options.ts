@@ -1,4 +1,4 @@
-import type { SenaGroupComparisonMetric } from "@/lib/sena";
+import type { SenaGroupComparisonMetric } from "@/lib/sena/inference";
 import type {
   EnterprisePlatformDecisionId,
   EnterprisePlatformDecisionStatus,

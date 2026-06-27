@@ -1,10 +1,11 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
   enterpriseErrorResponse
 } from "@/lib/sena/enterprise/errors";
 import {
   provisionEnterpriseOrganization
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/provisioning";
 import { jsonError } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   try {
     requireProvisioningBearerToken(request);
     return NextResponse.json({
-      schemaVersion: "sena-enterprise-provisioning-status/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseProvisioningStatus,
       configured: true,
       auth: "bearer-token-hash-compare",
       endpoint: "/api/sena/provisioning",
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
   } catch (error) {
     const response = enterpriseErrorResponse(error);
     return NextResponse.json({
-      schemaVersion: "sena-enterprise-provisioning-status/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseProvisioningStatus,
       configured: response.status !== 503,
       error: response.body.error,
       code: response.body.code

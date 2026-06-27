@@ -20,7 +20,7 @@ async function uploadFiles(files: File[]) {
 
 export async function GET(request: Request) {
   try {
-    const context = requireApiSession();
+    const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId") || undefined;
     const verify = url.searchParams.get("verify") === "1" || url.searchParams.get("verify") === "true";
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const context = requireApiSessionForMutation(request);
+    const context = await requireApiSessionForMutation(request);
     if (request.headers.get("content-type")?.includes("application/json")) {
       const body = await request.json();
       if (body.action === "deliver-object-storage") {
