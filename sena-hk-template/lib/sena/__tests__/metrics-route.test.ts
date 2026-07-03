@@ -66,7 +66,7 @@ describe("SENA ops metrics route", () => {
       expect(metrics).toContain('sena_enterprise_observability_samples{store="current-process-ring-buffer"} 0');
       expect(metrics).toContain('sena_enterprise_observability_request_p95_ms{store="current-process-ring-buffer"} 0');
       expect(metrics).toContain('sena_enterprise_observability_error_rate_percent{store="current-process-ring-buffer"} 0');
-      expect(metrics).toContain('sena_enterprise_production_evidence_missing_required{status="blocked"} 9');
+      expect(metrics).toContain('sena_enterprise_production_evidence_missing_required{status="blocked"} 14');
       expect(metrics).toContain("sena_enterprise_production_evidence_confirmed");
       expect(metrics).toContain('sena_enterprise_production_evidence_item{item="vercel-production-preflight"');
       expect(metrics).toContain('sena_enterprise_production_evidence_item{item="postgres-live-probe"');
