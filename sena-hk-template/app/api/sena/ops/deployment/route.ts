@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseOrganizationDeploymentPackage
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence
 } from "@/lib/sena/enterprise/ops-deployment";
 import {
   listEnterprisePlatformDecisionAcceptances
@@ -11,13 +11,13 @@ import {
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-deployment" }, async () => {
     const access = await requireOpsAccess(request);
     const teamId = new URL(request.url).searchParams.get("teamId")?.trim() || undefined;
     if (access.mode === "session") {
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
       const context = await requireApiSession();
       listEnterprisePlatformDecisionAcceptances(context, { teamId });
     }
-    const deployment = getEnterpriseOrganizationDeploymentPackage({ teamId });
+    const deployment = await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({ teamId });
     return NextResponse.json({
       ...deployment,
       access
@@ -39,7 +39,5 @@ export async function GET(request: Request) {
       status: deployment.status === "blocked" ? 503 : 200,
       headers: buildEnterpriseIdentityProductionHandoffHeaders(deployment.identityProductionHandoff)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

@@ -1,13 +1,17 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
-import { identityInstitutionActionPlanHeaders, jsonError } from "@/lib/sena/api-helpers";
+import { identityInstitutionActionPlanHeaders, observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import {
-  getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "@/lib/sena/enterprise/ops-deployment-readiness";
 import {
-  getEnterpriseIdentityProductionEvidence
+  getEnterpriseIdentityProductionEvidence,
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence
 } from "@/lib/sena/enterprise/identity-production-evidence";
+import {
+  getEnterpriseOpsStatusWithPostgresEvidence
+} from "@/lib/sena/enterprise/ops-status";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import {
   enterpriseScimServiceProviderConfig,
@@ -81,16 +85,15 @@ function scimIdentityProductionExtension(
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-service-provider-config" }, async () => {
     requireProvisioningBearerToken(request);
-    const identityEvidence = getEnterpriseIdentityProductionEvidence();
-    const readiness = getEnterpriseDeploymentReadiness();
+    const opsStatus = await getEnterpriseOpsStatusWithPostgresEvidence();
+    const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+    const identityEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ opsStatus, readiness });
     return NextResponse.json(enterpriseScimServiceProviderConfig(locationBase(request), {
       [senaScimIdentityProductionExtensionSchema]: scimIdentityProductionExtension(identityEvidence, readiness)
     }), {
       headers: scimProductionOwnerHeaders(identityEvidence, readiness)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

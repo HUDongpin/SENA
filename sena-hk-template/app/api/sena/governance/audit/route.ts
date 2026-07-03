@@ -3,14 +3,15 @@ import {
   deliverEnterpriseAuditLog,
   isEnterpriseAuditEvent,
   listEnterpriseAuditLog,
-  recordEnterpriseAudit,
-  verifyEnterpriseAuditIntegrity,
+  listEnterpriseAuditLogAsync,
+  recordEnterpriseAuditAsync,
+  verifyEnterpriseAuditIntegrityAsync,
   type SenaEnterpriseAuditEvent
 } from "@/lib/sena/enterprise/ops-audit";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -50,10 +51,10 @@ function auditCsv(events: ReturnType<typeof listEnterpriseAuditLog>["events"]) {
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-governance-audit" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
-    const result = listEnterpriseAuditLog(context, {
+    const result = await listEnterpriseAuditLogAsync(context, {
       teamId: url.searchParams.get("teamId") || undefined,
       userId: url.searchParams.get("userId") || undefined,
       projectId: url.searchParams.get("projectId") || undefined,
@@ -64,11 +65,11 @@ export async function GET(request: Request) {
       offset: numberParam(url.searchParams.get("offset"))
     });
     const integrity = url.searchParams.get("integrity") === "1" || url.searchParams.get("integrity") === "true"
-      ? verifyEnterpriseAuditIntegrity(context, { teamId: url.searchParams.get("teamId") || undefined })
+      ? await verifyEnterpriseAuditIntegrityAsync(context, { teamId: url.searchParams.get("teamId") || undefined })
       : undefined;
 
     if (url.searchParams.get("format") === "csv") {
-      recordEnterpriseAudit({
+      await recordEnterpriseAuditAsync({
         event: "governance.audit.export",
         userId: context.user.id,
         teamId: result.scope.requestedTeamId ?? (result.scope.teamIds.length === 1 ? result.scope.teamIds[0] : undefined),
@@ -92,13 +93,11 @@ export async function GET(request: Request) {
       ...result,
       integrity
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-governance-audit" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const delivery = await deliverEnterpriseAuditLog(context, {
@@ -108,7 +107,5 @@ export async function POST(request: Request) {
       auditId: body.auditId ? String(body.auditId) : undefined
     });
     return NextResponse.json(delivery);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

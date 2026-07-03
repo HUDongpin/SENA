@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseUploads,
-  deliverEnterpriseUploadBlobs,
-  listEnterpriseUploads,
-  verifyEnterpriseUploadStorage
+  createEnterpriseUploadsWithPostgresMirrorAsync,
+  deliverEnterpriseUploadBlobsWithPostgresEvidence,
+  listEnterpriseUploadsAsync,
+  verifyEnterpriseUploadStorageAsync
 } from "@/lib/sena/enterprise/import-analysis";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
@@ -19,28 +19,26 @@ async function uploadFiles(files: File[]) {
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-uploads" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId") || undefined;
     const verify = url.searchParams.get("verify") === "1" || url.searchParams.get("verify") === "true";
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.uploadList,
-      uploads: listEnterpriseUploads(context, teamId),
-      storageVerification: verify ? verifyEnterpriseUploadStorage(context, { teamId }) : undefined
+      uploads: await listEnterpriseUploadsAsync(context, teamId),
+      storageVerification: verify ? await verifyEnterpriseUploadStorageAsync(context, { teamId }) : undefined
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-uploads" }, async () => {
     const context = await requireApiSessionForMutation(request);
     if (request.headers.get("content-type")?.includes("application/json")) {
       const body = await request.json();
       if (body.action === "deliver-object-storage") {
-        return NextResponse.json(await deliverEnterpriseUploadBlobs(context, {
+        return NextResponse.json(await deliverEnterpriseUploadBlobsWithPostgresEvidence(context, {
           teamId: body.teamId,
           uploadId: body.uploadId,
           limit: body.limit,
@@ -52,7 +50,7 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const files = form.getAll("files").filter((value): value is File => value instanceof File);
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
-    const uploads = createEnterpriseUploads(context, {
+    const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,
       files: await uploadFiles(files)
     });
@@ -60,7 +58,5 @@ export async function POST(request: Request) {
       schemaVersion: SENA_SCHEMA_VERSIONS.uploadList,
       uploads
     }, { status: 201 });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

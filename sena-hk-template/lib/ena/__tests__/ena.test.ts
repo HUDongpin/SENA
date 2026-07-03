@@ -164,3 +164,38 @@ describe("jENA execution", () => {
     }
   });
 });
+
+describe("jENA API route", () => {
+  it("observes successful standalone ENA runs without changing the result contract", async () => {
+    const route = await import("../../../app/api/ena/run/route");
+    const response = await route.POST(new Request("https://sena.example.test/api/ena/run", {
+      method: "POST",
+      body: JSON.stringify(sampleRequest())
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.set.points.length).toBe(6);
+    expect(body.summary.dimensions).toEqual(["SVD1", "SVD2"]);
+    expect(response.headers.get("x-sena-observed-route")).toBe("ena-run");
+    expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+  });
+
+  it("observes ENA input errors as 4xx while preserving issue details", async () => {
+    const route = await import("../../../app/api/ena/run/route");
+    const response = await route.POST(new Request("https://sena.example.test/api/ena/run", {
+      method: "POST",
+      body: JSON.stringify({
+        rows: [{ unit: "u1", conv: "c1", A: "1" }],
+        mapping: { units: [], conversation: ["conv"], codes: ["A"] }
+      })
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toMatch(/unit column/);
+    expect(body.issues).toContain("Select at least one unit column.");
+    expect(response.headers.get("x-sena-observed-route")).toBe("ena-run");
+    expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
+  });
+});

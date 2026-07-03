@@ -54,6 +54,8 @@ describe("SENA SaaS operations route", () => {
       expect(response.status).toBe(200);
       expect(body.status).toBe("blocked");
       expect(body.summary?.blockers).toContain("release-gate-identity-production-evidence-required");
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-saas-operations");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("x-sena-saas-operations-status")).toBe(body.status);
       expect(response.headers.get("x-sena-saas-operations-blockers")).toBe(body.summary?.blockers?.join("|"));
       expect(response.headers.get("x-sena-identity-production-status")).toBe(body.summary?.identityProductionStatus);

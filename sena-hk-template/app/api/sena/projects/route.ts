@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseProject,
-  listEnterpriseProjects,
+  createEnterpriseProjectAsync,
+  listEnterpriseProjectsAsync,
   type SenaEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
 import {
-  recordEnterpriseAudit
+  recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
 import { importSenaProjectSnapshotFromHandoff } from "@/lib/sena/project-handoff";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
@@ -27,17 +27,15 @@ function projectLifecycleHeaders(project: SenaEnterpriseProject): HeadersInit {
   };
 }
 
-export async function GET() {
-  try {
+export async function GET(request: Request) {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const context = await requireApiSession();
-    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.projectList, projects: listEnterpriseProjects(context) });
-  } catch (error) {
-    return jsonError(error);
-  }
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.projectList, projects: await listEnterpriseProjectsAsync(context) });
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const snapshot = importSenaProjectSnapshotFromHandoff(body);
@@ -45,13 +43,13 @@ export async function POST(request: Request) {
     const source = body.reviewPacket || body.packet || body.schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket
       ? "review-packet-save"
       : "project-save";
-    const project = createEnterpriseProject(context, {
+    const project = await createEnterpriseProjectAsync(context, {
       teamId,
       title: String(body.title ?? snapshot.title ?? "Untitled SENA Project"),
       description: String(body.description ?? ""),
       snapshot
     });
-    recordEnterpriseAudit({
+    await recordEnterpriseAuditAsync({
       event: "analysis.run",
       userId: context.user.id,
       teamId,
@@ -62,7 +60,5 @@ export async function POST(request: Request) {
       status: 201,
       headers: projectLifecycleHeaders(project)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

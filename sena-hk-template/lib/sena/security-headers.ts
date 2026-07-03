@@ -1,3 +1,5 @@
+import { enterprisePostgresConnectionStringFromEnv } from "./enterprise/postgres-url-env";
+
 export const SENA_SECURITY_HEADER_MANIFEST = {
   cspDirectives: [
     "default-src 'self'",
@@ -25,9 +27,29 @@ export const SENA_SECURITY_HEADER_MANIFEST = {
   }
 } as const;
 
-export function buildSenaSecurityHeaders(): Record<string, string> {
+function envValue(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string) {
+  const value = env[key]?.trim();
+  return value || undefined;
+}
+
+export function resolveSenaRuntimeHeader(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+) {
+  const adapter = envValue(env, "SENA_ENTERPRISE_DB_ADAPTER")?.toLowerCase();
+  const stateStore = envValue(env, "SENA_ENTERPRISE_STATE_STORE")?.toLowerCase();
+  const hasPostgresUrl = Boolean(enterprisePostgresConnectionStringFromEnv(env));
+  if (stateStore !== "postgres" || !hasPostgresUrl) return "enterprise-local";
+  if (adapter === "neon") return "enterprise-neon";
+  if (adapter === "postgres") return "enterprise-postgres";
+  return "enterprise-local";
+}
+
+export function buildSenaSecurityHeaders(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): Record<string, string> {
   return {
     ...SENA_SECURITY_HEADER_MANIFEST.staticHeaders,
+    "x-sena-runtime": resolveSenaRuntimeHeader(env),
     "content-security-policy-report-only": SENA_SECURITY_HEADER_MANIFEST.cspDirectives.join("; ")
   };
 }

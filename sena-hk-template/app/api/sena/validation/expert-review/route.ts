@@ -1,12 +1,12 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseExpertReview,
-  listEnterpriseExpertReviews,
-  reviewEnterpriseExpertReview,
+  createEnterpriseExpertReviewWithPostgresMirrorAsync,
+  listEnterpriseExpertReviewsAsync,
+  reviewEnterpriseExpertReviewWithPostgresMirrorAsync,
   type SenaEnterpriseExpertReview
 } from "@/lib/sena/enterprise/expert-review";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -60,26 +60,24 @@ function expertReviewHeaders(review: SenaEnterpriseExpertReview): HeadersInit {
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-validation-expert-review" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.expertReviewList,
-      expertReviews: listEnterpriseExpertReviews(context, {
+      expertReviews: await listEnterpriseExpertReviewsAsync(context, {
         teamId: url.searchParams.get("teamId") || undefined,
         projectId: url.searchParams.get("projectId") || undefined
       })
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-validation-expert-review" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
-    const expertReview = createEnterpriseExpertReview(context, {
+    const expertReview = await createEnterpriseExpertReviewWithPostgresMirrorAsync(context, {
       projectId: String(body.projectId ?? ""),
       target: targetFromBody(body),
       reviewerName: body.reviewerName ? String(body.reviewerName) : undefined,
@@ -99,16 +97,14 @@ export async function POST(request: Request) {
     }, {
       headers: expertReviewHeaders(expertReview)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-validation-expert-review" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
-    const expertReview = reviewEnterpriseExpertReview(context, String(body.reviewId ?? body.expertReviewId ?? ""), {
+    const expertReview = await reviewEnterpriseExpertReviewWithPostgresMirrorAsync(context, String(body.reviewId ?? body.expertReviewId ?? ""), {
       status: statusFromBody(body.status),
       claimScope: claimScopeFromBody(body.claimScope),
       ratings: ratingsFromBody(body),
@@ -123,7 +119,5 @@ export async function PATCH(request: Request) {
     }, {
       headers: expertReviewHeaders(expertReview)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

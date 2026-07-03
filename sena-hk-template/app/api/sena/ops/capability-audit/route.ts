@@ -3,10 +3,10 @@ import {
   listEnterprisePlatformDecisionAcceptances
 } from "@/lib/sena/enterprise/ops-platform-decisions";
 import {
-  getEnterpriseCapabilityAudit
+  getEnterpriseCapabilityAuditWithPostgresEvidence
 } from "@/lib/sena/enterprise/ops-capability-audit";
 import {
-  getEnterpriseIdentityProductionEvidence
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence
 } from "@/lib/sena/enterprise/identity-production-evidence";
 import {
   buildEnterpriseAuthCapabilityHeaders,
@@ -16,13 +16,13 @@ import {
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-capability-audit" }, async () => {
     const access = await requireOpsAccess(request);
     const teamId = new URL(request.url).searchParams.get("teamId")?.trim() || undefined;
     if (access.mode === "session") {
@@ -36,8 +36,8 @@ export async function GET(request: Request) {
       const context = await requireApiSession();
       listEnterprisePlatformDecisionAcceptances(context, { teamId });
     }
-    const audit = getEnterpriseCapabilityAudit({ teamId });
-    const identityProductionEvidence = getEnterpriseIdentityProductionEvidence({ teamId });
+    const audit = await getEnterpriseCapabilityAuditWithPostgresEvidence({ teamId });
+    const identityProductionEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId, audit });
     return NextResponse.json({
       ...audit,
       identityProductionEvidence,
@@ -49,7 +49,5 @@ export async function GET(request: Request) {
         ...buildEnterpriseIdentityPerDecisionMissingEvidenceHeaders(identityProductionEvidence)
       }
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

@@ -4,12 +4,12 @@ import {
   sanitizeEnterpriseContext
 } from "@/lib/sena/enterprise/auth-session";
 import {
-  acceptEnterpriseInvitation,
-  createEnterpriseInvitation,
-  revokeEnterpriseInvitation,
+  acceptEnterpriseInvitationAsync,
+  createEnterpriseInvitationAsync,
+  revokeEnterpriseInvitationAsync,
   type SenaEnterpriseInvitation
 } from "@/lib/sena/enterprise/auth-invitations";
-import { jsonError, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -40,10 +40,10 @@ function invitationLifecycleHeaders(invitation: SenaEnterpriseInvitation, member
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const invitation = createEnterpriseInvitation(context, {
+    const invitation = await createEnterpriseInvitationAsync(context, {
       teamId: String(body.teamId || context.teams[0]?.id || ""),
       email: String(body.email ?? ""),
       role: body.role === "pi" || body.role === "admin" || body.role === "coder" || body.role === "reviewer" || body.role === "viewer"
@@ -55,13 +55,11 @@ export async function POST(request: Request) {
       status: 201,
       headers: invitationLifecycleHeaders(invitation)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function DELETE(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const url = new URL(request.url);
     let invitationId = url.searchParams.get("invitationId") || "";
@@ -69,20 +67,18 @@ export async function DELETE(request: Request) {
       const body = await request.json().catch(() => ({}));
       invitationId = String(body.invitationId ?? "");
     }
-    const invitation = revokeEnterpriseInvitation(context, invitationId);
+    const invitation = await revokeEnterpriseInvitationAsync(context, invitationId);
     return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.teamInvitation, invitation }, {
       headers: invitationLifecycleHeaders(invitation)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const accepted = acceptEnterpriseInvitation(context, {
+    const accepted = await acceptEnterpriseInvitationAsync(context, {
       invitationId: body.invitationId ? String(body.invitationId) : undefined,
       inviteCode: body.inviteCode ? String(body.inviteCode) : undefined
     });
@@ -94,7 +90,5 @@ export async function PATCH(request: Request) {
     }, {
       headers: invitationLifecycleHeaders(accepted.invitation, accepted.membership)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

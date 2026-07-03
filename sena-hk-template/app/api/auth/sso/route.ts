@@ -4,12 +4,12 @@ import {
   getEnterpriseIdentityProductionEvidence
 } from "@/lib/sena/enterprise/identity-production-evidence";
 import {
-  createEnterpriseSsoAuthorization,
+  createEnterpriseSsoAuthorizationAsync,
   getEnterpriseSsoProviderStatuses,
   isEnterpriseSsoProviderConfigured,
-  preflightEnterpriseSsoProviders,
+  preflightEnterpriseSsoProvidersAsync,
   requireEnterpriseLocalSsoFallbackAllowed,
-  ssoEnterpriseUser,
+  ssoEnterpriseUserAsync,
   type SenaEnterpriseSsoProvider
 } from "@/lib/sena/enterprise/auth-sso";
 import {
@@ -18,9 +18,9 @@ import {
 } from "@/lib/sena/enterprise/auth-session";
 import {
   authSessionHeaders,
-  enforceAuthRateLimit,
+  enforceAuthRateLimitAsync,
   identityInstitutionActionPlanHeaders,
-  jsonError,
+  observeSenaApiRoute,
   sessionCookieMaxAgeSeconds,
   sessionCookieOptions
 } from "@/lib/sena/api-helpers";
@@ -91,12 +91,12 @@ function identityProductionGateSummary(
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const url = new URL(request.url);
     if (url.searchParams.get("status") === "1") {
       const identityEvidence = getEnterpriseIdentityProductionEvidence();
       if (url.searchParams.get("preflight") === "1") {
-        enforceAuthRateLimit(request, {
+        await enforceAuthRateLimitAsync(request, {
           bucket: "auth.sso.preflight",
           discriminator: `${url.searchParams.get("provider") ?? "all"}:${requestOrigin(request)}`
         });
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
           schemaVersion: SENA_SCHEMA_VERSIONS.ssoProviderStatus,
           providers: getEnterpriseSsoProviderStatuses(),
           identityProductionGate: identityProductionGateSummary(identityEvidence),
-          preflight: await preflightEnterpriseSsoProviders({
+          preflight: await preflightEnterpriseSsoProvidersAsync({
             baseUrl: requestOrigin(request),
             providers: provider ? [ssoProvider(provider)] : undefined
           })
@@ -122,32 +122,30 @@ export async function GET(request: Request) {
       });
     }
 
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.sso.start",
       discriminator: `${url.searchParams.get("provider") ?? "institution"}:${url.searchParams.get("redirectTo") ?? ""}`
     });
-    const authorization = await createEnterpriseSsoAuthorization({
+    const authorization = await createEnterpriseSsoAuthorizationAsync({
       provider: ssoProvider(url.searchParams.get("provider")),
       baseUrl: requestOrigin(request),
       redirectTo: url.searchParams.get("redirectTo") ?? undefined,
       inviteCode: url.searchParams.get("inviteCode") ?? undefined
     });
     return NextResponse.redirect(authorization.authorizationUrl);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const body = await request.json();
     const provider = ssoProvider(body.provider);
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.sso.start",
       discriminator: `${provider}:${body.email ?? body.subject ?? body.redirectTo ?? ""}`
     });
     if (isEnterpriseSsoProviderConfigured(provider)) {
-      const authorization = await createEnterpriseSsoAuthorization({
+      const authorization = await createEnterpriseSsoAuthorizationAsync({
         provider,
         baseUrl: requestOrigin(request),
         redirectTo: body.redirectTo ? String(body.redirectTo) : undefined,
@@ -157,7 +155,7 @@ export async function POST(request: Request) {
     }
 
     requireEnterpriseLocalSsoFallbackAllowed(provider);
-    const result = ssoEnterpriseUser({
+    const result = await ssoEnterpriseUserAsync({
       provider,
       email: String(body.email ?? ""),
       name: body.name ? String(body.name) : undefined,
@@ -175,7 +173,5 @@ export async function POST(request: Request) {
     });
     response.cookies.set(senaSessionCookieName, result.token, sessionCookieOptions(sessionCookieMaxAgeSeconds(result.context.session.expiresAt)));
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

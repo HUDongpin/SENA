@@ -91,6 +91,7 @@ import { importSenaEnterpriseFiles } from "../import-adapters";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import {
   buildSenaSecurityHeaders,
+  resolveSenaRuntimeHeader,
   SENA_SECURITY_HEADER_MANIFEST
 } from "../security-headers";
 import {
@@ -2623,6 +2624,35 @@ describe("SENA model builder", () => {
     });
   });
 
+  it("reports managed Postgres or Neon in the runtime header only when primary state env is complete", () => {
+    expect(resolveSenaRuntimeHeader({
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      SENA_ENTERPRISE_STATE_STORE: "postgres",
+      DATABASE_URL: "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require"
+    })).toBe("enterprise-neon");
+    expect(resolveSenaRuntimeHeader({
+      SENA_ENTERPRISE_DB_ADAPTER: "postgres",
+      SENA_ENTERPRISE_STATE_STORE: "postgres",
+      SENA_ENTERPRISE_POSTGRES_URL: "postgres://sena_user:super-secret@example.com/senadb"
+    })).toBe("enterprise-postgres");
+    expect(resolveSenaRuntimeHeader({
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      DATABASE_URL: "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require"
+    })).toBe("enterprise-local");
+    expect(buildSenaSecurityHeaders({
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      SENA_ENTERPRISE_STATE_STORE: "postgres",
+      POSTGRES_URL: "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require"
+    })).toMatchObject({
+      "x-sena-runtime": "enterprise-neon"
+    });
+    expect(resolveSenaRuntimeHeader({
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      SENA_ENTERPRISE_STATE_STORE: "postgres",
+      POSTGRES_PRISMA_URL: "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require"
+    })).toBe("enterprise-neon");
+  });
+
   it("exposes enterprise governance export controls in the SENA workspace", async () => {
     const recorder = createJsonFetchRecorder({
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseGovernance
@@ -3240,7 +3270,8 @@ describe("SENA model builder", () => {
       SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
       SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance,
       SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
-      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest
     ]));
     expect(readiness.evidence).toEqual(expect.arrayContaining([
       expect.stringContaining("nativeAdapterCertification="),
@@ -3252,7 +3283,8 @@ describe("SENA model builder", () => {
       SENA_SCHEMA_VERSIONS.enterpriseSaasOperationsReadiness,
       SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
       SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
-      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest
     ]));
   });
 

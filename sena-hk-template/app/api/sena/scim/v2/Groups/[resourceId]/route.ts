@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonError } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import { provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
 
@@ -27,19 +27,15 @@ async function upsertGroup(request: Request, resourceId: string) {
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
     const { resourceId } = await params;
     return await upsertGroup(request, resourceId);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
     const { resourceId } = await params;
     return await upsertGroup(request, resourceId);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

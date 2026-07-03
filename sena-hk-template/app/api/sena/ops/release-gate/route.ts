@@ -1,35 +1,33 @@
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseReleaseGateReview,
-  listEnterpriseReleaseGateReviews,
+  createEnterpriseReleaseGateReviewWithPostgresEvidence,
+  listEnterpriseReleaseGateReviewsWithPostgresEvidence,
   type SenaEnterpriseReleaseGateReviewInput
 } from "@/lib/sena/enterprise/ops-release-gate";
 import {
   buildEnterpriseReleaseGateIdentitySnapshotHeaders
 } from "@/lib/sena/enterprise/ops-response-builders";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-release-gate" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId")?.trim() || undefined;
-    const reviews = listEnterpriseReleaseGateReviews(context, { teamId });
+    const reviews = await listEnterpriseReleaseGateReviewsWithPostgresEvidence(context, { teamId });
     return NextResponse.json(reviews, {
       headers: buildEnterpriseReleaseGateIdentitySnapshotHeaders(reviews.reviews[0])
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-release-gate" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Partial<SenaEnterpriseReleaseGateReviewInput>;
-    const review = createEnterpriseReleaseGateReview(context, {
+    const review = await createEnterpriseReleaseGateReviewWithPostgresEvidence(context, {
       teamId: String(body.teamId ?? ""),
       environment: String(body.environment ?? ""),
       releaseVersion: String(body.releaseVersion ?? ""),
@@ -44,7 +42,5 @@ export async function POST(request: Request) {
       status: 201,
       headers: buildEnterpriseReleaseGateIdentitySnapshotHeaders(review)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

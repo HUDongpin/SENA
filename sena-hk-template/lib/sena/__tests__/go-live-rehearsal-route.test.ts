@@ -152,6 +152,8 @@ describe("SENA go-live rehearsal route", () => {
       };
       expect(getResponse.status).toBe(200);
       expect(getBody.identityProductionHandoff?.status).toBe("review");
+      expect(getResponse.headers.get("x-sena-observed-route")).toBe("sena-ops-go-live-rehearsal");
+      expect(getResponse.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expectIdentityHandoffHeaders(getResponse, getBody.identityProductionHandoff);
 
       const monitorResponse = await route.GET(new Request(`https://sena.example.test/api/sena/ops/go-live-rehearsal?artifact=post-cutover-monitor&teamId=${encodeURIComponent(teamId)}`));
@@ -183,6 +185,8 @@ describe("SENA go-live rehearsal route", () => {
       const missingCsrfActionBody = await missingCsrfActionResponse.json() as { code?: string };
       expect(missingCsrfActionResponse.status).toBe(403);
       expect(missingCsrfActionBody.code).toBe("csrf_invalid");
+      expect(missingCsrfActionResponse.headers.get("x-sena-observed-route")).toBe("sena-ops-go-live-rehearsal");
+      expect(missingCsrfActionResponse.headers.get("x-sena-observed-status-class")).toBe("4xx");
 
       const actionResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/go-live-rehearsal", {
         method: "POST",

@@ -1,23 +1,23 @@
 import { NextResponse } from "next/server";
 import {
-  registerEnterpriseUser
+  registerEnterpriseUserAsync
 } from "@/lib/sena/enterprise/auth-registration";
 import {
   sanitizeEnterpriseContext,
   senaSessionCookieName
 } from "@/lib/sena/enterprise/auth-session";
-import { authSessionHeaders, enforceAuthRateLimit, jsonError, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
+import { authSessionHeaders, enforceAuthRateLimitAsync, observeSenaApiRoute, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-register" }, async () => {
     const body = await request.json();
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.register",
       discriminator: String(body.email ?? body.inviteCode ?? "")
     });
-    const result = registerEnterpriseUser({
+    const result = await registerEnterpriseUserAsync({
       name: String(body.name ?? body.fullName ?? ""),
       email: String(body.email ?? ""),
       password: String(body.password ?? ""),
@@ -34,7 +34,5 @@ export async function POST(request: Request) {
     });
     response.cookies.set(senaSessionCookieName, result.token, sessionCookieOptions(sessionCookieMaxAgeSeconds(result.context.session.expiresAt)));
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

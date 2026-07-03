@@ -1,33 +1,29 @@
 import { NextResponse } from "next/server";
 import {
-  buildEnterprisePlatformDecisionListResponse,
-  buildEnterprisePlatformDecisionReviewResponse
+  buildEnterprisePlatformDecisionListResponseWithPostgresState,
+  buildEnterprisePlatformDecisionReviewResponseWithPostgresState
 } from "@/lib/sena/enterprise/ops-response-builders";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-platform-decisions" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId")?.trim() || undefined;
-    const response = buildEnterprisePlatformDecisionListResponse(context, { teamId });
+    const response = await buildEnterprisePlatformDecisionListResponseWithPostgresState(context, { teamId });
     return NextResponse.json(response.body, { headers: response.headers });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-platform-decisions" }, async () => {
     const context = await requireApiSessionForMutation(request);
-    const response = buildEnterprisePlatformDecisionReviewResponse(context, await request.json());
+    const response = await buildEnterprisePlatformDecisionReviewResponseWithPostgresState(context, await request.json());
     return NextResponse.json(response.body, {
       status: response.status,
       headers: response.headers
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

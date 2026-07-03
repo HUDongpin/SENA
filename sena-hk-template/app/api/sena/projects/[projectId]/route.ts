@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
-  deleteEnterpriseProject,
-  getEnterpriseProject,
-  restoreEnterpriseProjectRevision,
-  updateEnterpriseProject,
+  deleteEnterpriseProjectAsync,
+  getEnterpriseProjectAsync,
+  restoreEnterpriseProjectRevisionAsync,
+  updateEnterpriseProjectAsync,
+  type SenaEnterpriseProjectDeletion,
   type SenaEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
 import { importSenaProjectSnapshot } from "@/lib/sena/snapshot";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
@@ -29,7 +30,7 @@ function projectLifecycleHeaders(project: SenaEnterpriseProject, extra?: Record<
   };
 }
 
-function projectDeletionHeaders(deletion: ReturnType<typeof deleteEnterpriseProject>): HeadersInit {
+function projectDeletionHeaders(deletion: SenaEnterpriseProjectDeletion): HeadersInit {
   return {
     "x-sena-project-id": deletion.projectId,
     "x-sena-team-id": deletion.teamId,
@@ -39,25 +40,23 @@ function projectDeletionHeaders(deletion: ReturnType<typeof deleteEnterpriseProj
   };
 }
 
-export async function GET(_request: Request, { params }: ProjectRouteContext) {
-  try {
+export async function GET(request: Request, { params }: ProjectRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSession();
-    const project = getEnterpriseProject(context, projectId);
+    const project = await getEnterpriseProjectAsync(context, projectId);
     return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       headers: projectLifecycleHeaders(project)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PUT(request: Request, { params }: ProjectRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const project = updateEnterpriseProject(context, projectId, {
+    const project = await updateEnterpriseProjectAsync(context, projectId, {
       title: body.title === undefined ? undefined : String(body.title),
       description: body.description === undefined ? undefined : String(body.description),
       snapshot: body.snapshot ? importSenaProjectSnapshot(body.snapshot) : undefined,
@@ -66,19 +65,17 @@ export async function PUT(request: Request, { params }: ProjectRouteContext) {
     return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.project, project }, {
       headers: projectLifecycleHeaders(project)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request, { params }: ProjectRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const action = String(body.action ?? "");
     if (action === "restore-revision") {
-      const result = restoreEnterpriseProjectRevision(context, projectId, {
+      const result = await restoreEnterpriseProjectRevisionAsync(context, projectId, {
         revisionId: body.revisionId === undefined ? undefined : String(body.revisionId),
         version: body.version === undefined ? undefined : Number(body.version),
         expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
@@ -91,20 +88,16 @@ export async function PATCH(request: Request, { params }: ProjectRouteContext) {
       });
     }
     return NextResponse.json({ error: "Unsupported project action.", code: "unsupported_project_action" }, { status: 400 });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function DELETE(request: Request, { params }: ProjectRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-projects" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSessionForMutation(request);
-    const deletion = deleteEnterpriseProject(context, projectId);
+    const deletion = await deleteEnterpriseProjectAsync(context, projectId);
     return NextResponse.json(deletion, {
       headers: projectDeletionHeaders(deletion)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

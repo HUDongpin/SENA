@@ -85,11 +85,14 @@ describe("SENA claim package route", () => {
       expect(body.project?.id).toBe(project.id);
       expect(body.status).toBe("exploratory-only");
       expect(body.sourceSnapshotEvidence?.revisionMatchesCurrentVersion).toBe(true);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-validation-claim-package");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("x-sena-claim-package-status")).toBe(body.status);
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-project-version")).toBe(String(body.project?.currentVersion));
       expect(response.headers.get("x-sena-source-snapshot-sha256")).toBe(body.sourceSnapshotEvidence?.snapshotSha256);
       expect(response.headers.get("x-sena-report-sha256")).toBe(body.sourceSnapshotEvidence?.reportSha256);
+      expect(response.headers.get("x-sena-claim-evidence-adjudication-source")).toBe("file-json");
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

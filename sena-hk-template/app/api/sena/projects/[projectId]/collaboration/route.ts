@@ -1,31 +1,39 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseAdjudicationRecord,
-  createEnterpriseProjectComment,
+  createEnterpriseAdjudicationRecordWithPostgresMirrorAsync,
+  createEnterpriseProjectCommentWithPostgresMirrorAsync,
   deliverEnterpriseCollaborationPubSub,
-  listEnterpriseProjectCollaboration,
-  resolveEnterpriseProjectComment,
-  touchEnterpriseProjectPresence
+  listEnterpriseProjectCollaborationWithPostgresEvidenceAsync,
+  resolveEnterpriseProjectCommentWithPostgresMirrorAsync,
+  touchEnterpriseProjectPresenceWithPostgresMirrorAsync
 } from "@/lib/sena/enterprise/team-collaboration";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 type ProjectRouteContext = { params: Promise<{ projectId: string }> };
 
-export async function GET(_request: Request, { params }: ProjectRouteContext) {
-  try {
+export async function GET(request: Request, { params }: ProjectRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-project-collaboration" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSession();
-    return NextResponse.json(listEnterpriseProjectCollaboration(context, projectId));
-  } catch (error) {
-    return jsonError(error);
-  }
+    const collaboration = await listEnterpriseProjectCollaborationWithPostgresEvidenceAsync(context, projectId);
+    return NextResponse.json(collaboration, {
+      headers: {
+        "x-sena-collaboration-comment-source": collaboration.evidenceSource.comments,
+        "x-sena-collaboration-presence-source": collaboration.evidenceSource.presence,
+        "x-sena-collaboration-reliability-source": collaboration.evidenceSource.reliabilityRuns,
+        "x-sena-collaboration-validation-source": collaboration.evidenceSource.validationRuns,
+        "x-sena-collaboration-expert-review-source": collaboration.evidenceSource.expertReviews,
+        "x-sena-collaboration-adjudication-source": collaboration.evidenceSource.adjudications
+      }
+    });
+  });
 }
 
 export async function POST(request: Request, { params }: ProjectRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-project-collaboration" }, async () => {
     const { projectId } = await params;
     const context = await requireApiSessionForMutation(request);
     const body = await request.json();
@@ -43,7 +51,7 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
     if (action === "presence") {
       return NextResponse.json({
         schemaVersion: SENA_SCHEMA_VERSIONS.projectPresence,
-        presence: touchEnterpriseProjectPresence(context, projectId, {
+        presence: await touchEnterpriseProjectPresenceWithPostgresMirrorAsync(context, projectId, {
           activeView: body.activeView ? String(body.activeView) : undefined,
           cursorLabel: body.cursorLabel ? String(body.cursorLabel) : undefined
         })
@@ -53,7 +61,7 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
     if (action === "comment") {
       return NextResponse.json({
         schemaVersion: SENA_SCHEMA_VERSIONS.projectComment,
-        comment: createEnterpriseProjectComment(context, projectId, {
+        comment: await createEnterpriseProjectCommentWithPostgresMirrorAsync(context, projectId, {
           body: String(body.body ?? ""),
           target: body.target && typeof body.target === "object" ? body.target : { kind: "project" }
         })
@@ -63,7 +71,7 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
     if (action === "resolve-comment") {
       return NextResponse.json({
         schemaVersion: SENA_SCHEMA_VERSIONS.projectComment,
-        comment: resolveEnterpriseProjectComment(context, projectId, String(body.commentId ?? ""))
+        comment: await resolveEnterpriseProjectCommentWithPostgresMirrorAsync(context, projectId, String(body.commentId ?? ""))
       });
     }
 
@@ -71,7 +79,7 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
       const decision = body.decision === "exclude" || body.decision === "revise" ? body.decision : "include";
       return NextResponse.json({
         schemaVersion: SENA_SCHEMA_VERSIONS.projectAdjudication,
-        adjudication: createEnterpriseAdjudicationRecord(context, projectId, {
+        adjudication: await createEnterpriseAdjudicationRecordWithPostgresMirrorAsync(context, projectId, {
           reliabilityRunId: body.reliabilityRunId ? String(body.reliabilityRunId) : undefined,
           itemId: String(body.itemId ?? ""),
           codeId: String(body.codeId ?? ""),
@@ -83,7 +91,5 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
     }
 
     return NextResponse.json({ error: "Unsupported collaboration action.", code: "unsupported_collaboration_action" }, { status: 400 });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

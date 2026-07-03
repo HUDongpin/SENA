@@ -3,7 +3,7 @@ import {
   getEnterpriseSecurityPosture,
   type SenaEnterpriseSecurityPosture
 } from "@/lib/sena/enterprise/ops-security";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -38,14 +38,12 @@ function securityPostureHeaders(posture: SenaEnterpriseSecurityPosture): Record<
   };
 }
 
-export async function GET() {
-  try {
+export async function GET(request: Request) {
+  return observeSenaApiRoute(request, { routeId: "sena-governance-security" }, async () => {
     await requireApiSession();
     const posture = getEnterpriseSecurityPosture();
     return NextResponse.json(posture, {
       headers: securityPostureHeaders(posture)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

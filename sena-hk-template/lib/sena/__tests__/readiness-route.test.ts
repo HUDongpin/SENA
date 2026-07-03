@@ -71,6 +71,15 @@ describe("SENA deployment readiness route", () => {
         .toBe(itemStatus(body, "identity-idp-tenant-binding"));
       expect(response.headers.get("x-sena-identity-lifecycle-owner-mode"))
         .toBe(itemStatus(body, "identity-lifecycle-owner-mode"));
+      expect(response.headers.get("x-sena-production-performance-path")).toBe("review");
+      expect(response.headers.get("x-sena-production-performance-blockers"))
+        .toContain("production-postgres-state");
+      expect(response.headers.get("x-sena-production-performance-blockers"))
+        .toContain("production-runtime-header");
+      expect(response.headers.get("x-sena-production-performance-blockers"))
+        .toContain("production-cdn-compression");
+      expect(response.headers.get("x-sena-production-performance-blockers"))
+        .toContain("production-conference-load-rehearsal");
     } finally {
       delete process.env.SENA_APP_URL;
       delete process.env.SENA_ENTERPRISE_DB_DIR;

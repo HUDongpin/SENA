@@ -12,9 +12,21 @@ function bearerToken(request: Request) {
   return match?.[1]?.trim();
 }
 
+function configuredOpsTokens() {
+  return [
+    process.env.SENA_OPS_TOKEN?.trim(),
+    process.env.SENA_OPS_AUTOMATION_TOKEN?.trim()
+  ].filter((value): value is string => Boolean(value));
+}
+
+function opsTokenMatches(configuredTokens: string[], provided: string) {
+  const providedHash = hashToken(provided);
+  return configuredTokens.some((configured) => timingSafeEqual(hashToken(configured), providedHash));
+}
+
 export async function requireOpsAccess(request: Request) {
-  const configured = process.env.SENA_OPS_TOKEN?.trim();
-  if (!configured) {
+  const configuredTokens = configuredOpsTokens();
+  if (configuredTokens.length === 0) {
     await requireApiSession();
     return { mode: "session" as const };
   }
@@ -22,17 +34,17 @@ export async function requireOpsAccess(request: Request) {
   if (!provided) {
     throw new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required");
   }
-  if (!timingSafeEqual(hashToken(configured), hashToken(provided))) {
+  if (!opsTokenMatches(configuredTokens, provided)) {
     throw new SenaEnterpriseError("Ops bearer token is invalid.", 401, "ops_token_invalid");
   }
   return { mode: "bearer" as const };
 }
 
 export async function requireOpsMutationAccess(request: Request) {
-  const configured = process.env.SENA_OPS_TOKEN?.trim();
-  if (!configured) {
+  const configuredTokens = configuredOpsTokens();
+  if (configuredTokens.length === 0) {
     const context = await requireApiSession();
-    requireApiCsrf(request, context);
+    await requireApiCsrf(request, context);
     return { mode: "session" as const };
   }
   return await requireOpsAccess(request);

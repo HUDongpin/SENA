@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonError } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import { patchEnterpriseScimUser, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
 
@@ -27,16 +27,14 @@ async function upsertUser(request: Request, resourceId: string) {
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
     const { resourceId } = await params;
     return await upsertUser(request, resourceId);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     const body = await request.json();
@@ -54,7 +52,5 @@ export async function PATCH(request: Request, { params }: ScimResourceRouteConte
       : { id: resourceId };
     const bridge = provisionEnterpriseScimUser(resource, scimOptions(request));
     return NextResponse.json(bridge.resource);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

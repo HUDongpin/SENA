@@ -2,23 +2,32 @@ import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
 import {
-  createEnterpriseAnalysisRun,
-  createEnterpriseImportRun,
-  createEnterpriseUploads,
-  listEnterpriseImportRuns,
+  createEnterpriseAnalysisRunWithPostgresMirrorAsync,
+  createEnterpriseImportRunWithPostgresMirrorAsync,
+  createEnterpriseUploadsWithPostgresMirrorAsync,
+  listEnterpriseImportRunsAsync,
   type SenaEnterpriseAnalysisRun,
   type SenaEnterpriseImportRun
 } from "@/lib/sena/enterprise/import-analysis";
 import {
-  createEnterpriseProject,
+  createEnterpriseProjectAsync,
   type SenaEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
+import {
+  recordEnterpriseAuditAsync
+} from "@/lib/sena/enterprise/ops-audit";
+import {
+  enqueueEnterpriseServerJob,
+  serverJobHeaders,
+  serverJobQueueStatus,
+  shouldQueueServerJob
+} from "@/lib/sena/enterprise/server-job-queue";
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
 import { importSenaEnterpriseFiles } from "@/lib/sena/import-adapters";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -76,21 +85,19 @@ function importResponseHeaders(input: {
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-import" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
     const teamId = url.searchParams.get("teamId") || undefined;
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.importRunList,
-      importRuns: listEnterpriseImportRuns(context, teamId)
+      importRuns: await listEnterpriseImportRunsAsync(context, teamId)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-import" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const form = await request.formData();
     const files = form.getAll("files").filter((value): value is File => value instanceof File);
@@ -104,10 +111,80 @@ export async function POST(request: Request) {
         arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
       };
     }));
-    const result = await importSenaEnterpriseFiles(bufferedFiles);
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
+    const action = formString(form.get("action"));
+    const shouldCreateProject = action === "create-project" || formBoolean(form.get("persistProject"));
+    const buildOptions = formJson(form.get("buildOptions"), "buildOptions");
+    const activeTemporalWindowId = formString(form.get("activeTemporalWindowId")) || undefined;
+    const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
+
+    if (shouldQueueServerJob(request, { queue: formBoolean(form.get("queue")) })) {
+      const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+        teamId,
+        files: bufferedFiles.map((file) => ({
+          name: file.name,
+          contentType: file.contentType,
+          bytes: file.bytes,
+          warningCount: 0
+        }))
+      });
+      const queue = serverJobQueueStatus();
+      const uploadIds = uploads.map((upload) => upload.id);
+      const job = await enqueueEnterpriseServerJob({
+        kind: "import",
+        teamId,
+        actorUserId: context.user.id,
+        payload: {
+          action: "run-import",
+          teamId,
+          uploadIds,
+          importAction: action || undefined,
+          persistProject: shouldCreateProject,
+          title: formString(form.get("title")) || undefined,
+          description: formString(form.get("description")) || undefined,
+          buildOptions,
+          activeTemporalWindowId,
+          includeRuntimeBundle
+        },
+        payloadSummary: {
+          source: "upload",
+          fileCount: uploads.length,
+          uploadIds,
+          persist: shouldCreateProject,
+          activeTemporalWindowId,
+          includeRuntimeBundle,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        },
+        queue
+      });
+      await recordEnterpriseAuditAsync({
+        event: "import.queue",
+        userId: context.user.id,
+        teamId,
+        detail: {
+          serverJobId: job.id,
+          serverJobKind: job.kind,
+          queueProvider: job.provider.mode,
+          queueDelivery: job.delivery.webhookStatus,
+          queueHttpStatus: job.delivery.httpStatus ?? null,
+          queueProductionReady: job.provider.productionReady,
+          payloadSha256: job.payloadSha256,
+          uploadCount: uploads.length,
+          persistProject: shouldCreateProject,
+          inlinePayloadAllowed: job.provider.inlinePayloadAllowed
+        }
+      });
+      return NextResponse.json(job, {
+        status: 202,
+        headers: serverJobHeaders(job)
+      });
+    }
+
+    const result = await importSenaEnterpriseFiles(bufferedFiles);
     const sourceByName = new Map(result.sources.map((source) => [source.name, source]));
-    const uploads = createEnterpriseUploads(context, {
+    const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,
       files: bufferedFiles.map((file) => {
         const source = sourceByName.get(file.name);
@@ -120,7 +197,7 @@ export async function POST(request: Request) {
         };
       })
     });
-    const importRun = createEnterpriseImportRun(context, {
+    const importRun = await createEnterpriseImportRunWithPostgresMirrorAsync(context, {
       teamId,
       uploadIds: uploads.map((upload) => upload.id),
       sources: result.sources,
@@ -128,8 +205,6 @@ export async function POST(request: Request) {
       dataset: result.dataset,
       cleaningManifest: result.cleaningManifest
     });
-    const action = formString(form.get("action"));
-    const shouldCreateProject = action === "create-project" || formBoolean(form.get("persistProject"));
     if (!shouldCreateProject) {
       return NextResponse.json({ ...result, uploads, importRun }, {
         headers: importResponseHeaders({ importRun, cleaningManifest: result.cleaningManifest })
@@ -140,18 +215,18 @@ export async function POST(request: Request) {
     const analysisRun = buildSenaAnalysisRun({
       sourceKind: "dataset",
       dataset: result.dataset,
-      buildOptions: formJson(form.get("buildOptions"), "buildOptions"),
+      buildOptions,
       title,
-      activeTemporalWindowId: formString(form.get("activeTemporalWindowId")) || undefined,
-      includeRuntimeBundle: formBoolean(form.get("includeRuntimeBundle"))
+      activeTemporalWindowId,
+      includeRuntimeBundle
     });
-    const persistedProject = createEnterpriseProject(context, {
+    const persistedProject = await createEnterpriseProjectAsync(context, {
       teamId,
       title,
       description: formString(form.get("description")) || `Created from import run ${importRun.id}.`,
       snapshot: analysisRun.projectSnapshot
     });
-    const enterpriseAnalysisRun = createEnterpriseAnalysisRun(context, {
+    const enterpriseAnalysisRun = await createEnterpriseAnalysisRunWithPostgresMirrorAsync(context, {
       teamId,
       persistedProjectId: persistedProject.id,
       run: analysisRun
@@ -173,7 +248,5 @@ export async function POST(request: Request) {
         enterpriseAnalysisRun
       })
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

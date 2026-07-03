@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import {
-  buildEnterpriseGoLivePostResponse,
-  buildEnterpriseGoLiveRehearsalResponse
+  buildEnterpriseGoLivePostResponseWithPostgresEvidence,
+  buildEnterpriseGoLiveRehearsalResponseWithPostgresEvidence
 } from "@/lib/sena/enterprise/ops-response-builders";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-go-live-rehearsal" }, async () => {
     const access = await requireOpsAccess(request);
     const url = new URL(request.url);
     const artifact = url.searchParams.get("artifact");
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       sessionContext = await requireApiSession();
     }
     const includeAttestations = url.searchParams.get("attestations") === "1";
-    const response = buildEnterpriseGoLiveRehearsalResponse({
+    const response = await buildEnterpriseGoLiveRehearsalResponseWithPostgresEvidence({
       teamId,
       artifact,
       access,
@@ -27,20 +27,16 @@ export async function GET(request: Request) {
       context: sessionContext ?? (includeAttestations ? await requireApiSession() : undefined)
     });
     return NextResponse.json(response.body, { headers: response.headers });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-ops-go-live-rehearsal" }, async () => {
     const context = await requireApiSessionForMutation(request);
-    const response = buildEnterpriseGoLivePostResponse(context, await request.json());
+    const response = await buildEnterpriseGoLivePostResponseWithPostgresEvidence(context, await request.json());
     return NextResponse.json(response.body, {
       status: response.status,
       headers: response.headers
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

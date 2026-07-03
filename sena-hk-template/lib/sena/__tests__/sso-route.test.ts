@@ -2,6 +2,47 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { SenaEnterpriseDb } from "../enterprise/state";
+
+class SsoRouteMemoryPostgres {
+  state: { revision: number; payload: SenaEnterpriseDb } | null = null;
+  queries: string[] = [];
+
+  async query(sql: string, values: unknown[] = []) {
+    const normalizedSql = sql.replace(/\s+/g, " ").trim();
+    this.queries.push(normalizedSql);
+    if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+      return {
+        rows: this.state ? [{ revision: this.state.revision, payload: this.state.payload }] : [],
+        rowCount: this.state ? 1 : 0
+      };
+    }
+    if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO NOTHING/i.test(normalizedSql)) {
+      if (!this.state) {
+        this.state = {
+          revision: 0,
+          payload: values[2] as SenaEnterpriseDb
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_state" SET payload/i.test(normalizedSql)) {
+      const expectedRevision = Number(values[2]);
+      if (!this.state || this.state.revision !== expectedRevision) {
+        return { rows: [], rowCount: 0 };
+      }
+      this.state = {
+        revision: this.state.revision + 1,
+        payload: values[0] as SenaEnterpriseDb
+      };
+      return { rows: [{ revision: this.state.revision }], rowCount: 1 };
+    }
+    throw new Error(`Unexpected Postgres query in SSO route test: ${normalizedSql}`);
+  }
+}
 
 describe("SENA SSO route production fallback policy", () => {
   it("returns identity production gate headers on SSO status and preflight checks", async () => {
@@ -42,6 +83,8 @@ describe("SENA SSO route production fallback policy", () => {
         };
       };
       expect(statusResponse.status).toBe(200);
+      expect(statusResponse.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(statusResponse.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(statusBody.providers?.length).toBeGreaterThan(0);
       expect(statusBody.identityProductionGate).toEqual(expect.objectContaining({
         schemaVersion: "sena-enterprise-identity-production-gate-summary/v1",
@@ -92,6 +135,7 @@ describe("SENA SSO route production fallback policy", () => {
         };
       };
       expect(preflightResponse.status).toBe(200);
+      expect(preflightResponse.headers.get("x-sena-observed-route")).toBe("auth-sso");
       expect(preflightBody.preflight?.schemaVersion).toBe("sena-enterprise-sso-preflight/v1");
       expect(preflightBody.identityProductionGate?.schemaVersion)
         .toBe("sena-enterprise-identity-production-gate-summary/v1");
@@ -135,7 +179,7 @@ describe("SENA SSO route production fallback policy", () => {
     };
     vi.resetModules();
     vi.doMock("@/lib/sena/enterprise/auth-sso", () => ({
-      completeEnterpriseSsoCallback: async () => ({
+      completeEnterpriseSsoCallbackAsync: async () => ({
         token: "sena-callback-token",
         redirectTo: "/workspace/sena?rail=sets",
         context
@@ -155,7 +199,13 @@ describe("SENA SSO route production fallback policy", () => {
         "x-sena-auth-production-gate": "review",
         "x-sena-identity-missing-evidence-ids": "idp-tenant-approval|scim-or-idp-ownership"
       }),
-      enforceAuthRateLimit: () => ({ allowed: true }),
+      enforceAuthRateLimitAsync: async () => ({ allowed: true }),
+      observeSenaApiRoute: async (_request: Request, input: { routeId: string }, handler: () => Promise<Response> | Response) => {
+        const response = await handler();
+        response.headers.set("x-sena-observed-route", input.routeId);
+        response.headers.set("x-sena-observed-status-class", `${Math.floor(response.status / 100)}xx`);
+        return response;
+      },
       sessionCookieMaxAgeSeconds: () => 86_400,
       sessionCookieOptions: () => ({
         httpOnly: true,
@@ -171,6 +221,8 @@ describe("SENA SSO route production fallback policy", () => {
       const response = await route.GET(new Request("https://sena.example.test/api/auth/sso/callback?provider=google&code=provider-code&state=state-1"));
 
       expect(response.status).toBe(307);
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-sso-callback");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("3xx");
       expect(response.headers.get("location")).toBe("https://sena.example.test/workspace/sena?rail=sets");
       expect(response.headers.get("set-cookie")).toContain("sena_session=sena-callback-token");
       expect(response.headers.get("x-sena-auth-flow")).toBe("sso-callback");
@@ -217,6 +269,8 @@ describe("SENA SSO route production fallback policy", () => {
       };
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("set-cookie")).toContain("sena_session=");
       expect(response.headers.get("x-sena-auth-flow")).toBe("sso-local-fallback");
       expect(response.headers.get("x-sena-auth-provider")).toBe("orcid");
@@ -230,6 +284,84 @@ describe("SENA SSO route production fallback policy", () => {
       expect(response.headers.get("x-sena-auth-membership-role")).toBe(body.memberships?.[0]?.role);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  });
+
+  it("persists API SSO preflight and local fallback state through Postgres primary", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-sso-postgres-route-"));
+    const pg = new SsoRouteMemoryPostgres();
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.SENA_ENTERPRISE_POSTGRES_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+    process.env.SENA_APP_URL = "https://sena.example.test";
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+
+    try {
+      const route = await import("../../../app/api/auth/sso/route");
+      const preflightResponse = await route.GET(new Request("https://sena.example.test/api/auth/sso?status=1&preflight=1&provider=orcid"));
+      const preflightBody = await preflightResponse.json() as {
+        preflight?: { schemaVersion?: string };
+      };
+      const fallbackResponse = await route.POST(new Request("https://sena.example.test/api/auth/sso", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: "orcid",
+          email: "postgres-orcid-route-user@example.edu",
+          name: "Postgres ORCID Route User",
+          organization: "Postgres ORCID Route Lab"
+        })
+      }));
+      const fallbackBody = await fallbackResponse.json() as {
+        user?: { id?: string; email?: string };
+        session?: { id?: string };
+      };
+      const enterprise = await import("../enterprise");
+      const fileBackedDb = enterprise.readEnterpriseDb();
+      const auditEvents = pg.state?.payload.auditLog.map((entry) => entry.event) ?? [];
+
+      expect(preflightResponse.status).toBe(200);
+      expect(preflightResponse.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(preflightBody.preflight?.schemaVersion).toBe("sena-enterprise-sso-preflight/v1");
+      expect(fallbackResponse.status).toBe(200);
+      expect(fallbackResponse.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(pg.queries.some((query) => /CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_state"/.test(query))).toBe(true);
+      expect(pg.state?.payload.users.map((user) => user.email)).toContain("postgres-orcid-route-user@example.edu");
+      expect(pg.state?.payload.sessions.map((session) => session.id)).toContain(fallbackBody.session?.id);
+      expect(pg.state?.payload.apiRateLimits.map((record) => record.bucket)).toEqual(expect.arrayContaining([
+        "auth.sso.preflight",
+        "auth.sso.start"
+      ]));
+      expect(auditEvents).toEqual(expect.arrayContaining([
+        "auth.sso.preflight.fail",
+        "auth.sso"
+      ]));
+      expect(fileBackedDb.users.map((user) => user.email)).not.toContain("postgres-orcid-route-user@example.edu");
+      expect(fileBackedDb.sessions.map((session) => session.id)).not.toContain(fallbackBody.session?.id);
+      expect(JSON.stringify({ fallbackBody, postgresState: pg.state })).not.toContain("super-secret");
+      expect(JSON.stringify({ fallbackBody, postgresState: pg.state })).not.toContain("example.neon.tech");
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_ENTERPRISE_DB_ADAPTER;
+      delete process.env.SENA_ENTERPRISE_STATE_STORE;
+      delete process.env.SENA_ENTERPRISE_POSTGRES_URL;
+      delete process.env.SENA_APP_URL;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
@@ -271,6 +403,8 @@ describe("SENA SSO route production fallback policy", () => {
       const body = await response.json() as { code?: string; error?: string };
 
       expect(response.status).toBe(403);
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
       expect(body.code).toBe("invitation_email_mismatch");
       expect(body.error).toContain("Invitation email does not match");
       expect(response.headers.get("set-cookie")).toBeNull();
@@ -306,6 +440,8 @@ describe("SENA SSO route production fallback policy", () => {
       const body = await response.json() as { code?: string; error?: string };
 
       expect(response.status).toBe(503);
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-sso");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("5xx");
       expect(body.code).toBe("sso_local_fallback_disabled");
       expect(body.error).toContain("Local pilot SSO fallback is disabled");
 
@@ -343,6 +479,7 @@ describe("SENA SSO route production fallback policy", () => {
       }));
       const allowedBody = await allowedResponse.json() as { user?: { email?: string } };
       expect(allowedResponse.status).toBe(200);
+      expect(allowedResponse.headers.get("x-sena-observed-route")).toBe("auth-sso");
       expect(allowedBody.user?.email).toBe("pilot-fallback-allowed@example.edu");
     } finally {
       vi.unstubAllEnvs();

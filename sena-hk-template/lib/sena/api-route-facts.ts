@@ -1,4 +1,5 @@
 import type { SenaApiEvidenceNoteId } from "./api-evidence-notes";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 export type SenaApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type SenaApiAuthMode =
@@ -81,6 +82,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     methods: ["GET"],
     auth: "session",
     summary: "Return the current authenticated user, teams, memberships, and x-sena-auth-session-id/x-sena-auth-team-id response headers.",
+    evidenceNoteId: "auth-session",
     responses: ["sena-auth-session/v1"]
   },
   {
@@ -90,6 +92,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     methods: ["GET"],
     auth: "session",
     summary: "Issue a per-session CSRF token for cookie-auth mutating endpoints.",
+    evidenceNoteId: "auth-csrf",
     responses: ["sena-enterprise-csrf-token/v1"]
   },
   {
@@ -109,6 +112,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     methods: ["POST"],
     auth: "session",
     summary: "Clear the current auth session cookie.",
+    evidenceNoteId: "auth-logout",
     responses: ["sena-auth-logout/v1"]
   },
   {
@@ -197,7 +201,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/projects/{projectId}/collaboration",
     methods: ["GET", "POST"],
     auth: "session",
-    summary: "Read or mutate collaboration state: comments, presence, adjudications, and pub/sub delivery.",
+    summary: "Read or mutate collaboration state: comments, presence, adjudications, pub/sub delivery, and Postgres-backed comment/presence/reliability/validation/expert-review/adjudication source headers.",
     evidenceNoteId: "sena-collaboration",
     responses: ["sena-enterprise-project-collaboration/v1", "sena-enterprise-collaboration-pubsub-delivery/v1"]
   },
@@ -207,7 +211,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/projects/{projectId}/collaboration/stream",
     methods: ["GET"],
     auth: "session",
-    summary: "Server-sent collaboration event stream for live project updates with session and project:read RBAC preflight before the stream opens.",
+    summary: "Server-sent collaboration event stream for live project updates with session and project:read RBAC preflight plus comment/presence/reliability/validation/expert-review/adjudication source headers before the stream opens.",
     responses: ["text/event-stream", "sena-project-collaboration-stream/v1", "auth_required", "permission_denied"]
   },
   {
@@ -245,9 +249,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/analyze",
     methods: ["GET", "POST"],
     auth: "session",
-    summary: "Run server-side SENA analysis and optionally persist the result as a team project.",
+    summary: "Run server-side SENA analysis, optionally persist the result as a team project, or queue the heavy run for an external worker with queue:true / Prefer: respond-async.",
     evidenceNoteId: "sena-analyze",
-    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1"]
+    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-uploads",
@@ -255,7 +259,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/uploads",
     methods: ["GET", "POST"],
     auth: "session",
-    summary: "List upload registry, verify blob integrity, create uploads, or deliver signed object-storage payloads.",
+    summary: "List upload registry, verify blob integrity, create uploads, or deliver blobs through native object storage or signed bridge payloads.",
     evidenceNoteId: "sena-uploads",
     responses: ["sena-enterprise-upload-list/v1", "sena-enterprise-upload-response/v1", "sena-enterprise-upload-storage-verification/v1", "sena-enterprise-upload-object-storage-delivery/v1"]
   },
@@ -265,9 +269,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/import",
     methods: ["GET", "POST"],
     auth: "session",
-    summary: "Import Excel, LMS/forum JSON/CSV/XLSX exports, CSV, SENA contract, TXT/MD transcripts, or SRT/VTT subtitle transcripts with cleaning manifests.",
+    summary: "Import Excel, LMS/forum JSON/CSV/XLSX exports, CSV, SENA contract, TXT/MD transcripts, or SRT/VTT subtitle transcripts with cleaning manifests, or queue uploaded import files for an external worker with upload-pointer payloads.",
     evidenceNoteId: "sena-import",
-    responses: ["sena-import-run-list/v1", "sena-import-response/v1", "sena-analysis-run/v1", "sena-project/v1"]
+    responses: ["sena-import-run-list/v1", "sena-import-response/v1", "sena-analysis-run/v1", "sena-project/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-reliability",
@@ -275,9 +279,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/reliability",
     methods: ["GET", "POST", "PATCH"],
     auth: "session",
-    summary: "Create reliability dashboards with code-level diagnostics from coder files, list run history, review, and generate adjudications with run-level coverage.",
+    summary: "Create reliability dashboards with code-level diagnostics from coder files, list run history, review, generate adjudications with run-level coverage, or queue reliability jobs with upload-pointer payloads.",
     evidenceNoteId: "sena-reliability",
-    responses: ["sena-reliability-run-list/v1", "sena-reliability-response/v1", "sena-reliability-run-review/v1", "sena-reliability-adjudication-response/v1", "sena-reliability-adjudication-coverage/v1"]
+    responses: ["sena-reliability-run-list/v1", "sena-reliability-response/v1", "sena-reliability-run-review/v1", "sena-reliability-adjudication-response/v1", "sena-reliability-adjudication-coverage/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-validation-group-comparison",
@@ -285,9 +289,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/validation/group-comparison",
     methods: ["GET", "POST", "PATCH"],
     auth: "session",
-    summary: "Run single or suite group comparisons with permutation p values, bootstrap intervals, Holm correction, preregistration plan fingerprints, validation parity evidence, and formal inference readiness manifests that can inherit project-linked analysis-run walkthrough hashes.",
+    summary: "Run or queue single/suite group comparisons with permutation p values, bootstrap intervals, Holm correction, preregistration plan fingerprints, validation parity evidence, and formal inference readiness manifests that can inherit project-linked analysis-run walkthrough hashes.",
     evidenceNoteId: "sena-validation-group-comparison",
-    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v1", "sena-group-comparison-suite/v1", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1"]
+    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v1", "sena-group-comparison-suite/v1", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-validation-expert-review",
@@ -305,7 +309,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/validation/claim-package",
     methods: ["GET"],
     auth: "session",
-    summary: "Return a project-scoped claim evidence package with approved reliability, validation, preregistration, validation parity, domain expert review, source snapshot provenance evidence, and x-sena-source-snapshot-sha256/x-sena-report-sha256 response headers.",
+    summary: "Return a project-scoped claim evidence package with approved reliability, validation, preregistration, validation parity, domain expert review, source snapshot provenance evidence, x-sena-source-snapshot-sha256/x-sena-report-sha256, and x-sena-claim-evidence-reliability-source/x-sena-claim-evidence-validation-source/x-sena-claim-evidence-expert-review-source/x-sena-claim-evidence-adjudication-source response headers.",
     evidenceNoteId: "sena-validation-claim-package",
     responses: ["sena-enterprise-claim-evidence-package/v1", "sena-enterprise-claim-source-snapshot/v1"]
   },
@@ -315,9 +319,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/exports/publication",
     methods: ["POST"],
     auth: "session",
-    summary: "Generate publication-ready SENA artifacts or a manifest-backed multi-format publication package with enterprise project provenance when exported from projectId.",
+    summary: "Generate publication-ready SENA artifacts or queue the export for an external worker; projectId exports preserve enterprise project provenance.",
     evidenceNoteId: "sena-publication-export",
-    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-data-governance-metadata/v1"]
+    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-data-governance-metadata/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-notifications",
@@ -355,7 +359,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/governance/audit",
     methods: ["GET", "POST"],
     auth: "session",
-    summary: "Query/export audit log, verify audit-chain integrity, or forward signed audit payloads.",
+    summary: "Query/export Postgres-backed audit logs, verify audit-chain integrity, or forward signed audit payloads.",
     evidenceNoteId: "sena-governance-audit",
     responses: ["sena-enterprise-audit-log/v1", "text/csv", "sena-enterprise-audit-integrity/v1", "sena-enterprise-audit-delivery/v1"]
   },
@@ -378,6 +382,106 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     summary: "Return runtime storage, queue, webhook, backup, and collection status.",
     evidenceNoteId: "sena-ops-status",
     responses: ["sena-enterprise-ops-status/v1"]
+  },
+  {
+    id: "sena-ops-jobs",
+    group: "ops",
+    path: "/api/sena/ops/jobs",
+    methods: ["GET", "POST"],
+    auth: "session-or-ops-bearer",
+    summary: "List indexed Postgres-backed server job queue state or let workers update running, success, failure, retry, and dead-letter status.",
+    evidenceNoteId: "sena-ops-jobs",
+    responses: ["sena-enterprise-server-job-list/v1", "sena-enterprise-server-job-status-update/v1", "sena-enterprise-server-job/v1"]
+  },
+  {
+    id: "sena-ops-jobs-worker-contract",
+    group: "ops",
+    path: "/api/sena/ops/jobs/worker-contract",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Return the redacted external worker contract for server job queue consumption, callback status updates, runbook, owner, and heartbeat evidence.",
+    evidenceNoteId: "sena-ops-jobs-worker-contract",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract]
+  },
+  {
+    id: "sena-ops-jobs-worker-heartbeat",
+    group: "ops",
+    path: "/api/sena/ops/jobs/worker-heartbeat",
+    methods: ["POST"],
+    auth: "session-or-ops-bearer",
+    summary: "Write a synthetic no-user-data worker heartbeat job, exercise running/succeeded callbacks, and return redacted status-store evidence.",
+    evidenceNoteId: "sena-ops-jobs-worker-heartbeat",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat]
+  },
+  {
+    id: "sena-ops-jobs-probe",
+    group: "ops",
+    path: "/api/sena/ops/jobs/probe",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Run a redacted live server job queue probe using the configured queue URL, HMAC secret, and synthetic no-user-data payload.",
+    evidenceNoteId: "sena-ops-jobs-probe",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueProbe]
+  },
+  {
+    id: "sena-ops-cdn",
+    group: "ops",
+    path: "/api/sena/ops/cdn",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Run a redacted live CDN probe for HTML compression and immutable _next/static caching.",
+    evidenceNoteId: "sena-ops-cdn",
+    responses: ["sena-enterprise-cdn-probe/v1"]
+  },
+  {
+    id: "sena-ops-postgres",
+    group: "ops",
+    path: "/api/sena/ops/postgres",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Run a redacted live Postgres probe for managed database DDL, insert, read, and cleanup readiness.",
+    evidenceNoteId: "sena-ops-postgres",
+    responses: [SENA_SCHEMA_VERSIONS.enterprisePostgresProbe]
+  },
+  {
+    id: "sena-ops-object-storage",
+    group: "ops",
+    path: "/api/sena/ops/object-storage",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Run a redacted live object-storage probe that PUTs, HEADs, and DELETEs a small native S3/R2/GCS-HMAC object.",
+    evidenceNoteId: "sena-ops-object-storage",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseObjectStorageProbe]
+  },
+  {
+    id: "sena-ops-observability",
+    group: "ops",
+    path: "/api/sena/ops/observability",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Return redacted request-level SLI samples, p95/error-rate status, route summaries, and observability exporter readiness.",
+    evidenceNoteId: "sena-ops-observability",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseObservabilitySli, SENA_SCHEMA_VERSIONS.enterpriseObservedRequest]
+  },
+  {
+    id: "sena-ops-observability-probe",
+    group: "ops",
+    path: "/api/sena/ops/observability/probe",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Run a redacted live observability exporter probe for signed request SLI delivery.",
+    evidenceNoteId: "sena-ops-observability-probe",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseObservabilityProbe]
+  },
+  {
+    id: "sena-ops-production-evidence",
+    group: "ops",
+    path: "/api/sena/ops/production-evidence",
+    methods: ["GET"],
+    auth: "session-or-ops-bearer",
+    summary: "Return the redacted production evidence manifest for external live probe artifacts and the performance-budget artifact.",
+    evidenceNoteId: "sena-ops-production-evidence",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest]
   },
   {
     id: "sena-ops-metrics",
@@ -427,7 +531,13 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session-or-ops-bearer",
     summary: "Return the SaaS operations readiness dossier that links platform-owner approval, native adapter certification, release-gate verification, and full backend operating-model evidence.",
     evidenceNoteId: "sena-ops-saas-operations",
-    responses: ["sena-enterprise-saas-operations-readiness/v1", "sena-enterprise-native-adapter-certification/v1", "sena-enterprise-release-gate-review/v1", "sena-enterprise-identity-production-evidence/v1"]
+    responses: [
+      "sena-enterprise-saas-operations-readiness/v1",
+      "sena-enterprise-native-adapter-certification/v1",
+      "sena-enterprise-release-gate-review/v1",
+      "sena-enterprise-identity-production-evidence/v1",
+      SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest
+    ]
   },
   {
     id: "sena-ops-capability-audit",

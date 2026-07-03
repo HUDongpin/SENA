@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonError } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import { listEnterpriseScimUsers, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
 
@@ -15,23 +15,19 @@ function scimOptions(request: Request): SenaScimProvisioningOptions {
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users" }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
     const bridge = provisionEnterpriseScimUser(body, scimOptions(request));
     return NextResponse.json(bridge.resource, {
       status: bridge.provisioning.summary.usersCreated > 0 ? 201 : 200
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users" }, async () => {
     requireProvisioningBearerToken(request);
     return NextResponse.json(listEnterpriseScimUsers(scimOptions(request).locationBase));
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

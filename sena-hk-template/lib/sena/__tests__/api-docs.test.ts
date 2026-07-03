@@ -182,6 +182,14 @@ describe("SENA API documentation contract", () => {
       .toContain("sena-project-revision-restore/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-project")?.responses)
       .toContain("sena-project-delete/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-collaboration")?.request)
+      .toContain("x-sena-collaboration-reliability-source");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-collaboration")?.request)
+      .toContain("x-sena-collaboration-comment-source");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-collaboration")?.request)
+      .toContain("x-sena-collaboration-presence-source");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-collaboration")?.request)
+      .toContain("x-sena-collaboration-adjudication-source");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-team-invitations")?.request)
       .toContain("x-sena-invitation-id");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-team-invitations")?.request)
@@ -194,6 +202,10 @@ describe("SENA API documentation contract", () => {
       .toContain("x-sena-member-user-id");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-team-memberships")?.responses)
       .toContain("sena-team-membership/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-uploads")?.request)
+      .toContain("SENA_OBJECT_STORAGE_ADAPTER");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-uploads")?.request)
+      .toContain("native S3/R2/GCS-HMAC adapter");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-backup")?.responses)
       .toContain("sena-enterprise-database-sync/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-backup")?.responses)
@@ -224,8 +236,18 @@ describe("SENA API documentation contract", () => {
       .toContain("x-sena-analysis-run-id");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
       .toContain("x-sena-project-snapshot-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("Prefer: respond-async");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("sena-enterprise-server-job-queue-webhook/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.responses)
+      .toContain("sena-enterprise-server-job/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-source-snapshot-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
+      .toContain("x-sena-claim-evidence-reliability-source");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
+      .toContain("x-sena-claim-evidence-adjudication-source");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("format: html|svg|png|xlsx|docx|pdf|package");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
@@ -238,6 +260,30 @@ describe("SENA API documentation contract", () => {
       .toContain("x-sena-publication-package-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-publication-verification-status");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("x-sena-job-payload-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("x-sena-job-queue-delivery");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
+      .toContain("mark-running|mark-succeeded|mark-failed|retry|dead-letter");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
+      .toContain("analysis|import|publication-export|reliability|validation");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
+      .toContain("sena-enterprise-server-job-status-update/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.responses)
+      .toContain("sena-enterprise-server-job-list/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.responses)
+      .toContain("sena-enterprise-server-job-worker-contract/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.request ?? "")
+      .toContain("SENA_JOB_WORKER_HEARTBEAT_CONFIRMED=1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.responses)
+      .toContain("sena-enterprise-server-job-worker-heartbeat/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.request ?? "")
+      .toContain("synthetic no-user-data");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-probe")?.responses)
+      .toContain("sena-enterprise-server-job-queue-probe/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-probe")?.request ?? "")
+      .toContain("SENA_JOB_QUEUE_LIVE_PROBE_REQUIRED");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-publication-package/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
@@ -248,6 +294,8 @@ describe("SENA API documentation contract", () => {
       .toContain("sena-publication-enterprise-project-evidence/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-data-governance-metadata/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
+      .toContain("sena-enterprise-server-job/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")
       .toContain("x-sena-security-identity-control-blockers");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")
@@ -266,12 +314,42 @@ describe("SENA API documentation contract", () => {
       .toContain("sena_enterprise_identity_readiness_blockers");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-metrics")?.request ?? "")
       .toContain("sena_enterprise_identity_readiness_item");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-metrics")?.request ?? "")
+      .toContain("sena_enterprise_observability_request_p95_ms");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-metrics")?.request ?? "")
+      .toContain("sena_enterprise_server_job_worker_contract_ready");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-metrics")?.request ?? "")
+      .toContain("sena_enterprise_server_job_queue_probe_confirmed");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-readiness")?.request)
       .toContain("x-sena-deployment-readiness-status");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-readiness")?.request)
       .toContain("x-sena-identity-readiness-blockers");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-readiness")?.request)
       .toContain("x-sena-identity-secret-rotation-cadence");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-cdn")?.responses)
+      .toContain("sena-enterprise-cdn-probe/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-cdn")?.request ?? "")
+      .toContain("SENA_CDN_VERIFY_URL");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-postgres")?.responses)
+      .toContain("sena-enterprise-postgres-probe/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-postgres")?.request ?? "")
+      .toContain("SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-object-storage")?.responses)
+      .toContain("sena-enterprise-object-storage-probe/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-object-storage")?.request ?? "")
+      .toContain("SENA_OBJECT_STORAGE_LIVE_PROBE_REQUIRED");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-observability")?.responses)
+      .toContain("sena-enterprise-observability-sli/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-observability")?.request ?? "")
+      .toContain("SENA_OBSERVABILITY_EXPORTER_URL");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-observability-probe")?.responses)
+      .toContain("sena-enterprise-observability-probe/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-observability-probe")?.request ?? "")
+      .toContain("SENA_OBSERVABILITY_LIVE_PROBE_REQUIRED");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-production-evidence")?.responses)
+      .toContain("sena-enterprise-production-evidence-manifest/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-production-evidence")?.request ?? "")
+      .toContain("SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-deployment")?.summary)
       .toContain("release-gate");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-deployment")?.responses)
@@ -306,6 +384,8 @@ describe("SENA API documentation contract", () => {
       .toContain("sena-enterprise-saas-operations-readiness/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-saas-operations")?.responses)
       .toContain("sena-enterprise-identity-production-evidence/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-saas-operations")?.responses)
+      .toContain("sena-enterprise-production-evidence-manifest/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-saas-operations")?.request)
       .toContain("GET ?teamId=... returns a team-scoped SaaS operations readiness dossier");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-saas-operations")?.request)
@@ -717,5 +797,18 @@ describe("SENA API documentation contract", () => {
     expect(openApi.paths["/api/sena/ops/capability-audit"].get.summary).toContain("enterprise capability");
     expect(openApi.paths["/api/sena/ops/go-live-rehearsal"].get.summary).toContain("go-live rehearsal");
     expect(openApi.components.securitySchemes.sessionCookie.name).toBe("sena_session");
+  });
+
+  it("observes the public API documentation route used by conference smoke loads", async () => {
+    const route = await import("../../../app/api/sena/docs/route");
+    const response = await route.GET(new Request("https://sena.example.test/api/sena/docs?format=openapi"));
+    const body = await response.json() as { openapi?: string; paths?: Record<string, unknown> };
+
+    expect(response.status).toBe(200);
+    expect(body.openapi).toBe("3.1.0");
+    expect(body.paths).toHaveProperty("/api/sena/docs");
+    expect(response.headers.get("x-sena-observed-route")).toBe("sena-docs");
+    expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+    expect(response.headers.get("server-timing")).toMatch(/^sena;dur=\d+$/);
   });
 });
