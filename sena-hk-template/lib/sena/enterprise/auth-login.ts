@@ -1,7 +1,10 @@
 import { SenaEnterpriseError } from "./errors";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 import { appendAudit } from "./ops-audit";
 import {
@@ -31,26 +34,28 @@ export type SenaEnterpriseLoginResult =
   | { token: string; context: SenaEnterpriseSessionContext }
   | SenaEnterpriseLoginMfaChallenge;
 
-export function loginEnterpriseUser(input: {
+export type SenaEnterpriseLoginInput = {
   email: string;
   password: string;
   mfaCode?: string;
   mfaChallengeToken?: string;
   rememberSession?: boolean;
-}): SenaEnterpriseLoginResult {
-  const db = readEnterpriseDb();
+};
+
+function loginEnterpriseUserInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseLoginInput
+): SenaEnterpriseLoginResult {
   const email = normalizeEmail(input.email);
   const user = db.users.find((candidate) => candidate.email === email);
   const existingLockout = findAuthLockout(db, email);
   if (isAuthLockoutActive(existingLockout)) {
     appendLockedLoginAudit(db, email, user, existingLockout!);
-    saveDb(db);
     throw new SenaEnterpriseError("Too many failed login attempts. Try again later.", 429, "auth_locked");
   }
 
   if (!user || !verifyPassword(input.password, user.passwordHash)) {
     const failedLockout = recordFailedLogin(db, email, user);
-    saveDb(db);
     if (isAuthLockoutActive(failedLockout)) {
       throw new SenaEnterpriseError("Too many failed login attempts. Try again later.", 429, "auth_locked");
     }
@@ -60,7 +65,6 @@ export function loginEnterpriseUser(input: {
   if (activeMfaFactor(db, user.id)) {
     if (!input.mfaCode || !input.mfaChallengeToken) {
       const challenge = createMfaChallenge(db, user);
-      saveDb(db);
       return challenge;
     }
     verifyMfaChallenge(db, user, {
@@ -81,6 +85,29 @@ export function loginEnterpriseUser(input: {
       ttlDays: session.session.ttlDays
     }
   });
-  saveDb(db);
   return { token: session.rawToken, context: contextFromDb(db, session.session) };
+}
+
+export function loginEnterpriseUser(input: SenaEnterpriseLoginInput): SenaEnterpriseLoginResult {
+  const db = readEnterpriseDb();
+  try {
+    const result = loginEnterpriseUserInDb(db, input);
+    saveDb(db);
+    return result;
+  } catch (error) {
+    saveDb(db);
+    throw error;
+  }
+}
+
+export async function loginEnterpriseUserAsync(input: SenaEnterpriseLoginInput): Promise<SenaEnterpriseLoginResult> {
+  const state = await readEnterpriseState();
+  try {
+    const result = loginEnterpriseUserInDb(state.db, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
 }

@@ -1,6 +1,7 @@
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
   type SenaEnterpriseDb
 } from "./state";
@@ -17,7 +18,15 @@ import type {
   SenaEnterprisePlatformDecisionEvidenceChecklistStatus
 } from "./ops-platform-decision-policy";
 import type { SenaEnterpriseCapabilityAuditItem } from "./ops-capability-audit";
-import { getEnterpriseOrganizationDeploymentPackage } from "./ops-deployment";
+import {
+  getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
+  type SenaEnterpriseOrganizationDeploymentPackage
+} from "./ops-deployment";
+import {
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
+  type SenaEnterpriseDeploymentReadiness
+} from "./ops-deployment-readiness";
 import {
   buildEnterprisePlatformDecisionRegister,
   latestPlatformDecisionAcceptances,
@@ -25,7 +34,15 @@ import {
   platformDecisionProductionEvidenceReceipt
 } from "./ops-platform-decisions";
 import { isSelfManagedEnterpriseMode } from "./ops-platform-decision-policy";
-import { getEnterpriseCapabilityAudit } from "./ops-capability-audit";
+import {
+  getEnterpriseCapabilityAudit,
+  getEnterpriseCapabilityAuditWithPostgresEvidence,
+  type SenaEnterpriseCapabilityAudit
+} from "./ops-capability-audit";
+import {
+  getEnterpriseOpsStatusWithPostgresEvidence,
+  type SenaEnterpriseOpsStatus
+} from "./ops-status";
 import type { SenaEnterpriseAuditLogEntry } from "./ops-audit";
 import {
   artifactSha256,
@@ -202,6 +219,7 @@ function identityProductionEvidenceBindingDigest(
 export function buildEnterpriseIdentityProductionEvidenceDossier(input: {
   generatedAt?: string;
   teamId?: string;
+  db?: SenaEnterpriseDb;
   platformDecisionRegister: SenaEnterprisePlatformDecisionRegister;
   platformDecisionAcceptances: SenaEnterprisePlatformDecisionAcceptance[];
   authCapability?: SenaEnterpriseCapabilityAuditItem;
@@ -223,7 +241,7 @@ export function buildEnterpriseIdentityProductionEvidenceDossier(input: {
     .flatMap((decisionId) => {
       const acceptance = latestIdentityAcceptances.get(decisionId);
       if (!acceptance) return [];
-      const productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance) ?? acceptance.productionEvidenceReceipt;
+      const productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance, input.db) ?? acceptance.productionEvidenceReceipt;
       return [{
         decisionId,
         status: acceptance.status,
@@ -310,6 +328,7 @@ export function buildEnterpriseIdentityProductionEvidenceDossier(input: {
   const evidenceUrlHostBinding = buildEnterpriseIdentityEvidenceUrlHostBinding(latestIdentityAcceptances);
   const platformRequestPacket = buildEnterpriseIdentityPlatformDecisionRequestPacket({
     teamId: input.teamId,
+    db: input.db,
     generatedAt,
     decisions,
     requirements,
@@ -499,22 +518,69 @@ export function buildEnterpriseIdentityProductionEvidenceDossier(input: {
   };
 }
 
-export function getEnterpriseIdentityProductionEvidence(input: { teamId?: string } = {}): SenaEnterpriseIdentityProductionEvidence {
-  const db = readEnterpriseDb();
-  const deployment = getEnterpriseOrganizationDeploymentPackage();
-  const audit = getEnterpriseCapabilityAudit();
-  const authCapability = audit.capabilities.find((capability) => capability.id === "auth-login-register-sso");
+function buildEnterpriseIdentityProductionEvidenceFromSnapshots(input: {
+  teamId?: string;
+  db: SenaEnterpriseDb;
+  deployment: SenaEnterpriseOrganizationDeploymentPackage;
+  audit: SenaEnterpriseCapabilityAudit;
+}) {
+  const authCapability = input.audit.capabilities.find((capability) => capability.id === "auth-login-register-sso");
   const platformDecisionAcceptances = input.teamId
-    ? (db.platformDecisionAcceptances ?? []).filter((acceptance) => acceptance.teamId === input.teamId)
-    : db.platformDecisionAcceptances ?? [];
+    ? (input.db.platformDecisionAcceptances ?? []).filter((acceptance) => acceptance.teamId === input.teamId)
+    : input.db.platformDecisionAcceptances ?? [];
   const platformDecisionRegister = input.teamId
-    ? buildEnterprisePlatformDecisionRegister(deployment.platformDecisions, platformDecisionAcceptances)
-    : deployment.platformDecisionRegister;
+    ? buildEnterprisePlatformDecisionRegister(input.deployment.platformDecisions, platformDecisionAcceptances)
+    : input.deployment.platformDecisionRegister;
   return buildEnterpriseIdentityProductionEvidenceDossier({
     teamId: input.teamId,
+    db: input.db,
     platformDecisionRegister,
     platformDecisionAcceptances,
     authCapability,
     requireAuthCapabilityReady: !input.teamId
+  });
+}
+
+export function getEnterpriseIdentityProductionEvidence(input: { teamId?: string } = {}): SenaEnterpriseIdentityProductionEvidence {
+  const db = readEnterpriseDb();
+  const deployment = getEnterpriseOrganizationDeploymentPackage();
+  const audit = getEnterpriseCapabilityAudit();
+  return buildEnterpriseIdentityProductionEvidenceFromSnapshots({
+    teamId: input.teamId,
+    db,
+    deployment,
+    audit
+  });
+}
+
+export async function getEnterpriseIdentityProductionEvidenceWithPostgresEvidence(input: {
+  teamId?: string;
+  db?: SenaEnterpriseDb;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+  audit?: SenaEnterpriseCapabilityAudit;
+} = {}): Promise<SenaEnterpriseIdentityProductionEvidence> {
+  const db = input.db ?? (await readEnterpriseState()).db;
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = input.readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const deployment = input.deployment ?? await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+    teamId: input.teamId,
+    readiness,
+    opsStatus,
+    db
+  });
+  const audit = input.audit ?? await getEnterpriseCapabilityAuditWithPostgresEvidence({
+    teamId: input.teamId,
+    deployment,
+    readiness,
+    opsStatus,
+    db
+  });
+  return buildEnterpriseIdentityProductionEvidenceFromSnapshots({
+    teamId: input.teamId,
+    db,
+    deployment,
+    audit
   });
 }

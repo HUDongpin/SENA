@@ -5,13 +5,20 @@ import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
   getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
 import { isSelfManagedEnterpriseMode } from "./ops-platform-decision-policy";
 import {
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
   type SenaEnterpriseOpsStatus
 } from "./ops-status";
+import {
+  getEnterpriseObservabilitySnapshot,
+  getEnterpriseObservabilitySnapshotWithPostgresEvidence,
+  type SenaEnterpriseObservabilitySnapshot
+} from "./ops-observability";
 import {
   readEnterpriseDb,
   saveDb
@@ -34,7 +41,7 @@ export type SenaEnterpriseOpsAlert = {
   label: string;
   severity: "critical" | "warning" | "info";
   status: "firing";
-  source: "ops-status" | "deployment-readiness" | "alerting-ownership";
+  source: "ops-status" | "deployment-readiness" | "alerting-ownership" | "observability";
   evidence: string[];
   nextAction: string;
   owner: string;
@@ -101,16 +108,38 @@ function envValue(key: string) {
   return value || undefined;
 }
 
+function firstEnvValue(keys: string[]) {
+  for (const key of keys) {
+    const value = envValue(key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export function alertingOwner() {
-  return envValue("SENA_ALERTING_OWNER");
+  return firstEnvValue([
+    "SENA_ALERTING_OWNER",
+    "SENA_OBSERVABILITY_OWNER",
+    "ALERTING_OWNER",
+    "OBSERVABILITY_OWNER"
+  ]);
 }
 
 export function alertingChannel() {
-  return envValue("SENA_ALERTING_CHANNEL") ?? "deployment-monitor";
+  return firstEnvValue([
+    "SENA_ALERTING_CHANNEL",
+    "ALERTING_CHANNEL",
+    "OBSERVABILITY_ALERT_CHANNEL"
+  ]) ?? "deployment-monitor";
 }
 
 export function alertingRunbookUrl() {
-  const url = envValue("SENA_ALERTING_RUNBOOK_URL");
+  const url = firstEnvValue([
+    "SENA_ALERTING_RUNBOOK_URL",
+    "SENA_OBSERVABILITY_RUNBOOK_URL",
+    "ALERTING_RUNBOOK_URL",
+    "OBSERVABILITY_RUNBOOK_URL"
+  ]);
   if (!url) return undefined;
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
@@ -141,6 +170,27 @@ function opsAlertStatus(alerts: SenaEnterpriseOpsAlert[]): SenaEnterpriseOpsAler
 export function getEnterpriseOpsAlerts(
   status = getEnterpriseOpsStatus(),
   readiness = getEnterpriseDeploymentReadiness()
+): SenaEnterpriseOpsAlerts {
+  return buildEnterpriseOpsAlerts(status, readiness, getEnterpriseObservabilitySnapshot());
+}
+
+export async function getEnterpriseOpsAlertsWithPostgresEvidence(
+  status?: SenaEnterpriseOpsStatus,
+  readiness?: SenaEnterpriseDeploymentReadiness
+): Promise<SenaEnterpriseOpsAlerts> {
+  const resolvedStatus = status ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const resolvedReadiness = readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus: resolvedStatus });
+  return buildEnterpriseOpsAlerts(
+    resolvedStatus,
+    resolvedReadiness,
+    await getEnterpriseObservabilitySnapshotWithPostgresEvidence()
+  );
+}
+
+function buildEnterpriseOpsAlerts(
+  status: SenaEnterpriseOpsStatus,
+  readiness: SenaEnterpriseDeploymentReadiness,
+  observability: SenaEnterpriseObservabilitySnapshot
 ): SenaEnterpriseOpsAlerts {
   const generatedAt = now();
   const owner = alertingOwner();
@@ -224,6 +274,28 @@ export function getEnterpriseOpsAlerts(
         "env=SENA_ALERTING_RUNBOOK_URL"
       ],
       nextAction: "Set SENA_ALERTING_RUNBOOK_URL to the incident response runbook used by deployment monitors."
+    });
+  }
+
+  if (observability.summary.sloBreached) {
+    alerts.push({
+      ...base,
+      id: "observability-slo-breached",
+      label: "Request-level SLI breach",
+      severity: observability.summary.serverErrors > 0 ? "critical" : "warning",
+      status: "firing",
+      source: "observability",
+      evidence: [
+        `samples=${observability.summary.total}`,
+        `sampleWindow=${observability.summary.sampleWindow}`,
+        `p95Ms=${observability.summary.p95Ms}`,
+        `p95SloMs=${observability.slo.p95Ms}`,
+        `errorRatePercent=${observability.summary.errorRatePercent}`,
+        `errorRateSloPercent=${observability.slo.errorRatePercent}`,
+        `slowRequests=${observability.summary.slow}`,
+        ...observability.evidence
+      ],
+      nextAction: "Inspect /api/sena/ops/observability and route-level metrics, queue heavy work if p95 is high, and rollback or disable the failing workload if server errors are present."
     });
   }
 
@@ -318,7 +390,7 @@ export async function deliverEnterpriseOpsAlerts(input: {
   readiness?: SenaEnterpriseDeploymentReadiness;
 } = {}): Promise<SenaEnterpriseOpsAlertDeliveryResult> {
   const provider = alertWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
-  const alerts = getEnterpriseOpsAlerts(input.status, input.readiness);
+  const alerts = await getEnterpriseOpsAlertsWithPostgresEvidence(input.status, input.readiness);
   const result: SenaEnterpriseOpsAlertDeliveryResult = {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOpsAlertDelivery,
     status: provider.configured ? "failed" : "not-configured",

@@ -1,13 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  writeEnterpriseState
 } from "./state";
+import {
+  createEnterprisePostgresValidationRunAdapterFromEnv,
+  resolveEnterprisePostgresConfig
+} from "../enterprise-postgres";
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseDb } from "./state";
 import type { SenaEnterpriseProject } from "./team-project";
-import { getEnterpriseProject } from "./team-project";
+import { getEnterpriseProject, getEnterpriseProjectAsync } from "./team-project";
 import {
   requireEnterprisePermission,
   rolePermissions
@@ -175,6 +181,48 @@ function now() {
 
 function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
+}
+
+function envValue(key: string) {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function postgresValidationRunRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresValidationRunRegistryConfigured() {
+  return postgresValidationRunRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+export function enterpriseValidationRunRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresValidationRunRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_validation_runs",
+    evidence: [
+      `validationRunRegistryStore=${activeStore}`,
+      `validationRunRegistryPostgresRequested=${requested}`,
+      `validationRunRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `validationRunRegistryPostgresTable=sena_enterprise_validation_runs`,
+      `validationRunRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+async function upsertValidationRunsToPostgresIfConfigured(runs: SenaEnterpriseValidationRun[]) {
+  if (runs.length === 0 || !postgresValidationRunRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
+  try {
+    await adapter.upsertValidationRuns(runs);
+  } finally {
+    await pool.end?.();
+  }
 }
 
 function sha256Text(value: string | undefined) {
@@ -544,16 +592,21 @@ function buildValidationParityEvidence(input: {
   };
 }
 
-export function createEnterpriseValidationRun(context: SenaEnterpriseSessionContext, input: {
+type CreateEnterpriseValidationRunInput = {
   teamId: string;
   projectId?: string;
   preregistrationNote?: string;
   methodNote?: string;
   parityEvidence?: SenaEnterpriseValidationParityEvidenceInput;
   result: SenaGroupComparisonValidationResult;
-}) {
+};
+
+function createEnterpriseValidationRunInDb(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseValidationRunInput,
+  db: ReturnType<typeof readEnterpriseDb>
+) {
   requireEnterprisePermission(context, input.teamId, "analysis:run");
-  const db = readEnterpriseDb();
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
   let project: SenaEnterpriseProject | undefined;
@@ -624,7 +677,33 @@ export function createEnterpriseValidationRun(context: SenaEnterpriseSessionCont
       parityEvidenceStatus: run.parityEvidence?.status ?? null
     }
   });
+  return run;
+}
+
+export function createEnterpriseValidationRun(context: SenaEnterpriseSessionContext, input: CreateEnterpriseValidationRunInput) {
+  const db = readEnterpriseDb();
+  const run = createEnterpriseValidationRunInDb(context, input, db);
   saveDb(db);
+  return run;
+}
+
+export async function createEnterpriseValidationRunWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseValidationRunInput
+) {
+  const run = createEnterpriseValidationRun(context, input);
+  await upsertValidationRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
+export async function createEnterpriseValidationRunWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseValidationRunInput
+) {
+  const state = await readEnterpriseState();
+  const run = createEnterpriseValidationRunInDb(context, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertValidationRunsToPostgresIfConfigured([run]);
   return run;
 }
 
@@ -633,6 +712,15 @@ export function reviewEnterpriseValidationRun(context: SenaEnterpriseSessionCont
   notes?: string;
 }) {
   const db = readEnterpriseDb();
+  const run = reviewEnterpriseValidationRunInDb(context, runId, input, db);
+  saveDb(db);
+  return run;
+}
+
+function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext, runId: string, input: {
+  status: Extract<SenaEnterpriseValidationRunStatus, "approved" | "rejected">;
+  notes?: string;
+}, db: ReturnType<typeof readEnterpriseDb>) {
   const run = db.validationRuns.find((candidate) => candidate.id === runId);
   if (!run) throw new SenaEnterpriseError("Validation run was not found.", 404, "validation_run_not_found");
   requireEnterprisePermission(context, run.teamId, "analysis:run");
@@ -668,7 +756,28 @@ export function reviewEnterpriseValidationRun(context: SenaEnterpriseSessionCont
       reviewerId: context.user.id
     }
   });
-  saveDb(db);
+  return run;
+}
+
+export async function reviewEnterpriseValidationRunWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: Parameters<typeof reviewEnterpriseValidationRun>[2]
+) {
+  const run = reviewEnterpriseValidationRun(context, runId, input);
+  await upsertValidationRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
+export async function reviewEnterpriseValidationRunWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: Parameters<typeof reviewEnterpriseValidationRun>[2]
+) {
+  const state = await readEnterpriseState();
+  const run = reviewEnterpriseValidationRunInDb(context, runId, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertValidationRunsToPostgresIfConfigured([run]);
   return run;
 }
 
@@ -677,6 +786,21 @@ export function listEnterpriseValidationRuns(context: SenaEnterpriseSessionConte
   projectId?: string;
 } = {}) {
   const db = readEnterpriseDb();
+  return listEnterpriseValidationRunsFromDb(context, db, input);
+}
+
+export async function listEnterpriseValidationRunsAsync(context: SenaEnterpriseSessionContext, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
+  const state = await readEnterpriseState();
+  return listEnterpriseValidationRunsFromDb(context, state.db, input);
+}
+
+function listEnterpriseValidationRunsFromDb(context: SenaEnterpriseSessionContext, db: ReturnType<typeof readEnterpriseDb>, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
   let teamIds = new Set(context.memberships
     .filter((membership) => rolePermissions[membership.role].includes("analysis:run"))
     .map((membership) => membership.teamId));
@@ -731,12 +855,55 @@ export function buildEnterpriseValidationRunListResponse(
   };
 }
 
+export async function buildEnterpriseValidationRunListResponseAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; projectId?: string }
+) {
+  return {
+    body: createSenaSchemaPayload("validationRunList", {
+      validationRuns: await listEnterpriseValidationRunsAsync(context, input)
+    })
+  };
+}
+
 export function buildEnterpriseValidationRunReviewResponse(
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; status?: unknown; notes?: unknown },
   reviewRun: typeof reviewEnterpriseValidationRun = reviewEnterpriseValidationRun
 ) {
   const validationRun = reviewRun(context, String(body.runId ?? ""), {
+    status: body.status === "approved" ? "approved" : "rejected",
+    notes: body.notes ? String(body.notes) : undefined
+  });
+  return {
+    body: createSenaSchemaPayload("validationRunReview", {
+      validationRun
+    }),
+    headers: buildEnterpriseValidationRunHeaders(validationRun)
+  };
+}
+
+export async function buildEnterpriseValidationRunReviewResponseWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  body: { runId?: unknown; status?: unknown; notes?: unknown }
+) {
+  const validationRun = await reviewEnterpriseValidationRunWithPostgresMirror(context, String(body.runId ?? ""), {
+    status: body.status === "approved" ? "approved" : "rejected",
+    notes: body.notes ? String(body.notes) : undefined
+  });
+  return {
+    body: createSenaSchemaPayload("validationRunReview", {
+      validationRun
+    }),
+    headers: buildEnterpriseValidationRunHeaders(validationRun)
+  };
+}
+
+export async function buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  body: { runId?: unknown; status?: unknown; notes?: unknown }
+) {
+  const validationRun = await reviewEnterpriseValidationRunWithPostgresMirrorAsync(context, String(body.runId ?? ""), {
     status: body.status === "approved" ? "approved" : "rejected",
     notes: body.notes ? String(body.notes) : undefined
   });
@@ -851,6 +1018,71 @@ export function buildEnterpriseGroupComparisonValidationResponse(
     });
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = (adapters.createValidationRun ?? createEnterpriseValidationRun)(context, {
+    teamId,
+    projectId,
+    preregistrationNote: body.preregistrationNote ? String(body.preregistrationNote) : undefined,
+    methodNote: body.methodNote ? String(body.methodNote) : undefined,
+    parityEvidence: parseEnterpriseValidationParityEvidence(body.parityEvidence),
+    result
+  });
+
+  return {
+    body: {
+      ...result,
+      validationRun
+    },
+    headers: buildEnterpriseValidationRunHeaders(validationRun)
+  };
+}
+
+export async function buildEnterpriseGroupComparisonValidationResponseWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
+) {
+  const response = buildEnterpriseGroupComparisonValidationResponse(context, body);
+  await upsertValidationRunsToPostgresIfConfigured([response.body.validationRun]);
+  return response;
+}
+
+export async function buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
+) {
+  const projectId = body.projectId ? String(body.projectId) : undefined;
+  const project: SenaEnterpriseProject | null = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+  const snapshot = body.snapshot ? importSenaProjectSnapshot(body.snapshot) : project?.snapshot ?? null;
+  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
+  const comparisons = parseGroupComparisonSpecs(body);
+  const buildOptions = snapshot?.reproducibility.buildOptions ?? (
+    typeof body.buildOptions === "object" && body.buildOptions !== null && !Array.isArray(body.buildOptions)
+      ? body.buildOptions as Partial<SenaBuildOptions>
+      : undefined
+  );
+  const result = comparisons.length <= 1 && body.suite !== true
+    ? buildSenaGroupComparison({
+      dataset,
+      buildOptions,
+      groupField: comparisons[0]?.groupField ?? (body.groupField === "role" ? "role" : "group"),
+      groupA: comparisons[0]?.groupA ?? String(body.groupA ?? ""),
+      groupB: comparisons[0]?.groupB ?? String(body.groupB ?? ""),
+      metric: comparisons[0]?.metric ?? groupComparisonMetricValue(body.metric),
+      iterations: Number(body.iterations ?? 1000),
+      seed: Number(body.seed ?? 20260611),
+      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000)
+    })
+    : buildSenaGroupComparisonSuite({
+      dataset,
+      buildOptions,
+      comparisons,
+      defaultGroupField: body.groupField === "role" ? "role" : "group",
+      defaultMetric: groupComparisonMetricValue(body.metric),
+      iterations: Number(body.iterations ?? 1000),
+      seed: Number(body.seed ?? 20260611),
+      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000),
+      alpha: Number(body.alpha ?? 0.05)
+    });
+  const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
+  const validationRun = await createEnterpriseValidationRunWithPostgresMirrorAsync(context, {
     teamId,
     projectId,
     preregistrationNote: body.preregistrationNote ? String(body.preregistrationNote) : undefined,

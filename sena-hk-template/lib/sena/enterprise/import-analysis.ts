@@ -6,6 +6,12 @@ import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } fr
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
 import {
+  createEnterprisePostgresAnalysisRunAdapterFromEnv,
+  createEnterprisePostgresImportRunAdapterFromEnv,
+  createEnterprisePostgresUploadAdapterFromEnv,
+  resolveEnterprisePostgresConfig
+} from "../enterprise-postgres";
+import {
   requireEnterprisePermission,
   rolePermissions
 } from "./access-control";
@@ -23,16 +29,39 @@ import {
   type SenaEnterpriseWebhookProviderMode
 } from "./webhook-delivery";
 import {
+  enterpriseObjectStorageNativeProvider,
+  putEnterpriseObjectStorageObject,
+  type SenaEnterpriseObjectStorageNativeMode
+} from "./object-storage-adapter";
+import {
   appendAudit,
   recordEnterpriseAudit
 } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
+  writeEnterpriseState,
   writeEnterpriseDb
 } from "./state";
 
 export type SenaEnterpriseUploadScanStatus = "passed" | "review";
+
+export type SenaEnterpriseUploadObjectStorageCustody = {
+  status: "pending" | "delivered" | "failed" | "skipped";
+  providerMode?: SenaEnterpriseWebhookProviderMode | SenaEnterpriseObjectStorageNativeMode;
+  objectKeyHash?: string;
+  endpointHash?: string;
+  bucketHash?: string;
+  objectVersion?: string;
+  etagHash?: string;
+  httpStatus?: number;
+  errorCode?: string;
+  errorHash?: string;
+  lastAttemptedAt?: string;
+  deliveredAt?: string;
+};
 
 export type SenaEnterpriseUpload = {
   id: string;
@@ -49,7 +78,30 @@ export type SenaEnterpriseUpload = {
   scanEngine: "sena-local-upload-scan/v1";
   scanFindings: string[];
   storagePath: string;
+  objectStorageCustody?: SenaEnterpriseUploadObjectStorageCustody;
   createdAt: string;
+};
+
+export type SenaEnterpriseUploadObjectStorageCustodySummary = {
+  source:
+    | "file-json"
+    | "file-primary-state"
+    | "postgres-primary-state"
+    | "postgres-table"
+    | "file-json-fallback"
+    | "file-primary-state-fallback"
+    | "postgres-primary-state-fallback";
+  totalUploads: number;
+  delivered: number;
+  pending: number;
+  failed: number;
+  skipped: number;
+  pendingReview: number;
+  eligibleForDelivery: number;
+  eligibleDelivered: number;
+  eligibleUndelivered: number;
+  ready: boolean;
+  evidence: string[];
 };
 
 export type SenaEnterpriseUploadStorageVerification = {
@@ -84,10 +136,15 @@ export type SenaEnterpriseUploadObjectStorageDeliveryResult = {
   generatedAt: string;
   status: "not-configured" | "completed" | "partial" | "failed";
   provider: {
-    mode: SenaEnterpriseWebhookProviderMode;
+    mode: SenaEnterpriseWebhookProviderMode | SenaEnterpriseObjectStorageNativeMode;
     configured: boolean;
     endpointHash?: string;
+    bucketHash?: string;
+    region?: string;
+    prefix?: string;
     secretConfigured: boolean;
+    accessKeyConfigured?: boolean;
+    nativeConfigured?: boolean;
     timeoutMs: number;
   };
   scope: {
@@ -115,6 +172,8 @@ export type SenaEnterpriseUploadObjectStorageDeliveryResult = {
     scanStatus: SenaEnterpriseUploadScanStatus;
     deliveryStatus: "delivered" | "failed" | "skipped";
     httpStatus?: number;
+    objectVersion?: string;
+    etagHash?: string;
     errorCode?: string;
     errorHash?: string;
   }>;
@@ -278,7 +337,7 @@ function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-export function createEnterpriseUploads(context: SenaEnterpriseSessionContext, input: {
+type CreateEnterpriseUploadsInput = {
   teamId: string;
   files: Array<{
     name: string;
@@ -287,10 +346,18 @@ export function createEnterpriseUploads(context: SenaEnterpriseSessionContext, i
     importProfile?: string;
     warningCount?: number;
   }>;
-}) {
+};
+
+function createEnterpriseUploadsInDb(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput,
+  db: ReturnType<typeof readEnterpriseDb>
+) {
   requireEnterprisePermission(context, input.teamId, "upload:create");
-  if (input.files.length === 0) return [];
-  const db = readEnterpriseDb();
+  if (input.files.length === 0) return {
+    uploads: [] as SenaEnterpriseUpload[],
+    auditDetails: [] as Array<Record<string, string | number | boolean | null>>
+  };
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
   const uploadDir = path.join(dbDir, "uploads", input.teamId);
@@ -334,20 +401,69 @@ export function createEnterpriseUploads(context: SenaEnterpriseSessionContext, i
     });
     return upload;
   });
-  writeEnterpriseDb(db);
+  return { uploads, auditDetails };
+}
+
+function appendEnterpriseUploadAudits(
+  db: ReturnType<typeof readEnterpriseDb>,
+  context: SenaEnterpriseSessionContext,
+  teamId: string,
+  auditDetails: Array<Record<string, string | number | boolean | null>>
+) {
   for (const detail of auditDetails) {
-    recordEnterpriseAudit({
+    appendAudit(db, {
       event: "upload.create",
       userId: context.user.id,
-      teamId: input.teamId,
+      teamId,
       detail
     });
   }
+}
+
+export function createEnterpriseUploads(context: SenaEnterpriseSessionContext, input: CreateEnterpriseUploadsInput) {
+  const db = readEnterpriseDb();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(context, input, db);
+  appendEnterpriseUploadAudits(db, context, input.teamId, auditDetails);
+  writeEnterpriseDb(db);
+  return uploads;
+}
+
+export async function createEnterpriseUploadsWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  const uploads = createEnterpriseUploads(context, input);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads;
+}
+
+export async function createEnterpriseUploadsWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(context, input, state.db);
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
   return uploads;
 }
 
 export function listEnterpriseUploads(context: SenaEnterpriseSessionContext, teamId?: string) {
   const db = readEnterpriseDb();
+  return listEnterpriseUploadsFromDb(context, db, teamId);
+}
+
+export async function listEnterpriseUploadsAsync(context: SenaEnterpriseSessionContext, teamId?: string) {
+  const state = await readEnterpriseState();
+  return listEnterpriseUploadsFromDb(context, state.db, teamId);
+}
+
+function listEnterpriseUploadsFromDb(
+  context: SenaEnterpriseSessionContext,
+  db: ReturnType<typeof readEnterpriseDb>,
+  teamId?: string
+) {
   const readableTeamIds = new Set(context.memberships
     .filter((membership) => rolePermissions[membership.role].includes("upload:read"))
     .map((membership) => membership.teamId));
@@ -361,6 +477,22 @@ export function listEnterpriseUploads(context: SenaEnterpriseSessionContext, tea
 
 export function verifyEnterpriseUploadStorage(context?: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): SenaEnterpriseUploadStorageVerification {
   const db = readEnterpriseDb();
+  return verifyEnterpriseUploadStorageFromDb(db, context, input);
+}
+
+export async function verifyEnterpriseUploadStorageAsync(
+  context?: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterpriseUploadStorageVerification> {
+  const state = await readEnterpriseState();
+  return verifyEnterpriseUploadStorageFromDb(state.db, context, input);
+}
+
+function verifyEnterpriseUploadStorageFromDb(
+  db: ReturnType<typeof readEnterpriseDb>,
+  context?: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): SenaEnterpriseUploadStorageVerification {
   let teamIds: Set<string>;
   let mode: SenaEnterpriseUploadStorageVerification["scope"]["mode"] = "system";
   if (context) {
@@ -438,6 +570,117 @@ function envValue(key: string) {
   return value || undefined;
 }
 
+function postgresUploadRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresUploadRegistryConfigured() {
+  return postgresUploadRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+function postgresImportRunRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresImportRunRegistryConfigured() {
+  return postgresImportRunRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+function postgresAnalysisRunRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresAnalysisRunRegistryConfigured() {
+  return postgresAnalysisRunRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+export function enterpriseUploadRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresUploadRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_uploads",
+    evidence: [
+      `uploadRegistryStore=${activeStore}`,
+      `uploadRegistryPostgresRequested=${requested}`,
+      `uploadRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `uploadRegistryPostgresTable=sena_enterprise_uploads`,
+      `uploadRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+export function enterpriseImportRunRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresImportRunRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_import_runs",
+    evidence: [
+      `importRunRegistryStore=${activeStore}`,
+      `importRunRegistryPostgresRequested=${requested}`,
+      `importRunRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `importRunRegistryPostgresTable=sena_enterprise_import_runs`,
+      `importRunRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+export function enterpriseAnalysisRunRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresAnalysisRunRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_analysis_runs",
+    evidence: [
+      `analysisRunRegistryStore=${activeStore}`,
+      `analysisRunRegistryPostgresRequested=${requested}`,
+      `analysisRunRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `analysisRunRegistryPostgresTable=sena_enterprise_analysis_runs`,
+      `analysisRunRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+async function upsertUploadsToPostgresIfConfigured(uploads: SenaEnterpriseUpload[]) {
+  if (uploads.length === 0 || !postgresUploadRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresUploadAdapterFromEnv({});
+  try {
+    await adapter.upsertUploads(uploads);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+async function upsertImportRunsToPostgresIfConfigured(runs: SenaEnterpriseImportRun[]) {
+  if (runs.length === 0 || !postgresImportRunRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresImportRunAdapterFromEnv({});
+  try {
+    await adapter.upsertImportRuns(runs);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+async function upsertAnalysisRunsToPostgresIfConfigured(runs: SenaEnterpriseAnalysisRun[]) {
+  if (runs.length === 0 || !postgresAnalysisRunRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresAnalysisRunAdapterFromEnv({});
+  try {
+    await adapter.upsertAnalysisRuns(runs);
+  } finally {
+    await pool.end?.();
+  }
+}
+
 function enterpriseDeploymentMode(): "institution-managed" | "self-managed" {
   const mode = (envValue("SENA_ENTERPRISE_DEPLOYMENT_MODE") ?? envValue("SENA_ENTERPRISE_MODE") ?? "")
     .toLowerCase()
@@ -456,8 +699,11 @@ function manageableTeamIds(context: SenaEnterpriseSessionContext) {
     .map((membership) => membership.teamId);
 }
 
-function objectStorageTeamScope(context: SenaEnterpriseSessionContext, input: { teamId?: string; uploadId?: string }) {
-  const db = readEnterpriseDb();
+function objectStorageTeamScopeFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; uploadId?: string },
+  db: ReturnType<typeof readEnterpriseDb>
+) {
   if (input.uploadId) {
     const upload = db.uploads.find((candidate) => candidate.id === input.uploadId);
     if (!upload) throw new SenaEnterpriseError("Upload was not found.", 404, "upload_not_found");
@@ -480,6 +726,119 @@ function objectStorageTeamScope(context: SenaEnterpriseSessionContext, input: { 
 
 function uploadObjectStorageKey(upload: SenaEnterpriseUpload) {
   return `teams/${upload.teamId}/uploads/${upload.id}/${upload.storedName}`;
+}
+
+function uploadObjectStorageKeyHash(upload: SenaEnterpriseUpload) {
+  return createHash("sha256").update(uploadObjectStorageKey(upload)).digest("hex");
+}
+
+function uploadObjectStorageCustodyStatus(upload: SenaEnterpriseUpload) {
+  return upload.objectStorageCustody?.status ?? "pending";
+}
+
+function summarizeUploadObjectStorageCustodyFromUploads(
+  uploads: SenaEnterpriseUpload[],
+  input: {
+    source: SenaEnterpriseUploadObjectStorageCustodySummary["source"];
+    evidence?: string[];
+    forceReview?: boolean;
+  }
+): SenaEnterpriseUploadObjectStorageCustodySummary {
+  const delivered = uploads.filter((upload) => uploadObjectStorageCustodyStatus(upload) === "delivered").length;
+  const pending = uploads.filter((upload) => uploadObjectStorageCustodyStatus(upload) === "pending").length;
+  const failed = uploads.filter((upload) => uploadObjectStorageCustodyStatus(upload) === "failed").length;
+  const skipped = uploads.filter((upload) => uploadObjectStorageCustodyStatus(upload) === "skipped").length;
+  const pendingReview = uploads.filter((upload) => upload.scanStatus === "review" && uploadObjectStorageCustodyStatus(upload) !== "delivered").length;
+  const eligible = uploads.filter((upload) => upload.scanStatus === "passed");
+  const eligibleDelivered = eligible.filter((upload) => uploadObjectStorageCustodyStatus(upload) === "delivered").length;
+  const eligibleUndelivered = eligible.length - eligibleDelivered;
+  return {
+    totalUploads: uploads.length,
+    delivered,
+    pending,
+    failed,
+    skipped,
+    pendingReview,
+    eligibleForDelivery: eligible.length,
+    eligibleDelivered,
+    eligibleUndelivered,
+    ready: !input.forceReview && eligibleUndelivered === 0 && failed === 0 && pendingReview === 0,
+    source: input.source,
+    evidence: [
+      `uploadCustodySource=${input.source}`,
+      ...(input.evidence ?? [])
+    ]
+  };
+}
+
+export function summarizeEnterpriseUploadObjectStorageCustody(input: { teamId?: string } = {}): SenaEnterpriseUploadObjectStorageCustodySummary {
+  const db = readEnterpriseDb();
+  const uploads = db.uploads.filter((upload) => !input.teamId || upload.teamId === input.teamId);
+  return summarizeUploadObjectStorageCustodyFromUploads(uploads, {
+    source: "file-json",
+    evidence: [
+      "uploadCustodyRead=pass",
+      "uploadCustodyStore=file-json"
+    ]
+  });
+}
+
+export async function summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence(
+  input: { teamId?: string } = {}
+): Promise<SenaEnterpriseUploadObjectStorageCustodySummary> {
+  if (!postgresUploadRegistryConfigured()) {
+    const state = await readEnterpriseState();
+    const uploads = state.db.uploads.filter((upload) => !input.teamId || upload.teamId === input.teamId);
+    const source = state.runtime.activePrimary === "postgres" ? "postgres-primary-state" : "file-primary-state";
+    return summarizeUploadObjectStorageCustodyFromUploads(uploads, {
+      source,
+      evidence: [
+        "uploadCustodyRead=pass",
+        `uploadCustodyStore=${source}`
+      ]
+    });
+  }
+  const runtime = enterpriseUploadRegistryRuntime();
+  const { adapter, pool } = createEnterprisePostgresUploadAdapterFromEnv({});
+  try {
+    const uploads = await adapter.listUploads({
+      teamId: input.teamId,
+      limit: 5000
+    });
+    return summarizeUploadObjectStorageCustodyFromUploads(uploads, {
+      source: "postgres-table",
+      evidence: [
+        ...runtime.evidence,
+        "uploadCustodyRead=pass",
+        "uploadCustodyStore=postgres-table",
+        "uploadCustodyTable=sena_enterprise_uploads",
+        "uploadCustodyLimit=5000"
+      ]
+    });
+  } catch (error) {
+    const state = await readEnterpriseState();
+    const uploads = state.db.uploads.filter((upload) => !input.teamId || upload.teamId === input.teamId);
+    const fallback = summarizeUploadObjectStorageCustodyFromUploads(uploads, {
+      source: state.runtime.activePrimary === "postgres" ? "postgres-primary-state" : "file-primary-state",
+      evidence: [
+        "uploadCustodyRead=pass",
+        `uploadCustodyStore=${state.runtime.activePrimary === "postgres" ? "postgres-primary-state" : "file-primary-state"}`
+      ]
+    });
+    return {
+      ...fallback,
+      source: state.runtime.activePrimary === "postgres" ? "postgres-primary-state-fallback" : "file-primary-state-fallback",
+      ready: false,
+      evidence: [
+        ...runtime.evidence,
+        `uploadCustodyRead=fallback-${state.runtime.activePrimary === "postgres" ? "postgres-primary-state" : "file-primary-state"}`,
+        `uploadCustodyStore=${state.runtime.activePrimary === "postgres" ? "postgres-primary-state-fallback" : "file-primary-state-fallback"}`,
+        `uploadCustodyReadErrorHash=${webhookErrorHash(error)}`
+      ]
+    };
+  } finally {
+    await pool.end?.();
+  }
 }
 
 function uploadObjectStorageWebhookPayload(
@@ -584,17 +943,59 @@ export async function deliverEnterpriseUploadBlobs(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; uploadId?: string; limit?: number; includeReview?: boolean } = {}
 ): Promise<SenaEnterpriseUploadObjectStorageDeliveryResult> {
-  const provider = objectStorageWebhookProvider(dbPath, isSelfManagedEnterpriseMode());
-  const teamIds = objectStorageTeamScope(context, input);
+  const db = readEnterpriseDb();
+  const { result, targets } = await deliverEnterpriseUploadBlobsFromDb(context, input, db);
+  if (result.provider.configured) {
+    saveDb(db);
+    await upsertUploadsToPostgresIfConfigured(targets);
+  }
+  return result;
+}
+
+export async function deliverEnterpriseUploadBlobsWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; uploadId?: string; limit?: number; includeReview?: boolean } = {}
+): Promise<SenaEnterpriseUploadObjectStorageDeliveryResult> {
+  const state = await readEnterpriseState();
+  const { result, targets } = await deliverEnterpriseUploadBlobsFromDb(context, input, state.db);
+  if (result.provider.configured) {
+    await saveEnterpriseState(state, state.db);
+    await upsertUploadsToPostgresIfConfigured(targets);
+  }
+  return result;
+}
+
+async function deliverEnterpriseUploadBlobsFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; uploadId?: string; limit?: number; includeReview?: boolean },
+  db: ReturnType<typeof readEnterpriseDb>
+): Promise<{ result: SenaEnterpriseUploadObjectStorageDeliveryResult; targets: SenaEnterpriseUpload[] }> {
+  const nativeProvider = enterpriseObjectStorageNativeProvider();
+  const webhookProvider = objectStorageWebhookProvider(dbPath, isSelfManagedEnterpriseMode());
+  const provider = nativeProvider.configured ? nativeProvider : webhookProvider;
+  const teamIds = objectStorageTeamScopeFromDb(context, input, db);
   const teamIdSet = new Set(teamIds);
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
   const includeReview = Boolean(input.includeReview);
-  const verification = verifyEnterpriseUploadStorage(context, { teamId: input.teamId ?? (teamIds.length === 1 ? teamIds[0] : undefined) });
+  const verification = verifyEnterpriseUploadStorageFromDb(db, context, {
+    teamId: input.teamId ?? (teamIds.length === 1 ? teamIds[0] : undefined)
+  });
   const result: SenaEnterpriseUploadObjectStorageDeliveryResult = {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseUploadObjectStorageDelivery,
     generatedAt: now(),
     status: provider.configured ? "completed" : "not-configured",
-    provider,
+    provider: {
+      mode: provider.mode,
+      configured: provider.configured,
+      endpointHash: provider.endpointHash,
+      bucketHash: "bucketHash" in provider ? provider.bucketHash : undefined,
+      region: "region" in provider ? provider.region : undefined,
+      prefix: "prefix" in provider ? provider.prefix : undefined,
+      secretConfigured: provider.secretConfigured,
+      accessKeyConfigured: "accessKeyConfigured" in provider ? provider.accessKeyConfigured : undefined,
+      nativeConfigured: "productionReady" in provider ? provider.productionReady : undefined,
+      timeoutMs: provider.timeoutMs
+    },
     scope: {
       teamIds,
       requestedTeamId: input.teamId,
@@ -614,10 +1015,9 @@ export async function deliverEnterpriseUploadBlobs(
   };
 
   if (!provider.configured) {
-    return result;
+    return { result, targets: [] };
   }
 
-  const db = readEnterpriseDb();
   const candidates = db.uploads
     .filter((upload) => teamIdSet.has(upload.teamId))
     .filter((upload) => !input.uploadId || upload.id === input.uploadId)
@@ -627,6 +1027,7 @@ export async function deliverEnterpriseUploadBlobs(
 
   for (const upload of targets) {
     const objectKey = uploadObjectStorageKey(upload);
+    const objectKeyHash = uploadObjectStorageKeyHash(upload);
     const baseResult = {
       uploadId: upload.id,
       teamId: upload.teamId,
@@ -638,6 +1039,16 @@ export async function deliverEnterpriseUploadBlobs(
     };
 
     if (upload.scanStatus === "review" && !includeReview) {
+      const attemptedAt = now();
+      upload.objectStorageCustody = {
+        status: "skipped",
+        providerMode: provider.mode,
+        objectKeyHash,
+        endpointHash: provider.endpointHash,
+        bucketHash: "bucketHash" in provider ? provider.bucketHash : undefined,
+        errorCode: "scan_review_required",
+        lastAttemptedAt: attemptedAt
+      };
       result.summary.skipped += 1;
       result.summary.pendingReview += 1;
       result.uploads.push({
@@ -669,6 +1080,16 @@ export async function deliverEnterpriseUploadBlobs(
 
     if (!bytes || localErrorCode) {
       result.summary.failed += 1;
+      const attemptedAt = now();
+      upload.objectStorageCustody = {
+        status: "failed",
+        providerMode: provider.mode,
+        objectKeyHash,
+        endpointHash: provider.endpointHash,
+        bucketHash: "bucketHash" in provider ? provider.bucketHash : undefined,
+        errorCode: localErrorCode,
+        lastAttemptedAt: attemptedAt
+      };
       result.uploads.push({
         ...baseResult,
         deliveryStatus: "failed",
@@ -692,17 +1113,41 @@ export async function deliverEnterpriseUploadBlobs(
 
     const attemptResult = provider.mode === "local-sink"
       ? localWebhookSinkAttempt(provider.endpointHash!)
-      : await postUploadObjectStorageWebhook(upload, bytes, objectKey);
+      : provider.mode === "webhook"
+        ? await postUploadObjectStorageWebhook(upload, bytes, objectKey)
+        : await putEnterpriseObjectStorageObject({
+          key: objectKey,
+          body: bytes,
+          contentType: upload.contentType,
+          sha256: upload.sha256
+        });
     result.summary.attempted += 1;
     if (attemptResult.ok) {
       result.summary.delivered += 1;
     } else {
       result.summary.failed += 1;
     }
+    const attemptedAt = now();
+    upload.objectStorageCustody = {
+      status: attemptResult.ok ? "delivered" : "failed",
+      providerMode: provider.mode,
+      objectKeyHash,
+      endpointHash: attemptResult.endpointHash,
+      bucketHash: "bucketHash" in attemptResult ? attemptResult.bucketHash : undefined,
+      objectVersion: "objectVersion" in attemptResult ? attemptResult.objectVersion : undefined,
+      etagHash: "etagHash" in attemptResult ? attemptResult.etagHash : undefined,
+      httpStatus: attemptResult.httpStatus,
+      errorCode: attemptResult.errorCode,
+      errorHash: attemptResult.errorHash,
+      lastAttemptedAt: attemptedAt,
+      deliveredAt: attemptResult.ok ? attemptedAt : undefined
+    };
     result.uploads.push({
       ...baseResult,
       deliveryStatus: attemptResult.ok ? "delivered" : "failed",
       httpStatus: attemptResult.httpStatus,
+      objectVersion: "objectVersion" in attemptResult ? attemptResult.objectVersion : undefined,
+      etagHash: "etagHash" in attemptResult ? attemptResult.etagHash : undefined,
       errorCode: attemptResult.errorCode,
       errorHash: attemptResult.errorHash
     });
@@ -716,7 +1161,11 @@ export async function deliverEnterpriseUploadBlobs(
         size: upload.size,
         sha256: upload.sha256,
         endpointHash: attemptResult.endpointHash ?? "none",
+        bucketHash: "bucketHash" in attemptResult ? attemptResult.bucketHash ?? null : null,
+        deliveryMode: provider.mode,
         httpStatus: attemptResult.httpStatus ?? null,
+        objectVersion: "objectVersion" in attemptResult ? attemptResult.objectVersion ?? null : null,
+        etagHash: "etagHash" in attemptResult ? attemptResult.etagHash ?? null : null,
         errorCode: attemptResult.errorCode ?? null,
         errorHash: attemptResult.errorHash ?? null,
         scanStatus: upload.scanStatus
@@ -725,20 +1174,24 @@ export async function deliverEnterpriseUploadBlobs(
   }
 
   result.status = uploadObjectStorageDeliveryStatus(result.summary);
-  saveDb(db);
-  return result;
+  return { result, targets };
 }
 
-export function createEnterpriseImportRun(context: SenaEnterpriseSessionContext, input: {
+type CreateEnterpriseImportRunInput = {
   teamId: string;
   uploadIds: string[];
   sources: SenaImportAdapterSource[];
   warnings: string[];
   dataset: SenaDataset;
   cleaningManifest?: SenaEnterpriseImportCleaningManifest;
-}) {
+};
+
+function createEnterpriseImportRunInDb(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseImportRunInput,
+  db: ReturnType<typeof readEnterpriseDb>
+) {
   requireEnterprisePermission(context, input.teamId, "upload:create");
-  const db = readEnterpriseDb();
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
   const sourceProfiles = Array.from(new Set(input.sources.map((source) => source.profile)));
@@ -763,8 +1216,7 @@ export function createEnterpriseImportRun(context: SenaEnterpriseSessionContext,
   };
   db.importRuns.unshift(run);
   db.importRuns = db.importRuns.slice(0, 1000);
-  writeEnterpriseDb(db);
-  recordEnterpriseAudit({
+  appendAudit(db, {
     event: "import.run",
     userId: context.user.id,
     teamId: input.teamId,
@@ -781,8 +1233,48 @@ export function createEnterpriseImportRun(context: SenaEnterpriseSessionContext,
   return run;
 }
 
+export function createEnterpriseImportRun(context: SenaEnterpriseSessionContext, input: CreateEnterpriseImportRunInput) {
+  const db = readEnterpriseDb();
+  const run = createEnterpriseImportRunInDb(context, input, db);
+  writeEnterpriseDb(db);
+  return run;
+}
+
+export async function createEnterpriseImportRunWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseImportRunInput
+) {
+  const run = createEnterpriseImportRun(context, input);
+  await upsertImportRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
+export async function createEnterpriseImportRunWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseImportRunInput
+) {
+  const state = await readEnterpriseState();
+  const run = createEnterpriseImportRunInDb(context, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertImportRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
 export function listEnterpriseImportRuns(context: SenaEnterpriseSessionContext, teamId?: string) {
   const db = readEnterpriseDb();
+  return listEnterpriseImportRunsFromDb(context, db, teamId);
+}
+
+export async function listEnterpriseImportRunsAsync(context: SenaEnterpriseSessionContext, teamId?: string) {
+  const state = await readEnterpriseState();
+  return listEnterpriseImportRunsFromDb(context, state.db, teamId);
+}
+
+function listEnterpriseImportRunsFromDb(
+  context: SenaEnterpriseSessionContext,
+  db: ReturnType<typeof readEnterpriseDb>,
+  teamId?: string
+) {
   const readableTeamIds = new Set(context.memberships
     .filter((membership) => rolePermissions[membership.role].includes("upload:read"))
     .map((membership) => membership.teamId));
@@ -794,14 +1286,19 @@ export function listEnterpriseImportRuns(context: SenaEnterpriseSessionContext, 
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function createEnterpriseAnalysisRun(context: SenaEnterpriseSessionContext, input: {
+type CreateEnterpriseAnalysisRunInput = {
   teamId: string;
   projectId?: string;
   persistedProjectId?: string;
   run: SenaAnalysisRunArtifact;
-}) {
+};
+
+function createEnterpriseAnalysisRunInDb(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseAnalysisRunInput,
+  db: ReturnType<typeof readEnterpriseDb>
+) {
   requireEnterprisePermission(context, input.teamId, "analysis:run");
-  const db = readEnterpriseDb();
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
   for (const projectId of [input.projectId, input.persistedProjectId].filter(Boolean) as string[]) {
@@ -834,8 +1331,7 @@ export function createEnterpriseAnalysisRun(context: SenaEnterpriseSessionContex
   };
   db.analysisRuns.unshift(run);
   db.analysisRuns = db.analysisRuns.slice(0, 1000);
-  writeEnterpriseDb(db);
-  recordEnterpriseAudit({
+  appendAudit(db, {
     event: "analysis.run",
     userId: context.user.id,
     teamId: input.teamId,
@@ -855,11 +1351,53 @@ export function createEnterpriseAnalysisRun(context: SenaEnterpriseSessionContex
   return run;
 }
 
+export function createEnterpriseAnalysisRun(context: SenaEnterpriseSessionContext, input: CreateEnterpriseAnalysisRunInput) {
+  const db = readEnterpriseDb();
+  const run = createEnterpriseAnalysisRunInDb(context, input, db);
+  writeEnterpriseDb(db);
+  return run;
+}
+
+export async function createEnterpriseAnalysisRunWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseAnalysisRunInput
+) {
+  const run = createEnterpriseAnalysisRun(context, input);
+  await upsertAnalysisRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
+export async function createEnterpriseAnalysisRunWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseAnalysisRunInput
+) {
+  const state = await readEnterpriseState();
+  const run = createEnterpriseAnalysisRunInDb(context, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertAnalysisRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
 export function listEnterpriseAnalysisRuns(context: SenaEnterpriseSessionContext, input: {
   teamId?: string;
   projectId?: string;
 } = {}) {
   const db = readEnterpriseDb();
+  return listEnterpriseAnalysisRunsFromDb(context, db, input);
+}
+
+export async function listEnterpriseAnalysisRunsAsync(context: SenaEnterpriseSessionContext, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
+  const state = await readEnterpriseState();
+  return listEnterpriseAnalysisRunsFromDb(context, state.db, input);
+}
+
+function listEnterpriseAnalysisRunsFromDb(context: SenaEnterpriseSessionContext, db: ReturnType<typeof readEnterpriseDb>, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
   let teamIds = new Set(context.memberships
     .filter((membership) => rolePermissions[membership.role].includes("analysis:run"))
     .map((membership) => membership.teamId));

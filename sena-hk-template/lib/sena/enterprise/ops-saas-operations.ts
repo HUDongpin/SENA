@@ -92,12 +92,13 @@ export function buildEnterpriseSaasOperationsReadiness(input: {
       blockers
     },
     requiredEvidence: [
-      "sena-enterprise-native-adapter-certification/v1",
-      "sena-enterprise-platform-decision-acceptance/v1",
-      "sena-enterprise-platform-decision-register/v1",
-      "sena-enterprise-release-gate-review/v1",
-      "sena-enterprise-identity-production-evidence/v1",
-      "sena-enterprise-release-verification-evidence/v1",
+      SENA_SCHEMA_VERSIONS.enterpriseNativeAdapterCertification,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance,
+      SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister,
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview,
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence,
+      SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest,
       "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED"
     ],
     evidence: [

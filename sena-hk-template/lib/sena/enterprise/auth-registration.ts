@@ -3,7 +3,9 @@ import { type SenaEnterpriseRole } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseTeam,
   type SenaEnterpriseUser
 } from "./state";
@@ -24,19 +26,23 @@ function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
 
-export function registerEnterpriseUser(input: {
+export type SenaEnterpriseRegistrationInput = {
   name: string;
   email: string;
   password: string;
   organization: string;
   plan?: SenaEnterpriseTeam["plan"];
   inviteCode?: string;
-}) {
+};
+
+function registerEnterpriseUserInDb(
+  db: ReturnType<typeof readEnterpriseDb>,
+  input: SenaEnterpriseRegistrationInput
+) {
   const email = normalizeEmail(input.email);
   if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required.", 400, "invalid_email");
   validateEnterprisePassword(input.password, email);
 
-  const db = readEnterpriseDb();
   if (db.users.some((user) => user.email === email)) {
     throw new SenaEnterpriseError("An account already exists for this email.", 409, "email_exists");
   }
@@ -102,6 +108,19 @@ export function registerEnterpriseUser(input: {
       }
     });
   }
-  saveDb(db);
   return { token: session.rawToken, context: contextFromDb(db, session.session) };
+}
+
+export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
+  const db = readEnterpriseDb();
+  const result = registerEnterpriseUserInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function registerEnterpriseUserAsync(input: SenaEnterpriseRegistrationInput) {
+  const state = await readEnterpriseState();
+  const result = registerEnterpriseUserInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
 }

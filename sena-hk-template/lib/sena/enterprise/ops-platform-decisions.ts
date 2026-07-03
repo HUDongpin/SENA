@@ -75,7 +75,10 @@ import {
 } from "./ops-runtime";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 
 function id(prefix: string) {
@@ -126,7 +129,8 @@ export function platformDecisionProductionEvidenceReceipt(
   acceptance: Pick<
     SenaEnterprisePlatformDecisionAcceptance,
     "decisionId" | "status" | "acceptedBridge" | "ownerName" | "ownerRole" | "environment" | "evidenceUrl" | "evidenceUrlHash" | "evidenceUrlPathHash" | "evidenceUrlHostHash" | "evidenceUrlAllowedHostHash" | "productionEvidenceIds" | "productionEvidenceArtifactDigest" | "productionEvidenceVerifiedAt" | "submittedRequestPacketPolicyHash" | "technicalEvidenceBinding" | "productionEvidenceReceipt" | "notes" | "updatedAt"
-  >
+  >,
+  db?: SenaEnterpriseDb
 ): SenaEnterprisePlatformDecisionProductionEvidenceReceipt | undefined {
   const allowedEvidenceIds = platformDecisionProductionEvidenceIdsByDecision[acceptance.decisionId];
   if (!allowedEvidenceIds) return undefined;
@@ -141,9 +145,9 @@ export function platformDecisionProductionEvidenceReceipt(
   const identityRequestPacketSchemaVersion = isIdentityProductionDecisionId(acceptance.decisionId)
     ? "sena-enterprise-identity-platform-decision-request-packet/v1"
     : undefined;
-  const technicalBindingStatus = identityTechnicalEvidenceBindingStatus(acceptance);
+  const technicalBindingStatus = identityTechnicalEvidenceBindingStatus(acceptance, db);
   const technicalReadinessStatus = identityRequestPacketSchemaVersion
-    ? identityTechnicalReadinessStatus(acceptance)
+    ? identityTechnicalReadinessStatus(acceptance, db)
     : undefined;
   const evidenceUrlHostBindingStatus = identityRequestPacketSchemaVersion
     ? identityEvidenceUrlHostBindingStatus(acceptance)
@@ -296,9 +300,10 @@ export function summarizePlatformDecisionAcceptances(
   };
 }
 
-export function reviewEnterprisePlatformDecision(
+function reviewEnterprisePlatformDecisionInDb(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterprisePlatformDecisionAcceptanceInput
+  input: SenaEnterprisePlatformDecisionAcceptanceInput,
+  db: SenaEnterpriseDb
 ): SenaEnterprisePlatformDecisionAcceptance {
   if (!isEnterprisePlatformDecisionId(input.decisionId)) {
     throw new SenaEnterpriseError("Platform decision id is not recognized.", 400, "unknown_platform_decision");
@@ -352,7 +357,6 @@ export function reviewEnterprisePlatformDecision(
   const evidenceUrlHostHashes = isIdentityProductionDecisionId(input.decisionId)
     ? identityEvidenceUrlHostHashes(evidenceUrl)
     : {};
-  const db = readEnterpriseDb();
   const technicalEvidenceBinding = input.status === "accepted"
     ? buildEnterpriseIdentityTechnicalEvidenceBinding(input.decisionId, db)
     : undefined;
@@ -379,7 +383,8 @@ export function reviewEnterprisePlatformDecision(
     createdAt: timestamp,
     updatedAt: timestamp
   };
-  acceptance.productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance);
+  acceptance.productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance, db);
+  db.platformDecisionAcceptances ??= [];
   db.platformDecisionAcceptances.unshift(acceptance);
   const productionEvidenceReceipt = acceptance.productionEvidenceReceipt;
   appendAudit(db, {
@@ -414,7 +419,26 @@ export function reviewEnterprisePlatformDecision(
       evidenceUrlPathHash: acceptance.evidenceUrlPathHash ?? null
     }
   });
+  return acceptance;
+}
+
+export function reviewEnterprisePlatformDecision(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterprisePlatformDecisionAcceptanceInput
+): SenaEnterprisePlatformDecisionAcceptance {
+  const db = readEnterpriseDb();
+  const acceptance = reviewEnterprisePlatformDecisionInDb(context, input, db);
   saveDb(db);
+  return acceptance;
+}
+
+export async function reviewEnterprisePlatformDecisionWithPostgresState(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterprisePlatformDecisionAcceptanceInput
+): Promise<SenaEnterprisePlatformDecisionAcceptance> {
+  const state = await readEnterpriseState();
+  const acceptance = reviewEnterprisePlatformDecisionInDb(context, input, state.db);
+  await saveEnterpriseState(state, state.db);
   return acceptance;
 }
 
@@ -428,9 +452,10 @@ function redactEnterprisePlatformDecisionAcceptance(
   };
 }
 
-export function listEnterprisePlatformDecisionAcceptances(
+function listEnterprisePlatformDecisionAcceptancesFromDb(
   context: SenaEnterpriseSessionContext,
-  input: { teamId?: string } = {}
+  input: { teamId?: string } = {},
+  db: SenaEnterpriseDb
 ): SenaEnterprisePlatformDecisionAcceptanceList {
   const teamIds = input.teamId ? [input.teamId] : manageableTeamIds(context);
   if (input.teamId) {
@@ -439,7 +464,7 @@ export function listEnterprisePlatformDecisionAcceptances(
     throw new SenaEnterpriseError("Team management permission is required for platform decision acceptances.", 403, "platform_decision_permission_denied");
   }
   const teamIdSet = new Set(teamIds);
-  const acceptances = (readEnterpriseDb().platformDecisionAcceptances ?? [])
+  const acceptances = (db.platformDecisionAcceptances ?? [])
     .filter((acceptance) => teamIdSet.has(acceptance.teamId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(redactEnterprisePlatformDecisionAcceptance);
@@ -453,6 +478,21 @@ export function listEnterprisePlatformDecisionAcceptances(
     summary: summarizePlatformDecisionAcceptances(acceptances),
     acceptances
   };
+}
+
+export function listEnterprisePlatformDecisionAcceptances(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): SenaEnterprisePlatformDecisionAcceptanceList {
+  return listEnterprisePlatformDecisionAcceptancesFromDb(context, input, readEnterpriseDb());
+}
+
+export async function listEnterprisePlatformDecisionAcceptancesWithPostgresState(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterprisePlatformDecisionAcceptanceList> {
+  const state = await readEnterpriseState();
+  return listEnterprisePlatformDecisionAcceptancesFromDb(context, input, state.db);
 }
 
 export function missingPlatformDecisionProductionEvidence(decision: SenaEnterprisePlatformDecisionRegisterDecision) {

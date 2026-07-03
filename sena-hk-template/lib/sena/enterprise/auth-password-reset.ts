@@ -20,7 +20,9 @@ import {
 import { appendAudit } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -98,11 +100,20 @@ function clearFailedLogin(db: SenaEnterpriseDb, email: string) {
   db.authLockouts = (db.authLockouts ?? []).filter((lockout) => lockout.emailHash !== emailHash);
 }
 
-export function createEnterprisePasswordReset(input: {
+export type SenaEnterprisePasswordResetInput = {
   email: string;
   baseUrl?: string;
-}): SenaEnterprisePasswordResetRequestResult {
-  const db = readEnterpriseDb();
+};
+
+export type SenaEnterprisePasswordResetCompleteInput = {
+  resetToken: string;
+  password: string;
+};
+
+function createEnterprisePasswordResetInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterprisePasswordResetInput
+): SenaEnterprisePasswordResetRequestResult {
   const email = normalizeEmail(input.email);
   const emailHash = authEmailHash(email);
   const emailDomain = authEmailDomain(email);
@@ -173,8 +184,6 @@ export function createEnterprisePasswordReset(input: {
       }
     });
   }
-  saveDb(db);
-
   const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = {
     mode: passwordResetDeliveryMode(emailDelivery),
     emailDeliveryId: emailDelivery?.id
@@ -194,12 +203,25 @@ export function createEnterprisePasswordReset(input: {
   };
 }
 
-export function completeEnterprisePasswordReset(input: {
-  resetToken: string;
-  password: string;
-}): SenaEnterprisePasswordResetCompleteResult {
-  validateEnterprisePassword(input.password);
+export function createEnterprisePasswordReset(input: SenaEnterprisePasswordResetInput): SenaEnterprisePasswordResetRequestResult {
   const db = readEnterpriseDb();
+  const result = createEnterprisePasswordResetInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function createEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetInput): Promise<SenaEnterprisePasswordResetRequestResult> {
+  const state = await readEnterpriseState();
+  const result = createEnterprisePasswordResetInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
+}
+
+function completeEnterprisePasswordResetInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterprisePasswordResetCompleteInput
+): SenaEnterprisePasswordResetCompleteResult {
+  validateEnterprisePassword(input.password);
   const resetHash = tokenHash(input.resetToken);
   const request = (db.passwordResetRequests ?? []).find((candidate) => (
     candidate.tokenHash === resetHash &&
@@ -233,10 +255,23 @@ export function completeEnterprisePasswordReset(input: {
       sessionsRevoked: true
     }
   });
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePasswordResetComplete,
     status: "completed",
     resetAt
   };
+}
+
+export function completeEnterprisePasswordReset(input: SenaEnterprisePasswordResetCompleteInput): SenaEnterprisePasswordResetCompleteResult {
+  const db = readEnterpriseDb();
+  const result = completeEnterprisePasswordResetInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function completeEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetCompleteInput): Promise<SenaEnterprisePasswordResetCompleteResult> {
+  const state = await readEnterpriseState();
+  const result = completeEnterprisePasswordResetInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
 }

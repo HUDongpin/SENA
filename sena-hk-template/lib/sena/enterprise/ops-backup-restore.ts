@@ -10,13 +10,15 @@ import {
 } from "./ops-audit";
 import {
   backupCoreChecksPass,
-  verifyEnterpriseBackup,
+  verifyEnterpriseBackupAgainstDb,
   type SenaEnterpriseBackupArtifact,
   type SenaEnterpriseBackupVerification
 } from "./ops-backup";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -86,11 +88,14 @@ function canManageAnyTeam(context: SenaEnterpriseSessionContext) {
   return context.memberships.some((membership) => membership.status === "active" && rolePermissions[membership.role].includes("team:manage"));
 }
 
-function ensureBackupRestorePermission(context: SenaEnterpriseSessionContext, backup: SenaEnterpriseBackupArtifact) {
+function ensureBackupRestorePermission(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact,
+  db: SenaEnterpriseDb = readEnterpriseDb()
+) {
   if (!canManageAnyTeam(context)) {
     throw new SenaEnterpriseError("Team management permission is required for enterprise backup restore.", 403, "backup_restore_permission_denied");
   }
-  const db = readEnterpriseDb();
   for (const teamId of backup.scope.teamIds) {
     if (db.teams.some((team) => team.id === teamId)) {
       requireEnterprisePermission(context, teamId, "team:manage");
@@ -168,18 +173,51 @@ export function restoreEnterpriseBackup(
   backup: SenaEnterpriseBackupArtifact,
   input: { dryRun?: boolean; mode?: "merge" } = {}
 ): SenaEnterpriseBackupRestoreResult {
+  const sourceDb = readEnterpriseDb();
+  try {
+    const result = buildEnterpriseBackupRestoreResult(context, backup, sourceDb, input);
+    saveDb(sourceDb);
+    return result;
+  } catch (error) {
+    saveDb(sourceDb);
+    throw error;
+  }
+}
+
+export async function restoreEnterpriseBackupWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact,
+  input: { dryRun?: boolean; mode?: "merge" } = {}
+): Promise<SenaEnterpriseBackupRestoreResult> {
+  const state = await readEnterpriseState();
+  try {
+    const result = buildEnterpriseBackupRestoreResult(context, backup, state.db, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
+}
+
+function buildEnterpriseBackupRestoreResult(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact,
+  sourceDb: SenaEnterpriseDb,
+  input: { dryRun?: boolean; mode?: "merge" } = {}
+): SenaEnterpriseBackupRestoreResult {
   const dryRun = Boolean(input.dryRun);
   const mode = input.mode ?? "merge";
   if (mode !== "merge") {
     throw new SenaEnterpriseError("Only merge restore mode is supported.", 400, "unsupported_backup_restore_mode");
   }
-  ensureBackupRestorePermission(context, backup);
-  const verification = verifyEnterpriseBackup(context, backup);
+  ensureBackupRestorePermission(context, backup, sourceDb);
+  const verification = verifyEnterpriseBackupAgainstDb(context, backup, sourceDb);
   if (!backupCoreChecksPass(verification)) {
     throw new SenaEnterpriseError("Backup restore requires checksum, record counts, and secret exclusions to pass.", 400, "backup_restore_preflight_failed");
   }
 
-  const db = dryRun ? dbWorkingCopy(readEnterpriseDb()) : readEnterpriseDb();
+  const db = dryRun ? dbWorkingCopy(sourceDb) : sourceDb;
   const summary = emptyBackupRestoreSummary();
   mergeById(db.users, backup.payload.users as SenaEnterpriseUser[], "usersCreated", "usersUpdated", summary, (existing, incoming) => ({
     ...incoming,
@@ -221,7 +259,6 @@ export function restoreEnterpriseBackup(
         projectsUpdated: summary.projectsUpdated
       }
     });
-    saveDb(db);
   }
 
   return {

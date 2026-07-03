@@ -22,11 +22,14 @@ import {
   type SenaEnterpriseWebhookQueueProvider
 } from "./webhook-delivery";
 import {
-  deliverEnterpriseEmails
+  deliverEnterpriseEmails,
+  deliverEnterpriseEmailsAsync
 } from "./notifications-email";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState
 } from "./state";
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseDb } from "./state";
@@ -435,7 +438,22 @@ export function listEnterpriseNotifications(
   context: SenaEnterpriseSessionContext,
   input: SenaEnterpriseNotificationQuery = {}
 ): SenaEnterpriseNotificationResult {
-  const db = readEnterpriseDb();
+  return listEnterpriseNotificationsFromDb(context, input, readEnterpriseDb());
+}
+
+export async function listEnterpriseNotificationsAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseNotificationQuery = {}
+): Promise<SenaEnterpriseNotificationResult> {
+  const state = await readEnterpriseState();
+  return listEnterpriseNotificationsFromDb(context, input, state.db);
+}
+
+function listEnterpriseNotificationsFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseNotificationQuery,
+  db: SenaEnterpriseDb
+): SenaEnterpriseNotificationResult {
   if (input.teamId) {
     requireEnterprisePermission(context, input.teamId, "team:manage");
   }
@@ -465,8 +483,11 @@ export function listEnterpriseNotifications(
   };
 }
 
-export function markEnterpriseNotificationRead(context: SenaEnterpriseSessionContext, notificationId: string) {
-  const db = readEnterpriseDb();
+function markEnterpriseNotificationReadInDb(
+  context: SenaEnterpriseSessionContext,
+  notificationId: string,
+  db: SenaEnterpriseDb
+) {
   const notification = db.notifications.find((candidate) => candidate.id === notificationId);
   if (!notification) throw new SenaEnterpriseError("Notification was not found.", 404, "notification_not_found");
   if (!notificationVisibleToContext(context, notification)) {
@@ -484,13 +505,47 @@ export function markEnterpriseNotificationRead(context: SenaEnterpriseSessionCon
       kind: notification.kind
     }
   });
+  return notification;
+}
+
+export function markEnterpriseNotificationRead(context: SenaEnterpriseSessionContext, notificationId: string) {
+  const db = readEnterpriseDb();
+  const notification = markEnterpriseNotificationReadInDb(context, notificationId, db);
   saveDb(db);
+  return notification;
+}
+
+export async function markEnterpriseNotificationReadAsync(context: SenaEnterpriseSessionContext, notificationId: string) {
+  const state = await readEnterpriseState();
+  const notification = markEnterpriseNotificationReadInDb(context, notificationId, state.db);
+  await saveEnterpriseState(state, state.db);
   return notification;
 }
 
 export async function deliverEnterpriseNotifications(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string } = {}
+): Promise<SenaEnterpriseNotificationDeliveryResult> {
+  const db = readEnterpriseDb();
+  const result = await deliverEnterpriseNotificationsFromDb(context, input, db);
+  saveDb(db);
+  return result;
+}
+
+export async function deliverEnterpriseNotificationsAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string } = {}
+): Promise<SenaEnterpriseNotificationDeliveryResult> {
+  const state = await readEnterpriseState();
+  const result = await deliverEnterpriseNotificationsFromDb(context, input, state.db);
+  await saveEnterpriseState(state, state.db);
+  return result;
+}
+
+async function deliverEnterpriseNotificationsFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string },
+  db: SenaEnterpriseDb
 ): Promise<SenaEnterpriseNotificationDeliveryResult> {
   const provider = notificationWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200);
@@ -526,7 +581,6 @@ export async function deliverEnterpriseNotifications(
     return result;
   }
 
-  const db = readEnterpriseDb();
   const teamIdSet = new Set(teamIds);
   const deliveryQueue: SenaEnterpriseNotification[] = [];
   const nowMs = Date.now();
@@ -617,7 +671,6 @@ export async function deliverEnterpriseNotifications(
     });
   }
 
-  saveDb(db);
   return result;
 }
 
@@ -636,11 +689,39 @@ export function buildEnterpriseNotificationListResponse(
   };
 }
 
+export async function buildEnterpriseNotificationListResponseAsync(
+  context: SenaEnterpriseSessionContext,
+  searchParams: URLSearchParams
+) {
+  return {
+    body: await listEnterpriseNotificationsAsync(context, {
+      teamId: searchParams.get("teamId") || undefined,
+      status: statusParam(searchParams.get("status")),
+      kind: kindParam(searchParams.get("kind")),
+      limit: numberParam(searchParams.get("limit")),
+      offset: numberParam(searchParams.get("offset"))
+    })
+  };
+}
+
 export function buildEnterpriseNotificationReadResponse(
   context: SenaEnterpriseSessionContext,
   body: Record<string, unknown>
 ) {
   const notification = markEnterpriseNotificationRead(context, String(body.notificationId ?? ""));
+  return {
+    body: {
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNotification,
+      notification
+    }
+  };
+}
+
+export async function buildEnterpriseNotificationReadResponseAsync(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
+) {
+  const notification = await markEnterpriseNotificationReadAsync(context, String(body.notificationId ?? ""));
   return {
     body: {
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseNotification,
@@ -665,6 +746,30 @@ export async function buildEnterpriseNotificationDeliveryResponse(
   }
   return {
     body: await deliverEnterpriseNotifications(context, {
+      teamId: body.teamId ? String(body.teamId) : undefined,
+      limit: typeof body.limit === "number" ? body.limit : undefined,
+      force: Boolean(body.force),
+      notificationId: body.notificationId ? String(body.notificationId) : undefined
+    })
+  };
+}
+
+export async function buildEnterpriseNotificationDeliveryResponseAsync(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
+) {
+  if (body.action === "deliver-email" || body.channel === "email") {
+    return {
+      body: await deliverEnterpriseEmailsAsync(context, {
+        teamId: body.teamId ? String(body.teamId) : undefined,
+        limit: typeof body.limit === "number" ? body.limit : undefined,
+        force: Boolean(body.force),
+        emailDeliveryId: body.emailDeliveryId ? String(body.emailDeliveryId) : undefined
+      })
+    };
+  }
+  return {
+    body: await deliverEnterpriseNotificationsAsync(context, {
       teamId: body.teamId ? String(body.teamId) : undefined,
       limit: typeof body.limit === "number" ? body.limit : undefined,
       force: Boolean(body.force),

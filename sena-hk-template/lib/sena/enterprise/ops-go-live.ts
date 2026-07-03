@@ -8,14 +8,17 @@ import {
 } from "./identity-receipt-archive";
 import {
   getEnterpriseOpsAlerts,
+  getEnterpriseOpsAlertsWithPostgresEvidence,
   type SenaEnterpriseOpsAlerts
 } from "./ops-alerts";
 import {
   getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
   type SenaEnterpriseOrganizationDeploymentPackage
 } from "./ops-deployment";
 import {
   getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
 import type {
@@ -23,6 +26,7 @@ import type {
 } from "./ops-saas-operations";
 import {
   getEnterpriseGovernanceStatus,
+  getEnterpriseGovernanceStatusWithPostgresEvidence,
   type SenaEnterpriseGovernanceStatus
 } from "./ops-governance";
 import {
@@ -36,10 +40,13 @@ import type {
 } from "./ops-release-gate";
 import {
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
   type SenaEnterpriseOpsStatus
 } from "./ops-status";
 import {
-  readEnterpriseDb
+  readEnterpriseDb,
+  readEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 
 function now() {
@@ -425,6 +432,19 @@ function buildEnterpriseGoLiveMonitor(input: {
   const verificationCommand = input.verificationCommands.find((command) => command === "npm run sena:pilot:verify") ??
     input.verificationCommands[0] ??
     "npm run sena:pilot:verify";
+  const serverJobRuntimeCheck = input.opsStatus.checks.find((check) => check.id === "ops-server-job-runtime");
+  const serverJobRuntimeEvidence = [
+    `serverJobsTotal=${input.opsStatus.counts.serverJobs}`,
+    `serverJobsQueued=${input.opsStatus.queues.serverJobsQueued}`,
+    `serverJobsRunning=${input.opsStatus.queues.serverJobsRunning}`,
+    `serverJobsFailed=${input.opsStatus.queues.serverJobsFailed}`,
+    `serverJobsDeadLettered=${input.opsStatus.queues.serverJobsDeadLettered}`,
+    `serverJobsRetryable=${input.opsStatus.queues.serverJobsRetryable}`,
+    ...(serverJobRuntimeCheck?.evidence ?? [])
+      .filter((entry) => entry.startsWith("serverJobStore=") ||
+        entry.startsWith("serverJobQueueCountsSource=") ||
+        entry.startsWith("serverJobQueueCountsRead="))
+  ];
   const checks: SenaEnterpriseGoLiveMonitor["checks"] = [
     {
       id: "go-live-rehearsal",
@@ -448,7 +468,8 @@ function buildEnterpriseGoLiveMonitor(input: {
         `storageWritable=${input.opsStatus.storage.writable}`,
         `lockProbe=${input.opsStatus.storage.lockProbe}`,
         `backupStatus=${input.opsStatus.backup.status}`,
-        `uptimeSeconds=${input.opsStatus.deployment.uptimeSeconds}`
+        `uptimeSeconds=${input.opsStatus.deployment.uptimeSeconds}`,
+        ...serverJobRuntimeEvidence
       ],
       nextAction: input.opsStatus.status === "ready"
         ? "Keep status and metrics polling active throughout the observation window."
@@ -808,16 +829,68 @@ function buildEnterpriseGoLiveRehearsal(input: {
   };
 }
 
-export function getEnterpriseGoLiveRehearsal(input: { teamId?: string } = {}): SenaEnterpriseGoLiveRehearsal {
-  const deployment = getEnterpriseOrganizationDeploymentPackage({ teamId: input.teamId });
-  const readiness = getEnterpriseDeploymentReadiness();
-  const governance = getEnterpriseGovernanceStatus();
-  const opsStatus = getEnterpriseOpsStatus();
-  const opsAlerts = getEnterpriseOpsAlerts(opsStatus, readiness);
-  const latestObservation = postCutoverObservationList(
-    (readEnterpriseDb().postCutoverObservations ?? [])
+export function getEnterpriseGoLiveRehearsal(input: {
+  teamId?: string;
+  db?: SenaEnterpriseDb;
+  deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  opsAlerts?: SenaEnterpriseOpsAlerts;
+  governance?: SenaEnterpriseGovernanceStatus;
+  latestObservation?: SenaEnterprisePostCutoverObservationList;
+} = {}): SenaEnterpriseGoLiveRehearsal {
+  const db = input.db ?? (
+    input.deployment && input.governance && input.latestObservation ? undefined : readEnterpriseDb()
+  );
+  const readiness = input.readiness ?? getEnterpriseDeploymentReadiness();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const deployment = input.deployment ?? getEnterpriseOrganizationDeploymentPackage({
+    teamId: input.teamId,
+    db,
+    readiness,
+    opsStatus
+  });
+  const governance = input.governance ?? getEnterpriseGovernanceStatus({ db, opsStatus });
+  const opsAlerts = input.opsAlerts ?? getEnterpriseOpsAlerts(opsStatus, readiness);
+  const latestObservation = input.latestObservation ?? postCutoverObservationList(
+    ((db ?? readEnterpriseDb()).postCutoverObservations ?? [])
       .filter((observation) => !input.teamId || observation.teamId === input.teamId),
     { teamId: input.teamId }
   );
   return buildEnterpriseGoLiveRehearsal({ deployment, readiness, governance, opsStatus, opsAlerts, latestObservation });
+}
+
+export async function getEnterpriseGoLiveRehearsalWithPostgresEvidence(input: {
+  teamId?: string;
+  deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  opsAlerts?: SenaEnterpriseOpsAlerts;
+  governance?: SenaEnterpriseGovernanceStatus;
+  latestObservation?: SenaEnterprisePostCutoverObservationList;
+} = {}): Promise<SenaEnterpriseGoLiveRehearsal> {
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = input.readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const deployment = input.deployment ?? await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+    teamId: input.teamId,
+    readiness,
+    opsStatus
+  });
+  const governance = input.governance ?? await getEnterpriseGovernanceStatusWithPostgresEvidence({ opsStatus });
+  const opsAlerts = input.opsAlerts ?? await getEnterpriseOpsAlertsWithPostgresEvidence(opsStatus, readiness);
+  const state = input.latestObservation ? null : await readEnterpriseState();
+  const latestObservation = input.latestObservation ?? postCutoverObservationList(
+    (state?.db.postCutoverObservations ?? [])
+      .filter((observation) => !input.teamId || observation.teamId === input.teamId),
+    { teamId: input.teamId }
+  );
+  return getEnterpriseGoLiveRehearsal({
+    teamId: input.teamId,
+    deployment,
+    readiness,
+    opsStatus,
+    opsAlerts,
+    governance,
+    latestObservation
+  });
 }

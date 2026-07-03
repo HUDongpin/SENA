@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import {
+  createEnterprisePostgresAdjudicationAdapterFromEnv,
+  createEnterprisePostgresExpertReviewAdapterFromEnv,
+  createEnterprisePostgresReliabilityRunAdapterFromEnv,
+  createEnterprisePostgresValidationRunAdapterFromEnv
+} from "../enterprise-postgres";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import { requireEnterprisePermission, type SenaEnterprisePermission } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
@@ -6,10 +12,14 @@ import type {
   SenaEnterpriseExpertReview,
   SenaEnterpriseExpertReviewStatus
 } from "./expert-review";
+import { enterpriseExpertReviewRegistryRuntime } from "./expert-review";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
+import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
+import { enterpriseAdjudicationRegistryRuntime } from "./team-collaboration";
 import type {
   SenaEnterpriseProject,
   SenaEnterpriseProjectRevision
@@ -19,14 +29,17 @@ import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaProjectSnapshot } from "../types";
 import type {
   SenaEnterpriseReliabilityAdjudicationCoverage,
+  SenaEnterpriseReliabilityRun,
   SenaEnterpriseReliabilityRunStatus
 } from "./reliability-runs";
+import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
 import type {
   SenaEnterpriseValidationParityEvidence,
   SenaEnterpriseValidationPreregistrationPlan,
   SenaEnterpriseValidationRun,
   SenaEnterpriseValidationRunStatus
 } from "./validation-runs";
+import { enterpriseValidationRunRegistryRuntime } from "./validation-runs";
 
 export type SenaEnterpriseClaimEvidencePackageStatus =
   | "claim-ready-with-limits"
@@ -37,6 +50,13 @@ export type SenaEnterpriseClaimEvidencePackage = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
   generatedAt: string;
   status: SenaEnterpriseClaimEvidencePackageStatus;
+  evidenceSource: {
+    reliabilityRuns: "file-json" | "postgres-table";
+    validationRuns: "file-json" | "postgres-table";
+    expertReviews: "file-json" | "postgres-table";
+    adjudications: "file-json" | "postgres-table" | "reliability-run-payload";
+    evidence: string[];
+  };
   project: {
     id: string;
     teamId: string;
@@ -218,11 +238,39 @@ function claimPackageSourceSnapshotEvidence(
   };
 }
 
-export function getEnterpriseClaimEvidencePackage(
+export function enterpriseClaimEvidencePackageRuntime(): SenaEnterpriseClaimEvidencePackage["evidenceSource"] {
+  const reliabilityRuntime = enterpriseReliabilityRunRegistryRuntime();
+  const validationRuntime = enterpriseValidationRunRegistryRuntime();
+  const expertReviewRuntime = enterpriseExpertReviewRegistryRuntime();
+  const adjudicationRuntime = enterpriseAdjudicationRegistryRuntime();
+  const reliabilityRuns = reliabilityRuntime.activeStore;
+  const validationRuns = validationRuntime.activeStore;
+  const expertReviews = expertReviewRuntime.activeStore;
+  const adjudications = adjudicationRuntime.activeStore;
+  return {
+    reliabilityRuns,
+    validationRuns,
+    expertReviews,
+    adjudications,
+    evidence: [
+      `claimEvidenceReliabilityRuns=${reliabilityRuns}`,
+      `claimEvidenceValidationRuns=${validationRuns}`,
+      `claimEvidenceExpertReviews=${expertReviews}`,
+      `claimEvidenceAdjudications=${adjudications}`,
+      ...reliabilityRuntime.evidence,
+      ...validationRuntime.evidence,
+      ...expertReviewRuntime.evidence,
+      ...adjudicationRuntime.evidence
+    ]
+  };
+}
+
+function buildEnterpriseClaimEvidencePackageFromDb(
+  db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
-  input: { projectId: string }
+  input: { projectId: string },
+  evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"]
 ): SenaEnterpriseClaimEvidencePackage {
-  const db = readEnterpriseDb();
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
   const currentRevision = db.projectRevisions.find((revision) => (
     revision.projectId === project.id && revision.version === project.currentVersion
@@ -237,8 +285,13 @@ export function getEnterpriseClaimEvidencePackage(
   const approvedValidation = expertValidationTargetId
     ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId) ?? latestByTimestamp(approvedValidationRuns)
     : latestByTimestamp(approvedValidationRuns);
-  const reliabilityAdjudications = approvedReliability
+  const loadedReliabilityAdjudications = approvedReliability
     ? db.adjudications.filter((record) => record.reliabilityRunId === approvedReliability.id).length
+    : 0;
+  const reliabilityAdjudications = approvedReliability
+    ? evidenceSource.adjudications === "reliability-run-payload"
+      ? loadedReliabilityAdjudications || approvedReliability.adjudicationCoverage.resolvedDisagreements
+      : loadedReliabilityAdjudications
     : 0;
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -357,6 +410,7 @@ export function getEnterpriseClaimEvidencePackage(
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage,
     generatedAt: now(),
     status,
+    evidenceSource,
     project: {
       id: project.id,
       teamId: project.teamId,
@@ -384,4 +438,70 @@ export function getEnterpriseClaimEvidencePackage(
       "This package aggregates persisted enterprise evidence; it does not rerun analysis or alter project state."
     ]
   };
+}
+
+export function getEnterpriseClaimEvidencePackage(
+  context: SenaEnterpriseSessionContext,
+  input: { projectId: string }
+): SenaEnterpriseClaimEvidencePackage {
+  return buildEnterpriseClaimEvidencePackageFromDb(readEnterpriseDb(), context, input, {
+    reliabilityRuns: "file-json",
+    validationRuns: "file-json",
+    expertReviews: "file-json",
+    adjudications: "file-json",
+    evidence: [
+      "claimEvidenceReliabilityRuns=file-json",
+      "claimEvidenceValidationRuns=file-json",
+      "claimEvidenceExpertReviews=file-json",
+      "claimEvidenceAdjudications=file-json"
+    ]
+  });
+}
+
+export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { projectId: string }
+): Promise<SenaEnterpriseClaimEvidencePackage> {
+  const state = await readEnterpriseState();
+  const db = state.db;
+  requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
+  const evidenceSource = enterpriseClaimEvidencePackageRuntime();
+  let reliabilityRuns: SenaEnterpriseReliabilityRun[] = db.reliabilityRuns.filter((run) => run.projectId === input.projectId);
+  let validationRuns: SenaEnterpriseValidationRun[] = db.validationRuns.filter((run) => run.projectId === input.projectId);
+  let expertReviews: SenaEnterpriseExpertReview[] = db.expertReviews.filter((review) => review.projectId === input.projectId);
+  let adjudications: SenaEnterpriseAdjudicationRecord[] = db.adjudications.filter((record) => record.projectId === input.projectId);
+  const pools: Array<{ end?: () => Promise<void> }> = [];
+
+  try {
+    if (evidenceSource.reliabilityRuns === "postgres-table") {
+      const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
+      pools.push(pool);
+      reliabilityRuns = await adapter.listReliabilityRuns({ projectId: input.projectId, limit: 1000 });
+    }
+    if (evidenceSource.validationRuns === "postgres-table") {
+      const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
+      pools.push(pool);
+      validationRuns = await adapter.listValidationRuns({ projectId: input.projectId, limit: 1000 });
+    }
+    if (evidenceSource.expertReviews === "postgres-table") {
+      const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
+      pools.push(pool);
+      expertReviews = await adapter.listExpertReviews({ projectId: input.projectId, limit: 1000 });
+    }
+    if (evidenceSource.adjudications === "postgres-table") {
+      const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
+      pools.push(pool);
+      adjudications = await adapter.listAdjudications({ projectId: input.projectId, limit: 1000 });
+    }
+  } finally {
+    await Promise.all(pools.map((pool) => pool.end?.()));
+  }
+
+  return buildEnterpriseClaimEvidencePackageFromDb({
+    ...db,
+    adjudications,
+    reliabilityRuns,
+    validationRuns,
+    expertReviews
+  }, context, input, evidenceSource);
 }

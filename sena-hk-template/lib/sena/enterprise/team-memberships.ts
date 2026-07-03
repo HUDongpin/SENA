@@ -9,7 +9,9 @@ import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseProvisioningMetadata } from "./provisioning";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -34,8 +36,7 @@ function publicUser(user: SenaEnterpriseUser) {
   return safeUser;
 }
 
-export function listEnterpriseTeamState(context: SenaEnterpriseSessionContext) {
-  const db = readEnterpriseDb();
+function listEnterpriseTeamStateFromDb(db: SenaEnterpriseDb, context: SenaEnterpriseSessionContext) {
   const teamIds = new Set(context.teams.map((team) => team.id));
   return {
     teams: context.teams,
@@ -55,6 +56,15 @@ export function listEnterpriseTeamState(context: SenaEnterpriseSessionContext) {
   };
 }
 
+export function listEnterpriseTeamState(context: SenaEnterpriseSessionContext) {
+  return listEnterpriseTeamStateFromDb(readEnterpriseDb(), context);
+}
+
+export async function listEnterpriseTeamStateAsync(context: SenaEnterpriseSessionContext) {
+  const state = await readEnterpriseState();
+  return listEnterpriseTeamStateFromDb(state.db, context);
+}
+
 function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?: {
   membershipId: string;
   role: SenaEnterpriseRole;
@@ -67,11 +77,17 @@ function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?:
   }).length;
 }
 
-export function updateEnterpriseMembership(context: SenaEnterpriseSessionContext, membershipId: string, input: {
+export type SenaEnterpriseMembershipUpdateInput = {
   role?: SenaEnterpriseRole;
   status?: SenaEnterpriseMembership["status"];
-}) {
-  const db = readEnterpriseDb();
+};
+
+function updateEnterpriseMembershipInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  membershipId: string,
+  input: SenaEnterpriseMembershipUpdateInput
+) {
   const membership = db.memberships.find((candidate) => candidate.id === membershipId);
   if (!membership) throw new SenaEnterpriseError("Membership was not found.", 404, "membership_not_found");
   requireEnterprisePermission(context, membership.teamId, "team:manage");
@@ -107,6 +123,27 @@ export function updateEnterpriseMembership(context: SenaEnterpriseSessionContext
       status: membership.status
     }
   });
+  return membership;
+}
+
+export function updateEnterpriseMembership(
+  context: SenaEnterpriseSessionContext,
+  membershipId: string,
+  input: SenaEnterpriseMembershipUpdateInput
+) {
+  const db = readEnterpriseDb();
+  const membership = updateEnterpriseMembershipInDb(db, context, membershipId, input);
   saveDb(db);
+  return membership;
+}
+
+export async function updateEnterpriseMembershipAsync(
+  context: SenaEnterpriseSessionContext,
+  membershipId: string,
+  input: SenaEnterpriseMembershipUpdateInput
+) {
+  const state = await readEnterpriseState();
+  const membership = updateEnterpriseMembershipInDb(state.db, context, membershipId, input);
+  await saveEnterpriseState(state, state.db);
   return membership;
 }

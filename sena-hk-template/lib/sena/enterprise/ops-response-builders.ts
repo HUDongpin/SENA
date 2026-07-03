@@ -2,30 +2,43 @@ import type {
   SenaEnterpriseIdentityProductionEvidence
 } from "./identity-production-evidence";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
-import { getEnterpriseIdentityProductionEvidence } from "./identity-production-evidence";
+import {
+  getEnterpriseIdentityProductionEvidence,
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence
+} from "./identity-production-evidence";
 import { identityProductionDecisionIds } from "./identity-readiness";
 import { SenaEnterpriseError } from "./errors";
 import {
-  getEnterprisePlatformDecisionRegister
+  getEnterprisePlatformDecisionRegister,
+  getEnterprisePlatformDecisionRegisterWithPostgresState
 } from "./ops-deployment";
 import {
   listEnterprisePlatformDecisionAcceptances,
   reviewEnterprisePlatformDecision,
+  listEnterprisePlatformDecisionAcceptancesWithPostgresState,
+  reviewEnterprisePlatformDecisionWithPostgresState,
   type SenaEnterprisePlatformDecisionAcceptance,
   type SenaEnterprisePlatformDecisionAcceptanceInput
 } from "./ops-platform-decisions";
 import {
-  getEnterpriseGoLiveRehearsal
+  getEnterpriseGoLiveRehearsal,
+  getEnterpriseGoLiveRehearsalWithPostgresEvidence,
+  type SenaEnterpriseGoLiveRehearsal
 } from "./ops-go-live";
 import {
   createEnterpriseGoLiveAttestation,
+  createEnterpriseGoLiveAttestationWithPostgresEvidence,
   listEnterpriseGoLiveAttestations,
+  listEnterpriseGoLiveAttestationsWithPostgresEvidence,
   type SenaEnterpriseGoLiveAttestationInput
 } from "./ops-go-live-attestations";
 import {
   completeEnterprisePostCutoverObservation,
+  completeEnterprisePostCutoverObservationWithPostgresEvidence,
   recordEnterprisePostCutoverObservationSample,
-  startEnterprisePostCutoverObservation
+  recordEnterprisePostCutoverObservationSampleWithPostgresEvidence,
+  startEnterprisePostCutoverObservation,
+  startEnterprisePostCutoverObservationWithPostgresEvidence
 } from "./ops-post-cutover-observations";
 import type { SenaEnterpriseCapabilityAudit } from "./ops-capability-audit";
 import type { SenaEnterpriseReleaseGateReview } from "./ops-release-gate";
@@ -372,6 +385,27 @@ function stringList(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)) : undefined;
 }
 
+function platformDecisionReviewInputFromBody(
+  body: Record<string, unknown>
+): SenaEnterprisePlatformDecisionAcceptanceInput {
+  return {
+    teamId: String(body.teamId ?? ""),
+    decisionId: String(body.decisionId ?? ""),
+    status: String(body.status ?? "") as SenaEnterprisePlatformDecisionAcceptanceInput["status"],
+    acceptedBridge: Boolean(body.acceptedBridge),
+    ownerName: String(body.ownerName ?? ""),
+    ownerRole: String(body.ownerRole ?? ""),
+    environment: String(body.environment ?? ""),
+    evidenceUrl: body.evidenceUrl ? String(body.evidenceUrl) : undefined,
+    productionEvidenceIds: stringList(body.productionEvidenceIds),
+    productionEvidenceArtifactDigest: body.productionEvidenceArtifactDigest ? String(body.productionEvidenceArtifactDigest) : undefined,
+    productionEvidenceVerifiedAt: body.productionEvidenceVerifiedAt ? String(body.productionEvidenceVerifiedAt) : undefined,
+    requestPacketPolicyHash: body.requestPacketPolicyHash ? String(body.requestPacketPolicyHash) : undefined,
+    requireRequestPacketPolicyHash: true,
+    notes: String(body.notes ?? "")
+  };
+}
+
 export function buildEnterprisePlatformDecisionListResponse(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string }
@@ -389,26 +423,28 @@ export function buildEnterprisePlatformDecisionListResponse(
   };
 }
 
+export async function buildEnterprisePlatformDecisionListResponseWithPostgresState(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string }
+) {
+  const acceptances = await listEnterprisePlatformDecisionAcceptancesWithPostgresState(context, input);
+  const platformDecisionRegister = await getEnterprisePlatformDecisionRegisterWithPostgresState(input);
+  const identityProductionEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence(input);
+  return {
+    body: {
+      ...acceptances,
+      platformDecisionRegister,
+      identityProductionEvidence
+    },
+    headers: buildEnterpriseIdentityProductionEvidenceHeaders(identityProductionEvidence)
+  };
+}
+
 export function buildEnterprisePlatformDecisionReviewResponse(
   context: SenaEnterpriseSessionContext,
   body: Record<string, unknown>
 ) {
-  const acceptance = reviewEnterprisePlatformDecision(context, {
-    teamId: String(body.teamId ?? ""),
-    decisionId: String(body.decisionId ?? ""),
-    status: String(body.status ?? "") as SenaEnterprisePlatformDecisionAcceptanceInput["status"],
-    acceptedBridge: Boolean(body.acceptedBridge),
-    ownerName: String(body.ownerName ?? ""),
-    ownerRole: String(body.ownerRole ?? ""),
-    environment: String(body.environment ?? ""),
-    evidenceUrl: body.evidenceUrl ? String(body.evidenceUrl) : undefined,
-    productionEvidenceIds: stringList(body.productionEvidenceIds),
-    productionEvidenceArtifactDigest: body.productionEvidenceArtifactDigest ? String(body.productionEvidenceArtifactDigest) : undefined,
-    productionEvidenceVerifiedAt: body.productionEvidenceVerifiedAt ? String(body.productionEvidenceVerifiedAt) : undefined,
-    requestPacketPolicyHash: body.requestPacketPolicyHash ? String(body.requestPacketPolicyHash) : undefined,
-    requireRequestPacketPolicyHash: true,
-    notes: String(body.notes ?? "")
-  });
+  const acceptance = reviewEnterprisePlatformDecision(context, platformDecisionReviewInputFromBody(body));
   const platformDecisionRegister = getEnterprisePlatformDecisionRegister({ teamId: acceptance.teamId });
   const identityProductionEvidence = getEnterpriseIdentityProductionEvidence({ teamId: acceptance.teamId });
   return {
@@ -426,9 +462,32 @@ export function buildEnterprisePlatformDecisionReviewResponse(
   };
 }
 
-export function buildEnterpriseGoLiveRehearsalResponse(
-  input: SenaEnterpriseGoLiveRehearsalResponseInput
+export async function buildEnterprisePlatformDecisionReviewResponseWithPostgresState(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
 ) {
+  const acceptance = await reviewEnterprisePlatformDecisionWithPostgresState(
+    context,
+    platformDecisionReviewInputFromBody(body)
+  );
+  const platformDecisionRegister = await getEnterprisePlatformDecisionRegisterWithPostgresState({ teamId: acceptance.teamId });
+  const identityProductionEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId: acceptance.teamId });
+  return {
+    body: {
+      acceptance,
+      platformDecisionRegister,
+      identityProductionEvidence
+    },
+    status: 201,
+    headers: buildEnterprisePlatformDecisionReviewHeaders(
+      identityProductionEvidence,
+      acceptance.decisionId,
+      acceptance.productionEvidenceReceipt
+    )
+  };
+}
+
+function requireGoLiveRehearsalAccess(input: SenaEnterpriseGoLiveRehearsalResponseInput) {
   if (input.access.mode === "session") {
     if (!input.teamId) {
       throw new SenaEnterpriseError(
@@ -446,7 +505,32 @@ export function buildEnterpriseGoLiveRehearsalResponse(
     }
     listEnterprisePlatformDecisionAcceptances(input.context, { teamId: input.teamId });
   }
-  const rehearsal = getEnterpriseGoLiveRehearsal({ teamId: input.teamId });
+}
+
+async function requireGoLiveRehearsalAccessWithPostgresState(input: SenaEnterpriseGoLiveRehearsalResponseInput) {
+  if (input.access.mode === "session") {
+    if (!input.teamId) {
+      throw new SenaEnterpriseError(
+        "Team id is required for session-scoped go-live rehearsal access.",
+        400,
+        "go_live_rehearsal_team_required"
+      );
+    }
+    if (!input.context) {
+      throw new SenaEnterpriseError(
+        "Session context is required for session-scoped go-live rehearsal access.",
+        401,
+        "go_live_rehearsal_session_required"
+      );
+    }
+    await listEnterprisePlatformDecisionAcceptancesWithPostgresState(input.context, { teamId: input.teamId });
+  }
+}
+
+function buildEnterpriseGoLiveRehearsalResponseBody(
+  input: SenaEnterpriseGoLiveRehearsalResponseInput,
+  rehearsal: SenaEnterpriseGoLiveRehearsal
+) {
   const headers = buildEnterpriseIdentityProductionHandoffHeaders(rehearsal.identityProductionHandoff);
   if (input.artifact === "rollback-drill") {
     return {
@@ -477,6 +561,39 @@ export function buildEnterpriseGoLiveRehearsalResponse(
     },
     headers
   };
+}
+
+export function buildEnterpriseGoLiveRehearsalResponse(
+  input: SenaEnterpriseGoLiveRehearsalResponseInput
+) {
+  requireGoLiveRehearsalAccess(input);
+  return buildEnterpriseGoLiveRehearsalResponseBody(
+    input,
+    getEnterpriseGoLiveRehearsal({ teamId: input.teamId })
+  );
+}
+
+export async function buildEnterpriseGoLiveRehearsalResponseWithPostgresEvidence(
+  input: SenaEnterpriseGoLiveRehearsalResponseInput
+) {
+  await requireGoLiveRehearsalAccessWithPostgresState(input);
+  const responseInput = input.includeAttestations
+    ? { ...input, includeAttestations: false }
+    : input;
+  const response = buildEnterpriseGoLiveRehearsalResponseBody(
+    responseInput,
+    await getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId: input.teamId })
+  );
+  if (input.includeAttestations && input.context) {
+    return {
+      ...response,
+      body: {
+        ...response.body,
+        attestations: await listEnterpriseGoLiveAttestationsWithPostgresEvidence(input.context, { teamId: input.teamId })
+      }
+    };
+  }
+  return response;
 }
 
 export function buildEnterpriseGoLivePostResponse(
@@ -521,6 +638,70 @@ export function buildEnterpriseGoLivePostResponse(
     ? body.checklist as Partial<SenaEnterpriseGoLiveAttestationInput["checklist"]>
     : {};
   const attestation = createEnterpriseGoLiveAttestation(context, {
+    teamId: String(body.teamId ?? ""),
+    environment: String(body.environment ?? ""),
+    releaseVersion: String(body.releaseVersion ?? ""),
+    decision: String(body.decision ?? "") as SenaEnterpriseGoLiveAttestationInput["decision"],
+    attesterName: String(body.attesterName ?? ""),
+    attesterRole: String(body.attesterRole ?? ""),
+    notes: String(body.notes ?? ""),
+    checklist: {
+      rehearsalReviewed: Boolean(checklist.rehearsalReviewed),
+      releaseGateDraftReviewed: Boolean(checklist.releaseGateDraftReviewed),
+      verificationEvidenceReviewed: Boolean(checklist.verificationEvidenceReviewed),
+      rollbackOwnerConfirmed: Boolean(checklist.rollbackOwnerConfirmed),
+      platformOwnerDecisionReviewed: Boolean(checklist.platformOwnerDecisionReviewed)
+    }
+  });
+  return {
+    body: { attestation },
+    status: 201,
+    headers: buildEnterpriseIdentityProductionHandoffHeaders(attestation.identityProductionHandoffSnapshot)
+  };
+}
+
+export async function buildEnterpriseGoLivePostResponseWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  body: Record<string, unknown>
+) {
+  const action = typeof body.action === "string" ? body.action : "";
+  if (action === "start-post-cutover-observation") {
+    const observation = await startEnterprisePostCutoverObservationWithPostgresEvidence(context, {
+      teamId: String(body.teamId ?? ""),
+      environment: String(body.environment ?? ""),
+      releaseVersion: String(body.releaseVersion ?? "")
+    });
+    return {
+      body: { observation },
+      status: 201
+    };
+  }
+  if (action === "record-post-cutover-sample") {
+    const observation = await recordEnterprisePostCutoverObservationSampleWithPostgresEvidence(context, {
+      teamId: String(body.teamId ?? ""),
+      observationId: String(body.observationId ?? "")
+    });
+    return {
+      body: { observation }
+    };
+  }
+  if (action === "complete-post-cutover-observation") {
+    const observation = await completeEnterprisePostCutoverObservationWithPostgresEvidence(context, {
+      teamId: String(body.teamId ?? ""),
+      observationId: String(body.observationId ?? ""),
+      acknowledgedWarningAlertIds: Array.isArray(body.acknowledgedWarningAlertIds)
+        ? body.acknowledgedWarningAlertIds.map((value) => String(value))
+        : []
+    });
+    return {
+      body: { observation }
+    };
+  }
+
+  const checklist = typeof body.checklist === "object" && body.checklist !== null
+    ? body.checklist as Partial<SenaEnterpriseGoLiveAttestationInput["checklist"]>
+    : {};
+  const attestation = await createEnterpriseGoLiveAttestationWithPostgresEvidence(context, {
     teamId: String(body.teamId ?? ""),
     environment: String(body.environment ?? ""),
     releaseVersion: String(body.releaseVersion ?? ""),

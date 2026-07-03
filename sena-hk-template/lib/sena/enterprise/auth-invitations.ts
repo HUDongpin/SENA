@@ -16,7 +16,9 @@ import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseDb } from "./state";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState
 } from "./state";
 import type { SenaEnterpriseMembership } from "./team-memberships";
 
@@ -78,14 +80,24 @@ export function requirePendingInvitationForEmail(db: SenaEnterpriseDb, inviteCod
   return invitation;
 }
 
-export function createEnterpriseInvitation(context: SenaEnterpriseSessionContext, input: {
+export type SenaEnterpriseInvitationCreateInput = {
   teamId: string;
   email: string;
   role: SenaEnterpriseRole;
   baseUrl?: string;
-}) {
+};
+
+export type SenaEnterpriseInvitationAcceptInput = {
+  invitationId?: string;
+  inviteCode?: string;
+};
+
+function createEnterpriseInvitationInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseInvitationCreateInput
+) {
   requireEnterprisePermission(context, input.teamId, "member:invite");
-  const db = readEnterpriseDb();
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
   const invitation: SenaEnterpriseInvitation = {
@@ -141,21 +153,37 @@ export function createEnterpriseInvitation(context: SenaEnterpriseSessionContext
       emailDeliveryId: emailDelivery?.id ?? null
     }
   });
+  return invitation;
+}
+
+export function createEnterpriseInvitation(context: SenaEnterpriseSessionContext, input: SenaEnterpriseInvitationCreateInput) {
+  const db = readEnterpriseDb();
+  const invitation = createEnterpriseInvitationInDb(db, context, input);
   saveDb(db);
   return invitation;
 }
 
-export function acceptEnterpriseInvitation(context: SenaEnterpriseSessionContext, input: {
-  invitationId?: string;
-  inviteCode?: string;
-}) {
+export async function createEnterpriseInvitationAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseInvitationCreateInput
+) {
+  const state = await readEnterpriseState();
+  const invitation = createEnterpriseInvitationInDb(state.db, context, input);
+  await saveEnterpriseState(state, state.db);
+  return invitation;
+}
+
+function acceptEnterpriseInvitationInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseInvitationAcceptInput
+) {
   const invitationId = input.invitationId?.trim();
   const inviteCode = input.inviteCode?.trim();
   if (!invitationId && !inviteCode) {
     throw new SenaEnterpriseError("Invitation ID or invite code is required.", 400, "invitation_reference_required");
   }
 
-  const db = readEnterpriseDb();
   const invitation = db.invitations.find((candidate) => (
     invitationId ? candidate.id === invitationId : candidate.inviteCode === inviteCode
   ));
@@ -195,7 +223,6 @@ export function acceptEnterpriseInvitation(context: SenaEnterpriseSessionContext
       method: invitationId ? "invitation-id" : "invite-code"
     }
   });
-  saveDb(db);
   const session = db.sessions.find((candidate) => candidate.id === context.session.id) ?? context.session;
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.teamInvitationAcceptance,
@@ -205,8 +232,28 @@ export function acceptEnterpriseInvitation(context: SenaEnterpriseSessionContext
   };
 }
 
-export function revokeEnterpriseInvitation(context: SenaEnterpriseSessionContext, invitationId: string) {
+export function acceptEnterpriseInvitation(context: SenaEnterpriseSessionContext, input: SenaEnterpriseInvitationAcceptInput) {
   const db = readEnterpriseDb();
+  const accepted = acceptEnterpriseInvitationInDb(db, context, input);
+  saveDb(db);
+  return accepted;
+}
+
+export async function acceptEnterpriseInvitationAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseInvitationAcceptInput
+) {
+  const state = await readEnterpriseState();
+  const accepted = acceptEnterpriseInvitationInDb(state.db, context, input);
+  await saveEnterpriseState(state, state.db);
+  return accepted;
+}
+
+function revokeEnterpriseInvitationInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  invitationId: string
+) {
   const invitation = db.invitations.find((candidate) => candidate.id === invitationId);
   if (!invitation) throw new SenaEnterpriseError("Invitation was not found.", 404, "invitation_not_found");
   requireEnterprisePermission(context, invitation.teamId, "member:invite");
@@ -224,6 +271,19 @@ export function revokeEnterpriseInvitation(context: SenaEnterpriseSessionContext
       role: invitation.role
     }
   });
+  return invitation;
+}
+
+export function revokeEnterpriseInvitation(context: SenaEnterpriseSessionContext, invitationId: string) {
+  const db = readEnterpriseDb();
+  const invitation = revokeEnterpriseInvitationInDb(db, context, invitationId);
   saveDb(db);
+  return invitation;
+}
+
+export async function revokeEnterpriseInvitationAsync(context: SenaEnterpriseSessionContext, invitationId: string) {
+  const state = await readEnterpriseState();
+  const invitation = revokeEnterpriseInvitationInDb(state.db, context, invitationId);
+  await saveEnterpriseState(state, state.db);
   return invitation;
 }

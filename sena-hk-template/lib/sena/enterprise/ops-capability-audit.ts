@@ -7,16 +7,32 @@ import {
   formatIdentityReceiptArchiveArtifactCompletenessCounts,
   formatIdentityReceiptArchiveMissingInputCounts
 } from "./identity-receipt-archive";
-import { getEnterpriseGoLiveRehearsal } from "./ops-go-live";
-import { getEnterpriseSecurityPosture } from "./ops-security";
-import { readEnterpriseDb } from "./state";
 import {
-  getEnterpriseOrganizationDeploymentPackage
+  getEnterpriseGoLiveRehearsal,
+  getEnterpriseGoLiveRehearsalWithPostgresEvidence,
+  type SenaEnterpriseGoLiveRehearsal
+} from "./ops-go-live";
+import { getEnterpriseSecurityPosture } from "./ops-security";
+import {
+  readEnterpriseDb,
+  readEnterpriseState,
+  type SenaEnterpriseDb
+} from "./state";
+import {
+  getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
+  type SenaEnterpriseOrganizationDeploymentPackage
 } from "./ops-deployment";
 import {
-  getEnterpriseDeploymentReadiness
+  getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
+  type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
-import { getEnterpriseGovernanceStatus } from "./ops-governance";
+import {
+  getEnterpriseGovernanceStatus,
+  getEnterpriseGovernanceStatusWithPostgresEvidence,
+  type SenaEnterpriseGovernanceStatus
+} from "./ops-governance";
 import {
   idpAcceptanceEvidence,
   provisioningOwnerAcceptanceEvidence
@@ -27,7 +43,11 @@ import {
   platformDecisionProductionEvidenceReceipt
 } from "./ops-platform-decisions";
 import { isSelfManagedEnterpriseMode } from "./ops-platform-decision-policy";
-import { getEnterpriseOpsStatus } from "./ops-status";
+import {
+  getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
+  type SenaEnterpriseOpsStatus
+} from "./ops-status";
 
 function now() {
   return new Date().toISOString();
@@ -92,14 +112,33 @@ function enterpriseCapabilityAuditStatus(capabilities: SenaEnterpriseCapabilityA
   return "ready";
 }
 
-export function getEnterpriseCapabilityAudit(input: { teamId?: string } = {}): SenaEnterpriseCapabilityAudit {
-  const db = readEnterpriseDb();
+export function getEnterpriseCapabilityAudit(input: {
+  teamId?: string;
+  deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  goLiveRehearsal?: SenaEnterpriseGoLiveRehearsal;
+  governance?: SenaEnterpriseGovernanceStatus;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  db?: SenaEnterpriseDb;
+} = {}): SenaEnterpriseCapabilityAudit {
+  const db = input.db ?? readEnterpriseDb();
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const deployment = getEnterpriseOrganizationDeploymentPackage({ teamId: input.teamId });
-  const readiness = getEnterpriseDeploymentReadiness();
-  const governance = getEnterpriseGovernanceStatus();
-  const security = getEnterpriseSecurityPosture();
-  const goLiveRehearsal = getEnterpriseGoLiveRehearsal({ teamId: input.teamId });
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
+  const deployment = input.deployment ?? getEnterpriseOrganizationDeploymentPackage({
+    teamId: input.teamId,
+    readiness,
+    opsStatus,
+    db
+  });
+  const governance = input.governance ?? getEnterpriseGovernanceStatus({ db, opsStatus });
+  const security = getEnterpriseSecurityPosture({ governance, readiness });
+  const goLiveRehearsal = input.goLiveRehearsal ?? getEnterpriseGoLiveRehearsal({
+    teamId: input.teamId,
+    deployment,
+    readiness,
+    opsStatus
+  });
   const readinessItem = (id: string) => [...readiness.blocking, ...readiness.advisory].find((item) => item.id === id);
   const governanceItem = (id: string) => governance.checks.find((check) => check.id === id);
   const platformDecision = (id: string) => deployment.platformDecisionRegister.decisions.find((decision) => decision.id === id);
@@ -406,7 +445,7 @@ export function getEnterpriseCapabilityAudit(input: { teamId?: string } = {}): S
       evidence: [
         `projects=${governance.counts.projects}`,
         `analysisRuns=${governance.counts.analysisRuns}`,
-        `backupStatus=${getEnterpriseOpsStatus().backup.status}`,
+        `backupStatus=${opsStatus.backup.status}`,
         "revisionRestore=append-only",
         "conflictProtection=currentVersion|expectedVersion",
         "databaseSync=sena-enterprise-database-sync/v1"
@@ -602,4 +641,41 @@ export function getEnterpriseCapabilityAudit(input: { teamId?: string } = {}): S
     ],
     nextActions
   };
+}
+
+export async function getEnterpriseCapabilityAuditWithPostgresEvidence(input: {
+  teamId?: string;
+  deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  goLiveRehearsal?: SenaEnterpriseGoLiveRehearsal;
+  governance?: SenaEnterpriseGovernanceStatus;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  db?: SenaEnterpriseDb;
+} = {}): Promise<SenaEnterpriseCapabilityAudit> {
+  const db = input.db ?? (await readEnterpriseState()).db;
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = input.readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const deployment = input.deployment ?? await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+    teamId: input.teamId,
+    readiness,
+    opsStatus,
+    db
+  });
+  const governance = input.governance ?? await getEnterpriseGovernanceStatusWithPostgresEvidence({ opsStatus });
+  const goLiveRehearsal = input.goLiveRehearsal ?? await getEnterpriseGoLiveRehearsalWithPostgresEvidence({
+    teamId: input.teamId,
+    deployment,
+    readiness,
+    opsStatus,
+    governance
+  });
+  return getEnterpriseCapabilityAudit({
+    teamId: input.teamId,
+    deployment,
+    readiness,
+    goLiveRehearsal,
+    governance,
+    opsStatus,
+    db
+  });
 }

@@ -9,7 +9,9 @@ import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -96,6 +98,16 @@ export type SenaEnterpriseLoginMfaChallenge = {
   method: "totp";
   challengeToken: string;
   expiresAt: string;
+};
+
+export type SenaEnterpriseMfaEnableInput = {
+  setupToken: string;
+  code: string;
+  label?: string;
+};
+
+export type SenaEnterpriseMfaDisableInput = {
+  code: string;
 };
 
 function id(prefix: string) {
@@ -298,7 +310,6 @@ export function verifyMfaChallenge(db: SenaEnterpriseDb, user: SenaEnterpriseUse
   });
 
   if (!challengeValid || !codeValid || !challenge || !factor) {
-    saveDb(db);
     throw new SenaEnterpriseError("Authenticator code is incorrect or expired.", 401, "invalid_mfa_code");
   }
 
@@ -306,8 +317,10 @@ export function verifyMfaChallenge(db: SenaEnterpriseDb, user: SenaEnterpriseUse
   db.mfaChallenges = (db.mfaChallenges ?? []).filter((candidate) => candidate.id !== challenge.id);
 }
 
-export function getEnterpriseMfaStatus(context: SenaEnterpriseSessionContext): SenaEnterpriseMfaStatus {
-  const db = readEnterpriseDb();
+function getEnterpriseMfaStatusFromDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext
+): SenaEnterpriseMfaStatus {
   const factor = activeMfaFactor(db, context.user.id);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
@@ -319,8 +332,19 @@ export function getEnterpriseMfaStatus(context: SenaEnterpriseSessionContext): S
   };
 }
 
-export function createEnterpriseMfaSetup(context: SenaEnterpriseSessionContext): SenaEnterpriseMfaSetupResult {
-  const db = readEnterpriseDb();
+export function getEnterpriseMfaStatus(context: SenaEnterpriseSessionContext): SenaEnterpriseMfaStatus {
+  return getEnterpriseMfaStatusFromDb(readEnterpriseDb(), context);
+}
+
+export async function getEnterpriseMfaStatusAsync(context: SenaEnterpriseSessionContext): Promise<SenaEnterpriseMfaStatus> {
+  const state = await readEnterpriseState();
+  return getEnterpriseMfaStatusFromDb(state.db, context);
+}
+
+function createEnterpriseMfaSetupInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext
+): SenaEnterpriseMfaSetupResult {
   const user = db.users.find((candidate) => candidate.id === context.user.id);
   if (!user) throw new SenaEnterpriseError("Session user no longer exists.", 401, "session_user_missing");
   if (activeMfaFactor(db, user.id)) {
@@ -345,7 +369,6 @@ export function createEnterpriseMfaSetup(context: SenaEnterpriseSessionContext):
     teamId: mfaTeamId(context),
     detail: { method: "totp", setupId: setup.id, expiresAt: setup.expiresAt }
   });
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaSetup,
     method: "totp",
@@ -356,12 +379,25 @@ export function createEnterpriseMfaSetup(context: SenaEnterpriseSessionContext):
   };
 }
 
-export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: {
-  setupToken: string;
-  code: string;
-  label?: string;
-}): SenaEnterpriseMfaEnableResult {
+export function createEnterpriseMfaSetup(context: SenaEnterpriseSessionContext): SenaEnterpriseMfaSetupResult {
   const db = readEnterpriseDb();
+  const result = createEnterpriseMfaSetupInDb(db, context);
+  saveDb(db);
+  return result;
+}
+
+export async function createEnterpriseMfaSetupAsync(context: SenaEnterpriseSessionContext): Promise<SenaEnterpriseMfaSetupResult> {
+  const state = await readEnterpriseState();
+  const result = createEnterpriseMfaSetupInDb(state.db, context);
+  await saveEnterpriseState(state, state.db);
+  return result;
+}
+
+function enableEnterpriseMfaInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseMfaEnableInput
+): SenaEnterpriseMfaEnableResult {
   const user = db.users.find((candidate) => candidate.id === context.user.id);
   if (!user) throw new SenaEnterpriseError("Session user no longer exists.", 401, "session_user_missing");
   if (activeMfaFactor(db, user.id)) {
@@ -387,7 +423,6 @@ export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input
     }
   });
   if (!setup || !setupValid || !codeValid) {
-    saveDb(db);
     throw new SenaEnterpriseError("Authenticator setup code is incorrect or expired.", 401, "invalid_mfa_code");
   }
 
@@ -409,7 +444,6 @@ export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input
     teamId: mfaTeamId(context),
     detail: { method: "totp", factorId: factor.id }
   });
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
     enabled: true,
@@ -419,8 +453,38 @@ export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input
   };
 }
 
-export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: { code: string }): SenaEnterpriseMfaDisableResult {
+export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: SenaEnterpriseMfaEnableInput): SenaEnterpriseMfaEnableResult {
   const db = readEnterpriseDb();
+  try {
+    const result = enableEnterpriseMfaInDb(db, context, input);
+    saveDb(db);
+    return result;
+  } catch (error) {
+    saveDb(db);
+    throw error;
+  }
+}
+
+export async function enableEnterpriseMfaAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseMfaEnableInput
+): Promise<SenaEnterpriseMfaEnableResult> {
+  const state = await readEnterpriseState();
+  try {
+    const result = enableEnterpriseMfaInDb(state.db, context, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
+}
+
+function disableEnterpriseMfaInDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseMfaDisableInput
+): SenaEnterpriseMfaDisableResult {
   const user = db.users.find((candidate) => candidate.id === context.user.id);
   if (!user) throw new SenaEnterpriseError("Session user no longer exists.", 401, "session_user_missing");
   const factor = activeMfaFactor(db, user.id);
@@ -439,7 +503,6 @@ export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, inpu
     }
   });
   if (!success) {
-    saveDb(db);
     throw new SenaEnterpriseError("Authenticator code is incorrect.", 401, "invalid_mfa_code");
   }
 
@@ -451,11 +514,37 @@ export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, inpu
     teamId: mfaTeamId(context),
     detail: { method: "totp", factorId: factor.id }
   });
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseMfaStatus,
     enabled: false,
     method: null,
     disabledAt
   };
+}
+
+export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: SenaEnterpriseMfaDisableInput): SenaEnterpriseMfaDisableResult {
+  const db = readEnterpriseDb();
+  try {
+    const result = disableEnterpriseMfaInDb(db, context, input);
+    saveDb(db);
+    return result;
+  } catch (error) {
+    saveDb(db);
+    throw error;
+  }
+}
+
+export async function disableEnterpriseMfaAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseMfaDisableInput
+): Promise<SenaEnterpriseMfaDisableResult> {
+  const state = await readEnterpriseState();
+  try {
+    const result = disableEnterpriseMfaInDb(state.db, context, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
 }

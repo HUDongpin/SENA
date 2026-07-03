@@ -6,7 +6,9 @@ import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -165,7 +167,7 @@ export function pruneApiRateLimits(db: SenaEnterpriseDb) {
   return (db.apiRateLimits ?? []).filter((record) => Date.parse(record.expiresAt) > current);
 }
 
-export function enforceEnterpriseApiRateLimit(input: {
+function applyEnterpriseApiRateLimit(db: SenaEnterpriseDb, input: {
   bucket: string;
   key: string;
   limit?: number;
@@ -187,7 +189,6 @@ export function enforceEnterpriseApiRateLimit(input: {
   const keyHash = createHash("sha256").update(`${bucket}:${input.key || "anonymous"}`).digest("hex");
   const timestamp = now();
   const timestampMs = Date.parse(timestamp);
-  const db = readEnterpriseDb();
   db.apiRateLimits = pruneApiRateLimits(db);
   let record = db.apiRateLimits.find((candidate) => candidate.bucket === bucket && candidate.keyHash === keyHash);
   if (!record || Date.parse(record.expiresAt) <= timestampMs) {
@@ -223,11 +224,9 @@ export function enforceEnterpriseApiRateLimit(input: {
         }
       });
     }
-    saveDb(db);
     throw new SenaEnterpriseError("Too many requests. Try again after the rate-limit window resets.", 429, "api_rate_limited");
   }
 
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseApiRateLimit,
     bucket,
@@ -237,4 +236,38 @@ export function enforceEnterpriseApiRateLimit(input: {
     remaining: Math.max(0, limit - record.requestCount),
     resetAt: record.expiresAt
   };
+}
+
+export function enforceEnterpriseApiRateLimit(input: {
+  bucket: string;
+  key: string;
+  limit?: number;
+  windowSeconds?: number;
+}) {
+  const db = readEnterpriseDb();
+  try {
+    const result = applyEnterpriseApiRateLimit(db, input);
+    saveDb(db);
+    return result;
+  } catch (error) {
+    saveDb(db);
+    throw error;
+  }
+}
+
+export async function enforceEnterpriseApiRateLimitAsync(input: {
+  bucket: string;
+  key: string;
+  limit?: number;
+  windowSeconds?: number;
+}) {
+  const state = await readEnterpriseState();
+  try {
+    const result = applyEnterpriseApiRateLimit(state.db, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
 }

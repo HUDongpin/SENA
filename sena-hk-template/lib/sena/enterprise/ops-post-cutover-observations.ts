@@ -5,20 +5,31 @@ import type { SenaEnterpriseSessionContext } from "./auth-session";
 import { SenaEnterpriseError } from "./errors";
 import {
   getEnterpriseOpsAlerts,
+  getEnterpriseOpsAlertsWithPostgresEvidence,
   type SenaEnterpriseOpsAlerts
 } from "./ops-alerts";
 import { appendAudit } from "./ops-audit";
-import { getEnterpriseDeploymentReadiness } from "./ops-deployment-readiness";
-import { getEnterpriseGoLiveRehearsal } from "./ops-go-live";
+import {
+  getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence
+} from "./ops-deployment-readiness";
+import {
+  getEnterpriseGoLiveRehearsal,
+  getEnterpriseGoLiveRehearsalWithPostgresEvidence
+} from "./ops-go-live";
 import { manageableTeamIds } from "./ops-governance";
 import { now } from "./ops-runtime";
 import {
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
   type SenaEnterpriseOpsStatus
 } from "./ops-status";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 
 const postCutoverObservationMinutes = 60;
@@ -219,6 +230,37 @@ function postCutoverObservationPreflight(input: { teamId: string }) {
   };
 }
 
+type PostCutoverObservationPreflight = ReturnType<typeof postCutoverObservationPreflight>;
+
+async function postCutoverObservationPreflightWithPostgresEvidence(
+  input: { teamId: string }
+): Promise<PostCutoverObservationPreflight> {
+  const opsStatus = await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const rehearsal = await getEnterpriseGoLiveRehearsalWithPostgresEvidence({
+    teamId: input.teamId,
+    readiness,
+    opsStatus
+  });
+  const opsAlerts = await getEnterpriseOpsAlertsWithPostgresEvidence(opsStatus, readiness);
+  const releaseGateReady = latestReleaseGateReadyEvidence(rehearsal);
+  const rollbackReady = rehearsal.rollbackDrill.status === "ready";
+  return {
+    rehearsal,
+    opsStatus,
+    opsAlerts,
+    releaseGateReady,
+    rollbackReady,
+    blockers: [
+      rehearsal.status === "ready" ? null : "go-live-rehearsal-not-ready",
+      rollbackReady ? null : "rollback-drill-not-ready",
+      releaseGateReady ? null : "release-gate-not-ready",
+      opsStatus.status === "degraded" ? "ops-status-degraded" : null,
+      opsAlerts.summary.critical === 0 ? null : "critical-alerts-firing"
+    ].filter((blocker): blocker is string => Boolean(blocker))
+  };
+}
+
 export function listEnterprisePostCutoverObservations(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string } = {}
@@ -235,13 +277,31 @@ export function listEnterprisePostCutoverObservations(
   return postCutoverObservationList(observations, input);
 }
 
+export async function listEnterprisePostCutoverObservationsWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterprisePostCutoverObservationList> {
+  const teamIds = input.teamId ? [input.teamId] : manageableTeamIds(context);
+  if (input.teamId) {
+    requireEnterprisePermission(context, input.teamId, "team:manage");
+  } else if (teamIds.length === 0) {
+    throw new SenaEnterpriseError("Team management permission is required for post-cutover observations.", 403, "post_cutover_observation_permission_denied");
+  }
+  const state = await readEnterpriseState();
+  const teamIdSet = new Set(teamIds);
+  const observations = (state.db.postCutoverObservations ?? [])
+    .filter((observation) => teamIdSet.has(observation.teamId));
+  return postCutoverObservationList(observations, input);
+}
+
 export function startEnterprisePostCutoverObservation(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterprisePostCutoverObservationInput
+  input: SenaEnterprisePostCutoverObservationInput,
+  preflight: PostCutoverObservationPreflight = postCutoverObservationPreflight({ teamId: input.teamId }),
+  dbOverride?: SenaEnterpriseDb
 ): SenaEnterprisePostCutoverObservation {
   requireEnterprisePermission(context, input.teamId, "team:manage");
-  const db = readEnterpriseDb();
-  const preflight = postCutoverObservationPreflight({ teamId: input.teamId });
+  const db = dbOverride ?? readEnterpriseDb();
   if (preflight.blockers.length > 0) {
     throw new SenaEnterpriseError(
       `Post-cutover observation cannot start until release, rollback, ops, and alert checks are ready: ${preflight.blockers.join(", ")}.`,
@@ -291,16 +351,34 @@ export function startEnterprisePostCutoverObservation(
       samples: observation.samples.length
     }
   });
-  saveDb(db);
+  if (!dbOverride) saveDb(db);
+  return observation;
+}
+
+export async function startEnterprisePostCutoverObservationWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterprisePostCutoverObservationInput
+): Promise<SenaEnterprisePostCutoverObservation> {
+  const preflight = await postCutoverObservationPreflightWithPostgresEvidence({ teamId: input.teamId });
+  const state = await readEnterpriseState();
+  const observation = startEnterprisePostCutoverObservation(
+    context,
+    input,
+    preflight,
+    state.db
+  );
+  await saveEnterpriseState(state, state.db);
   return observation;
 }
 
 export function recordEnterprisePostCutoverObservationSample(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterprisePostCutoverObservationSampleInput
+  input: SenaEnterprisePostCutoverObservationSampleInput,
+  preflight: PostCutoverObservationPreflight = postCutoverObservationPreflight({ teamId: input.teamId }),
+  dbOverride?: SenaEnterpriseDb
 ): SenaEnterprisePostCutoverObservation {
   requireEnterprisePermission(context, input.teamId, "team:manage");
-  const db = readEnterpriseDb();
+  const db = dbOverride ?? readEnterpriseDb();
   const observation = (db.postCutoverObservations ?? [])
     .find((candidate) => candidate.id === input.observationId && candidate.teamId === input.teamId);
   if (!observation) {
@@ -309,7 +387,6 @@ export function recordEnterprisePostCutoverObservationSample(
   if (observation.status !== "active") {
     throw new SenaEnterpriseError("Post-cutover observation sample can only be recorded while observation is active.", 409, "post_cutover_observation_not_active");
   }
-  const preflight = postCutoverObservationPreflight({ teamId: input.teamId });
   observation.samples.push(postCutoverObservationSample({
     opsStatus: preflight.opsStatus,
     opsAlerts: preflight.opsAlerts,
@@ -330,16 +407,34 @@ export function recordEnterprisePostCutoverObservationSample(
       warningAlerts: latestSample?.warningAlerts ?? null
     }
   });
-  saveDb(db);
+  if (!dbOverride) saveDb(db);
+  return observation;
+}
+
+export async function recordEnterprisePostCutoverObservationSampleWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterprisePostCutoverObservationSampleInput
+): Promise<SenaEnterprisePostCutoverObservation> {
+  const preflight = await postCutoverObservationPreflightWithPostgresEvidence({ teamId: input.teamId });
+  const state = await readEnterpriseState();
+  const observation = recordEnterprisePostCutoverObservationSample(
+    context,
+    input,
+    preflight,
+    state.db
+  );
+  await saveEnterpriseState(state, state.db);
   return observation;
 }
 
 export function completeEnterprisePostCutoverObservation(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterprisePostCutoverObservationCompletionInput
+  input: SenaEnterprisePostCutoverObservationCompletionInput,
+  preflight: PostCutoverObservationPreflight = postCutoverObservationPreflight({ teamId: input.teamId }),
+  dbOverride?: SenaEnterpriseDb
 ): SenaEnterprisePostCutoverObservation {
   requireEnterprisePermission(context, input.teamId, "team:manage");
-  const db = readEnterpriseDb();
+  const db = dbOverride ?? readEnterpriseDb();
   const observation = (db.postCutoverObservations ?? [])
     .find((candidate) => candidate.id === input.observationId && candidate.teamId === input.teamId);
   if (!observation) {
@@ -351,7 +446,6 @@ export function completeEnterprisePostCutoverObservation(
   if (!observationElapsed(observation)) {
     throw new SenaEnterpriseError("Post-cutover observation requires a full 60-minute observation window before completion.", 409, "post_cutover_observation_window_incomplete");
   }
-  const preflight = postCutoverObservationPreflight({ teamId: input.teamId });
   const latestSample = observation.samples.at(-1);
   if (!latestSample || Date.parse(latestSample.recordedAt) < Date.parse(observation.requiredUntil)) {
     observation.samples.push(postCutoverObservationSample({
@@ -403,6 +497,22 @@ export function completeEnterprisePostCutoverObservation(
       completedAt: observation.completedAt
     }
   });
-  saveDb(db);
+  if (!dbOverride) saveDb(db);
+  return observation;
+}
+
+export async function completeEnterprisePostCutoverObservationWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterprisePostCutoverObservationCompletionInput
+): Promise<SenaEnterprisePostCutoverObservation> {
+  const preflight = await postCutoverObservationPreflightWithPostgresEvidence({ teamId: input.teamId });
+  const state = await readEnterpriseState();
+  const observation = completeEnterprisePostCutoverObservation(
+    context,
+    input,
+    preflight,
+    state.db
+  );
+  await saveEnterpriseState(state, state.db);
   return observation;
 }

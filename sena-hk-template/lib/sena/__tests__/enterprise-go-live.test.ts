@@ -13,6 +13,7 @@ import {
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview
 } from "../index";
+import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
 const goLiveEnvNames = [
   "NODE_ENV",
@@ -53,6 +54,14 @@ const goLiveEnvNames = [
   "SENA_ALERT_WEBHOOK_URL",
   "SENA_ALERT_WEBHOOK_SECRET",
   "SENA_ALERT_WEBHOOK_TIMEOUT_MS",
+  "SENA_OBSERVABILITY_PROVIDER",
+  "SENA_OBSERVABILITY_EXPORTER_URL",
+  "SENA_OBSERVABILITY_EXPORTER_SECRET",
+  "SENA_OBSERVABILITY_DASHBOARD_URL",
+  "SENA_OBSERVABILITY_RUNBOOK_URL",
+  "SENA_OBSERVABILITY_OWNER",
+  "SENA_OBSERVABILITY_SLO_P95_MS",
+  "SENA_OBSERVABILITY_SLO_ERROR_RATE_PERCENT",
   "SENA_SSO_INSTITUTION_CLIENT_ID",
   "SENA_SSO_INSTITUTION_TENANT_ID",
   "SENA_SSO_INSTITUTION_CLIENT_SECRET",
@@ -67,10 +76,118 @@ const goLiveEnvNames = [
   "SENA_IDENTITY_SECRET_ROTATION_CADENCE_DAYS",
   "SENA_IDENTITY_LIFECYCLE_OWNER_MODE",
   "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED",
+  "SENA_ENTERPRISE_DB_ADAPTER",
+  "SENA_ENTERPRISE_STATE_STORE",
+  "SENA_ENTERPRISE_POSTGRES_URL",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_CONFIRMED",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_ARTIFACT_SHA256",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_VERIFIED_AT",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_TARGET_HOST_SHA256",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_DEPLOYMENT_URL_SHA256",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_HTTP_STATUS",
+  "SENA_VERCEL_PRODUCTION_PREFLIGHT_RUNTIME_HEADER",
+  "SENA_CDN_ENABLED",
+  "SENA_CDN_PROVIDER",
+  "SENA_CDN_URL",
+  "SENA_CDN_COMPRESSION_CONFIRMED",
+  "SENA_CDN_STATIC_ASSET_CACHE_SECONDS",
+  "SENA_OBJECT_STORAGE_ADAPTER",
+  "SENA_OBJECT_STORAGE_ENDPOINT",
+  "SENA_OBJECT_STORAGE_BUCKET",
+  "SENA_OBJECT_STORAGE_REGION",
+  "SENA_OBJECT_STORAGE_ACCESS_KEY_ID",
+  "SENA_OBJECT_STORAGE_SECRET_ACCESS_KEY",
+  "SENA_OBJECT_STORAGE_PREFIX",
+  "SENA_JOB_QUEUE_ADAPTER",
+  "SENA_JOB_QUEUE_URL",
+  "SENA_JOB_QUEUE_SECRET",
+  "SENA_JOB_WORKER_RUNTIME",
+  "SENA_JOB_WORKER_CALLBACK_URL",
+  "SENA_JOB_WORKER_RUNBOOK_URL",
+  "SENA_JOB_WORKER_OWNER",
+  "SENA_JOB_WORKER_HEARTBEAT_CONFIRMED",
+  "SENA_JOB_WORKER_HEARTBEAT_SHA256",
+  "SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT",
+  "SENA_JOB_WORKER_CONTRACT_REQUIRED",
+  "SENA_JOB_WORKER_CONTRACT_CONFIRMED",
+  "SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256",
+  "SENA_JOB_WORKER_CONTRACT_VERIFIED_AT",
+  "SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
+  "SENA_PERFORMANCE_BUDGET_CONFIRMED",
+  "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
+  "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+  "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+  "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+  "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+  "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_CONFIRMED",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_ARTIFACT_SHA256",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_VERIFIED_AT",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_STATUS",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_READY_PROVIDER_GROUPS",
+  "SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED_PROVIDER_GROUPS",
+  "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED",
+  "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_CONFIRMED",
+  "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_ARTIFACT_SHA256",
+  "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_VERIFIED_AT",
+  "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_CONFIRMED",
+  "SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_SHA256",
+  "SENA_ENTERPRISE_POSTGRES_PROBE_VERIFIED_AT",
+  "SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_VALIDATION",
+  "SENA_OBJECT_STORAGE_LIVE_PROBE_REQUIRED",
+  "SENA_OBJECT_STORAGE_CONTRACT_CONFIRMED",
+  "SENA_OBJECT_STORAGE_CONTRACT_ARTIFACT_SHA256",
+  "SENA_OBJECT_STORAGE_CONTRACT_VERIFIED_AT",
+  "SENA_OBJECT_STORAGE_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_OBJECT_STORAGE_LIVE_PROBE_CONFIRMED",
+  "SENA_OBJECT_STORAGE_PROBE_ARTIFACT_SHA256",
+  "SENA_OBJECT_STORAGE_PROBE_VERIFIED_AT",
+  "SENA_OBJECT_STORAGE_PROBE_ARTIFACT_VALIDATION",
+  "SENA_CDN_LIVE_PROBE_REQUIRED",
+  "SENA_CDN_CONTRACT_CONFIRMED",
+  "SENA_CDN_CONTRACT_ARTIFACT_SHA256",
+  "SENA_CDN_CONTRACT_VERIFIED_AT",
+  "SENA_CDN_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_CDN_LIVE_PROBE_CONFIRMED",
+  "SENA_CDN_PROBE_ARTIFACT_SHA256",
+  "SENA_CDN_PROBE_VERIFIED_AT",
+  "SENA_CDN_PROBE_ARTIFACT_VALIDATION",
+  "SENA_JOB_QUEUE_LIVE_PROBE_REQUIRED",
+  "SENA_JOB_QUEUE_CONTRACT_CONFIRMED",
+  "SENA_JOB_QUEUE_CONTRACT_ARTIFACT_SHA256",
+  "SENA_JOB_QUEUE_CONTRACT_VERIFIED_AT",
+  "SENA_JOB_QUEUE_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_JOB_QUEUE_LIVE_PROBE_CONFIRMED",
+  "SENA_JOB_QUEUE_PROBE_ARTIFACT_SHA256",
+  "SENA_JOB_QUEUE_PROBE_VERIFIED_AT",
+  "SENA_JOB_QUEUE_PROBE_ARTIFACT_VALIDATION",
+  "SENA_OBSERVABILITY_LIVE_PROBE_REQUIRED",
+  "SENA_OBSERVABILITY_CONTRACT_CONFIRMED",
+  "SENA_OBSERVABILITY_CONTRACT_ARTIFACT_SHA256",
+  "SENA_OBSERVABILITY_CONTRACT_VERIFIED_AT",
+  "SENA_OBSERVABILITY_CONTRACT_ARTIFACT_VALIDATION",
+  "SENA_OBSERVABILITY_LIVE_PROBE_CONFIRMED",
+  "SENA_OBSERVABILITY_PROBE_ARTIFACT_SHA256",
+  "SENA_OBSERVABILITY_PROBE_VERIFIED_AT",
+  "SENA_OBSERVABILITY_PROBE_ARTIFACT_VALIDATION",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_ARTIFACT_SHA256",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_VERIFIED_AT",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_USERS",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_DURATION_SECONDS",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_P95_MS",
+  "SENA_CONFERENCE_LOAD_REHEARSAL_ERROR_RATE_PERCENT",
   "SENA_PASSWORD_RESET_EXPOSE_TOKEN"
 ];
 const goLiveIdpEvidenceArtifactDigest = "a".repeat(64);
 const goLiveProvisioningEvidenceArtifactDigest = "b".repeat(64);
+
+function sha256Text(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 function snapshotEnv() {
   return new Map(goLiveEnvNames.map((name) => [name, process.env[name]]));
@@ -126,6 +243,14 @@ function configureGoLiveEnv(enterpriseDbDir: string) {
   process.env.SENA_ALERT_WEBHOOK_URL = "https://alerts.example.test/sena/ops";
   process.env.SENA_ALERT_WEBHOOK_SECRET = "sena-alert-webhook-secret";
   process.env.SENA_ALERT_WEBHOOK_TIMEOUT_MS = "1000";
+  process.env.SENA_OBSERVABILITY_PROVIDER = "webhook";
+  process.env.SENA_OBSERVABILITY_EXPORTER_URL = "https://observe.example.test/sena";
+  process.env.SENA_OBSERVABILITY_EXPORTER_SECRET = "sena-observability-webhook-secret";
+  process.env.SENA_OBSERVABILITY_DASHBOARD_URL = "https://observe.example.test/sena/dashboard";
+  process.env.SENA_OBSERVABILITY_RUNBOOK_URL = "https://ops.example.test/sena-observability-runbook";
+  process.env.SENA_OBSERVABILITY_OWNER = "Institution platform rotation";
+  process.env.SENA_OBSERVABILITY_SLO_P95_MS = "2000";
+  process.env.SENA_OBSERVABILITY_SLO_ERROR_RATE_PERCENT = "5";
   process.env.SENA_SSO_INSTITUTION_CLIENT_ID = "sena-institution-client";
   process.env.SENA_SSO_INSTITUTION_TENANT_ID = "institution-tenant-2026";
   process.env.SENA_SSO_INSTITUTION_CLIENT_SECRET = "sena_oidc_2026_7c6b5a49382716f0e1d2c3b4a5968778";
@@ -140,6 +265,104 @@ function configureGoLiveEnv(enterpriseDbDir: string) {
   process.env.SENA_IDENTITY_SECRET_ROTATION_CADENCE_DAYS = "180";
   process.env.SENA_IDENTITY_LIFECYCLE_OWNER_MODE = "scim";
   process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED = "1";
+  process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+  process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+  process.env.SENA_ENTERPRISE_POSTGRES_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_CONFIRMED = "1";
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_ARTIFACT_SHA256 = "8".repeat(64);
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_TARGET_HOST_SHA256 = sha256Text("www.sena.hk");
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_DEPLOYMENT_URL_SHA256 = "7".repeat(64);
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_HTTP_STATUS = "200";
+  process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_RUNTIME_HEADER = "enterprise-neon";
+  process.env.SENA_CDN_ENABLED = "1";
+  process.env.SENA_CDN_PROVIDER = "institution-cdn";
+  process.env.SENA_CDN_URL = "https://cdn.example.test/sena";
+  process.env.SENA_CDN_COMPRESSION_CONFIRMED = "1";
+  process.env.SENA_CDN_STATIC_ASSET_CACHE_SECONDS = "31536000";
+  process.env.SENA_OBJECT_STORAGE_ADAPTER = "s3";
+  process.env.SENA_OBJECT_STORAGE_ENDPOINT = "https://objects.example.test";
+  process.env.SENA_OBJECT_STORAGE_BUCKET = "sena-private-bucket";
+  process.env.SENA_OBJECT_STORAGE_REGION = "us-east-1";
+  process.env.SENA_OBJECT_STORAGE_ACCESS_KEY_ID = "sena-access-key";
+  process.env.SENA_OBJECT_STORAGE_SECRET_ACCESS_KEY = "sena-object-storage-secret";
+  process.env.SENA_OBJECT_STORAGE_PREFIX = "sena/uploads";
+  process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+  process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+  process.env.SENA_JOB_QUEUE_SECRET = "sena-managed-job-queue-secret";
+  process.env.SENA_JOB_WORKER_RUNTIME = "institution-managed-worker";
+  process.env.SENA_JOB_WORKER_CALLBACK_URL = "https://sena.example.test/api/sena/ops/jobs";
+  process.env.SENA_JOB_WORKER_RUNBOOK_URL = "https://ops.example.test/sena-job-worker";
+  process.env.SENA_JOB_WORKER_OWNER = "Institution platform rotation";
+  process.env.SENA_JOB_WORKER_HEARTBEAT_CONFIRMED = "1";
+  process.env.SENA_JOB_WORKER_HEARTBEAT_SHA256 = "c".repeat(64);
+  process.env.SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_JOB_WORKER_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256 = "7".repeat(64);
+  process.env.SENA_JOB_WORKER_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED = "1";
+  process.env.SENA_PERFORMANCE_BUDGET_CONFIRMED = "1";
+  process.env.SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256 = "3".repeat(64);
+  process.env.SENA_PERFORMANCE_BUDGET_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256 = "4".repeat(64);
+  process.env.SENA_PERFORMANCE_BUDGET_GIT_COMMIT = "a".repeat(40);
+  process.env.SENA_PERFORMANCE_BUDGET_GIT_DIRTY = "false";
+  process.env.SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256 = "5".repeat(64);
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED = "1";
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_CONFIRMED = "1";
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_ARTIFACT_SHA256 = "6".repeat(64);
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_STATUS = "ready";
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_READY_PROVIDER_GROUPS = "8";
+  process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED_PROVIDER_GROUPS = "8";
+  process.env.SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_CONFIRMED = "1";
+  process.env.SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_ARTIFACT_SHA256 = "0".repeat(64);
+  process.env.SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_SHA256 = "d".repeat(64);
+  process.env.SENA_ENTERPRISE_POSTGRES_PROBE_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_OBJECT_STORAGE_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_OBJECT_STORAGE_CONTRACT_ARTIFACT_SHA256 = "6".repeat(64);
+  process.env.SENA_OBJECT_STORAGE_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_OBJECT_STORAGE_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_OBJECT_STORAGE_LIVE_PROBE_CONFIRMED = "1";
+  process.env.SENA_OBJECT_STORAGE_PROBE_ARTIFACT_SHA256 = "e".repeat(64);
+  process.env.SENA_OBJECT_STORAGE_PROBE_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_OBJECT_STORAGE_PROBE_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_CDN_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_CDN_CONTRACT_ARTIFACT_SHA256 = "4".repeat(64);
+  process.env.SENA_CDN_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_CDN_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_CDN_LIVE_PROBE_CONFIRMED = "1";
+  process.env.SENA_CDN_PROBE_ARTIFACT_SHA256 = "f".repeat(64);
+  process.env.SENA_CDN_PROBE_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_CDN_PROBE_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_JOB_QUEUE_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_JOB_QUEUE_CONTRACT_ARTIFACT_SHA256 = "8".repeat(64);
+  process.env.SENA_JOB_QUEUE_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_JOB_QUEUE_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_JOB_QUEUE_LIVE_PROBE_CONFIRMED = "1";
+  process.env.SENA_JOB_QUEUE_PROBE_ARTIFACT_SHA256 = "1".repeat(64);
+  process.env.SENA_JOB_QUEUE_PROBE_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_JOB_QUEUE_PROBE_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_OBSERVABILITY_CONTRACT_CONFIRMED = "1";
+  process.env.SENA_OBSERVABILITY_CONTRACT_ARTIFACT_SHA256 = "5".repeat(64);
+  process.env.SENA_OBSERVABILITY_CONTRACT_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_OBSERVABILITY_CONTRACT_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_OBSERVABILITY_LIVE_PROBE_CONFIRMED = "1";
+  process.env.SENA_OBSERVABILITY_PROBE_ARTIFACT_SHA256 = "2".repeat(64);
+  process.env.SENA_OBSERVABILITY_PROBE_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_OBSERVABILITY_PROBE_ARTIFACT_VALIDATION = "pass";
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED = "1";
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_ARTIFACT_SHA256 = "9".repeat(64);
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_USERS = "50";
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_DURATION_SECONDS = "1800";
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_P95_MS = "750";
+  process.env.SENA_CONFERENCE_LOAD_REHEARSAL_ERROR_RATE_PERCENT = "0";
   delete process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN;
 }
 
@@ -177,12 +400,29 @@ describe("SENA enterprise go-live production release", () => {
   it("reaches ready after SaaS approval, platform acceptance, native adapter certification, and verifier evidence", async () => {
     const envSnapshot = snapshotEnv();
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-go-live-"));
+    const pg = new RouteMemoryPostgres();
     vi.resetModules();
     configureGoLiveEnv(enterpriseDbDir);
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
 
     try {
       const enterprise = await import("../enterprise");
-      const registered = enterprise.registerEnterpriseUser({
+      const reliabilityRuntime = await import("../enterprise/reliability-runs");
+      const validationRuntime = await import("../enterprise/validation-runs");
+      const expertReviewRuntime = await import("../enterprise/expert-review");
+      const backupRuntime = await import("../enterprise/ops-backup");
+      const backupRestoreRuntime = await import("../enterprise/ops-backup-restore");
+      const registered = await enterprise.registerEnterpriseUserAsync({
         name: "Institution Platform Owner",
         email: "platform-owner@example.edu",
         password: "sena-secure-123",
@@ -191,19 +431,19 @@ describe("SENA enterprise go-live production release", () => {
       });
       const teamId = registered.context.teams[0].id;
 
-      expect(() => enterprise.startEnterprisePostCutoverObservation(registered.context, {
+      await expect(enterprise.startEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-before-release-gate"
-      })).toThrow(/cannot start/i);
+      })).rejects.toThrow(/cannot start/i);
 
-      await enterprise.preflightEnterpriseSsoProviders({
+      await enterprise.preflightEnterpriseSsoProvidersAsync({
         providers: ["institution"],
         baseUrl: "https://sena.example.test"
       });
 
       const snapshot = projectSnapshot();
-      const project = enterprise.createEnterpriseProject(registered.context, {
+      const project = await enterprise.createEnterpriseProjectAsync(registered.context, {
         teamId,
         title: snapshot.title,
         snapshot
@@ -216,7 +456,7 @@ describe("SENA enterprise go-live production release", () => {
         { coder_id: "c2", item_id: "u2", code_id: "Explanation", value: "1" }
       ]);
       const reliability = buildSenaReliabilityDashboard(reliabilityAnnotations.annotations);
-      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(registered.context, {
+      const reliabilityRun = await reliabilityRuntime.createEnterpriseReliabilityRunWithPostgresMirrorAsync(registered.context, {
         teamId,
         projectId: project.id,
         reviewer: "Institution reviewer",
@@ -226,7 +466,7 @@ describe("SENA enterprise go-live production release", () => {
         dashboard: reliability,
         reviewPatch: reliabilityDashboardToReview(reliability, "Institution reviewer")
       });
-      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+      await reliabilityRuntime.reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(registered.context, reliabilityRun.id, {
         status: "approved",
         notes: "No queued disagreements remain."
       });
@@ -238,7 +478,7 @@ describe("SENA enterprise go-live production release", () => {
         groupB: "Curriculum designer",
         iterations: 100
       });
-      const validationRun = enterprise.createEnterpriseValidationRun(registered.context, {
+      const validationRun = await validationRuntime.createEnterpriseValidationRunWithPostgresMirrorAsync(registered.context, {
         teamId,
         projectId: project.id,
         preregistrationNote: "Go-live validation fixture preregistration.",
@@ -249,11 +489,11 @@ describe("SENA enterprise go-live production release", () => {
           studySpecificInferenceReference: "prereg:go-live-production-release-v1"
         }
       });
-      enterprise.reviewEnterpriseValidationRun(registered.context, validationRun.id, {
+      await validationRuntime.reviewEnterpriseValidationRunWithPostgresMirrorAsync(registered.context, validationRun.id, {
         status: "approved",
         notes: "Approved as go-live validation support."
       });
-      enterprise.createEnterpriseExpertReview(registered.context, {
+      await expertReviewRuntime.createEnterpriseExpertReviewWithPostgresMirrorAsync(registered.context, {
         projectId: project.id,
         target: { kind: "validation-run", id: validationRun.id, label: "Go-live validation" },
         reviewerName: "Domain Expert",
@@ -268,9 +508,9 @@ describe("SENA enterprise go-live production release", () => {
         limitations: "Fixture only."
       });
 
-      const backup = enterprise.createEnterpriseBackup(registered.context, { teamId });
-      enterprise.verifyEnterpriseBackup(registered.context, backup);
-      enterprise.restoreEnterpriseBackup(registered.context, backup, { dryRun: true });
+      const backup = await backupRuntime.createEnterpriseBackupWithPostgresEvidence(registered.context, { teamId });
+      await backupRuntime.verifyEnterpriseBackupWithPostgresEvidence(registered.context, backup);
+      await backupRestoreRuntime.restoreEnterpriseBackupWithPostgresEvidence(registered.context, backup, { dryRun: true });
 
       const platformDecisionIds = [
         "native-managed-database",
@@ -284,13 +524,13 @@ describe("SENA enterprise go-live production release", () => {
         "native-managed-backup-storage",
         "full-saas-backend-operations"
       ];
-      const initialIdentityRequestPolicyHash = enterprise.getEnterpriseIdentityProductionEvidence({ teamId }).platformRequestPacket.evidence
+      const initialIdentityRequestPolicyHash = (await enterprise.getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId })).platformRequestPacket.evidence
         .find((entry) => entry.startsWith("requestPacketPolicyHash="))
         ?.slice("requestPacketPolicyHash=".length);
       expect(initialIdentityRequestPolicyHash).toMatch(/^[a-f0-9]{64}$/);
 
       for (const decisionId of platformDecisionIds) {
-        enterprise.reviewEnterprisePlatformDecision(registered.context, {
+        await enterprise.reviewEnterprisePlatformDecisionWithPostgresState(registered.context, {
           teamId,
           decisionId,
           status: "accepted",
@@ -333,7 +573,7 @@ describe("SENA enterprise go-live production release", () => {
         });
       }
 
-      const preReleaseDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage();
+      const preReleaseDeployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence();
       expect(preReleaseDeployment.platformDecisionRegister.summary.productionBlocking).toBe(0);
       expect(preReleaseDeployment.nativeAdapterCertification.summary.productionBlocking).toBe(0);
       expect(preReleaseDeployment.saasOperationsReadiness.summary.blockers).toEqual(expect.arrayContaining([
@@ -348,47 +588,24 @@ describe("SENA enterprise go-live production release", () => {
         "browser interaction smoke passed",
         "enterprise go-live evidence captured"
       ].join("\n");
-      const otherRegistered = enterprise.registerEnterpriseUser({
+      const otherRegistered = await enterprise.registerEnterpriseUserAsync({
         name: "Other Institution Release Owner",
         email: "other-release-owner@example.edu",
         password: "sena-secure-123",
         organization: "Other Institution Lab",
         plan: "enterprise"
       });
-      const otherTeamIdentityEvidence = (enterprise as typeof enterprise & {
-        getEnterpriseIdentityProductionEvidence: (input?: { teamId?: string }) => {
-          status: string;
-          summary: { missing: number };
-          evidenceManifest: { missingEvidenceIds: string[] };
-          acceptanceReceipts: Array<{ decisionId: string }>;
-          releaseGate: { approvalBlocked: boolean; productionBlockingDecisionIds: string[] };
-        };
-        getEnterprisePlatformDecisionRegister?: (input?: { teamId?: string }) => {
-          schemaVersion: "sena-enterprise-platform-decision-register/v1";
-          summary: { productionBlocking: number; acceptedBridge: number; acceptedBridgeMissingEvidence: number };
-          decisions: Array<{ id: string; acceptedBridge: boolean; ownerEvidence: string[] }>;
-        };
-      }).getEnterpriseIdentityProductionEvidence({ teamId: otherRegistered.context.teams[0].id });
-      const otherTeamPlatformDecisionRegister = (enterprise as typeof enterprise & {
-        getEnterprisePlatformDecisionRegister?: (input?: { teamId?: string }) => {
-          schemaVersion: "sena-enterprise-platform-decision-register/v1";
-          summary: { productionBlocking: number; acceptedBridge: number; acceptedBridgeMissingEvidence: number };
-          decisions: Array<{ id: string; acceptedBridge: boolean; ownerEvidence: string[] }>;
-        };
-      }).getEnterprisePlatformDecisionRegister?.({ teamId: otherRegistered.context.teams[0].id });
-      const otherTeamNativeAdapterCertification = (enterprise as typeof enterprise & {
-        getEnterpriseNativeAdapterCertification?: (input?: { teamId?: string }) => {
-          summary: { productionBlocking: number; acceptedBridge: number };
-          adapters: Array<{ decisionId: string; acceptedBridge: boolean; productionBlocking: boolean; ownerEvidence: string[] }>;
-        };
-      }).getEnterpriseNativeAdapterCertification?.({ teamId: otherRegistered.context.teams[0].id });
-      const otherTeamSaasOperationsReadiness = (enterprise as typeof enterprise & {
-        getEnterpriseSaasOperationsReadiness?: (input?: { teamId?: string }) => {
-          status: string;
-          approval: { fullSaasDecisionAccepted: boolean; latestReleaseGateStatus?: string };
-          summary: { acceptedBridge: number; blockers: string[] };
-        };
-      }).getEnterpriseSaasOperationsReadiness?.({ teamId: otherRegistered.context.teams[0].id });
+      const otherTeamIdentityEvidence = await enterprise.getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({
+        teamId: otherRegistered.context.teams[0].id
+      });
+      const otherTeamDeployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+        teamId: otherRegistered.context.teams[0].id
+      });
+      const otherTeamPlatformDecisionRegister = await enterprise.getEnterprisePlatformDecisionRegisterWithPostgresState({
+        teamId: otherRegistered.context.teams[0].id
+      });
+      const otherTeamNativeAdapterCertification = otherTeamDeployment.nativeAdapterCertification;
+      const otherTeamSaasOperationsReadiness = otherTeamDeployment.saasOperationsReadiness;
       expect(otherTeamPlatformDecisionRegister?.schemaVersion).toBe("sena-enterprise-platform-decision-register/v1");
       expect(otherTeamPlatformDecisionRegister?.summary.productionBlocking).toBeGreaterThanOrEqual(2);
       expect(otherTeamPlatformDecisionRegister?.summary.acceptedBridge).toBe(0);
@@ -423,7 +640,7 @@ describe("SENA enterprise go-live production release", () => {
         "institution-idp-approval",
         "institution-provisioning-owner"
       ]));
-      expect(() => enterprise.createEnterpriseReleaseGateReview(otherRegistered.context, {
+      await expect(enterprise.createEnterpriseReleaseGateReviewWithPostgresEvidence(otherRegistered.context, {
         teamId: otherRegistered.context.teams[0].id,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-other-team-go-live",
@@ -437,9 +654,32 @@ describe("SENA enterprise go-live production release", () => {
           summary: verifierOutput,
           outputSha256: createHash("sha256").update(verifierOutput).digest("hex")
         }
-      })).toThrow(/team-scoped platform decisions/);
+      })).rejects.toThrow(/team-scoped platform decisions/);
 
-      const releaseGate = enterprise.createEnterpriseReleaseGateReview(registered.context, {
+      await enterprise.preflightEnterpriseSsoProvidersAsync({
+        providers: ["institution"],
+        baseUrl: "https://sena.example.test"
+      });
+      const refreshedIdentityRequestPolicyHash = (await enterprise.getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId })).platformRequestPacket.evidence
+        .find((entry) => entry.startsWith("requestPacketPolicyHash="))
+        ?.slice("requestPacketPolicyHash=".length);
+      expect(refreshedIdentityRequestPolicyHash).toMatch(/^[a-f0-9]{64}$/);
+      await enterprise.reviewEnterprisePlatformDecisionWithPostgresState(registered.context, {
+        teamId,
+        decisionId: "institution-idp-approval",
+        status: "accepted",
+        acceptedBridge: true,
+        ownerName: "Ada Chen, Institution IAM Owner",
+        ownerRole: "Institution identity platform owner",
+        environment: "pilot-production",
+        evidenceUrl: "https://ops.institution.edu/sena/institution-idp-approval-refreshed-before-release-gate",
+        notes: "Refreshing institution IdP evidence immediately before release-gate approval so the technical binding matches the latest SSO preflight.",
+        productionEvidenceIds: ["idp-tenant-approval", "idp-callback-approval", "sso-provider-secrets", "sso-secret-store-reference", "sso-secret-rotation"],
+        productionEvidenceArtifactDigest: goLiveIdpEvidenceArtifactDigest,
+        productionEvidenceVerifiedAt: new Date().toISOString(),
+        requestPacketPolicyHash: refreshedIdentityRequestPolicyHash
+      });
+      const releaseGate = await enterprise.createEnterpriseReleaseGateReviewWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-go-live",
@@ -486,11 +726,11 @@ describe("SENA enterprise go-live production release", () => {
           missingReceipts: 0
         })
       }));
-      const releaseGateAudit = enterprise.listEnterpriseAuditLog(registered.context, {
+      const releaseGateAudit = await enterprise.listEnterpriseAuditLogAsync(registered.context, {
         teamId,
         event: "ops.release_gate.review"
-      }) as ReturnType<typeof enterprise.listEnterpriseAuditLog> & {
-        events: Array<ReturnType<typeof enterprise.listEnterpriseAuditLog>["events"][number] & {
+      }) as Awaited<ReturnType<typeof enterprise.listEnterpriseAuditLogAsync>> & {
+        events: Array<Awaited<ReturnType<typeof enterprise.listEnterpriseAuditLogAsync>>["events"][number] & {
           detail?: {
             identityRequestPacketPolicyHash?: string;
             identityRequestPacketPolicyBinding?: string;
@@ -524,7 +764,7 @@ describe("SENA enterprise go-live production release", () => {
         identityReceiptArchiveMissingInputs: "none"
       }));
 
-      const deployment = enterprise.getEnterpriseOrganizationDeploymentPackage();
+      const deployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence();
       expect(deployment.releaseGate.evidence).toEqual(expect.arrayContaining([
         `latestIdentityRequestPacketPolicyHash=${releaseGateRequestPolicyHash}`,
         "latestIdentityRequestPacketPolicyBinding=idp:current|provisioning:current",
@@ -543,8 +783,13 @@ describe("SENA enterprise go-live production release", () => {
       expect(deployment.saasOperationsReadiness.approval.latestReleaseGateVerificationStatus).toBe("passed");
       expect(deployment.saasOperationsReadiness.summary.blockers).toEqual([]);
       expect(deployment.nativeAdapterCertification.summary.productionBlocking).toBe(0);
+      expect(deployment.status).toBe("ready");
+      expect(deployment.summary.productionEvidenceStatus).toBe("ready");
+      expect(deployment.productionEvidenceManifest.summary.confirmed).toBe(14);
+      expect(deployment.productionEvidenceManifest.summary.performanceBudgetConfirmed).toBe(true);
+      expect(deployment.productionEvidenceManifest.summary.conferenceLoadConfirmed).toBe(true);
 
-      const goLive = enterprise.getEnterpriseGoLiveRehearsal();
+      const goLive = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence();
       expect(goLive.status).toBe("ready");
       expect(goLive.summary.blockers).toEqual([]);
       expect(goLive.releaseGateDraft.decision).toBe("approved");
@@ -582,7 +827,7 @@ describe("SENA enterprise go-live production release", () => {
         "identityProductionHandoffAllowedHosts=1",
         "identityProductionHandoffInvalidAllowedHosts=0"
       ]));
-      expect(() => enterprise.createEnterpriseGoLiveAttestation(registered.context, {
+      await expect(enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-go-live-attestation-before-observation",
@@ -597,12 +842,12 @@ describe("SENA enterprise go-live production release", () => {
           rollbackOwnerConfirmed: true,
           platformOwnerDecisionReviewed: true
         }
-      })).toThrow(/post-cutover monitor/i);
+      })).rejects.toThrow(/post-cutover monitor/i);
 
       const observationStartedAt = new Date();
       vi.useFakeTimers();
       vi.setSystemTime(observationStartedAt);
-      const observation = enterprise.startEnterprisePostCutoverObservation(registered.context, {
+      const observation = await enterprise.startEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-go-live"
@@ -621,21 +866,21 @@ describe("SENA enterprise go-live production release", () => {
           "alertRunbook=configured"
         ])
       }));
-      expect(() => enterprise.completeEnterprisePostCutoverObservation(registered.context, {
+      await expect(enterprise.completeEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
         teamId,
         observationId: observation.id,
         acknowledgedWarningAlertIds: []
-      })).toThrow(/60-minute/i);
+      })).rejects.toThrow(/60-minute/i);
 
       for (let minute = 6; minute <= 60; minute += 6) {
         vi.setSystemTime(new Date(observationStartedAt.getTime() + minute * 60 * 1000));
-        enterprise.recordEnterprisePostCutoverObservationSample(registered.context, {
+        await enterprise.recordEnterprisePostCutoverObservationSampleWithPostgresEvidence(registered.context, {
           teamId,
           observationId: observation.id
         });
       }
 
-      const completedObservation = enterprise.completeEnterprisePostCutoverObservation(registered.context, {
+      const completedObservation = await enterprise.completeEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
         teamId,
         observationId: observation.id,
         acknowledgedWarningAlertIds: []
@@ -643,12 +888,12 @@ describe("SENA enterprise go-live production release", () => {
       expect(completedObservation.status).toBe("ready");
       expect(completedObservation.completedAt).toBe(new Date(observationStartedAt.getTime() + 60 * 60 * 1000).toISOString());
       expect(completedObservation.samples.length).toBeGreaterThanOrEqual(11);
-      const listedObservations = enterprise.listEnterprisePostCutoverObservations(registered.context, { teamId });
+      const listedObservations = await enterprise.listEnterprisePostCutoverObservationsWithPostgresEvidence(registered.context, { teamId });
       expect(listedObservations.schemaVersion).toBe("sena-enterprise-post-cutover-observations/v1");
       expect(listedObservations.summary.ready).toBe(1);
       expect(listedObservations.observations[0]?.id).toBe(observation.id);
 
-      const goLiveAfterObservation = enterprise.getEnterpriseGoLiveRehearsal({ teamId });
+      const goLiveAfterObservation = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId });
       expect(goLiveAfterObservation.postCutoverMonitor.status).toBe("ready");
       expect(goLiveAfterObservation.postCutoverMonitor.summary.blockers).toEqual([]);
       expect(goLiveAfterObservation.postCutoverMonitor.checks.find((check) => check.id === "post-cutover-observation")).toEqual(expect.objectContaining({
@@ -659,7 +904,7 @@ describe("SENA enterprise go-live production release", () => {
         ])
       }));
 
-      const approvedGoLiveAttestation = enterprise.createEnterpriseGoLiveAttestation(registered.context, {
+      const approvedGoLiveAttestation = await enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-go-live-attestation",
@@ -799,8 +1044,8 @@ describe("SENA enterprise go-live production release", () => {
         "identityProductionHandoffSnapshotInvalidAllowedHosts=0"
       ]));
 
-      const otherTeamGoLive = (enterprise as typeof enterprise & {
-        getEnterpriseGoLiveRehearsal: (input?: { teamId?: string }) => {
+      const otherTeamGoLive = await (enterprise as typeof enterprise & {
+        getEnterpriseGoLiveRehearsalWithPostgresEvidence: (input?: { teamId?: string }) => Promise<{
           status: string;
           summary: {
             acceptedPlatformDecisions: number;
@@ -821,8 +1066,8 @@ describe("SENA enterprise go-live production release", () => {
               summary: { blockingRequests: number; missingProductionEvidence: number };
             };
           };
-        };
-      }).getEnterpriseGoLiveRehearsal({ teamId: otherRegistered.context.teams[0].id });
+        }>;
+      }).getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId: otherRegistered.context.teams[0].id });
       expect(otherTeamGoLive.status).toBe("blocked");
       expect(otherTeamGoLive.summary.acceptedPlatformDecisions).toBe(0);
       expect(otherTeamGoLive.summary.nativeAdapterProductionBlocking).toBeGreaterThanOrEqual(2);
@@ -865,11 +1110,11 @@ describe("SENA enterprise go-live production release", () => {
         })
       }));
 
-      const otherTeamCapabilityAudit = (enterprise as typeof enterprise & {
-        getEnterpriseCapabilityAudit: (input?: { teamId?: string }) => {
+      const otherTeamCapabilityAudit = await (enterprise as typeof enterprise & {
+        getEnterpriseCapabilityAuditWithPostgresEvidence: (input?: { teamId?: string }) => Promise<{
           capabilities: Array<{ id: string; status: string; remainingPlatformDecisions: string[]; evidence: string[] }>;
-        };
-      }).getEnterpriseCapabilityAudit({ teamId: otherRegistered.context.teams[0].id });
+        }>;
+      }).getEnterpriseCapabilityAuditWithPostgresEvidence({ teamId: otherRegistered.context.teams[0].id });
       const otherTeamAuthCapability = otherTeamCapabilityAudit.capabilities.find((capability) => capability.id === "auth-login-register-sso");
       expect(otherTeamAuthCapability?.status).toBe("review");
       expect(otherTeamAuthCapability?.remainingPlatformDecisions).toEqual(expect.arrayContaining([
@@ -883,7 +1128,7 @@ describe("SENA enterprise go-live production release", () => {
         "rotationFreshness=review"
       ]));
 
-      const otherTeamGoLiveAttestation = enterprise.createEnterpriseGoLiveAttestation(otherRegistered.context, {
+      const otherTeamGoLiveAttestation = await enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(otherRegistered.context, {
         teamId: otherRegistered.context.teams[0].id,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-other-team-go-live-attestation",
@@ -943,18 +1188,18 @@ describe("SENA enterprise go-live production release", () => {
         })
       }));
 
-      expect(enterprise.getEnterpriseGoLiveRehearsal({ teamId }).summary.blockers).toEqual([]);
-      const capabilityAudit = enterprise.getEnterpriseCapabilityAudit({ teamId });
+      expect((await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId })).summary.blockers).toEqual([]);
+      const capabilityAudit = await enterprise.getEnterpriseCapabilityAuditWithPostgresEvidence({ teamId });
       expect(capabilityAudit.capabilities.find((capability) => capability.id === "go-live-operations")).toEqual(expect.objectContaining({
         status: "ready",
         remainingPlatformDecisions: []
       }));
 
-      const currentIdentityRequestPolicyHash = enterprise.getEnterpriseIdentityProductionEvidence({ teamId }).platformRequestPacket.evidence
+      const currentIdentityRequestPolicyHash = (await enterprise.getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId })).platformRequestPacket.evidence
         .find((entry) => entry.startsWith("requestPacketPolicyHash="))
         ?.slice("requestPacketPolicyHash=".length);
       expect(currentIdentityRequestPolicyHash).toMatch(/^[a-f0-9]{64}$/);
-      enterprise.reviewEnterprisePlatformDecision(registered.context, {
+      await enterprise.reviewEnterprisePlatformDecisionWithPostgresState(registered.context, {
         teamId,
         decisionId: "institution-idp-approval",
         status: "accepted",
@@ -969,13 +1214,13 @@ describe("SENA enterprise go-live production release", () => {
         requestPacketPolicyHash: currentIdentityRequestPolicyHash,
         notes: "Renewing institution IdP evidence after release-gate approval; this should require a new release gate before go-live."
       });
-      const renewedIdentityHandoff = enterprise.getEnterpriseIdentityProductionEvidence({ teamId });
+      const renewedIdentityHandoff = await enterprise.getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ teamId });
       expect(renewedIdentityHandoff.status).toBe("ready");
       expect(renewedIdentityHandoff.dossierDigest).toMatch(/^[a-f0-9]{64}$/);
       expect(renewedIdentityHandoff.evidenceBindingDigest).toMatch(/^[a-f0-9]{64}$/);
       expect(renewedIdentityHandoff.evidenceBindingDigest).not.toBe(releaseGateIdentitySnapshot.evidenceBindingDigest);
 
-      const staleReleaseGateDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage({ teamId });
+      const staleReleaseGateDeployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({ teamId });
       expect(staleReleaseGateDeployment.saasOperationsReadiness.status).toBe("blocked");
       expect(staleReleaseGateDeployment.saasOperationsReadiness.summary.blockers).toEqual(expect.arrayContaining([
         "release-gate-identity-production-evidence-digest-stale"
@@ -986,7 +1231,7 @@ describe("SENA enterprise go-live production release", () => {
         "identityProductionReleaseGateDigestBinding=stale"
       ]));
 
-      const staleCapabilityAudit = enterprise.getEnterpriseCapabilityAudit({ teamId });
+      const staleCapabilityAudit = await enterprise.getEnterpriseCapabilityAuditWithPostgresEvidence({ teamId });
       const staleAuthCapability = staleCapabilityAudit.capabilities.find((capability) => capability.id === "auth-login-register-sso");
       expect(staleAuthCapability?.status).toBe("review");
       expect(staleAuthCapability?.remainingPlatformDecisions).toEqual(expect.arrayContaining([
@@ -999,7 +1244,7 @@ describe("SENA enterprise go-live production release", () => {
       ]));
       expect(staleAuthCapability?.nextAction).toContain("fresh release gate review");
 
-      const staleReleaseGateGoLive = enterprise.getEnterpriseGoLiveRehearsal({ teamId });
+      const staleReleaseGateGoLive = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId });
       expect(staleReleaseGateGoLive.status).toBe("blocked");
       expect(staleReleaseGateGoLive.summary.blockers).toEqual(expect.arrayContaining([
         "release-gate-identity-production-evidence-digest-stale"
@@ -1026,7 +1271,7 @@ describe("SENA enterprise go-live production release", () => {
           "identityProductionReleaseGateDigestBinding=stale"
         ])
       }));
-      expect(() => enterprise.createEnterpriseGoLiveAttestation(registered.context, {
+      await expect(enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(registered.context, {
         teamId,
         environment: "pilot-production",
         releaseVersion: "2026.06.14-go-live-stale-identity-release-gate",
@@ -1041,11 +1286,12 @@ describe("SENA enterprise go-live production release", () => {
           rollbackOwnerConfirmed: true,
           platformOwnerDecisionReviewed: true
         }
-      })).toThrow(/current rehearsal has blockers/i);
+      })).rejects.toThrow(/current rehearsal has blockers/i);
     } finally {
       vi.useRealTimers();
       restoreEnv(envSnapshot);
       rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.doUnmock("pg");
       vi.resetModules();
     }
   }, enterpriseGoLiveTestTimeoutMs);

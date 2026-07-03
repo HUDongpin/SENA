@@ -12,9 +12,12 @@ import {
 } from "./ops-alerts";
 import {
   appendAudit,
+  auditStoreRuntime,
   auditRetentionWindowDays,
   latestAuditAt,
-  verifyEnterpriseAuditIntegrity
+  verifyEnterpriseAuditIntegrity,
+  verifyEnterpriseAuditIntegrityAsync,
+  type SenaEnterpriseAuditIntegrity
 } from "./ops-audit";
 import {
   buildEnterprisePlatformDecisionRegister,
@@ -45,14 +48,26 @@ import {
 } from "./ops-release-gate";
 import {
   enterprisePostgresPublicEvidence,
-  enterprisePostgresStorageEngine,
-  enterprisePostgresStorageEvidence,
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
   type SenaEnterpriseOpsStatus,
   type SenaEnterprisePostgresStorageEvidence,
   type SenaEnterpriseStorageEngine
 } from "./ops-status";
-import { verifyEnterpriseUploadStorage } from "./import-analysis";
+import {
+  enterpriseAnalysisRunRegistryRuntime,
+  enterpriseImportRunRegistryRuntime,
+  enterpriseUploadRegistryRuntime,
+  summarizeEnterpriseUploadObjectStorageCustody,
+  summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence,
+  verifyEnterpriseUploadStorage,
+  verifyEnterpriseUploadStorageAsync,
+  type SenaEnterpriseUploadObjectStorageCustodySummary,
+  type SenaEnterpriseUploadStorageVerification
+} from "./import-analysis";
+import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
+import { enterpriseValidationRunRegistryRuntime } from "./validation-runs";
+import { enterpriseExpertReviewRegistryRuntime } from "./expert-review";
 import type { SenaEnterpriseProject } from "./team-project";
 import {
   hasEnterprisePermission,
@@ -95,12 +110,14 @@ import {
 } from "./auth-password";
 import type {
   SenaEnterpriseDb,
+  SenaEnterprisePrimaryStateRuntime,
   SenaEnterpriseTeam,
   SenaEnterpriseUser,
   SenaFileEnterpriseStateStore
 } from "./state";
 import {
   createConfiguredFileEnterpriseStateStore,
+  readEnterpriseState,
   readEnterpriseDb,
   saveDb,
   writeEnterpriseDb
@@ -129,14 +146,25 @@ import {
   positiveIntegerEnv,
   sha256Text
 } from "./ops-runtime";
+import {
+  enterpriseObjectStorageNativeProvider
+} from "./object-storage-adapter";
 
-export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus {
-  const db = readEnterpriseDb();
+export function getEnterpriseGovernanceStatus(input: {
+  db?: SenaEnterpriseDb;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  auditIntegrity?: SenaEnterpriseAuditIntegrity;
+  uploadStorageVerification?: SenaEnterpriseUploadStorageVerification;
+  uploadObjectStorageCustody?: SenaEnterpriseUploadObjectStorageCustodySummary;
+} = {}): SenaEnterpriseGovernanceStatus {
+  const db = input.db ?? readEnterpriseDb();
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
   const configuredDirectory = process.env.SENA_ENTERPRISE_DB_DIR ? "env-configured" : "default-local";
   const postgresConfig = resolveEnterprisePostgresConfig();
-  const storageEngine = enterprisePostgresStorageEngine(postgresConfig);
-  const postgresStorage = enterprisePostgresStorageEvidence(postgresConfig);
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const storageEngine = opsStatus.storage.engine;
+  const postgresStorage = opsStatus.storage.postgres;
+  const primaryStateRuntime = opsStatus.storage.primaryStateRuntime;
   const permissions = Array.from(new Set(Object.values(rolePermissions).flat())).sort();
   const oidcProviders = getEnterpriseSsoProviderStatuses();
   const configuredOidcProviders = oidcProviders.filter((provider) => provider.configured);
@@ -193,6 +221,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
   const unreadNotifications = db.notifications.filter((notification) => notification.status !== "read").length;
   const webhookProvider = notificationWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const objectStorageProvider = objectStorageWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const objectStorageNativeProvider = enterpriseObjectStorageNativeProvider();
   const backupProvider = backupWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const databaseSyncProvider = databaseSyncWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const collaborationProvider = collaborationPubSubProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
@@ -208,13 +237,20 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
   const emailDeliveredDeliveries = (db.emailDeliveries ?? []).filter((delivery) => delivery.status === "delivered").length;
   const emailFailedDeliveries = (db.emailDeliveries ?? []).filter((delivery) => delivery.status === "failed").length;
   const auditProvider = auditWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const auditRuntime = auditStoreRuntime();
   const provisioningTokenEvidence = provisioningTokenProductionEvidence();
   const auditWebhookPendingEvents = db.auditLog.filter((entry) => entry.webhookDelivery?.status === "pending").length;
   const auditWebhookDeliveredEvents = db.auditLog.filter((entry) => entry.webhookDelivery?.status === "delivered").length;
   const auditWebhookFailedEvents = db.auditLog.filter((entry) => entry.webhookDelivery?.status === "failed").length;
-  const auditIntegrity = verifyEnterpriseAuditIntegrity();
-  const uploadStorageVerification = verifyEnterpriseUploadStorage();
-  const opsStatus = getEnterpriseOpsStatus();
+  const auditIntegrity = input.auditIntegrity ?? verifyEnterpriseAuditIntegrity();
+  const uploadStorageVerification = input.uploadStorageVerification ?? verifyEnterpriseUploadStorage();
+  const uploadObjectStorageCustody = input.uploadObjectStorageCustody ?? summarizeEnterpriseUploadObjectStorageCustody();
+  const uploadRegistryRuntime = enterpriseUploadRegistryRuntime();
+  const importRunRegistryRuntime = enterpriseImportRunRegistryRuntime();
+  const analysisRunRegistryRuntime = enterpriseAnalysisRunRegistryRuntime();
+  const reliabilityRunRegistryRuntime = enterpriseReliabilityRunRegistryRuntime();
+  const validationRunRegistryRuntime = enterpriseValidationRunRegistryRuntime();
+  const expertReviewRegistryRuntime = enterpriseExpertReviewRegistryRuntime();
   const alertProvider = alertWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const configuredAlertingOwner = alertingOwner();
   const configuredAlertingRunbookUrl = alertingRunbookUrl();
@@ -366,9 +402,12 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
     {
       id: "persistence",
       label: "Project persistence",
-      status: postgresConfig.configured || configuredDirectory === "env-configured" ? "pass" : "review",
+      status: primaryStateRuntime.activePrimary === "postgres" || configuredDirectory === "env-configured" ? "pass" : "review",
       evidence: [
         `engine=${storageEngine}`,
+        `stateStore=${primaryStateRuntime.mode}`,
+        `activePrimary=${primaryStateRuntime.activePrimary}`,
+        `postgresPrimaryRequested=${primaryStateRuntime.postgresPrimaryRequested}`,
         `configuredDirectory=${configuredDirectory}`,
         ...(postgresConfig.adapterRequested ? enterprisePostgresPublicEvidence(postgresConfig) : []),
         `projects=${db.projects.length}`,
@@ -378,11 +417,13 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         "revisionRestore=append-only",
         `revisionRestoreEvents=${db.auditLog.filter((entry) => entry.event === "project.restore").length}`
       ],
-      nextAction: postgresConfig.configured
+      nextAction: primaryStateRuntime.activePrimary === "postgres"
         ? "Keep Neon/Postgres backup, branching, and restore drills in release verification."
-        : configuredDirectory === "env-configured"
-          ? "Back up the configured enterprise data directory and set retention policy."
-        : "Set SENA_ENTERPRISE_DB_DIR to a managed, backed-up path or replace the adapter with a managed database before production."
+        : postgresConfig.configured
+          ? "Set SENA_ENTERPRISE_STATE_STORE=postgres before treating the configured Postgres adapter as the primary project state store."
+          : configuredDirectory === "env-configured"
+            ? "Back up the configured enterprise data directory and set retention policy."
+            : "Set SENA_ENTERPRISE_DB_DIR to a managed, backed-up path or replace the adapter with a managed database before production."
     },
     {
       id: "database-sync-bridge",
@@ -523,16 +564,24 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         "storage=private-enterprise-upload-directory",
         "objectStorageDelivery=POST:/api/sena/uploads action=deliver-object-storage",
         "objectStorageWebhookSchema=sena-enterprise-upload-object-storage-webhook/v1",
+        ...objectStorageNativeProvider.evidence,
         `objectStorageProvider=${objectStorageProvider.mode}`,
         `objectStorageEndpointHash=${objectStorageProvider.endpointHash ?? "none"}`,
         `objectStorageSecret=${objectStorageProvider.secretConfigured ? "configured" : "missing"}`,
         `objectStorageDeliverEvents=${uploadObjectStorageDeliverEvents.length}`,
         `objectStorageFailEvents=${uploadObjectStorageFailEvents.length}`,
+        `objectStorageCustodyDelivered=${uploadObjectStorageCustody.delivered}`,
+        `objectStorageCustodyPending=${uploadObjectStorageCustody.pending}`,
+        `objectStorageCustodyFailed=${uploadObjectStorageCustody.failed}`,
+        `objectStorageCustodyPendingReview=${uploadObjectStorageCustody.pendingReview}`,
+        ...uploadRegistryRuntime.evidence,
         "metadata=team|user|contentType|size|adapterProfile|scanStatus"
       ],
-      nextAction: objectStorageProvider.configured && objectStorageProvider.secretConfigured
-        ? "Keep signed object-storage handoff and scan-review policy documented before cross-organization deployment."
-        : "Move upload blobs to managed object storage with retention and malware scanning before cross-organization deployment."
+      nextAction: objectStorageNativeProvider.configured
+        ? "Keep native object-storage handoff, scan-review policy, retention, and versioning evidence documented before cross-organization deployment."
+        : objectStorageProvider.configured && objectStorageProvider.secretConfigured
+          ? "Keep signed object-storage handoff and scan-review policy documented before cross-organization deployment."
+          : "Move upload blobs to managed object storage with retention and malware scanning before cross-organization deployment."
     },
     {
       id: "upload-security-scan",
@@ -556,6 +605,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         "schema=sena-enterprise-upload-storage-verification/v1",
         "objectStorageWebhookSchema=sena-enterprise-upload-object-storage-webhook/v1",
         "storage=private-local-directory",
+        ...objectStorageNativeProvider.evidence,
         `objectStorageProvider=${objectStorageProvider.mode}`,
         `objectStorageEndpointHash=${objectStorageProvider.endpointHash ?? "none"}`,
         `objectStorageSecret=${objectStorageProvider.secretConfigured ? "configured" : "missing"}`,
@@ -580,6 +630,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         `warnings=${db.importRuns.reduce((total, run) => total + run.warningCount, 0)}`,
         `profiles=${Array.from(new Set(db.importRuns.flatMap((run) => run.sources.map((source) => source.profile)))).join("|") || "none"}`,
         `cleaningManifests=${db.importRuns.filter((run) => run.cleaningManifest?.schemaVersion === SENA_SCHEMA_VERSIONS.importCleaningManifest).length}`,
+        ...importRunRegistryRuntime.evidence,
         "cleaningManifest=sena-import-cleaning-manifest/v1",
         "lineage=uploadIds|adapterProfiles|datasetCounts|warningsPreview|cleaningManifest",
         "adapters=csv|excel|sena-json|lms-forum-json|lms-forum-export|cleaned-transcript"
@@ -595,6 +646,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         "schema=sena-analysis-run/v1",
         "api=/api/sena/analyze",
         "historyApi=GET:/api/sena/analyze",
+        ...analysisRunRegistryRuntime.evidence,
         "lineage=team|project|persistedProject|sourceKind|datasetCounts|activeTemporalWindow",
         "artifactFingerprints=reportSha256|projectSnapshotSha256|runtimeBundleSha256",
         `runtimeBundles=${db.analysisRuns.filter((run) => run.includeRuntimeBundle).length}`,
@@ -608,6 +660,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
       status: auditIntegrity.status,
       evidence: [
         "schema=sena-enterprise-audit-integrity/v1",
+        ...auditRuntime.evidence,
         `auditEvents=${db.auditLog.length}`,
         `retention=max-${auditRetentionMaxEvents}-events`,
         `retentionDays=${auditIntegrity.retention.retentionWindowDays ?? "missing"}`,
@@ -640,6 +693,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         `approved=${db.reliabilityRuns.filter((run) => run.status === "approved").length}`,
         `pending=${db.reliabilityRuns.filter((run) => run.status === "pending-review" || run.status === "pending-adjudication").length}`,
         `reliabilityAdjudications=${db.adjudications.filter((record) => record.reliabilityRunId).length}`,
+        ...reliabilityRunRegistryRuntime.evidence,
         "dashboard=sena-coding-reliability-dashboard/v1",
         "adjudicationCoverage=sena-reliability-adjudication-coverage/v1",
         `latestAdjudicationCoverage=${db.reliabilityRuns[0]?.adjudicationCoverage?.coverageRate ?? "missing"}`,
@@ -662,6 +716,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         "schema=sena-group-comparison/v1|sena-group-comparison-suite/v1",
         "method=permutation-two-sided|bootstrap-ci|effect-size",
         "multipleComparison=holm",
+        ...validationRunRegistryRuntime.evidence,
         `suiteRuns=${db.validationRuns.filter((run) => run.result?.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite).length}`,
         `preregistrationPlans=${db.validationRuns.filter((run) => run.preregistrationPlan?.schemaVersion === SENA_SCHEMA_VERSIONS.validationPreregistrationPlan).length}`,
         "preregistrationPlan=sena-validation-preregistration-plan/v1",
@@ -685,6 +740,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
         `changesRequested=${db.expertReviews.filter((review) => review.status === "changes-requested").length}`,
         `claimReadyWithLimits=${db.expertReviews.filter((review) => review.claimScope === "claim-ready-with-limits").length}`,
         "schema=sena-enterprise-expert-review/v1",
+        ...expertReviewRegistryRuntime.evidence,
         "ratings=data-adequacy|method-fit|interpretation-validity",
         "targets=project|validation-run|reliability-run|claim",
         "signoff=requested|approved|changes-requested|rejected"
@@ -771,6 +827,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
     generatedAt: now(),
     storage: {
       engine: storageEngine,
+      primaryStateRuntime,
       configuredDirectory,
       pathHint: enterpriseDbPathHint,
       ...(postgresStorage ? { postgres: postgresStorage } : {})
@@ -818,6 +875,7 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
       uploads: db.uploads.length,
       importRuns: db.importRuns.length,
       analysisRuns: db.analysisRuns.length,
+      serverJobs: (db.serverJobs ?? []).length,
       reliabilityRuns: db.reliabilityRuns.length,
       validationRuns: db.validationRuns.length,
       expertReviews: db.expertReviews.length,
@@ -836,12 +894,33 @@ export function getEnterpriseGovernanceStatus(): SenaEnterpriseGovernanceStatus 
   };
 }
 
+export async function getEnterpriseGovernanceStatusWithPostgresEvidence(input: {
+  opsStatus?: SenaEnterpriseOpsStatus;
+  auditIntegrity?: SenaEnterpriseAuditIntegrity;
+  uploadStorageVerification?: SenaEnterpriseUploadStorageVerification;
+  uploadObjectStorageCustody?: SenaEnterpriseUploadObjectStorageCustodySummary;
+} = {}): Promise<SenaEnterpriseGovernanceStatus> {
+  const state = await readEnterpriseState();
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const auditIntegrity = input.auditIntegrity ?? await verifyEnterpriseAuditIntegrityAsync();
+  const uploadStorageVerification = input.uploadStorageVerification ?? await verifyEnterpriseUploadStorageAsync();
+  const uploadObjectStorageCustody = input.uploadObjectStorageCustody ?? await summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence();
+  return getEnterpriseGovernanceStatus({
+    db: state.db,
+    opsStatus,
+    auditIntegrity,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
+}
+
 export type SenaEnterpriseGovernanceStatus = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGovernance;
   status: "ready" | "review";
   generatedAt: string;
   storage: {
     engine: SenaEnterpriseStorageEngine;
+    primaryStateRuntime: SenaEnterprisePrimaryStateRuntime;
     configuredDirectory: "default-local" | "env-configured";
     pathHint: string;
     postgres?: SenaEnterprisePostgresStorageEvidence;
@@ -897,6 +976,7 @@ export type SenaEnterpriseGovernanceStatus = {
     uploads: number;
     importRuns: number;
     analysisRuns: number;
+    serverJobs: number;
     reliabilityRuns: number;
     validationRuns: number;
     expertReviews: number;

@@ -1,4 +1,5 @@
 import type { SenaEnterprisePostgresConfig } from "../enterprise-postgres";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { passwordResetTokenExposure } from "./auth-config";
 import {
   alertingChannel,
@@ -10,6 +11,8 @@ import {
   enterprisePostgresPublicEvidence,
   enterprisePostgresStorageEngine
 } from "./ops-status";
+import type { SenaEnterprisePrimaryStateRuntime } from "./state";
+import type { SenaEnterpriseObjectStorageNativeProvider } from "./object-storage-adapter";
 
 export type SenaEnterpriseOrganizationDeploymentDecision = {
   id: string;
@@ -28,8 +31,10 @@ type SenaEnterpriseOrganizationDeploymentDecisionProvider = {
 export function buildEnterpriseOrganizationDeploymentDecisions(input: {
   selfManagedEnterprise: boolean;
   postgresConfig: SenaEnterprisePostgresConfig;
+  primaryStateRuntime: SenaEnterprisePrimaryStateRuntime;
   databaseSyncProvider: SenaEnterpriseOrganizationDeploymentDecisionProvider;
   objectStorageProvider: SenaEnterpriseOrganizationDeploymentDecisionProvider;
+  objectStorageNativeProvider: SenaEnterpriseObjectStorageNativeProvider;
   collaborationProvider: SenaEnterpriseOrganizationDeploymentDecisionProvider;
   backupProvider: SenaEnterpriseOrganizationDeploymentDecisionProvider;
   alertProvider: SenaEnterpriseOrganizationDeploymentDecisionProvider;
@@ -41,13 +46,15 @@ export function buildEnterpriseOrganizationDeploymentDecisions(input: {
   fullSaasDecisionAccepted: boolean | undefined;
 }): SenaEnterpriseOrganizationDeploymentDecision[] {
   const alertingReady = Boolean(alertingOwner()) && input.alertProvider.configured && input.alertProvider.secretConfigured;
-  const managedDatabaseReady = input.postgresConfig.configured ||
+  const postgresPrimaryReady = input.postgresConfig.configured && input.primaryStateRuntime.activePrimary === "postgres";
+  const managedDatabaseReady = postgresPrimaryReady ||
     (input.databaseSyncProvider.configured && input.databaseSyncProvider.secretConfigured);
+  const managedObjectStorageReady = input.objectStorageNativeProvider.configured ||
+    (input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured);
   const fullSaasBackendReady = input.fullSaasBackendApproved &&
     Boolean(input.fullSaasDecisionAccepted) &&
     managedDatabaseReady &&
-    input.objectStorageProvider.configured &&
-    input.objectStorageProvider.secretConfigured &&
+    managedObjectStorageReady &&
     input.collaborationProvider.configured &&
     input.collaborationProvider.secretConfigured &&
     input.backupProvider.configured &&
@@ -64,12 +71,15 @@ export function buildEnterpriseOrganizationDeploymentDecisions(input: {
     {
       id: "native-managed-database",
       label: "Native managed database adapter ownership",
-      status: input.postgresConfig.configured
+      status: postgresPrimaryReady
         ? "ready"
         : input.databaseSyncProvider.configured && input.databaseSyncProvider.secretConfigured ? "bridge-ready" : "open",
       evidence: input.postgresConfig.configured
         ? [
-          `current=${enterprisePostgresStorageEngine(input.postgresConfig)}`,
+          `current=${postgresPrimaryReady ? enterprisePostgresStorageEngine(input.postgresConfig) : "file-backed-json"}`,
+          `stateStore=${input.primaryStateRuntime.mode}`,
+          `activePrimary=${input.primaryStateRuntime.activePrimary}`,
+          `postgresPrimaryRequested=${input.primaryStateRuntime.postgresPrimaryRequested}`,
           "native=sena-enterprise-postgres-adapter/v1",
           ...enterprisePostgresPublicEvidence(input.postgresConfig)
         ]
@@ -78,24 +88,37 @@ export function buildEnterpriseOrganizationDeploymentDecisions(input: {
           "bridge=sena-enterprise-database-sync-webhook/v1",
           `endpointHash=${input.databaseSyncProvider.endpointHash ?? "none"}`
         ],
-      nextAction: input.postgresConfig.configured
+      nextAction: postgresPrimaryReady
         ? "Run and attach live Neon/Postgres adapter verification before multi-instance SaaS cutover."
-        : input.databaseSyncProvider.configured && input.databaseSyncProvider.secretConfigured
-          ? "Platform owner must decide whether the signed sync bridge is acceptable or replace it with a native database adapter before SaaS scale."
-          : "Choose a managed database/durable volume owner and configure the signed sync bridge as interim evidence."
+        : input.postgresConfig.configured
+          ? "Set SENA_ENTERPRISE_STATE_STORE=postgres so the configured adapter becomes the active primary enterprise state store."
+          : input.databaseSyncProvider.configured && input.databaseSyncProvider.secretConfigured
+            ? "Platform owner must decide whether the signed sync bridge is acceptable or replace it with a native database adapter before SaaS scale."
+            : "Choose a managed database/durable volume owner and configure the signed sync bridge as interim evidence."
     },
     {
       id: "native-managed-object-storage",
       label: "Native managed object storage ownership",
-      status: input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured ? "bridge-ready" : "open",
-      evidence: [
-        "current=private-local-upload-directory",
-        "bridge=sena-enterprise-upload-object-storage-webhook/v1",
-        `endpointHash=${input.objectStorageProvider.endpointHash ?? "none"}`
-      ],
-      nextAction: input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured
-        ? "Platform owner must decide whether the signed object-storage bridge is acceptable or replace it with a native object-storage adapter."
-        : "Configure managed object storage and scan/retention ownership before regulated deployment."
+      status: input.objectStorageNativeProvider.configured
+        ? "ready"
+        : input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured ? "bridge-ready" : "open",
+      evidence: input.objectStorageNativeProvider.configured
+        ? [
+          `current=${input.objectStorageNativeProvider.mode}`,
+          `native=${SENA_SCHEMA_VERSIONS.enterpriseObjectStorageNative}`,
+          ...input.objectStorageNativeProvider.evidence
+        ]
+        : [
+          "current=private-local-upload-directory",
+          "bridge=sena-enterprise-upload-object-storage-webhook/v1",
+          ...input.objectStorageNativeProvider.evidence,
+          `endpointHash=${input.objectStorageProvider.endpointHash ?? "none"}`
+        ],
+      nextAction: input.objectStorageNativeProvider.configured
+        ? "Attach bucket versioning, scan/retention, restore, and credential-rotation evidence before SaaS cutover."
+        : input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured
+          ? "Platform owner must decide whether the signed object-storage bridge is acceptable or replace it with a native object-storage adapter."
+          : "Configure managed object storage and scan/retention ownership before regulated deployment."
     },
     {
       id: "native-collaboration-pubsub",
@@ -190,6 +213,8 @@ export function buildEnterpriseOrganizationDeploymentDecisions(input: {
       evidence: [
         "current=file-backed-json|signed-webhook-bridges|single-runtime-sse",
         `saasOperatingModelApproved=${input.fullSaasBackendApproved ? "yes" : "no"}`,
+        `postgresPrimary=${postgresPrimaryReady ? "ready" : "review"}`,
+        `objectStorageNative=${input.objectStorageNativeProvider.configured ? "configured" : "missing"}`,
         `managedDatabaseBridge=${input.databaseSyncProvider.configured && input.databaseSyncProvider.secretConfigured ? "configured" : "missing"}`,
         `objectStorageBridge=${input.objectStorageProvider.configured && input.objectStorageProvider.secretConfigured ? "configured" : "missing"}`,
         `collaborationPubSubBridge=${input.collaborationProvider.configured && input.collaborationProvider.secretConfigured ? "configured" : "missing"}`,

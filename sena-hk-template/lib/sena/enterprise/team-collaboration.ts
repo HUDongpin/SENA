@@ -1,6 +1,15 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import {
+  createEnterprisePostgresAdjudicationAdapterFromEnv,
+  createEnterprisePostgresExpertReviewAdapterFromEnv,
+  createEnterprisePostgresProjectCommentAdapterFromEnv,
+  createEnterprisePostgresProjectPresenceAdapterFromEnv,
+  createEnterprisePostgresReliabilityRunAdapterFromEnv,
+  createEnterprisePostgresValidationRunAdapterFromEnv,
+  resolveEnterprisePostgresConfig
+} from "../enterprise-postgres";
+import {
   requireEnterprisePermission,
   rolePermissions
 } from "./access-control";
@@ -15,13 +24,28 @@ import {
   enterpriseDbPath,
   now
 } from "./ops-runtime";
+import {
+  enterpriseExpertReviewRegistryRuntime
+} from "./expert-review";
 import type {
-  SenaEnterpriseReliabilityAdjudicationCoverage,
-  SenaEnterpriseReliabilityRun
+  SenaEnterpriseExpertReview
+} from "./expert-review";
+import {
+  enterpriseReliabilityRunRegistryRuntime,
+  type SenaEnterpriseReliabilityAdjudicationCoverage,
+  type SenaEnterpriseReliabilityRun
 } from "./reliability-runs";
 import {
+  enterpriseValidationRunRegistryRuntime
+} from "./validation-runs";
+import type {
+  SenaEnterpriseValidationRun
+} from "./validation-runs";
+import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -152,6 +176,18 @@ export type SenaEnterpriseAdjudicationRecord = {
   createdAt: string;
 };
 
+export type SenaEnterpriseProjectCollaborationEvidenceStore = "file-json" | "postgres-table";
+
+export type SenaEnterpriseProjectCollaborationEvidenceSource = {
+  comments: SenaEnterpriseProjectCollaborationEvidenceStore;
+  presence: SenaEnterpriseProjectCollaborationEvidenceStore;
+  reliabilityRuns: SenaEnterpriseProjectCollaborationEvidenceStore;
+  validationRuns: SenaEnterpriseProjectCollaborationEvidenceStore;
+  expertReviews: SenaEnterpriseProjectCollaborationEvidenceStore;
+  adjudications: SenaEnterpriseProjectCollaborationEvidenceStore;
+  evidence: string[];
+};
+
 function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
@@ -179,9 +215,211 @@ function requireProjectPermissionFromDb(
   return project;
 }
 
-function visiblePresence(db: SenaEnterpriseDb, projectId: string) {
+function visiblePresenceRecords(records: SenaEnterpriseProjectPresence[], projectId: string) {
   const current = Date.now();
-  return db.projectPresence.filter((presence) => presence.projectId === projectId && Date.parse(presence.expiresAt) > current);
+  return records.filter((presence) => presence.projectId === projectId && Date.parse(presence.expiresAt) > current);
+}
+
+function visiblePresence(db: SenaEnterpriseDb, projectId: string) {
+  return visiblePresenceRecords(db.projectPresence, projectId);
+}
+
+function envValue(key: string) {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function postgresAdjudicationRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresAdjudicationRegistryConfigured() {
+  return postgresAdjudicationRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+function postgresCollaborationRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresCollaborationRegistryConfigured() {
+  return postgresCollaborationRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+export function enterpriseProjectCommentRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresCollaborationRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_project_comments",
+    evidence: [
+      `projectCommentRegistryStore=${activeStore}`,
+      `projectCommentRegistryPostgresRequested=${requested}`,
+      `projectCommentRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `projectCommentRegistryPostgresTable=sena_enterprise_project_comments`,
+      `projectCommentRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+export function enterpriseProjectPresenceRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresCollaborationRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_project_presence",
+    evidence: [
+      `projectPresenceRegistryStore=${activeStore}`,
+      `projectPresenceRegistryPostgresRequested=${requested}`,
+      `projectPresenceRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `projectPresenceRegistryPostgresTable=sena_enterprise_project_presence`,
+      `projectPresenceRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+export function enterpriseAdjudicationRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresAdjudicationRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_adjudications",
+    evidence: [
+      `adjudicationRegistryStore=${activeStore}`,
+      `adjudicationRegistryPostgresRequested=${requested}`,
+      `adjudicationRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `adjudicationRegistryPostgresTable=sena_enterprise_adjudications`,
+      `adjudicationRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+async function upsertAdjudicationsToPostgresIfConfigured(records: SenaEnterpriseAdjudicationRecord[]) {
+  if (records.length === 0 || !postgresAdjudicationRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
+  try {
+    await adapter.upsertAdjudications(records);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+async function upsertReliabilityRunsToPostgresIfConfigured(runs: SenaEnterpriseReliabilityRun[]) {
+  if (runs.length === 0 || enterpriseReliabilityRunRegistryRuntime().activeStore !== "postgres-table") return;
+  const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
+  try {
+    await adapter.upsertReliabilityRuns(runs);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+async function upsertProjectCommentsToPostgresIfConfigured(comments: SenaEnterpriseProjectComment[]) {
+  if (comments.length === 0 || !postgresCollaborationRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresProjectCommentAdapterFromEnv({});
+  try {
+    await adapter.upsertProjectComments(comments);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+async function upsertProjectPresenceToPostgresIfConfigured(records: SenaEnterpriseProjectPresence[]) {
+  if (records.length === 0 || !postgresCollaborationRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresProjectPresenceAdapterFromEnv({});
+  try {
+    await adapter.upsertProjectPresence(records);
+  } finally {
+    await pool.end?.();
+  }
+}
+
+function isPostgresStateRevisionConflict(error: unknown) {
+  return error instanceof SenaEnterpriseError && error.code === "postgres_state_revision_conflict";
+}
+
+async function collaborationStateRetryBackoff(attempt: number) {
+  await new Promise((resolve) => setTimeout(resolve, 12 * (attempt + 1)));
+}
+
+async function withEnterpriseCollaborationStateRetry<T>(
+  operation: (db: SenaEnterpriseDb) => T | Promise<T>
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const state = await readEnterpriseState();
+    try {
+      const result = await operation(state.db);
+      await saveEnterpriseState(state, state.db);
+      return result;
+    } catch (error) {
+      if (isPostgresStateRevisionConflict(error) && attempt < 2) {
+        lastError = error;
+        await collaborationStateRetryBackoff(attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
+function enterpriseProjectCollaborationFileEvidenceSource(): SenaEnterpriseProjectCollaborationEvidenceSource {
+  return {
+    comments: "file-json",
+    presence: "file-json",
+    reliabilityRuns: "file-json",
+    validationRuns: "file-json",
+    expertReviews: "file-json",
+    adjudications: "file-json",
+    evidence: [
+      "projectCollaborationComments=file-json",
+      "projectCollaborationPresence=file-json",
+      "projectCollaborationReliabilityRuns=file-json",
+      "projectCollaborationValidationRuns=file-json",
+      "projectCollaborationExpertReviews=file-json",
+      "projectCollaborationAdjudications=file-json"
+    ]
+  };
+}
+
+export function enterpriseProjectCollaborationRuntime(): SenaEnterpriseProjectCollaborationEvidenceSource {
+  const comments = enterpriseProjectCommentRegistryRuntime();
+  const presence = enterpriseProjectPresenceRegistryRuntime();
+  const reliability = enterpriseReliabilityRunRegistryRuntime();
+  const validation = enterpriseValidationRunRegistryRuntime();
+  const expertReview = enterpriseExpertReviewRegistryRuntime();
+  const adjudication = enterpriseAdjudicationRegistryRuntime();
+  return {
+    comments: comments.activeStore,
+    presence: presence.activeStore,
+    reliabilityRuns: reliability.activeStore,
+    validationRuns: validation.activeStore,
+    expertReviews: expertReview.activeStore,
+    adjudications: adjudication.activeStore,
+    evidence: [
+      `projectCollaborationComments=${comments.activeStore}`,
+      `projectCollaborationPresence=${presence.activeStore}`,
+      `projectCollaborationReliabilityRuns=${reliability.activeStore}`,
+      `projectCollaborationValidationRuns=${validation.activeStore}`,
+      `projectCollaborationExpertReviews=${expertReview.activeStore}`,
+      `projectCollaborationAdjudications=${adjudication.activeStore}`,
+      ...comments.evidence,
+      ...presence.evidence,
+      ...reliability.evidence,
+      ...validation.evidence,
+      ...expertReview.evidence,
+      ...adjudication.evidence
+    ]
+  };
 }
 
 function queueEnterpriseCollaborationEvent(db: SenaEnterpriseDb, input: {
@@ -289,8 +527,11 @@ async function postCollaborationPubSubWebhook(event: SenaEnterpriseCollaboration
   }
 }
 
-function collaborationPubSubTeamScope(context: SenaEnterpriseSessionContext, input: { teamId?: string; projectId?: string }) {
-  const db = readEnterpriseDb();
+function collaborationPubSubTeamScopeFromDb(
+  db: SenaEnterpriseDb,
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; projectId?: string }
+) {
   if (input.projectId) {
     const project = db.projects.find((candidate) => candidate.id === input.projectId);
     if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
@@ -366,7 +607,9 @@ export async function deliverEnterpriseCollaborationPubSub(
   input: { teamId?: string; projectId?: string; limit?: number; force?: boolean; eventId?: string } = {}
 ): Promise<SenaEnterpriseCollaborationPubSubDeliveryResult> {
   const provider = collaborationPubSubProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
-  const teamIds = collaborationPubSubTeamScope(context, input);
+  const state = await readEnterpriseState();
+  const db = state.db;
+  const teamIds = collaborationPubSubTeamScopeFromDb(db, context, input);
   const teamIdSet = new Set(teamIds);
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
   const force = Boolean(input.force);
@@ -393,7 +636,6 @@ export async function deliverEnterpriseCollaborationPubSub(
 
   if (!provider.configured) return result;
 
-  const db = readEnterpriseDb();
   const nowMs = Date.now();
   const queue = (db.collaborationEvents ?? [])
     .filter((event) => teamIdSet.has(event.teamId))
@@ -484,16 +726,29 @@ export async function deliverEnterpriseCollaborationPubSub(
     });
   }
 
-  saveDb(db);
+  await saveEnterpriseState(state, db);
   return result;
 }
 
-export function listEnterpriseProjectCollaboration(context: SenaEnterpriseSessionContext, projectId: string) {
-  const db = readEnterpriseDb();
+function buildEnterpriseProjectCollaborationFromDb(
+  context: SenaEnterpriseSessionContext,
+  db: SenaEnterpriseDb,
+  projectId: string,
+  evidence: {
+    comments: SenaEnterpriseProjectComment[];
+    presence: SenaEnterpriseProjectPresence[];
+    adjudications: SenaEnterpriseAdjudicationRecord[];
+    reliabilityRuns: SenaEnterpriseReliabilityRun[];
+    validationRuns: SenaEnterpriseValidationRun[];
+    expertReviews: SenaEnterpriseExpertReview[];
+    source: SenaEnterpriseProjectCollaborationEvidenceSource;
+  }
+) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.projectCollaboration,
+    evidenceSource: evidence.source,
     project: {
       id: project.id,
       title: project.title,
@@ -508,41 +763,149 @@ export function listEnterpriseProjectCollaboration(context: SenaEnterpriseSessio
         ...revision,
         user: userById.get(revision.userId) ?? null
       })),
-    comments: db.projectComments
+    comments: evidence.comments
       .filter((comment) => comment.projectId === projectId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map((comment) => ({
         ...comment,
         user: userById.get(comment.userId) ?? null
       })),
-    presence: visiblePresence(db, projectId).map((presence) => ({
+    presence: visiblePresenceRecords(evidence.presence, projectId).map((presence) => ({
       ...presence,
       user: userById.get(presence.userId) ?? null
     })),
-    adjudications: db.adjudications
+    adjudications: evidence.adjudications
       .filter((record) => record.projectId === projectId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((record) => ({
         ...record,
         reviewer: userById.get(record.reviewerId) ?? null
       })),
-    reliabilityRuns: db.reliabilityRuns
+    reliabilityRuns: evidence.reliabilityRuns
       .filter((run) => run.projectId === projectId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    validationRuns: db.validationRuns
+    validationRuns: evidence.validationRuns
       .filter((run) => run.projectId === projectId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    expertReviews: db.expertReviews
+    expertReviews: evidence.expertReviews
       .filter((review) => review.projectId === projectId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   };
 }
 
-export function touchEnterpriseProjectPresence(context: SenaEnterpriseSessionContext, projectId: string, input: {
+export function listEnterpriseProjectCollaboration(context: SenaEnterpriseSessionContext, projectId: string) {
+  const db = readEnterpriseDb();
+  return buildEnterpriseProjectCollaborationFromDb(context, db, projectId, {
+    comments: db.projectComments,
+    presence: db.projectPresence,
+    adjudications: db.adjudications,
+    reliabilityRuns: db.reliabilityRuns,
+    validationRuns: db.validationRuns,
+    expertReviews: db.expertReviews,
+    source: enterpriseProjectCollaborationFileEvidenceSource()
+  });
+}
+
+async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  db: SenaEnterpriseDb
+) {
+  requireProjectPermissionFromDb(db, context, projectId, "project:read");
+  const source = enterpriseProjectCollaborationRuntime();
+  const pools: Array<{ end?: () => Promise<void> }> = [];
+  try {
+    const reliabilityRunsPromise = source.reliabilityRuns === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listReliabilityRuns({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.reliabilityRuns);
+    const validationRunsPromise = source.validationRuns === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listValidationRuns({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.validationRuns);
+    const expertReviewsPromise = source.expertReviews === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listExpertReviews({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.expertReviews);
+    const adjudicationsPromise = source.adjudications === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listAdjudications({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.adjudications);
+    const commentsPromise = source.comments === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresProjectCommentAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listProjectComments({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.projectComments);
+    const presencePromise = source.presence === "postgres-table"
+      ? (() => {
+        const { adapter, pool } = createEnterprisePostgresProjectPresenceAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listProjectPresence({ projectId, activeOnly: true, limit: 500 });
+      })()
+      : Promise.resolve(db.projectPresence);
+    const [reliabilityRuns, validationRuns, expertReviews, adjudications, comments, presence] = await Promise.all([
+      reliabilityRunsPromise,
+      validationRunsPromise,
+      expertReviewsPromise,
+      adjudicationsPromise,
+      commentsPromise,
+      presencePromise
+    ]);
+    return buildEnterpriseProjectCollaborationFromDb(context, db, projectId, {
+      comments,
+      presence,
+      adjudications,
+      reliabilityRuns,
+      validationRuns,
+      expertReviews,
+      source
+    });
+  } finally {
+    await Promise.allSettled(pools.map((pool) => pool.end?.()));
+  }
+}
+
+export async function listEnterpriseProjectCollaborationWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  return listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(context, projectId, readEnterpriseDb());
+}
+
+export async function listEnterpriseProjectCollaborationWithPostgresEvidenceAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  const state = await readEnterpriseState();
+  return listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(context, projectId, state.db);
+}
+
+function projectPresenceResponseFromDb(db: SenaEnterpriseDb, projectId: string) {
+  const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
+  return visiblePresenceRecords(db.projectPresence, projectId).map((presence) => ({
+    ...presence,
+    user: userById.get(presence.userId) ?? null
+  }));
+}
+
+function touchEnterpriseProjectPresenceInDb(context: SenaEnterpriseSessionContext, projectId: string, input: {
   activeView?: string;
   cursorLabel?: string;
-}) {
-  const db = readEnterpriseDb();
+}, db: SenaEnterpriseDb) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const timestamp = now();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString();
@@ -575,15 +938,47 @@ export function touchEnterpriseProjectPresence(context: SenaEnterpriseSessionCon
       cursorLabel: input.cursorLabel?.trim() || "SENA workspace"
     }
   });
-  saveDb(db);
-  return listEnterpriseProjectCollaboration(context, projectId).presence;
+  return projectPresenceResponseFromDb(db, projectId);
 }
 
-export function createEnterpriseProjectComment(context: SenaEnterpriseSessionContext, projectId: string, input: {
-  body: string;
-  target?: SenaEnterpriseProjectComment["target"];
+export function touchEnterpriseProjectPresence(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  activeView?: string;
+  cursorLabel?: string;
 }) {
   const db = readEnterpriseDb();
+  const presence = touchEnterpriseProjectPresenceInDb(context, projectId, input, db);
+  saveDb(db);
+  return presence;
+}
+
+export async function touchEnterpriseProjectPresenceWithPostgresMirror(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  activeView?: string;
+  cursorLabel?: string;
+}) {
+  const presence = touchEnterpriseProjectPresence(context, projectId, input);
+  const updated = readEnterpriseDb().projectPresence.find((record) => record.projectId === projectId && record.userId === context.user.id);
+  if (updated) await upsertProjectPresenceToPostgresIfConfigured([updated]);
+  return presence;
+}
+
+export async function touchEnterpriseProjectPresenceWithPostgresMirrorAsync(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  activeView?: string;
+  cursorLabel?: string;
+}) {
+  let updated: SenaEnterpriseProjectPresence | undefined;
+  const presence = await withEnterpriseCollaborationStateRetry((db) => {
+    const result = touchEnterpriseProjectPresenceInDb(context, projectId, input, db);
+    updated = db.projectPresence.find((record) => record.projectId === projectId && record.userId === context.user.id);
+    return result;
+  });
+  if (updated) await upsertProjectPresenceToPostgresIfConfigured([updated]);
+  return presence;
+}
+
+function createEnterpriseProjectCommentInDb(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  body: string;
+  target?: SenaEnterpriseProjectComment["target"];
+}, db: SenaEnterpriseDb) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:comment");
   const timestamp = now();
   const comment: SenaEnterpriseProjectComment = {
@@ -624,12 +1019,45 @@ export function createEnterpriseProjectComment(context: SenaEnterpriseSessionCon
       targetId: comment.target.id ?? null
     }
   });
+  return comment;
+}
+
+export function createEnterpriseProjectComment(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  body: string;
+  target?: SenaEnterpriseProjectComment["target"];
+}) {
+  const db = readEnterpriseDb();
+  const comment = createEnterpriseProjectCommentInDb(context, projectId, input, db);
   saveDb(db);
   return comment;
 }
 
-export function resolveEnterpriseProjectComment(context: SenaEnterpriseSessionContext, projectId: string, commentId: string) {
-  const db = readEnterpriseDb();
+export async function createEnterpriseProjectCommentWithPostgresMirror(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  body: string;
+  target?: SenaEnterpriseProjectComment["target"];
+}) {
+  const comment = createEnterpriseProjectComment(context, projectId, input);
+  await upsertProjectCommentsToPostgresIfConfigured([comment]);
+  return comment;
+}
+
+export async function createEnterpriseProjectCommentWithPostgresMirrorAsync(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  body: string;
+  target?: SenaEnterpriseProjectComment["target"];
+}) {
+  const comment = await withEnterpriseCollaborationStateRetry((db) => (
+    createEnterpriseProjectCommentInDb(context, projectId, input, db)
+  ));
+  await upsertProjectCommentsToPostgresIfConfigured([comment]);
+  return comment;
+}
+
+function resolveEnterpriseProjectCommentInDb(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  commentId: string,
+  db: SenaEnterpriseDb
+) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:comment");
   const comment = db.projectComments.find((candidate) => candidate.id === commentId && candidate.projectId === projectId);
   if (!comment) throw new SenaEnterpriseError("Comment was not found.", 404, "comment_not_found");
@@ -646,19 +1074,46 @@ export function resolveEnterpriseProjectComment(context: SenaEnterpriseSessionCo
       status: comment.status
     }
   });
+  return comment;
+}
+
+export function resolveEnterpriseProjectComment(context: SenaEnterpriseSessionContext, projectId: string, commentId: string) {
+  const db = readEnterpriseDb();
+  const comment = resolveEnterpriseProjectCommentInDb(context, projectId, commentId, db);
   saveDb(db);
   return comment;
 }
 
-export function createEnterpriseAdjudicationRecord(context: SenaEnterpriseSessionContext, projectId: string, input: {
+export async function resolveEnterpriseProjectCommentWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  commentId: string
+) {
+  const comment = resolveEnterpriseProjectComment(context, projectId, commentId);
+  await upsertProjectCommentsToPostgresIfConfigured([comment]);
+  return comment;
+}
+
+export async function resolveEnterpriseProjectCommentWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  commentId: string
+) {
+  const comment = await withEnterpriseCollaborationStateRetry((db) => (
+    resolveEnterpriseProjectCommentInDb(context, projectId, commentId, db)
+  ));
+  await upsertProjectCommentsToPostgresIfConfigured([comment]);
+  return comment;
+}
+
+function createEnterpriseAdjudicationRecordInDb(context: SenaEnterpriseSessionContext, projectId: string, input: {
   reliabilityRunId?: string;
   itemId: string;
   codeId: string;
   decision: SenaEnterpriseAdjudicationRecord["decision"];
   notes?: string;
   coderValues?: Record<string, boolean>;
-}) {
-  const db = readEnterpriseDb();
+}, db: SenaEnterpriseDb) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "reliability:adjudicate");
   const reliabilityRun = input.reliabilityRunId
     ? db.reliabilityRuns.find((run) => run.id === input.reliabilityRunId)
@@ -712,6 +1167,47 @@ export function createEnterpriseAdjudicationRecord(context: SenaEnterpriseSessio
     }
   });
   if (reliabilityRun) refreshReliabilityAdjudicationCoverage(db, reliabilityRun);
+  return record;
+}
+
+export function createEnterpriseAdjudicationRecord(context: SenaEnterpriseSessionContext, projectId: string, input: {
+  reliabilityRunId?: string;
+  itemId: string;
+  codeId: string;
+  decision: SenaEnterpriseAdjudicationRecord["decision"];
+  notes?: string;
+  coderValues?: Record<string, boolean>;
+}) {
+  const db = readEnterpriseDb();
+  const record = createEnterpriseAdjudicationRecordInDb(context, projectId, input, db);
   saveDb(db);
+  return record;
+}
+
+export async function createEnterpriseAdjudicationRecordWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  input: Parameters<typeof createEnterpriseAdjudicationRecord>[2]
+) {
+  const record = createEnterpriseAdjudicationRecord(context, projectId, input);
+  await upsertAdjudicationsToPostgresIfConfigured([record]);
+  const reliabilityRun = readEnterpriseDb().reliabilityRuns.find((run) => run.id === record.reliabilityRunId);
+  if (reliabilityRun) await upsertReliabilityRunsToPostgresIfConfigured([reliabilityRun]);
+  return record;
+}
+
+export async function createEnterpriseAdjudicationRecordWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  input: Parameters<typeof createEnterpriseAdjudicationRecord>[2]
+) {
+  let reliabilityRun: SenaEnterpriseReliabilityRun | undefined;
+  const record = await withEnterpriseCollaborationStateRetry((db) => {
+    const created = createEnterpriseAdjudicationRecordInDb(context, projectId, input, db);
+    reliabilityRun = db.reliabilityRuns.find((run) => run.id === created.reliabilityRunId);
+    return created;
+  });
+  await upsertAdjudicationsToPostgresIfConfigured([record]);
+  if (reliabilityRun) await upsertReliabilityRunsToPostgresIfConfigured([reliabilityRun]);
   return record;
 }

@@ -13,10 +13,13 @@ import {
 } from "./identity-receipt-archive";
 import { appendAudit } from "./ops-audit";
 import {
-  getEnterpriseOrganizationDeploymentPackage
+  getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
+  type SenaEnterpriseOrganizationDeploymentPackage
 } from "./ops-deployment";
 import {
   getEnterpriseGoLiveRehearsal,
+  getEnterpriseGoLiveRehearsalWithPostgresEvidence,
   type SenaEnterpriseGoLiveRehearsal
 } from "./ops-go-live";
 import type {
@@ -26,7 +29,10 @@ import type {
 } from "./ops-release-gate";
 import {
   readEnterpriseDb,
-  writeEnterpriseDb
+  readEnterpriseState,
+  saveEnterpriseState,
+  writeEnterpriseDb,
+  type SenaEnterpriseDb
 } from "./state";
 
 function now() {
@@ -207,7 +213,12 @@ function summarizeGoLiveAttestations(attestations: SenaEnterpriseGoLiveAttestati
 
 export function createEnterpriseGoLiveAttestation(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterpriseGoLiveAttestationInput
+  input: SenaEnterpriseGoLiveAttestationInput,
+  snapshots?: {
+    rehearsal?: SenaEnterpriseGoLiveRehearsal;
+    latestReleaseGate?: SenaEnterpriseOrganizationDeploymentPackage["releaseGate"]["latestReview"];
+    db?: SenaEnterpriseDb;
+  }
 ): SenaEnterpriseGoLiveAttestation {
   requireEnterprisePermission(context, input.teamId, "team:manage");
   const decision = input.decision;
@@ -215,7 +226,7 @@ export function createEnterpriseGoLiveAttestation(
     throw new SenaEnterpriseError("Go-live attestation decision is not recognized.", 400, "invalid_go_live_attestation_decision");
   }
   const checklist = normalizeGoLiveChecklist(input.checklist);
-  const rehearsal = getEnterpriseGoLiveRehearsal({ teamId: input.teamId });
+  const rehearsal = snapshots?.rehearsal ?? getEnterpriseGoLiveRehearsal({ teamId: input.teamId });
   if (decision === "approved" && rehearsal.status !== "ready") {
     throw new SenaEnterpriseError("Go-live attestation cannot be approved while the current rehearsal has blockers or review items.", 400, "go_live_attestation_approval_blocked");
   }
@@ -226,7 +237,9 @@ export function createEnterpriseGoLiveAttestation(
     throw new SenaEnterpriseError("Go-live attestation approval requires every checklist item to be confirmed.", 400, "go_live_attestation_checklist_required");
   }
   const identityProductionHandoffSnapshot = rehearsal.identityProductionHandoff;
-  const latestReleaseGate = getEnterpriseOrganizationDeploymentPackage({ teamId: input.teamId }).releaseGate.latestReview;
+  const latestReleaseGate = snapshots && "latestReleaseGate" in snapshots
+    ? snapshots.latestReleaseGate
+    : getEnterpriseOrganizationDeploymentPackage({ teamId: input.teamId }).releaseGate.latestReview;
   const latestReleaseGateIdentitySnapshot = latestReleaseGate?.identityProductionSnapshot;
   const identityProductionHandoffSnapshotEvidence = (sourceKey: string, targetKey: string) => {
     const evidence = identityProductionHandoffSnapshot.platformRequestPacket.evidence
@@ -339,7 +352,7 @@ export function createEnterpriseGoLiveAttestation(
     createdAt: timestamp
   };
 
-  const db = readEnterpriseDb();
+  const db = snapshots?.db ?? readEnterpriseDb();
   db.goLiveAttestations.unshift(attestation);
   db.goLiveAttestations = db.goLiveAttestations.slice(0, 1000);
   appendAudit(db, {
@@ -388,11 +401,28 @@ export function createEnterpriseGoLiveAttestation(
       identityProductionHandoffSnapshotInvalidAllowedHosts: identityProductionHandoffSnapshotHostBinding.invalidAllowedHostCount
     }
   });
-  writeEnterpriseDb(db);
+  if (!snapshots?.db) writeEnterpriseDb(db);
   return attestation;
 }
 
-export function listEnterpriseGoLiveAttestations(
+export async function createEnterpriseGoLiveAttestationWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseGoLiveAttestationInput
+): Promise<SenaEnterpriseGoLiveAttestation> {
+  const rehearsal = await getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId: input.teamId });
+  const deployment = await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({ teamId: input.teamId });
+  const state = await readEnterpriseState();
+  const attestation = createEnterpriseGoLiveAttestation(context, input, {
+    rehearsal,
+    latestReleaseGate: deployment.releaseGate.latestReview,
+    db: state.db
+  });
+  await saveEnterpriseState(state, state.db);
+  return attestation;
+}
+
+function listEnterpriseGoLiveAttestationsFromDb(
+  db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string } = {}
 ): SenaEnterpriseGoLiveAttestationList {
@@ -403,7 +433,7 @@ export function listEnterpriseGoLiveAttestations(
   for (const teamId of scopeTeamIds) {
     requireEnterprisePermission(context, teamId, "team:manage");
   }
-  const attestations = (readEnterpriseDb().goLiveAttestations ?? [])
+  const attestations = (db.goLiveAttestations ?? [])
     .filter((attestation) => scopeTeamIds.includes(attestation.teamId))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return {
@@ -416,4 +446,19 @@ export function listEnterpriseGoLiveAttestations(
     summary: summarizeGoLiveAttestations(attestations),
     attestations
   };
+}
+
+export function listEnterpriseGoLiveAttestations(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): SenaEnterpriseGoLiveAttestationList {
+  return listEnterpriseGoLiveAttestationsFromDb(readEnterpriseDb(), context, input);
+}
+
+export async function listEnterpriseGoLiveAttestationsWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterpriseGoLiveAttestationList> {
+  const state = await readEnterpriseState();
+  return listEnterpriseGoLiveAttestationsFromDb(state.db, context, input);
 }

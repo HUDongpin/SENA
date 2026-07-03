@@ -1314,6 +1314,7 @@ describe("SENA enterprise module boundaries", () => {
     const opsPlatformDecisionsPath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-platform-decisions.ts");
     const opsPlatformDecisionPolicyPath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-platform-decision-policy.ts");
     const opsPostCutoverObservationsPath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-post-cutover-observations.ts");
+    const opsProductionEvidencePath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-production-evidence.ts");
     const opsReleaseGatePath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-release-gate.ts");
     const opsRuntimePath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-runtime.ts");
     const opsSaasOperationsPath = path.join(process.cwd(), "lib", "sena", "enterprise", "ops-saas-operations.ts");
@@ -1337,6 +1338,10 @@ describe("SENA enterprise module boundaries", () => {
     );
     const opsSaasOperationsRouteSource = readFileSync(
       path.join(process.cwd(), "app", "api", "sena", "ops", "saas-operations", "route.ts"),
+      "utf8"
+    );
+    const opsProductionEvidenceRouteSource = readFileSync(
+      path.join(process.cwd(), "app", "api", "sena", "ops", "production-evidence", "route.ts"),
       "utf8"
     );
     const opsStatusRouteSource = readFileSync(
@@ -1395,6 +1400,7 @@ describe("SENA enterprise module boundaries", () => {
     const opsCapabilityAuditSource = readFileSync(opsCapabilityAuditPath, "utf8");
     const opsDeploymentDecisionsSource = readFileSync(opsDeploymentDecisionsPath, "utf8");
     const opsDeploymentSource = readFileSync(opsDeploymentPath, "utf8");
+    const opsProductionEvidenceSource = readFileSync(opsProductionEvidencePath, "utf8");
     const opsDeploymentEnvSource = readFileSync(opsDeploymentEnvPath, "utf8");
     const opsDeploymentReadinessSource = readFileSync(opsDeploymentReadinessPath, "utf8");
     const opsDeploymentServiceEndpointsSource = readFileSync(opsDeploymentServiceEndpointsPath, "utf8");
@@ -1798,6 +1804,9 @@ describe("SENA enterprise module boundaries", () => {
     expect(opsSaasOperationsRouteSource).toContain("@/lib/sena/enterprise/ops-saas-operations");
     expect(opsSaasOperationsRouteSource).toContain("@/lib/sena/enterprise/ops-deployment");
     expect(opsSaasOperationsRouteSource).not.toContain("@/lib/sena/enterprise/ops-governance");
+    expect(opsProductionEvidenceSource).toContain("./ops-runtime");
+    expect(opsProductionEvidenceRouteSource).toContain("@/lib/sena/enterprise/ops-production-evidence");
+    expect(opsProductionEvidenceRouteSource).not.toContain("@/lib/sena/enterprise/ops-governance");
     expect(readFileSync(path.join(process.cwd(), "app", "api", "sena", "ops", "native-adapters", "route.ts"), "utf8"))
       .toContain("@/lib/sena/enterprise/ops-deployment");
     expect(opsStatusRouteSource).toContain("@/lib/sena/enterprise/ops-status");

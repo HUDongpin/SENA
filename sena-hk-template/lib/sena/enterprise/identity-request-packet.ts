@@ -33,6 +33,7 @@ import {
   type SenaEnterpriseIdentityTechnicalEvidenceBinding
 } from "./identity-readiness";
 import type { SenaEnterpriseIdentityProductionEvidence } from "./identity-production-evidence";
+import type { SenaEnterpriseDb } from "./state";
 
 export type SenaEnterpriseIdentityPlatformDecisionRequestPacket = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket;
@@ -814,6 +815,7 @@ export function identityRequestPacketPolicyBinding(acceptance: Pick<
 
 export function buildEnterpriseIdentityPlatformDecisionRequestPacket(input: {
   teamId?: string;
+  db?: SenaEnterpriseDb;
   generatedAt: string;
   decisions: SenaEnterpriseIdentityProductionEvidence["decisions"];
   requirements: SenaEnterpriseIdentityProductionEvidence["requirements"];
@@ -862,7 +864,7 @@ export function buildEnterpriseIdentityPlatformDecisionRequestPacket(input: {
       acceptance?.status === "rejected" ||
       acceptance?.status === "needs-native-adapter"
     );
-    const technicalEvidenceBinding = buildEnterpriseIdentityTechnicalEvidenceBinding(decision.id);
+    const technicalEvidenceBinding = buildEnterpriseIdentityTechnicalEvidenceBinding(decision.id, input.db);
     return {
       decisionId: decision.id,
       label: decision.label,

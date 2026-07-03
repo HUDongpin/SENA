@@ -10,11 +10,13 @@ import { appendAudit } from "./ops-audit";
 import {
   backupCoreChecksPass,
   createEnterpriseBackup,
+  createEnterpriseBackupWithPostgresEvidence,
   ensureBackupDeliveryPermission,
   type SenaEnterpriseBackupArtifact,
   type SenaEnterpriseBackupRecordCounts,
   type SenaEnterpriseBackupVerification,
-  verifyEnterpriseBackup
+  verifyEnterpriseBackup,
+  verifyEnterpriseBackupWithPostgresEvidence
 } from "./ops-backup";
 import { isSelfManagedEnterpriseMode } from "./ops-platform-decision-policy";
 import {
@@ -23,7 +25,9 @@ import {
 } from "./ops-runtime";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState
 } from "./state";
 import {
   databaseSyncWebhookEndpointHash,
@@ -82,7 +86,7 @@ function databaseSyncWebhookPayload(
     generatedAt,
     sync: {
       kind: "sanitized-enterprise-state",
-      sourceStorageEngine: "file-backed-json",
+      sourceStorageEngine: backup.manifest.storageEngine,
       backupId: backup.backupId,
       payloadSha256: verification.payloadSha256,
       recordCounts: verification.recordCounts,
@@ -296,5 +300,129 @@ export async function deliverEnterpriseDatabaseSync(
     }
   });
   saveDb(db);
+  return result;
+}
+
+export async function deliverEnterpriseDatabaseSyncWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; backup?: SenaEnterpriseBackupArtifact } = {}
+): Promise<SenaEnterpriseDatabaseSyncResult> {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const webhookProvider = databaseSyncWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const provider: SenaEnterpriseDatabaseSyncResult["provider"] = postgresConfig.configured
+    ? {
+      mode: "postgres-native",
+      configured: true,
+      urlEnvName: postgresConfig.urlEnvName,
+      connectionHash: postgresConfig.connectionHash,
+      adapter: postgresConfig.adapter,
+      secretConfigured: Boolean(postgresConfig.connectionHash),
+      timeoutMs: 0
+    }
+    : webhookProvider;
+  const backup = input.backup ?? await createEnterpriseBackupWithPostgresEvidence(context, { teamId: input.teamId });
+  if (input.backup) {
+    ensureBackupDeliveryPermission(context, backup);
+  }
+  const verification = await verifyEnterpriseBackupWithPostgresEvidence(context, backup);
+  if (!backupCoreChecksPass(verification)) {
+    throw new SenaEnterpriseError("Database sync requires checksum, record counts, and secret exclusions to pass.", 400, "database_sync_preflight_failed");
+  }
+
+  const result: SenaEnterpriseDatabaseSyncResult = {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDatabaseSync,
+    status: provider.configured ? "failed" : "not-configured",
+    generatedAt: now(),
+    provider,
+    backup: {
+      backupId: backup.backupId,
+      generatedAt: backup.generatedAt,
+      payloadSha256: verification.payloadSha256,
+      recordCounts: verification.recordCounts,
+      scope: backup.scope
+    },
+    verification,
+    sync: {
+      attempted: false
+    }
+  };
+
+  if (postgresConfig.configured) {
+    const attemptResult = await writeDatabaseSyncPostgres(backup, verification);
+    const attemptedAt = now();
+    result.status = attemptResult.ok ? "delivered" : "failed";
+    result.sync = {
+      attempted: true,
+      nativeStatus: attemptResult.ok ? "delivered" : "failed",
+      attemptedAt,
+      revision: attemptResult.revision,
+      adapter: postgresConfig.adapter,
+      errorCode: attemptResult.errorCode,
+      errorHash: attemptResult.errorHash
+    };
+
+    const state = await readEnterpriseState();
+    appendAudit(state.db, {
+      event: attemptResult.ok ? "governance.database_sync.deliver" : "governance.database_sync.fail",
+      userId: context.user.id,
+      teamId: backup.scope.teamIds.length === 1 ? backup.scope.teamIds[0] : undefined,
+      detail: {
+        backupId: backup.backupId,
+        payloadSha256: verification.payloadSha256,
+        provider: "postgres-native",
+        adapter: postgresConfig.adapter ?? null,
+        urlEnvName: postgresConfig.urlEnvName ?? null,
+        connectionHash: postgresConfig.connectionHash ?? null,
+        revision: attemptResult.revision ?? null,
+        errorCode: attemptResult.errorCode ?? null,
+        errorHash: attemptResult.errorHash ?? null,
+        teams: verification.recordCounts.teams,
+        projects: verification.recordCounts.projects,
+        uploads: verification.recordCounts.uploads,
+        auditEvents: verification.recordCounts.auditEvents
+      }
+    });
+    await saveEnterpriseState(state, state.db);
+    return result;
+  }
+
+  if (!provider.configured) {
+    return result;
+  }
+
+  const attemptResult = provider.mode === "local-sink"
+    ? localWebhookSinkAttempt(provider.endpointHash!)
+    : await postDatabaseSyncWebhook(backup, verification);
+  const attemptedAt = now();
+  result.status = attemptResult.ok ? "delivered" : "failed";
+  result.sync = {
+    attempted: true,
+    webhookStatus: attemptResult.ok ? "delivered" : "failed",
+    attemptedAt,
+    endpointHash: attemptResult.endpointHash,
+    httpStatus: attemptResult.httpStatus,
+    errorCode: attemptResult.errorCode,
+    errorHash: attemptResult.errorHash
+  };
+
+  const state = await readEnterpriseState();
+  appendAudit(state.db, {
+    event: attemptResult.ok ? "governance.database_sync.deliver" : "governance.database_sync.fail",
+    userId: context.user.id,
+    teamId: backup.scope.teamIds.length === 1 ? backup.scope.teamIds[0] : undefined,
+    detail: {
+      backupId: backup.backupId,
+      payloadSha256: verification.payloadSha256,
+      endpointHash: attemptResult.endpointHash ?? "none",
+      httpStatus: attemptResult.httpStatus ?? null,
+      errorCode: attemptResult.errorCode ?? null,
+      errorHash: attemptResult.errorHash ?? null,
+      teams: verification.recordCounts.teams,
+      projects: verification.recordCounts.projects,
+      uploads: verification.recordCounts.uploads,
+      auditEvents: verification.recordCounts.auditEvents
+    }
+  });
+  await saveEnterpriseState(state, state.db);
   return result;
 }

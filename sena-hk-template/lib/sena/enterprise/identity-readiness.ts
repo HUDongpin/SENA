@@ -452,7 +452,8 @@ export function buildEnterpriseIdentityTechnicalEvidenceBinding(
 }
 
 export function identityTechnicalEvidenceBindingStatus(
-  acceptance: Pick<SenaEnterprisePlatformDecisionAcceptance, "decisionId" | "technicalEvidenceBinding">
+  acceptance: Pick<SenaEnterprisePlatformDecisionAcceptance, "decisionId" | "technicalEvidenceBinding">,
+  db: SenaEnterpriseDb = readEnterpriseDb()
 ): "current" | "stale" | "not-required" {
   const binding = acceptance.technicalEvidenceBinding;
   if (acceptance.decisionId === "institution-provisioning-owner") {
@@ -463,7 +464,7 @@ export function identityTechnicalEvidenceBindingStatus(
     ) {
       return "stale";
     }
-    const current = buildEnterpriseIdentityTechnicalEvidenceBinding("institution-provisioning-owner");
+    const current = buildEnterpriseIdentityTechnicalEvidenceBinding("institution-provisioning-owner", db);
     if (!current || binding.status !== current.status) return "stale";
     if (secretVersionBindingChanged(binding.secretVersionBinding, current.secretVersionBinding)) return "stale";
     if (secretStoreReferenceChanged(binding.secretStoreReferenceBinding, current.secretStoreReferenceBinding)) return "stale";
@@ -500,7 +501,7 @@ export function identityTechnicalEvidenceBindingStatus(
   }
   const provider = ssoProviderStatus("institution");
   if (!provider.configured) return "stale";
-  const current = buildEnterpriseIdentityTechnicalEvidenceBinding("institution-idp-approval");
+  const current = buildEnterpriseIdentityTechnicalEvidenceBinding("institution-idp-approval", db);
   if (
     !current ||
     binding.status !== current.status ||
@@ -570,10 +571,11 @@ export function identityPlatformEvidenceBindingStatus(
 }
 
 export function identityTechnicalReadinessStatus(
-  acceptance: Pick<SenaEnterprisePlatformDecisionAcceptance, "decisionId" | "technicalEvidenceBinding">
+  acceptance: Pick<SenaEnterprisePlatformDecisionAcceptance, "decisionId" | "technicalEvidenceBinding">,
+  db: SenaEnterpriseDb = readEnterpriseDb()
 ): "ready" | "review" | "not-required" {
   if (!isIdentityProductionDecisionId(acceptance.decisionId)) return "not-required";
-  const current = buildEnterpriseIdentityTechnicalEvidenceBinding(acceptance.decisionId);
+  const current = buildEnterpriseIdentityTechnicalEvidenceBinding(acceptance.decisionId, db);
   if (!current) return "review";
   return current.status === "ready" ? "ready" : "review";
 }

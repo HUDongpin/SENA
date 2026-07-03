@@ -6,7 +6,13 @@ import {
   passwordResetTokenExposure,
   provisioningTokenProductionEvidence
 } from "./auth-config";
-import { verifyEnterpriseUploadStorage } from "./import-analysis";
+import {
+  summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence,
+  verifyEnterpriseUploadStorage,
+  verifyEnterpriseUploadStorageAsync,
+  type SenaEnterpriseUploadStorageVerification,
+  type SenaEnterpriseUploadObjectStorageCustodySummary
+} from "./import-analysis";
 import {
   identityEvidenceAllowedHostConfig
 } from "./identity-evidence-url-policy";
@@ -18,6 +24,7 @@ import {
 } from "./identity-readiness";
 import {
   getEnterpriseGovernanceStatus,
+  getEnterpriseGovernanceStatusWithPostgresEvidence,
   governanceCheck,
   type SenaEnterpriseGovernanceStatus
 } from "./ops-governance";
@@ -26,12 +33,18 @@ import {
   selfManagedIdentityEvidence
 } from "./ops-platform-decision-policy";
 import {
+  buildEnterpriseProductionPerformancePath,
+  type SenaEnterpriseProductionPerformancePath
+} from "./ops-productionization";
+import {
   enterpriseDbPath,
   envValue,
   now
 } from "./ops-runtime";
 import {
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
+  type SenaEnterpriseOpsStatus,
   type SenaEnterpriseStorageEngine
 } from "./ops-status";
 import {
@@ -44,20 +57,42 @@ import {
   notificationWebhookProvider,
   objectStorageWebhookProvider
 } from "./webhook-delivery";
+import {
+  enterpriseObjectStorageNativeProvider
+} from "./object-storage-adapter";
 
-export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentReadiness {
+export function getEnterpriseDeploymentReadiness(input: {
+  opsStatus?: SenaEnterpriseOpsStatus;
+  governance?: SenaEnterpriseGovernanceStatus;
+  uploadStorageVerification?: SenaEnterpriseUploadStorageVerification;
+  uploadObjectStorageCustody?: SenaEnterpriseUploadObjectStorageCustodySummary;
+} = {}): SenaEnterpriseDeploymentReadiness {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const opsStatus = getEnterpriseOpsStatus();
-  const governance = getEnterpriseGovernanceStatus();
-  const uploadStorageVerification = verifyEnterpriseUploadStorage();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const governance = input.governance ?? getEnterpriseGovernanceStatus({ opsStatus });
+  const uploadStorageVerification = input.uploadStorageVerification ?? verifyEnterpriseUploadStorage();
   const webhookProvider = notificationWebhookProvider(enterpriseDbPath, selfManagedEnterprise);
   const emailProvider = emailWebhookProvider(enterpriseDbPath, selfManagedEnterprise);
   const collaborationProvider = collaborationPubSubProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const databaseSyncProvider = databaseSyncWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const objectStorageProvider = objectStorageWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const objectStorageNativeProvider = enterpriseObjectStorageNativeProvider();
   const backupProvider = backupWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const alertProvider = alertWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const auditProvider = auditWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const productionPerformancePath = buildEnterpriseProductionPerformancePath({
+    opsStatus,
+    objectStorageReady: objectStorageNativeProvider.configured || (objectStorageProvider.configured && objectStorageProvider.secretConfigured),
+    alertReady: alertProvider.configured && alertProvider.secretConfigured,
+    uploadObjectStorageCustody: input.uploadObjectStorageCustody
+  });
+  const productionPerformancePathRequired = opsStatus.deployment.nodeEnv === "production" || envValue("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") === "1";
+  const productionPerformanceBlockingItems = productionPerformancePathRequired
+    ? productionPerformancePath.items
+    : [];
+  const productionPerformanceAdvisoryItems = productionPerformancePathRequired
+    ? []
+    : productionPerformancePath.items.map((item) => ({ ...item, severity: "advisory" as const }));
   const configuredOidcProviders = governance.auth.oidcProviders
     .filter((provider) => provider.configured)
     .map((provider) => provider.provider);
@@ -93,50 +128,72 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
   const identityLifecycleOwnerMode = identityLifecycleOwnerModeBinding();
   const identityLifecycleOwnerModeRequired = !selfManagedEnterprise && opsStatus.deployment.nodeEnv === "production";
   const identityLifecycleOwnerModeReady = !identityLifecycleOwnerModeRequired || identityLifecycleOwnerMode.valid;
+  const postgresPrimaryActive = opsStatus.storage.primaryStateRuntime.activePrimary === "postgres";
+  const primaryStorageReadableReady = postgresPrimaryActive || opsStatus.storage.dbFileExists;
+  const primaryStorageLockReady = postgresPrimaryActive || opsStatus.storage.lockProbe === "pass";
+  const primaryStorageReady = opsStatus.storage.writable && primaryStorageReadableReady && primaryStorageLockReady;
+  const writeBeforeBackupReady = postgresPrimaryActive || opsStatus.storage.dbBackupExists;
+  const managedStoragePathReady = postgresPrimaryActive || opsStatus.storage.configuredDirectory === "env-configured";
+  const managedDatabaseDecisionReady = postgresPrimaryActive ||
+    (databaseSyncProvider.configured && databaseSyncProvider.secretConfigured);
 
   const blocking: SenaEnterpriseDeploymentReadinessItem[] = [
     readinessItem({
       id: "storage-writable",
-      label: "Enterprise storage write/read probe",
+      label: "Enterprise primary storage write/read probe",
       severity: "blocking",
-      status: opsStatus.storage.writable && opsStatus.storage.dbFileExists && opsStatus.storage.lockProbe === "pass" ? "pass" : "review",
+      status: primaryStorageReady ? "pass" : "review",
       evidence: [
+        `storageEngine=${opsStatus.storage.engine}`,
+        `activePrimary=${opsStatus.storage.primaryStateRuntime.activePrimary}`,
         `dbFileExists=${opsStatus.storage.dbFileExists}`,
+        `primaryStorageReadable=${primaryStorageReadableReady}`,
         `storageWritable=${opsStatus.storage.writable}`,
         `writeProbe=${opsStatus.storage.writeProbe}`,
         `lockProbe=${opsStatus.storage.lockProbe}`,
+        `primaryStorageLockReady=${primaryStorageLockReady}`,
         `lockTimeoutMs=${opsStatus.storage.lockTimeoutMs}`,
         `configuredDirectory=${opsStatus.storage.configuredDirectory}`
       ],
-      nextAction: opsStatus.storage.writable && opsStatus.storage.dbFileExists && opsStatus.storage.lockProbe === "pass"
-        ? "Keep the configured enterprise data path on durable, backed-up storage."
-        : "Fix enterprise storage before accepting production traffic."
+      nextAction: primaryStorageReady
+        ? postgresPrimaryActive
+          ? "Keep the Postgres primary state runtime readable and writable through deployment monitoring."
+          : "Keep the configured enterprise data path on durable, backed-up storage."
+        : "Fix enterprise primary storage before accepting production traffic."
     }),
     readinessItem({
       id: "write-before-backup",
       label: "Write-before backup exists",
       severity: "blocking",
-      status: opsStatus.storage.dbBackupExists ? "pass" : "review",
+      status: writeBeforeBackupReady ? "pass" : "review",
       evidence: [
+        `activePrimary=${opsStatus.storage.primaryStateRuntime.activePrimary}`,
+        `localWriteBeforeBackupApplicable=${postgresPrimaryActive ? "false" : "true"}`,
         `backupExists=${opsStatus.storage.dbBackupExists}`,
         `backupBytes=${opsStatus.storage.dbBackupBytes}`,
         `backupUpdatedAt=${opsStatus.storage.dbBackupUpdatedAt ?? "missing"}`
       ],
-      nextAction: opsStatus.storage.dbBackupExists
-        ? "Keep the write-before backup as local recovery support in addition to scheduled team backups."
+      nextAction: writeBeforeBackupReady
+        ? postgresPrimaryActive
+          ? "Use managed Postgres backup and restore evidence for production recovery instead of local JSON write-before backup."
+          : "Keep the write-before backup as local recovery support in addition to scheduled team backups."
         : "Perform a verified enterprise write after initialization so the local write-before backup is created."
     }),
     readinessItem({
       id: "managed-storage-path",
-      label: "Managed enterprise data directory configured",
+      label: "Managed enterprise primary storage configured",
       severity: "blocking",
-      status: opsStatus.storage.configuredDirectory === "env-configured" ? "pass" : "review",
+      status: managedStoragePathReady ? "pass" : "review",
       evidence: [
+        `storageEngine=${opsStatus.storage.engine}`,
+        `activePrimary=${opsStatus.storage.primaryStateRuntime.activePrimary}`,
         `configuredDirectory=${opsStatus.storage.configuredDirectory}`,
         `pathHint=${opsStatus.storage.pathHint}`
       ],
-      nextAction: opsStatus.storage.configuredDirectory === "env-configured"
-        ? "Document the backup and retention policy for the configured enterprise directory."
+      nextAction: managedStoragePathReady
+        ? postgresPrimaryActive
+          ? "Document Neon/Postgres backup, retention, and restore policy for production."
+          : "Document the backup and retention policy for the configured enterprise directory."
         : "Set SENA_ENTERPRISE_DB_DIR to a managed persistent path before production handoff."
     }),
     readinessItem({
@@ -154,6 +211,7 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
         ? "Use this token only from deployment monitors and rotate it through the secret store."
         : "Set SENA_OPS_TOKEN before exposing ops endpoints."
     }),
+    ...productionPerformanceBlockingItems,
     readinessItem({
       id: "backup-freshness",
       label: "Verified backup freshness",
@@ -227,10 +285,11 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
     }),
     readinessItem({
       id: "object-storage-webhook",
-      label: "Managed object storage webhook and signing configured",
+      label: "Managed object storage adapter or webhook configured",
       severity: "blocking",
-      status: objectStorageProvider.configured && objectStorageProvider.secretConfigured ? "pass" : "review",
+      status: objectStorageNativeProvider.configured || (objectStorageProvider.configured && objectStorageProvider.secretConfigured) ? "pass" : "review",
       evidence: [
+        ...objectStorageNativeProvider.evidence,
         `provider=${objectStorageProvider.mode}`,
         ...(objectStorageProvider.mode === "local-sink" ? ["selfManagedSink=local"] : []),
         `webhook=${objectStorageProvider.configured ? "configured" : "missing"}`,
@@ -240,9 +299,11 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
         "deliveryApi=POST:/api/sena/uploads action=deliver-object-storage",
         "webhookSchema=sena-enterprise-upload-object-storage-webhook/v1"
       ],
-      nextAction: objectStorageProvider.configured && objectStorageProvider.secretConfigured
-        ? "Keep signed upload blob delivery pointed at managed object storage."
-        : "Set SENA_OBJECT_STORAGE_WEBHOOK_URL and SENA_OBJECT_STORAGE_WEBHOOK_SECRET before production upload storage handoff is claimed."
+      nextAction: objectStorageNativeProvider.configured
+        ? "Keep native object-storage bucket versioning, scan/retention policy, and credential rotation evidence attached."
+        : objectStorageProvider.configured && objectStorageProvider.secretConfigured
+          ? "Keep signed upload blob delivery pointed at managed object storage or replace the bridge with a native adapter."
+          : "Set SENA_OBJECT_STORAGE_ADAPTER plus native object-storage credentials, or configure SENA_OBJECT_STORAGE_WEBHOOK_URL and SENA_OBJECT_STORAGE_WEBHOOK_SECRET before production upload storage handoff is claimed."
     }),
     readinessItem({
       id: "collaboration-pubsub",
@@ -491,27 +552,31 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
       id: "managed-database-decision",
       label: "Managed database or durable storage decision",
       severity: "advisory",
-      status: databaseSyncProvider.configured && databaseSyncProvider.secretConfigured ? "pass" : "review",
+      status: managedDatabaseDecisionReady ? "pass" : "review",
       evidence: [
         `storageEngine=${opsStatus.storage.engine}`,
-        "current=file-backed-json",
+        `current=${opsStatus.storage.engine}`,
+        `activePrimary=${opsStatus.storage.primaryStateRuntime.activePrimary}`,
         `databaseSyncWebhook=${databaseSyncProvider.configured ? "configured" : "missing"}`,
         `databaseSyncEndpointHash=${databaseSyncProvider.endpointHash ?? "none"}`,
         `databaseSyncSecret=${databaseSyncProvider.secretConfigured ? "configured" : "missing"}`,
         "bridge=sena-enterprise-database-sync-webhook/v1",
         "decision=managed-db-or-durable-volume-required-before-saas-scale"
       ],
-      nextAction: databaseSyncProvider.configured && databaseSyncProvider.secretConfigured
-        ? "Document whether the signed sanitized-state bridge remains acceptable or replace it with a native managed database adapter before SaaS scale."
+      nextAction: managedDatabaseDecisionReady
+        ? postgresPrimaryActive
+          ? "Keep Neon/Postgres as the native managed database decision and attach live probe plus backup evidence."
+          : "Document whether the signed sanitized-state bridge remains acceptable or replace it with a native managed database adapter before SaaS scale."
         : "Choose a managed database or durable volume strategy before multi-instance SaaS deployment."
     }),
     readinessItem({
       id: "object-storage-decision",
       label: "Managed object storage decision",
       severity: "advisory",
-      status: objectStorageProvider.configured && objectStorageProvider.secretConfigured ? "pass" : "review",
+      status: objectStorageNativeProvider.configured || (objectStorageProvider.configured && objectStorageProvider.secretConfigured) ? "pass" : "review",
       evidence: [
         "uploadBlobStorage=private-local-directory",
+        ...objectStorageNativeProvider.evidence,
         `objectStorageWebhook=${objectStorageProvider.configured ? "configured" : "missing"}`,
         `objectStorageEndpointHash=${objectStorageProvider.endpointHash ?? "none"}`,
         `objectStorageSecret=${objectStorageProvider.secretConfigured ? "configured" : "missing"}`,
@@ -524,9 +589,11 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
         `corrupt=${uploadStorageVerification.summary.checksumMismatches}`,
         `orphan=${uploadStorageVerification.summary.orphanBlobs}`
       ],
-      nextAction: objectStorageProvider.configured && objectStorageProvider.secretConfigured
-        ? "Document whether the signed bridge remains acceptable or replace it with a native institution object-storage adapter before SaaS scale."
-        : "Move upload blobs to institution-approved object storage and malware/DLP scanning before regulated deployment."
+      nextAction: objectStorageNativeProvider.configured
+        ? "Document bucket ownership, versioning, retention, malware/DLP scan policy, and restore ownership for the native object-storage adapter."
+        : objectStorageProvider.configured && objectStorageProvider.secretConfigured
+          ? "Document whether the signed bridge remains acceptable or replace it with a native institution object-storage adapter before SaaS scale."
+          : "Move upload blobs to institution-approved object storage and malware/DLP scanning before regulated deployment."
     }),
     readinessItem({
       id: "secret-hardening",
@@ -550,7 +617,8 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
     readinessFromGovernance(governance, "domain-expert-review", "advisory", "Domain expert review", "Record domain expert review before publication claims."),
     readinessFromGovernance(governance, "deployment-monitoring", "advisory", "Deployment monitoring", "Connect deployment monitoring before handoff."),
     readinessFromGovernance(governance, "organization-deployment-package", "advisory", "Organization deployment package", "Generate redacted deployment evidence before platform handoff."),
-    readinessFromGovernance(governance, "backup-restore-rehearsal", "advisory", "Backup restore rehearsal", "Run restore rehearsal before handoff.")
+    readinessFromGovernance(governance, "backup-restore-rehearsal", "advisory", "Backup restore rehearsal", "Run restore rehearsal before handoff."),
+    ...productionPerformanceAdvisoryItems
   ];
 
   const blockingPass = blocking.filter((item) => item.status === "pass").length;
@@ -577,7 +645,9 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
       backupWebhookConfigured: backupProvider.configured,
       alertWebhookConfigured: alertProvider.configured,
       auditWebhookConfigured: auditProvider.configured,
-      oidcProvidersConfigured: configuredOidcProviders
+      oidcProvidersConfigured: configuredOidcProviders,
+      productionPerformancePathRequired,
+      productionPerformancePathStatus: productionPerformancePath.status
     },
     summary: {
       blockingPass,
@@ -588,13 +658,16 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
     },
     blocking,
     advisory,
+    productionPerformancePath,
     runbook: {
       requiredBeforeProduction: blocking.map((item) => item.nextAction),
       platformDecisions: [
+        "Do not treat .sena-enterprise/enterprise-db.json as a multi-user production state store; configure native Postgres or keep the deployment explicitly scoped to research-pilot traffic.",
         "Choose managed database or durable volume ownership for enterprise JSON state, using the signed database sync bridge only when accepted by the platform owner.",
         "Connect signed collaboration pub/sub delivery to the selected external event bus and decide whether to replace the webhook bridge with a native bus adapter before SaaS scale.",
         "Connect signed team backup delivery to managed storage or the database bridge.",
         "Connect signed upload blob delivery to managed object storage, then decide whether to replace the bridge with a native adapter.",
+        "Configure CDN gzip/brotli compression, immutable static asset caching, and a managed server job queue before conference-scale interactive workloads.",
         "Connect signed ops alert delivery to the deployment incident channel and alerting escalation policy.",
         "Finalize IdP tenant approval, redirect URI ownership, and secret rotation.",
         "Finalize institution email-provider credentials, delivery retention, and replay ownership.",
@@ -610,6 +683,25 @@ export function getEnterpriseDeploymentReadiness(): SenaEnterpriseDeploymentRead
       ]
     }
   };
+}
+
+export async function getEnterpriseDeploymentReadinessWithPostgresEvidence(input: {
+  opsStatus?: SenaEnterpriseOpsStatus;
+} = {}): Promise<SenaEnterpriseDeploymentReadiness> {
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const uploadStorageVerification = await verifyEnterpriseUploadStorageAsync();
+  const uploadObjectStorageCustody = await summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence();
+  const governance = await getEnterpriseGovernanceStatusWithPostgresEvidence({
+    opsStatus,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
+  return getEnterpriseDeploymentReadiness({
+    opsStatus,
+    governance,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
 }
 
 export type SenaEnterpriseDeploymentReadinessItem = {
@@ -641,6 +733,8 @@ export type SenaEnterpriseDeploymentReadiness = {
     alertWebhookConfigured: boolean;
     auditWebhookConfigured: boolean;
     oidcProvidersConfigured: SenaEnterpriseSsoProvider[];
+    productionPerformancePathRequired: boolean;
+    productionPerformancePathStatus: "pass" | "review";
   };
   summary: {
     blockingPass: number;
@@ -651,6 +745,7 @@ export type SenaEnterpriseDeploymentReadiness = {
   };
   blocking: SenaEnterpriseDeploymentReadinessItem[];
   advisory: SenaEnterpriseDeploymentReadinessItem[];
+  productionPerformancePath: SenaEnterpriseProductionPerformancePath;
   runbook: {
     requiredBeforeProduction: string[];
     platformDecisions: string[];

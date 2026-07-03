@@ -8,10 +8,18 @@ import {
 import { SenaEnterpriseError } from "./errors";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseGovernanceCheck } from "./ops-governance";
+import {
+  createEnterprisePostgresAuditLogAdapterFromEnv,
+  resolveEnterprisePostgresConfig,
+  type SenaEnterprisePostgresPool
+} from "../enterprise-postgres";
 import type { SenaEnterpriseDb } from "./state";
 import {
+  getEnterprisePrimaryStateRuntime,
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState
 } from "./state";
 import {
   auditWebhookProvider,
@@ -119,14 +127,19 @@ export type SenaEnterpriseAuditEvent =
   | "upload.object_storage.deliver"
   | "upload.object_storage.fail"
   | "analysis.run"
+  | "analysis.queue"
   | "import.run"
+  | "import.queue"
   | "reliability.run"
+  | "reliability.queue"
   | "reliability.adjudicate"
   | "reliability.review"
   | "expert.review"
   | "inference.run"
+  | "validation.queue"
   | "validation.review"
   | "export.run"
+  | "export.queue"
   | "governance.backup"
   | "governance.backup.verify"
   | "governance.backup.deliver"
@@ -135,6 +148,7 @@ export type SenaEnterpriseAuditEvent =
   | "governance.database_sync.fail"
   | "ops.alert.deliver"
   | "ops.alert.deliver.fail"
+  | "ops.server_job.status"
   | "ops.platform_decision.review"
   | "ops.release_gate.review"
   | "ops.post_cutover_observation.start"
@@ -190,14 +204,19 @@ export const enterpriseAuditEvents: SenaEnterpriseAuditEvent[] = [
   "upload.object_storage.deliver",
   "upload.object_storage.fail",
   "analysis.run",
+  "analysis.queue",
   "import.run",
+  "import.queue",
   "reliability.run",
+  "reliability.queue",
   "reliability.adjudicate",
   "reliability.review",
   "expert.review",
   "inference.run",
+  "validation.queue",
   "validation.review",
   "export.run",
+  "export.queue",
   "governance.backup",
   "governance.backup.verify",
   "governance.backup.deliver",
@@ -206,6 +225,7 @@ export const enterpriseAuditEvents: SenaEnterpriseAuditEvent[] = [
   "governance.database_sync.fail",
   "ops.alert.deliver",
   "ops.alert.deliver.fail",
+  "ops.server_job.status",
   "ops.platform_decision.review",
   "ops.release_gate.review",
   "ops.post_cutover_observation.start",
@@ -247,6 +267,18 @@ export type SenaEnterpriseAuditLogEntry = {
   createdAt: string;
   detail: Record<string, string | number | boolean | null>;
   webhookDelivery?: SenaEnterpriseAuditWebhookDelivery;
+};
+
+export type SenaEnterpriseAuditStoreRuntime = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseAuditStoreRuntime;
+  generatedAt: string;
+  mode: "postgres-table" | "enterprise-state";
+  activeStore: "postgres-table" | "enterprise-state";
+  postgresConfigured: boolean;
+  postgresPrimaryActive: boolean;
+  postgresConnectionHash?: string;
+  evidence: string[];
+  missing: string[];
 };
 
 export type SenaEnterpriseAuditDeliveryResult = {
@@ -355,6 +387,51 @@ export function latestAuditAt(db: SenaEnterpriseDb, event: SenaEnterpriseAuditEv
     .sort((a, b) => b.localeCompare(a))[0];
 }
 
+let enterprisePostgresAuditStore: {
+  adapter: ReturnType<typeof createEnterprisePostgresAuditLogAdapterFromEnv>["adapter"];
+  pool: SenaEnterprisePostgresPool;
+} | null = null;
+
+export function auditStoreRuntime(): SenaEnterpriseAuditStoreRuntime {
+  const primaryStateRuntime = getEnterprisePrimaryStateRuntime();
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const postgresPrimaryActive = primaryStateRuntime.activePrimary === "postgres";
+  const activeStore = postgresPrimaryActive ? "postgres-table" : "enterprise-state";
+  const missing = postgresPrimaryActive
+    ? []
+    : [
+      primaryStateRuntime.postgresPrimaryRequested ? null : "SENA_ENTERPRISE_STATE_STORE=postgres",
+      ...postgresConfig.missingEnv
+    ].filter((value): value is string => Boolean(value));
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditStoreRuntime,
+    generatedAt: now(),
+    mode: activeStore,
+    activeStore,
+    postgresConfigured: postgresConfig.configured,
+    postgresPrimaryActive,
+    postgresConnectionHash: postgresConfig.connectionHash,
+    evidence: [
+      `auditStore=${activeStore}`,
+      `auditStoreSchema=${activeStore === "postgres-table" ? "sena_enterprise_audit_log" : "enterprise-db.auditLog"}`,
+      `auditStoreIndexed=${activeStore === "postgres-table"}`,
+      `postgresConfigured=${postgresConfig.configured}`,
+      `postgresPrimaryActive=${postgresPrimaryActive}`,
+      `postgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ],
+    missing
+  };
+}
+
+function isPostgresAuditStoreActive() {
+  return auditStoreRuntime().activeStore === "postgres-table";
+}
+
+function postgresAuditStore() {
+  enterprisePostgresAuditStore ??= createEnterprisePostgresAuditLogAdapterFromEnv({});
+  return enterprisePostgresAuditStore.adapter;
+}
+
 
 function auditTimestamp(value?: string) {
   if (!value) return undefined;
@@ -409,12 +486,17 @@ function auditChainRows(entries: SenaEnterpriseAuditLogEntry[]) {
     });
 }
 
+function scopedUserIdsForTeams(db: SenaEnterpriseDb, teamIds: string[]) {
+  const teamIdSet = new Set(teamIds);
+  return db.memberships
+    .filter((membership) => teamIdSet.has(membership.teamId))
+    .map((membership) => membership.userId);
+}
+
 function auditEntriesInScope(db: SenaEnterpriseDb, teamIds: string[], entries = db.auditLog) {
   if (teamIds.length === 0) return [];
   const teamIdSet = new Set(teamIds);
-  const scopedUserIds = new Set(db.memberships
-    .filter((membership) => teamIdSet.has(membership.teamId))
-    .map((membership) => membership.userId));
+  const scopedUserIds = new Set(scopedUserIdsForTeams(db, teamIds));
   return entries.filter((entry) => (
     entry.teamId
       ? teamIdSet.has(entry.teamId)
@@ -441,9 +523,24 @@ function auditTeamScope(context?: SenaEnterpriseSessionContext, requestedTeamId?
   return manageable;
 }
 
+function auditTeamScopeFromDb(db: SenaEnterpriseDb, context?: SenaEnterpriseSessionContext, requestedTeamId?: string) {
+  if (!context) {
+    return db.teams.map((team) => team.id);
+  }
+  const manageable = manageableTeamIds(context);
+  if (requestedTeamId) {
+    requireEnterprisePermission(context, requestedTeamId, "team:manage");
+    return [requestedTeamId];
+  }
+  if (manageable.length === 0) {
+    throw new SenaEnterpriseError("Team management permission is required for audit log access.", 403, "audit_permission_denied");
+  }
+  return manageable;
+}
+
 export function listEnterpriseAuditLog(context: SenaEnterpriseSessionContext, input: SenaEnterpriseAuditLogQuery = {}): SenaEnterpriseAuditLogResult {
   const db = readEnterpriseDb();
-  const teamIds = auditTeamScope(context, input.teamId);
+  const teamIds = auditTeamScopeFromDb(db, context, input.teamId);
   const from = auditTimestamp(input.from);
   const to = auditTimestamp(input.to);
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
@@ -485,10 +582,56 @@ export function listEnterpriseAuditLog(context: SenaEnterpriseSessionContext, in
   };
 }
 
-export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): SenaEnterpriseAuditIntegrity {
-  const db = readEnterpriseDb();
-  const teamIds = auditTeamScope(context, input.teamId);
-  const scopedEntries = auditEntriesInScope(db, teamIds);
+export async function listEnterpriseAuditLogAsync(context: SenaEnterpriseSessionContext, input: SenaEnterpriseAuditLogQuery = {}): Promise<SenaEnterpriseAuditLogResult> {
+  if (!isPostgresAuditStoreActive()) {
+    return listEnterpriseAuditLog(context, input);
+  }
+  const state = await readEnterpriseState();
+  const teamIds = auditTeamScopeFromDb(state.db, context, input.teamId);
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
+  const offset = Math.max(Math.trunc(input.offset ?? 0), 0);
+  auditTimestamp(input.from);
+  auditTimestamp(input.to);
+  const result = await postgresAuditStore().listEntries({
+    ...input,
+    teamIds,
+    scopedUserIds: scopedUserIdsForTeams(state.db, teamIds),
+    limit,
+    offset
+  });
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseAuditLog,
+    generatedAt: now(),
+    scope: {
+      teamIds,
+      requestedTeamId: input.teamId
+    },
+    filters: {
+      userId: input.userId,
+      projectId: input.projectId,
+      event: input.event,
+      from: input.from,
+      to: input.to
+    },
+    pagination: {
+      limit,
+      offset,
+      total: result.total,
+      returned: result.events.length,
+      nextOffset: offset + result.events.length < result.total ? offset + result.events.length : null
+    },
+    events: result.events
+  };
+}
+
+function buildEnterpriseAuditIntegrity(input: {
+  db: SenaEnterpriseDb;
+  teamIds: string[];
+  requestedTeamId?: string;
+  scopedEntries: SenaEnterpriseAuditLogEntry[];
+  globalEventCount: number;
+}): SenaEnterpriseAuditIntegrity {
+  const { db, teamIds, requestedTeamId, scopedEntries, globalEventCount } = input;
   const timestampRows = scopedEntries.map((entry) => Date.parse(entry.createdAt));
   const validTimestamps = timestampRows.every((timestamp) => Number.isFinite(timestamp));
   const newestFirst = scopedEntries.every((entry, index) => {
@@ -529,13 +672,13 @@ export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionCo
     {
       id: "audit-retention-cap",
       label: "Audit retention cap",
-      status: db.auditLog.length <= auditRetentionMaxEvents ? "pass" : "review",
+      status: globalEventCount <= auditRetentionMaxEvents ? "pass" : "review",
       evidence: [
-        `globalEvents=${db.auditLog.length}`,
+        `globalEvents=${globalEventCount}`,
         `scopedEvents=${scopedEntries.length}`,
         `maxEvents=${auditRetentionMaxEvents}`
       ],
-      nextAction: db.auditLog.length <= auditRetentionMaxEvents ? "Export audit chain heads before event rotation." : "Export and rotate audit logs to restore the configured event cap."
+      nextAction: globalEventCount <= auditRetentionMaxEvents ? "Export audit chain heads before event rotation." : "Export and rotate audit logs to restore the configured event cap."
     },
     {
       id: "audit-retention-window",
@@ -558,7 +701,7 @@ export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionCo
     status: checks.every((check) => check.status === "pass") ? "pass" : "review",
     scope: {
       teamIds,
-      requestedTeamId: input.teamId
+      requestedTeamId
     },
     retention: {
       maxEvents: auditRetentionMaxEvents,
@@ -580,19 +723,81 @@ export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionCo
   };
 }
 
+export function verifyEnterpriseAuditIntegrity(context?: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): SenaEnterpriseAuditIntegrity {
+  const db = readEnterpriseDb();
+  return verifyEnterpriseAuditIntegrityFromDb(db, context, input);
+}
+
+export function verifyEnterpriseAuditIntegrityFromDb(
+  db: SenaEnterpriseDb,
+  context?: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): SenaEnterpriseAuditIntegrity {
+  const teamIds = auditTeamScopeFromDb(db, context, input.teamId);
+  return buildEnterpriseAuditIntegrity({
+    db,
+    teamIds,
+    requestedTeamId: input.teamId,
+    scopedEntries: auditEntriesInScope(db, teamIds),
+    globalEventCount: db.auditLog.length
+  });
+}
+
+export async function verifyEnterpriseAuditIntegrityAsync(context?: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): Promise<SenaEnterpriseAuditIntegrity> {
+  const state = await readEnterpriseState();
+  const teamIds = auditTeamScopeFromDb(state.db, context, input.teamId);
+  if (!isPostgresAuditStoreActive()) {
+    return verifyEnterpriseAuditIntegrityFromDb(state.db, context, input);
+  }
+  const scoped = await postgresAuditStore().listEntries({
+    teamIds,
+    scopedUserIds: scopedUserIdsForTeams(state.db, teamIds),
+    limit: auditRetentionMaxEvents,
+    offset: 0
+  });
+  const globalTeamIds = [...new Set([...state.db.teams.map((team) => team.id), ...teamIds])];
+  const global = await postgresAuditStore().listEntries({
+    teamIds: globalTeamIds,
+    scopedUserIds: state.db.users.map((user) => user.id),
+    limit: 1,
+    offset: 0
+  });
+  return buildEnterpriseAuditIntegrity({
+    db: state.db,
+    teamIds,
+    requestedTeamId: input.teamId,
+    scopedEntries: scoped.events,
+    globalEventCount: global.total
+  });
+}
+
 export function recordEnterpriseAudit(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
   const db = readEnterpriseDb();
   appendAudit(db, entry);
   saveDb(db);
 }
 
-export function appendAudit(db: SenaEnterpriseDb, entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
-  db.auditLog.unshift({
+export async function recordEnterpriseAuditAsync(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
+  if (isPostgresAuditStoreActive()) {
+    await postgresAuditStore().appendEntry(buildAuditEntry(entry));
+    return;
+  }
+  const state = await readEnterpriseState();
+  appendAudit(state.db, entry);
+  await saveEnterpriseState(state, state.db);
+}
+
+function buildAuditEntry(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">): SenaEnterpriseAuditLogEntry {
+  return {
     id: id("audit"),
     createdAt: now(),
     ...entry,
     webhookDelivery: entry.webhookDelivery ?? initialAuditWebhookDelivery()
-  });
+  };
+}
+
+export function appendAudit(db: SenaEnterpriseDb, entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
+  db.auditLog.unshift(buildAuditEntry(entry));
   db.auditLog = db.auditLog.slice(0, auditRetentionMaxEvents);
 }
 

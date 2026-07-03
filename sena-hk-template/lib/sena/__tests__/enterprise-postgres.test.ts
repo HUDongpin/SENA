@@ -317,6 +317,21 @@ describe("SENA enterprise Postgres adapter", () => {
     expect(JSON.stringify(config)).not.toContain("example.neon.tech");
   });
 
+  it("detects Vercel Postgres Prisma URL aliases without exposing the connection string", () => {
+    const env = {
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      POSTGRES_PRISMA_URL: "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require"
+    };
+
+    const config = resolveEnterprisePostgresConfig(env);
+
+    expect(config.configured).toBe(true);
+    expect(config.urlEnvName).toBe("POSTGRES_PRISMA_URL");
+    expect(config.evidence).toContain("url=POSTGRES_PRISMA_URL");
+    expect(JSON.stringify(config)).not.toContain("super-secret");
+    expect(JSON.stringify(config)).not.toContain("example.neon.tech");
+  });
+
   it("creates a pooled state adapter from Neon/Vercel Postgres environment variables", async () => {
     const pg = new MemoryPostgres();
     const createdPools: unknown[] = [];

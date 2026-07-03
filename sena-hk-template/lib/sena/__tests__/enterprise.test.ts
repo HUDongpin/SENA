@@ -1812,6 +1812,12 @@ describe("SENA enterprise runtime", () => {
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/identity-production-evidence");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/go-live-rehearsal");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/platform-decisions");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/jobs/worker-contract");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/jobs/probe");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/postgres");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/observability");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/observability/probe");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/production-evidence");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/provisioning");
     expect(organizationDeployment.env.find((entry: { name: string }) => entry.name === "SENA_ALERT_WEBHOOK_SECRET")?.secret).toBe(true);
     expect(organizationDeployment.env.find((entry: { name: string }) => entry.name === "SENA_ALERT_WEBHOOK_SECRET")?.configured).toBe(true);
@@ -2009,8 +2015,20 @@ describe("SENA enterprise runtime", () => {
       "sena-enterprise-native-adapter-certification/v1",
       "sena-enterprise-platform-decision-acceptance/v1",
       "sena-enterprise-release-gate-review/v1",
-      "sena-enterprise-identity-production-evidence/v1"
+      "sena-enterprise-identity-production-evidence/v1",
+      "sena-enterprise-production-evidence-manifest/v1"
     ]));
+    expect((organizationDeployment as typeof organizationDeployment & {
+      productionEvidenceManifest?: {
+        schemaVersion: string;
+        export: { api: string };
+      };
+    }).productionEvidenceManifest).toEqual(expect.objectContaining({
+      schemaVersion: "sena-enterprise-production-evidence-manifest/v1",
+      export: expect.objectContaining({
+        api: "/api/sena/ops/production-evidence"
+      })
+    }));
     const goLiveRehearsal = (enterprise as typeof enterprise & {
       getEnterpriseGoLiveRehearsal: () => {
         schemaVersion: "sena-enterprise-go-live-rehearsal/v1";

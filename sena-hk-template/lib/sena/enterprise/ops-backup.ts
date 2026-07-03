@@ -54,7 +54,10 @@ import type {
 } from "./state";
 import {
   readEnterpriseDb,
-  saveDb
+  readEnterpriseState,
+  saveDb,
+  saveEnterpriseState,
+  type SenaEnterpriseStateRead
 } from "./state";
 import type {
   SenaEnterpriseMembership
@@ -158,7 +161,7 @@ export type SenaEnterpriseBackupArtifact = {
     excludedCollections: string[];
   };
   manifest: {
-    storageEngine: "file-backed-json";
+    storageEngine: "file-backed-json" | "postgres-primary-state";
     storagePathHint: string;
     payloadSha256: string;
     recordCounts: SenaEnterpriseBackupRecordCounts;
@@ -299,11 +302,15 @@ function buildBackupPayload(db: SenaEnterpriseDb, teamIds: string[]): SenaEnterp
 
 function backupManifest(
   payload: SenaEnterpriseBackupPayload,
-  payloadSha256: string
+  payloadSha256: string,
+  runtime?: SenaEnterpriseStateRead["runtime"]
 ): SenaEnterpriseBackupArtifact["manifest"] {
+  const postgresPrimary = runtime?.activePrimary === "postgres";
   return {
-    storageEngine: "file-backed-json",
-    storagePathHint: path.basename(enterpriseDbDir),
+    storageEngine: postgresPrimary ? "postgres-primary-state" : "file-backed-json",
+    storagePathHint: postgresPrimary
+      ? `postgres:${runtime.postgresConnectionHash ? "configured" : "missing-hash"}`
+      : path.basename(enterpriseDbDir),
     payloadSha256,
     recordCounts: backupRecordCounts(payload),
     retentionPolicy: {
@@ -336,9 +343,13 @@ function ensureBackupManagePermission(context: SenaEnterpriseSessionContext, tea
   return manageable;
 }
 
-export function createEnterpriseBackup(context: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): SenaEnterpriseBackupArtifact {
+function createEnterpriseBackupFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string },
+  db: SenaEnterpriseDb,
+  runtime?: SenaEnterpriseStateRead["runtime"]
+): SenaEnterpriseBackupArtifact {
   const teamIds = ensureBackupManagePermission(context, input.teamId);
-  const db = readEnterpriseDb();
   appendAudit(db, {
     event: "governance.backup",
     userId: context.user.id,
@@ -349,7 +360,6 @@ export function createEnterpriseBackup(context: SenaEnterpriseSessionContext, in
       uploadBlobsIncluded: false
     }
   });
-  saveDb(db);
 
   const payload = buildBackupPayload(db, teamIds);
   const payloadSha = backupPayloadSha256(payload);
@@ -368,25 +378,42 @@ export function createEnterpriseBackup(context: SenaEnterpriseSessionContext, in
       uploadBlobsIncluded: false,
       excludedCollections: ["sessions", "ssoStates", "authLockouts", "apiRateLimits", "mfaSecrets", "mfaChallenges", "emailDeliveries", "passwordResetTokens", "projectPresence", "collaborationEvents", "passwordHash", "uploadBlobs"]
     },
-    manifest: backupManifest(payload, payloadSha),
+    manifest: backupManifest(payload, payloadSha, runtime),
     payload
   };
+}
+
+export function createEnterpriseBackup(context: SenaEnterpriseSessionContext, input: { teamId?: string } = {}): SenaEnterpriseBackupArtifact {
+  const db = readEnterpriseDb();
+  const backup = createEnterpriseBackupFromDb(context, input, db);
+  saveDb(db);
+  return backup;
+}
+
+export async function createEnterpriseBackupWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterpriseBackupArtifact> {
+  const state = await readEnterpriseState();
+  const backup = createEnterpriseBackupFromDb(context, input, state.db, state.runtime);
+  await saveEnterpriseState(state, state.db);
+  return backup;
 }
 
 function backupHasPasswordHashes(backup: SenaEnterpriseBackupArtifact) {
   return backup.payload.users.some((user) => Object.prototype.hasOwnProperty.call(user, "passwordHash"));
 }
 
-export function verifyEnterpriseBackup(
+export function verifyEnterpriseBackupAgainstDb(
   context: SenaEnterpriseSessionContext,
-  backup: SenaEnterpriseBackupArtifact
+  backup: SenaEnterpriseBackupArtifact,
+  db: SenaEnterpriseDb
 ): SenaEnterpriseBackupVerification {
   ensureBackupManagePermission(context);
   if (backup.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseBackup) {
     throw new SenaEnterpriseError("Unsupported SENA enterprise backup schema.", 400, "unsupported_backup_schema");
   }
 
-  const db = readEnterpriseDb();
   const payloadSha = backupPayloadSha256(backup.payload);
   const actualCounts = backupRecordCounts(backup.payload);
   const conflicts = {
@@ -462,7 +489,6 @@ export function verifyEnterpriseBackup(
       collisions: collisionCount
     }
   });
-  saveDb(db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupVerification,
     status,
@@ -474,6 +500,26 @@ export function verifyEnterpriseBackup(
     conflicts,
     checks
   };
+}
+
+export function verifyEnterpriseBackup(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact
+): SenaEnterpriseBackupVerification {
+  const db = readEnterpriseDb();
+  const verification = verifyEnterpriseBackupAgainstDb(context, backup, db);
+  saveDb(db);
+  return verification;
+}
+
+export async function verifyEnterpriseBackupWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact
+): Promise<SenaEnterpriseBackupVerification> {
+  const state = await readEnterpriseState();
+  const verification = verifyEnterpriseBackupAgainstDb(context, backup, state.db);
+  await saveEnterpriseState(state, state.db);
+  return verification;
 }
 
 export function ensureBackupDeliveryPermission(context: SenaEnterpriseSessionContext, backup: SenaEnterpriseBackupArtifact) {
@@ -625,6 +671,81 @@ export async function deliverEnterpriseBackup(
     }
   });
   saveDb(db);
+  return result;
+}
+
+export async function deliverEnterpriseBackupWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; backup?: SenaEnterpriseBackupArtifact } = {}
+): Promise<SenaEnterpriseBackupDeliveryResult> {
+  const provider = backupWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const state = await readEnterpriseState();
+  const backup = input.backup ?? createEnterpriseBackupFromDb(context, { teamId: input.teamId }, state.db, state.runtime);
+  if (input.backup) {
+    ensureBackupDeliveryPermission(context, backup);
+  }
+  const verification = verifyEnterpriseBackupAgainstDb(context, backup, state.db);
+  if (!backupCoreChecksPass(verification)) {
+    await saveEnterpriseState(state, state.db);
+    throw new SenaEnterpriseError("Backup delivery requires checksum, record counts, and secret exclusions to pass.", 400, "backup_delivery_preflight_failed");
+  }
+
+  const result: SenaEnterpriseBackupDeliveryResult = {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseBackupDelivery,
+    status: provider.configured ? "failed" : "not-configured",
+    generatedAt: now(),
+    provider,
+    backup: {
+      backupId: backup.backupId,
+      generatedAt: backup.generatedAt,
+      payloadSha256: verification.payloadSha256,
+      recordCounts: verification.recordCounts,
+      scope: backup.scope
+    },
+    verification,
+    delivery: {
+      attempted: false
+    }
+  };
+
+  if (!provider.configured) {
+    await saveEnterpriseState(state, state.db);
+    return result;
+  }
+
+  const attemptResult = provider.mode === "local-sink"
+    ? localWebhookSinkAttempt(provider.endpointHash!)
+    : await postBackupWebhook(backup, verification);
+  const attemptedAt = now();
+  result.status = attemptResult.ok ? "delivered" : "failed";
+  result.delivery = {
+    attempted: true,
+    webhookStatus: attemptResult.ok ? "delivered" : "failed",
+    attemptedAt,
+    endpointHash: attemptResult.endpointHash,
+    httpStatus: attemptResult.httpStatus,
+    errorCode: attemptResult.errorCode,
+    errorHash: attemptResult.errorHash
+  };
+
+  appendAudit(state.db, {
+    event: attemptResult.ok ? "governance.backup.deliver" : "governance.backup.deliver.fail",
+    userId: context.user.id,
+    teamId: backup.scope.teamIds.length === 1 ? backup.scope.teamIds[0] : undefined,
+    detail: {
+      backupId: backup.backupId,
+      payloadSha256: verification.payloadSha256,
+      endpointHash: attemptResult.endpointHash ?? "none",
+      httpStatus: attemptResult.httpStatus ?? null,
+      errorCode: attemptResult.errorCode ?? null,
+      errorHash: attemptResult.errorHash ?? null,
+      teams: verification.recordCounts.teams,
+      projects: verification.recordCounts.projects,
+      uploads: verification.recordCounts.uploads,
+      auditEvents: verification.recordCounts.auditEvents
+    }
+  });
+  await saveEnterpriseState(state, state.db);
   return result;
 }
 

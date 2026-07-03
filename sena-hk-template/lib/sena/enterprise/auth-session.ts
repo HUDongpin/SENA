@@ -7,7 +7,9 @@ import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseTeam,
   type SenaEnterpriseUser
@@ -188,11 +190,41 @@ export function logoutEnterpriseSession(token: string | undefined) {
   saveDb(db);
 }
 
+export async function logoutEnterpriseSessionAsync(token: string | undefined) {
+  if (!token) return;
+  const state = await readEnterpriseState();
+  const db = state.db;
+  const hash = tokenHash(token);
+  const session = db.sessions.find((candidate) => candidate.tokenHash === hash);
+  db.sessions = db.sessions.filter((candidate) => candidate.tokenHash !== hash);
+  if (session) appendAudit(db, { event: "auth.logout", userId: session.userId, detail: { sessionId: session.id } });
+  await saveEnterpriseState(state, db);
+}
+
 export function listEnterpriseSessions(context: SenaEnterpriseSessionContext): SenaEnterpriseSessionList {
   const db = readEnterpriseDb();
   db.sessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > Date.now());
   const sessions = liveUserSessions(db, context.user.id);
   saveDb(db);
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionList,
+    generatedAt: now(),
+    currentSessionId: context.session.id,
+    sessionDays,
+    sessionPolicy: {
+      standardDays: standardSessionDays,
+      rememberedDays: rememberedSessionDays
+    },
+    sessions: sessions.map((session) => sessionSummary(session, context.session.id))
+  };
+}
+
+export async function listEnterpriseSessionsAsync(context: SenaEnterpriseSessionContext): Promise<SenaEnterpriseSessionList> {
+  const state = await readEnterpriseState();
+  const db = state.db;
+  db.sessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > Date.now());
+  const sessions = liveUserSessions(db, context.user.id);
+  await saveEnterpriseState(state, db);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionList,
     generatedAt: now(),
@@ -235,6 +267,29 @@ export function verifyEnterpriseCsrfToken(context: SenaEnterpriseSessionContext,
       }
     });
     saveDb(db);
+    throw new SenaEnterpriseError("CSRF token is missing or invalid.", 403, "csrf_invalid");
+  }
+  return true;
+}
+
+export async function verifyEnterpriseCsrfTokenAsync(context: SenaEnterpriseSessionContext, token: string | null | undefined) {
+  const expected = csrfTokenForSession(context.session);
+  const valid = typeof token === "string" && token.length > 0 && timingSafeStringEqual(token, expected);
+  if (!valid) {
+    const state = await readEnterpriseState();
+    const db = state.db;
+    appendAudit(db, {
+      event: "security.csrf.fail",
+      userId: context.user.id,
+      teamId: context.teams[0]?.id,
+      detail: {
+        sessionId: context.session.id,
+        tokenPresent: Boolean(token),
+        tokenHash: token ? (sha256Text(token) ?? null) : null,
+        headerName: senaCsrfHeaderName
+      }
+    });
+    await saveEnterpriseState(state, db);
     throw new SenaEnterpriseError("CSRF token is missing or invalid.", 403, "csrf_invalid");
   }
   return true;
@@ -289,6 +344,56 @@ export function revokeEnterpriseSessions(context: SenaEnterpriseSessionContext, 
   };
 }
 
+export async function revokeEnterpriseSessionsAsync(context: SenaEnterpriseSessionContext, input: {
+  sessionId?: string;
+  revokeOtherSessions?: boolean;
+  revokeAllSessions?: boolean;
+} = {}): Promise<SenaEnterpriseSessionRevocation> {
+  const state = await readEnterpriseState();
+  const db = state.db;
+  db.sessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > Date.now());
+  const userSessions = liveUserSessions(db, context.user.id);
+  const targetIds = new Set<string>();
+  if (input.revokeAllSessions) {
+    userSessions.forEach((session) => targetIds.add(session.id));
+  } else if (input.revokeOtherSessions) {
+    userSessions
+      .filter((session) => session.id !== context.session.id)
+      .forEach((session) => targetIds.add(session.id));
+  } else if (input.sessionId) {
+    const session = userSessions.find((candidate) => candidate.id === input.sessionId);
+    if (!session) throw new SenaEnterpriseError("Session was not found.", 404, "session_not_found");
+    targetIds.add(session.id);
+  } else {
+    throw new SenaEnterpriseError("A sessionId or revoke action is required.", 400, "session_revoke_target_required");
+  }
+
+  const revokedSessionIds = userSessions
+    .filter((session) => targetIds.has(session.id))
+    .map((session) => session.id);
+  db.sessions = db.sessions.filter((session) => !targetIds.has(session.id));
+  appendAudit(db, {
+    event: "auth.session.revoke",
+    userId: context.user.id,
+    teamId: context.teams[0]?.id,
+    detail: {
+      revokedCount: revokedSessionIds.length,
+      currentSessionRevoked: revokedSessionIds.includes(context.session.id),
+      mode: input.revokeAllSessions ? "all" : input.revokeOtherSessions ? "others" : "single"
+    }
+  });
+  await saveEnterpriseState(state, db);
+  const remainingSessions = liveUserSessions(db, context.user.id);
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSessionRevocation,
+    generatedAt: now(),
+    revokedSessionIds,
+    revokedCount: revokedSessionIds.length,
+    currentSessionRevoked: revokedSessionIds.includes(context.session.id),
+    remainingSessions: remainingSessions.map((session) => sessionSummary(session, context.session.id))
+  };
+}
+
 export function getEnterpriseSession(token: string | undefined): SenaEnterpriseSessionContext | null {
   if (!token) return null;
   const db = readEnterpriseDb();
@@ -297,8 +402,22 @@ export function getEnterpriseSession(token: string | undefined): SenaEnterpriseS
   return contextFromDb(db, session);
 }
 
+export async function getEnterpriseSessionAsync(token: string | undefined): Promise<SenaEnterpriseSessionContext | null> {
+  if (!token) return null;
+  const state = await readEnterpriseState();
+  const session = state.db.sessions.find((candidate) => candidate.tokenHash === tokenHash(token));
+  if (!session) return null;
+  return contextFromDb(state.db, session);
+}
+
 export function requireEnterpriseSession(token: string | undefined): SenaEnterpriseSessionContext {
   const context = getEnterpriseSession(token);
+  if (!context) throw new SenaEnterpriseError("Sign in is required.", 401, "auth_required");
+  return context;
+}
+
+export async function requireEnterpriseSessionAsync(token: string | undefined): Promise<SenaEnterpriseSessionContext> {
+  const context = await getEnterpriseSessionAsync(token);
   if (!context) throw new SenaEnterpriseError("Sign in is required.", 401, "auth_required");
   return context;
 }

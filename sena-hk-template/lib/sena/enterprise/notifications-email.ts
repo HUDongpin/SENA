@@ -11,7 +11,9 @@ import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
 import {
@@ -357,6 +359,27 @@ export async function deliverEnterpriseEmails(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string } = {}
 ): Promise<SenaEnterpriseEmailDeliveryResult> {
+  const db = readEnterpriseDb();
+  const result = await deliverEnterpriseEmailsFromDb(context, input, db);
+  saveDb(db);
+  return result;
+}
+
+export async function deliverEnterpriseEmailsAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string } = {}
+): Promise<SenaEnterpriseEmailDeliveryResult> {
+  const state = await readEnterpriseState();
+  const result = await deliverEnterpriseEmailsFromDb(context, input, state.db);
+  await saveEnterpriseState(state, state.db);
+  return result;
+}
+
+async function deliverEnterpriseEmailsFromDb(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string },
+  db: SenaEnterpriseDb
+): Promise<SenaEnterpriseEmailDeliveryResult> {
   const provider = emailWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200);
   const force = Boolean(input.force);
@@ -391,7 +414,6 @@ export async function deliverEnterpriseEmails(
     return result;
   }
 
-  const db = readEnterpriseDb();
   const teamIdSet = new Set(teamIds);
   const deliveryQueue: SenaEnterpriseEmailDelivery[] = [];
   const nowMs = Date.now();
@@ -498,6 +520,5 @@ export async function deliverEnterpriseEmails(
     });
   }
 
-  saveDb(db);
   return result;
 }

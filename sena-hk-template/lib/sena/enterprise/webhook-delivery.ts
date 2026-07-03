@@ -36,6 +36,14 @@ export function webhookEnvValue(key: string) {
   return value || undefined;
 }
 
+function firstWebhookEnvValue(keys: string[]) {
+  for (const key of keys) {
+    const value = webhookEnvValue(key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export function webhookPositiveIntegerEnv(key: string, fallback: number) {
   const parsed = Number(process.env[key]);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
@@ -267,11 +275,35 @@ export function backupWebhookProvider(dbPath: string, selfManagedEnterpriseMode:
 }
 
 export function alertWebhookUrl() {
-  return webhookUrlFromEnv("SENA_ALERT_WEBHOOK_URL", "invalid_alert_webhook_url");
+  const value = firstWebhookEnvValue([
+    "SENA_ALERT_WEBHOOK_URL",
+    "SENA_ALERTING_WEBHOOK_URL",
+    "ALERT_WEBHOOK_URL",
+    "ALERTS_WEBHOOK_URL",
+    "OBSERVABILITY_ALERT_WEBHOOK_URL"
+  ]);
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new SenaEnterpriseError("SENA_ALERT_WEBHOOK_URL must be an HTTP(S) URL.", 500, "invalid_alert_webhook_url");
+    }
+    return parsed.toString();
+  } catch (error) {
+    if (error instanceof SenaEnterpriseError) throw error;
+    throw new SenaEnterpriseError("SENA_ALERT_WEBHOOK_URL must be an HTTP(S) URL.", 500, "invalid_alert_webhook_url");
+  }
 }
 
 export function alertWebhookSecret() {
-  return webhookEnvValue("SENA_ALERT_WEBHOOK_SECRET");
+  return firstWebhookEnvValue([
+    "SENA_ALERT_WEBHOOK_SECRET",
+    "SENA_ALERTING_WEBHOOK_SECRET",
+    "SENA_ALERT_WEBHOOK_SIGNING_SECRET",
+    "ALERT_WEBHOOK_SECRET",
+    "ALERTS_WEBHOOK_SECRET",
+    "OBSERVABILITY_ALERT_WEBHOOK_SECRET"
+  ]);
 }
 
 export function alertWebhookTimeoutMs() {

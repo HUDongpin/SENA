@@ -46,16 +46,24 @@ import {
   latestReleaseGateIdentityReceiptArchiveEvidence,
   type SenaEnterpriseIdentityReceiptArchiveManifest
 } from "./identity-receipt-archive";
-import { appendAudit } from "./ops-audit";
+import {
+  appendAudit,
+  recordEnterpriseAuditAsync
+} from "./ops-audit";
 import {
   getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
   type SenaEnterpriseOrganizationDeploymentPackage
 } from "./ops-deployment";
 import {
   getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
 import { manageableTeamIds } from "./ops-governance";
+import {
+  getEnterpriseOpsStatusWithPostgresEvidence
+} from "./ops-status";
 import {
   buildEnterprisePlatformDecisionRegister,
   latestPlatformDecisionAcceptances,
@@ -71,6 +79,9 @@ import {
 } from "./ops-platform-decision-policy";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
+  saveEnterpriseState,
+  type SenaEnterpriseDb,
   saveDb
 } from "./state";
 
@@ -222,6 +233,7 @@ function enterpriseReleaseGatePlatformDecisionSnapshot(register: SenaEnterpriseP
 export function enterpriseReleaseGateIdentityProductionSnapshot(input: {
   generatedAt: string;
   teamId?: string;
+  db?: SenaEnterpriseDb;
   platformDecisionRegister: SenaEnterprisePlatformDecisionRegister;
   platformDecisionAcceptances: SenaEnterprisePlatformDecisionAcceptance[];
 }): SenaEnterpriseReleaseGateReview["identityProductionSnapshot"] {
@@ -258,7 +270,7 @@ export function enterpriseReleaseGateIdentityProductionSnapshot(input: {
     .flatMap((decisionId) => {
       const acceptance = latestIdentityAcceptances.get(decisionId);
       if (!acceptance) return [];
-      const productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance) ?? acceptance.productionEvidenceReceipt;
+      const productionEvidenceReceipt = platformDecisionProductionEvidenceReceipt(acceptance, input.db) ?? acceptance.productionEvidenceReceipt;
       return [{
         decisionId,
         status: acceptance.status,
@@ -297,6 +309,7 @@ export function enterpriseReleaseGateIdentityProductionSnapshot(input: {
   });
   const platformRequestPacket = buildEnterpriseIdentityPlatformDecisionRequestPacket({
     teamId: input.teamId,
+    db: input.db,
     generatedAt: input.generatedAt,
     decisions,
     requirements,
@@ -323,6 +336,7 @@ export function enterpriseReleaseGateIdentityProductionSnapshot(input: {
   const identityProductionDossier = buildEnterpriseIdentityProductionEvidenceDossier({
     generatedAt: input.generatedAt,
     teamId: input.teamId,
+    db: input.db,
     platformDecisionRegister: input.platformDecisionRegister,
     platformDecisionAcceptances: input.platformDecisionAcceptances
   });
@@ -432,15 +446,20 @@ export function enterpriseReleaseGateIdentityProductionSnapshot(input: {
 
 export function createEnterpriseReleaseGateReview(
   context: SenaEnterpriseSessionContext,
-  input: SenaEnterpriseReleaseGateReviewInput
+  input: SenaEnterpriseReleaseGateReviewInput,
+  snapshots?: {
+    readiness?: SenaEnterpriseDeploymentReadiness;
+    deployment?: SenaEnterpriseOrganizationDeploymentPackage;
+    db?: SenaEnterpriseDb;
+  }
 ): SenaEnterpriseReleaseGateReview {
   if (!isEnterpriseReleaseGateDecision(input.decision)) {
     throw new SenaEnterpriseError("Release gate decision is not recognized.", 400, "invalid_release_gate_decision");
   }
   requireEnterprisePermission(context, input.teamId, "team:manage");
-  const db = readEnterpriseDb();
-  const readiness = getEnterpriseDeploymentReadiness();
-  const deployment = getEnterpriseOrganizationDeploymentPackage();
+  const db = snapshots?.db ?? readEnterpriseDb();
+  const readiness = snapshots?.readiness ?? getEnterpriseDeploymentReadiness();
+  const deployment = snapshots?.deployment ?? getEnterpriseOrganizationDeploymentPackage();
   const teamPlatformDecisionAcceptances = (db.platformDecisionAcceptances ?? [])
     .filter((acceptance) => acceptance.teamId === input.teamId);
   const teamPlatformDecisionRegister = buildEnterprisePlatformDecisionRegister(
@@ -456,6 +475,7 @@ export function createEnterpriseReleaseGateReview(
   const identityProductionSnapshot = enterpriseReleaseGateIdentityProductionSnapshot({
     generatedAt: timestamp,
     teamId: input.teamId,
+    db,
     platformDecisionRegister: teamPlatformDecisionRegister,
     platformDecisionAcceptances: teamPlatformDecisionAcceptances
   });
@@ -567,11 +587,49 @@ export function createEnterpriseReleaseGateReview(
       identityEvidenceInvalidAllowedHosts: review.identityProductionSnapshot.evidenceUrlHostBinding.invalidAllowedHostCount
     }
   });
-  saveDb(db);
+  if (!snapshots?.db) saveDb(db);
   return review;
 }
 
-export function listEnterpriseReleaseGateReviews(
+export async function createEnterpriseReleaseGateReviewWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseReleaseGateReviewInput
+): Promise<SenaEnterpriseReleaseGateReview> {
+  const state = await readEnterpriseState();
+  const opsStatus = await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const deployment = await getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+    teamId: input.teamId,
+    readiness,
+    opsStatus,
+    db: state.db
+  });
+  const review = createEnterpriseReleaseGateReview(context, input, {
+    readiness,
+    deployment,
+    db: state.db
+  });
+  const auditEntry = state.db.auditLog.find((entry) => (
+    entry.event === "ops.release_gate.review" &&
+    entry.teamId === input.teamId &&
+    entry.detail?.releaseGateReviewId === review.id
+  ));
+  await saveEnterpriseState(state, state.db);
+  if (auditEntry) {
+    await recordEnterpriseAuditAsync({
+      event: auditEntry.event,
+      userId: auditEntry.userId,
+      teamId: auditEntry.teamId,
+      projectId: auditEntry.projectId,
+      detail: auditEntry.detail,
+      webhookDelivery: auditEntry.webhookDelivery
+    });
+  }
+  return review;
+}
+
+function listEnterpriseReleaseGateReviewsFromDb(
+  db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string } = {}
 ): SenaEnterpriseReleaseGateReviewList {
@@ -582,7 +640,7 @@ export function listEnterpriseReleaseGateReviews(
     throw new SenaEnterpriseError("Team management permission is required for release gate reviews.", 403, "release_gate_permission_denied");
   }
   const teamIdSet = new Set(teamIds);
-  const reviews = (readEnterpriseDb().releaseGateReviews ?? [])
+  const reviews = (db.releaseGateReviews ?? [])
     .filter((review) => teamIdSet.has(review.teamId))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
@@ -595,6 +653,21 @@ export function listEnterpriseReleaseGateReviews(
     summary: summarizeReleaseGateReviews(reviews),
     reviews
   };
+}
+
+export function listEnterpriseReleaseGateReviews(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): SenaEnterpriseReleaseGateReviewList {
+  return listEnterpriseReleaseGateReviewsFromDb(readEnterpriseDb(), context, input);
+}
+
+export async function listEnterpriseReleaseGateReviewsWithPostgresEvidence(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId?: string } = {}
+): Promise<SenaEnterpriseReleaseGateReviewList> {
+  const state = await readEnterpriseState();
+  return listEnterpriseReleaseGateReviewsFromDb(state.db, context, input);
 }
 
 function requiredReleaseGateText(value: string | undefined, field: string) {

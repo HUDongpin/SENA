@@ -1876,7 +1876,7 @@ describe("SENA enterprise capability audit auth evidence", () => {
         evidenceUrl: "https://ops.institution.edu/sena/idp-legacy-secret-binding",
         productionEvidenceIds: ["idp-tenant-approval", "idp-callback-approval", "sso-provider-secrets", "sso-secret-store-reference", "sso-secret-rotation"],
         productionEvidenceArtifactDigest: productionLikeIdpEvidenceArtifactDigest,
-        productionEvidenceVerifiedAt: "2026-01-01T00:00:00.000Z",
+        productionEvidenceVerifiedAt: "2026-06-29T00:00:00.000Z",
         requestPacketPolicyHash,
         notes: "Fresh IdP tenant, callback, and SSO secret rotation evidence."
       });
@@ -1891,7 +1891,7 @@ describe("SENA enterprise capability audit auth evidence", () => {
         evidenceUrl: "https://ops.institution.edu/sena/provisioning-legacy-secret-binding",
         productionEvidenceIds: ["provisioning-owner", "scim-or-idp-ownership", "bearer-token-rotation", "lifecycle-guardrails"],
         productionEvidenceArtifactDigest: productionLikeProvisioningEvidenceArtifactDigest,
-        productionEvidenceVerifiedAt: "2026-01-01T00:00:00.000Z",
+        productionEvidenceVerifiedAt: "2026-06-29T00:00:00.000Z",
         requestPacketPolicyHash,
         notes: "Fresh SCIM ownership, bearer-token rotation, and lifecycle guardrail evidence."
       });
@@ -2082,7 +2082,7 @@ describe("SENA enterprise capability audit auth evidence", () => {
         evidenceUrl: "https://ops.institution.edu/sena/idp-prebinding-approval",
         productionEvidenceIds: ["idp-tenant-approval", "idp-callback-approval", "sso-provider-secrets", "sso-secret-store-reference", "sso-secret-rotation"],
         productionEvidenceArtifactDigest: productionLikeIdpEvidenceArtifactDigest,
-        productionEvidenceVerifiedAt: "2026-01-01T00:00:00.000Z",
+        productionEvidenceVerifiedAt: "2026-06-29T00:00:00.000Z",
         requestPacketPolicyHash,
         notes: "Platform evidence was submitted before the SSO client, issuer, and preflight binding existed."
       });
@@ -2111,7 +2111,7 @@ describe("SENA enterprise capability audit auth evidence", () => {
         evidenceUrl: "https://ops.institution.edu/sena/provisioning-prebinding-idp",
         productionEvidenceIds: ["provisioning-owner", "scim-or-idp-ownership", "bearer-token-rotation", "lifecycle-guardrails"],
         productionEvidenceArtifactDigest: productionLikeProvisioningEvidenceArtifactDigest,
-        productionEvidenceVerifiedAt: "2026-01-01T00:00:00.000Z",
+        productionEvidenceVerifiedAt: "2026-06-29T00:00:00.000Z",
         requestPacketPolicyHash: currentRequestPacketPolicyHash,
         notes: "Provisioning ownership, bearer-token rotation, and lifecycle guardrail evidence is current."
       });

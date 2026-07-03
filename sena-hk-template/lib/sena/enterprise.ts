@@ -1,5 +1,6 @@
 export type {
   SenaEnterpriseDb,
+  SenaEnterprisePrimaryStateRuntime,
   SenaEnterpriseStateStore,
   SenaEnterpriseTeam,
   SenaEnterpriseUser,
@@ -7,6 +8,7 @@ export type {
 } from "./enterprise/state";
 export {
   createConfiguredFileEnterpriseStateStore as createFileEnterpriseStateStore,
+  getEnterprisePrimaryStateRuntime,
   readEnterpriseDb,
   saveDb,
   writeEnterpriseDb
@@ -98,61 +100,90 @@ export {
 } from "./enterprise/auth-security";
 export {
   completeEnterpriseSsoCallback,
+  completeEnterpriseSsoCallbackAsync,
   createEnterpriseSsoAuthorization,
+  createEnterpriseSsoAuthorizationAsync,
   enterpriseLocalSsoFallbackPolicy,
   getEnterpriseSsoProviderStatuses,
   isEnterpriseSsoProviderConfigured,
   preflightEnterpriseSsoProviders,
+  preflightEnterpriseSsoProvidersAsync,
   requireEnterpriseLocalSsoFallbackAllowed,
-  ssoEnterpriseUser
+  ssoEnterpriseUser,
+  ssoEnterpriseUserAsync
 } from "./enterprise/auth-sso";
 export {
-  loginEnterpriseUser
+  loginEnterpriseUser,
+  loginEnterpriseUserAsync
 } from "./enterprise/auth-login";
 export {
-  registerEnterpriseUser
+  registerEnterpriseUser,
+  registerEnterpriseUserAsync
 } from "./enterprise/auth-registration";
 export {
   createEnterpriseCsrfToken,
   getEnterpriseSession,
+  getEnterpriseSessionAsync,
   listEnterpriseSessions,
+  listEnterpriseSessionsAsync,
   logoutEnterpriseSession,
+  logoutEnterpriseSessionAsync,
   requireEnterpriseSession,
+  requireEnterpriseSessionAsync,
   revokeEnterpriseSessions,
+  revokeEnterpriseSessionsAsync,
   sanitizeEnterpriseContext,
   senaCsrfHeaderName,
   senaSessionCookieName,
-  verifyEnterpriseCsrfToken
+  verifyEnterpriseCsrfToken,
+  verifyEnterpriseCsrfTokenAsync
 } from "./enterprise/auth-session";
 export {
   completeEnterprisePasswordReset,
-  createEnterprisePasswordReset
+  completeEnterprisePasswordResetAsync,
+  createEnterprisePasswordReset,
+  createEnterprisePasswordResetAsync
 } from "./enterprise/auth-password-reset";
 export {
   createEnterpriseMfaSetup,
+  createEnterpriseMfaSetupAsync,
   disableEnterpriseMfa,
+  disableEnterpriseMfaAsync,
   enableEnterpriseMfa,
-  getEnterpriseMfaStatus
+  enableEnterpriseMfaAsync,
+  getEnterpriseMfaStatus,
+  getEnterpriseMfaStatusAsync
 } from "./enterprise/auth-mfa";
 export {
-  getEnterpriseIdentityProductionEvidence
+  getEnterpriseIdentityProductionEvidence,
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence
 } from "./enterprise/identity-production-evidence";
 export type {
   SenaEnterpriseAnalysisRun,
   SenaEnterpriseImportRun,
   SenaEnterpriseUpload,
+  SenaEnterpriseUploadObjectStorageCustody,
+  SenaEnterpriseUploadObjectStorageCustodySummary,
   SenaEnterpriseUploadObjectStorageDeliveryResult,
   SenaEnterpriseUploadScanStatus,
   SenaEnterpriseUploadStorageVerification
 } from "./enterprise/import-analysis";
 export {
   createEnterpriseUploads,
+  createEnterpriseUploadsWithPostgresMirror,
   createEnterpriseAnalysisRun,
+  createEnterpriseAnalysisRunWithPostgresMirror,
   createEnterpriseImportRun,
+  createEnterpriseImportRunWithPostgresMirror,
   deliverEnterpriseUploadBlobs,
+  enterpriseAnalysisRunRegistryRuntime,
+  enterpriseImportRunRegistryRuntime,
+  enterpriseUploadRegistryRuntime,
   listEnterpriseUploads,
   listEnterpriseAnalysisRuns,
   listEnterpriseImportRuns,
+  summarizeEnterpriseUploadObjectStorageCustody,
+  summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence,
   verifyEnterpriseUploadStorage
 } from "./enterprise/import-analysis";
 export type {
@@ -160,15 +191,20 @@ export type {
 } from "./enterprise/auth-invitations";
 export {
   acceptEnterpriseInvitation,
+  acceptEnterpriseInvitationAsync,
   createEnterpriseInvitation,
-  revokeEnterpriseInvitation
+  createEnterpriseInvitationAsync,
+  revokeEnterpriseInvitation,
+  revokeEnterpriseInvitationAsync
 } from "./enterprise/auth-invitations";
 export type {
   SenaEnterpriseMembership
 } from "./enterprise/team-memberships";
 export {
   listEnterpriseTeamState,
-  updateEnterpriseMembership
+  listEnterpriseTeamStateAsync,
+  updateEnterpriseMembership,
+  updateEnterpriseMembershipAsync
 } from "./enterprise/team-memberships";
 export type {
   SenaEnterpriseAdjudicationRecord,
@@ -177,16 +213,27 @@ export type {
   SenaEnterpriseCollaborationPubSubDeliveryStatus,
   SenaEnterpriseCollaborationPubSubEvent,
   SenaEnterpriseCollaborationPubSubEventKind,
+  SenaEnterpriseProjectCollaborationEvidenceSource,
+  SenaEnterpriseProjectCollaborationEvidenceStore,
   SenaEnterpriseProjectComment,
   SenaEnterpriseProjectPresence
 } from "./enterprise/team-collaboration";
 export {
   createEnterpriseAdjudicationRecord,
+  createEnterpriseAdjudicationRecordWithPostgresMirror,
   createEnterpriseProjectComment,
+  createEnterpriseProjectCommentWithPostgresMirror,
   deliverEnterpriseCollaborationPubSub,
+  enterpriseAdjudicationRegistryRuntime,
+  enterpriseProjectCommentRegistryRuntime,
+  enterpriseProjectCollaborationRuntime,
+  enterpriseProjectPresenceRegistryRuntime,
   listEnterpriseProjectCollaboration,
+  listEnterpriseProjectCollaborationWithPostgresEvidence,
   resolveEnterpriseProjectComment,
-  touchEnterpriseProjectPresence
+  resolveEnterpriseProjectCommentWithPostgresMirror,
+  touchEnterpriseProjectPresence,
+  touchEnterpriseProjectPresenceWithPostgresMirror
 } from "./enterprise/team-collaboration";
 export type {
   SenaEnterpriseProject,
@@ -194,12 +241,58 @@ export type {
 } from "./enterprise/team-project";
 export {
   createEnterpriseProject,
+  createEnterpriseProjectAsync,
   deleteEnterpriseProject,
+  deleteEnterpriseProjectAsync,
   getEnterpriseProject,
+  getEnterpriseProjectAsync,
   listEnterpriseProjects,
+  listEnterpriseProjectsAsync,
   restoreEnterpriseProjectRevision,
+  restoreEnterpriseProjectRevisionAsync,
+  updateEnterpriseProjectAsync,
   updateEnterpriseProject
 } from "./enterprise/team-project";
+export type {
+  SenaEnterpriseServerJob,
+  SenaEnterpriseServerJobList,
+  SenaEnterpriseServerJobQueueStatus,
+  SenaEnterpriseServerJobStatus,
+  SenaEnterpriseServerJobStatusUpdate,
+  SenaEnterpriseServerJobStatusAction,
+  SenaEnterpriseServerJobQueueWebhook,
+  SenaEnterpriseServerJobQueueDelivery,
+  SenaEnterpriseServerJobPayloadSummary,
+  SenaEnterpriseServerJobStoreRuntime
+} from "./enterprise/server-job-queue";
+export {
+  assertServerJobPayloadAllowed,
+  assertServerJobQueueReady,
+  enqueueEnterpriseServerJob,
+  getEnterpriseServerJob,
+  listEnterpriseServerJobs,
+  serverJobHeaders,
+  serverJobQueueStatus,
+  serverJobStoreRuntime,
+  shouldQueueServerJob,
+  stableServerJobPayloadSha256,
+  updateEnterpriseServerJobStatus
+} from "./enterprise/server-job-queue";
+export type {
+  SenaEnterpriseServerJobWorkerContract
+} from "./enterprise/server-job-worker-contract";
+export {
+  getEnterpriseServerJobWorkerContract
+} from "./enterprise/server-job-worker-contract";
+export type {
+  SenaEnterpriseObjectStorageNativeMode,
+  SenaEnterpriseObjectStorageNativeProvider,
+  SenaEnterpriseObjectStoragePutResult
+} from "./enterprise/object-storage-adapter";
+export {
+  enterpriseObjectStorageNativeProvider,
+  putEnterpriseObjectStorageObject
+} from "./enterprise/object-storage-adapter";
 export type {
   SenaEnterpriseNotification,
   SenaEnterpriseNotificationDeliveryResult,
@@ -233,15 +326,20 @@ export type {
 } from "./enterprise/expert-review";
 export {
   createEnterpriseExpertReview,
+  createEnterpriseExpertReviewWithPostgresMirror,
+  enterpriseExpertReviewRegistryRuntime,
   listEnterpriseExpertReviews,
-  reviewEnterpriseExpertReview
+  reviewEnterpriseExpertReview,
+  reviewEnterpriseExpertReviewWithPostgresMirror
 } from "./enterprise/expert-review";
 export type {
   SenaEnterpriseClaimEvidencePackage,
   SenaEnterpriseClaimEvidencePackageStatus
 } from "./enterprise/claim-evidence-package";
 export {
-  getEnterpriseClaimEvidencePackage
+  enterpriseClaimEvidencePackageRuntime,
+  getEnterpriseClaimEvidencePackage,
+  getEnterpriseClaimEvidencePackageWithPostgresEvidence
 } from "./enterprise/claim-evidence-package";
 export type {
   SenaEnterpriseReliabilityAdjudicationCoverage,
@@ -251,9 +349,13 @@ export type {
 } from "./enterprise/reliability-runs";
 export {
   createEnterpriseReliabilityAdjudications,
+  createEnterpriseReliabilityAdjudicationsWithPostgresMirror,
   createEnterpriseReliabilityRun,
+  createEnterpriseReliabilityRunWithPostgresMirror,
+  enterpriseReliabilityRunRegistryRuntime,
   listEnterpriseReliabilityRuns,
-  reviewEnterpriseReliabilityRun
+  reviewEnterpriseReliabilityRun,
+  reviewEnterpriseReliabilityRunWithPostgresMirror
 } from "./enterprise/reliability-runs";
 export type {
   SenaEnterpriseFormalInferenceReadiness,
@@ -265,8 +367,11 @@ export type {
 } from "./enterprise/validation-runs";
 export {
   createEnterpriseValidationRun,
+  createEnterpriseValidationRunWithPostgresMirror,
+  enterpriseValidationRunRegistryRuntime,
   listEnterpriseValidationRuns,
-  reviewEnterpriseValidationRun
+  reviewEnterpriseValidationRun,
+  reviewEnterpriseValidationRunWithPostgresMirror
 } from "./enterprise/validation-runs";
 export type {
   SenaEnterpriseProvisioningDirectory,
@@ -398,11 +503,14 @@ export type {
 export {
   getEnterpriseNativeAdapterCertification,
   getEnterpriseOrganizationDeploymentPackage,
+  getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence,
   getEnterprisePlatformDecisionRegister,
+  getEnterprisePlatformDecisionRegisterWithPostgresState,
   getEnterpriseSaasOperationsReadiness
 } from "./enterprise/ops-deployment";
 export {
-  getEnterpriseDeploymentReadiness
+  getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence
 } from "./enterprise/ops-deployment-readiness";
 export {
   buildEnterpriseOpsMetrics
@@ -412,34 +520,55 @@ export {
 } from "./enterprise/ops-governance";
 export {
   createEnterpriseReleaseGateReview,
-  listEnterpriseReleaseGateReviews
+  createEnterpriseReleaseGateReviewWithPostgresEvidence,
+  listEnterpriseReleaseGateReviews,
+  listEnterpriseReleaseGateReviewsWithPostgresEvidence
 } from "./enterprise/ops-release-gate";
-export { getEnterpriseOpsStatus } from "./enterprise/ops-status";
+export {
+  getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence
+} from "./enterprise/ops-status";
 export {
   listEnterprisePlatformDecisionAcceptances,
+  listEnterprisePlatformDecisionAcceptancesWithPostgresState,
+  reviewEnterprisePlatformDecisionWithPostgresState,
   reviewEnterprisePlatformDecision
 } from "./enterprise/ops-platform-decisions";
-export { getEnterpriseCapabilityAudit } from "./enterprise/ops-capability-audit";
+export {
+  getEnterpriseCapabilityAudit,
+  getEnterpriseCapabilityAuditWithPostgresEvidence
+} from "./enterprise/ops-capability-audit";
 export {
   getEnterpriseGoLiveRehearsal,
+  getEnterpriseGoLiveRehearsalWithPostgresEvidence,
 } from "./enterprise/ops-go-live";
 export {
   createEnterpriseGoLiveAttestation,
+  createEnterpriseGoLiveAttestationWithPostgresEvidence,
   listEnterpriseGoLiveAttestations,
+  listEnterpriseGoLiveAttestationsWithPostgresEvidence,
 } from "./enterprise/ops-go-live-attestations";
 export {
   completeEnterprisePostCutoverObservation,
+  completeEnterprisePostCutoverObservationWithPostgresEvidence,
   listEnterprisePostCutoverObservations,
+  listEnterprisePostCutoverObservationsWithPostgresEvidence,
   recordEnterprisePostCutoverObservationSample,
-  startEnterprisePostCutoverObservation
+  recordEnterprisePostCutoverObservationSampleWithPostgresEvidence,
+  startEnterprisePostCutoverObservation,
+  startEnterprisePostCutoverObservationWithPostgresEvidence
 } from "./enterprise/ops-post-cutover-observations";
 export {
   appendAudit,
+  auditStoreRuntime,
   deliverEnterpriseAuditLog,
   enterpriseAuditEvents,
   isEnterpriseAuditEvent,
   listEnterpriseAuditLog,
+  listEnterpriseAuditLogAsync,
   recordEnterpriseAudit,
+  recordEnterpriseAuditAsync,
+  verifyEnterpriseAuditIntegrityAsync,
   verifyEnterpriseAuditIntegrity
 } from "./enterprise/ops-audit";
 export {

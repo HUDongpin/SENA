@@ -1,3 +1,5 @@
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+
 export type SenaEnterpriseOrganizationDeploymentServiceEndpoint = {
   id: string;
   method: "GET" | "POST" | "PATCH" | "DELETE";
@@ -21,6 +23,14 @@ export const enterpriseOrganizationDeploymentServiceEndpoints = [
   { id: "ops-release-gate-review", method: "POST", path: "/api/sena/ops/release-gate", auth: "team-rbac", schema: "sena-enterprise-release-gate-review/v1", purpose: "Record approved, conditional, or blocked release-gate reviews before production handoff" },
   { id: "ops-readiness", method: "GET", path: "/api/sena/ops/readiness", auth: "ops-bearer-or-session", schema: "sena-enterprise-deployment-readiness/v1", purpose: "Production readiness gate" },
   { id: "ops-status", method: "GET", path: "/api/sena/ops/status", auth: "ops-bearer-or-session", schema: "sena-enterprise-ops-status/v1", purpose: "Runtime health and queue counters" },
+  { id: "ops-server-job-worker-contract", method: "GET", path: "/api/sena/ops/jobs/worker-contract", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract, purpose: "External server job worker contract, callback, runbook, and heartbeat evidence" },
+  { id: "ops-server-job-worker-heartbeat", method: "POST", path: "/api/sena/ops/jobs/worker-heartbeat", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat, purpose: "Synthetic no-user-data server job worker heartbeat and status-callback evidence" },
+  { id: "ops-server-job-queue-probe", method: "GET", path: "/api/sena/ops/jobs/probe", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueProbe, purpose: "Signed managed server job queue live dispatch probe evidence" },
+  { id: "ops-postgres-probe", method: "GET", path: "/api/sena/ops/postgres", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterprisePostgresProbe, purpose: "Managed Postgres live DDL/DML/read/delete probe evidence" },
+  { id: "ops-object-storage-probe", method: "GET", path: "/api/sena/ops/object-storage", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseObjectStorageProbe, purpose: "Native object-storage live PUT/HEAD/DELETE probe evidence" },
+  { id: "ops-observability", method: "GET", path: "/api/sena/ops/observability", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseObservabilitySli, purpose: "Request-level SLI p95, error-rate, slow-route, and exporter readiness evidence" },
+  { id: "ops-observability-probe", method: "GET", path: "/api/sena/ops/observability/probe", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseObservabilityProbe, purpose: "Signed observability exporter live delivery probe evidence" },
+  { id: "ops-production-evidence", method: "GET", path: "/api/sena/ops/production-evidence", auth: "ops-bearer-or-session", schema: SENA_SCHEMA_VERSIONS.enterpriseProductionEvidenceManifest, purpose: "Aggregated production live-probe artifact custody manifest" },
   { id: "ops-alert-delivery", method: "POST", path: "/api/sena/ops/alerts", auth: "ops-bearer-or-session", schema: "sena-enterprise-ops-alert-delivery/v1", purpose: "Signed deployment alert delivery" },
   { id: "sso-preflight", method: "GET", path: "/api/auth/sso?status=1&preflight=1", auth: "session", schema: "sena-enterprise-sso-preflight/v1", purpose: "OAuth/OIDC provider preflight" },
   { id: "provisioning", method: "POST", path: "/api/sena/provisioning", auth: "provisioning-bearer", schema: "sena-enterprise-provisioning/v1", purpose: "Institution organization provisioning" },

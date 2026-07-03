@@ -28,9 +28,26 @@ import {
   alertingRunbookUrl
 } from "./ops-alerts";
 import {
+  conferenceLoadRehearsalProductionEvidenceReadiness
+} from "./conference-load-rehearsal";
+import {
   buildEnterpriseOrganizationDeploymentDecisions,
   type SenaEnterpriseOrganizationDeploymentDecision
 } from "./ops-deployment-decisions";
+import {
+  enterpriseObservabilityReadiness
+} from "./ops-observability";
+import {
+  buildEnterpriseProductionEvidenceManifest,
+  type SenaEnterpriseProductionEvidenceManifest
+} from "./ops-production-evidence";
+import {
+  serverJobQueueProbeReadiness,
+  serverJobQueueStatus
+} from "./server-job-queue";
+import {
+  getEnterpriseServerJobWorkerContract
+} from "./server-job-worker-contract";
 import {
   deploymentEnv,
   deploymentWebhookEnv,
@@ -42,10 +59,12 @@ import {
 } from "./ops-deployment-service-endpoints";
 import {
   getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
 import {
   getEnterpriseGovernanceStatus,
+  getEnterpriseGovernanceStatusWithPostgresEvidence,
   type SenaEnterpriseGovernanceCheck,
   type SenaEnterpriseGovernanceStatus
 } from "./ops-governance";
@@ -73,6 +92,8 @@ import {
 } from "./ops-release-gate";
 import {
   getEnterpriseOpsStatus,
+  getEnterpriseOpsStatusWithPostgresEvidence,
+  type SenaEnterpriseOpsStatus,
   type SenaEnterpriseStorageEngine
 } from "./ops-status";
 import {
@@ -87,7 +108,11 @@ import {
   now,
   sha256Text
 } from "./ops-runtime";
-import { readEnterpriseDb } from "./state";
+import {
+  readEnterpriseDb,
+  readEnterpriseState,
+  type SenaEnterpriseDb
+} from "./state";
 import {
   alertWebhookProvider,
   auditWebhookProvider,
@@ -98,14 +123,30 @@ import {
   notificationWebhookProvider,
   objectStorageWebhookProvider
 } from "./webhook-delivery";
+import {
+  enterpriseObjectStorageNativeProvider
+} from "./object-storage-adapter";
 
-export function getEnterprisePlatformDecisionRegister(input: { teamId?: string } = {}): SenaEnterprisePlatformDecisionRegister {
-  const db = readEnterpriseDb();
-  const deployment = getEnterpriseOrganizationDeploymentPackage();
+export function getEnterprisePlatformDecisionRegister(input: {
+  teamId?: string;
+  db?: SenaEnterpriseDb;
+} = {}): SenaEnterprisePlatformDecisionRegister {
+  const db = input.db ?? readEnterpriseDb();
+  const deployment = getEnterpriseOrganizationDeploymentPackage({ db });
   const platformDecisionAcceptances = input.teamId
     ? (db.platformDecisionAcceptances ?? []).filter((acceptance) => acceptance.teamId === input.teamId)
     : db.platformDecisionAcceptances ?? [];
   return buildEnterprisePlatformDecisionRegister(deployment.platformDecisions, platformDecisionAcceptances);
+}
+
+export async function getEnterprisePlatformDecisionRegisterWithPostgresState(input: {
+  teamId?: string;
+} = {}): Promise<SenaEnterprisePlatformDecisionRegister> {
+  const state = await readEnterpriseState();
+  return getEnterprisePlatformDecisionRegister({
+    teamId: input.teamId,
+    db: state.db
+  });
 }
 
 export function getEnterpriseNativeAdapterCertification(input: { teamId?: string } = {}): SenaEnterpriseNativeAdapterCertification {
@@ -154,12 +195,18 @@ export function getEnterpriseSaasOperationsReadiness(input: { teamId?: string } 
 }
 
 
-export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: string } = {}): SenaEnterpriseOrganizationDeploymentPackage {
+export function getEnterpriseOrganizationDeploymentPackage(input: {
+  teamId?: string;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  governance?: SenaEnterpriseGovernanceStatus;
+  db?: SenaEnterpriseDb;
+} = {}): SenaEnterpriseOrganizationDeploymentPackage {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const db = readEnterpriseDb();
-  const readiness = getEnterpriseDeploymentReadiness();
-  const governance = getEnterpriseGovernanceStatus();
-  const opsStatus = getEnterpriseOpsStatus();
+  const db = input.db ?? readEnterpriseDb();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
+  const governance = input.governance ?? getEnterpriseGovernanceStatus({ db, opsStatus });
   const postgresConfig = resolveEnterprisePostgresConfig();
   const baseUrl = normalizedBaseUrl();
   const webhookProvider = notificationWebhookProvider(enterpriseDbPath, selfManagedEnterprise);
@@ -167,9 +214,15 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
   const collaborationProvider = collaborationPubSubProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const databaseSyncProvider = databaseSyncWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const objectStorageProvider = objectStorageWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const objectStorageNativeProvider = enterpriseObjectStorageNativeProvider();
   const backupProvider = backupWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const alertProvider = alertWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const auditProvider = auditWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const queueStatus = serverJobQueueStatus();
+  const queueProbe = serverJobQueueProbeReadiness();
+  const workerContract = getEnterpriseServerJobWorkerContract();
+  const observability = enterpriseObservabilityReadiness();
+  const conferenceLoad = conferenceLoadRehearsalProductionEvidenceReadiness();
   const oidcProviders = getEnterpriseSsoProviderStatuses();
   const governanceCheckById = new Map(governance.checks.map((check) => [check.id, check]));
   const mfaKeyConfigured = Boolean(envValue("SENA_MFA_ENCRYPTION_KEY") || envValue("SENA_SESSION_SECRET"));
@@ -205,6 +258,32 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
       secret: false,
       defaultedTo: String(dbLockTimeoutMs),
       purpose: "Single-runtime file-lock timeout"
+    }),
+    deploymentEnv({
+      name: "SENA_ENTERPRISE_DB_ADAPTER",
+      category: "storage",
+      required: fullSaasBackendApproved,
+      configured: postgresConfig.adapterRequested,
+      secret: false,
+      value: postgresConfig.adapter,
+      purpose: "Native Postgres/Neon enterprise state adapter selection"
+    }),
+    deploymentEnv({
+      name: "SENA_ENTERPRISE_POSTGRES_URL|SENA_DATABASE_URL|POSTGRES_URL|DATABASE_URL",
+      category: "storage",
+      required: fullSaasBackendApproved,
+      configured: postgresConfig.configured,
+      secret: true,
+      purpose: "Managed Postgres connection string for enterprise state"
+    }),
+    deploymentEnv({
+      name: "SENA_ENTERPRISE_STATE_STORE",
+      category: "storage",
+      required: fullSaasBackendApproved,
+      configured: opsStatus.storage.primaryStateRuntime.postgresPrimaryRequested,
+      secret: false,
+      value: opsStatus.storage.primaryStateRuntime.mode,
+      purpose: "Switches enterprise project state routes from local JSON to the configured Postgres primary store"
     }),
     deploymentEnv({
       name: "SENA_MFA_ENCRYPTION_KEY|SENA_SESSION_SECRET",
@@ -312,6 +391,137 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
       value: envValue("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED"),
       purpose: "Institution platform-owner approval for the full SaaS backend operating model"
     }),
+    deploymentEnv({
+      name: "SENA_OBJECT_STORAGE_ADAPTER",
+      category: "uploads",
+      required: fullSaasBackendApproved && !(objectStorageProvider.configured && objectStorageProvider.secretConfigured),
+      configured: objectStorageNativeProvider.mode !== "not-configured",
+      secret: false,
+      value: objectStorageNativeProvider.mode,
+      purpose: "Native object-storage adapter selection for upload blobs"
+    }),
+    deploymentEnv({
+      name: "SENA_OBJECT_STORAGE_ENDPOINT",
+      category: "uploads",
+      required: fullSaasBackendApproved && !(objectStorageProvider.configured && objectStorageProvider.secretConfigured),
+      configured: Boolean(objectStorageNativeProvider.endpointHash),
+      secret: false,
+      purpose: "Native object-storage endpoint; concrete value is excluded and represented by hash evidence"
+    }),
+    deploymentEnv({
+      name: "SENA_OBJECT_STORAGE_BUCKET",
+      category: "uploads",
+      required: fullSaasBackendApproved && !(objectStorageProvider.configured && objectStorageProvider.secretConfigured),
+      configured: Boolean(objectStorageNativeProvider.bucketHash),
+      secret: false,
+      purpose: "Native object-storage bucket; concrete value is excluded and represented by hash evidence"
+    }),
+    deploymentEnv({
+      name: "SENA_OBJECT_STORAGE_ACCESS_KEY_ID|SENA_OBJECT_STORAGE_SECRET_ACCESS_KEY",
+      category: "uploads",
+      required: fullSaasBackendApproved && !(objectStorageProvider.configured && objectStorageProvider.secretConfigured),
+      configured: objectStorageNativeProvider.accessKeyConfigured && objectStorageNativeProvider.secretConfigured,
+      secret: true,
+      purpose: "Native object-storage HMAC credentials for server-side PUT delivery"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_QUEUE_ADAPTER",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: queueStatus.mode === "managed" || queueStatus.mode === "webhook",
+      secret: false,
+      value: queueStatus.mode,
+      purpose: "Managed server job queue adapter for heavy analysis and publication export work"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_QUEUE_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: (queueStatus.mode === "managed" || queueStatus.mode === "webhook") && Boolean(queueStatus.endpointHash),
+      secret: false,
+      endpointHash: queueStatus.endpointHash,
+      purpose: "Managed server job queue endpoint; concrete URL is excluded"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_QUEUE_SECRET",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: queueStatus.secretConfigured,
+      secret: true,
+      purpose: "HMAC signing secret for server job queue payload delivery"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_QUEUE_LIVE_PROBE_CONFIRMED|SENA_JOB_QUEUE_PROBE_ARTIFACT_SHA256|SENA_JOB_QUEUE_PROBE_VERIFIED_AT",
+      category: "ops",
+      required: fullSaasBackendApproved && queueProbe.required,
+      configured: queueProbe.confirmed,
+      secret: false,
+      purpose: "Managed queue live dispatch probe binding proving signed synthetic payload delivery"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_WORKER_RUNTIME",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: workerContract.worker.runtime !== "not-configured",
+      secret: false,
+      value: workerContract.worker.runtime,
+      purpose: "External worker runtime or managed queue consumer identity"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_WORKER_CALLBACK_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: workerContract.worker.callbackConfigured,
+      secret: false,
+      endpointHash: workerContract.worker.callbackUrlHash,
+      purpose: "External worker status callback URL for /api/sena/ops/jobs; concrete URL is excluded"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_WORKER_RUNBOOK_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: workerContract.worker.runbookConfigured,
+      secret: false,
+      endpointHash: workerContract.worker.runbookUrlHash,
+      purpose: "Worker incident runbook URL; concrete URL is excluded"
+    }),
+    deploymentEnv({
+      name: "SENA_JOB_WORKER_HEARTBEAT_CONFIRMED|SENA_JOB_WORKER_HEARTBEAT_SHA256|SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: workerContract.worker.heartbeatConfirmed &&
+        workerContract.worker.heartbeatArtifactHashConfigured &&
+        workerContract.worker.heartbeatVerifiedAtConfigured,
+      secret: false,
+      purpose: "Worker heartbeat artifact binding proving the queue consumer can call status callbacks"
+    }),
+    deploymentEnv({
+      name: "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: envValue("SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") === "1",
+      secret: false,
+      purpose: "Enforces the aggregated production evidence manifest for live probe artifact custody"
+    }),
+    deploymentEnv({
+      name: "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED|SENA_CONFERENCE_LOAD_REHEARSAL_ARTIFACT_SHA256|SENA_CONFERENCE_LOAD_REHEARSAL_VERIFIED_AT",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: conferenceLoad.confirmed,
+      secret: false,
+      purpose: "Archived conference load rehearsal artifact binding for the 50-user, 30-minute performance path"
+    }),
+    deploymentEnv({
+      name: "SENA_CONFERENCE_LOAD_REHEARSAL_USERS|SENA_CONFERENCE_LOAD_REHEARSAL_DURATION_SECONDS|SENA_CONFERENCE_LOAD_REHEARSAL_P95_MS|SENA_CONFERENCE_LOAD_REHEARSAL_ERROR_RATE_PERCENT",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: conferenceLoad.usersConfigured &&
+        conferenceLoad.durationConfigured &&
+        conferenceLoad.p95Configured &&
+        conferenceLoad.errorRateConfigured,
+      secret: false,
+      purpose: "Conference load rehearsal metadata proving 50 users, 1800 seconds, p95 latency, and error-rate evidence"
+    }),
     ...deploymentWebhookEnv("SENA_NOTIFICATION_WEBHOOK_URL", "SENA_NOTIFICATION_WEBHOOK_SECRET", webhookProvider, "notifications", "Notification event bridge"),
     ...deploymentWebhookEnv("SENA_EMAIL_WEBHOOK_URL", "SENA_EMAIL_WEBHOOK_SECRET", emailProvider, "notifications", "Institution email bridge"),
     ...deploymentWebhookEnv("SENA_COLLABORATION_PUBSUB_WEBHOOK_URL", "SENA_COLLABORATION_PUBSUB_WEBHOOK_SECRET", collaborationProvider, "collaboration", "Collaboration pub/sub bridge"),
@@ -319,7 +529,51 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
     ...deploymentWebhookEnv("SENA_OBJECT_STORAGE_WEBHOOK_URL", "SENA_OBJECT_STORAGE_WEBHOOK_SECRET", objectStorageProvider, "uploads", "Managed upload object-storage bridge"),
     ...deploymentWebhookEnv("SENA_BACKUP_WEBHOOK_URL", "SENA_BACKUP_WEBHOOK_SECRET", backupProvider, "governance", "Managed backup delivery bridge"),
     ...deploymentWebhookEnv("SENA_ALERT_WEBHOOK_URL", "SENA_ALERT_WEBHOOK_SECRET", alertProvider, "ops", "Deployment alert delivery bridge"),
-    ...deploymentWebhookEnv("SENA_AUDIT_WEBHOOK_URL", "SENA_AUDIT_WEBHOOK_SECRET", auditProvider, "governance", "Audit/SIEM forwarding bridge")
+    ...deploymentWebhookEnv("SENA_AUDIT_WEBHOOK_URL", "SENA_AUDIT_WEBHOOK_SECRET", auditProvider, "governance", "Audit/SIEM forwarding bridge"),
+    deploymentEnv({
+      name: "SENA_OBSERVABILITY_PROVIDER",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: observability.provider !== "not-configured",
+      secret: false,
+      value: observability.provider,
+      purpose: "Request-level SLI/APM provider for production monitoring"
+    }),
+    deploymentEnv({
+      name: "SENA_OBSERVABILITY_EXPORTER_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: Boolean(observability.endpointHash),
+      secret: false,
+      endpointHash: observability.endpointHash,
+      purpose: "External request SLI exporter endpoint; concrete URL is excluded"
+    }),
+    deploymentEnv({
+      name: "SENA_OBSERVABILITY_EXPORTER_SECRET",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: observability.secretConfigured,
+      secret: true,
+      purpose: "HMAC signing secret for the request SLI exporter"
+    }),
+    deploymentEnv({
+      name: "SENA_OBSERVABILITY_DASHBOARD_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: observability.dashboardConfigured,
+      secret: false,
+      endpointHash: observability.dashboardUrlHash,
+      purpose: "Operational dashboard URL for request p95, error-rate, and slow-route review; concrete URL is excluded"
+    }),
+    deploymentEnv({
+      name: "SENA_OBSERVABILITY_RUNBOOK_URL",
+      category: "ops",
+      required: fullSaasBackendApproved,
+      configured: observability.runbookConfigured,
+      secret: false,
+      endpointHash: observability.runbookUrlHash,
+      purpose: "Incident runbook URL for request SLI breaches; concrete URL is excluded"
+    })
   ];
 
   for (const provider of oidcProviders) {
@@ -428,8 +682,10 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
   const decisions = buildEnterpriseOrganizationDeploymentDecisions({
     selfManagedEnterprise,
     postgresConfig,
+    primaryStateRuntime: opsStatus.storage.primaryStateRuntime,
     databaseSyncProvider,
     objectStorageProvider,
+    objectStorageNativeProvider,
     collaborationProvider,
     backupProvider,
     alertProvider,
@@ -447,12 +703,14 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
   const identityProductionEvidence = enterpriseReleaseGateIdentityProductionSnapshot({
     generatedAt,
     teamId: input.teamId,
+    db,
     platformDecisionRegister,
     platformDecisionAcceptances
   });
   const identityProductionHandoff = buildEnterpriseIdentityProductionEvidenceDossier({
     generatedAt,
     teamId: input.teamId,
+    db,
     platformDecisionRegister,
     platformDecisionAcceptances
   });
@@ -467,11 +725,16 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
     identityProductionHandoff,
     saasOperatingModelApproved: fullSaasBackendApproved
   });
+  const productionEvidenceManifest = buildEnterpriseProductionEvidenceManifest();
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment,
     generatedAt,
-    status: readiness.status === "blocked" || missingRequiredEnv.length > 0 ? "blocked" : openPlatformDecisions > 0 || readiness.status === "review" || governance.status === "review" ? "review" : "ready",
+    status: readiness.status === "blocked" || missingRequiredEnv.length > 0 || productionEvidenceManifest.status === "blocked"
+      ? "blocked"
+      : openPlatformDecisions > 0 || readiness.status === "review" || governance.status === "review" || productionEvidenceManifest.status === "review"
+        ? "review"
+        : "ready",
     redaction: {
       secretValuesExcluded: true,
       endpointValuesHashed: true,
@@ -510,6 +773,8 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
       identityEvidenceAllowedHostConfig: identityProductionEvidence.evidenceUrlHostBinding.allowedHostConfigStatus,
       identityEvidenceAllowedHosts: identityProductionEvidence.evidenceUrlHostBinding.allowedHostCount,
       identityEvidenceInvalidAllowedHosts: identityProductionEvidence.evidenceUrlHostBinding.invalidAllowedHostCount,
+      productionEvidenceStatus: productionEvidenceManifest.status,
+      productionEvidenceMissingRequired: productionEvidenceManifest.summary.missingRequired,
       blockingReview: readiness.summary.blockingReview,
       advisoryReview: readiness.summary.advisoryReview
     },
@@ -539,6 +804,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
     platformDecisionRegister,
     nativeAdapterCertification,
     saasOperationsReadiness,
+    productionEvidenceManifest,
     identityProductionEvidence,
     identityProductionHandoff,
     releaseGate,
@@ -547,6 +813,26 @@ export function getEnterpriseOrganizationDeploymentPackage(input: { teamId?: str
       releaseGate: "npm run sena:pilot:verify"
     }
   };
+}
+
+export async function getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence(input: {
+  teamId?: string;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+  opsStatus?: SenaEnterpriseOpsStatus;
+  governance?: SenaEnterpriseGovernanceStatus;
+  db?: SenaEnterpriseDb;
+} = {}): Promise<SenaEnterpriseOrganizationDeploymentPackage> {
+  const db = input.db ?? (await readEnterpriseState()).db;
+  const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
+  const readiness = input.readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+  const governance = input.governance ?? await getEnterpriseGovernanceStatusWithPostgresEvidence({ opsStatus });
+  return getEnterpriseOrganizationDeploymentPackage({
+    teamId: input.teamId,
+    readiness,
+    opsStatus,
+    governance,
+    db
+  });
 }
 
 export type SenaEnterpriseOrganizationDeploymentPackage = {
@@ -591,6 +877,8 @@ export type SenaEnterpriseOrganizationDeploymentPackage = {
     identityEvidenceAllowedHostConfig: SenaEnterpriseReleaseGateReview["identityProductionSnapshot"]["evidenceUrlHostBinding"]["allowedHostConfigStatus"];
     identityEvidenceAllowedHosts: number;
     identityEvidenceInvalidAllowedHosts: number;
+    productionEvidenceStatus: SenaEnterpriseProductionEvidenceManifest["status"];
+    productionEvidenceMissingRequired: number;
     blockingReview: number;
     advisoryReview: number;
   };
@@ -620,6 +908,7 @@ export type SenaEnterpriseOrganizationDeploymentPackage = {
   platformDecisionRegister: SenaEnterprisePlatformDecisionRegister;
   nativeAdapterCertification: SenaEnterpriseNativeAdapterCertification;
   saasOperationsReadiness: SenaEnterpriseSaasOperationsReadiness;
+  productionEvidenceManifest: SenaEnterpriseProductionEvidenceManifest;
   identityProductionEvidence: SenaEnterpriseReleaseGateReview["identityProductionSnapshot"];
   identityProductionHandoff: SenaEnterpriseIdentityProductionEvidence;
   releaseGate: {

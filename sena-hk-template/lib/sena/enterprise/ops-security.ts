@@ -118,10 +118,13 @@ function readinessSecurityControl(
   };
 }
 
-export function getEnterpriseSecurityPosture(): SenaEnterpriseSecurityPosture {
+export function getEnterpriseSecurityPosture(input: {
+  governance?: SenaEnterpriseGovernanceStatus;
+  readiness?: SenaEnterpriseDeploymentReadiness;
+} = {}): SenaEnterpriseSecurityPosture {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const governance = getEnterpriseGovernanceStatus();
-  const readiness = getEnterpriseDeploymentReadiness();
+  const governance = input.governance ?? getEnterpriseGovernanceStatus();
+  const readiness = input.readiness ?? getEnterpriseDeploymentReadiness();
   const selfManagedOidcControl: SenaEnterpriseSecurityControl = {
     id: "oauth-oidc-sso",
     category: "identity",

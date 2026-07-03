@@ -4,7 +4,9 @@ import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SenaEnterpriseError } from "./errors";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseTeam
 } from "./state";
@@ -561,14 +563,41 @@ export function ssoPreflightPassedProviders(db: SenaEnterpriseDb, providers = ge
   return providers.filter((provider) => ssoPreflightEntryFresh(latest.get(provider.provider), provider));
 }
 
-export async function preflightEnterpriseSsoProviders(input: {
+export type SenaEnterpriseSsoPreflightInput = {
   providers?: SenaEnterpriseSsoProvider[];
   baseUrl?: string;
-} = {}): Promise<SenaEnterpriseSsoProviderPreflightResult> {
+};
+
+export type SenaEnterpriseSsoAuthorizationInput = {
+  provider: SenaEnterpriseSsoProvider;
+  baseUrl?: string;
+  redirectTo?: string;
+  inviteCode?: string;
+};
+
+export type SenaEnterpriseSsoCallbackInput = {
+  code: string;
+  state: string;
+  provider?: SenaEnterpriseSsoProvider;
+  baseUrl?: string;
+};
+
+export type SenaEnterpriseSsoUserInput = {
+  provider: SenaEnterpriseSsoProvider;
+  email: string;
+  name?: string;
+  organization?: string;
+  subject?: string;
+  inviteCode?: string;
+};
+
+async function preflightEnterpriseSsoProvidersInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseSsoPreflightInput = {}
+): Promise<SenaEnterpriseSsoProviderPreflightResult> {
   const selectedProviders = input.providers?.length ? Array.from(new Set(input.providers)) : ssoProviders;
   const generatedAt = now();
   const baseUrl = normalizedSsoBaseUrl(input.baseUrl);
-  const db = readEnterpriseDb();
   const providers: SenaEnterpriseSsoProviderPreflight[] = [];
 
   for (const provider of selectedProviders) {
@@ -744,7 +773,6 @@ export async function preflightEnterpriseSsoProviders(input: {
     providers.push(providerResult);
   }
 
-  saveDb(db);
   const passed = providers.filter((provider) => provider.status === "pass").length;
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight,
@@ -758,6 +786,20 @@ export async function preflightEnterpriseSsoProviders(input: {
     },
     providers
   };
+}
+
+export async function preflightEnterpriseSsoProviders(input: SenaEnterpriseSsoPreflightInput = {}): Promise<SenaEnterpriseSsoProviderPreflightResult> {
+  const db = readEnterpriseDb();
+  const result = await preflightEnterpriseSsoProvidersInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function preflightEnterpriseSsoProvidersAsync(input: SenaEnterpriseSsoPreflightInput = {}): Promise<SenaEnterpriseSsoProviderPreflightResult> {
+  const state = await readEnterpriseState();
+  const result = await preflightEnterpriseSsoProvidersInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
 }
 
 async function resolveSsoProvider(provider: SenaEnterpriseSsoProvider, baseUrl?: string): Promise<SenaEnterpriseResolvedSsoProvider> {
@@ -805,19 +847,16 @@ async function resolveSsoProvider(provider: SenaEnterpriseSsoProvider, baseUrl?:
   };
 }
 
-export async function createEnterpriseSsoAuthorization(input: {
-  provider: SenaEnterpriseSsoProvider;
-  baseUrl?: string;
-  redirectTo?: string;
-  inviteCode?: string;
-}) {
+async function createEnterpriseSsoAuthorizationInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseSsoAuthorizationInput
+) {
   const provider = input.provider;
   const config = await resolveSsoProvider(provider, input.baseUrl);
   const rawState = randomBytes(32).toString("base64url");
   const nonce = randomBytes(24).toString("base64url");
   const codeVerifier = randomBytes(48).toString("base64url");
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-  const db = readEnterpriseDb();
   const ssoState: SenaEnterpriseSsoState = {
     id: id("sso"),
     provider,
@@ -841,7 +880,6 @@ export async function createEnterpriseSsoAuthorization(input: {
       invite: ssoState.inviteCode ? "present" : "none"
     }
   });
-  saveDb(db);
 
   const authorizationUrl = new URL(config.authorizationUrl);
   authorizationUrl.searchParams.set("response_type", "code");
@@ -864,6 +902,20 @@ export async function createEnterpriseSsoAuthorization(input: {
   };
 }
 
+export async function createEnterpriseSsoAuthorization(input: SenaEnterpriseSsoAuthorizationInput) {
+  const db = readEnterpriseDb();
+  const result = await createEnterpriseSsoAuthorizationInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function createEnterpriseSsoAuthorizationAsync(input: SenaEnterpriseSsoAuthorizationInput) {
+  const state = await readEnterpriseState();
+  const result = await createEnterpriseSsoAuthorizationInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
+}
+
 function profileEmail(provider: SenaEnterpriseSsoProvider, profile: Record<string, unknown>, subject: string) {
   const email = profileString(profile, "email") || profileString(profile, "preferred_username");
   return email?.includes("@") ? email : subjectEmailFallback(provider, subject);
@@ -884,20 +936,16 @@ function profileOrganization(profile: Record<string, unknown>, email: string) {
     "SENA Research Team";
 }
 
-export async function completeEnterpriseSsoCallback(input: {
-  code: string;
-  state: string;
-  provider?: SenaEnterpriseSsoProvider;
-  baseUrl?: string;
-}) {
+async function completeEnterpriseSsoCallbackInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseSsoCallbackInput
+) {
   const stateHash = tokenHash(input.state);
-  const db = readEnterpriseDb();
   const stateIndex = db.ssoStates.findIndex((candidate) => candidate.stateHash === stateHash);
   const ssoState = stateIndex >= 0 ? db.ssoStates[stateIndex] : undefined;
   if (!ssoState) throw new SenaEnterpriseError("SSO state is invalid or expired.", 401, "invalid_sso_state");
   if (Date.parse(ssoState.expiresAt) <= Date.now()) {
     db.ssoStates.splice(stateIndex, 1);
-    saveDb(db);
     throw new SenaEnterpriseError("SSO state has expired.", 401, "expired_sso_state");
   }
   if (input.provider && input.provider !== ssoState.provider) {
@@ -941,7 +989,6 @@ export async function completeEnterpriseSsoCallback(input: {
       });
     } catch (error) {
       db.ssoStates.splice(stateIndex, 1);
-      saveDb(db);
       throw error;
     }
   }
@@ -961,9 +1008,8 @@ export async function completeEnterpriseSsoCallback(input: {
   const email = profileEmail(provider, profile, subject);
 
   db.ssoStates.splice(stateIndex, 1);
-  saveDb(db);
 
-  const result = ssoEnterpriseUser({
+  const result = ssoEnterpriseUserInDb(db, {
     provider,
     email,
     name: profileName(profile, email),
@@ -978,17 +1024,36 @@ export async function completeEnterpriseSsoCallback(input: {
   };
 }
 
-export function ssoEnterpriseUser(input: {
-  provider: SenaEnterpriseSsoProvider;
-  email: string;
-  name?: string;
-  organization?: string;
-  subject?: string;
-  inviteCode?: string;
-}) {
+export async function completeEnterpriseSsoCallback(input: SenaEnterpriseSsoCallbackInput) {
+  const db = readEnterpriseDb();
+  try {
+    const result = await completeEnterpriseSsoCallbackInDb(db, input);
+    saveDb(db);
+    return result;
+  } catch (error) {
+    saveDb(db);
+    throw error;
+  }
+}
+
+export async function completeEnterpriseSsoCallbackAsync(input: SenaEnterpriseSsoCallbackInput) {
+  const state = await readEnterpriseState();
+  try {
+    const result = await completeEnterpriseSsoCallbackInDb(state.db, input);
+    await saveEnterpriseState(state, state.db);
+    return result;
+  } catch (error) {
+    await saveEnterpriseState(state, state.db);
+    throw error;
+  }
+}
+
+function ssoEnterpriseUserInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseSsoUserInput
+) {
   const email = normalizeEmail(input.email);
   if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required for SSO.", 400, "invalid_email");
-  const db = readEnterpriseDb();
   const timestamp = now();
   let user = db.users.find((candidate) => candidate.email === email);
   const pendingInvite = requirePendingInvitationForEmail(db, input.inviteCode, email);
@@ -1075,6 +1140,19 @@ export function ssoEnterpriseUser(input: {
       inviteAccepted: Boolean(pendingInvite)
     }
   });
-  saveDb(db);
   return { token: session.rawToken, context: contextFromDb(db, session.session) };
+}
+
+export function ssoEnterpriseUser(input: SenaEnterpriseSsoUserInput) {
+  const db = readEnterpriseDb();
+  const result = ssoEnterpriseUserInDb(db, input);
+  saveDb(db);
+  return result;
+}
+
+export async function ssoEnterpriseUserAsync(input: SenaEnterpriseSsoUserInput) {
+  const state = await readEnterpriseState();
+  const result = ssoEnterpriseUserInDb(state.db, input);
+  await saveEnterpriseState(state, state.db);
+  return result;
 }

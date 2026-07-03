@@ -1,9 +1,15 @@
 import { randomBytes } from "node:crypto";
 import {
   readEnterpriseDb,
+  readEnterpriseState,
   saveDb,
+  writeEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
+import {
+  createEnterprisePostgresExpertReviewAdapterFromEnv,
+  resolveEnterprisePostgresConfig
+} from "../enterprise-postgres";
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import {
@@ -56,6 +62,48 @@ function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
 
+function envValue(key: string) {
+  const value = process.env[key]?.trim();
+  return value || undefined;
+}
+
+function postgresExpertReviewRegistryRequested() {
+  return envValue("SENA_ENTERPRISE_STATE_STORE")?.toLowerCase() === "postgres";
+}
+
+function postgresExpertReviewRegistryConfigured() {
+  return postgresExpertReviewRegistryRequested() && resolveEnterprisePostgresConfig().configured;
+}
+
+export function enterpriseExpertReviewRegistryRuntime() {
+  const postgresConfig = resolveEnterprisePostgresConfig();
+  const requested = postgresExpertReviewRegistryRequested();
+  const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  return {
+    activeStore,
+    requested,
+    postgresConfigured: postgresConfig.configured,
+    table: "sena_enterprise_expert_reviews",
+    evidence: [
+      `expertReviewRegistryStore=${activeStore}`,
+      `expertReviewRegistryPostgresRequested=${requested}`,
+      `expertReviewRegistryPostgresConfigured=${postgresConfig.configured}`,
+      `expertReviewRegistryPostgresTable=sena_enterprise_expert_reviews`,
+      `expertReviewRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+    ]
+  };
+}
+
+async function upsertExpertReviewsToPostgresIfConfigured(reviews: SenaEnterpriseExpertReview[]) {
+  if (reviews.length === 0 || !postgresExpertReviewRegistryConfigured()) return;
+  const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
+  try {
+    await adapter.upsertExpertReviews(reviews);
+  } finally {
+    await pool.end?.();
+  }
+}
+
 function requireProjectPermissionFromDb(
   db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
@@ -95,7 +143,7 @@ function validateExpertReviewTarget(db: SenaEnterpriseDb, projectId: string, tar
   }
 }
 
-export function createEnterpriseExpertReview(context: SenaEnterpriseSessionContext, input: {
+type CreateEnterpriseExpertReviewInput = {
   projectId: string;
   target?: Partial<SenaEnterpriseExpertReview["target"]>;
   reviewerName?: string;
@@ -108,8 +156,13 @@ export function createEnterpriseExpertReview(context: SenaEnterpriseSessionConte
   concerns?: string;
   recommendations?: string;
   limitations?: string;
-}) {
-  const db = readEnterpriseDb();
+};
+
+function createEnterpriseExpertReviewInDb(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseExpertReviewInput,
+  db: SenaEnterpriseDb
+) {
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "expert:review");
   const timestamp = now();
   const target: SenaEnterpriseExpertReview["target"] = {
@@ -174,11 +227,37 @@ export function createEnterpriseExpertReview(context: SenaEnterpriseSessionConte
       claimScope: review.claimScope
     }
   });
+  return review;
+}
+
+export function createEnterpriseExpertReview(context: SenaEnterpriseSessionContext, input: CreateEnterpriseExpertReviewInput) {
+  const db = readEnterpriseDb();
+  const review = createEnterpriseExpertReviewInDb(context, input, db);
   saveDb(db);
   return review;
 }
 
-export function reviewEnterpriseExpertReview(context: SenaEnterpriseSessionContext, reviewId: string, input: {
+export async function createEnterpriseExpertReviewWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseExpertReviewInput
+) {
+  const review = createEnterpriseExpertReview(context, input);
+  await upsertExpertReviewsToPostgresIfConfigured([review]);
+  return review;
+}
+
+export async function createEnterpriseExpertReviewWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseExpertReviewInput
+) {
+  const state = await readEnterpriseState();
+  const review = createEnterpriseExpertReviewInDb(context, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertExpertReviewsToPostgresIfConfigured([review]);
+  return review;
+}
+
+type ReviewEnterpriseExpertReviewInput = {
   status?: SenaEnterpriseExpertReviewStatus;
   claimScope?: SenaEnterpriseExpertReview["claimScope"];
   ratings?: Partial<SenaEnterpriseExpertReview["ratings"]>;
@@ -186,8 +265,14 @@ export function reviewEnterpriseExpertReview(context: SenaEnterpriseSessionConte
   concerns?: string;
   recommendations?: string;
   limitations?: string;
-}) {
-  const db = readEnterpriseDb();
+};
+
+function reviewEnterpriseExpertReviewInDb(
+  context: SenaEnterpriseSessionContext,
+  reviewId: string,
+  input: ReviewEnterpriseExpertReviewInput,
+  db: SenaEnterpriseDb
+) {
   const review = db.expertReviews.find((candidate) => candidate.id === reviewId);
   if (!review) throw new SenaEnterpriseError("Expert review was not found.", 404, "expert_review_not_found");
   requireEnterprisePermission(context, review.teamId, "expert:review");
@@ -235,7 +320,39 @@ export function reviewEnterpriseExpertReview(context: SenaEnterpriseSessionConte
       claimScope: review.claimScope
     }
   });
+  return review;
+}
+
+export function reviewEnterpriseExpertReview(
+  context: SenaEnterpriseSessionContext,
+  reviewId: string,
+  input: ReviewEnterpriseExpertReviewInput
+) {
+  const db = readEnterpriseDb();
+  const review = reviewEnterpriseExpertReviewInDb(context, reviewId, input, db);
   saveDb(db);
+  return review;
+}
+
+export async function reviewEnterpriseExpertReviewWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  reviewId: string,
+  input: ReviewEnterpriseExpertReviewInput
+) {
+  const review = reviewEnterpriseExpertReview(context, reviewId, input);
+  await upsertExpertReviewsToPostgresIfConfigured([review]);
+  return review;
+}
+
+export async function reviewEnterpriseExpertReviewWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  reviewId: string,
+  input: ReviewEnterpriseExpertReviewInput
+) {
+  const state = await readEnterpriseState();
+  const review = reviewEnterpriseExpertReviewInDb(context, reviewId, input, state.db);
+  await writeEnterpriseState(state, state.db);
+  await upsertExpertReviewsToPostgresIfConfigured([review]);
   return review;
 }
 
@@ -244,6 +361,21 @@ export function listEnterpriseExpertReviews(context: SenaEnterpriseSessionContex
   projectId?: string;
 } = {}) {
   const db = readEnterpriseDb();
+  return listEnterpriseExpertReviewsFromDb(context, db, input);
+}
+
+export async function listEnterpriseExpertReviewsAsync(context: SenaEnterpriseSessionContext, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
+  const state = await readEnterpriseState();
+  return listEnterpriseExpertReviewsFromDb(context, state.db, input);
+}
+
+function listEnterpriseExpertReviewsFromDb(context: SenaEnterpriseSessionContext, db: SenaEnterpriseDb, input: {
+  teamId?: string;
+  projectId?: string;
+} = {}) {
   let teamIds = new Set(context.memberships
     .filter((membership) => rolePermissions[membership.role].includes("project:read"))
     .map((membership) => membership.teamId));
