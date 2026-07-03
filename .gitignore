@@ -25,6 +25,7 @@ tsconfig.tsbuildinfo
 .sena-enterprise/
 .tmp/
 .playwright-cli/
+sena-hk-template/output/production-evidence/
 
 # Deployment and tool state
 .vercel/

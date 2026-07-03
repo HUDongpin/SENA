@@ -1,11 +1,7 @@
 node_modules
+vendor/*/node_modules
 .next
 out
-dist
-!vendor/jena-js/dist/
-!vendor/jena-js/dist/**
-!vendor/sna-js/dist/
-!vendor/sna-js/dist/**
 .env
 .env.*
 !.env.example
