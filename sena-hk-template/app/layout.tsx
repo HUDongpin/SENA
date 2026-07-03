@@ -6,7 +6,7 @@ import { LanguageProvider } from "@/components/LanguageProvider";
 
 export const metadata: Metadata = {
   title: "SENA.HK | Social-Epistemic Nexus Analytics",
-  description: "An AI-assisted research platform for modeling collaborative discourse as social-epistemic networks."
+  description: "An AI-assisted research platform for modeling individual and collaborative discourse as social-epistemic networks."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -3,6 +3,7 @@ import {
   buildSenaReport,
   importSenaJsonContract
 } from "./analysis-runtime";
+import { SenaFusionWorkspaceLoader } from "../SenaFusionWorkspaceLoader";
 import {
   requestSenaWorkspaceJson,
   SENA_WORKSPACE_API_ROUTES
@@ -46,6 +47,7 @@ type SenaWorkspaceRefreshContractState =
   | "EnterpriseReleaseGateState";
 
 export type SenaWorkspaceBoundaryModuleId =
+  | "workspace-loader"
   | "analysis-runtime"
   | "enterprise-contracts"
   | "enterprise-options"
@@ -58,7 +60,7 @@ export type SenaWorkspaceBoundaryModuleId =
 
 export type SenaWorkspaceBoundaryModule = {
   id: SenaWorkspaceBoundaryModuleId;
-  path: `./${string}`;
+  path: `./${string}` | `../${string}`;
   role: string;
   containerResponsibilities: readonly string[];
   runtimeExports?: Readonly<Record<string, unknown>>;
@@ -101,6 +103,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     id: "SenaFusionWorkspace",
     delegatedModules: [
       "enterprise-contracts",
+      "workspace-loader",
       "enterprise-options",
       "analysis-runtime",
       "api-client",
@@ -142,6 +145,19 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     ]
   },
   modules: [
+    {
+      id: "workspace-loader",
+      path: "../SenaFusionWorkspaceLoader",
+      role: "Client-side dynamic loader for deferring the full research workbench out of the prerendered route shell.",
+      runtimeExports: {
+        SenaFusionWorkspaceLoader
+      },
+      containerResponsibilities: [
+        "render a lightweight loading shell before the full workspace bundle is requested",
+        "avoid server-prerendering the entire interactive workbench HTML"
+      ],
+      testIds: ["sena-workspace-loading"]
+    },
     {
       id: "enterprise-contracts",
       path: "./enterprise-contracts",

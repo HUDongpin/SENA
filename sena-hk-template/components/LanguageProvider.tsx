@@ -81,7 +81,7 @@ export const dictionary: Record<Lang, Translation> = {
     hero: {
       eyebrow: "Social-Epistemic Nexus Analytics",
       title: "Social-Epistemic Nexus Analytics",
-      subtitle: "An AI-assisted research platform for modeling collaborative discourse as social-epistemic networks.",
+      subtitle: "An AI-assisted research platform for modeling individual and collaborative discourse as social-epistemic networks.",
       support: "Compare groups, trace learning processes, identify roles, and generate transparent, reproducible network-based reports.",
       launch: "Launch Research Workspace",
       method: "Explore SENA Method",
@@ -128,7 +128,7 @@ export const dictionary: Record<Lang, Translation> = {
       aiNotice: "AI-generated interpretation: please verify against the coding scheme, network parameters, statistical results, and research context."
     },
     footer: {
-      line: "A research platform for modeling collaborative discourse as social-epistemic networks.",
+      line: "A research platform for modeling individual and collaborative discourse as social-epistemic networks.",
       built: "Built for social-epistemic research, discourse analysis, and reproducible learning analytics."
     }
   },

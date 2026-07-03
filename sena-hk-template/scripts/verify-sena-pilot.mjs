@@ -28,11 +28,8 @@ const browserSmokeCoveredPlotViewVisualCheckIds = new Set([
   "temporal-transition-summary",
   "temporal-transition-summary-role"
 ]);
-const productionPageRequiredText = [
-  ...productionPageContract.sections.flatMap((section) => section.requiredText),
-  ...productionPageContract.visualChecks
-    .filter((check) => !browserSmokeCoveredPlotViewVisualCheckIds.has(check.id))
-    .map((check) => check.requiredText)
+const productionShellRequiredText = [
+  'data-testid="sena-workspace-loading"'
 ];
 
 function verifyInteractiveVisualCheckCoverage() {
@@ -652,6 +649,22 @@ function verifyFusionCanvasVisualGuards(html) {
   console.log("Report Generator exposes the review-packet project-snapshot, development-plan, and method-protocol handoff audits.");
 }
 
+function verifyWorkspaceDynamicShell(html) {
+  console.log("\n> Verify SENA workspace dynamic shell");
+  if (process.env.SENA_VERIFY_SERVER_RENDERED_WORKSPACE === "1") {
+    verifyFusionCanvasVisualGuards(html);
+    return;
+  }
+  const loadingShellTag = extractOpeningTagWithText(html, 'data-testid="sena-workspace-loading"');
+  if (!loadingShellTag?.startsWith("<main")) {
+    throw new Error("SENA workspace dynamic loading shell was not found as an opening <main> tag.");
+  }
+  if (html.includes('data-testid="sena-fusion-canvas"')) {
+    throw new Error("SENA workspace full Fusion Canvas should be deferred to the client bundle, not server-prerendered into the route shell.");
+  }
+  console.log("SENA workspace route serves a lightweight dynamic shell; full workbench DOM is verified by Playwright smoke.");
+}
+
 async function waitForText(url, expectedText, timeoutMs = 30000) {
   const startedAt = Date.now();
   let lastError = "";
@@ -710,14 +723,26 @@ async function verifyProductionServerSmoke() {
   try {
     const url = `http://127.0.0.1:${port}/workspace/sena`;
     await Promise.race([
-      waitForText(url, productionPageRequiredText).then(({ text }) => {
-        verifyFusionCanvasVisualGuards(text);
+      waitForText(url, productionShellRequiredText).then(({ text }) => {
+        verifyWorkspaceDynamicShell(text);
       }),
       serverExit.then(({ code, signal }) => {
         if (stoppingByVerifier) return;
         throw new Error(`Production server exited before smoke completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`);
       })
     ]);
+    run("Verify conference load smoke", ["run", "sena:conference:load-check"], {
+      SENA_LOAD_TARGET_URL: `http://127.0.0.1:${port}`,
+      SENA_LOAD_PATHS: "/workspace/sena,/api/sena/docs?format=openapi",
+      SENA_LOAD_TARGET_USERS: "2",
+      SENA_LOAD_CONCURRENCY: "2",
+      SENA_LOAD_DURATION_SECONDS: "1",
+      SENA_LOAD_THINK_TIME_MS: "0",
+      SENA_LOAD_MAX_REQUESTS: "4",
+      SENA_LOAD_MIN_REQUESTS: "4",
+      SENA_LOAD_MAX_P95_MS: "5000",
+      SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
+    });
     await verifySenaBrowserSmoke(url);
     console.log("\n> Verify auth browser smoke");
     await verifySenaAuthBrowserSmoke(url);
@@ -790,6 +815,7 @@ try {
 cleanNextBuildDirectory();
 await runNextProductionBuild();
 verifyNextArtifacts();
+run("Verify performance budget artifact", ["run", "sena:performance:check"]);
 await verifyProductionServerSmoke();
 
 console.log("\nSENA pilot verification complete.");

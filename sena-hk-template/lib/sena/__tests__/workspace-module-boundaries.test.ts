@@ -30,6 +30,7 @@ import {
   type SenaWorkspaceBoundaryModule,
   type SenaWorkspaceBoundaryModuleId
 } from "../../../components/sena/workspace/module-boundaries";
+import { SenaFusionWorkspaceLoader } from "../../../components/sena/SenaFusionWorkspaceLoader";
 import { ReportGenerator } from "../../../components/sena/workspace/report-generator";
 import { TemporalFusionArc } from "../../../components/sena/workspace/temporal-fusion-arc";
 import { useEnterpriseWorkspaceApi } from "../../../components/sena/workspace/use-enterprise-runtime";
@@ -63,6 +64,7 @@ describe("SENA workspace module boundaries", () => {
     });
     expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container.delegatedModules).toEqual([
       "enterprise-contracts",
+      "workspace-loader",
       "enterprise-options",
       "analysis-runtime",
       "api-client",
@@ -72,6 +74,19 @@ describe("SENA workspace module boundaries", () => {
       "report-generator",
       "temporal-fusion-arc"
     ]);
+  });
+
+  it("keeps the full workspace behind a lightweight dynamic loader", () => {
+    const loader = boundaryModule("workspace-loader");
+
+    expect(loader.runtimeExports).toMatchObject({
+      SenaFusionWorkspaceLoader
+    });
+    expect(loader.containerResponsibilities).toEqual([
+      "render a lightweight loading shell before the full workspace bundle is requested",
+      "avoid server-prerendering the entire interactive workbench HTML"
+    ]);
+    expect(loader.testIds).toContain("sena-workspace-loading");
   });
 
   it("keeps the main workspace container under an explicit extraction budget", () => {
