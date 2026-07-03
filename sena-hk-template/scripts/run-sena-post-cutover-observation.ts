@@ -36,7 +36,7 @@ const sampleEveryMs = Math.max(1, sampleEveryMinutes) * 60_000;
 const enterprise = await import("../lib/sena/enterprise");
 const { readEnterpriseDb } = await import("../lib/sena/enterprise/state");
 
-type EnterprisePostCutoverObservation = ReturnType<typeof enterprise.recordEnterprisePostCutoverObservationSample>;
+type EnterprisePostCutoverObservation = Awaited<ReturnType<typeof enterprise.recordEnterprisePostCutoverObservationSampleWithPostgresEvidence>>;
 type PostCutoverObservationStep =
   | {
       done: true;
@@ -103,7 +103,7 @@ function contextForTeam(teamId: string) {
   };
 }
 
-function createAttestationIfRequested(input: {
+async function createAttestationIfRequested(input: {
   teamId: string;
   environment: string;
   releaseVersion: string;
@@ -117,7 +117,7 @@ function createAttestationIfRequested(input: {
     candidate.decision === "approved"
   ));
   if (existing) return existing;
-  return enterprise.createEnterpriseGoLiveAttestation(contextForTeam(input.teamId), {
+  return enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(contextForTeam(input.teamId), {
     teamId: input.teamId,
     environment: input.environment,
     releaseVersion: input.releaseVersion,
@@ -156,19 +156,19 @@ async function sampleAndMaybeComplete(): Promise<PostCutoverObservationStep> {
   const lastSampleAt = lastSample ? Date.parse(lastSample.recordedAt) : Date.parse(observation.startedAt);
   const shouldSample = now >= requiredUntil || now - lastSampleAt >= sampleEveryMs;
   const sampled = shouldSample
-    ? enterprise.recordEnterprisePostCutoverObservationSample(context, {
+    ? await enterprise.recordEnterprisePostCutoverObservationSampleWithPostgresEvidence(context, {
       teamId: observation.teamId,
       observationId: observation.id
     })
     : observation;
 
   if (Date.now() >= requiredUntil) {
-    const completed = enterprise.completeEnterprisePostCutoverObservation(context, {
+    const completed = await enterprise.completeEnterprisePostCutoverObservationWithPostgresEvidence(context, {
       teamId: observation.teamId,
       observationId: observation.id,
       acknowledgedWarningAlertIds: []
     });
-    const attestation = createAttestationIfRequested({
+    const attestation = await createAttestationIfRequested({
       teamId: observation.teamId,
       environment: observation.environment,
       releaseVersion: observation.releaseVersion
