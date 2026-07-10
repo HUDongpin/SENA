@@ -76,6 +76,13 @@ type VercelProductionPreflight = {
     xVercelCache?: string;
     xSenaRuntime?: string;
     expectedRuntimeValues: string[];
+    ssoStatusEndpoint: {
+      attempted: boolean;
+      status: CheckStatus;
+      httpStatus?: number;
+      providersReported?: number;
+      errorCode?: string;
+    };
     evidence: string[];
   };
   summary: {
@@ -276,6 +283,46 @@ async function fetchHttpProbe(input: {
   } catch (error) {
     return {
       method: input.method,
+      errorCode: httpProbeErrorCode(error)
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+type SsoStatusProbeResult = {
+  attempted: boolean;
+  status?: number;
+  providersReported?: number;
+  errorCode?: string;
+};
+
+// The login and register pages query /api/auth/sso?status=1 for SSO button
+// state; the deployed endpoint must answer 200 with a providers array or the
+// live sign-in surface is broken even when the homepage is healthy.
+async function probeSsoStatusEndpoint(options: Options): Promise<SsoStatusProbeResult> {
+  if (options.skipHttp) return { attempted: false };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const response = await fetch(`https://${options.domain}/api/auth/sso?status=1`, {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "user-agent": "sena-vercel-production-preflight/1.0"
+      }
+    });
+    const body = await response.json().catch(() => null) as { providers?: unknown } | null;
+    return {
+      attempted: true,
+      status: response.status,
+      providersReported: Array.isArray(body?.providers) ? body.providers.length : undefined
+    };
+  } catch (error) {
+    return {
+      attempted: true,
       errorCode: httpProbeErrorCode(error)
     };
   } finally {
@@ -854,6 +901,8 @@ async function buildPreflight(options: Options): Promise<VercelProductionPreflig
   const server = httpProbe.server;
   const xVercelCache = httpProbe.xVercelCache;
   const xSenaRuntime = httpProbe.xSenaRuntime;
+  const ssoStatusProbe = await probeSsoStatusEndpoint(options);
+  const ssoStatusPass = ssoStatusProbe.status === 200 && ssoStatusProbe.providersReported !== undefined;
   const checkStatuses: Array<{ id: string; status: CheckStatus }> = [
     { id: "vercel-cli", status: cliAvailable ? "pass" : "review" },
     { id: "deployment-ready", status: deploymentReady ? "pass" : "review" },
@@ -868,7 +917,8 @@ async function buildPreflight(options: Options): Promise<VercelProductionPreflig
         : xSenaRuntime && productionRuntimeHeaderValues.includes(xSenaRuntime)
           ? "pass"
           : "review"
-    }
+    },
+    { id: "sso-status-endpoint", status: options.skipHttp ? "skipped" : ssoStatusPass ? "pass" : "review" }
   ];
   const blockers = checkStatuses.filter((entry) => entry.status !== "pass").map((entry) => entry.id);
   return {
@@ -930,6 +980,13 @@ async function buildPreflight(options: Options): Promise<VercelProductionPreflig
       xVercelCache,
       xSenaRuntime,
       expectedRuntimeValues: productionRuntimeHeaderValues,
+      ssoStatusEndpoint: {
+        attempted: ssoStatusProbe.attempted,
+        status: options.skipHttp ? "skipped" : ssoStatusPass ? "pass" : "review",
+        httpStatus: ssoStatusProbe.status,
+        providersReported: ssoStatusProbe.providersReported,
+        errorCode: ssoStatusProbe.errorCode
+      },
       evidence: [
         `attempted=${httpProbe.attempted}`,
         `httpProbeMethod=${options.skipHttp ? "skipped" : httpProbe.method ?? "missing"}`,
@@ -940,6 +997,8 @@ async function buildPreflight(options: Options): Promise<VercelProductionPreflig
         `xSenaRuntime=${xSenaRuntime ?? "missing"}`,
         `runtimeHeaderStatus=${options.skipHttp ? "skipped" : xSenaRuntime && productionRuntimeHeaderValues.includes(xSenaRuntime) ? "pass" : "review"}`,
         `runtimeHeaderExpected=${productionRuntimeHeaderValues.join("|")}`,
+        `ssoStatusEndpointStatus=${options.skipHttp ? "skipped" : ssoStatusProbe.status ?? ssoStatusProbe.errorCode ?? "missing"}`,
+        `ssoStatusProvidersReported=${ssoStatusProbe.providersReported ?? "missing"}`,
         "responseBody=excluded"
       ]
     },

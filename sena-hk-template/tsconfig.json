@@ -24,6 +24,9 @@
     ],
     "baseUrl": ".",
     "paths": {
+      "@sena/kernel": [
+        "./packages/sena-kernel/index.ts"
+      ],
       "@/*": [
         "./*"
       ]

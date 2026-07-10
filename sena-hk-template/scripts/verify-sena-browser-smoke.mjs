@@ -84,7 +84,8 @@ async function verifyWeightedFusionLinkWidths(page) {
       throw new Error(`Fusion Canvas ${layer} links are missing weight/width provenance: ${JSON.stringify(rows)}`);
     }
     const uniqueWidths = new Set(rows.map((row) => row.width.toFixed(2)));
-    if ((layer === "social" || layer === "concept") && rows.length > 1 && uniqueWidths.size < 2) {
+    const uniqueSignals = new Set(rows.map((row) => `${row.raw.toFixed(4)}:${row.scaled.toFixed(4)}:${row.salience.toFixed(4)}`));
+    if ((layer === "social" || layer === "concept") && rows.length > 1 && uniqueSignals.size > 1 && uniqueWidths.size < 2) {
       throw new Error(`Fusion Canvas ${layer} links should use variable stroke widths, received ${JSON.stringify(rows)}.`);
     }
   }
@@ -107,7 +108,7 @@ async function expectLessonStudyCounts(page) {
   await expectMetricValue(page, "data-count-codes", 7);
   await expectMetricValue(page, "data-count-utterances", 10);
   await expectMetricValue(page, "data-count-segments", 10);
-  await expectMetricValue(page, "data-count-social-ties", 6);
+  await expectMetricValue(page, "data-count-social-ties", 8);
 }
 
 async function verifySampleUploadPaths(page) {
@@ -511,7 +512,7 @@ async function verifyPilotAssetLinks(page, url) {
   await page.locator('[data-testid="pilot-asset-integrity"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-visual-role="pilot-asset-integrity"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
   const integritySignal = await page.locator('[data-testid="pilot-asset-integrity"]').first().innerText({ timeout: defaultTimeout });
-  assertTextIncludes(integritySignal, "12 manifest fingerprints", "pilot asset integrity signal");
+  assertTextIncludes(integritySignal, "13 manifest fingerprints", "pilot asset integrity signal");
 
   const links = await page.locator('[data-testid="pilot-asset-link"]').evaluateAll((anchors) => anchors.map((anchor) => ({
     href: anchor.getAttribute("href") ?? "",
@@ -519,8 +520,8 @@ async function verifyPilotAssetLinks(page, url) {
     kind: anchor.getAttribute("data-asset-kind") ?? "",
     label: anchor.textContent?.replace(/\s+/g, " ").trim() ?? ""
   })));
-  if (links.length !== 13) {
-    throw new Error(`Expected 13 pilot asset links, received ${links.length}.`);
+  if (links.length !== 14) {
+    throw new Error(`Expected 14 pilot asset links, received ${links.length}.`);
   }
   for (const link of links) {
     if (link.href !== link.dataHref) {
@@ -534,7 +535,7 @@ async function verifyPilotAssetLinks(page, url) {
   const manifestLinks = links.filter((link) => link.kind === "manifest");
   const sampleLinks = links.filter((link) => link.kind === "sample");
   const templateLinks = links.filter((link) => link.kind === "template");
-  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 6) {
+  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 7) {
     throw new Error(`Unexpected pilot asset counts: manifest=${manifestLinks.length}; sample=${sampleLinks.length}; template=${templateLinks.length}.`);
   }
 
@@ -617,7 +618,7 @@ async function verifyPilotAssetLinks(page, url) {
   if (modelJsonHandoff?.artifact !== "sena-project-snapshot.json") {
     throw new Error("Pilot manifest is missing the model-json-export handoff check.");
   }
-  for (const expected of ["S/W/B/G matrices", "temporal trace windows"]) {
+  for (const expected of ["S/W/B/B_PC/B_CP/G matrices", "temporal trace windows"]) {
     if (!modelJsonHandoff.expectedEvidence?.includes(expected)) {
       throw new Error(`Pilot manifest model-json-export handoff is missing expected evidence ${expected}.`);
     }
@@ -787,16 +788,16 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   const pilotManifestEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json");
   if (pilotManifestEvidence?.status !== "ready" ||
     !pilotManifestEvidence.handoffChecks?.includes("pilot-asset-integrity") ||
-    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=12") ||
-    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=12")) {
+    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=13") ||
+    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=13")) {
     throw new Error("Runtime bundle artifact evidence is missing pilot asset-integrity handoff coverage.");
   }
   const runtimeBundleEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json");
   if (runtimeBundleEvidence?.status !== "ready" || !runtimeBundleEvidence.matrixCoverage?.some((entry) => String(entry).startsWith("A_fusion="))) {
-    throw new Error("Runtime bundle artifact evidence is missing S/W/B/G/A_fusion matrix coverage.");
+    throw new Error("Runtime bundle artifact evidence is missing S/W/B/B_PC/B_CP/G/A_fusion matrix coverage.");
   }
   if (!runtimeBundleEvidence.handoffChecks?.includes("matrix-fingerprints") ||
-    !runtimeBundleEvidence.evidenceCoverage?.includes("matrixFingerprints=5") ||
+    !runtimeBundleEvidence.evidenceCoverage?.includes("matrixFingerprints=7") ||
     !runtimeBundleEvidence.evidenceCoverage?.some((entry) => /^A_fusionChecksum=0x[a-f0-9]{8}$/.test(String(entry)))) {
     throw new Error("Runtime bundle artifact evidence is missing matrix fingerprint handoff coverage.");
   }
@@ -971,9 +972,9 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   }
   const matrixFingerprints = Array.isArray(fusionMathAudit.matrixFingerprints) ? fusionMathAudit.matrixFingerprints : [];
   const matrixFingerprintIds = matrixFingerprints.map((fingerprint) => fingerprint.id).join("|");
-  if (matrixFingerprintIds !== "S|W|B|G|A_fusion" ||
+  if (matrixFingerprintIds !== "S|W|B|B_PC|B_CP|G|A_fusion" ||
     !matrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))) {
-    throw new Error("Fusion math audit export is missing stable S/W/B/G/A_fusion matrix fingerprints.");
+    throw new Error("Fusion math audit export is missing stable S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints.");
   }
 
   const { parsed: temporalTrace } = await downloadJsonByButton(
@@ -985,7 +986,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   if (!temporalTrace.windows?.some((entry) => entry.ena?.status === "computed" && entry.sna?.status === "computed")) {
     throw new Error("Temporal runtime trace export is missing computed jENA/jSNA window status.");
   }
-  if (!temporalTrace.windows?.every((entry) => entry.sena?.matrixFingerprints?.length === 5) ||
+  if (!temporalTrace.windows?.every((entry) => entry.sena?.matrixFingerprints?.length === 7) ||
     !temporalTrace.windows?.some((entry) => entry.sena?.matrixFingerprints?.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))) {
     throw new Error("Temporal runtime trace export is missing per-window matrix fingerprints.");
   }
@@ -1048,8 +1049,8 @@ async function verifyWorkflowHandoffArtifactDownloads(page) {
     !sampleImportCheck?.expectedOutcome?.includes("manifest fingerprints")) {
     throw new Error("Demo verification sample-import check is missing asset-integrity manual review wording.");
   }
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=12", "demo verification sample-import evidence");
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=12", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=13", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=13", "demo verification sample-import evidence");
   assertArrayIncludes(sampleImportCheck.observedEvidence, "handoff=pilot-asset-integrity", "demo verification sample-import evidence");
 
   const { parsed: compatibilityAudit } = await downloadJsonByButton(
@@ -1312,7 +1313,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Report JSON active-window brief is missing S/W/B/G signals, evidence cues, or review checklist.");
   }
   const reportMatrixFingerprints = reportJson.fusionMathAudit?.matrixFingerprints ?? [];
-  if (reportMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|G|A_fusion" ||
+  if (reportMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|B_PC|B_CP|G|A_fusion" ||
     !reportMatrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))) {
     throw new Error("Report JSON is missing stable fusion-math matrix fingerprints.");
   }
@@ -1466,13 +1467,13 @@ async function verifyArtifactDownloadsAndRestore(page) {
   }
   const reportBundleHandoff = reviewPacket.reviewPacketAudit?.items?.find((item) => item.id === "report-bundle-consistency");
   if (reportBundleHandoff?.status !== "pass" ||
-    !String(reportBundleHandoff.actual ?? "").includes("matrixFingerprints=5") ||
-    !reportBundleHandoff.evidence?.includes("matrixFingerprintIds=S|W|B|G|A_fusion")) {
+    !String(reportBundleHandoff.actual ?? "").includes("matrixFingerprints=7") ||
+    !reportBundleHandoff.evidence?.includes("matrixFingerprintIds=S|W|B|B_PC|B_CP|G|A_fusion")) {
     throw new Error("Review packet report-bundle handoff is missing matrix fingerprint consistency evidence.");
   }
   const packetMatrixFingerprints = reviewPacket.contents?.fusionMathAudit?.matrixFingerprints ?? [];
-  if (packetMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|G|A_fusion") {
-    throw new Error("Review packet fusion math audit is missing S/W/B/G/A_fusion matrix fingerprints.");
+  if (packetMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|B_PC|B_CP|G|A_fusion") {
+    throw new Error("Review packet fusion math audit is missing S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints.");
   }
   if (reviewPacket.contents?.visualGrammarArtifact?.schemaVersion !== "sena-visual-grammar/v1") {
     throw new Error("Review packet is missing embedded visual grammar artifact.");
@@ -1506,7 +1507,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Review packet audit is missing a passing pilot-package manifest handoff item.");
   }
   assertTextIncludes(pilotPackageHandoff.actual ?? "", "assetIntegrityCoverage=true", "review packet pilot package handoff");
-  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=12", "review packet pilot package handoff evidence");
+  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=13", "review packet pilot package handoff evidence");
   assertArrayIncludes(pilotPackageHandoff.evidence, "runtimeArtifact=sena-runtime-bundle.json", "review packet pilot package runtime handoff evidence");
   assertArrayIncludes(
     pilotPackageHandoff.evidence,
@@ -1609,7 +1610,7 @@ async function verifyCanvasSelection(page) {
   const personNodeTestId = await personNode.getAttribute("data-testid", { timeout: defaultTimeout });
   const personNodeId = personNodeTestId?.replace(/^sena-node-/, "");
   await personNode.click({ timeout: defaultTimeout });
-  await inspector.getByText("Bridge score", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
+  await inspector.getByText("Bridge score (exp.)", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
   await inspector.getByText("SNA degree", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
   const centralNodeLabels = page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="fusion-selected-node-label"][data-selected="true"]');
   if (personNodeId) {
@@ -1760,8 +1761,9 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     await clickByTestId(page, "canvas-layout-ena-space");
     await waitForVisibleText(page, "ENA Space uses jENA projected unit points");
     await clickByTestId(page, "canvas-layout-joint");
-    await waitForVisibleText(page, "Joint mode uses the normalized fusion matrix as a deterministic visual embedding");
-    await waitForVisibleText(page, "stability checks before making substantive distance claims");
+    await waitForVisibleText(page, "Joint mode uses declared A_fusion embedding operators");
+    await waitForVisibleText(page, "Joint embedding provenance");
+    await waitForVisibleText(page, "metric exact");
     await clickByTestId(page, "canvas-layout-explanatory");
 	    await waitForVisibleText(page, "In explanatory mode, cross-layer distances are arranged for readability");
 
