@@ -24,7 +24,8 @@ import {
   senaShortestPathDissimilarity,
   senaSymmetricEigenDecomposition,
   senaSymmetricEigenvalues,
-  senaZeroInverseNormalizedLaplacian
+  senaZeroInverseNormalizedLaplacian,
+  type SenaFusionAdjacencyInput
 } from "../operators";
 
 function expectMatrixClose(actual: number[][], expected: number[][], precision = 12) {
@@ -90,6 +91,20 @@ describe("SENA worked-example golden operators", () => {
       [2, 0, 0]
     ]);
   });
+
+  it.each([
+    ["S", { S: [[0, 1]], W: [[0]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }],
+    ["W", { S: [[0]], W: [[0, 1]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }],
+    ["B rows", { S: [[0]], W: [[0]], B: [], alpha: 1, beta: 1, gamma: 1 }],
+    ["B columns", { S: [[0]], W: [[0]], B: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }],
+    ["B_CP rows", { S: [[0]], W: [[0]], B: [[1]], Bcp: [], alpha: 1, beta: 1, gamma: 1 }],
+    ["B_CP columns", { S: [[0]], W: [[0]], B: [[1]], Bcp: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }]
+  ] satisfies Array<[string, SenaFusionAdjacencyInput]>) (
+    "rejects malformed %s dimensions instead of silently filling missing cells",
+    (_, input) => {
+      expect(() => buildSenaFusionAdjacency(input)).toThrow(/SENA fusion adjacency requires/);
+    }
+  );
 
   it("T2 computes the worked-example typed fused degree vector", () => {
     senaDegreeVector(workedExampleFusion).forEach((degree, index) => {
@@ -219,6 +234,23 @@ describe("SENA worked-example golden operators", () => {
     expect(diagnostics.rank).toBe(2);
     expect(diagnostics.maxDistortion).toBeCloseTo(0.7181, 3);
     expect(diagnostics.stress).toBeCloseTo(0.1038, 3);
+  });
+
+  it("marks a dimension-truncated Euclidean embedding approximate", () => {
+    const euclideanTriangle = [
+      [0, 1, Math.SQRT2],
+      [1, 0, 1],
+      [Math.SQRT2, 1, 0]
+    ];
+    const oneDimension = senaSchoenbergMdsDiagnostics(euclideanTriangle, { dimensions: 1 });
+    const twoDimensions = senaSchoenbergMdsDiagnostics(euclideanTriangle, { dimensions: 2 });
+
+    expect(oneDimension.minCenteredGramEigenvalue).toBeGreaterThanOrEqual(-1e-9);
+    expect(oneDimension.maxDistortion).toBeGreaterThan(1e-3);
+    expect(oneDimension.metricExact).toBe(false);
+    expect(oneDimension.warnings.join(" ")).toContain("dimensions");
+    expect(twoDimensions.metricExact).toBe(true);
+    expect(twoDimensions.maxDistortion).toBeLessThan(1e-9);
   });
 
   it("T11 computes commute-time coordinates whose pairwise squared distances match commute times for u != v", () => {

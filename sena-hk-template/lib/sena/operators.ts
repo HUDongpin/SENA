@@ -155,6 +155,17 @@ function zeroSquareMatrix(size: number) {
   return Array.from({ length: size }, () => Array.from({ length: size }, () => 0));
 }
 
+function assertMatrixShape(
+  matrix: number[][],
+  rows: number,
+  columns: number,
+  label: "S" | "W" | "B_PC" | "B_CP"
+) {
+  if (matrix.length !== rows || matrix.some((row) => row.length !== columns)) {
+    throw new Error(`SENA fusion adjacency requires ${label} to have dimensions ${rows} x ${columns}.`);
+  }
+}
+
 function sumMatrices(matrices: number[][][]) {
   const size = matrices[0]?.length ?? 0;
   const total = zeroSquareMatrix(size);
@@ -269,6 +280,10 @@ export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization)
 export function buildSenaFusionAdjacency({ S, W, B, Bcp, alpha, beta, gamma }: SenaFusionAdjacencyInput) {
   const peopleCount = S.length;
   const codeCount = W.length;
+  assertMatrixShape(S, peopleCount, peopleCount, "S");
+  assertMatrixShape(W, codeCount, codeCount, "W");
+  assertMatrixShape(B, peopleCount, codeCount, "B_PC");
+  if (Bcp) assertMatrixShape(Bcp, codeCount, peopleCount, "B_CP");
   const fusion = Array.from({ length: peopleCount + codeCount }, () => (
     Array.from({ length: peopleCount + codeCount }, () => 0)
   ));
@@ -746,20 +761,24 @@ export function senaSchoenbergMdsDiagnostics(
   }
 
   const minCenteredGramEigenvalue = Math.min(...decomposition.values);
+  const euclidean = minCenteredGramEigenvalue >= -tolerance;
+  const metricExact = euclidean && maxDistortion <= tolerance;
 
   return {
     delta: "shortest-path-reciprocal-weight",
     dimensions,
     rank: positivePairs.length,
-    metricExact: minCenteredGramEigenvalue >= -tolerance,
+    metricExact,
     minCenteredGramEigenvalue,
     eigenvalues: decomposition.values,
     coordinates,
     stress: squaredDeltaTotal === 0 ? 0 : Math.sqrt(squaredResidualTotal / squaredDeltaTotal),
     maxDistortion,
-    warnings: minCenteredGramEigenvalue >= -tolerance
-      ? []
-      : ["Shortest-path dissimilarities fail the Schoenberg Euclidean criterion; rank-limited coordinates are approximate."]
+    warnings: !euclidean
+      ? ["Shortest-path dissimilarities fail the Schoenberg Euclidean criterion; rank-limited coordinates are approximate."]
+      : metricExact
+        ? []
+        : ["Requested embedding dimensions truncate an otherwise Euclidean dissimilarity geometry; coordinates are approximate."]
   };
 }
 
