@@ -256,16 +256,18 @@ describe("SENA human-concept publication figure generator", () => {
     );
   });
 
-  it("requires all three stages across the stage-bearing tables", () => {
+  it.each([
+    { table: "interactions" as const },
+    { table: "utterances" as const },
+    { table: "coded_segments" as const }
+  ])("requires Reflect coverage in $table", ({ table }) => {
     expectValidationError(
       (dataset) => {
-        for (const table of [dataset.interactions, dataset.utterances, dataset.coded_segments]) {
-          for (const row of table) {
-            if (row.stage === "Reflect") row.stage = "Teach";
-          }
+        for (const row of dataset[table]) {
+          if (row.stage === "Reflect") row.stage = "Teach";
         }
       },
-      "source contract stage coverage missing required stages: Reflect"
+      `source contract ${table} is missing required stage Reflect`
     );
   });
 

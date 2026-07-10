@@ -231,14 +231,18 @@ export function loadDataset(sourcePath: string) {
     };
   });
 
-  const stages = new Set([
-    ...interactions.map((row) => row.stage),
-    ...utterances.map((row) => row.stage),
-    ...codedSegments.map((row) => row.stage)
-  ]);
-  const missingStages = REQUIRED_STAGES.filter((stage) => !stages.has(stage));
-  if (missingStages.length > 0) {
-    throw new Error(`source contract stage coverage missing required stages: ${missingStages.join(", ")}`);
+  const stageBearingTables = [
+    { table: "interactions", stages: interactions.map((row) => row.stage) },
+    { table: "utterances", stages: utterances.map((row) => row.stage) },
+    { table: "coded_segments", stages: codedSegments.map((row) => row.stage) }
+  ] as const;
+  for (const { table, stages } of stageBearingTables) {
+    const stageSet = new Set(stages);
+    for (const requiredStage of REQUIRED_STAGES) {
+      if (!stageSet.has(requiredStage)) {
+        throw new Error(`source contract ${table} is missing required stage ${requiredStage}`);
+      }
+    }
   }
 
   let warnings: string[] | undefined;
