@@ -6,14 +6,15 @@ import {
   inferSenaColumnMapping,
   inferSenaTableFromName,
   parseSenaCsv,
+  senaDatasetMetadataFromJson,
   type SenaImportRow,
   type SenaMappedTable
 } from "./import";
-import type { SenaCode, SenaDataset } from "./types";
+import type { SenaCode, SenaDataset, SenaDatasetMetadata } from "./types";
 
 export type SenaImportAdapterSource = {
   name: string;
-  profile: "sena-contract" | "csv-table" | "excel-workbook" | "lms-forum-json" | "lms-forum-export" | "cleaned-transcript";
+  profile: "sena-contract" | "csv-table" | "excel-workbook" | "lms-forum-json" | "lms-forum-export" | "cleaned-transcript" | "dataset-metadata";
   rows: number;
   warnings: string[];
 };
@@ -499,6 +500,13 @@ async function readExcelImport(buffer: ArrayBuffer, name: string): Promise<{
 }
 
 function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) {
+  if (profile === "dataset-metadata") {
+    return [
+      "dataset governance metadata attachment",
+      "consent/retention/pseudonymization declaration",
+      "codebook version binding"
+    ];
+  }
   if (profile === "cleaned-transcript") {
     return [
       "subtitle cue normalization",
@@ -626,6 +634,7 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   const tables: SenaMappedTable[] = [];
   const sources: SenaImportAdapterSource[] = [];
   const warnings: string[] = [];
+  let datasetMetadata: SenaDatasetMetadata | undefined;
 
   for (const file of files) {
     const lowerName = file.name.toLowerCase();
@@ -642,8 +651,18 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
 
     const text = await file.text();
     if (lowerName.endsWith(".json")) {
+      // A standalone governance metadata document lets five-CSV uploads carry
+      // dataset.metadata (consent/retention/pseudonymization/codebook version)
+      // that plain CSV tables cannot express.
+      const standaloneMetadata = senaDatasetMetadataFromJson(text);
+      if (standaloneMetadata) {
+        datasetMetadata = standaloneMetadata;
+        sources.push({ name: file.name, profile: "dataset-metadata", rows: 0, warnings: [] });
+        continue;
+      }
       try {
         const contract = importSenaJsonContract(text);
+        if (contract.dataset.metadata) datasetMetadata = contract.dataset.metadata;
         tables.push(...datasetToTables(contract.dataset, file.name));
         sources.push({ name: file.name, profile: "sena-contract", rows: contract.dataset.utterances.length, warnings: contract.warnings });
         warnings.push(...contract.warnings);
@@ -690,6 +709,7 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
 
   if (tables.length === 0) throw new Error("No supported SENA import tables were found.");
   const result = buildSenaDatasetFromTables(tables);
+  if (datasetMetadata) result.dataset.metadata = datasetMetadata;
   const allWarnings = [...warnings, ...result.warnings];
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseImport,

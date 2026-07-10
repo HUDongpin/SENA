@@ -42,7 +42,7 @@ const verificationDefinitions: VerificationDefinition[] = [
     anchor: "#workflow-data",
     readinessItemIds: ["data-contract", "model-json-export"],
     manualAction: "Load the lesson-study sample or upload all five SENA contract tables, confirm the package manifest assetIntegrity fingerprints are present, then confirm the Data contract audit is valid and project snapshot export is restorable.",
-    expectedOutcome: "The Data Import panel shows valid five-table counts, manifest fingerprints for sample/template assets, and a project snapshot model JSON carrying graph nodes, typed edges, S/W/B/G, fusion, and temporal trace.",
+    expectedOutcome: "The Data Import panel shows valid five-table counts, manifest fingerprints for sample/template assets, and a project snapshot model JSON carrying graph nodes, typed edges, S/W/B/B_PC/B_CP/G, fusion, and temporal trace.",
     requiredArtifacts: ["sena-pilot-package-manifest.json", "sena-data-contract-audit.json", "sena-project-snapshot.json"],
     extraEvidence: (model) => [
       `people=${model.dataset.people.length}`,
@@ -118,17 +118,17 @@ const verificationDefinitions: VerificationDefinition[] = [
     anchor: "#workflow-temporal",
     readinessItemIds: ["method-validation"],
     manualAction: "Switch Stage, Moving, and Turn temporal modes; review per-window jENA/jSNA/SENA runtime status and A_fusion checksums.",
-    expectedOutcome: "Temporal Runtime Trace contains windows, per-window runtime statuses, and S/W/B/G/A_fusion matrix fingerprints for the selected source dataset.",
+    expectedOutcome: "Temporal Runtime Trace contains windows, per-window runtime statuses, and S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints for the selected source dataset.",
     requiredArtifacts: ["sena-temporal-runtime-trace.json", "sena-runtime-bundle.json"],
     extraEvidence: (model, trace) => [
       `modelWindows=${model.temporal.windows.length}`,
       `runtimeWindows=${trace.windows.length}`,
       `temporalMode=${trace.temporalSettings.mode}`,
-      `matrixFingerprintWindows=${trace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 5).length}/${trace.windows.length}`,
+      `matrixFingerprintWindows=${trace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length}/${trace.windows.length}`,
       `A_fusionChecksums=${trace.windows.filter((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))).length}`
     ],
     extraPass: (_model, trace) => trace.windows.length > 0 &&
-      trace.windows.every((entry) => entry.sena.matrixFingerprints.length === 5) &&
+      trace.windows.every((entry) => entry.sena.matrixFingerprints.length === 7) &&
       trace.windows.every((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))
   },
   {

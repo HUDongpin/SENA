@@ -6,6 +6,7 @@ import {
   type SenaApiEndpointFact,
   type SenaApiMethod
 } from "./api-route-facts";
+import { SENA_API_SURFACE_MORATORIUM } from "./api-surface-moratorium";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 export type { SenaApiAuthMode, SenaApiGroupId, SenaApiMethod } from "./api-route-facts";
@@ -50,6 +51,7 @@ export function buildSenaApiDocumentation(input: { baseUrl?: string } = {}) {
       csrfPolicy: "Session-authenticated POST, PUT, PATCH, and DELETE requests require x-sena-csrf-token from /api/auth/csrf. Bearer-token service APIs do not use CSRF."
     },
     groups: groupedEndpointCounts(),
+    surfaceMoratorium: SENA_API_SURFACE_MORATORIUM,
     endpoints: SENA_API_ENDPOINTS
   };
 }

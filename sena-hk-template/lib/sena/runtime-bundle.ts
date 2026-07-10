@@ -254,6 +254,8 @@ function buildRuntimeArtifactEvidence(
         `S=${model.matrices.S.labels.length}`,
         `W=${model.matrices.W.labels.length}`,
         `B=${model.matrices.B.rowLabels.length}x${model.matrices.B.columnLabels.length}`,
+        `B_PC=${model.matrices.B_PC.rowLabels.length}x${model.matrices.B_PC.columnLabels.length}`,
+        `B_CP=${model.matrices.B_CP.rowLabels.length}x${model.matrices.B_CP.columnLabels.length}`,
         `G=${model.matrices.G.pairs.length}`,
         `A_fusion=${model.matrices.fusion.labels.length}`
       ],
@@ -333,7 +335,8 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
         ...report.runtimeProvenance.senaModel,
         matrices: model.matrices,
         temporal: model.temporal,
-        pairReport: model.pairReport
+        pairReport: model.pairReport,
+        operatorDiagnostics: model.operatorDiagnostics
       },
       ena: {
         ...report.runtimeProvenance.enaRuntime,
@@ -347,6 +350,7 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
       }
     },
     validation: report.validation,
+    modelCard: report.modelCard,
     codingReliabilityGate: report.codingReliabilityGate,
     dataContractAudit: report.dataContractAudit,
     fusionMathAudit: report.fusionMathAudit,

@@ -6,6 +6,7 @@ import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
 import { buildSenaMarkdownReport } from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SenaEnterpriseError } from "./enterprise/errors";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
 export type SenaPublicationFormat = "html" | "svg" | "png" | "xlsx" | "docx" | "pdf" | "package";
@@ -501,6 +502,26 @@ const packagedPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"]
 
 type PackagedPublicationFormat = typeof packagedPublicationFormats[number];
 
+export function assertSenaPublicationModelCardReady(report: SenaReport) {
+  // Legacy snapshots exported before the model card existed carry no
+  // report.modelCard; block them with a clear re-run hint instead of crashing
+  // on the missing render gate.
+  const renderGate = (report as Partial<SenaReport>).modelCard?.renderGate;
+  if (!renderGate) {
+    throw new SenaEnterpriseError(
+      "Publication export blocked: this snapshot predates the SENA model card; re-run the analysis to regenerate the report with model-card evidence.",
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
+  if (renderGate.status === "ready") return;
+  throw new SenaEnterpriseError(
+    `Publication export blocked until the SENA model card is complete: ${renderGate.missingSectionIds.join(", ") || "unknown"}.`,
+    409,
+    "publication_export_model_card_blocked"
+  );
+}
+
 async function buildSingleSenaPublicationExport(
   model: SenaModel,
   report: SenaReport,
@@ -671,6 +692,7 @@ export async function buildSenaPublicationExport(
 ): Promise<SenaPublicationExport> {
   const model = buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions);
   const report = snapshot.report;
+  assertSenaPublicationModelCardReady(report);
   const safeTitle = (snapshot.title || report.title || "sena-publication").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "sena-publication";
 
   if (format === "package") {

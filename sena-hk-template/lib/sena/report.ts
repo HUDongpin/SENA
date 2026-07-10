@@ -52,11 +52,14 @@ import { buildSenaClaimReadinessGate, buildSenaPilotReadinessAudit } from "./pil
 import { buildSenaFusionMathAudit } from "./fusion-math";
 import { buildSenaDataContractAudit } from "./data-contract-audit";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
+import { buildSenaModelCard } from "./model-card";
+import { buildSenaAttributionWordingCopy } from "./attribution-wording";
 import { buildSenaJenaConceptPairHandoffRows } from "./jena-handoff";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
 import { senaRuntimeProvenance } from "./runtime-constants";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
+import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
 
 export type SenaReportOptions = {
   title?: string;
@@ -104,7 +107,7 @@ const interpretationGuardrails: SenaInterpretationGuardrail[] = [
   {
     id: "joint-embedding-boundary",
     label: "Joint embedding boundary",
-    statement: "Joint mode is a deterministic A_fusion visual embedding and must be reported with weights, normalization, and stability checks; layout distance is not an inferential statistic."
+    statement: "Joint mode uses declared A_fusion embedding operators: Laplacian eigenmaps, MDS + Schoenberg, or commute-time; cross-type distance claims must carry operator, delta, dimension, seed, metric exactness, and stress."
   },
   {
     id: "human-review-required",
@@ -209,17 +212,35 @@ const metricProvenance: SenaMetricProvenance[] = [
     label: "Bridge score",
     scope: "bridge",
     source: "sena-composite",
-    implementation: "SENA z-score blend of social strength, epistemic contribution, and concept brokerage.",
+    implementation: "Exploratory SENA composite: 0.5*z(S social strength) + 0.3*z(B person-code total) + 0.2*z(concept brokerage).",
     parityStatus: "SENA-specific composite; no R sna parity target.",
-    interpretationLimit: "Bridge score is a ranking helper and must be reported with its formula."
+    interpretationLimit: "Bridge score is an exploratory ranking helper and must not be interpreted as an established SNA or ENA measure."
+  },
+  {
+    id: "concept-brokerage",
+    label: "Concept brokerage",
+    scope: "bridge",
+    source: "sena-composite",
+    implementation: "Exploratory person-code-pair score: sum G_i(pair)/(W_ab + damping constant 0.5), where W_ab is the raw concept co-occurrence count.",
+    parityStatus: "SENA-specific exploratory composite; no R sna parity target.",
+    interpretationLimit: "Concept brokerage is exploratory and sensitive to the declared damping constant and raw W co-occurrence scale."
+  },
+  {
+    id: "alignment",
+    label: "Alignment",
+    scope: "bridge",
+    source: "sena-composite",
+    implementation: "Cosine similarity between a person's B row and their social-neighbor exposure vector (S x B).",
+    parityStatus: "SENA-specific exploratory composite; no R sna parity target.",
+    interpretationLimit: "Alignment is a descriptive exposure helper, not peer influence, causal uptake, or coding-reliability evidence."
   },
   {
     id: "g-person-code-pair",
     label: "Person-code-pair contribution G",
     scope: "bridge",
     source: "sena-self-implemented",
-    implementation: "SENA stanza-level person-code-pair attribution with direct/supporting contribution weights.",
-    parityStatus: "SENA-specific attribution layer; validated through evidence-link and matrix tests.",
+    implementation: "SENA person-code-pair attribution uses G_i = X^T diag(Y_i) X over unit/stanza participation windows; G-hat divides each row by the person's Y participation total with 0/0 -> 0.",
+    parityStatus: "SENA-specific attribution layer; validated through participation-matrix, evidence-link, and matrix tests.",
     interpretationLimit: "G indicates association with code-pair windows unless person-specific code-pair evidence is available."
   },
   {
@@ -227,8 +248,8 @@ const metricProvenance: SenaMetricProvenance[] = [
     label: "Fusion matrix",
     scope: "fusion",
     source: "sena-self-implemented",
-    implementation: "SENA normalized block matrix [alpha*S gamma*B; gamma*B' beta*W].",
-    parityStatus: "Covered by S/W/B/G/fusion matrix tests and sensitivity checks.",
+    implementation: "SENA normalized block matrix [alpha*S gamma*B_PC; gamma*B_CP beta*W].",
+    parityStatus: "Covered by S/W/B/B_PC/B_CP/G/fusion matrix tests and sensitivity checks.",
     interpretationLimit: "Fusion adjacency is not a kernel, causal model, or inferential test by itself."
   }
 ];
@@ -751,6 +772,9 @@ function matrixDimensionsAreComplete(model: SenaModel) {
   return square(model.matrices.S.raw, people) &&
     square(model.matrices.W.raw, codes) &&
     rectangular(model.matrices.B.raw, people, codes) &&
+    rectangular(model.matrices.B_PC.raw, people, codes) &&
+    rectangular(model.matrices.B_CP.raw, codes, people) &&
+    rectangular(model.matrices.Y.raw, people, model.matrices.Y.windowIds.length) &&
     rectangular(model.matrices.G.raw, people, codePairs) &&
     square(model.matrices.fusion.values, people + codes);
 }
@@ -793,7 +817,7 @@ export function buildSenaReportCompletenessAudit({
     scopeWindow.startTurn <= scopeWindow.endTurn
   );
   const matrixFingerprintIds = fusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id);
-  const matrixFingerprintsComplete = JSON.stringify(matrixFingerprintIds) === JSON.stringify(["S", "W", "B", "G", "A_fusion"]) &&
+  const matrixFingerprintsComplete = JSON.stringify(matrixFingerprintIds) === JSON.stringify(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]) &&
     fusionMathAudit.matrixFingerprints.every((fingerprint) => (
       fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1" &&
       /^0x[a-f0-9]{8}$/.test(fingerprint.checksum) &&
@@ -862,13 +886,16 @@ export function buildSenaReportCompletenessAudit({
     ),
     completenessItem(
       "matrices",
-      "S/W/B/G/fusion matrices",
+      "S/W/B/B_PC/B_CP/Y/G/fusion matrices",
       matrixDimensionsAreComplete(model) && matrixFingerprintsComplete,
-      `${model.matrices.S.labels.length} S labels, ${model.matrices.W.labels.length} W labels, ${model.matrices.G.pairs.length} G pairs, ${model.matrices.fusion.labels.length} fusion labels`,
+      `${model.matrices.S.labels.length} S labels, ${model.matrices.W.labels.length} W labels, ${model.matrices.Y.windowIds.length} Y windows, ${model.matrices.G.pairs.length} G pairs, ${model.matrices.fusion.labels.length} fusion labels`,
       [
         `S=${model.matrices.S.raw.length}x${model.matrices.S.raw[0]?.length ?? 0}`,
         `W=${model.matrices.W.raw.length}x${model.matrices.W.raw[0]?.length ?? 0}`,
         `B=${model.matrices.B.raw.length}x${model.matrices.B.raw[0]?.length ?? 0}`,
+        `B_PC=${model.matrices.B_PC.raw.length}x${model.matrices.B_PC.raw[0]?.length ?? 0}`,
+        `B_CP=${model.matrices.B_CP.raw.length}x${model.matrices.B_CP.raw[0]?.length ?? 0}`,
+        `Y=${model.matrices.Y.raw.length}x${model.matrices.Y.raw[0]?.length ?? 0}`,
         `G=${model.matrices.G.raw.length}x${model.matrices.G.raw[0]?.length ?? 0}`,
         `fusion=${model.matrices.fusion.values.length}x${model.matrices.fusion.values[0]?.length ?? 0}`,
         `matrixFingerprints=${fusionMathAudit.matrixFingerprints.length}`,
@@ -1111,6 +1138,13 @@ function mergeBuildOptions(model: SenaModel, overrides: Partial<SenaBuildOptions
     beta: overrides.beta ?? model.options.beta,
     gamma: overrides.gamma ?? model.options.gamma,
     normalization: overrides.normalization ?? model.options.normalization,
+    bridgeWeightRule: overrides.bridgeWeightRule ?? model.options.bridgeWeightRule,
+    direction: overrides.direction ?? model.options.direction,
+    deg_convention: overrides.deg_convention ?? model.options.deg_convention,
+    delta: overrides.delta ?? model.options.delta,
+    Phi: overrides.Phi ?? model.options.Phi,
+    d: overrides.d ?? model.options.d,
+    seed: overrides.seed ?? model.options.seed,
     undirectedSocial: overrides.undirectedSocial ?? model.options.undirectedSocial,
     temporal: {
       ...model.options.temporal,
@@ -1206,7 +1240,7 @@ function buildLayerWeightSensitivity(model: SenaModel): SenaSensitivityCheck {
 
 function buildNormalizationSensitivity(model: SenaModel): SenaSensitivityCheck {
   const baselineTotals = fusionLayerTotals(model);
-  const normalizations: SenaNormalization[] = ["max", "log-max", "none"];
+  const normalizations: SenaNormalization[] = [...SENA_ADMISSIBLE_NORMALIZATIONS];
 
   return {
     id: "normalization",
@@ -1244,7 +1278,7 @@ function communityLabels(model: SenaModel) {
 function buildCommunityStability(model: SenaModel): SenaValidation["stability"]["community"] {
   const baselineLabels = communityLabels(model);
   const repeat = buildVariantModel(model);
-  const normalizations: SenaNormalization[] = ["max", "log-max", "none"];
+  const normalizations: SenaNormalization[] = [...SENA_ADMISSIBLE_NORMALIZATIONS];
   const normalizationAgreement = normalizations.map((normalization) => {
     const variant = normalization === model.options.normalization ? model : buildVariantModel(model, { normalization });
     return {
@@ -1556,6 +1590,12 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
     dataGovernance
   });
   const validation = buildSenaValidation(model, options);
+  const modelCard = buildSenaModelCard(model, {
+    generatedAt,
+    codingReliabilityGate,
+    dataGovernance,
+    validation
+  });
   const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(model.dataset, model.options, { timelineModel: model });
   const temporalRuntimeNarrative = buildTemporalRuntimeNarrative(model, temporalRuntimeTrace);
   const activeWindowComparison = buildActiveWindowComparison(model, options.sourceDataset, options.activeTemporalWindow ?? null);
@@ -1599,6 +1639,7 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
     },
     runtimeProvenance,
     interpretationGuardrails,
+    operatorDiagnostics: model.operatorDiagnostics,
     enaManifest,
     snaManifest,
     summary: model.summary,
@@ -1613,6 +1654,9 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
         edges: model.edges.map((edge) => ({
           id: edge.id,
           layer: edge.layer,
+          edgeType: edge.edgeType,
+          sourceKind: edge.sourceKind,
+          targetKind: edge.targetKind,
           source: edge.source,
           target: edge.target,
           label: edge.label,
@@ -1632,6 +1676,7 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
     socialReport: model.socialReport,
     pairReport: model.pairReport,
     validation,
+    modelCard,
     codingReliabilityGate,
     completenessAudit,
     dataContractAudit,
@@ -1657,6 +1702,76 @@ function dataGovernanceToMarkdown(metadata: SenaDataGovernanceMetadata) {
     `- Reviewed at: ${metadata.reviewedAt}`,
     ...(metadata.blockers.length > 0 ? metadata.blockers.map((blocker) => `- Missing: ${blocker}`) : []),
     `- Guardrail: ${metadata.guardrail}`
+  ].join("\n");
+}
+
+function embeddingDiagnosticsToMarkdown(report: SenaReport) {
+  const { mds, commuteTime, exploratoryLayout } = report.operatorDiagnostics.embedding;
+  return [
+    `- Exploratory layout: ${exploratoryLayout.operator}; metric_exact=${exploratoryLayout.metricExact}; ${exploratoryLayout.warning}`,
+    `- MDS delta: ${mds.delta}; d=${mds.dimensions}; available=${mds.available}; metric_exact=${mds.metricExact}; stress=${mds.stress === null ? "NA" : formatReportNumber(mds.stress)}; max distortion=${mds.maxDistortion === null ? "NA" : formatReportNumber(mds.maxDistortion)}; min eig(K)=${mds.minCenteredGramEigenvalue === null ? "NA" : formatReportNumber(mds.minCenteredGramEigenvalue)}`,
+    `- Commute-time: available=${commuteTime.available}; metric_exact=${commuteTime.metricExact}; max pairwise error=${commuteTime.maxPairwiseError === null ? "NA" : formatReportNumber(commuteTime.maxPairwiseError)}; checked pairs=${commuteTime.checkedPairs ?? "NA"}; excluded self pairs=${commuteTime.excludedSelfPairs ?? "NA"}`,
+    ...mds.warnings.map((warning) => `- MDS warning: ${warning}`),
+    ...commuteTime.warnings.map((warning) => `- Commute-time warning: ${warning}`)
+  ].join("\n");
+}
+
+function bridgeWeightingToMarkdown(report: SenaReport) {
+  const bridgeWeighting = report.operatorDiagnostics.bridgeWeighting;
+  return [
+    `- Rule: ${bridgeWeighting.rule}`,
+    `- Active code value: ${bridgeWeighting.activeCodeValue}`,
+    `- Confidence values present: ${bridgeWeighting.confidenceValuesPresent ? "yes" : "no"}`,
+    `- Missing confidence count: ${bridgeWeighting.missingConfidenceCount}`,
+    ...bridgeWeighting.warnings.map((warning) => `- Warning: ${warning}`)
+  ].join("\n");
+}
+
+function attributionDiagnosticsToMarkdown(report: SenaReport) {
+  const attribution = report.operatorDiagnostics.attribution;
+  return [
+    `- Estimator: ${attribution.estimator}`,
+    `- Default wording: ${attribution.defaultWording}`,
+    `- Contribution wording allowed: ${attribution.contributionWordingAllowed ? "yes" : "no"}`,
+    `- Reason: ${attribution.contributionWordingReason}`,
+    `- Participation matrix Y: ${attribution.participation.rowCount}x${attribution.participation.columnCount} from ${attribution.participation.sourceTable}; active cells=${attribution.participation.activeCells}`,
+    `- G-hat normalization: ${attribution.gHat.normalization}; active rows=${attribution.gHat.rowSums.filter((value) => value > 0).length}`,
+    `- Guardrail: ${attribution.guardrail}`
+  ].join("\n");
+}
+
+function typedCentralityDiagnosticsToMarkdown(report: SenaReport) {
+  const typedCentrality = report.operatorDiagnostics.typedCentrality;
+  const { families } = typedCentrality;
+  return [
+    `- Mixed-type centrality ranking renderable: ${typedCentrality.mixedRankingRenderable ? "yes" : "no"}`,
+    `- Persons on S: ${families.personsOnS.length}`,
+    `- Codes on W: ${families.codesOnW.length}`,
+    `- Bridges on B: ${families.bridgesOnB.length}`,
+    `- Whole-graph typed degrees: ${families.typedGraph.length}`,
+    `- Guardrail: ${typedCentrality.guardrail}`
+  ].join("\n");
+}
+
+function modelCardToMarkdown(report: SenaReport) {
+  const card = report.modelCard;
+  const completeCount = card.sections.filter((section) => section.status === "complete").length;
+  return [
+    `- Schema: ${card.schemaVersion}`,
+    `- Render gate: ${card.renderGate.status}`,
+    `- ${card.renderGate.message}`,
+    `- Sections complete: ${completeCount}/${card.sections.length}`,
+    ...(card.renderGate.missingSectionIds.length > 0
+      ? [`- Missing sections: ${card.renderGate.missingSectionIds.join(", ")}`]
+      : []),
+    `- Dataset: ${card.dataset.version.declared} (${card.dataset.version.contentHash})`,
+    `- Formula S: ${card.formulas.social.formula}; direction=${card.formulas.social.direction}`,
+    `- Formula B: ${card.formulas.bridge.formula}; weightRule=${card.formulas.bridge.weightRule}`,
+    `- Normalization: ${card.normalization.rule}; divisors S/W/B/G=${card.normalization.divisors.S}/${card.normalization.divisors.W}/${card.normalization.divisors.B}/${card.normalization.divisors.G}`,
+    `- Weights: alpha=${formatReportNumber(card.weights.alpha)}, beta=${formatReportNumber(card.weights.beta)}, gamma=${formatReportNumber(card.weights.gamma)}; configHash=${card.weights.configHash}`,
+    `- Embedding badge: ${card.embedding.layoutBadge}`,
+    `- Attribution badge: ${card.attribution.badge}`,
+    `- Direction badge: ${card.direction.badge ?? "not applicable"}`
   ].join("\n");
 }
 
@@ -2257,6 +2372,7 @@ export function buildSenaEnaReportArtifact(model: SenaModel, options: SenaEnaRep
 export function buildSenaPairContributionReportArtifact(model: SenaModel, options: SenaPairContributionReportArtifactOptions = {}): SenaPairContributionReportArtifact {
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title?.trim() || "SENA Person-Code-Pair G Report";
+  const attributionCopy = buildSenaAttributionWordingCopy(model.operatorDiagnostics.attribution.contributionWordingAllowed);
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.personCodePairGReport,
@@ -2280,10 +2396,7 @@ export function buildSenaPairContributionReportArtifact(model: SenaModel, option
       B: model.matrices.B
     },
     interpretationGuardrails,
-    notes: [
-      "G is a person-code-pair contribution layer for explaining who supports ENA-style code links.",
-      "Use original evidence snippets and human review before turning pair contributions into claims."
-    ]
+    notes: attributionCopy.reportNotes
   };
 }
 
@@ -2309,8 +2422,22 @@ export function buildSenaMarkdownReport(report: SenaReport) {
     `- Beta (ENA): ${formatReportNumber(report.parameters.buildOptions.beta)}`,
     `- Gamma (Bridge): ${formatReportNumber(report.parameters.buildOptions.gamma)}`,
     `- Normalization: ${report.parameters.buildOptions.normalization}`,
+    `- Bridge weight rule: ${report.parameters.buildOptions.bridgeWeightRule}`,
+    `- Direction: ${report.parameters.buildOptions.direction}`,
+    `- Degree convention: ${report.parameters.buildOptions.deg_convention}`,
+    `- Phi: ${report.parameters.buildOptions.Phi}`,
+    `- Delta: ${report.parameters.buildOptions.delta}`,
+    `- d: ${report.parameters.buildOptions.d}`,
+    `- Seed: ${report.parameters.buildOptions.seed}`,
+    `- Dataset version: ${report.operatorDiagnostics.runIdentity.datasetVersion}`,
+    `- Dataset content hash: ${report.operatorDiagnostics.runIdentity.datasetContentHash}`,
+    `- Analysis config hash: ${report.operatorDiagnostics.runIdentity.configHash}`,
     `- Undirected social layer: ${report.parameters.buildOptions.undirectedSocial ? "yes" : "no"}`,
     `- Temporal mode: ${report.parameters.buildOptions.temporal.mode}`,
+    "",
+    "## Model Card",
+    "",
+    modelCardToMarkdown(report),
     "",
     "## Runtime Provenance",
     "",
@@ -2333,6 +2460,22 @@ export function buildSenaMarkdownReport(report: SenaReport) {
     "## Interpretation Guardrails",
     "",
     ...report.interpretationGuardrails.map((guardrail) => `- ${guardrail.label}: ${guardrail.statement}`),
+    "",
+    "## Embedding Diagnostics",
+    "",
+    embeddingDiagnosticsToMarkdown(report),
+    "",
+    "## Bridge Weight Rule",
+    "",
+    bridgeWeightingToMarkdown(report),
+    "",
+    "## Attribution Wording Gate",
+    "",
+    attributionDiagnosticsToMarkdown(report),
+    "",
+    "## Typed Centrality Families",
+    "",
+    typedCentralityDiagnosticsToMarkdown(report),
     "",
     "## Data Governance",
     "",
@@ -2449,6 +2592,12 @@ export function buildSenaMarkdownReport(report: SenaReport) {
     matrixBlockToMarkdown("W: concept layer", report.matrices.W),
     "",
     rectangularMatrixToMarkdown("B: bridge layer", report.matrices.B.rowLabels, report.matrices.B.columnLabels, report.matrices.B.raw),
+    "",
+    rectangularMatrixToMarkdown("B_PC: person-to-code bridge layer", report.matrices.B_PC.rowLabels, report.matrices.B_PC.columnLabels, report.matrices.B_PC.raw),
+    "",
+    rectangularMatrixToMarkdown("B_CP: code-to-person bridge layer", report.matrices.B_CP.rowLabels, report.matrices.B_CP.columnLabels, report.matrices.B_CP.raw),
+    "",
+    rectangularMatrixToMarkdown("Y: participation matrix", report.matrices.Y.rowLabels, report.matrices.Y.columnLabels, report.matrices.Y.raw),
     "",
     pairMatrixBlockToMarkdown("G: person-code-pair layer", report.matrices.G),
     "",

@@ -291,9 +291,9 @@
     },
     {
       "id": "workspace-model-layout-explanatory",
-      "label": "Model explanatory layout control",
+      "label": "Model exploratory overlay layout control",
       "requiredText": "data-testid=\"model-layout-explanatory\"",
-      "expectedOutcome": "The Model Builder rail exposes the explanatory Fusion Canvas layout as a real control."
+      "expectedOutcome": "The Model Builder rail exposes the non-metric Exploratory overlay layout as a real control."
     },
     {
       "id": "workspace-model-layout-ena-space",
@@ -305,7 +305,19 @@
       "id": "workspace-model-layout-joint",
       "label": "Model joint layout control",
       "requiredText": "data-testid=\"model-layout-joint\"",
-      "expectedOutcome": "The Model Builder rail exposes the deterministic A_fusion joint embedding layout as a real control."
+      "expectedOutcome": "The Model Builder rail exposes the formal A_fusion joint embedding layout and operator picker as real controls."
+    },
+    {
+      "id": "workspace-joint-embedding-provenance",
+      "label": "Joint embedding provenance strip",
+      "requiredText": "data-testid=\"joint-embedding-provenance-strip\"",
+      "expectedOutcome": "The workspace exposes operator, delta, dimension, seed, metric exactness, and stress provenance for Joint layout distance interpretation."
+    },
+    {
+      "id": "workspace-joint-embedding-laplacian-operator",
+      "label": "Joint embedding Laplacian eigenmaps operator",
+      "requiredText": "data-testid=\"joint-embedding-operator-laplacian-eigenmaps\"",
+      "expectedOutcome": "The Joint embedding provenance strip exposes Laplacian eigenmaps as a selectable declared operator."
     },
     {
       "id": "workspace-model-layer-social-toggle",
@@ -965,7 +977,7 @@
       "id": "fusion-canvas-g-layer-key",
       "label": "Fusion canvas G contribution key",
       "requiredText": "data-visual-role=\"fusion-layer-key-g\"",
-      "expectedOutcome": "The A1 layer key includes the G person-code-pair contribution layer used by Temporal Fusion and report exports."
+      "expectedOutcome": "The A1 layer key includes the G person-code-pair association layer used by Temporal Fusion and report exports."
     },
     {
       "id": "metric-provenance-panel",

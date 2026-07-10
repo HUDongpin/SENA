@@ -104,7 +104,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
         /^[a-f0-9]{64}$/.test(asset.sha256);
     });
   const packageHandoffChecksReady = modelJsonHandoffCheck?.artifact === "sena-project-snapshot.json" &&
-    modelJsonHandoffCheck.expectedEvidence.includes("S/W/B/G matrices") &&
+    modelJsonHandoffCheck.expectedEvidence.includes("S/W/B/B_PC/B_CP/G matrices") &&
     modelJsonHandoffCheck.expectedEvidence.includes("temporal trace windows") &&
     runtimeHandoffCheck?.artifact === "sena-runtime-bundle.json" &&
     runtimeHandoffCheck.expectedEvidence.includes("sena-jena-manifest.json") &&
@@ -156,7 +156,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const fusionMatrixFingerprint = reportMatrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion");
   const matrixFingerprintsReady = JSON.stringify(reportMatrixFingerprints) === JSON.stringify(bundleMatrixFingerprints) &&
     JSON.stringify(reportMatrixFingerprints) === JSON.stringify(packetMatrixFingerprints) &&
-    JSON.stringify(reportMatrixFingerprints.map((fingerprint) => fingerprint.id)) === JSON.stringify(["S", "W", "B", "G", "A_fusion"]) &&
+    JSON.stringify(reportMatrixFingerprints.map((fingerprint) => fingerprint.id)) === JSON.stringify(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]) &&
     reportMatrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum));
   const reportBundleConsistent = report.schemaVersion === bundle.report.schemaVersion &&
     report.generatedAt === bundle.report.generatedAt &&
@@ -215,7 +215,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     runtimeArtifactEvidence.some((item) => item.filename === "sena-jsna-manifest.json" && item.handoffChecks.includes("jsna-api-surface") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-sna-report.json" && item.handoffChecks.includes("jsna-social-matrix") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-pilot-package-manifest.json" && item.handoffChecks.includes("pilot-asset-integrity") && item.status === "ready") &&
-    runtimeArtifactEvidence.some((item) => item.filename === "sena-runtime-bundle.json" && item.matrixCoverage.some((entry) => entry.startsWith("A_fusion=")) && item.handoffChecks.includes("matrix-fingerprints") && item.evidenceCoverage.includes("matrixFingerprints=5"));
+    runtimeArtifactEvidence.some((item) => item.filename === "sena-runtime-bundle.json" && item.matrixCoverage.some((entry) => entry.startsWith("A_fusion=")) && item.handoffChecks.includes("matrix-fingerprints") && item.evidenceCoverage.includes("matrixFingerprints=7"));
   const standaloneRuntimeArtifactsReady = input.contents.jenaManifest.schemaVersion === report.enaManifest.schemaVersion &&
     input.contents.jenaManifest.status === report.enaManifest.status &&
     input.contents.enaReportArtifact.schemaVersion === SENA_SCHEMA_VERSIONS.enaReport &&
@@ -256,9 +256,9 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     input.summary.localRuntimeDependencies.jena.startsWith("file:vendor/") &&
     input.summary.localRuntimeDependencies.jsna.startsWith("file:vendor/");
   const evidenceReady = input.contents.evidenceLedger.snippets.length > 0 && report.evidenceSnippets.length > 0;
-  const temporalMatrixFingerprintWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 5).length;
+  const temporalMatrixFingerprintWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length;
   const temporalFusionChecksumWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))).length;
-  const bundleTemporalMatrixFingerprintWindows = bundle.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 5).length;
+  const bundleTemporalMatrixFingerprintWindows = bundle.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length;
   const temporalFingerprintsMatch = input.contents.temporalRuntimeTrace.windows.every((entry, index) => {
     const bundleWindow = bundle.temporalRuntimeTrace.windows[index];
     return Boolean(bundleWindow) &&
@@ -494,7 +494,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
       "project-snapshot-handoff",
       "Project snapshot handoff",
       projectSnapshotReady,
-      "Embedded project snapshot preserves the active scope, local runtime requirements, graph nodes, typed edges, S/W/B/G matrices, fusion matrix, temporal trace, and restorable workspace state",
+      "Embedded project snapshot preserves the active scope, local runtime requirements, graph nodes, typed edges, S/W/B/B_PC/B_CP/G matrices, fusion matrix, temporal trace, and restorable workspace state",
       `snapshot=${projectSnapshot.schemaVersion}; window=${projectSnapshot.source.activeTemporalWindow?.id ?? "full-conversation"}; nodes=${projectSnapshotNodes.length}; edges=${projectSnapshotEdges.length}; fusionNodes=${projectSnapshot.analysis.matrices.fusion.labels.length}; modelJsonGate=${modelJsonReadinessItem?.status ?? "missing"}`,
       [
         `sourcePeople=${projectSnapshot.source.sourceDatasetCounts.people}`,
@@ -567,7 +567,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
       "temporal-handoff",
       "Temporal runtime handoff",
       temporalReady,
-      "Temporal runtime trace matches the runtime bundle trace, including per-window S/W/B/G/A_fusion matrix fingerprints",
+      "Temporal runtime trace matches the runtime bundle trace, including per-window S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints",
       `packetWindows=${input.contents.temporalRuntimeTrace.windows.length}; bundleWindows=${bundle.temporalRuntimeTrace.windows.length}; matrixFingerprintWindows=${temporalMatrixFingerprintWindows}/${input.contents.temporalRuntimeTrace.windows.length}; A_fusionChecksums=${temporalFusionChecksumWindows}; fingerprintsMatch=${temporalFingerprintsMatch}`,
       [
         `temporalMode=${input.contents.temporalRuntimeTrace.temporalSettings.mode}`,
@@ -1055,7 +1055,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
     notes: [
       "This packet is a single-file local research-pilot handoff for reviewers.",
       "The Markdown and JSON report are generated from the same SENA report object.",
-      "Runtime bundle contents preserve local jENA/jSNA dependency provenance and S/W/B/G fusion evidence.",
+      "Runtime bundle contents preserve local jENA/jSNA dependency provenance and S/W/B/B_PC/B_CP/G fusion evidence.",
       "Metric-provenance contents preserve source, parity, and interpretation-limit evidence for each reported metric.",
       "Coding-reliability contents preserve whether coding scheme, coder count, agreement evidence, adjudication, and limitations are documented.",
       "Claim-readiness contents preserve whether the current report is research-claim-ready or exploratory-only.",

@@ -160,8 +160,8 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     group: "legacy-ena",
     path: "/api/ena/run",
     methods: ["POST"],
-    auth: "public",
-    summary: "Run the standalone jENA-compatible analysis endpoint.",
+    auth: "session",
+    summary: "Run the standalone jENA-compatible analysis endpoint for signed-in pilot users.",
     evidenceNoteId: "ena-run",
     responses: ["ena-run-result/v1"]
   },
@@ -251,7 +251,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Run server-side SENA analysis, optionally persist the result as a team project, or queue the heavy run for an external worker with queue:true / Prefer: respond-async.",
     evidenceNoteId: "sena-analyze",
-    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1", "sena-enterprise-server-job/v1"]
+    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1", "sena-analysis-provenance-envelope/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-uploads",

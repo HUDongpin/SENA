@@ -155,7 +155,7 @@ export function buildSenaGroupComparison(input: {
   bootstrapIterations?: number;
 }): SenaGroupComparisonResult {
   const model = buildSenaModel(input.dataset, input.buildOptions ?? {});
-  const metric = input.metric ?? "bridgeScore";
+  const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
   const rows = actorRows(model, groupField, metric);
   const a = rows.filter((row) => row.group === input.groupA).map((row) => row.value);
@@ -274,7 +274,7 @@ export function buildSenaGroupComparisonSuite(input: {
     groupField: comparison.groupField ?? input.defaultGroupField ?? "group",
     groupA: comparison.groupA,
     groupB: comparison.groupB,
-    metric: comparison.metric ?? input.defaultMetric ?? "bridgeScore",
+    metric: comparison.metric ?? input.defaultMetric ?? "socialStrength",
     iterations: input.iterations,
     seed: (input.seed ?? 20260611) + (index * 101),
     bootstrapIterations: input.bootstrapIterations

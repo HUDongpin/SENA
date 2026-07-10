@@ -1,4 +1,4 @@
-import type { SenaCode, SenaCodedSegment, SenaDataset, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
+import type { SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
 
 export type SenaImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
 
@@ -72,6 +72,7 @@ export const senaImportFields: Record<SenaImportTable, FieldDefinition[]> = {
     { field: "turnIndex", label: "Turn index", aliases: ["turn_index", "turn", "turn_no", "order", "sequence", "line"] },
     { field: "text", label: "Text", aliases: ["text", "utterance", "message", "content", "transcript"] },
     { field: "codes", label: "Codes", required: true, aliases: ["codes", "code", "code_id", "code_ids", "code_label", "coding", "codes_applied"] },
+    { field: "targetPersonIds", label: "Target person IDs", aliases: ["target_person_ids", "target_people", "target_persons", "target_person_id", "uptake_person_ids", "addressed_to", "receiver_ids", "to_person_ids"] },
     { field: "confidence", label: "Confidence", aliases: ["confidence", "score", "agreement", "probability"] }
   ],
   codebook: [
@@ -317,6 +318,7 @@ function normalizeSegments(
     const segmentId = readField(row, mapping, "segmentId");
     const utteranceId = readField(row, mapping, "utteranceId");
     const codes = parseCodes(readField(row, mapping, "codes"));
+    const targetPersonIds = parseCodes(readField(row, mapping, "targetPersonIds"));
     if (!segmentId || !utteranceId || codes.length === 0) {
       warnings.push(`coded_segments row ${index + 1} is missing segment ID, utterance ID, or codes and was skipped.`);
       return [];
@@ -335,6 +337,7 @@ function normalizeSegments(
       turnIndex: parseNumber(readField(row, mapping, "turnIndex"), utterance?.turnIndex ?? index + 1, warnings, `coded_segments row ${index + 1} turnIndex`),
       text: readField(row, mapping, "text") || utterance?.text || "",
       codes,
+      targetPersonIds: targetPersonIds.length > 0 ? targetPersonIds : undefined,
       confidence: readField(row, mapping, "confidence")
         ? parseNumber(readField(row, mapping, "confidence"), 1, warnings, `coded_segments row ${index + 1} confidence`)
         : undefined
@@ -479,6 +482,45 @@ function tableFromJson(name: SenaImportTable, rows: unknown): SenaMappedTable | 
   };
 }
 
+function metadataFromJson(value: unknown): SenaDatasetMetadata | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as SenaDatasetMetadata;
+}
+
+const contractTableKeys = ["people", "interactions", "utterances", "coded_segments", "codedSegments", "codebook", "codes"] as const;
+
+function looksLikeMetadataShape(value: Record<string, unknown>) {
+  return typeof value.consent === "object" && value.consent !== null &&
+    typeof value.pseudonymization === "object" && value.pseudonymization !== null &&
+    typeof value.codebook === "object" && value.codebook !== null && !Array.isArray(value.codebook);
+}
+
+/**
+ * Recognizes a standalone dataset governance metadata document so five-CSV
+ * uploads can attach `dataset.metadata` (consent, retention, pseudonymization,
+ * codebook version) that plain CSV tables cannot carry. Accepts either the
+ * metadata object itself or a `{ "metadata": { ... } }` wrapper, and never
+ * matches a full SENA contract (which keeps its own metadata handling).
+ */
+export function senaDatasetMetadataFromJson(source: string | unknown): SenaDatasetMetadata | undefined {
+  let value: unknown;
+  try {
+    value = typeof source === "string" ? JSON.parse(source) : source;
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const root = value as Record<string, unknown>;
+  if (contractTableKeys.some((key) => Array.isArray(root[key]))) return undefined;
+  if (looksLikeMetadataShape(root)) return metadataFromJson(root);
+  const wrapped = root.metadata;
+  if (typeof wrapped === "object" && wrapped !== null && !Array.isArray(wrapped) &&
+    looksLikeMetadataShape(wrapped as Record<string, unknown>)) {
+    return metadataFromJson(wrapped);
+  }
+  return undefined;
+}
+
 export function importSenaJsonContract(source: string | unknown): SenaImportResult {
   const value = typeof source === "string" ? JSON.parse(source) : source;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -498,5 +540,8 @@ export function importSenaJsonContract(source: string | unknown): SenaImportResu
     throw new Error("JSON import did not contain any recognized SENA contract tables.");
   }
 
-  return buildSenaDatasetFromTables(tables);
+  const result = buildSenaDatasetFromTables(tables);
+  const metadata = metadataFromJson(root.metadata);
+  if (metadata) result.dataset.metadata = metadata;
+  return result;
 }
