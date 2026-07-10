@@ -689,7 +689,10 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   };
 
   const read = () => {
-    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    // Do not create the store directory on the read path: serverless runtimes
+    // (Vercel) have a read-only cwd, and non-persisting reads must return the
+    // empty state without touching the filesystem. write() creates the
+    // directory itself when persistence is actually allowed.
     if (!existsSync(dbPath)) {
       const db = options.createEmptyDb();
       if (enterpriseFileStateWritePolicy().blocked || postgresPrimaryStateActiveForFileBackend()) return normalizeDb(db);

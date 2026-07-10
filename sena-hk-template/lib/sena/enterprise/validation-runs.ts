@@ -925,16 +925,22 @@ const groupComparisonMetrics = new Set<SenaGroupComparisonMetric>([
   "alignment"
 ]);
 
+const defaultGroupComparisonMetric: SenaGroupComparisonMetric = "socialStrength";
+
+function isGroupComparisonMetric(value: unknown): value is SenaGroupComparisonMetric {
+  return groupComparisonMetrics.has(value as SenaGroupComparisonMetric);
+}
+
 function groupComparisonMetricValue(value: unknown): SenaGroupComparisonMetric {
-  return groupComparisonMetrics.has(value as SenaGroupComparisonMetric) ? value as SenaGroupComparisonMetric : "bridgeScore";
+  return isGroupComparisonMetric(value) ? value : defaultGroupComparisonMetric;
 }
 
 function parseGroupComparisonMetricList(value: unknown, fallback: unknown) {
-  const candidates = Array.isArray(value) ? value : [fallback];
+  const candidates = Array.isArray(value) ? value : [value ?? fallback];
   const parsed = candidates
-    .map((candidate) => groupComparisonMetricValue(candidate))
+    .filter(isGroupComparisonMetric)
     .filter((metric, index, list) => list.indexOf(metric) === index);
-  return parsed.length > 0 ? parsed : ["bridgeScore" as SenaGroupComparisonMetric];
+  return parsed.length > 0 ? parsed : [defaultGroupComparisonMetric];
 }
 
 function parseGroupComparisonSpecs(body: Record<string, unknown>): SenaGroupComparisonSpec[] {

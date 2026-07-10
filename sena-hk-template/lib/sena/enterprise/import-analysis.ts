@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "../analysis-run";
@@ -78,6 +78,8 @@ export type SenaEnterpriseUpload = {
   scanEngine: "sena-local-upload-scan/v1";
   scanFindings: string[];
   storagePath: string;
+  storageEncoding?: "raw" | "sena-upload-aes-256-gcm-envelope/v1";
+  storageKeySource?: "env" | "pilot-local-derived";
   objectStorageCustody?: SenaEnterpriseUploadObjectStorageCustody;
   createdAt: string;
 };
@@ -115,6 +117,12 @@ export type SenaEnterpriseUploadStorageVerification = {
   storage: {
     engine: "private-local-directory";
     rootHint: string;
+    encryption: {
+      atRest: "sena-upload-aes-256-gcm-envelope/v1";
+      keySource: "env" | "pilot-local-derived";
+      encryptedBlobs: number;
+      legacyRawBlobs: number;
+    };
   };
   summary: {
     registeredUploads: number;
@@ -337,6 +345,134 @@ function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+const uploadEncryptionEncoding = "sena-upload-aes-256-gcm-envelope/v1" as const;
+const uploadEncryptionKeyFileName = "upload-encryption.key";
+
+function configuredUploadEncryptionKey() {
+  const configuredKey = envValue("SENA_UPLOAD_ENCRYPTION_KEY");
+  return configuredKey ? createHash("sha256").update(configuredKey).digest() : null;
+}
+
+// Older builds derived the pilot fallback key from the absolute dbPath, which
+// orphaned every encrypted blob after a directory move or backup restore; the
+// derivation is kept only as a decrypt fallback for blobs written by those builds.
+function legacyPathDerivedUploadKey() {
+  return createHash("sha256").update(`sena-upload-pilot-local:${dbPath}`).digest();
+}
+
+function uploadEncryptionKeyFilePath() {
+  return path.join(dbDir, uploadEncryptionKeyFileName);
+}
+
+// The pilot fallback key is persisted beside the enterprise store so that
+// backups, restores, and directory moves keep encrypted upload blobs readable.
+function pilotLocalUploadKey() {
+  const keyPath = uploadEncryptionKeyFilePath();
+  if (!existsSync(keyPath)) {
+    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    try {
+      writeFileSync(keyPath, randomBytes(32).toString("hex"), { flag: "wx" });
+    } catch {
+      // Another writer created the key file first; read the winner below.
+    }
+  }
+  return createHash("sha256").update(readFileSync(keyPath, "utf8").trim()).digest();
+}
+
+function uploadEncryptionKeyMaterial() {
+  const configuredKey = configuredUploadEncryptionKey();
+  if (configuredKey) {
+    return { key: configuredKey, source: "env" as const };
+  }
+  return { key: pilotLocalUploadKey(), source: "pilot-local-derived" as const };
+}
+
+// Reporting helper for read-only verification paths: never materializes the
+// key file as a side effect of a GET.
+function uploadEncryptionKeySource() {
+  return envValue("SENA_UPLOAD_ENCRYPTION_KEY") ? "env" as const : "pilot-local-derived" as const;
+}
+
+function uploadDecryptionKeyCandidates() {
+  const candidates: Buffer[] = [];
+  const configuredKey = configuredUploadEncryptionKey();
+  if (configuredKey) candidates.push(configuredKey);
+  if (existsSync(uploadEncryptionKeyFilePath())) {
+    candidates.push(createHash("sha256").update(readFileSync(uploadEncryptionKeyFilePath(), "utf8").trim()).digest());
+  }
+  candidates.push(legacyPathDerivedUploadKey());
+  return candidates;
+}
+
+function encryptUploadBlob(bytes: Buffer) {
+  const { key, source } = uploadEncryptionKeyMaterial();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(bytes), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    bytes: Buffer.from(JSON.stringify({
+      schemaVersion: uploadEncryptionEncoding,
+      algorithm: "aes-256-gcm",
+      keySource: source,
+      iv: iv.toString("base64"),
+      authTag: authTag.toString("base64"),
+      ciphertextBase64: ciphertext.toString("base64")
+    }), "utf8"),
+    encoding: uploadEncryptionEncoding,
+    keySource: source
+  };
+}
+
+function decryptUploadEnvelope(storedBytes: Buffer) {
+  let parsed: {
+    schemaVersion?: string;
+    iv?: string;
+    authTag?: string;
+    ciphertextBase64?: string;
+  };
+  try {
+    parsed = JSON.parse(storedBytes.toString("utf8"));
+  } catch {
+    throw new SenaEnterpriseError("Encrypted upload blob is not a valid envelope.", 500, "upload_blob_envelope_invalid");
+  }
+  if (parsed.schemaVersion !== uploadEncryptionEncoding || !parsed.iv || !parsed.authTag || !parsed.ciphertextBase64) {
+    throw new SenaEnterpriseError("Encrypted upload blob envelope is incomplete.", 500, "upload_blob_envelope_invalid");
+  }
+  for (const key of uploadDecryptionKeyCandidates()) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(parsed.iv, "base64"));
+      decipher.setAuthTag(Buffer.from(parsed.authTag, "base64"));
+      return Buffer.concat([
+        decipher.update(Buffer.from(parsed.ciphertextBase64, "base64")),
+        decipher.final()
+      ]);
+    } catch {
+      // GCM auth failed for this candidate; try the next key generation.
+    }
+  }
+  throw new SenaEnterpriseError("Encrypted upload blob could not be decrypted.", 500, "upload_blob_decrypt_failed");
+}
+
+function readUploadBlobBytes(upload: SenaEnterpriseUpload) {
+  const storedBytes = readFileSync(uploadBlobAbsolutePath(upload));
+  if (upload.storageEncoding === uploadEncryptionEncoding) {
+    return decryptUploadEnvelope(storedBytes);
+  }
+  if (upload.storageEncoding === "raw") {
+    return storedBytes;
+  }
+  if (storedBytes.subarray(0, 1).toString("utf8") === "{") {
+    try {
+      const parsed = JSON.parse(storedBytes.toString("utf8")) as { schemaVersion?: string };
+      if (parsed.schemaVersion === uploadEncryptionEncoding) return decryptUploadEnvelope(storedBytes);
+    } catch {
+      return storedBytes;
+    }
+  }
+  return storedBytes;
+}
+
 type CreateEnterpriseUploadsInput = {
   teamId: string;
   files: Array<{
@@ -370,8 +506,9 @@ function createEnterpriseUploadsInDb(
     const originalName = scan.originalName;
     const storedName = `${uploadId}-${originalName}`;
     const bytes = scan.bytes;
+    const encrypted = encryptUploadBlob(bytes);
     const storagePath = path.join("uploads", input.teamId, storedName);
-    writeFileSync(path.join(uploadDir, storedName), bytes);
+    writeFileSync(path.join(uploadDir, storedName), encrypted.bytes);
     const upload: SenaEnterpriseUpload = {
       id: uploadId,
       teamId: input.teamId,
@@ -387,6 +524,8 @@ function createEnterpriseUploadsInDb(
       scanEngine: uploadScanEngine,
       scanFindings: scan.scanFindings,
       storagePath,
+      storageEncoding: encrypted.encoding,
+      storageKeySource: encrypted.keySource,
       createdAt: timestamp
     };
     db.uploads.push(upload);
@@ -397,6 +536,8 @@ function createEnterpriseUploadsInDb(
       sha256: upload.sha256,
       importProfile: upload.importProfile ?? null,
       scanStatus: upload.scanStatus,
+      storageEncoding: upload.storageEncoding ?? null,
+      storageKeySource: upload.storageKeySource ?? null,
       scanFindings: upload.scanFindings.join("|") || null
     });
     return upload;
@@ -514,6 +655,8 @@ function verifyEnterpriseUploadStorageFromDb(
   let verifiedBlobs = 0;
   let totalVerifiedBytes = 0;
   let totalRegisteredBytes = 0;
+  let encryptedBlobs = 0;
+  let legacyRawBlobs = 0;
   const registeredBlobKeys = new Set<string>();
 
   for (const upload of uploads) {
@@ -524,12 +667,22 @@ function verifyEnterpriseUploadStorageFromDb(
       missing.push({ uploadId: upload.id, storagePath: upload.storagePath });
       continue;
     }
-    const bytes = readFileSync(absolutePath);
+    let bytes: Buffer;
+    try {
+      bytes = readUploadBlobBytes(upload);
+    } catch (error) {
+      const errorCode = error instanceof SenaEnterpriseError ? error.code : "upload_blob_read_failed";
+      const actualSha256 = `unreadable:${createHash("sha256").update(errorCode).digest("hex")}`;
+      corrupt.push({ uploadId: upload.id, storagePath: upload.storagePath, expectedSha256: upload.sha256, actualSha256 });
+      continue;
+    }
     const actualSha256 = createHash("sha256").update(bytes).digest("hex");
     if (actualSha256 !== upload.sha256) {
       corrupt.push({ uploadId: upload.id, storagePath: upload.storagePath, expectedSha256: upload.sha256, actualSha256 });
       continue;
     }
+    if (upload.storageEncoding === uploadEncryptionEncoding) encryptedBlobs += 1;
+    else legacyRawBlobs += 1;
     verifiedBlobs += 1;
     totalVerifiedBytes += bytes.byteLength;
   }
@@ -547,7 +700,13 @@ function verifyEnterpriseUploadStorageFromDb(
     },
     storage: {
       engine: "private-local-directory",
-      rootHint: path.basename(dbDir)
+      rootHint: path.basename(dbDir),
+      encryption: {
+        atRest: uploadEncryptionEncoding,
+        keySource: uploadEncryptionKeySource(),
+        encryptedBlobs,
+        legacyRawBlobs
+      }
     },
     summary: {
       registeredUploads: uploads.length,
@@ -1067,7 +1226,7 @@ async function deliverEnterpriseUploadBlobsFromDb(
       if (!existsSync(absolutePath)) {
         localErrorCode = "upload_blob_missing";
       } else {
-        bytes = readFileSync(absolutePath);
+        bytes = readUploadBlobBytes(upload);
         actualSha256 = createHash("sha256").update(bytes).digest("hex");
         if (actualSha256 !== upload.sha256) {
           localErrorCode = "upload_checksum_mismatch";
