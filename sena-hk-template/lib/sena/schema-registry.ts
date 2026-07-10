@@ -1,8 +1,10 @@
 export const SENA_SCHEMA_VERSIONS = {
   activeWindowBrief: "sena-active-window-brief/v1",
+  analysisProvenanceEnvelope: "sena-analysis-provenance-envelope/v1",
   analysisRunList: "sena-analysis-run-list/v1",
   analysisRun: "sena-analysis-run/v1",
   apiDocumentation: "sena-api-documentation/v1",
+  apiSurfaceMoratorium: "sena-api-surface-moratorium/v1",
   claimReadinessGate: "sena-claim-readiness-gate/v1",
   codingReliabilityDashboard: "sena-coding-reliability-dashboard/v1",
   codingReliabilityGate: "sena-coding-reliability-gate/v1",
@@ -154,6 +156,7 @@ export const SENA_SCHEMA_VERSIONS = {
   localValidationRun: "sena-local-validation-run/v1",
   methodProtocol: "sena-method-protocol/v1",
   metricProvenance: "sena-metric-provenance/v1",
+  modelCard: "sena-model-card/v2",
   nullModels: "sena-null-models/v1",
   personCodePairGReport: "sena-person-code-pair-g-report/v1",
   pilotPackageManifest: "sena-pilot-package-manifest/v1",

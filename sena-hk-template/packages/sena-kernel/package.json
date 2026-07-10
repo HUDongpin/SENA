@@ -1,0 +1,10 @@
+{
+  "name": "@sena/kernel",
+  "version": "0.1.0-advisory",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

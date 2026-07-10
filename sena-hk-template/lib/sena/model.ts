@@ -12,6 +12,22 @@ import {
   reachability,
   type GraphMode
 } from "sna.js";
+import {
+  buildSenaAnalysisConfigHash,
+  buildSenaDatasetContentHash
+} from "./data-contract-audit";
+import {
+  buildSenaFusionAdjacency,
+  findSenaIsolatedVertices,
+  normalizeSenaMatrix,
+  senaAttributionOperatorDiagnostics,
+  senaCommuteTimeEmbeddingDiagnostics,
+  senaDeclaredSpectralSymmetrization,
+  senaDegreeVector,
+  senaLaplacianEigenmapDiagnostics,
+  senaSchoenbergMdsDiagnostics,
+  senaShortestPathDissimilarity
+} from "./operators";
 import type {
   SenaBuildOptions,
   SenaCode,
@@ -23,7 +39,7 @@ import type {
   SenaMatrixBlock,
   SenaModel,
   SenaNode,
-  SenaNormalization,
+  SenaOperatorDiagnostics,
   SenaPairReport,
   SenaPerson,
   SenaPersonMetrics,
@@ -37,11 +53,18 @@ import type {
 } from "./types";
 
 const defaultOptions: SenaResolvedBuildOptions = {
-  alpha: 0.72,
-  beta: 0.64,
-  gamma: 0.86,
+  alpha: 1,
+  beta: 1,
+  gamma: 1,
   normalization: "max",
-  undirectedSocial: true,
+  bridgeWeightRule: "count",
+  direction: "directed",
+  deg_convention: "row-sum",
+  delta: "shortest_path_reciprocal_weight",
+  Phi: "classical_mds",
+  d: 2,
+  seed: 0,
+  undirectedSocial: false,
   temporal: {
     mode: "stage",
     movingWindowSize: 3,
@@ -50,27 +73,390 @@ const defaultOptions: SenaResolvedBuildOptions = {
   }
 };
 
+const conceptBrokerageDamping = 0.5;
+
+const exploratoryBridgeScoreWeights = {
+  socialStrength: 0.5,
+  epistemicContribution: 0.3,
+  conceptBrokerage: 0.2
+} as const;
+
 function makeMatrix(rows: number, columns = rows) {
   return Array.from({ length: rows }, () => Array.from({ length: columns }, () => 0));
 }
 
-function cloneMatrix(matrix: number[][]) {
-  return matrix.map((row) => [...row]);
+function normalizationDiagnostic(result: ReturnType<typeof normalizeSenaMatrix>) {
+  return {
+    rule: result.rule,
+    divisor: result.divisor,
+    admissible: result.admissible,
+    scaleInvariant: result.scaleInvariant,
+    warnings: result.warnings
+  };
 }
 
-function matrixMax(matrix: number[][]) {
-  return matrix.reduce((max, row) => Math.max(max, ...row.map((value) => Math.abs(value))), 0);
+function buildEmbeddingDiagnostics(
+  fusion: number[][],
+  isolatedVertices: SenaOperatorDiagnostics["isolatedVertices"],
+  options: SenaResolvedBuildOptions
+): SenaOperatorDiagnostics["embedding"] {
+  const dimensions = options.d;
+  const exploratoryLayout = {
+    operator: "deterministic-force-layout" as const,
+    metricExact: false as const,
+    warning: "Exploratory layout coordinates are not formal metric distances; use declared embedding diagnostics for proximity claims."
+  };
+  // Spectral operators require symmetric input; directed A_fusion is embedded
+  // through an explicitly declared symmetrization instead of silent mirroring.
+  const spectralInput = senaDeclaredSpectralSymmetrization(fusion);
+  const symmetrizationWarning = spectralInput.symmetrized
+    ? "Directed A_fusion is asymmetric; spectral embedding diagnostics use the declared symmetrization sym(A)=(A+A^T)/2, so cross-type distance claims describe the symmetrized graph."
+    : null;
+  const embeddingInput: SenaOperatorDiagnostics["embedding"]["input"] = {
+    matrix: "fusion",
+    asymmetry: spectralInput.asymmetry,
+    symmetrized: spectralInput.symmetrized,
+    symmetrization: spectralInput.symmetrization,
+    warning: symmetrizationWarning
+  };
+  const spectralFusion = spectralInput.values;
+  const withSymmetrizationWarning = (warnings: string[]) => (
+    symmetrizationWarning ? [symmetrizationWarning, ...warnings] : warnings
+  );
+  const isolatedWarning = isolatedVertices.length > 0
+    ? `Formal embedding diagnostics unavailable because ${isolatedVertices.length} isolated vertex/vertices are retained in I0.`
+    : null;
+
+  if (isolatedWarning) {
+    return {
+      input: embeddingInput,
+      exploratoryLayout,
+      mds: {
+        operator: "classical-mds",
+        delta: "shortest-path-reciprocal-weight",
+        dimensions,
+        available: false,
+        metricExact: false,
+        coordinates: null,
+        stress: null,
+        maxDistortion: null,
+        minCenteredGramEigenvalue: null,
+        warnings: withSymmetrizationWarning([isolatedWarning])
+      },
+      laplacianEigenmaps: {
+        operator: "laplacian-eigenmaps",
+        laplacian: "combinatorial",
+        dimensions,
+        available: false,
+        metricExact: false,
+        coordinates: null,
+        eigenvalues: null,
+        zeroEigenvalueCount: null,
+        warnings: withSymmetrizationWarning([isolatedWarning])
+      },
+      commuteTime: {
+        operator: "commute-time",
+        available: false,
+        metricExact: false,
+        coordinates: null,
+        maxPairwiseError: null,
+        checkedPairs: null,
+        excludedSelfPairs: null,
+        warnings: withSymmetrizationWarning(["Commute-time diagnostics require one connected fusion component."])
+      }
+    };
+  }
+
+  const mds = (() => {
+    try {
+      const diagnostics = senaSchoenbergMdsDiagnostics(senaShortestPathDissimilarity(spectralFusion), { dimensions });
+      return {
+        operator: "classical-mds" as const,
+        delta: diagnostics.delta,
+        dimensions: diagnostics.dimensions,
+        available: true,
+        metricExact: diagnostics.metricExact,
+        coordinates: diagnostics.coordinates,
+        stress: diagnostics.stress,
+        maxDistortion: diagnostics.maxDistortion,
+        minCenteredGramEigenvalue: diagnostics.minCenteredGramEigenvalue,
+        warnings: withSymmetrizationWarning(diagnostics.warnings)
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown MDS diagnostic failure.";
+      return {
+        operator: "classical-mds" as const,
+        delta: "shortest-path-reciprocal-weight" as const,
+        dimensions,
+        available: false,
+        metricExact: false,
+        coordinates: null,
+        stress: null,
+        maxDistortion: null,
+        minCenteredGramEigenvalue: null,
+        warnings: withSymmetrizationWarning([message])
+      };
+    }
+  })();
+
+  const laplacianEigenmaps = (() => {
+    try {
+      const diagnostics = senaLaplacianEigenmapDiagnostics(spectralFusion, { dimensions });
+      return {
+        operator: diagnostics.operator,
+        laplacian: diagnostics.laplacian,
+        dimensions: diagnostics.dimensions,
+        available: true,
+        metricExact: diagnostics.metricExact,
+        coordinates: diagnostics.coordinates,
+        eigenvalues: diagnostics.eigenvalues,
+        zeroEigenvalueCount: diagnostics.zeroEigenvalueCount,
+        warnings: withSymmetrizationWarning(diagnostics.warnings)
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Laplacian eigenmap diagnostic failure.";
+      return {
+        operator: "laplacian-eigenmaps" as const,
+        laplacian: "combinatorial" as const,
+        dimensions,
+        available: false,
+        metricExact: false as const,
+        coordinates: null,
+        eigenvalues: null,
+        zeroEigenvalueCount: null,
+        warnings: withSymmetrizationWarning([message])
+      };
+    }
+  })();
+
+  const commuteTime = (() => {
+    try {
+      const diagnostics = senaCommuteTimeEmbeddingDiagnostics(spectralFusion);
+      return {
+        operator: diagnostics.operator,
+        available: true,
+        metricExact: diagnostics.metricExact,
+        coordinates: diagnostics.coordinates,
+        maxPairwiseError: diagnostics.maxPairwiseError,
+        checkedPairs: diagnostics.checkedPairs,
+        excludedSelfPairs: diagnostics.excludedSelfPairs,
+        warnings: withSymmetrizationWarning([])
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown commute-time diagnostic failure.";
+      return {
+        operator: "commute-time" as const,
+        available: false,
+        metricExact: false,
+        coordinates: null,
+        maxPairwiseError: null,
+        checkedPairs: null,
+        excludedSelfPairs: null,
+        warnings: withSymmetrizationWarning([message])
+      };
+    }
+  })();
+
+  return {
+    input: embeddingInput,
+    exploratoryLayout,
+    mds,
+    laplacianEigenmaps,
+    commuteTime
+  };
 }
 
-function normalizeMatrix(matrix: number[][], normalization: SenaNormalization) {
-  if (normalization === "none") return cloneMatrix(matrix);
+function buildAttributionDiagnostics(
+  dataset: SenaDataset,
+  G: number[][],
+  personIndex: Map<string, number>,
+  codeIndex: Map<string, number>,
+  participation: ReturnType<typeof buildParticipationMatrix>
+): SenaOperatorDiagnostics["attribution"] {
+  const participationTotals = participation.Y.map((row) => sum(row));
+  const gHatValues = G.map((row, rowIndex) => {
+    const denominator = participationTotals[rowIndex] ?? 0;
+    return denominator > 0 ? row.map((value) => value / denominator) : row.map(() => 0);
+  });
+  const contributionWordingAllowed = dataset.coded_segments.length > 0 &&
+    dataset.coded_segments.every((segment) => personIndex.has(segment.personId)) &&
+    participation.warnings.length === 0;
+  const activeCells = participation.Y.reduce((total, row) => (
+    total + row.filter((value) => value > 0).length
+  ), 0);
+  const windowIndex = new Map(participation.windowIds.map((id, index) => [id, index]));
+  const codeActivityByWindow = participation.windowIds.map(() => Array.from({ length: dataset.codebook.length }, () => 0));
+  dataset.coded_segments.forEach((segment) => {
+    const windowPosition = windowIndex.get(`${segment.unitId}::${segment.stanzaId}`);
+    if (windowPosition === undefined) return;
+    segment.codes.forEach((codeId) => {
+      const codePosition = codeIndex.get(codeId);
+      if (codePosition !== undefined) codeActivityByWindow[windowPosition][codePosition] = 1;
+    });
+  });
+  const attributionOperator = senaAttributionOperatorDiagnostics(codeActivityByWindow, participation.Y);
 
-  const transformed = normalization === "log-max"
-    ? matrix.map((row) => row.map((value) => Math.log1p(value)))
-    : cloneMatrix(matrix);
-  const max = matrixMax(transformed);
-  if (max === 0) return transformed;
-  return transformed.map((row) => row.map((value) => value / max));
+  return {
+    estimator: "x-transpose-diag-y-x",
+    defaultWording: "associated with windows containing the pair",
+    contributionWordingAllowed,
+    contributionWordingReason: contributionWordingAllowed
+      ? "Contribution wording is allowed only because all coded segments carry person-specific evidence."
+      : "Use association/exposure wording because person-specific evidence is incomplete or absent.",
+    participation: {
+      symbol: "Y",
+      sourceTable: "coded_segments",
+      rowCount: participation.Y.length,
+      columnCount: participation.windowIds.length,
+      activeCells,
+      firstClass: true,
+      warnings: participation.warnings
+    },
+    gHat: {
+      normalization: "participation-window-share",
+      values: gHatValues,
+      rowSums: gHatValues.map((row) => sum(row)),
+      boundsWithinWindowProducts: attributionOperator.personNormalizedWithinBounds,
+      minValue: attributionOperator.minPersonNormalizedValue,
+      maxValue: attributionOperator.maxPersonNormalizedValue,
+      zeroParticipationRows: attributionOperator.zeroParticipationRows
+    },
+    identities: {
+      rawSlicesPsd: attributionOperator.rawSlicesPsd,
+      rawSumMatchesParticipantWeightedCooccurrence: attributionOperator.rawSumMatchesParticipantWeightedCooccurrence,
+      windowNormalizedOffDiagonalMatchesCodeCooccurrence: (
+        attributionOperator.windowNormalizedOffDiagonalMatchesCodeCooccurrence
+      )
+    },
+    guardrail: "Default attribution wording is association/exposure; contribution wording requires person-specific coded evidence and human review."
+  };
+}
+
+function buildTypedCentralityDiagnostics(
+  dataset: SenaDataset,
+  S: number[][],
+  W: number[][],
+  B: number[][],
+  fusionDegreeVector: number[]
+): SenaOperatorDiagnostics["typedCentrality"] {
+  const peopleCount = dataset.people.length;
+  return {
+    mixedRankingRenderable: false,
+    guardrail: "Do not render one mixed-type centrality ranking; compare persons on S, codes on W, bridges on B, and whole-graph typed degrees separately.",
+    families: {
+      personsOnS: dataset.people.map((person, index) => ({
+        id: person.id,
+        label: person.label,
+        metric: "social-strength",
+        value: sum(S[index] ?? [])
+      })),
+      codesOnW: dataset.codebook.map((code, index) => ({
+        id: code.id,
+        label: code.label,
+        metric: "concept-weighted-degree",
+        value: sum(W[index] ?? [])
+      })),
+      bridgesOnB: dataset.people.flatMap((person, personIndexValue) => (
+        dataset.codebook.flatMap((code, codeIndexValue) => {
+          const value = B[personIndexValue]?.[codeIndexValue] ?? 0;
+          if (value <= 0) return [];
+          return [{
+            id: `${person.id}->${code.id}`,
+            personId: person.id,
+            personLabel: person.label,
+            codeId: code.id,
+            codeLabel: code.label,
+            metric: "bridge-weight" as const,
+            value
+          }];
+        })
+      )),
+      typedGraph: [
+        ...dataset.people.map((person, index) => ({
+          id: person.id,
+          label: person.label,
+          nodeType: "person" as const,
+          metric: "typed-fused-degree" as const,
+          value: fusionDegreeVector[index] ?? 0
+        })),
+        ...dataset.codebook.map((code, index) => ({
+          id: code.id,
+          label: code.label,
+          nodeType: "code" as const,
+          metric: "typed-fused-degree" as const,
+          value: fusionDegreeVector[peopleCount + index] ?? 0
+        }))
+      ]
+    }
+  };
+}
+
+function buildBridgeWeightingDiagnostics(
+  dataset: SenaDataset,
+  rule: SenaResolvedBuildOptions["bridgeWeightRule"]
+): SenaOperatorDiagnostics["bridgeWeighting"] {
+  const confidenceValuesPresent = dataset.coded_segments.some((segment) => segment.confidence !== undefined);
+  const missingConfidenceCount = dataset.coded_segments.filter((segment) => segment.confidence === undefined).length;
+  const warnings = rule === "count"
+    ? [
+      ...(confidenceValuesPresent
+        ? ["Segment confidence values are present but ignored by default; bridge B uses declared segment-code counts unless bridgeWeightRule=confidence is explicit."]
+        : [])
+    ]
+    : [
+      "Confidence-weighted bridge B is declared; segment.confidence values are treated as bridge weights and missing confidence defaults to 1."
+    ];
+
+  return {
+    rule,
+    activeCodeValue: rule === "confidence" ? "segment-confidence-or-1" : "segment-code-count",
+    confidenceValuesPresent,
+    missingConfidenceCount,
+    warnings
+  };
+}
+
+function positiveMatrixEntries(matrix: number[][]) {
+  return matrix.reduce((total, row) => total + row.filter((value) => value > 0).length, 0);
+}
+
+function transposeRectangularMatrix(matrix: number[][], columnCount: number) {
+  return Array.from({ length: columnCount }, (_, columnIndex) => (
+    matrix.map((row) => row[columnIndex] ?? 0)
+  ));
+}
+
+function buildDirectionDiagnostics(
+  options: SenaResolvedBuildOptions,
+  Bpc: number[][],
+  Bcp: number[][],
+  independentBridgeMatrices: boolean
+): SenaOperatorDiagnostics["direction"] {
+  const socialSymmetrized = options.undirectedSocial;
+  const pcEdgeCount = positiveMatrixEntries(Bpc);
+  const cpEdgeCount = positiveMatrixEntries(Bcp);
+  const bridgeMode = independentBridgeMatrices ? "pc-cp-independent" : "pc-transpose-fallback";
+  const independentBridgeBadge = "Independent B^PC/B^CP evidence is active.";
+  const bridgePendingWarning = "B^CP uses transpose-compatible weights from B^PC; independent B^PC/B^CP evidence is still pending.";
+
+  return {
+    socialMode: socialSymmetrized ? "undirected" : "directed",
+    socialSymmetrized,
+    directedInputPreserved: !socialSymmetrized,
+    bridgeMode,
+    pcEdgeType: "PC",
+    cpEdgeType: "CP",
+    pcEdgeCount,
+    cpEdgeCount,
+    independentBridgeMatrices,
+    badge: socialSymmetrized
+      ? `Direction collapsed by symmetrization. ${independentBridgeMatrices ? independentBridgeBadge : bridgePendingWarning}`
+      : `Directed input preserved. ${independentBridgeMatrices ? independentBridgeBadge : bridgePendingWarning}`,
+    warnings: [
+      ...(socialSymmetrized ? ["Direction collapsed by symmetrization."] : []),
+      ...(independentBridgeMatrices ? [] : [bridgePendingWarning])
+    ]
+  };
 }
 
 function idIndex<T extends { id: string }>(items: T[], label: string) {
@@ -214,7 +600,9 @@ function buildSocialMatrix(dataset: SenaDataset, personIndex: Map<string, number
 function buildConceptMatrix(dataset: SenaDataset, codeIndex: Map<string, number>) {
   const W = makeMatrix(dataset.codebook.length);
   const warnings: string[] = [];
-  const stanzas = groupBy(dataset.coded_segments, (segment) => segment.stanzaId);
+  // W windows are unit-scoped stanzas so the epistemic layer, G/Y attribution,
+  // and the jENA conversation grouping (["unitId","stanzaId"]) share one window definition.
+  const stanzas = groupBy(dataset.coded_segments, (segment) => `${segment.unitId}::${segment.stanzaId}`);
 
   for (const segments of stanzas.values()) {
     const activeCodes = unique(segments.flatMap((segment) => segment.codes));
@@ -234,9 +622,20 @@ function buildConceptMatrix(dataset: SenaDataset, codeIndex: Map<string, number>
   return { W, warnings };
 }
 
-function buildBridgeMatrix(dataset: SenaDataset, personIndex: Map<string, number>, codeIndex: Map<string, number>) {
+function bridgeSegmentWeight(segment: SenaCodedSegment, rule: SenaResolvedBuildOptions["bridgeWeightRule"]) {
+  return rule === "confidence" ? segment.confidence ?? 1 : 1;
+}
+
+function buildBridgeMatrix(
+  dataset: SenaDataset,
+  personIndex: Map<string, number>,
+  codeIndex: Map<string, number>,
+  bridgeWeightRule: SenaResolvedBuildOptions["bridgeWeightRule"]
+) {
   const B = makeMatrix(dataset.people.length, dataset.codebook.length);
+  const Bcp = makeMatrix(dataset.codebook.length, dataset.people.length);
   const warnings: string[] = [];
+  let hasIndependentCpEvidence = false;
 
   for (const segment of dataset.coded_segments) {
     const person = personIndex.get(segment.personId);
@@ -244,17 +643,60 @@ function buildBridgeMatrix(dataset: SenaDataset, personIndex: Map<string, number
       warnings.push(`Segment ${segment.segmentId} references unknown person "${segment.personId}".`);
       continue;
     }
+    const targetPeople = unique(segment.targetPersonIds ?? []);
+    const validTargets = targetPeople.flatMap((targetPersonId) => {
+      const target = personIndex.get(targetPersonId);
+      if (target === undefined) {
+        warnings.push(`Segment ${segment.segmentId} references unknown target person "${targetPersonId}".`);
+        return [];
+      }
+      return [target];
+    });
+
     for (const code of segment.codes) {
       const codePosition = codeIndex.get(code);
       if (codePosition === undefined) {
         warnings.push(`Segment ${segment.segmentId} references unknown code "${code}".`);
         continue;
       }
-      B[person][codePosition] += segment.confidence ?? 1;
+      const weight = bridgeSegmentWeight(segment, bridgeWeightRule);
+      B[person][codePosition] += weight;
+      for (const target of validTargets) {
+        Bcp[codePosition][target] += weight;
+        hasIndependentCpEvidence = true;
+      }
     }
   }
 
-  return { B, warnings };
+  return {
+    B,
+    Bcp: hasIndependentCpEvidence ? Bcp : transposeRectangularMatrix(B, dataset.codebook.length),
+    hasIndependentCpEvidence,
+    warnings
+  };
+}
+
+function buildParticipationMatrix(dataset: SenaDataset, personIndex: Map<string, number>) {
+  const windowIds = Array.from(new Set(
+    dataset.coded_segments.map((segment) => `${segment.unitId}::${segment.stanzaId}`)
+  ));
+  const windowIndex = new Map(windowIds.map((id, index) => [id, index]));
+  const Y = makeMatrix(dataset.people.length, windowIds.length);
+  const warnings: string[] = [];
+
+  dataset.coded_segments.forEach((segment) => {
+    const personPosition = personIndex.get(segment.personId);
+    if (personPosition === undefined) {
+      warnings.push(`Segment ${segment.segmentId} references unknown person "${segment.personId}".`);
+      return;
+    }
+    const windowId = `${segment.unitId}::${segment.stanzaId}`;
+    const windowPosition = windowIndex.get(windowId);
+    if (windowPosition === undefined) return;
+    Y[personPosition][windowPosition] = 1;
+  });
+
+  return { Y, windowIds, warnings };
 }
 
 function buildCodePairs(dataset: SenaDataset): SenaCodePair[] {
@@ -283,20 +725,20 @@ function buildPairContribution(
   const personPairContribution = new Map<string, Map<string, number>>();
   const personPairDetails = new Map<string, Map<string, PairContributionDetail>>();
   const pairIndex = new Map(codePairs.map((pair, index) => [pair.id, index]));
-  const stanzas = groupBy(dataset.coded_segments, (segment) => segment.stanzaId);
+  const stanzas = groupBy(dataset.coded_segments, (segment) => `${segment.unitId}::${segment.stanzaId}`);
 
   const addContribution = ({
     personId,
     personPosition,
     pair,
-    segmentId,
+    segmentIds,
     weight,
     direct
   }: {
     personId: string;
     personPosition: number;
     pair: string;
-    segmentId: string;
+    segmentIds: string[];
     weight: number;
     direct: boolean;
   }) => {
@@ -319,7 +761,7 @@ function buildPairContribution(
     detail.weight += weight;
     if (direct) detail.directWeight += weight;
     else detail.supportingWeight += weight;
-    detail.segmentIds.add(segmentId);
+    segmentIds.forEach((segmentId) => detail.segmentIds.add(segmentId));
     detailMap.set(pair, detail);
     personPairDetails.set(personId, detailMap);
   };
@@ -327,26 +769,23 @@ function buildPairContribution(
   for (const segments of stanzas.values()) {
     const allCodes = unique(segments.flatMap((segment) => segment.codes)).filter((code) => codeIndex.has(code));
     const activePairIds = combinations(allCodes).map(([a, b]) => sortedPair(a, b));
-    for (const segment of segments) {
-      const personPosition = personIndex.get(segment.personId);
+    const personIds = unique(segments.map((segment) => segment.personId)).filter((personId) => personIndex.has(personId));
+    for (const personId of personIds) {
+      const personPosition = personIndex.get(personId);
       if (personPosition === undefined) continue;
 
-      const contributedCodes = unique(segment.codes).filter((code) => codeIndex.has(code));
+      const personSegments = segments.filter((segment) => segment.personId === personId);
+      const contributedCodes = unique(personSegments.flatMap((segment) => segment.codes)).filter((code) => codeIndex.has(code));
       const contributed = new Set(contributedCodes);
       const directPairIds = new Set(combinations(contributedCodes).map(([a, b]) => sortedPair(a, b)));
       for (const pair of activePairIds) {
-        const [a, b] = pair.split("|");
-        if (!a || !b) continue;
-        if (!contributed.has(a) && !contributed.has(b)) continue;
-
         const direct = directPairIds.has(pair);
-        const weight = (segment.confidence ?? 1) * (direct ? 1 : 0.5);
         addContribution({
-          personId: segment.personId,
+          personId,
           personPosition,
           pair,
-          segmentId: segment.segmentId,
-          weight,
+          segmentIds: personSegments.map((segment) => segment.segmentId),
+          weight: 1,
           direct
         });
       }
@@ -403,7 +842,9 @@ function conceptEdgeEvidence(dataset: SenaDataset, codeA: string, codeB: string,
   return dataset.coded_segments
     .filter((segment) => segment.codes.includes(codeA) || segment.codes.includes(codeB))
     .filter((segment) => {
-      const stanzaSegments = dataset.coded_segments.filter((candidate) => candidate.stanzaId === segment.stanzaId);
+      const stanzaSegments = dataset.coded_segments.filter((candidate) => (
+        candidate.unitId === segment.unitId && candidate.stanzaId === segment.stanzaId
+      ));
       const stanzaCodes = new Set(stanzaSegments.flatMap((candidate) => candidate.codes));
       return stanzaCodes.has(codeA) && stanzaCodes.has(codeB);
     })
@@ -414,6 +855,13 @@ function conceptEdgeEvidence(dataset: SenaDataset, codeA: string, codeB: string,
 function bridgeEvidence(dataset: SenaDataset, personId: string, codeId: string, peopleById: Map<string, SenaPerson>) {
   return dataset.coded_segments
     .filter((segment) => segment.personId === personId && segment.codes.includes(codeId))
+    .slice(0, 6)
+    .map((segment) => segmentEvidence(segment, peopleById));
+}
+
+function bridgeCpEvidence(dataset: SenaDataset, personId: string, codeId: string, peopleById: Map<string, SenaPerson>) {
+  return dataset.coded_segments
+    .filter((segment) => (segment.targetPersonIds ?? []).includes(personId) && segment.codes.includes(codeId))
     .slice(0, 6)
     .map((segment) => segmentEvidence(segment, peopleById));
 }
@@ -447,7 +895,7 @@ function buildMetrics({
       const ai = codeIndex.get(a);
       const bi = codeIndex.get(b);
       if (ai === undefined || bi === undefined) continue;
-      score += weight / (0.5 + W[ai][bi]);
+      score += weight / (conceptBrokerageDamping + W[ai][bi]);
     }
     return score;
   });
@@ -474,7 +922,11 @@ function buildMetrics({
       socialCommunity: socialAnalysis.communityLabels[personPosition] ?? -1,
       socialReachable: socialAnalysis.reachable[personPosition] ?? 0,
       epistemicContribution: contributions[personPosition],
-      bridgeScore: 0.5 * zSocial[personPosition] + 0.3 * zContribution[personPosition] + 0.2 * zBrokerage[personPosition],
+      bridgeScore: (
+        exploratoryBridgeScoreWeights.socialStrength * zSocial[personPosition] +
+        exploratoryBridgeScoreWeights.epistemicContribution * zContribution[personPosition] +
+        exploratoryBridgeScoreWeights.conceptBrokerage * zBrokerage[personPosition]
+      ),
       epistemicDiversity: entropy(B[personPosition]),
       alignment: cosine(B[personPosition], neighborContribution),
       conceptBrokerage: conceptBrokerage[personPosition],
@@ -525,18 +977,24 @@ function buildEdges({
   S,
   W,
   B,
+  Bcp,
   normalizedS,
   normalizedW,
   normalizedB,
+  normalizedBcp,
+  independentBridgeMatrices,
   options
 }: {
   dataset: SenaDataset;
   S: number[][];
   W: number[][];
   B: number[][];
+  Bcp: number[][];
   normalizedS: number[][];
   normalizedW: number[][];
   normalizedB: number[][];
+  normalizedBcp: number[][];
+  independentBridgeMatrices: boolean;
   options: Required<SenaBuildOptions>;
 }) {
   const peopleById = new Map(dataset.people.map((person) => [person.id, person]));
@@ -550,6 +1008,9 @@ function buildEdges({
       edges.push({
         id: `social:${source.id}:${target.id}`,
         layer: "social",
+        edgeType: "PP",
+        sourceKind: "person",
+        targetKind: "person",
         source: source.id,
         target: target.id,
         weight: S[i][j],
@@ -569,6 +1030,9 @@ function buildEdges({
       edges.push({
         id: `concept:${source.id}:${target.id}`,
         layer: "concept",
+        edgeType: "CC",
+        sourceKind: "concept",
+        targetKind: "concept",
         source: source.id,
         target: target.id,
         weight: W[i][j],
@@ -588,6 +1052,9 @@ function buildEdges({
       edges.push({
         id: `bridge:${person.id}:${code.id}`,
         layer: "bridge",
+        edgeType: "PC",
+        sourceKind: "person",
+        targetKind: "concept",
         source: person.id,
         target: code.id,
         weight: B[personPosition][codePosition],
@@ -599,34 +1066,43 @@ function buildEdges({
     }
   }
 
+  if (independentBridgeMatrices) {
+    for (let codePosition = 0; codePosition < dataset.codebook.length; codePosition += 1) {
+      for (let personPosition = 0; personPosition < dataset.people.length; personPosition += 1) {
+        if (Bcp[codePosition][personPosition] <= 0) continue;
+        const code = dataset.codebook[codePosition];
+        const person = dataset.people[personPosition];
+        edges.push({
+          id: `bridge:cp:${code.id}:${person.id}`,
+          layer: "bridge",
+          edgeType: "CP",
+          sourceKind: "concept",
+          targetKind: "person",
+          source: code.id,
+          target: person.id,
+          weight: Bcp[codePosition][personPosition],
+          normalizedWeight: normalizedBcp[codePosition][personPosition],
+          scaledWeight: options.gamma * normalizedBcp[codePosition][personPosition],
+          label: `${code.label} -> ${person.label}`,
+          evidence: bridgeCpEvidence(dataset, person.id, code.id, peopleById)
+        });
+      }
+    }
+  }
+
   return edges;
 }
 
-function buildFusionMatrix(S: number[][], W: number[][], B: number[][], options: Required<SenaBuildOptions>) {
-  const peopleCount = S.length;
-  const codeCount = W.length;
-  const fusion = makeMatrix(peopleCount + codeCount);
-
-  for (let i = 0; i < peopleCount; i += 1) {
-    for (let j = 0; j < peopleCount; j += 1) {
-      fusion[i][j] = options.alpha * S[i][j];
-    }
-  }
-
-  for (let i = 0; i < peopleCount; i += 1) {
-    for (let a = 0; a < codeCount; a += 1) {
-      fusion[i][peopleCount + a] = options.gamma * B[i][a];
-      fusion[peopleCount + a][i] = options.gamma * B[i][a];
-    }
-  }
-
-  for (let a = 0; a < codeCount; a += 1) {
-    for (let b = 0; b < codeCount; b += 1) {
-      fusion[peopleCount + a][peopleCount + b] = options.beta * W[a][b];
-    }
-  }
-
-  return fusion;
+function buildFusionMatrix(S: number[][], W: number[][], B: number[][], Bcp: number[][], options: Required<SenaBuildOptions>) {
+  return buildSenaFusionAdjacency({
+    S,
+    W,
+    B,
+    Bcp,
+    alpha: options.alpha,
+    beta: options.beta,
+    gamma: options.gamma
+  });
 }
 
 function orderedTurns(dataset: SenaDataset) {
@@ -689,7 +1165,7 @@ function buildTemporalWindow({
     ...segments.map((segment) => segment.stage),
     ...interactions.map((interaction) => interaction.stage)
   ]).filter(Boolean);
-  const stanzas = groupBy(segments, (segment) => segment.stanzaId);
+  const stanzas = groupBy(segments, (segment) => `${segment.unitId}::${segment.stanzaId}`);
   const rawConceptConnectivity = Array.from(stanzas.values()).reduce((total, stanzaSegments) => {
     const activeCodes = unique(stanzaSegments.flatMap((segment) => segment.codes));
     return total + combinations(activeCodes).length;
@@ -855,7 +1331,11 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
     utterances: dataset.utterances
       .filter((utterance) => utteranceIds.has(utterance.id) || codedUtteranceIds.has(utterance.id))
       .map((utterance) => ({ ...utterance })),
-    coded_segments: codedSegments.map((segment) => ({ ...segment, codes: [...segment.codes] })),
+    coded_segments: codedSegments.map((segment) => ({
+      ...segment,
+      codes: [...segment.codes],
+      targetPersonIds: segment.targetPersonIds ? [...segment.targetPersonIds] : undefined
+    })),
     interactions: dataset.interactions
       .filter((interaction) => interactionInTurnWindow(interaction, window.startTurn, window.endTurn, stages))
       .map((interaction) => ({ ...interaction })),
@@ -997,10 +1477,42 @@ function buildPairReport(
 }
 
 function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResolvedBuildOptions {
+  const direction = buildOptions.direction ?? (
+    buildOptions.undirectedSocial === true ? "undirected" : defaultOptions.direction
+  );
+  if (buildOptions.undirectedSocial !== undefined && buildOptions.direction !== undefined) {
+    const socialDirection = buildOptions.undirectedSocial ? "undirected" : "directed";
+    if (socialDirection !== buildOptions.direction) {
+      throw new Error("SENA buildOptions.direction conflicts with buildOptions.undirectedSocial.");
+    }
+  }
+  if (buildOptions.deg_convention !== undefined && buildOptions.deg_convention !== "row-sum") {
+    throw new Error("SENA buildOptions.deg_convention currently supports only row-sum.");
+  }
+  if (buildOptions.Phi !== undefined && buildOptions.Phi !== "classical_mds") {
+    throw new Error("SENA buildOptions.Phi currently supports classical_mds for the analysis provenance envelope.");
+  }
+  if (buildOptions.delta !== undefined && buildOptions.delta !== "shortest_path_reciprocal_weight") {
+    throw new Error("SENA buildOptions.delta currently supports shortest_path_reciprocal_weight for classical_mds.");
+  }
+  if (buildOptions.d !== undefined && (!Number.isFinite(buildOptions.d) || buildOptions.d < 1)) {
+    throw new Error("SENA buildOptions.d must be a positive finite number.");
+  }
+  if (buildOptions.seed !== undefined && !Number.isFinite(buildOptions.seed)) {
+    throw new Error("SENA buildOptions.seed must be a finite number.");
+  }
+
   return {
     ...defaultOptions,
     ...buildOptions,
-    undirectedSocial: buildOptions.undirectedSocial ?? defaultOptions.undirectedSocial,
+    bridgeWeightRule: buildOptions.bridgeWeightRule ?? defaultOptions.bridgeWeightRule,
+    direction,
+    deg_convention: buildOptions.deg_convention ?? defaultOptions.deg_convention,
+    delta: buildOptions.delta ?? defaultOptions.delta,
+    Phi: buildOptions.Phi ?? defaultOptions.Phi,
+    d: Math.floor(buildOptions.d ?? defaultOptions.d),
+    seed: buildOptions.seed ?? defaultOptions.seed,
+    undirectedSocial: buildOptions.undirectedSocial ?? direction === "undirected",
     temporal: {
       ...defaultOptions.temporal,
       ...(buildOptions.temporal ?? {})
@@ -1016,15 +1528,22 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
 
   const social = buildSocialMatrix(dataset, personIndex, options.undirectedSocial);
   const concept = buildConceptMatrix(dataset, codeIndex);
-  const bridge = buildBridgeMatrix(dataset, personIndex, codeIndex);
+  const bridge = buildBridgeMatrix(dataset, personIndex, codeIndex, options.bridgeWeightRule);
+  const participation = buildParticipationMatrix(dataset, personIndex);
   const pairContribution = buildPairContribution(dataset, personIndex, codeIndex, codePairs);
   const socialAnalysis = buildSocialAnalysis(social.S, social.directedS, options.undirectedSocial);
 
-  const normalizedS = normalizeMatrix(social.S, options.normalization);
-  const normalizedW = normalizeMatrix(concept.W, options.normalization);
-  const normalizedB = normalizeMatrix(bridge.B, options.normalization);
-  const normalizedG = normalizeMatrix(pairContribution.G, options.normalization);
-  const fusion = buildFusionMatrix(normalizedS, normalizedW, normalizedB, options);
+  const normalizedSResult = normalizeSenaMatrix(social.S, options.normalization);
+  const normalizedWResult = normalizeSenaMatrix(concept.W, options.normalization);
+  const normalizedBResult = normalizeSenaMatrix(bridge.B, options.normalization);
+  const normalizedBcpResult = normalizeSenaMatrix(bridge.Bcp, options.normalization);
+  const normalizedGResult = normalizeSenaMatrix(pairContribution.G, options.normalization);
+  const normalizedS = normalizedSResult.values;
+  const normalizedW = normalizedWResult.values;
+  const normalizedB = normalizedBResult.values;
+  const normalizedBcp = normalizedBcpResult.values;
+  const normalizedG = normalizedGResult.values;
+  const fusion = buildFusionMatrix(normalizedS, normalizedW, normalizedB, normalizedBcp, options);
   const { personMetrics, conceptMetrics } = buildMetrics({
     dataset,
     S: social.S,
@@ -1059,9 +1578,12 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
     S: social.S,
     W: concept.W,
     B: bridge.B,
+    Bcp: bridge.Bcp,
     normalizedS,
     normalizedW,
     normalizedB,
+    normalizedBcp,
+    independentBridgeMatrices: bridge.hasIndependentCpEvidence,
     options
   });
 
@@ -1078,6 +1600,21 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
   const pairReport = buildPairReport(dataset, codePairs, pairContribution.G, pairContribution.personPairDetails);
   const temporalWindows = buildTemporalWindows(dataset, options.temporal);
 
+  const fusionLabels = [...dataset.people.map((person) => person.label), ...dataset.codebook.map((code) => code.label)];
+  const runIdentity = {
+    hashAlgorithm: "sena-stable-fnv1a32/v1" as const,
+    datasetVersion: dataset.metadata?.datasetVersion ?? "unversioned",
+    datasetContentHash: buildSenaDatasetContentHash(dataset),
+    configHash: buildSenaAnalysisConfigHash(options)
+  };
+  const degreeVector = senaDegreeVector(fusion);
+  const isolatedVertices = findSenaIsolatedVertices(fusion, fusionLabels);
+  const embeddingDiagnostics = buildEmbeddingDiagnostics(fusion, isolatedVertices, options);
+  const bridgeWeightingDiagnostics = buildBridgeWeightingDiagnostics(dataset, options.bridgeWeightRule);
+  const directionDiagnostics = buildDirectionDiagnostics(options, bridge.B, bridge.Bcp, bridge.hasIndependentCpEvidence);
+  const attributionDiagnostics = buildAttributionDiagnostics(dataset, pairContribution.G, personIndex, codeIndex, participation);
+  const typedCentralityDiagnostics = buildTypedCentralityDiagnostics(dataset, social.S, concept.W, bridge.B, degreeVector);
+
   return {
     dataset,
     options,
@@ -1092,6 +1629,24 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
         raw: bridge.B,
         normalized: normalizedB
       },
+      B_PC: {
+        rowLabels: dataset.people.map((person) => person.label),
+        columnLabels: dataset.codebook.map((code) => code.label),
+        raw: bridge.B,
+        normalized: normalizedB
+      },
+      B_CP: {
+        rowLabels: dataset.codebook.map((code) => code.label),
+        columnLabels: dataset.people.map((person) => person.label),
+        raw: bridge.Bcp,
+        normalized: normalizedBcp
+      },
+      Y: {
+        rowLabels: dataset.people.map((person) => person.label),
+        columnLabels: participation.windowIds,
+        windowIds: participation.windowIds,
+        raw: participation.Y
+      },
       G: {
         rowLabels: dataset.people.map((person) => person.label),
         columnLabels: codePairs.map((pair) => pair.label),
@@ -1101,9 +1656,34 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
         normalized: normalizedG
       },
       fusion: {
-        labels: [...dataset.people.map((person) => person.label), ...dataset.codebook.map((code) => code.label)],
+        labels: fusionLabels,
         values: fusion
       }
+    },
+    operatorDiagnostics: {
+      runIdentity,
+      analysisConfig: {
+        direction: options.direction,
+        deg_convention: options.deg_convention,
+        delta: options.delta,
+        Phi: options.Phi,
+        d: options.d,
+        seed: options.seed
+      },
+      degreeConvention: options.deg_convention,
+      degreeVector,
+      isolatedVertices,
+      normalization: {
+        S: normalizationDiagnostic(normalizedSResult),
+        W: normalizationDiagnostic(normalizedWResult),
+        B: normalizationDiagnostic(normalizedBResult),
+        G: normalizationDiagnostic(normalizedGResult)
+      },
+      bridgeWeighting: bridgeWeightingDiagnostics,
+      direction: directionDiagnostics,
+      embedding: embeddingDiagnostics,
+      attribution: attributionDiagnostics,
+      typedCentrality: typedCentralityDiagnostics
     },
     people: dataset.people,
     codes: dataset.codebook,

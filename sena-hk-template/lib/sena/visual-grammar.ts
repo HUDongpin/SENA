@@ -14,7 +14,7 @@ export const senaVisualGrammar: SenaVisualGrammarItem[] = [
     id: "temporal-fusion-arc",
     label: "Temporal Fusion Arc",
     visualEncoding: "Plan, Teach, and Reflect phases are shown as clickable story panels with concept hexes, actor nodes, S/W/B/G metric bars, bridge/concept transition curves, rose G pair-contribution arcs, top G pair labels, and adjacent-window transition evidence.",
-    dataMapping: "Phase panels use temporal windows, top code weights, evidence person IDs, turn ranges, evidence counts, normalized social, concept, and bridge temporal metrics, plus temporal runtime G matrix totals, active person-code-pair counts, strongest G pair labels, lead contributors, and adjacent-window S/W/B/G/A_fusion deltas.",
+    dataMapping: "Phase panels use temporal windows, top code weights, evidence person IDs, turn ranges, evidence counts, normalized social, concept, and bridge temporal metrics, plus temporal runtime G matrix totals, active person-code-pair counts, strongest G pair labels, lead contributors, and adjacent-window S/W/B/B_PC/B_CP/G/A_fusion deltas.",
     interpretationRole: "Helps researchers narrate how epistemic moves, social-epistemic bridges, and person-code-pair contribution patterns develop across lesson-study windows.",
     guardrail: "Temporal Fusion Arc is a narrative and inspection view; it should not be used as evidence of causal sequence without temporal design, coding reliability, and human review."
   },

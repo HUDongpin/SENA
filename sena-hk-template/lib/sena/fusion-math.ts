@@ -2,7 +2,7 @@ import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaFusionMathAudit, SenaFusionMathAuditArtifact, SenaFusionMathAuditItem, SenaMatrixFingerprint, SenaModel, SenaTemporalWindow } from "./types";
 
 const defaultTolerance = 1e-9;
-const fusionFormula = "A_fusion = [alpha*S gamma*B; gamma*B' beta*W]";
+const fusionFormula = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 const matrixFingerprintAlgorithm = "sena-stable-fnv1a32/v1" as const;
 
 export type SenaFusionMathAuditArtifactOptions = {
@@ -133,6 +133,22 @@ export function buildSenaMatrixFingerprints(model: SenaModel): SenaMatrixFingerp
       normalized: model.matrices.B.normalized
     }),
     matrixFingerprint({
+      id: "B_PC",
+      label: "Person-to-code bridge B_PC matrix",
+      rowLabels: model.matrices.B_PC.rowLabels,
+      columnLabels: model.matrices.B_PC.columnLabels,
+      raw: model.matrices.B_PC.raw,
+      normalized: model.matrices.B_PC.normalized
+    }),
+    matrixFingerprint({
+      id: "B_CP",
+      label: "Code-to-person bridge B_CP matrix",
+      rowLabels: model.matrices.B_CP.rowLabels,
+      columnLabels: model.matrices.B_CP.columnLabels,
+      raw: model.matrices.B_CP.raw,
+      normalized: model.matrices.B_CP.normalized
+    }),
+    matrixFingerprint({
       id: "G",
       label: "Person-code-pair G matrix",
       rowLabels: model.matrices.G.rowLabels,
@@ -207,6 +223,10 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
 
   const dimensionsPass = sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
     sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels) &&
+    sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) &&
+    sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels) &&
+    sameStrings(model.matrices.W.labels, model.matrices.B_CP.rowLabels) &&
+    sameStrings(model.matrices.S.labels, model.matrices.B_CP.columnLabels) &&
     sameStrings(expectedLabels, model.matrices.fusion.labels) &&
     fusion.length === fusionSize &&
     fusion.every((row) => row.length === fusionSize);
@@ -214,6 +234,8 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
   const allFinite = finiteMatrix(model.matrices.S.normalized) &&
     finiteMatrix(model.matrices.W.normalized) &&
     finiteMatrix(model.matrices.B.normalized) &&
+    finiteMatrix(model.matrices.B_PC.normalized) &&
+    finiteMatrix(model.matrices.B_CP.normalized) &&
     finiteMatrix(model.matrices.G.normalized) &&
     finiteMatrix(fusion) &&
     [options.alpha, options.beta, options.gamma].every(Number.isFinite);
@@ -235,7 +257,7 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
   const bridgeTransposeDelta = maxDeltaForBlock({
     rows: codeCount,
     columns: peopleCount,
-    expectedAt: (row, column) => options.gamma * (model.matrices.B.normalized[column]?.[row] ?? 0),
+    expectedAt: (row, column) => options.gamma * (model.matrices.B_CP.normalized[row]?.[column] ?? 0),
     actualAt: (row, column) => fusion[peopleCount + row]?.[column] ?? Number.NaN
   });
 
@@ -263,6 +285,8 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       [
         `S labels match B rows: ${sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels)}`,
         `W labels match B columns: ${sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels)}`,
+        `B_PC labels match B: ${sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) && sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels)}`,
+        `B_CP labels match W x S: ${sameStrings(model.matrices.W.labels, model.matrices.B_CP.rowLabels) && sameStrings(model.matrices.S.labels, model.matrices.B_CP.columnLabels)}`,
         `Fusion labels match [people, codes]: ${sameStrings(expectedLabels, model.matrices.fusion.labels)}`
       ]
     ),
@@ -270,12 +294,14 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       "finite-values",
       "Finite weights and matrix values",
       allFinite,
-      "alpha, beta, gamma and every S/W/B/G/A_fusion value are finite numbers",
+      "alpha, beta, gamma and every S/W/B/B_PC/B_CP/G/A_fusion value are finite numbers",
       `alpha=${options.alpha}, beta=${options.beta}, gamma=${options.gamma}`,
       [
         `S=${model.matrices.S.normalized.length} rows`,
         `W=${model.matrices.W.normalized.length} rows`,
         `B=${model.matrices.B.normalized.length} rows`,
+        `B_PC=${model.matrices.B_PC.normalized.length} rows`,
+        `B_CP=${model.matrices.B_CP.normalized.length} rows`,
         `G=${model.matrices.G.normalized.length} rows`,
         `A_fusion=${fusion.length} rows`
       ]
@@ -301,10 +327,10 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       tolerance
     ),
     item(
-      "bridge-transpose-block",
-      "gamma*B' transpose block",
+      "bridge-cp-block",
+      "gamma*B_CP code-to-person block",
       bridgeTransposeDelta <= tolerance,
-      "bottom-left A_fusion block equals gamma multiplied by normalized B transpose",
+      "bottom-left A_fusion block equals gamma multiplied by normalized B_CP",
       `max delta ${bridgeTransposeDelta}`,
       [`gamma=${options.gamma}`, `block=${codeCount}x${peopleCount}`],
       bridgeTransposeDelta,
@@ -327,7 +353,7 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       `${peopleCount} people by ${codePairCount} unordered code pairs`,
       `${model.matrices.G.rowLabels.length} rows, ${model.matrices.G.columnLabels.length} columns, ${model.pairReport.length} pair reports`,
       [
-        "G is not a block inside A_fusion; it explains who contributes to ENA-style code-pair links.",
+        "G is not a block inside A_fusion; it explains who was associated with windows containing ENA-style code-pair links.",
         `pairIds=${model.matrices.G.pairIds.length}`,
         `pairs=${model.matrices.G.pairs.length}`
       ]
@@ -348,7 +374,7 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
     notes: [
       "Fusion math audit checks the local SENA block equation against the current normalized matrices and weights.",
       "G is audited as an explanatory person-code-pair layer rather than as a direct A_fusion block.",
-      "Matrix fingerprints provide stable handoff checksums for S/W/B/G/A_fusion reproducibility review; they are not statistical evidence."
+      "Matrix fingerprints provide stable handoff checksums for S/W/B/B_PC/B_CP/G/A_fusion reproducibility review; they are not statistical evidence."
     ]
   };
 }
@@ -379,7 +405,7 @@ export function buildSenaFusionMathAuditArtifact(
     fusionMathAudit: buildSenaFusionMathAudit(model, options.tolerance ?? defaultTolerance),
     matrices: model.matrices,
     notes: [
-      "Standalone artifact for checking the current S/W/B/G matrices against the weighted SENA fusion equation.",
+      "Standalone artifact for checking the current S/W/B/B_PC/B_CP/G matrices against the weighted SENA fusion equation.",
       "Use this artifact with the runtime bundle, evidence ledger, and human-reviewed report before making substantive claims."
     ]
   };

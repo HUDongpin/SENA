@@ -29,7 +29,12 @@ export {
 } from "./snapshot";
 export { importSenaProjectSnapshotFromHandoff } from "./project-handoff";
 export { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
-export { buildSenaAnalysisRun, type SenaAnalysisRunInput, type SenaAnalysisRunSourceKind } from "./analysis-run";
+export {
+  buildSenaAnalysisProvenanceEnvelope,
+  buildSenaAnalysisRun,
+  type SenaAnalysisRunInput,
+  type SenaAnalysisRunSourceKind
+} from "./analysis-run";
 export {
   buildSenaReviewPacket,
   importSenaReviewPacket,
@@ -37,6 +42,7 @@ export {
   type SenaReviewPacketOptions
 } from "./review-packet";
 export { buildSenaRuntimeConsistencyAudit } from "./runtime-consistency";
+export { buildSenaModelCard, type SenaModelCardOptions } from "./model-card";
 export {
   jenaRuntimeDependencySpec,
   jenaRuntimeVersion,
@@ -45,8 +51,40 @@ export {
   snaRuntimeDependencySpec,
   snaRuntimeVersion
 } from "./runtime-constants";
-export { buildSenaDataContractAudit, buildSenaDataContractAuditArtifact, type SenaDataContractAuditArtifactOptions, type SenaDataContractAuditOptions } from "./data-contract-audit";
+export { buildSenaAnalysisConfigHash, buildSenaDataContractAudit, buildSenaDataContractAuditArtifact, buildSenaDatasetContentHash, buildSenaStableContentHash, type SenaDataContractAuditArtifactOptions, type SenaDataContractAuditOptions } from "./data-contract-audit";
 export { buildSenaFusionMathAudit, buildSenaFusionMathAuditArtifact, buildSenaMatrixFingerprints, type SenaFusionMathAuditArtifactOptions } from "./fusion-math";
+export {
+  buildSenaFusionAdjacency,
+  senaAttributionOperatorDiagnostics,
+  senaDirectedOutDegreeLaplacianDiagnostics,
+  senaEpsilonRegularizedRandomWalkLaplacian,
+  findSenaIsolatedVertices,
+  normalizeSenaMatrix,
+  senaCommuteTimeEmbeddingDiagnostics,
+  senaCombinatorialLaplacian,
+  senaDegreeVector,
+  senaOutDegreeLaplacian,
+  senaOutDegreeRandomWalkDiagnostics,
+  senaSchoenbergMdsDiagnostics,
+  senaShortestPathDissimilarity,
+  senaSymmetrizeMatrix,
+  senaSymmetricEigenDecomposition,
+  senaSymmetricEigenvalues,
+  senaZeroInverseNormalizedLaplacian,
+  SENA_ADMISSIBLE_NORMALIZATIONS,
+  SENA_GRAPH_OPERATOR_CONVENTIONS,
+  type SenaAdmissibleNormalization,
+  type SenaAttributionOperatorDiagnostics,
+  type SenaCommuteTimeEmbeddingDiagnostics,
+  type SenaDirectedOutDegreeLaplacianDiagnostics,
+  type SenaFusionAdjacencyInput,
+  type SenaIsolatedVertex,
+  type SenaNormalizationResult,
+  type SenaOutDegreeRandomWalkDiagnostics,
+  type SenaSchoenbergMdsDiagnostics,
+  type SenaSchoenbergMdsOptions,
+  type SenaSymmetricEigenDecomposition
+} from "./operators";
 export { buildSenaMethodProtocol, type SenaMethodProtocolOptions } from "./method-protocol";
 export { buildSenaVisualGrammarArtifact, senaVisualGrammar, type SenaVisualGrammarArtifactOptions } from "./visual-grammar";
 export {
@@ -185,7 +223,9 @@ export type {
   SenaMetricSource,
   SenaModel,
   SenaNode,
+  SenaNormalizationDiagnostic,
   SenaNullModelCheck,
+  SenaOperatorDiagnostics,
   SenaNormalization,
   SenaCodePair,
   SenaPairContributionReportArtifact,
