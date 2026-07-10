@@ -522,6 +522,32 @@ describe("SENA advisory model defaults", () => {
     ]);
   });
 
+  it("keeps fusion direction explicit when independent B_CP survives social symmetrization", () => {
+    const model = buildSenaModel(directedBridgeDataset, { undirectedSocial: true });
+    const card = buildSenaModelCard(model, { generatedAt: "2026-07-10T00:00:00.000Z" });
+    const envelope = buildSenaAnalysisProvenanceEnvelope(model, card);
+    const directedSection = card.sections.find((section) => section.id === "directed-graph");
+
+    expect(model.operatorDiagnostics.direction).toMatchObject({
+      socialMode: "undirected",
+      fusionMode: "directed",
+      socialSymmetrized: true,
+      bridgeMode: "pc-cp-independent",
+      independentBridgeMatrices: true
+    });
+    expect(model.operatorDiagnostics.direction.badge).toContain("keeps A_fusion directed");
+    expect(card.direction).toMatchObject({
+      mode: "directed",
+      operator: "declared-spectral-symmetrization",
+      collapsed: false,
+      bridgesIndependent: true
+    });
+    expect(directedSection?.evidence).toContain("mode=directed");
+    expect(directedSection?.evidence).toContain("socialMode=undirected");
+    expect(envelope.direction).toBe("directed");
+    expect(envelope.bridge_direction).toBe("pc-cp-independent");
+  });
+
   it("requires dataset governance metadata while recording a deterministic dataset content hash", () => {
     const missingGovernanceAudit = buildSenaDataContractAudit(attributionDataset);
     const governedAudit = buildSenaDataContractAudit(governedAttributionDataset);

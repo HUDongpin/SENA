@@ -17,7 +17,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 - Owns the executable SENA analytical runtime in `sena-hk-template/lib/sena/model.ts`, `fusion-math.ts`, `temporal-runtime.ts`, `runtime-consistency.ts`, `visual-encoding.ts`, and related tests.
 - Implement the formal model maintained by SENA-A13 without silently changing mathematical semantics, layer definitions, normalization assumptions, or interpretation boundaries.
-- Preserve computational construction of `S`, `W`, `B`, `G`, temporal windows, `A_fusion`, stable matrix fingerprints, runtime consistency checks, and report/export handoff values.
+- Preserve computational construction of `S`, `W`, `B`/`B_PC`, `B_CP`, `G`, temporal windows, `A_fusion`, stable matrix fingerprints, runtime consistency checks, and report/export handoff values.
 - Any change to matrix construction, normalization code, temporal traces, fingerprints, or fusion weights should update tests and the evidence artifacts that describe those quantities.
 - Coordinate with SENA-A13 before changing formula semantics, boundary cases, layer-weight interpretation, or claims about what the fused graph means.
 
@@ -111,9 +111,11 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 ### SENA-A13 Fusion Mathematical Model Agent
 
 - Owns the formal SENA Fusion mathematical model, including definitions, assumptions, notation, boundary cases, theorem/proposition statements, proof obligations, and interpretation limits.
-- Primary conceptual object: `S` person-person social layer, `W` code-code epistemic layer, `B` person-code contribution layer, `G` person-code-pair contribution layer, and `A_fusion = [alpha*S gamma*B; gamma*B' beta*W]` after declared normalization.
+- Primary conceptual object: `S` person-person social layer, `W` code-code epistemic layer, `B`/`B_PC` person-to-code contribution layer, `B_CP` code-to-person directed bridge layer, `G` person-code-pair contribution layer, and `A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]` after declared normalization.
+- `B` remains the compatibility alias for `B_PC`. When no independent code-to-person evidence exists, require the transpose-compatible fallback `B_CP = B_PC'`; when coded segments declare valid `targetPersonIds`, `B_CP` may be independently estimated and the fused graph must be treated as directed.
+- Treat `docs/adr/0005-directed-bridge-contract.md` as the accepted bridge-direction contract; changes to its evidence trigger, fallback, normalization, or direction semantics require an explicit ADR revision.
 - Treat `A_fusion` as a normalized weighted typed supra-adjacency / heterogeneous graph object, not as an automatic causal model, not as an ENA projection by itself, and not as proof that cross-layer visual distances are statistically interpretable.
-- Maintain boundary-case coherence for `gamma=0`, `alpha=0`, `beta=0`, `B=0`, directed social layers, person-code-only bipartite structure, and temporal `A_fusion(t)` extensions.
+- Maintain boundary-case coherence for `gamma=0`, `alpha=0`, `beta=0`, `B_PC=B_CP=0`, directed social or bridge layers, person-code-only bipartite structure, and temporal `A_fusion(t)` extensions.
 - Own layer-normalization reasoning, relative interpretation of `alpha`, `beta`, and `gamma`, Laplacian/spectral admissibility claims, directed-vs-undirected distinctions, and statistical validation requirements.
 - Coordinate with SENA-A02 so implementation and exports remain faithful to the mathematical model; coordinate with SENA-A12 when formal results are written into manuscripts, reports, or literature-gap arguments.
 

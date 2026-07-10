@@ -114,7 +114,8 @@ function buildSections(input: {
       `I0=${diagnostics.isolatedVertices.map((vertex) => vertex.label).join(",") || "empty"}`
     ],
     "directed-graph": [
-      `mode=${diagnostics.direction.socialMode}`,
+      `mode=${diagnostics.direction.fusionMode}`,
+      `socialMode=${diagnostics.direction.socialMode}`,
       `bridgeMode=${diagnostics.direction.bridgeMode}`,
       `independentBridgeMatrices=${diagnostics.direction.independentBridgeMatrices}`,
       `spectralInput=${diagnostics.embedding.input.symmetrization}`,
@@ -264,9 +265,9 @@ export function buildSenaModelCard(model: SenaModel, options: SenaModelCardOptio
       badge: `${isolatedCount} isolated node(s) retained (I0) — convention: ${diagnostics.degreeConvention}; ${SENA_GRAPH_OPERATOR_CONVENTIONS.zero_degree}.`
     },
     direction: {
-      mode: directionDiagnostics.socialMode,
-      operator: directionCollapsed ? "symmetrized" : "declared-spectral-symmetrization",
-      collapsed: directionDiagnostics.socialSymmetrized,
+      mode: directionDiagnostics.fusionMode,
+      operator: directionDiagnostics.fusionMode === "undirected" ? "symmetrized" : "declared-spectral-symmetrization",
+      collapsed: directionDiagnostics.fusionMode === "undirected" && directionDiagnostics.socialSymmetrized,
       bridgesIndependent: directionDiagnostics.independentBridgeMatrices,
       badge: directionDiagnostics.badge
     },

@@ -433,14 +433,16 @@ function buildDirectionDiagnostics(
   independentBridgeMatrices: boolean
 ): SenaOperatorDiagnostics["direction"] {
   const socialSymmetrized = options.undirectedSocial;
+  const fusionMode = socialSymmetrized && !independentBridgeMatrices ? "undirected" : "directed";
   const pcEdgeCount = positiveMatrixEntries(Bpc);
   const cpEdgeCount = positiveMatrixEntries(Bcp);
   const bridgeMode = independentBridgeMatrices ? "pc-cp-independent" : "pc-transpose-fallback";
-  const independentBridgeBadge = "Independent B^PC/B^CP evidence is active.";
+  const independentBridgeBadge = "Independent B^PC/B^CP evidence is active and keeps A_fusion directed.";
   const bridgePendingWarning = "B^CP uses transpose-compatible weights from B^PC; independent B^PC/B^CP evidence is still pending.";
 
   return {
     socialMode: socialSymmetrized ? "undirected" : "directed",
+    fusionMode,
     socialSymmetrized,
     directedInputPreserved: !socialSymmetrized,
     bridgeMode,
@@ -450,10 +452,10 @@ function buildDirectionDiagnostics(
     cpEdgeCount,
     independentBridgeMatrices,
     badge: socialSymmetrized
-      ? `Direction collapsed by symmetrization. ${independentBridgeMatrices ? independentBridgeBadge : bridgePendingWarning}`
+      ? `Social direction collapsed by symmetrization. ${independentBridgeMatrices ? independentBridgeBadge : bridgePendingWarning}`
       : `Directed input preserved. ${independentBridgeMatrices ? independentBridgeBadge : bridgePendingWarning}`,
     warnings: [
-      ...(socialSymmetrized ? ["Direction collapsed by symmetrization."] : []),
+      ...(socialSymmetrized ? ["Social direction collapsed by symmetrization."] : []),
       ...(independentBridgeMatrices ? [] : [bridgePendingWarning])
     ]
   };

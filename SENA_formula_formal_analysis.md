@@ -1,18 +1,19 @@
 # SENA Fusion Formula: Formal Mathematical Analysis
 
 Date: 2026-06-08
+Directed bridge contract revision: 2026-07-10
 
 This note formalizes the SENA fusion formula discussed in the shared ChatGPT conversation and in the local SENA project documents. The central formula is
 
 ```math
 A_{\mathrm{fusion}} =
 \begin{bmatrix}
-\alpha \widehat S & \gamma \widehat B \\
-\gamma \widehat B^\top & \beta \widehat W
+\alpha \widehat S & \gamma \widehat B^{PC} \\
+\gamma \widehat B^{CP} & \beta \widehat W
 \end{bmatrix},
 ```
 
-where \(S\) is a person-person social interaction matrix, \(W\) is a code-code epistemic co-occurrence matrix, \(B\) is a person-code contribution matrix, hats denote explicit normalization, and \(\alpha,\beta,\gamma \ge 0\) are layer weights.
+where \(S\) is a person-person social interaction matrix, \(W\) is a code-code epistemic co-occurrence matrix, \(B^{PC}\) is a person-to-code contribution matrix, \(B^{CP}\) is a code-to-person bridge matrix, hats denote explicit normalization, and \(\alpha,\beta,\gamma \ge 0\) are layer weights. The runtime retains \(B\) as an alias for \(B^{PC}\). When no independent code-to-person evidence is declared, the required fallback is \(B^{CP}=(B^{PC})^\top\); otherwise the two bridge directions are estimated independently and the fused graph is directed.
 
 ## 1. Mathematical Identity
 
@@ -33,13 +34,14 @@ The three empirical relations are:
 ```math
 S \in \mathbb R_{\ge 0}^{n \times n}, \qquad
 W \in \mathbb R_{\ge 0}^{m \times m}, \qquad
-B \in \mathbb R_{\ge 0}^{n \times m}.
+B^{PC} \in \mathbb R_{\ge 0}^{n \times m}, \qquad
+B^{CP} \in \mathbb R_{\ge 0}^{m \times n}.
 ```
 
 The fused matrix \(A_{\mathrm{fusion}}\) is therefore a block adjacency matrix on a weighted, typed, heterogeneous social-epistemic graph:
 
 ```math
-G_{\mathrm{SENA}}=(V, E_{PP}\cup E_{CC}\cup E_{PC}),
+G_{\mathrm{SENA}}=(V, E_{PP}\cup E_{CC}\cup E_{PC}\cup E_{CP}),
 ```
 
 with edge weights
@@ -47,10 +49,11 @@ with edge weights
 ```math
 w(p_i,p_j)=\alpha\widehat S_{ij}, \qquad
 w(c_a,c_b)=\beta\widehat W_{ab}, \qquad
-w(p_i,c_a)=\gamma\widehat B_{ia}.
+w(p_i,c_a)=\gamma\widehat B^{PC}_{ia}, \qquad
+w(c_a,p_i)=\gamma\widehat B^{CP}_{ai}.
 ```
 
-Thus the formula is dimensionally valid and has a standard network-science interpretation: it is a typed supra-adjacency / heterogeneous adjacency representation. It is not, by itself, an ENA projection, a causal model, or an inferential test.
+Thus the formula is dimensionally valid and has a standard network-science interpretation: it is a typed supra-adjacency / heterogeneous adjacency representation. It is symmetric only under the conditions stated in Proposition 2. It is not, by itself, an ENA projection, a causal model, or an inferential test.
 
 ## 2. Data-Generating View
 
@@ -81,16 +84,22 @@ W_{ab}=\sum_{t=1}^{q} X_{ta}X_{tb}, \quad a\ne b,
 ```
 
 ```math
-B_{ia}=\sum_{t=1}^{q} Y_{it}X_{ta}.
+B^{PC}_{ia}=\sum_{t=1}^{q} Y_{it}X_{ta}.
 ```
 
-This shows that \(W\) is an ENA-style code co-occurrence object before dimensional reduction, while \(B\) is an affiliation/contribution object linking people to codes. The project implementation follows this logic: \(S\) is built from interaction records, \(W\) from stanza-level code co-occurrence, and \(B\) from person-coded segments.
+When coded segment \(r\) carries code weight \(x_{ra}\), author \(u(r)\), and an explicit target-person set \(T(r)\), the directed reverse bridge may be estimated as
+
+```math
+B^{CP}_{ai}=\sum_r x_{ra}\,\mathbf 1\{p_i\in T(r)\}.
+```
+
+This shows that \(W\) is an ENA-style code co-occurrence object before dimensional reduction, while \(B^{PC}\) and \(B^{CP}\) are typed bridge objects. The project implementation builds \(S\) from interaction records, \(W\) from stanza-level code co-occurrence, \(B^{PC}\) from person-authored coded segments, and \(B^{CP}\) from valid `targetPersonIds`; without target-person evidence it uses the declared transpose fallback.
 
 ## 3. Core Propositions
 
 ### Proposition 1: Dimensional Consistency
 
-If \(S\in\mathbb R^{n\times n}\), \(W\in\mathbb R^{m\times m}\), and \(B\in\mathbb R^{n\times m}\), then
+If \(S\in\mathbb R^{n\times n}\), \(W\in\mathbb R^{m\times m}\), \(B^{PC}\in\mathbb R^{n\times m}\), and \(B^{CP}\in\mathbb R^{m\times n}\), then
 
 ```math
 A_{\mathrm{fusion}}\in\mathbb R^{(n+m)\times(n+m)}.
@@ -100,20 +109,20 @@ Proof: the upper-left block has \(n\) rows and \(n\) columns; the upper-right bl
 
 ### Proposition 2: Valid Weighted Undirected Graph
 
-If \(S=S^\top\), \(W=W^\top\), \(S,W,B\ge 0\), and \(\alpha,\beta,\gamma\ge 0\), then \(A_{\mathrm{fusion}}\) is a symmetric nonnegative adjacency matrix.
+If \(S=S^\top\), \(W=W^\top\), \(B^{CP}=(B^{PC})^\top\), all blocks are nonnegative, and \(\alpha,\beta,\gamma\ge 0\), then \(A_{\mathrm{fusion}}\) is a symmetric nonnegative adjacency matrix.
 
 Proof:
 
 ```math
 A_{\mathrm{fusion}}^\top =
 \begin{bmatrix}
-(\alpha\widehat S)^\top & (\gamma\widehat B^\top)^\top \\
-(\gamma\widehat B)^\top & (\beta\widehat W)^\top
+(\alpha\widehat S)^\top & (\gamma\widehat B^{CP})^\top \\
+(\gamma\widehat B^{PC})^\top & (\beta\widehat W)^\top
 \end{bmatrix}
 =
 \begin{bmatrix}
-\alpha\widehat S & \gamma\widehat B \\
-\gamma\widehat B^\top & \beta\widehat W
+\alpha\widehat S & \gamma\widehat B^{PC} \\
+\gamma\widehat B^{CP} & \beta\widehat W
 \end{bmatrix}.
 ```
 
@@ -141,7 +150,7 @@ The formula has coherent limiting cases:
 
 - \(\gamma=0\): social and epistemic networks are disconnected, recovering separate SNA and ENA-style code networks.
 - \(\alpha=0,\beta=0\): the model becomes a pure person-code bipartite affiliation network.
-- \(B=0\): no empirical social-epistemic bridge exists; a fused display would be only a visual juxtaposition.
+- \(B^{PC}=B^{CP}=0\): no empirical social-epistemic bridge exists; a fused display would be only a visual juxtaposition.
 - \(\alpha=0\): analysis foregrounds epistemic and person-code contribution structures.
 - \(\beta=0\): analysis foregrounds social and person-code contribution structures.
 
@@ -149,7 +158,7 @@ These limits are important because a good fusion formula should degrade into rec
 
 ## 4. Normalization Is Not Optional
 
-The raw magnitudes of \(S\), \(W\), and \(B\) are generally not commensurable. For example, social ties may count replies, \(W\) may count stanza co-occurrences, and \(B\) may count coded segments or confidence-weighted code activations. Without normalization, the largest-count layer can dominate all graph metrics and embeddings.
+The raw magnitudes of \(S\), \(W\), \(B^{PC}\), and \(B^{CP}\) are generally not commensurable. For example, social ties may count replies, \(W\) may count stanza co-occurrences, and the bridge blocks may count coded segments or confidence-weighted activations. Without normalization, the largest-count layer can dominate all graph metrics and embeddings.
 
 A valid SENA analysis must therefore define a normalization map
 
@@ -157,7 +166,7 @@ A valid SENA analysis must therefore define a normalization map
 N_L: M_L \mapsto \widehat M_L
 ```
 
-for each layer \(L\in\{S,W,B\}\). Reasonable choices include:
+for each layer \(L\in\{S,W,B^{PC},B^{CP}\}\). Reasonable choices include:
 
 ```math
 \widehat M = \frac{M}{\max_{uv}|M_{uv}|},
@@ -173,31 +182,31 @@ for each layer \(L\in\{S,W,B\}\). Reasonable choices include:
 
 or a row-stochastic normalization when transition probabilities are the intended interpretation.
 
-The current SENA implementation uses `max` and `log-max` options, which are acceptable for visual and exploratory analysis. For publication-grade inferential analysis, the report should explicitly state the chosen normalization and include sensitivity checks over \(\alpha,\beta,\gamma\).
+The current SENA implementation supports `max`, `frobenius`, and `log1p-max`, retains `log-max` as a compatibility alias, and treats `none` as exploratory rather than admissible normalization. For publication-grade inferential analysis, the report should explicitly state the chosen normalization and include sensitivity checks over \(\alpha,\beta,\gamma\).
 
 ## 5. Directed and Temporal Extensions
 
-If the social layer is directed, then \(S\ne S^\top\), and \(A_{\mathrm{fusion}}\) is not symmetric. This is still a valid directed heterogeneous adjacency matrix, but undirected Laplacian claims no longer apply without symmetrization or a directed graph Laplacian.
+If the social layer is directed, \(S\ne S^\top\). If independently estimated bridge evidence is active, \(B^{CP}\ne(B^{PC})^\top\). Either condition makes \(A_{\mathrm{fusion}}\) a directed heterogeneous adjacency matrix, so undirected Laplacian claims no longer apply without declared symmetrization or a directed graph Laplacian.
 
-A directed bridge can be represented more generally as:
+The executable directed bridge contract is:
 
 ```math
-A_{\mathrm{directed}}=
+A_{\mathrm{fusion}}=
 \begin{bmatrix}
-\alpha \widehat S & \gamma_{\mathrm{out}}\widehat B^{PC}\\
-\gamma_{\mathrm{in}}\widehat B^{CP} & \beta \widehat W
+\alpha \widehat S & \gamma\widehat B^{PC}\\
+\gamma\widehat B^{CP} & \beta \widehat W
 \end{bmatrix},
 ```
 
-where \(B^{PC}\) means person-to-code activation and \(B^{CP}\) means code-to-person attribution, feedback, recommendation, or uptake.
+where \(B^{PC}\) means person-to-code activation and \(B^{CP}\) means code-to-person target, uptake, feedback, or recommendation evidence. Runtime provenance must report either `pc-cp-independent` or `pc-transpose-fallback`.
 
 For temporal SENA, define
 
 ```math
 A_{\mathrm{fusion}}(t)=
 \begin{bmatrix}
-\alpha \widehat S(t) & \gamma \widehat B(t)\\
-\gamma \widehat B(t)^\top & \beta \widehat W(t)
+\alpha \widehat S(t) & \gamma \widehat B^{PC}(t)\\
+\gamma \widehat B^{CP}(t) & \beta \widehat W(t)
 \end{bmatrix}.
 ```
 
@@ -225,7 +234,7 @@ It is not correct if SENA first builds a joint heterogeneous adjacency matrix an
 
 ## 7. Person-Code-Pair Extension
 
-The matrix \(B_{ia}\) answers: which person contributed to which code?
+The matrix \(B^{PC}_{ia}\) answers: which person contributed to which code? The matrix \(B^{CP}_{ai}\) separately records which target person was linked to that coded evidence when such direction is explicitly observed.
 
 But ENA edges are code pairs. Therefore, for the stronger question "who contributed to the Evidence-Explanation link?", define
 
@@ -239,9 +248,10 @@ A common estimator is:
 G_{i,ab}=\sum_{t=1}^{q} Y_{it}X_{ta}X_{tb}.
 ```
 
-This does not replace \(B\). Instead:
+This does not replace the bridge blocks. Instead:
 
-- \(B\) supports person-code bridge visualization.
+- \(B^{PC}\) supports person-to-code bridge visualization and retains the `B` compatibility alias.
+- \(B^{CP}\) supports code-to-person direction when target-person evidence is present, otherwise it is the declared transpose fallback.
 - \(G\) supports person-code-pair attribution.
 - \(W\) supports code-code epistemic connection strength.
 
@@ -273,21 +283,22 @@ So the novelty claim should be calibrated as follows:
 
 The formula is mathematically reasonable only under explicit assumptions. It can fail or be overinterpreted in the following cases:
 
-1. Layer-scale failure: if \(S,W,B\) are not normalized, one layer dominates centrality, layout, and clustering.
+1. Layer-scale failure: if \(S,W,B^{PC},B^{CP}\) are not normalized, one layer dominates centrality, layout, and clustering.
 2. Semantic mixing failure: if social ties count one kind of event and codes count another incompatible unit, bridge interpretation becomes weak.
 3. Projection confusion: if an explanatory display is presented as a statistically valid joint latent space.
 4. Directionality confusion: if directed interactions are symmetrized without theoretical justification.
-5. Coding unreliability: if code assignments are unstable, \(W\), \(B\), and \(G\) inherit that instability.
-6. Degree-volume confounding: highly talkative learners can dominate \(B\) and \(G\) unless contribution volume is controlled.
-7. Causal overclaiming: \(A_{\mathrm{fusion}}\) represents observed relational structure, not causality.
-8. Null-model absence: group or temporal differences are descriptive until tested against appropriate null models.
+5. Bridge-provenance confusion: if transpose fallback is presented as independently observed \(B^{CP}\) evidence.
+6. Coding unreliability: if code assignments are unstable, \(W\), the bridge blocks, and \(G\) inherit that instability.
+7. Degree-volume confounding: highly talkative learners can dominate \(B^{PC}\) and \(G\) unless contribution volume is controlled.
+8. Causal overclaiming: \(A_{\mathrm{fusion}}\) represents observed relational structure, not causality.
+9. Null-model absence: group or temporal differences are descriptive until tested against appropriate null models.
 
 ## 10. Recommended Statistical Validation
 
 For a publishable SENA method, report at least:
 
 1. Data contract: persons, windows/stanzas, interactions, coded segments, and codebook.
-2. Matrix definitions: exact formulas for \(S\), \(W\), \(B\), and \(G\).
+2. Matrix definitions: exact formulas for \(S\), \(W\), \(B^{PC}\), \(B^{CP}\), and \(G\), including whether the CP block is independent or transpose fallback.
 3. Normalization: max, log-max, Frobenius, row-stochastic, or other stated choice.
 4. Weight sensitivity: results across meaningful \((\alpha,\beta,\gamma)\) settings.
 5. Embedding method: force layout, spectral embedding, MDS, matrix factorization, or ENA-space overlay, with interpretation limits.
@@ -301,7 +312,7 @@ Potential null models include:
 - Shuffle social ties while preserving degree or weighted degree distribution.
 - Shuffle stanza membership while preserving turn order bands.
 - Permute group labels for group-difference testing.
-- Bootstrap windows/stanzas for confidence intervals around \(S,W,B,G\) summaries.
+- Bootstrap windows/stanzas for confidence intervals around \(S,W,B^{PC},B^{CP},G\) summaries.
 
 ## 11. Verdict
 
@@ -310,16 +321,16 @@ The SENA fusion formula is mathematically reasonable as a normalized weighted he
 ```math
 A_{\mathrm{fusion}} =
 \begin{bmatrix}
-\alpha \widehat S & \gamma \widehat B \\
-\gamma \widehat B^\top & \beta \widehat W
+\alpha \widehat S & \gamma \widehat B^{PC} \\
+\gamma \widehat B^{CP} & \beta \widehat W
 \end{bmatrix}.
 ```
 
-Its strongest formal interpretation is not "SNA and ENA drawn on one picture" but:
+The transpose-only model is recovered when \(B^{CP}=(B^{PC})^\top\); independent target-person evidence activates the directed extension. Its strongest formal interpretation is not "SNA and ENA drawn on one picture" but:
 
 > a typed supra-adjacency matrix for a social-epistemic nexus graph.
 
-Under symmetry and nonnegativity assumptions, it supports standard undirected graph analysis through adjacency and Laplacian machinery. Under directed assumptions, it remains a valid directed heterogeneous graph but requires directed-network methods. It becomes a rigorous research method only when the construction of \(S,W,B,G\), normalization, embedding, statistical testing, and evidence traceability are all specified.
+Under symmetry and nonnegativity assumptions, it supports standard undirected graph analysis through adjacency and Laplacian machinery. Under directed assumptions, it remains a valid directed heterogeneous graph but requires directed-network methods. It becomes a rigorous research method only when the construction of \(S,W,B^{PC},B^{CP},G\), normalization, embedding, statistical testing, and evidence traceability are all specified.
 
 ## 12. Sources Checked
 

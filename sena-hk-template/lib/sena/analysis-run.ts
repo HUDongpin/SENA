@@ -110,7 +110,7 @@ export function buildSenaAnalysisProvenanceEnvelope(
     alpha: model.options.alpha,
     beta: model.options.beta,
     gamma: model.options.gamma,
-    direction: model.options.direction,
+    direction: diagnostics.direction.fusionMode,
     deg_convention: diagnostics.degreeConvention,
     operator_conventions: SENA_GRAPH_OPERATOR_CONVENTIONS,
     Phi: mds.available ? model.options.Phi : "layout_only",

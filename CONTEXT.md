@@ -9,9 +9,11 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 - SENA: Social Epistemic Network Analysis, the project-level method and workbench.
 - S: the person-person social layer.
 - W: the code-code epistemic layer, preserving ENA-style concept co-occurrence semantics.
-- B: the person-code bridge layer.
+- B / B_PC: the person-to-code bridge layer; `B` is the compatibility alias retained in existing artifacts.
+- B_CP: the code-to-person bridge layer. It is independently estimated from declared target-person evidence when available and otherwise falls back to `B_PC` transpose.
 - G: the person-code-pair contribution layer used to explain who contributed to concept-pair evidence.
-- A_fusion: the normalized typed supra-adjacency built from alpha*S, beta*W, and gamma*B blocks.
+- A_fusion: the normalized typed supra-adjacency `[alpha*S gamma*B_PC; gamma*B_CP beta*W]`. Independent `B_CP` evidence makes it directed even when `S` and `W` are symmetric.
+- Directed bridge contract: `docs/adr/0005-directed-bridge-contract.md`, which fixes the evidence trigger, transpose fallback, dimensions, and direction guardrails.
 - Runtime bundle: the schema-versioned handoff artifact that carries runtime provenance, matrices, reports, audits, temporal traces, and evidence.
 - Review packet: the reviewer-facing package that embeds the runtime bundle plus report, visual grammar, readiness gates, and export manifest.
 - Temporal Fusion Arc: the preferred temporal trace story view, organized as Plan -> Teach -> Reflect.
@@ -38,7 +40,7 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 
 ## Guardrails
 
-- Do not silently change S, W, B, G, A_fusion, normalization, temporal window semantics, or visual direction.
+- Do not silently change S, W, B/B_PC, B_CP, G, A_fusion, bridge-direction fallback, normalization, temporal window semantics, or visual direction.
 - Keep v1 schemaVersion strings, artifact file names, API response shapes, and export formats stable unless an explicit migration is planned.
 - Keep claims exploratory-only unless method, data governance, runtime consistency, coding reliability, validation, and human review gates pass.
 - Preserve `data-testid="sena-fusion-canvas"` and `data-testid="temporal-fusion-arc"` for production page and browser smoke contracts.

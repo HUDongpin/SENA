@@ -1961,6 +1961,7 @@ export type SenaOperatorDiagnostics = {
   };
   direction: {
     socialMode: "directed" | "undirected";
+    fusionMode: "directed" | "undirected";
     socialSymmetrized: boolean;
     directedInputPreserved: boolean;
     bridgeMode: "pc-transpose-fallback" | "pc-cp-independent";

@@ -21,11 +21,11 @@
 \newcommand{\Af}{A_{\mathrm{fusion}}}
 \newcommand{\Smat}{S}
 \newcommand{\Wmat}{W}
-\newcommand{\Bmat}{B}
 \newcommand{\Gmat}{G}
 \newcommand{\Shat}{\widehat S}
 \newcommand{\What}{\widehat W}
-\newcommand{\Bhat}{\widehat B}
+\newcommand{\Bpchat}{\widehat B^{PC}}
+\newcommand{\Bcphat}{\widehat B^{CP}}
 \newcommand{\diag}{\operatorname{diag}}
 \newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
 
@@ -33,7 +33,7 @@
 A Typed Supra-Adjacency Model for Social-Epistemic Network Analysis}
 
 \author{Draft mathematical note for the SENA project}
-\date{June 8, 2026}
+\date{June 8, 2026; directed bridge contract revised July 10, 2026}
 
 \begin{document}
 
@@ -42,9 +42,9 @@ A Typed Supra-Adjacency Model for Social-Epistemic Network Analysis}
 \begin{abstract}
 Social Network Analysis (SNA) represents relations among persons, while
 Epistemic Network Analysis (ENA) represents relations among coded epistemic
-elements. The proposed SENA fusion formula combines a person-person social
-matrix, a code-code epistemic co-occurrence matrix, and a person-code bridge
-matrix into one block matrix. This paper gives a formal mathematical analysis
+elements. The SENA fusion formula combines a person-person social matrix, a
+code-code epistemic co-occurrence matrix, and typed person-to-code and
+code-to-person bridge matrices into one block matrix. This paper gives a formal mathematical analysis
 of that formula. We show that, under explicit dimensional, nonnegativity,
 symmetry, and normalization assumptions, the SENA fusion matrix is a valid
 weighted typed adjacency matrix on a heterogeneous social-epistemic graph. We
@@ -88,13 +88,17 @@ The proposed SENA formula is
 \label{eq:fusion}
 \Af =
 \begin{bmatrix}
-\alpha \Shat & \gamma \Bhat \\
-\gamma \Bhat^\top & \beta \What
+\alpha \Shat & \gamma \Bpchat \\
+\gamma \Bcphat & \beta \What
 \end{bmatrix},
 \end{equation}
 where \(\Shat\) is a normalized social matrix, \(\What\) is a normalized
-epistemic co-occurrence matrix, \(\Bhat\) is a normalized person-code bridge
-matrix, and \(\alpha,\beta,\gamma\ge 0\) are layer weights.
+epistemic co-occurrence matrix, \(\Bpchat\) is a normalized person-to-code
+bridge, \(\Bcphat\) is a normalized code-to-person bridge, and
+\(\alpha,\beta,\gamma\ge 0\) are layer weights. The implementation retains
+\(B\) as a compatibility alias for \(B^{PC}\). Without independent
+code-to-person evidence, \(B^{CP}=(B^{PC})^\top\); otherwise the bridge blocks
+are estimated independently and the fusion matrix is directed.
 
 This paper analyzes the fusion matrix as a mathematical object. The
 central claim is:
@@ -123,7 +127,8 @@ learning roles, discourse, group differences, and performance
 integrated analytic strategy rather than the specific block object represented
 by the SENA fusion matrix. Conversely, multilayer and heterogeneous-network
 theory make this block construction mathematically unsurprising, but they do
-not supply the learning-analytics semantics of \(S\), \(W\), \(B\), and \(G\).
+not supply the learning-analytics semantics of \(S\), \(W\), \(B^{PC}\),
+\(B^{CP}\), and \(G\).
 
 Consequently, a calibrated novelty claim is required. SENA does not invent
 block matrices or multilayer graphs. Its contribution is the domain-specific
@@ -162,18 +167,24 @@ co-occurrence construction, \(W_{ab}=W_{ba}\) and diagonal entries are either
 zero or treated separately as code frequencies.
 \end{definition}
 
-\begin{definition}[Bridge layer]
-The bridge layer is a matrix
+\begin{definition}[Typed bridge layers]
+The person-to-code bridge is
 \[
-\Bmat\in \Rnn^{n\times m},
+B^{PC}\in \Rnn^{n\times m},
 \]
-where \(B_{ia}\) denotes the contribution, use, or activation strength of code
-\(c_a\) by person \(p_i\).
+where \(B^{PC}_{ia}\) denotes the contribution, use, or activation strength of
+code \(c_a\) by person \(p_i\). The code-to-person bridge is
+\[
+B^{CP}\in \Rnn^{m\times n},
+\]
+where \(B^{CP}_{ai}\) denotes explicit target, uptake, feedback, or
+recommendation evidence from code \(c_a\) toward person \(p_i\). The symbol
+\(B\) remains a compatibility alias for \(B^{PC}\).
 \end{definition}
 
 \begin{definition}[Layer normalization]
 A layer normalization is a map \(N_L:M_L\mapsto \widehat M_L\) applied
-separately to \(L\in\{S,W,B\}\). Examples include
+separately to \(L\in\{S,W,B^{PC},B^{CP}\}\). Examples include
 \[
 \widehat M=\frac{M}{\max_{uv}|M_{uv}|},\qquad
 \widehat M=\frac{\log(1+M)}{\max_{uv}\log(1+M_{uv})},\qquad
@@ -199,27 +210,34 @@ S_{ij}=R_{ij} \quad\text{or}\quad S_{ij}=R_{ij}+R_{ji}.
 W_{ab}=\sum_{t=1}^q X_{ta}X_{tb}, \quad a\ne b.
 \end{equation}
 \begin{equation}
-B_{ia}=\sum_{t=1}^q Y_{it}X_{ta}.
+B^{PC}_{ia}=\sum_{t=1}^q Y_{it}X_{ta}.
 \end{equation}
 The second equation is an ENA-style code co-occurrence object before
 dimensional reduction. The third equation is an affiliation or contribution
-object connecting persons to codes.
+object connecting persons to codes. For coded segment \(r\) with code weight
+\(x_{ra}\) and explicitly declared target-person set \(T(r)\), the independent
+reverse bridge is estimated by
+\begin{equation}
+B^{CP}_{ai}=\sum_r x_{ra}\mathbf 1\{p_i\in T(r)\}.
+\end{equation}
+When no valid target-person evidence exists, the contract requires the fallback
+\(B^{CP}=(B^{PC})^\top\).
 
 \section{Assumptions}
 
 \begin{assumption}[Dimensional compatibility]
 \(\Smat\in\R^{n\times n}\), \(\Wmat\in\R^{m\times m}\), and
-\(\Bmat\in\R^{n\times m}\).
+\(B^{PC}\in\R^{n\times m}\), \(B^{CP}\in\R^{m\times n}\).
 \end{assumption}
 
 \begin{assumption}[Nonnegativity]
-\(\Smat,\Wmat,\Bmat\) have nonnegative entries and
+\(\Smat,\Wmat,B^{PC},B^{CP}\) have nonnegative entries and
 \(\alpha,\beta,\gamma\ge 0\).
 \end{assumption}
 
 \begin{assumption}[Undirected baseline]
 For the undirected SENA baseline, \(\Smat=\Smat^\top\) and
-\(\Wmat=\Wmat^\top\).
+\(\Wmat=\Wmat^\top\), and \(B^{CP}=(B^{PC})^\top\).
 \end{assumption}
 
 \begin{assumption}[Explicit normalization]
@@ -258,17 +276,18 @@ For symmetry,
 \[
 \Af^\top =
 \begin{bmatrix}
-(\alpha\Shat)^\top & (\gamma\Bhat^\top)^\top\\
-(\gamma\Bhat)^\top & (\beta\What)^\top
+(\alpha\Shat)^\top & (\gamma\Bcphat)^\top\\
+(\gamma\Bpchat)^\top & (\beta\What)^\top
 \end{bmatrix}
 =
 \begin{bmatrix}
-\alpha\Shat & \gamma\Bhat\\
-\gamma\Bhat^\top & \beta\What
+\alpha\Shat & \gamma\Bpchat\\
+\gamma\Bcphat & \beta\What
 \end{bmatrix}
 =\Af,
 \]
-because \(\Shat=\Shat^\top\) and \(\What=\What^\top\). The block locations
+because \(\Shat=\Shat^\top\), \(\What=\What^\top\), and
+\(\Bcphat=\Bpchat^\top\). The block locations
 define three edge types: person-person, code-code, and person-code. Hence
 \(\Af\) is the adjacency matrix of a weighted undirected heterogeneous graph.
 \end{proof}
@@ -299,7 +318,7 @@ The SENA formula has the following mathematically coherent limits:
 \begin{enumerate}[label=(\roman*)]
 \item If \(\gamma=0\), the social and epistemic layers are disconnected.
 \item If \(\alpha=\beta=0\), the graph is a pure person-code bipartite graph.
-\item If \(B=0\), the formula reduces to a disconnected social block and
+\item If \(B^{PC}=B^{CP}=0\), the formula reduces to a disconnected social block and
 epistemic block.
 \item If \(\alpha=0\), person-person social edges are suppressed.
 \item If \(\beta=0\), code-code epistemic edges are suppressed.
@@ -335,7 +354,8 @@ model.
 
 \section{Person-Code-Pair Attribution}
 
-The bridge matrix \(B\) answers which person contributed to which code. ENA
+The bridge matrix \(B^{PC}\) answers which person contributed to which code;
+\(B^{CP}\) records explicit code-to-target-person direction when observed. ENA
 edges, however, are code-code relations. To attribute an ENA edge to persons,
 define a person-code-pair tensor or matrix
 \[
@@ -345,32 +365,31 @@ A compatible estimator is
 \[
 G_{i,ab}=\sum_{t=1}^q Y_{it}X_{ta}X_{tb}.
 \]
-Thus \(B\) is appropriate for person-code bridge visualization, while \(G\) is
-more appropriate for claims such as ``person \(i\) supported the
+Thus \(B^{PC}\) is appropriate for person-to-code bridge visualization,
+\(B^{CP}\) for evidence-backed reverse direction, and \(G\) for claims such as ``person \(i\) supported the
 Evidence-Explanation connection.'' The current SENA implementation includes
 such a \(G\) block for reporting person-code-pair contribution.
 
 \section{Normalization and Identifiability}
 
 The layer weights \(\alpha,\beta,\gamma\) are interpretable only relative to
-the normalization. If \(S,W,B\) are rescaled arbitrarily, then the same visual
-or graph-theoretic output can be produced by compensating changes in
-\(\alpha,\beta,\gamma\). Thus the parameters are not intrinsically identifiable
-without a normalization convention.
+the normalization. If \(S,W,B^{PC},B^{CP}\) are rescaled arbitrarily, raw block
+magnitudes change their relative influence. The shared \(\gamma\) cannot
+compensate arbitrary independent rescaling of the two bridge directions. Thus
+the parameters are not intrinsically identifiable without a normalization
+convention.
 
-\begin{proposition}[Scale dependence]
-Let \(c_S,c_W,c_B>0\). Replacing \(S,W,B\) by \(c_SS,c_WW,c_BB\) and replacing
-\[
-\alpha,\beta,\gamma
-\quad\text{by}\quad
-\alpha/c_S,\ \beta/c_W,\ \gamma/c_B
-\]
-leaves \(\Af\) unchanged.
+\begin{proposition}[Scale behavior under declared normalization]
+For max or Frobenius normalization applied separately to
+\(S,W,B^{PC},B^{CP}\), multiplying any raw block by a positive scalar leaves
+its normalized block, and therefore \(\Af\), unchanged. Log1p-max normalization
+does not have this global scale invariance and must be reported as such.
 \end{proposition}
 
 \begin{proof}
-Substitute the rescaled matrices and rescaled weights into
-the fusion matrix. Each block is unchanged.
+For a positively homogeneous norm or maximum, \(N(cM)=cM/(c\,d(M))=N(M)\)
+for \(c>0\), where \(d\) is the corresponding divisor. The log1p transform is
+not positively homogeneous, so the same cancellation does not hold.
 \end{proof}
 
 \begin{corollary}
@@ -380,27 +399,30 @@ interpreting \(\alpha,\beta,\gamma\).
 
 \section{Directed and Temporal Extensions}
 
-If \(S\ne S^\top\), then the same block construction defines a directed
-heterogeneous graph rather than an undirected one. The Laplacian result above
-does not apply without additional directed-graph choices or symmetrization.
+If \(S\ne S^\top\), or if \(B^{CP}\ne(B^{PC})^\top\), then the same block
+construction defines a directed heterogeneous graph rather than an undirected
+one. The Laplacian result above does not apply without additional directed-graph
+choices or declared symmetrization.
 
-A more general directed bridge model is
+The executable directed bridge contract is
 \[
-A_{\mathrm{directed}}=
+\Af=
 \begin{bmatrix}
-\alpha\Shat & \gamma_{\mathrm{out}}\widehat B^{PC}\\
-\gamma_{\mathrm{in}}\widehat B^{CP} & \beta\What
+\alpha\Shat & \gamma\Bpchat\\
+\gamma\Bcphat & \beta\What
 \end{bmatrix},
 \]
 where \(B^{PC}\) represents person-to-code activation and \(B^{CP}\) represents
-code-to-person uptake, attribution, feedback, or recommendation.
+code-to-person target, uptake, feedback, or recommendation evidence. Runtime
+provenance must identify \texttt{pc-cp-independent} or
+\texttt{pc-transpose-fallback}.
 
 For temporal analysis, define
 \[
 \Af(t)=
 \begin{bmatrix}
-\alpha\widehat S(t) & \gamma\widehat B(t)\\
-\gamma\widehat B(t)^\top & \beta\widehat W(t)
+\alpha\widehat S(t) & \gamma\widehat B^{PC}(t)\\
+\gamma\widehat B^{CP}(t) & \beta\widehat W(t)
 \end{bmatrix}.
 \]
 Then temporal change can be studied using
@@ -420,15 +442,21 @@ estimated from \(\Af\).
 \end{example}
 
 \begin{example}[Layer dominance]
-If \(S\) contains counts in the hundreds while \(W\) and \(B\) contain binary
+If \(S\) contains counts in the hundreds while \(W\) and the bridge blocks contain binary
 values, then centrality or layout on the unnormalized matrix is dominated by
 the social layer. This is a scale artifact, not a substantive social-epistemic
 finding.
 \end{example}
 
 \begin{example}[Coding unreliability]
-If code assignments are unstable, then \(W\), \(B\), and \(G\) inherit that
+If code assignments are unstable, then \(W\), the bridge blocks, and \(G\) inherit that
 instability. A formally valid matrix can still be empirically unreliable.
+\end{example}
+
+\begin{example}[Bridge provenance error]
+If the transpose fallback is reported as independently observed \(B^{CP}\)
+evidence, the model overstates directionality. Every report must disclose the
+active bridge mode.
 \end{example}
 
 \section{Statistical Validation Framework}
@@ -437,7 +465,8 @@ A publication-grade SENA study should report:
 \begin{enumerate}
 \item the data contract: persons, interactions, windows/stanzas, coded
 segments, and codebook;
-\item exact formulas for \(S,W,B\), and, if used, \(G\);
+\item exact formulas for \(S,W,B^{PC},B^{CP}\), and, if used, \(G\), including
+whether \(B^{CP}\) is independent or the transpose fallback;
 \item the normalization rule;
 \item sensitivity analyses over \((\alpha,\beta,\gamma)\);
 \item the embedding operator \(\Phi\), including random seed if stochastic;
@@ -488,12 +517,14 @@ conditions, the SENA fusion matrix
 \[
 \Af =
 \begin{bmatrix}
-\alpha\Shat & \gamma\Bhat\\
-\gamma\Bhat^\top & \beta\What
+\alpha\Shat & \gamma\Bpchat\\
+\gamma\Bcphat & \beta\What
 \end{bmatrix}
 \]
 is a valid weighted typed adjacency matrix. Its graph Laplacian is positive
-semidefinite in the undirected case, boundary cases reduce to recognizable SNA,
+semidefinite when \(S\) and \(W\) are symmetric and
+\(B^{CP}=(B^{PC})^\top\). Independent target-person evidence activates the
+directed bridge extension. Boundary cases reduce to recognizable SNA,
 ENA, and bipartite submodels, and joint embeddings are mathematically
 permissible when they are computed from \(\Af\) itself. The formula becomes a
 rigorous research method only when matrix construction, normalization,
