@@ -8,7 +8,7 @@ import { Card, SectionHeading } from "./Primitives";
 const gallery = [
   { title: "ENA network graphs", icon: CircleDot, type: "network" },
   { title: "SNA actor graphs", icon: UsersRound, type: "actors" },
-  { title: "SENA overlay graphs", icon: Blocks, type: "overlay" },
+  { title: "SENA typed fusion graphs", icon: Blocks, type: "fusion" },
   { title: "Group A vs Group B difference networks", icon: GitCompare, type: "difference" },
   { title: "Temporal trajectory plots", icon: Route, type: "trajectory" },
   { title: "Role dashboards", icon: Activity, type: "bars" },

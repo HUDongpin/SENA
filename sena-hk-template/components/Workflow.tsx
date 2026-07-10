@@ -49,9 +49,9 @@ const modules = [
   {
     title: "SENA Fusion Lab",
     icon: Boxes,
-    description: "Overlay social ties and epistemic positions to generate social-epistemic role and community profiles.",
-    inputs: "ENA outputs + SNA outputs",
-    outputs: "SENA maps, role profiles, community signatures"
+    description: "Assemble a typed social-epistemic graph from S, W, and B layers with declared weights and normalization.",
+    inputs: "R interactions, X coded discourse, Y participation",
+    outputs: "A_fusion evidence, typed roles, model-carded figures"
   },
   {
     title: "Group Comparison",

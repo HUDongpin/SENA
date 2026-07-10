@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { runEnaRequest } from "@/lib/ena/server";
 import { EnaInputError, type EnaRunRequest } from "@/lib/ena/types";
-import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "ena-run" }, async () => {
+    await requireApiSessionForMutation(request);
     try {
       const body = (await request.json()) as EnaRunRequest;
       const result = runEnaRequest(body, "api");

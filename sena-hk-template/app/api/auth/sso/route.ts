@@ -1,7 +1,8 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseIdentityProductionEvidence
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence,
+  type SenaEnterpriseIdentityProductionEvidence
 } from "@/lib/sena/enterprise/identity-production-evidence";
 import {
   createEnterpriseSsoAuthorizationAsync,
@@ -36,7 +37,7 @@ function requestOrigin(request: Request) {
 }
 
 function ssoProductionGateHeaders(
-  evidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
+  evidence: SenaEnterpriseIdentityProductionEvidence
 ): Record<string, string> {
   return {
     "x-sena-sso-production-gate": evidence.status,
@@ -53,7 +54,7 @@ function ssoProductionGateHeaders(
 }
 
 function identityProductionGateSummary(
-  evidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
+  evidence: SenaEnterpriseIdentityProductionEvidence
 ) {
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary,
@@ -94,7 +95,9 @@ export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const url = new URL(request.url);
     if (url.searchParams.get("status") === "1") {
-      const identityEvidence = getEnterpriseIdentityProductionEvidence();
+      // Serverless-safe: the async variant reads the primary Postgres state
+      // (or the non-persisting file fallback) instead of the sync file store.
+      const identityEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence();
       if (url.searchParams.get("preflight") === "1") {
         await enforceAuthRateLimitAsync(request, {
           bucket: "auth.sso.preflight",

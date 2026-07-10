@@ -5,10 +5,42 @@ import { useLanguage } from "./LanguageProvider";
 import { SenaLogo } from "./SenaLogo";
 
 const columns = [
-  { title: "Product", links: ["Platform", "Workspace", "Demo", "Enterprise"] },
-  { title: "Method", links: ["SENA Framework", "SNA", "ENA", "SENS"] },
-  { title: "Resources", links: ["Docs", "API", "Citation Guide", "Research Cases"] },
-  { title: "Legal", links: ["Privacy", "Terms", "Security", "Responsible AI"] }
+  {
+    title: "Product",
+    links: [
+      { label: "Platform", href: "/#platform" },
+      { label: "Workspace", href: "/workspace/sena" },
+      { label: "Demo", href: "/demo" },
+      { label: "Enterprise", href: "/platform" }
+    ]
+  },
+  {
+    title: "Method",
+    links: [
+      { label: "SENA Framework", href: "/method" },
+      { label: "SNA", href: "/method" },
+      { label: "ENA", href: "/workspace/ena" },
+      { label: "SENS", href: "/method" }
+    ]
+  },
+  {
+    title: "Resources",
+    links: [
+      { label: "Docs", href: "/docs" },
+      { label: "API", href: "/api/sena/docs" },
+      { label: "Citation Guide", href: "/docs" },
+      { label: "Research Cases", href: "/#cases" }
+    ]
+  },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy", href: "/privacy" },
+      { label: "Terms", href: "/terms" },
+      { label: "Security", href: "/security" },
+      { label: "Responsible AI", href: "/responsible-ai" }
+    ]
+  }
 ];
 
 export function Footer() {
@@ -31,8 +63,8 @@ export function Footer() {
                 <h3 className="font-black text-foreground">{column.title}</h3>
                 <div className="mt-4 grid gap-3">
                   {column.links.map((link) => (
-                    <Link key={link} href="/#docs" className="text-sm font-semibold text-muted transition hover:text-cyanGlow">
-                      {link}
+                    <Link key={link.label} href={link.href} className="text-sm font-semibold text-muted transition hover:text-cyanGlow">
+                      {link.label}
                     </Link>
                   ))}
                 </div>

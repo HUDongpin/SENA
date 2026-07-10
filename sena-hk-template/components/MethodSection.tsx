@@ -78,9 +78,9 @@ export function MethodSection() {
         <Card className="relative overflow-hidden rounded-[2.5rem] p-6 lg:p-8">
           <div className="absolute inset-0 bg-grid-lines bg-[length:34px_34px] opacity-30" />
           <div className="absolute right-6 top-6 font-mono text-xs leading-6 text-foreground/10">
-            A = [wᵢⱼ] · E = Σ(codeᵢ, codeⱼ)<br />
-            Role = f(centrality, discourse)<br />
-            SENA(t) = SNA(t) ⊕ ENA(t)
+            S = person-person ties<br />
+            W = code-code co-occurrence<br />
+            A_fusion = [alpha*S gamma*B; gamma*B^T beta*W]
           </div>
           <div className="relative z-10">
             <div className="flex items-center gap-3">

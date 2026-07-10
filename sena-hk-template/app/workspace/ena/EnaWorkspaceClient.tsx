@@ -393,9 +393,17 @@ export function EnaWorkspaceClient() {
   }
 
   async function runWithApi() {
+    const csrfResponse = await fetch("/api/auth/csrf");
+    const csrfPayload = await csrfResponse.json();
+    if (!csrfResponse.ok || typeof csrfPayload.token !== "string") {
+      throw new Error(csrfPayload.error ?? "Sign in is required before using the server ENA runtime.");
+    }
     const response = await fetch("/api/ena/run", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-sena-csrf-token": csrfPayload.token
+      },
       body: JSON.stringify(request)
     });
     const payload = await response.json();

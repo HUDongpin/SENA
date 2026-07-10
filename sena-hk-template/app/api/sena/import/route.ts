@@ -1,6 +1,7 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
-import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
+import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "@/lib/sena/analysis-run";
+import { buildSenaStableContentHash } from "@/lib/sena/data-contract-audit";
 import {
   createEnterpriseAnalysisRunWithPostgresMirrorAsync,
   createEnterpriseImportRunWithPostgresMirrorAsync,
@@ -28,6 +29,7 @@ import {
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
 import { importSenaEnterpriseFiles } from "@/lib/sena/import-adapters";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import type { SenaDataset } from "@/lib/sena/types";
 
 export const runtime = "nodejs";
 
@@ -40,14 +42,59 @@ function formBoolean(value: FormDataEntryValue | null) {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
-function formJson(value: FormDataEntryValue | null, fieldName: string) {
+function formJson<T = unknown>(value: FormDataEntryValue | null, fieldName: string): T | undefined {
   const raw = formString(value);
   if (!raw) return undefined;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as T;
   } catch {
     throw new SenaEnterpriseError(`${fieldName} must be valid JSON.`, 400, "invalid_import_form_json");
   }
+}
+
+function hasOpaquePersonIds(dataset: SenaDataset) {
+  return dataset.people.length > 0 && dataset.people.every((person) => /^p-\d+$/i.test(person.id));
+}
+
+function withImportDatasetMetadata(
+  dataset: SenaDataset,
+  dataGovernance: SenaAnalysisRunInput["dataGovernance"] | undefined,
+  generatedAt: string
+): SenaDataset {
+  if (dataset.metadata || !dataGovernance || !hasOpaquePersonIds(dataset)) return dataset;
+  const consentScope = dataGovernance.consentScope?.trim();
+  const retentionPolicy = dataGovernance.retentionPolicy?.trim();
+  const irbApprovalId = dataGovernance.irbApprovalId?.trim();
+  if (!consentScope || !retentionPolicy || !irbApprovalId) return dataset;
+
+  return {
+    ...dataset,
+    metadata: {
+      datasetVersion: `enterprise-import-${buildSenaStableContentHash({
+        people: dataset.people.map((person) => person.id),
+        utterances: dataset.utterances.map((utterance) => utterance.id),
+        codedSegments: dataset.coded_segments.map((segment) => segment.segmentId),
+        codebook: dataset.codebook.map((code) => code.id)
+      })}`,
+      consent: {
+        instrument: irbApprovalId,
+        date: dataGovernance.reviewedAt?.slice(0, 10) || generatedAt.slice(0, 10),
+        scope: consentScope
+      },
+      retention: {
+        policy: retentionPolicy
+      },
+      pseudonymization: {
+        personIdPolicy: "opaque",
+        rosterMapping: "not-stored"
+      },
+      codebook: {
+        id: `enterprise-import-codebook-${buildSenaStableContentHash(dataset.codebook.map((code) => code.id))}`,
+        version: "imported-v1",
+        contentHash: buildSenaStableContentHash(dataset.codebook)
+      }
+    }
+  };
 }
 
 function importResponseHeaders(input: {
@@ -114,9 +161,11 @@ export async function POST(request: Request) {
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
     const action = formString(form.get("action"));
     const shouldCreateProject = action === "create-project" || formBoolean(form.get("persistProject"));
-    const buildOptions = formJson(form.get("buildOptions"), "buildOptions");
+    const buildOptions = formJson<SenaAnalysisRunInput["buildOptions"]>(form.get("buildOptions"), "buildOptions");
     const activeTemporalWindowId = formString(form.get("activeTemporalWindowId")) || undefined;
     const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
+    const codingReliability = formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability");
+    const dataGovernance = formJson<SenaAnalysisRunInput["dataGovernance"]>(form.get("dataGovernance"), "dataGovernance");
 
     if (shouldQueueServerJob(request, { queue: formBoolean(form.get("queue")) })) {
       const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
@@ -144,7 +193,9 @@ export async function POST(request: Request) {
           description: formString(form.get("description")) || undefined,
           buildOptions,
           activeTemporalWindowId,
-          includeRuntimeBundle
+          includeRuntimeBundle,
+          codingReliability,
+          dataGovernance
         },
         payloadSummary: {
           source: "upload",
@@ -183,6 +234,7 @@ export async function POST(request: Request) {
     }
 
     const result = await importSenaEnterpriseFiles(bufferedFiles);
+    const dataset = withImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
     const sourceByName = new Map(result.sources.map((source) => [source.name, source]));
     const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,
@@ -202,11 +254,11 @@ export async function POST(request: Request) {
       uploadIds: uploads.map((upload) => upload.id),
       sources: result.sources,
       warnings: result.warnings,
-      dataset: result.dataset,
+      dataset,
       cleaningManifest: result.cleaningManifest
     });
     if (!shouldCreateProject) {
-      return NextResponse.json({ ...result, uploads, importRun }, {
+      return NextResponse.json({ ...result, dataset, uploads, importRun }, {
         headers: importResponseHeaders({ importRun, cleaningManifest: result.cleaningManifest })
       });
     }
@@ -214,11 +266,13 @@ export async function POST(request: Request) {
     const title = formString(form.get("title")) || `Imported SENA Project ${new Date().toISOString().slice(0, 10)}`;
     const analysisRun = buildSenaAnalysisRun({
       sourceKind: "dataset",
-      dataset: result.dataset,
+      dataset,
       buildOptions,
       title,
       activeTemporalWindowId,
-      includeRuntimeBundle
+      includeRuntimeBundle,
+      codingReliability,
+      dataGovernance
     });
     const persistedProject = await createEnterpriseProjectAsync(context, {
       teamId,
