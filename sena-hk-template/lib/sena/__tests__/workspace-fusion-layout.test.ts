@@ -58,12 +58,11 @@ describe("SENA workspace fusion layout", () => {
   it("defaults the workspace to the declared Joint embedding with a provenance strip", () => {
     const source = readFileSync(join(process.cwd(), "components/sena/workspace/use-sena-fusion-workspace-main-shell-props.ts"), "utf8");
     const staticConfigSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-static-config.tsx"), "utf8");
-    const centralPlotSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-central-plot-deck.tsx"), "utf8");
-    const rightColumnSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-right-inspector-column.tsx"), "utf8");
+    const centralFusionSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx"), "utf8");
     const provenanceSource = readFileSync(join(process.cwd(), "components/sena/workspace/runtime-provenance-panels.tsx"), "utf8");
 
     expect(source).toContain('useState<SenaLayoutMode>("joint")');
-    expect(`${centralPlotSource}\n${rightColumnSource}`).toContain("<JointEmbeddingProvenanceStrip");
+    expect(centralFusionSource).toContain("<JointEmbeddingProvenanceStrip");
     expect(provenanceSource).toContain('data-testid="joint-embedding-provenance-strip"');
     expect(provenanceSource).toContain("MDS + Schoenberg");
     expect(provenanceSource).toContain("Laplacian eigenmaps");

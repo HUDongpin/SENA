@@ -10,6 +10,24 @@ import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SENA_WORKSPACE_API_ROUTES } from "../../../components/sena/workspace/api-client";
 
 describe("SENA browser smoke manifest", () => {
+  it("declares the essential workspace responsive and disclosure smoke contract", () => {
+    expect(SENA_BROWSER_SMOKE_MANIFEST.workspace).toEqual({
+      route: "/workspace/sena",
+      responsiveWidths: [375, 768, 1024, 1440],
+      selectors: {
+        fusionCanvas: "sena-fusion-canvas",
+        primaryPlot: "workspace-primary-plot",
+        secondaryPlot: "workspace-secondary-plot",
+        mobileFigureSwitcher: "workspace-mobile-figure-switcher",
+        mobileFusionTab: "workspace-mobile-figure-fusion",
+        mobileDualTab: "workspace-mobile-figure-dual",
+        researchDetailsDrawer: "workspace-research-details-drawer",
+        researchDetailsToggle: "workspace-research-details-toggle"
+      },
+      defaultClosed: ["workspace-left-panel-overlay", "workspace-research-details-drawer"]
+    });
+  });
+
   it("keeps Temporal Fusion visual checks covered rather than deferred in the pilot verifier", () => {
     const verifierSource = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
 
@@ -18,6 +36,10 @@ describe("SENA browser smoke manifest", () => {
     expect(verifierSource).toContain("browserSmokeCoveredPlotViewVisualCheckIds");
     expect(verifierSource).toContain("\"temporal-fusion-arc\"");
     expect(verifierSource).toContain("\"temporal-transition-evidence\"");
+    expect(verifierSource).toContain("\"workspace-mobile-figure-switcher\"");
+    expect(verifierSource).toContain("\"workspace-mobile-figure-fusion\"");
+    expect(verifierSource).toContain("\"workspace-mobile-figure-dual\"");
+    expect(verifierSource).toContain("\"workspace-research-details-drawer\"");
     expect(verifierSource).toContain("verifyInteractiveVisualCheckCoverage");
   });
 

@@ -19,6 +19,12 @@ const smokePortStart = parsePortStart(process.env.SENA_VERIFY_SMOKE_PORT ?? "310
 const productionPageContract = readJson("lib/sena/production-page-contract.json");
 const provisioningSmokeToken = "sena-pilot-provisioning-token";
 const browserSmokeCoveredPlotViewVisualCheckIds = new Set([
+  "workspace-mobile-figure-switcher",
+  "workspace-mobile-figure-fusion",
+  "workspace-mobile-figure-dual",
+  "workspace-research-details-toggle",
+  "workspace-research-details-drawer",
+  "workspace-research-details-tabs",
   "temporal-fusion-arc",
   "temporal-window-fingerprint",
   "temporal-window-fingerprint-role",

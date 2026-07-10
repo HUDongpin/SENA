@@ -2008,8 +2008,10 @@ describe("SENA workspace module boundaries", () => {
     const runtimePanelPath = new URL("../../../components/sena/workspace/enterprise-runtime-panel.tsx", import.meta.url);
     const runtimeSectionPath = new URL("../../../components/sena/workspace/workspace-enterprise-runtime-section.tsx", import.meta.url);
     const leftRailPanelPath = new URL("../../../components/sena/workspace/workspace-left-rail-panel-section.tsx", import.meta.url);
+    const reportDeckPath = new URL("../../../components/sena/workspace/workspace-report-and-stats-deck-section.tsx", import.meta.url);
     const workspaceSource = workspaceContainerSource();
     const leftRailSource = existsSync(leftRailPanelPath) ? readFileSync(leftRailPanelPath, "utf8") : "";
+    const reportDeckSource = existsSync(reportDeckPath) ? readFileSync(reportDeckPath, "utf8") : "";
     const boundarySource = readFileSync(new URL("../../../components/sena/workspace/module-boundaries.ts", import.meta.url), "utf8");
     const sectionSource = readFileSync(runtimeSectionPath, "utf8");
 
@@ -2017,7 +2019,8 @@ describe("SENA workspace module boundaries", () => {
     expect(existsSync(runtimeSectionPath)).toBe(true);
     expect(existsSync(leftRailPanelPath)).toBe(true);
     expect(workspaceSource).not.toContain("<WorkspaceEnterpriseRuntimeSection");
-    expect(leftRailSource).toContain("<WorkspaceEnterpriseRuntimeSection");
+    expect(leftRailSource).not.toContain("<WorkspaceEnterpriseRuntimeSection");
+    expect(reportDeckSource).toContain("<WorkspaceEnterpriseRuntimeSection");
     expect(workspaceSource).not.toContain("<EnterpriseRuntimePanel");
     expect(sectionSource).toContain("<EnterpriseRuntimePanel");
     expect(workspaceSource).not.toContain('data-testid="enterprise-runtime-panel" className="grid gap-3 rounded-lg border border-cyanGlow/30 bg-cyanGlow/10 p-3"');
@@ -2030,11 +2033,13 @@ describe("SENA workspace module boundaries", () => {
     const runtimeSectionPath = new URL("../../../components/sena/workspace/workspace-enterprise-runtime-section.tsx", import.meta.url);
     const runtimePropGroupPath = new URL("../../../components/sena/workspace/workspace-enterprise-runtime-prop-group.ts", import.meta.url);
     const leftRailPanelPath = new URL("../../../components/sena/workspace/workspace-left-rail-panel-section.tsx", import.meta.url);
+    const reportDeckPath = new URL("../../../components/sena/workspace/workspace-report-and-stats-deck-section.tsx", import.meta.url);
     const workspaceSource = enterpriseRuntimeCompositionSource();
     const boundarySource = readFileSync(new URL("../../../components/sena/workspace/module-boundaries.ts", import.meta.url), "utf8");
     const sectionSource = existsSync(runtimeSectionPath) ? readFileSync(runtimeSectionPath, "utf8") : "";
     const propGroupSource = existsSync(runtimePropGroupPath) ? readFileSync(runtimePropGroupPath, "utf8") : "";
     const leftRailSource = existsSync(leftRailPanelPath) ? readFileSync(leftRailPanelPath, "utf8") : "";
+    const reportDeckSource = existsSync(reportDeckPath) ? readFileSync(reportDeckPath, "utf8") : "";
     const sectionModule = existsSync(runtimeSectionPath)
       ? await import("../../../components/sena/workspace/workspace-enterprise-runtime-section")
       : null;
@@ -2048,7 +2053,8 @@ describe("SENA workspace module boundaries", () => {
     expect(workspaceSource).toContain("buildWorkspaceEnterpriseRuntimeProps({");
     expect(workspaceSource).toContain("enterpriseRuntimeProps: enterpriseRuntimeSectionProps");
     expect(workspaceSource).not.toContain('} satisfies WorkspaceEnterpriseRuntimeSectionProps["runtimeProps"]');
-    expect(leftRailSource).toContain("<WorkspaceEnterpriseRuntimeSection runtimeProps={enterpriseRuntimeProps} />");
+    expect(leftRailSource).not.toContain("<WorkspaceEnterpriseRuntimeSection");
+    expect(reportDeckSource).toContain("<WorkspaceEnterpriseRuntimeSection runtimeProps={enterpriseRuntimeProps} />");
     expect(workspaceSource).not.toContain("<WorkspaceEnterpriseRuntimeSection\n                  busy=");
     expect(workspaceSource).not.toContain("<EnterpriseRuntimePanel");
     expect(propGroupSource).toContain("export function buildWorkspaceEnterpriseRuntimeProps");
@@ -2658,17 +2664,17 @@ describe("SENA workspace module boundaries", () => {
   it("extracts runtime provenance and handoff evidence panels from the main workspace container", async () => {
     const provenancePanelsPath = new URL("../../../components/sena/workspace/runtime-provenance-panels.tsx", import.meta.url);
     const statsPanelPath = new URL("../../../components/sena/workspace/workspace-stats-panel.tsx", import.meta.url);
-    const rightColumnPath = new URL("../../../components/sena/workspace/workspace-right-inspector-column.tsx", import.meta.url);
+    const centralFusionPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx", import.meta.url);
     const workspaceSource = workspaceContainerSource();
     const statsPanelSource = existsSync(statsPanelPath) ? readFileSync(statsPanelPath, "utf8") : "";
-    const rightColumnSource = existsSync(rightColumnPath) ? readFileSync(rightColumnPath, "utf8") : "";
+    const centralFusionSource = existsSync(centralFusionPath) ? readFileSync(centralFusionPath, "utf8") : "";
     const boundarySource = readFileSync(new URL("../../../components/sena/workspace/module-boundaries.ts", import.meta.url), "utf8");
     const panelModule = existsSync(provenancePanelsPath)
       ? await import("../../../components/sena/workspace/runtime-provenance-panels")
       : null;
 
     expect(existsSync(provenancePanelsPath)).toBe(true);
-    expect(rightColumnSource).toContain("<JointEmbeddingProvenanceStrip");
+    expect(centralFusionSource).toContain("<JointEmbeddingProvenanceStrip");
     expect(statsPanelSource).toContain("<MetricProvenanceSummary");
     expect(statsPanelSource).toContain("<JenaConceptHandoffPanel");
     expect(statsPanelSource).toContain("<JsnaSocialHandoffPanel");
@@ -7372,12 +7378,10 @@ describe("SENA workspace module boundaries", () => {
 
   it("extracts the Fusion Canvas SVG and layout helpers from the main workspace container", async () => {
     const fusionCanvasPath = new URL("../../../components/sena/workspace/fusion-canvas.tsx", import.meta.url);
-    const centralPlotDeckPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck.tsx", import.meta.url);
-    const centralPlotDeckRenderPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck-render.tsx", import.meta.url);
+    const centralFusionPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx", import.meta.url);
     const rightColumnPath = new URL("../../../components/sena/workspace/workspace-right-inspector-column.tsx", import.meta.url);
     const workspaceSource = workspaceContainerSource();
-    const centralPlotDeckSource = existsSync(centralPlotDeckPath) ? readFileSync(centralPlotDeckPath, "utf8") : "";
-    const centralPlotDeckRenderSource = existsSync(centralPlotDeckRenderPath) ? readFileSync(centralPlotDeckRenderPath, "utf8") : "";
+    const centralFusionSource = existsSync(centralFusionPath) ? readFileSync(centralFusionPath, "utf8") : "";
     const rightColumnSource = existsSync(rightColumnPath) ? readFileSync(rightColumnPath, "utf8") : "";
     const boundarySource = readFileSync(new URL("../../../components/sena/workspace/module-boundaries.ts", import.meta.url), "utf8");
     const canvasModule = existsSync(fusionCanvasPath)
@@ -7385,7 +7389,8 @@ describe("SENA workspace module boundaries", () => {
       : null;
 
     expect(existsSync(fusionCanvasPath)).toBe(true);
-    expect(`${centralPlotDeckSource}\n${centralPlotDeckRenderSource}\n${rightColumnSource}`).toContain("<Canvas");
+    expect(centralFusionSource).toContain("<Canvas");
+    expect(rightColumnSource).not.toContain("<Canvas");
     expect(workspaceSource).not.toContain("function Canvas(");
     expect(workspaceSource).not.toContain("function nodeRadius(");
     expect(workspaceSource).not.toContain("function socialArcPath(");
@@ -7424,13 +7429,11 @@ describe("SENA workspace module boundaries", () => {
   it("extracts Fusion layer legend and ranked lists from the main workspace container", async () => {
     const fusionLayerKeyPath = new URL("../../../components/sena/workspace/fusion-layer-key.tsx", import.meta.url);
     const inspectorPanelPath = new URL("../../../components/sena/workspace/inspector-panel.tsx", import.meta.url);
-    const centralPlotDeckPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck.tsx", import.meta.url);
-    const centralPlotDeckRenderPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck-render.tsx", import.meta.url);
+    const centralFusionPath = new URL("../../../components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx", import.meta.url);
     const rightColumnPath = new URL("../../../components/sena/workspace/workspace-right-inspector-column.tsx", import.meta.url);
     const workspaceSource = workspaceContainerSource();
     const inspectorSource = existsSync(inspectorPanelPath) ? readFileSync(inspectorPanelPath, "utf8") : "";
-    const centralPlotDeckSource = existsSync(centralPlotDeckPath) ? readFileSync(centralPlotDeckPath, "utf8") : "";
-    const centralPlotDeckRenderSource = existsSync(centralPlotDeckRenderPath) ? readFileSync(centralPlotDeckRenderPath, "utf8") : "";
+    const centralFusionSource = existsSync(centralFusionPath) ? readFileSync(centralFusionPath, "utf8") : "";
     const rightColumnSource = existsSync(rightColumnPath) ? readFileSync(rightColumnPath, "utf8") : "";
     const boundarySource = readFileSync(new URL("../../../components/sena/workspace/module-boundaries.ts", import.meta.url), "utf8");
     const keyModule = existsSync(fusionLayerKeyPath)
@@ -7438,7 +7441,8 @@ describe("SENA workspace module boundaries", () => {
       : null;
 
     expect(existsSync(fusionLayerKeyPath)).toBe(true);
-    expect(`${centralPlotDeckSource}\n${centralPlotDeckRenderSource}\n${rightColumnSource}`).toContain("<FusionLayerKey");
+    expect(centralFusionSource).toContain("<FusionLayerKey");
+    expect(rightColumnSource).not.toContain("<FusionLayerKey");
     expect(workspaceSource).not.toContain("<RankedList");
     expect(inspectorSource).toContain("<RankedList");
     expect(workspaceSource).not.toContain("function FusionLayerKey(");
@@ -7688,13 +7692,20 @@ describe("SENA workspace module boundaries", () => {
     expect(workspaceSource).not.toContain("<WorkspaceRightInspectorColumn");
     expect(workspaceSource).not.toContain("<WorkspaceReportAndStatsDeckSection");
     expect(mainShellSource).toContain('data-theme="light"');
-    expect(mainShellSource).toContain("xl:grid-cols-[4rem_19rem_minmax(0,1fr)_25rem]");
+    expect(mainShellSource).toContain("xl:grid-cols-[4rem_minmax(0,1fr)]");
+    expect(mainShellSource).toContain("xl:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)]");
+    expect(mainShellSource).toContain('data-testid="workspace-left-panel-overlay"');
+    expect(mainShellSource).toContain('data-testid="workspace-mobile-figure-switcher"');
+    expect(mainShellSource).toContain('data-testid="workspace-mobile-figure-fusion"');
+    expect(mainShellSource).toContain('data-testid="workspace-mobile-figure-dual"');
     expect(mainShellSource).toContain("<FusionPlotMaximizedOverlay");
     expect(mainShellSource).toContain("<WorkspaceRail");
     expect(mainShellSource).toContain("<WorkspaceCentralPlotDeck");
     expect(mainShellSource).toContain("<WorkspaceRightInspectorColumn");
     expect(mainShellSource).toContain("<WorkspaceReportAndStatsDeckSection");
     expect(boundarySource).toContain('"workspace-main-shell-section"');
+    expect(boundaryModule("workspace-main-shell-section" as SenaWorkspaceBoundaryModuleId).role)
+      .toBe("Top-level responsive essential workspace shell for header, overlay task rail, Fusion, Dual Lens or selection context, and Research Details.");
     expect(boundaryModule("workspace-main-shell-section" as SenaWorkspaceBoundaryModuleId).runtimeExports).toMatchObject({
       WorkspaceMainShellSection: mainShellModule?.WorkspaceMainShellSection
     });

@@ -3695,13 +3695,13 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-report-and-stats-deck-section",
       path: "./workspace-report-and-stats-deck-section",
-      role: "Lower workspace deck for Dual Lens, SNA/community/G statistics, evidence lineage, method validation, matrix and temporal evidence, report generation, and handoff links.",
+      role: "Default-closed Research Details overlay for data, analysis, evidence, validation, export, and administration panels.",
       runtimeExports: {
         WorkspaceReportAndStatsDeckSection
       },
       containerResponsibilities: [
-        "render WorkspaceReportAndStatsDeckSection with prepared model, evidence, validation, temporal trace, and report props",
-        "keep lower report, stats, evidence, matrix, temporal, and handoff JSX out of the main workspace container"
+        "render WorkspaceReportAndStatsDeckSection with prepared model, evidence, validation, temporal trace, report, and enterprise runtime props",
+        "keep advanced report, stats, evidence, matrix, temporal, administration, and handoff JSX out of the default workspace flow"
       ]
     },
     {
@@ -3755,13 +3755,13 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-main-shell-section",
       path: "./workspace-main-shell-section",
-      role: "Top-level workspace shell composition for overlay, header, rail, central plot, right inspector, and lower report/stat deck.",
+      role: "Top-level responsive essential workspace shell for header, overlay task rail, Fusion, Dual Lens or selection context, and Research Details.",
       runtimeExports: {
         WorkspaceMainShellSection
       },
       containerResponsibilities: [
-        "render WorkspaceMainShellSection with prepared shell and panel props",
-        "keep top-level grid shell JSX and direct workspace panel composition out of the main workspace container"
+        "render WorkspaceMainShellSection with prepared shell and panel props plus local responsive figure state",
+        "keep top-level responsive grid, task overlay, figure disclosure, and direct workspace panel composition out of the main workspace container"
       ]
     },
     {

@@ -2,6 +2,21 @@ import { SENA_AUTH_PAGE_MANIFEST } from "./auth-page-manifest";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 export const SENA_BROWSER_SMOKE_MANIFEST = {
+  workspace: {
+    route: "/workspace/sena",
+    responsiveWidths: [375, 768, 1024, 1440],
+    selectors: {
+      fusionCanvas: "sena-fusion-canvas",
+      primaryPlot: "workspace-primary-plot",
+      secondaryPlot: "workspace-secondary-plot",
+      mobileFigureSwitcher: "workspace-mobile-figure-switcher",
+      mobileFusionTab: "workspace-mobile-figure-fusion",
+      mobileDualTab: "workspace-mobile-figure-dual",
+      researchDetailsDrawer: "workspace-research-details-drawer",
+      researchDetailsToggle: "workspace-research-details-toggle"
+    },
+    defaultClosed: ["workspace-left-panel-overlay", "workspace-research-details-drawer"]
+  },
   productionVerifier: {
     steps: {
       auth: {

@@ -1885,6 +1885,7 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.workspaceRoute).toBe("/workspace/sena");
     expect(bundle.productionPageContract.sections.map((section) => section.id)).toContain("temporal-fusion");
     expect(bundle.productionPageContract.sections.map((section) => section.id)).toContain("dual-lens");
+    expect(bundle.productionPageContract.sections.map((section) => section.id)).toContain("essential-workbench");
     expect(bundle.productionPageContract.sections.map((section) => section.id)).toContain("method-validation");
     expect(bundle.productionPageContract.sections.map((section) => section.id)).toContain("claim-readiness");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "data-import")?.requiredText).toContain("Package manifest");
@@ -1968,6 +1969,12 @@ describe("SENA model builder", () => {
       "fusion-canvas-svg-anchor",
       "workspace-shell-rail",
       "workspace-shell-rail-role",
+      "workspace-mobile-figure-switcher",
+      "workspace-mobile-figure-fusion",
+      "workspace-mobile-figure-dual",
+      "workspace-research-details-toggle",
+      "workspace-research-details-drawer",
+      "workspace-research-details-tabs",
       "delivery-candidate-plan",
       "delivery-candidate-plan-role",
       "next-stage-development-plan",

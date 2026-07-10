@@ -505,14 +505,13 @@ export function useSenaFusionWorkspaceMainShellProps() {
       };
     });
   }, [pilotReadinessAudit.items, sourceDataContractAudit.status, temporalRuntimeTrace.windows.length, temporalWindows.length]);
-  const defaultSelection = model.summary.strongestBridgeTie?.id ?? model.nodes[0]?.id ?? "";
   const {
     handleCanvasSelect,
     revealedNodeLabelIds,
     selected,
     selectedId,
     setSelectedId
-  } = useFusionCanvasSelectionState({ defaultSelection, model });
+  } = useFusionCanvasSelectionState({ model });
   const visibleFusionEdges = useMemo(
     () => model.edges.filter((edge) => layers[edge.layer] && edge.normalizedWeight >= threshold),
     [layers, model.edges, threshold]
@@ -1737,7 +1736,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onWorkspaceDataViewToggle: () => setIsWorkspaceDataViewOpen((current) => !current),
     jointEmbeddingOperator,
     onJointEmbeddingOperatorChange: setJointEmbeddingOperator,
-    selectedId: selected?.id ?? selectedId,
+    selectedId: selected?.id ?? "",
     revealedLabelIds: revealedNodeLabelIds,
     onCanvasSelect: handleCanvasSelect,
     fusionPlotZoom,
@@ -1799,7 +1798,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
   });
 
   const workspaceMainShellSectionProps = buildWorkspaceFusionOverlayRailMainShellContainerProps({
-    selectedId: selected?.id ?? selectedId,
+    selectedId: selected?.id ?? "",
     revealedLabelIds: revealedNodeLabelIds,
     onSelect: handleCanvasSelect,
     onClose: closeFusionPlotMaximized,

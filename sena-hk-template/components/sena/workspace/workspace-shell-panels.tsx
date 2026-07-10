@@ -97,18 +97,20 @@ export function WorkflowRail({ steps, activeId = "workflow-canvas" }: { steps: W
 export function WorkspaceRail({
   active,
   onChange,
-  items
+  items,
+  panelOpen = false
 }: {
   active: WorkspaceRailMode;
   onChange: (mode: WorkspaceRailMode) => void;
   items: WorkspaceRailItem[];
+  panelOpen?: boolean;
 }) {
   return (
     <nav
       data-testid="sena-workspace-mode-rail"
       data-visual-role="workspace-shell-c3-glass-rail"
       aria-label="SENA workspace modules"
-      className="flex gap-2 overflow-x-auto border-b border-white/10 bg-[#202427] px-3 py-2 xl:flex-col xl:overflow-visible xl:border-b-0 xl:border-r xl:px-2 xl:py-4"
+      className="flex gap-2 overflow-x-auto border-b border-white/10 bg-[#202427] px-3 py-2 xl:h-full xl:flex-col xl:overflow-visible xl:border-b-0 xl:border-r xl:px-2 xl:py-3"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -126,6 +128,8 @@ export function WorkspaceRail({
                 : "border-white/12 bg-white/[0.07] text-slate-300 hover:border-white/25 hover:bg-white/[0.11] hover:text-white"
             )}
             aria-pressed={isActive}
+            aria-expanded={isActive && panelOpen}
+            aria-controls="workspace-left-panel-overlay"
             aria-label={`Open ${item.label} workspace panel`}
           >
             <span className="grid w-full justify-items-center gap-1">

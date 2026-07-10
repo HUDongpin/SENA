@@ -26,36 +26,42 @@ export function CentralFusionPlotViewPanel({
   gamma
 }: CentralFusionPlotViewPanelProps) {
   return (
-    <div
-      data-testid="central-fusion-priority-plot"
-      data-visual-role="fusion-plot-priority-stack"
-      className="mb-5 grid gap-4"
+    <section
+      data-testid="workspace-primary-plot"
+      data-visual-role="workspace-primary-plot"
+      className="grid min-h-0 gap-3"
     >
-      {layout === "joint" && (
-        <JointEmbeddingProvenanceStrip
-          model={model}
-          operator={jointEmbeddingOperator}
-          onOperatorChange={onJointEmbeddingOperatorChange}
-        />
-      )}
       <div
-        data-testid="central-fusion-canvas-frame"
-        data-visual-role="fusion-canvas-current-window-frame"
-        className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+        data-testid="central-fusion-priority-plot"
+        data-visual-role="fusion-plot-priority-stack"
+        className="grid min-h-0 gap-3"
       >
-        <Canvas
-          model={model}
-          layout={layout}
-          jointEmbeddingOperator={jointEmbeddingOperator}
-          enaManifest={enaManifest}
-          layers={layers}
-          threshold={threshold}
-          selectedId={selectedId}
-          revealedLabelIds={revealedLabelIds}
-          onSelect={onCanvasSelect}
-          zoom={fusionPlotZoom}
-          className="h-[34rem]"
-        />
+        {layout === "joint" && (
+          <JointEmbeddingProvenanceStrip
+            model={model}
+            operator={jointEmbeddingOperator}
+            onOperatorChange={onJointEmbeddingOperatorChange}
+          />
+        )}
+        <div
+          data-testid="central-fusion-canvas-frame"
+          data-visual-role="fusion-canvas-current-window-frame"
+          className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+        >
+          <Canvas
+            model={model}
+            layout={layout}
+            jointEmbeddingOperator={jointEmbeddingOperator}
+            enaManifest={enaManifest}
+            layers={layers}
+            threshold={threshold}
+            selectedId={selectedId}
+            revealedLabelIds={revealedLabelIds}
+            onSelect={onCanvasSelect}
+            zoom={fusionPlotZoom}
+            className="h-[min(48dvh,34rem)] min-h-[22rem]"
+          />
+        </div>
       </div>
       <ActivePlotViewToolbar
         active={activePlotView}
@@ -65,6 +71,6 @@ export function CentralFusionPlotViewPanel({
         plotViewOptions={plotViewOptions}
       />
       <FusionLayerKey model={model} layers={layers} threshold={threshold} alpha={alpha} beta={beta} gamma={gamma} />
-    </div>
+    </section>
   );
 }

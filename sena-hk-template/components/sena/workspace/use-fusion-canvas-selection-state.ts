@@ -4,19 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import type { SenaModel } from "./analysis-runtime";
 
 export type FusionCanvasSelectionStateOptions = {
-  defaultSelection: string;
   model: SenaModel;
 };
 
 export function useFusionCanvasSelectionState({
-  defaultSelection,
   model
 }: FusionCanvasSelectionStateOptions) {
-  const [selectedId, setSelectedId] = useState(defaultSelection);
-  const selected = model.edges.find((edge) => edge.id === selectedId) ??
-    model.nodes.find((node) => node.id === selectedId) ??
-    model.edges.find((edge) => edge.id === defaultSelection) ??
-    model.nodes[0];
+  const [selectedId, setSelectedId] = useState("");
+  const selected = selectedId ? model.edges.find((edge) => edge.id === selectedId) ??
+      model.nodes.find((node) => node.id === selectedId)
+    : undefined;
   const graphNodeIds = useMemo(() => new Set(model.nodes.map((node) => node.id)), [model.nodes]);
   const [revealedNodeLabelIds, setRevealedNodeLabelIds] = useState<string[]>([]);
 
@@ -26,6 +23,10 @@ export function useFusionCanvasSelectionState({
       return next.length === current.length ? current : next;
     });
   }, [graphNodeIds]);
+
+  useEffect(() => {
+    if (selectedId && !selected) setSelectedId("");
+  }, [selected, selectedId]);
 
   function handleCanvasSelect(id: string) {
     setSelectedId(id);

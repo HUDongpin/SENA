@@ -25,10 +25,7 @@ import {
   WorkspaceDataImportPanel,
   type WorkspaceDataImportPanelProps
 } from "./workspace-data-import-panel";
-import {
-  WorkspaceEnterpriseRuntimeSection,
-  type WorkspaceEnterpriseRuntimeSectionProps
-} from "./workspace-enterprise-runtime-section";
+import type { WorkspaceEnterpriseRuntimeSectionProps } from "./workspace-enterprise-runtime-section";
 import {
   WorkspaceStatsPanel,
   type WorkspaceStatsPanelProps
@@ -51,7 +48,6 @@ export function WorkspaceLeftRailPanelSection({
   activeRailPanel,
   workspaceRailMode,
   dataImportProps,
-  enterpriseRuntimeProps,
   dataContractAuditProps,
   dataImportFeedbackProps,
   modelBuilderProps,
@@ -71,7 +67,6 @@ export function WorkspaceLeftRailPanelSection({
 
       <div className={cn(workspaceRailMode !== "sets" && "hidden")}>
         <WorkspaceDataImportPanel {...dataImportProps}>
-          <WorkspaceEnterpriseRuntimeSection runtimeProps={enterpriseRuntimeProps} />
           <DataContractAuditPanel {...dataContractAuditProps} />
           <WorkspaceDataImportFeedbackSection {...dataImportFeedbackProps} />
         </WorkspaceDataImportPanel>
