@@ -88,6 +88,28 @@ describe("SENA analyze route", () => {
       expect(response.status).toBe(200);
       const body = await response.json() as {
         schemaVersion?: string;
+        provenanceEnvelope?: {
+          schemaVersion?: string;
+          norm_rule?: string;
+          direction?: string;
+          deg_convention?: string;
+          Phi?: string;
+          delta?: string;
+          d?: number | null;
+          metric_exact?: boolean;
+          operator_conventions?: {
+            self_loops?: string;
+            zero_degree?: string;
+            directed?: string;
+          };
+          dataset_version?: string;
+          dataset_content_hash?: string;
+          codebook_version?: string;
+          model_card?: {
+            schemaVersion?: string;
+            renderGateStatus?: string;
+          };
+        };
         enterpriseAnalysisRun?: {
           id?: string;
           sourceKind?: string;
@@ -104,6 +126,25 @@ describe("SENA analyze route", () => {
         };
       };
       expect(body.schemaVersion).toBe("sena-analysis-run/v1");
+      expect(body.provenanceEnvelope).toEqual(expect.objectContaining({
+        schemaVersion: "sena-analysis-provenance-envelope/v1",
+        norm_rule: "max",
+        direction: "directed",
+        deg_convention: "row-sum",
+        Phi: "classical_mds",
+        delta: "shortest_path_reciprocal_weight",
+        d: 2,
+        operator_conventions: {
+          self_loops: "diagonal-zero-no-self-loops",
+          zero_degree: "retain-I0; restrict_v_plus, zero_inverse, epsilon_regularized documented",
+          directed: "directed row-sum with out-degree random-walk diagnostics unless symmetrization is declared"
+        },
+        dataset_content_hash: expect.stringMatching(/^0x[a-f0-9]{8}$/)
+      }));
+      expect(body.provenanceEnvelope?.model_card).toEqual(expect.objectContaining({
+        schemaVersion: "sena-model-card/v2",
+        renderGateStatus: expect.any(String)
+      }));
       expect(body.enterpriseAnalysisRun?.sourceKind).toBe("snapshot");
       expect(body.enterpriseAnalysisRun?.persistedProjectId).toBe(body.persistedProject?.id);
       expect(body.enterpriseAnalysisRun?.artifactFingerprints?.reportSha256).toMatch(/^[a-f0-9]{64}$/);

@@ -37,6 +37,13 @@ function routeSnapshot() {
       agreementValue: "kappa=1; alpha=1",
       adjudicationNotes: "Fixture agreement.",
       limitations: "Fixture only."
+    },
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic route export fixture only.",
+      retentionPolicy: "Delete generated route fixture state after the test run.",
+      usageConstraints: ["Do not use as real participant evidence."],
+      dataSteward: "Route test"
     }
   });
 }

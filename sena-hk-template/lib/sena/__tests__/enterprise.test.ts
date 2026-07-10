@@ -1,5 +1,5 @@
 import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -115,6 +115,13 @@ function sampleSnapshot() {
       agreementValue: "kappa=1; alpha=1",
       adjudicationNotes: "No disagreements in fixture.",
       limitations: "Fixture only."
+    },
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic publication export fixture only.",
+      retentionPolicy: "Delete generated fixture state after the test run.",
+      usageConstraints: ["Do not use as real participant evidence."],
+      dataSteward: "Enterprise test"
     }
   });
 }
@@ -2860,9 +2867,22 @@ describe("SENA enterprise runtime", () => {
     expect(uploads[0].sha256).toHaveLength(64);
     expect(uploads[0].importProfile).toBe("excel-workbook");
     expect(uploads[0].scanStatus).toBe("passed");
+    expect(uploads[0].storageEncoding).toBe("sena-upload-aes-256-gcm-envelope/v1");
+    expect(uploads[0].storageKeySource).toBe("pilot-local-derived");
     expect(uploads[1].importProfile).toBe("cleaned-transcript");
     expect(uploads[1].originalName).toBe("transcript.srt");
     expect(uploads[1].scanStatus).toBe("passed");
+    expect(uploads[1].storageEncoding).toBe("sena-upload-aes-256-gcm-envelope/v1");
+    const storedUploadBytes = readFileSync(path.join(enterpriseDbDir, uploads[0].storagePath));
+    expect(storedUploadBytes.equals(workbookBuffer)).toBe(false);
+    expect(JSON.parse(storedUploadBytes.toString("utf8"))).toEqual(expect.objectContaining({
+      schemaVersion: "sena-upload-aes-256-gcm-envelope/v1",
+      algorithm: "aes-256-gcm",
+      keySource: "pilot-local-derived",
+      iv: expect.any(String),
+      authTag: expect.any(String),
+      ciphertextBase64: expect.any(String)
+    }));
     expect(uploads[0].scanEngine).toBe("sena-local-upload-scan/v1");
     expect(enterprise.listEnterpriseUploads(registered.context, registered.context.teams[0].id)[0].id).toBe(uploads[0].id);
     expect(enterprise.listEnterpriseTeamState(registered.context).uploads.map((upload: { id: string }) => upload.id)).toContain(uploads[0].id);
@@ -2874,6 +2894,12 @@ describe("SENA enterprise runtime", () => {
     expect(uploadStorageVerification.summary.missingBlobs).toBe(0);
     expect(uploadStorageVerification.summary.checksumMismatches).toBe(0);
     expect(uploadStorageVerification.summary.orphanBlobs).toBe(0);
+    expect(uploadStorageVerification.storage.encryption).toEqual({
+      atRest: "sena-upload-aes-256-gcm-envelope/v1",
+      keySource: "pilot-local-derived",
+      encryptedBlobs: 2,
+      legacyRawBlobs: 0
+    });
     const objectStorageRequests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
     globalThis.fetch = (async (url, init) => {
       objectStorageRequests.push({
@@ -3308,7 +3334,7 @@ describe("SENA enterprise runtime", () => {
     expect(claimPackage.sourceSnapshotEvidence.revisionId).toMatch(/^rev_/);
     expect(claimPackage.sourceSnapshotEvidence.snapshotSha256).toHaveLength(64);
     expect(claimPackage.sourceSnapshotEvidence.reportSha256).toHaveLength(64);
-    expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.map((fingerprint: { id: string }) => fingerprint.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.map((fingerprint: { id: string }) => fingerprint.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.every((fingerprint: { sha256: string }) => fingerprint.sha256.length === 64)).toBe(true);
     expect(claimPackage.status).toBe("claim-ready-with-limits");
     expect(claimPackage.summary.blockers).toBe(0);
@@ -3374,7 +3400,7 @@ describe("SENA enterprise runtime", () => {
       })
     ]));
     const matrixRows = publicationRows("Matrix fingerprints");
-    expect(matrixRows.map((row) => row.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(matrixRows.map((row) => row.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(matrixRows.every((row) => String(row.checksum).startsWith("0x"))).toBe(true);
     const evidenceRows = publicationRows("Evidence snippets");
     expect(evidenceRows.length).toBeGreaterThan(0);
@@ -3472,7 +3498,7 @@ describe("SENA enterprise runtime", () => {
     expect(publicationManifest.sourceSnapshotEvidence.dataGovernance.status).toBe(snapshot.report.dataGovernance.status);
     expect(publicationManifest.sourceSnapshotEvidence.datasetCounts).toEqual(snapshot.source.sourceDatasetCounts);
     expect(publicationManifest.sourceSnapshotEvidence.buildOptions).toEqual(snapshot.reproducibility.buildOptions);
-    expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.map((entry) => entry.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.map((entry) => entry.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.every((entry) => entry.sha256.length === 64)).toBe(true);
     expect(publicationManifest.artifactManifest).toEqual(publicationManifest.artifacts.map(({ bodyBase64: _bodyBase64, ...artifact }) => artifact));
     expect(publicationManifest.verificationCertificate.schemaVersion).toBe("sena-publication-verification-certificate/v1");

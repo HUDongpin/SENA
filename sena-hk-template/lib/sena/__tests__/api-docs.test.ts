@@ -8,6 +8,7 @@ import { SENA_API_DOCS_SECTION_MANIFEST } from "../api-docs-section";
 import { SENA_API_EVIDENCE_NOTES } from "../api-evidence-notes";
 import { SENA_API_ENDPOINT_FACTS } from "../api-route-facts";
 import { SENA_IMPLEMENTED_API_ROUTES } from "../api-route-manifest";
+import { SENA_API_SURFACE_MORATORIUM } from "../api-surface-moratorium";
 
 const identityOwnerRunbookHeaderList = "x-sena-identity-owner-runbook-digest, x-sena-identity-owner-runbook-blocking, x-sena-identity-owner-runbook-preflight-checks, x-sena-identity-owner-runbook-submission-steps, and x-sena-identity-owner-runbook-receipt-archive-steps";
 
@@ -53,6 +54,47 @@ describe("SENA API documentation contract", () => {
       });
     expect(actual).toHaveLength(documented.length);
     expect(documented).toEqual(actual);
+  });
+
+  it("freezes the enterprise and ops API surface while analysis is decomposed along M1-M11 seams", () => {
+    const frozenEndpointIds = SENA_API_ENDPOINT_FACTS
+      .filter((endpoint) => SENA_API_SURFACE_MORATORIUM.freezePolicy.frozenGroups.includes(endpoint.group))
+      .map((endpoint) => endpoint.id);
+
+    expect(SENA_API_SURFACE_MORATORIUM).toMatchObject({
+      schemaVersion: "sena-api-surface-moratorium/v1",
+      sourceIssue: "SENA-014",
+      freezePolicy: {
+        deletionPolicy: "moratorium",
+        routeChangePolicy: "additive-or-reviewed-only"
+      },
+      analysisResource: {
+        currentEndpointId: "sena-analyze",
+        currentPath: "/api/sena/analyze",
+        currentKernelPackage: "@sena/kernel"
+      }
+    });
+    expect(SENA_API_SURFACE_MORATORIUM.frozenEndpointIds).toEqual(frozenEndpointIds);
+    expect(SENA_API_SURFACE_MORATORIUM.frozenEndpointIds).toEqual(expect.arrayContaining([
+      "auth-mfa",
+      "auth-sso",
+      "sena-scim-users",
+      "sena-ops-go-live-rehearsal",
+      "sena-ops-release-gate"
+    ]));
+    expect(SENA_API_SURFACE_MORATORIUM.frozenEndpointIds).not.toContain("sena-analyze");
+    expect(SENA_API_SURFACE_MORATORIUM.analysisResource.decompositionSeams.map((seam) => seam.id))
+      .toEqual(["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11"]);
+    expect(SENA_API_SURFACE_MORATORIUM.analysisResource.decompositionSeams.slice(1, 8).every((seam) => seam.kernelCovered))
+      .toBe(true);
+    expect(SENA_API_SURFACE_MORATORIUM.analysisResource.decompositionSeams.map((seam) => seam.status))
+      .not.toContain("api-decomposition-candidate");
+    expect(SENA_API_SURFACE_MORATORIUM.analysisResource.decompositionSeams.filter((seam) => seam.status === "api-boundary-present").map((seam) => seam.id))
+      .toEqual(["M1", "M9", "M10", "M11"]);
+
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+    expect(documentation.surfaceMoratorium.schemaVersion).toBe(SENA_API_SURFACE_MORATORIUM.schemaVersion);
+    expect(documentation.surfaceMoratorium.frozenEndpointIds.length).toBeGreaterThan(40);
   });
 
   it("keeps route facts, evidence notes, and renderer output separated", () => {
@@ -242,6 +284,16 @@ describe("SENA API documentation contract", () => {
       .toContain("sena-enterprise-server-job-queue-webhook/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.responses)
       .toContain("sena-enterprise-server-job/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.responses)
+      .toContain("sena-analysis-provenance-envelope/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("norm_rule");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("buildOptions? { alpha?, beta?, gamma?, normalization?, bridgeWeightRule?, direction?, deg_convention?, Phi?, delta?, d?, seed?, temporal? }");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("metric_exact");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
+      .toContain("dataset_version");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-source-snapshot-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
@@ -260,6 +312,10 @@ describe("SENA API documentation contract", () => {
       .toContain("x-sena-publication-package-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-publication-verification-status");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("publication_export_model_card_blocked");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("modelCard.renderGate.status");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-job-payload-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)

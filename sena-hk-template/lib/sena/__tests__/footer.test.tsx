@@ -27,4 +27,17 @@ describe("Footer", () => {
 
     expect(markup).not.toContain("Built for social-epistemic research, discourse analysis, and reproducible learning analytics.");
   });
+
+  it("links legal resources to real pages instead of the docs placeholder", () => {
+    const markup = renderToStaticMarkup(
+      <LanguageProvider>
+        <Footer />
+      </LanguageProvider>
+    );
+
+    expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain('href="/terms"');
+    expect(markup).toContain('href="/security"');
+    expect(markup).toContain('href="/responsible-ai"');
+  });
 });

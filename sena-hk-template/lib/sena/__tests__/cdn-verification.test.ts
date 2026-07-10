@@ -177,9 +177,10 @@ describe("SENA CDN live verification", () => {
   });
 
   it("requires a valid artifact hash and validation before live probe confirmation can satisfy readiness", async () => {
+    const freshVerifiedAt = new Date().toISOString();
     process.env.SENA_CDN_LIVE_PROBE_REQUIRED = "1";
     process.env.SENA_CDN_LIVE_PROBE_CONFIRMED = "1";
-    process.env.SENA_CDN_PROBE_VERIFIED_AT = "2026-06-30T00:00:00.000Z";
+    process.env.SENA_CDN_PROBE_VERIFIED_AT = freshVerifiedAt;
     const { enterpriseCdnProbeReadiness } = await import("../enterprise/cdn-verification");
 
     expect(enterpriseCdnProbeReadiness()).toEqual(expect.objectContaining({
@@ -193,14 +194,15 @@ describe("SENA CDN live verification", () => {
       required: true,
       confirmed: true,
       artifactHash: "a".repeat(64),
-      verifiedAt: "2026-06-30T00:00:00.000Z"
+      verifiedAt: freshVerifiedAt
     }));
   });
 
   it("requires a valid CDN contract artifact before contract confirmation can satisfy readiness", async () => {
+    const freshVerifiedAt = new Date().toISOString();
     process.env.SENA_CDN_CONTRACT_REQUIRED = "1";
     process.env.SENA_CDN_CONTRACT_CONFIRMED = "1";
-    process.env.SENA_CDN_CONTRACT_VERIFIED_AT = "2026-06-30T00:00:00.000Z";
+    process.env.SENA_CDN_CONTRACT_VERIFIED_AT = freshVerifiedAt;
     const { enterpriseCdnContractReadiness } = await import("../enterprise/cdn-verification");
 
     expect(enterpriseCdnContractReadiness()).toEqual(expect.objectContaining({
@@ -216,7 +218,7 @@ describe("SENA CDN live verification", () => {
       required: true,
       confirmed: true,
       artifactHash: "b".repeat(64),
-      verifiedAt: "2026-06-30T00:00:00.000Z",
+      verifiedAt: freshVerifiedAt,
       artifactHashConfigured: true,
       verifiedAtConfigured: true
     }));

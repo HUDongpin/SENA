@@ -40,6 +40,19 @@ class SsoRouteMemoryPostgres {
       };
       return { rows: [{ revision: this.state.revision }], rowCount: 1 };
     }
+    // The identity production gate now rides the WithPostgresEvidence ops
+    // chain, which prepares and reads the indexed evidence tables; report
+    // them as present-but-empty so the route sees the same shape as a fresh
+    // managed database.
+    if (/^CREATE (TABLE|INDEX|UNIQUE INDEX)/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^(SELECT|WITH)\b/i.test(normalizedSql) && /"public"\."sena_enterprise_[a-z_]+"/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/^INSERT INTO "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 1 };
+    }
     throw new Error(`Unexpected Postgres query in SSO route test: ${normalizedSql}`);
   }
 }

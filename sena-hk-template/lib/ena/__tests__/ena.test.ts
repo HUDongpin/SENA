@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ena } from "jena-js";
 import {
   buildEnaRunResult,
@@ -9,6 +9,12 @@ import {
   runEnaRequest,
   sampleEnaCsv
 } from "../index";
+
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: () => undefined
+  })
+}));
 
 const rEnaParityFixture = JSON.parse(
   readFileSync(new URL("../__fixtures__/r-ena-sample-parity.json", import.meta.url), "utf8")
@@ -166,7 +172,7 @@ describe("jENA execution", () => {
 });
 
 describe("jENA API route", () => {
-  it("observes successful standalone ENA runs without changing the result contract", async () => {
+  it("rejects standalone ENA runs without an authenticated session", async () => {
     const route = await import("../../../app/api/ena/run/route");
     const response = await route.POST(new Request("https://sena.example.test/api/ena/run", {
       method: "POST",
@@ -174,14 +180,13 @@ describe("jENA API route", () => {
     }));
     const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.set.points.length).toBe(6);
-    expect(body.summary.dimensions).toEqual(["SVD1", "SVD2"]);
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("auth_required");
     expect(response.headers.get("x-sena-observed-route")).toBe("ena-run");
-    expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+    expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
   });
 
-  it("observes ENA input errors as 4xx while preserving issue details", async () => {
+  it("does not reveal ENA input-validation details before authentication", async () => {
     const route = await import("../../../app/api/ena/run/route");
     const response = await route.POST(new Request("https://sena.example.test/api/ena/run", {
       method: "POST",
@@ -192,9 +197,8 @@ describe("jENA API route", () => {
     }));
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toMatch(/unit column/);
-    expect(body.issues).toContain("Select at least one unit column.");
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("auth_required");
     expect(response.headers.get("x-sena-observed-route")).toBe("ena-run");
     expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
   });

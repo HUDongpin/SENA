@@ -148,6 +148,71 @@ describe("SENA validation group-comparison route", () => {
     }
   }, validationRouteTestTimeoutMs);
 
+  it("defaults malformed validation metrics to typed social strength", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-default-metric-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/inference", async () => await import("../inference"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Validation Metric Reviewer",
+        email: "validation-metric-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Metric Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Validation Default Metric Project",
+        snapshot: validationRouteSnapshot()
+      });
+
+      const route = await import("../../../app/api/sena/validation/group-comparison/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          groupField: "role",
+          groupA: "Lead teacher",
+          groupB: "Curriculum designer",
+          metric: "not-a-validation-metric",
+          iterations: 100,
+          bootstrapIterations: 100
+        })
+      }));
+      const body = await response.json() as {
+        metric?: string;
+        validationRun?: { id?: string; status?: string };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.metric).toBe("socialStrength");
+      expect(body.validationRun?.status).toBe("pending-review");
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, validationRouteTestTimeoutMs);
+
   it("queues project-scoped validation suites for the configured server job queue", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-queue-route-"));
     let sessionToken = "";

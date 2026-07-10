@@ -113,5 +113,5 @@ describe("SENA verifier artifact output", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

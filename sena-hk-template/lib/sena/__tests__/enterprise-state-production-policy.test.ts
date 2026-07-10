@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -72,6 +72,11 @@ describe("SENA enterprise file state production policy", () => {
     } finally {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps the local enterprise file store out of source control", () => {
+    const gitignore = readFileSync(path.join(process.cwd(), ".gitignore"), "utf8");
+    expect(gitignore.split(/\r?\n/)).toContain(".sena-enterprise/");
   });
 
   it("blocks legacy direct file writes under production evidence gates even when Postgres primary is configured", async () => {

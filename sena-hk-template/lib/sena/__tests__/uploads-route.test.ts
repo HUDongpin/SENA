@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -183,6 +184,179 @@ describe("SENA uploads route", () => {
       delete process.env.SENA_OBJECT_STORAGE_PREFIX;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  }, 30_000);
+
+  it("rejects unsafe upload files at the route boundary", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-uploads-security-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_UPLOAD_MAX_BYTES = "8";
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = await enterprise.registerEnterpriseUserAsync({
+        name: "Upload Security Reviewer",
+        email: "upload-security-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Upload Security Route Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const route = await import("../../../app/api/sena/uploads/route");
+
+      const executableForm = new FormData();
+      executableForm.set("teamId", registered.context.teams[0].id);
+      executableForm.append("files", new File(["MZ"], "tool.exe", { type: "application/octet-stream" }));
+      const executableResponse = await route.POST(new Request("https://sena.example.test/api/sena/uploads", {
+        method: "POST",
+        headers: {
+          "x-sena-csrf-token": csrf.token
+        },
+        body: executableForm
+      }));
+      const executableBody = await executableResponse.json() as { code?: string };
+
+      expect(executableResponse.status).toBe(400);
+      expect(executableBody.code).toBe("upload_extension_blocked");
+      expect(executableResponse.headers.get("x-sena-observed-route")).toBe("sena-uploads");
+      expect(executableResponse.headers.get("x-sena-observed-status-class")).toBe("4xx");
+
+      const oversizedForm = new FormData();
+      oversizedForm.set("teamId", registered.context.teams[0].id);
+      oversizedForm.append("files", new File(["person_id,name\np1,Ada\n"], "people.csv", { type: "text/csv" }));
+      const oversizedResponse = await route.POST(new Request("https://sena.example.test/api/sena/uploads", {
+        method: "POST",
+        headers: {
+          "x-sena-csrf-token": csrf.token
+        },
+        body: oversizedForm
+      }));
+      const oversizedBody = await oversizedResponse.json() as { code?: string };
+
+      expect(oversizedResponse.status).toBe(413);
+      expect(oversizedBody.code).toBe("upload_too_large");
+      expect(enterprise.listEnterpriseUploads(registered.context, registered.context.teams[0].id)).toHaveLength(0);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_UPLOAD_MAX_BYTES;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  });
+
+  it("keeps encrypted upload blobs readable after the enterprise directory moves and for legacy path-derived envelopes", async () => {
+    const originalDbDir = mkdtempSync(path.join(tmpdir(), "sena-uploads-keyfile-a-"));
+    const movedDbDir = mkdtempSync(path.join(tmpdir(), "sena-uploads-keyfile-b-"));
+    const uploadContent = "person_id,name\np1,Ada\n";
+    let sessionToken = "";
+    let teamId = "";
+    const mockHeaders = () => {
+      vi.doMock("next/headers", () => ({
+        cookies: () => ({
+          get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+        })
+      }));
+      vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+      vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    };
+    const verifyUploads = async (route: typeof import("../../../app/api/sena/uploads/route")) => {
+      const response = await route.GET(new Request(`https://sena.example.test/api/sena/uploads?teamId=${teamId}&verify=1`));
+      const body = await response.json() as {
+        storageVerification?: {
+          status?: string;
+          storage?: { encryption?: { atRest?: string; keySource?: string; encryptedBlobs?: number } };
+          summary?: { registeredUploads?: number; verifiedBlobs?: number };
+        };
+      };
+      expect(response.status).toBe(200);
+      return body.storageVerification;
+    };
+
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = originalDbDir;
+    delete process.env.SENA_UPLOAD_ENCRYPTION_KEY;
+    mockHeaders();
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = await enterprise.registerEnterpriseUserAsync({
+        name: "Keyfile Upload Reviewer",
+        email: "keyfile-upload-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Keyfile Upload Route Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      teamId = registered.context.teams[0].id;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const route = await import("../../../app/api/sena/uploads/route");
+
+      const form = new FormData();
+      form.set("teamId", teamId);
+      form.append("files", new File([uploadContent], "keyfile-people.csv", { type: "text/csv" }));
+      const createResponse = await route.POST(new Request("https://sena.example.test/api/sena/uploads", {
+        method: "POST",
+        headers: { "x-sena-csrf-token": csrf.token },
+        body: form
+      }));
+      expect(createResponse.status).toBe(201);
+
+      // The pilot fallback key must be a persisted file so it travels with the directory.
+      expect(existsSync(path.join(originalDbDir, "upload-encryption.key"))).toBe(true);
+      const initialVerification = await verifyUploads(route);
+      expect(initialVerification?.status).toBe("pass");
+      expect(initialVerification?.summary).toEqual(expect.objectContaining({ registeredUploads: 1, verifiedBlobs: 1 }));
+      expect(initialVerification?.storage?.encryption).toEqual(expect.objectContaining({
+        atRest: "sena-upload-aes-256-gcm-envelope/v1",
+        keySource: "pilot-local-derived",
+        encryptedBlobs: 1
+      }));
+
+      // Simulate a backup restore / directory move to a different absolute path.
+      cpSync(originalDbDir, movedDbDir, { recursive: true });
+      vi.resetModules();
+      process.env.SENA_ENTERPRISE_DB_DIR = movedDbDir;
+      mockHeaders();
+      const movedRoute = await import("../../../app/api/sena/uploads/route");
+      const movedVerification = await verifyUploads(movedRoute);
+      expect(movedVerification?.status).toBe("pass");
+      expect(movedVerification?.summary).toEqual(expect.objectContaining({ registeredUploads: 1, verifiedBlobs: 1 }));
+
+      // Legacy envelopes encrypted with the old path-derived key must still decrypt in place.
+      const movedEnterprise = await import("../enterprise");
+      const storedUpload = movedEnterprise.readEnterpriseDb().uploads[0] as { storagePath: string };
+      const legacyKey = createHash("sha256")
+        .update(`sena-upload-pilot-local:${path.join(movedDbDir, "enterprise-db.json")}`)
+        .digest();
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", legacyKey, iv);
+      const ciphertext = Buffer.concat([cipher.update(Buffer.from(uploadContent, "utf8")), cipher.final()]);
+      writeFileSync(path.join(movedDbDir, storedUpload.storagePath), JSON.stringify({
+        schemaVersion: "sena-upload-aes-256-gcm-envelope/v1",
+        algorithm: "aes-256-gcm",
+        keySource: "pilot-local-derived",
+        iv: iv.toString("base64"),
+        authTag: cipher.getAuthTag().toString("base64"),
+        ciphertextBase64: ciphertext.toString("base64")
+      }));
+      const legacyVerification = await verifyUploads(movedRoute);
+      expect(legacyVerification?.status).toBe("pass");
+      expect(legacyVerification?.summary).toEqual(expect.objectContaining({ registeredUploads: 1, verifiedBlobs: 1 }));
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(originalDbDir, { recursive: true, force: true });
+      rmSync(movedDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
   }, 30_000);

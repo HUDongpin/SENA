@@ -453,7 +453,7 @@ describe("SENA model builder", () => {
     expect(scopedModel.summary.conceptEdges).toBeLessThan(fullModel.summary.conceptEdges);
     expect(scopedModel.matrices.fusion.values).toHaveLength(fullModel.matrices.fusion.values.length);
     expect(scopedModel.matrices.G.raw[chenIndex]?.[pairIndex]).toBe(0);
-    expect(scopedModel.matrices.G.raw[eliIndex]?.[pairIndex]).toBeCloseTo(0.5);
+    expect(scopedModel.matrices.G.raw[eliIndex]?.[pairIndex]).toBeCloseTo(1);
   });
 
   it("builds a temporal runtime trace with per-window jENA and jSNA provenance", () => {
@@ -477,7 +477,7 @@ describe("SENA model builder", () => {
     expect(trace.windows.some((entry) => entry.sena.strongestGPair?.totalContribution && entry.sena.strongestGPair.totalContribution > 0)).toBe(true);
     expect(trace.windows.find((entry) => entry.sena.strongestGPair)?.sena.strongestGPair?.topContributors.length).toBeGreaterThan(0);
     expect(trace.windows.every((entry) => entry.sena.matrixTotals.fusion >= 0)).toBe(true);
-    expect(brainstorming?.sena.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(brainstorming?.sena.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(brainstorming?.sena.matrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1")).toBe(true);
     expect(brainstorming?.sena.matrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion")?.checksum).toMatch(/^0x[a-f0-9]{8}$/);
     expect(trace.transitions).toHaveLength(Math.max(0, trace.windows.length - 1));
@@ -569,6 +569,8 @@ describe("SENA model builder", () => {
     expect(report.matrices.G.pairs).toHaveLength(model.matrices.G.pairs.length);
     expect(report.figures.fusionGraph.nodes).toHaveLength(model.nodes.length);
     expect(report.figures.fusionGraph.edges).toHaveLength(model.edges.length);
+    expect(new Set(report.figures.fusionGraph.edges.map((edge) => edge.edgeType))).toEqual(new Set(["PP", "CC", "PC"]));
+    expect(report.figures.fusionGraph.edges.filter((edge) => edge.layer === "bridge").every((edge) => edge.edgeType === "PC" && edge.sourceKind === "person" && edge.targetKind === "concept")).toBe(true);
     expect(report.figures.temporalTrace.windows).toHaveLength(model.temporal.windows.length);
     expect(report.figures.temporalRuntimeNarrative).toHaveLength(model.temporal.windows.length);
     expect(report.figures.temporalRuntimeTransitions).toHaveLength(Math.max(0, model.temporal.windows.length - 1));
@@ -579,7 +581,7 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("Top S tie");
     expect(markdown).toContain("Top W tie");
     expect(markdown).toContain("Top B tie");
-    expect(report.figures.temporalRuntimeNarrative.every((entry) => entry.matrixFingerprints.map((fingerprint) => fingerprint.id).join("|") === "S|W|B|G|A_fusion")).toBe(true);
+    expect(report.figures.temporalRuntimeNarrative.every((entry) => entry.matrixFingerprints.map((fingerprint) => fingerprint.id).join("|") === "S|W|B|B_PC|B_CP|G|A_fusion")).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.every((entry) => entry.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestSocialTie)).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestConceptTie)).toBe(true);
@@ -609,8 +611,9 @@ describe("SENA model builder", () => {
     expect(socialTieHandoffRows.every((row) => row.matrixAligned)).toBe(true);
     expect(socialTieHandoffRows.some((row) => row.edgeWeight > 0 && row.evidencePreview.length > 0 && row.sourceActor && row.targetActor)).toBe(true);
     const jointGuardrail = report.interpretationGuardrails.find((guardrail) => guardrail.id === "joint-embedding-boundary");
-    expect(jointGuardrail?.statement).toContain("deterministic A_fusion visual embedding");
-    expect(jointGuardrail?.statement).toContain("not an inferential statistic");
+    expect(jointGuardrail?.statement).toContain("declared A_fusion embedding operators");
+    expect(jointGuardrail?.statement).toContain("Laplacian eigenmaps");
+    expect(jointGuardrail?.statement).toContain("operator, delta, dimension, seed, metric exactness, and stress");
     expect(report.completenessAudit.schemaVersion).toBe("sena-report-completeness/v1");
     expect(report.completenessAudit.status).toBe("complete");
     expect(report.completenessAudit.reviewNeeded).toBe(0);
@@ -647,6 +650,7 @@ describe("SENA model builder", () => {
       "five-table-shape",
       "people-table",
       "codebook-table",
+      "dataset-governance-metadata",
       "utterances-table",
       "coded-segments-table",
       "interactions-table",
@@ -662,11 +666,11 @@ describe("SENA model builder", () => {
       "finite-values",
       "social-block",
       "bridge-block",
-      "bridge-transpose-block",
+      "bridge-cp-block",
       "concept-block",
       "g-pair-coverage"
     ]);
-    expect(report.fusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(report.fusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(report.fusionMathAudit.matrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1")).toBe(true);
     expect(report.fusionMathAudit.matrixFingerprints.every((fingerprint) => /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))).toBe(true);
     expect(report.fusionMathAudit.matrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion")?.valueKinds).toEqual(["values"]);
@@ -765,7 +769,7 @@ describe("SENA model builder", () => {
     expect(report.validation.metricProvenance.some((metric) => metric.source === "sna.js")).toBe(true);
     expect(report.validation.metricProvenance.some((metric) => metric.source === "sena-self-implemented")).toBe(true);
     expect(report.validation.sensitivity.layerWeights.variants.length).toBeGreaterThanOrEqual(7);
-    expect(report.validation.sensitivity.normalization.variants.map((variant) => variant.buildOptions.normalization)).toEqual(["max", "log-max", "none"]);
+    expect(report.validation.sensitivity.normalization.variants.map((variant) => variant.buildOptions.normalization)).toEqual(["max", "frobenius", "log1p-max"]);
     expect(report.validation.stability.community.deterministicRepeatAgreement).toBe(1);
     expect(report.validation.stability.temporal.variants.map((variant) => variant.mode)).toEqual(["stage", "moving-window", "turn-window"]);
     expect(report.validation.nullModels.permutation.iterations).toBe(12);
@@ -883,6 +887,8 @@ describe("SENA model builder", () => {
       `${model.matrices.S.labels.length}x${model.matrices.S.labels.length}`,
       `${model.matrices.W.labels.length}x${model.matrices.W.labels.length}`,
       `${model.matrices.B.rowLabels.length}x${model.matrices.B.columnLabels.length}`,
+      `${model.matrices.B_PC.rowLabels.length}x${model.matrices.B_PC.columnLabels.length}`,
+      `${model.matrices.B_CP.rowLabels.length}x${model.matrices.B_CP.columnLabels.length}`,
       `${model.matrices.G.rowLabels.length}x${model.matrices.G.columnLabels.length}`,
       `${model.matrices.fusion.labels.length}x${model.matrices.fusion.labels.length}`
     ]);
@@ -911,14 +917,14 @@ describe("SENA model builder", () => {
     expect(artifact.title).toBe("Window Formula Audit");
     expect(artifact.generatedAt).toBe("2026-06-08T06:00:00.000Z");
     expect(artifact.analysisWindow?.label).toBe(activeWindow?.label);
-    expect(artifact.formula).toBe("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
+    expect(artifact.formula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(artifact.parameters.buildOptions).toEqual(model.options);
     expect(artifact.parameters.datasetCounts.codedSegments).toBe(model.dataset.coded_segments.length);
     expect(artifact.fusionMathAudit).toEqual(buildSenaFusionMathAudit(model));
     expect(artifact.fusionMathAudit.status).toBe("verified");
-    expect(artifact.fusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(artifact.fusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(artifact.matrices.fusion.values).toEqual(model.matrices.fusion.values);
-    expect(artifact.notes[0]).toContain("S/W/B/G");
+    expect(artifact.notes[0]).toContain("S/W/B/B_PC/B_CP/G");
   });
 
   it("builds a SENA method protocol from the active mathematical frame", () => {
@@ -939,8 +945,8 @@ describe("SENA model builder", () => {
     expect(protocol.analysisWindow?.label).toBe("Reflection");
     expect(protocol.dataContract.requiredTables).toEqual(["people", "interactions", "utterances", "coded_segments", "codebook"]);
     expect(protocol.mathematicalFrame.graphType).toBe("normalized-typed-heterogeneous-adjacency");
-    expect(protocol.mathematicalFrame.formula).toBe("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
-    expect(protocol.mathematicalFrame.layers.map((layer) => layer.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(protocol.mathematicalFrame.formula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
+    expect(protocol.mathematicalFrame.layers.map((layer) => layer.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(protocol.mathematicalFrame.layers.find((layer) => layer.id === "G")?.guardrail).toContain("not as an additional adjacency block");
     expect(protocol.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "workspace-shell-c3-collapsed-switcher"]);
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("solid purple links");
@@ -1232,7 +1238,7 @@ describe("SENA model builder", () => {
 
     expect(validation.metricProvenance.some((metric) => metric.source === "sna.js")).toBe(true);
     expect(validation.sensitivity.layerWeights.variants.map((variant) => variant.id)).toContain("gamma-one-half");
-    expect(validation.sensitivity.normalization.variants.map((variant) => variant.label)).toEqual(["max", "log-max", "none"]);
+    expect(validation.sensitivity.normalization.variants.map((variant) => variant.label)).toEqual(["max", "frobenius", "log1p-max"]);
     expect(validation.stability.community.deterministicRepeatAgreement).toBe(1);
     expect(validation.stability.temporal.variants.map((variant) => variant.mode)).toEqual(["stage", "moving-window", "turn-window"]);
     expect(validation.nullModels.permutation.iterations).toBe(5);
@@ -1497,8 +1503,8 @@ describe("SENA model builder", () => {
     expect(verification.checks.find((check) => check.id === "sample-import")?.status).toBe("pass");
     expect(verification.checks.find((check) => check.id === "sample-import")?.manualAction).toContain("assetIntegrity fingerprints");
     expect(verification.checks.find((check) => check.id === "sample-import")?.expectedOutcome).toContain("manifest fingerprints");
-    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=12");
-    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegritySha256=12");
+    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=13");
+    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegritySha256=13");
     expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("handoff=pilot-asset-integrity");
     expect(verification.checks.find((check) => check.id === "report-exports")?.status).toBe("review");
     expect(verification.checks.every((check) => check.manualReview.status === "pending")).toBe(true);
@@ -1664,7 +1670,7 @@ describe("SENA model builder", () => {
     expect(plan.runtimeParityEvidence.find((evidence) => evidence.id === "jsna-r-sna-social-parity")?.fixturePath).toBe("lib/sena/__fixtures__/r-sna-social-parity.json");
     expect(plan.scope.inScope).toContain("Local demo readiness for researchers and education pilot users.");
     expect(plan.scope.inScope).toContain("Five-table SENA data contract import, templates, lesson-study sample data, and asset-integrity fingerprints.");
-    expect(plan.scope.inScope).toContain("Restorable model JSON snapshot export with graph nodes, typed edges, S/W/B/G, fusion matrix, and temporal trace.");
+    expect(plan.scope.inScope).toContain("Restorable model JSON snapshot export with graph nodes, typed edges, S/W/B/B_PC/B_CP/G, fusion matrix, and temporal trace.");
     expect(plan.scope.inScope).toContain("Local enterprise-runtime vertical slice for auth, RBAC teams, server-side projects, imports, reliability, validation, publication exports, ops readiness, and redacted organization deployment handoff evidence.");
     expect(plan.scope.inScope).toContain("Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
     expect(plan.scope.outOfScope).not.toContain("Native managed database, object-storage, collaboration pub/sub, audit/SIEM, and backup/restore adapters beyond the signed webhook bridge handoffs.");
@@ -1822,9 +1828,12 @@ describe("SENA model builder", () => {
     expect(bundle.runtimes.sna.manifest.outputs?.actorMetrics).toHaveLength(model.people.length);
     expect(bundle.runtimes.sna.socialReport.graph.engine).toBe("sna.js");
     expect(bundle.runtimes.sna.socialMatrix).toEqual(model.matrices.S);
-    expect(bundle.runtimes.sena.matrixFormula).toBe("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
+    expect(bundle.runtimes.sena.matrixFormula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(bundle.runtimes.sena.matrices.fusion.values).toEqual(model.matrices.fusion.values);
     expect(bundle.runtimes.sena.pairReport).toEqual(model.pairReport);
+    expect(bundle.runtimes.sena.operatorDiagnostics.embedding.mds.delta).toBe("shortest-path-reciprocal-weight");
+    expect(bundle.runtimes.sena.operatorDiagnostics.embedding.mds.dimensions).toBe(2);
+    expect(bundle.runtimes.sena.operatorDiagnostics.embedding.exploratoryLayout.metricExact).toBe(false);
     expect(bundle.validation).toEqual(bundle.report.validation);
     expect(bundle.codingReliabilityGate).toEqual(bundle.report.codingReliabilityGate);
     expect(bundle.codingReliabilityGate.status).toBe("ready");
@@ -1832,9 +1841,9 @@ describe("SENA model builder", () => {
     expect(bundle.dataContractAudit.status).toBe("valid");
     expect(bundle.fusionMathAudit).toEqual(bundle.report.fusionMathAudit);
     expect(bundle.fusionMathAudit.status).toBe("verified");
-    expect(bundle.fusionMathAudit.matrixFingerprints).toHaveLength(5);
+    expect(bundle.fusionMathAudit.matrixFingerprints).toHaveLength(7);
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.handoffChecks).toContain("matrix-fingerprints");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.evidenceCoverage).toContain("matrixFingerprints=5");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.evidenceCoverage).toContain("matrixFingerprints=7");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.evidenceCoverage.some((entry) => entry.startsWith("A_fusionChecksum=0x"))).toBe(true);
     expect(bundle.pilotReadinessAudit).toEqual(bundle.report.pilotReadinessAudit);
     expect(bundle.pilotReadinessAudit.schemaVersion).toBe("sena-pilot-readiness/v1");
@@ -1967,6 +1976,8 @@ describe("SENA model builder", () => {
       "workspace-model-layout-explanatory",
       "workspace-model-layout-ena-space",
       "workspace-model-layout-joint",
+      "workspace-joint-embedding-provenance",
+      "workspace-joint-embedding-laplacian-operator",
       "workspace-model-layer-social-toggle",
       "workspace-model-layer-concept-toggle",
       "workspace-model-layer-bridge-toggle",
@@ -2201,6 +2212,8 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layout-explanatory\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layout-ena-space\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layout-joint\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"joint-embedding-provenance-strip\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"joint-embedding-operator-laplacian-eigenmaps\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layer-social-toggle\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layer-concept-toggle\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layer-bridge-toggle\"");
@@ -2422,7 +2435,7 @@ describe("SENA model builder", () => {
     expect(bundle.temporalRuntimeTrace.windows.map((entry) => entry.window.label)).toEqual(timelineModel.temporal.windows.map((window) => window.label));
     expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.ena.status === "computed")).toBe(true);
     expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sna.status === "computed")).toBe(true);
-    expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.length === 5)).toBe(true);
+    expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.length === 7)).toBe(true);
     expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))).toBe(true);
     expect(bundle.evidenceLedger.snippets.length).toBeGreaterThan(0);
     expect(bundle.evidenceLedger.humanReview.reviewer).toBe("Runtime reviewer");
@@ -2458,8 +2471,8 @@ describe("SENA model builder", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-metric-provenance.json")?.handoffChecks).toContain("jena-concept-matrix");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-metric-provenance.json")?.handoffChecks).toContain("fusion-matrix-snapshot");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.schemaVersion).toBe("sena-pilot-package-manifest/v1");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=12");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=12");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=13");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=13");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.handoffChecks).toContain("pilot-asset-integrity");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v1");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.matrixCoverage).toContain(`claimUse=${bundle.codingReliabilityGate.claimUse}`);
@@ -2996,6 +3009,37 @@ describe("SENA model builder", () => {
     expect(result.dataset.coded_segments.length).toBeGreaterThan(0);
   });
 
+  it("attaches standalone dataset governance metadata to five-CSV enterprise imports", async () => {
+    const result = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "person_id,name,role,group\np1,Ada,teacher,A\np2,Ben,student,A"),
+      uploadLike("interactions.csv", "source,target,weight,stage,turn_index\np1,p2,1,teach,1"),
+      uploadLike("utterances.csv", "utterance_id,person_id,unit_id,stanza_id,stage,turn_index,text\nu1,p1,g1,s1,teach,1,We ask a question."),
+      uploadLike("coded_segments.csv", "segment_id,utterance_id,person_id,unit_id,stanza_id,stage,turn_index,codes\nseg1,u1,p1,g1,s1,teach,1,Question"),
+      uploadLike("codebook.csv", "code_id,label,family\nQuestion,Question,inquiry"),
+      uploadLike("sena-dataset-metadata.json", JSON.stringify({
+        metadata: {
+          datasetVersion: "five-csv-governed-v1",
+          consent: {
+            instrument: "Pilot consent form",
+            date: "2026-07-01",
+            scope: "Research pilot verification only."
+          },
+          retention: { policy: "Delete after pilot review." },
+          pseudonymization: { personIdPolicy: "opaque", rosterMapping: "not-stored" },
+          codebook: { id: "pilot-codebook", version: "v1", contentHash: "0xpilot-codebook-v1" }
+        }
+      }))
+    ]);
+
+    expect(result.sources.map((source) => source.profile)).toContain("dataset-metadata");
+    expect(result.dataset.metadata?.datasetVersion).toBe("five-csv-governed-v1");
+    expect(result.dataset.metadata?.pseudonymization.personIdPolicy).toBe("opaque");
+
+    const audit = buildSenaDataContractAudit(result.dataset);
+    const governanceItem = audit.items.find((item) => item.id === "dataset-governance-metadata");
+    expect(governanceItem?.status).toBe("pass");
+  });
+
   it("keeps coding reliability diagnostics usable before sign-in", async () => {
     const result = await importSenaReliabilityFiles([
       uploadLike("local-reliability.csv", [
@@ -3506,15 +3550,15 @@ describe("SENA model builder", () => {
     expect(packet.reviewPacketAudit.items.every((item) => item.status === "pass")).toBe(true);
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("exportCoverage=true");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("schemaCoverage=true");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrity=12");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrity=13");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrityCoverage=true");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("handoffChecks=6");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("sampleContract=/sena-pilot/sample/lesson-study-sena-contract.json");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrity=12");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrity=13");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrityArtifact=sena-pilot-package-manifest.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrityEvidence=assetIntegrity|bytes|sha256|sample assets|template assets");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonArtifact=sena-project-snapshot.json");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonEvidence=graph nodes|typed edge layers|S/W/B/G matrices|A_fusion matrix|temporal trace windows");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonEvidence=graph nodes|typed edge layers|S/W/B/B_PC/B_CP/G matrices|A_fusion matrix|temporal trace windows");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("runtimeArtifact=sena-runtime-bundle.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("runtimeEvidence=sena-jena-manifest.json|sena-ena-report.json|sena-jsna-manifest.json|sena-runtime-consistency-audit.json|jena-api-surface|jsna-api-surface|jena-rena-parity|jsna-r-sna-parity|matrix-fingerprints|file:vendor/jena-js|file:vendor/sna-js");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-export-artifact-coverage")?.actual).toContain("missing=0");
@@ -3568,7 +3612,7 @@ describe("SENA model builder", () => {
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.actual).toContain("matrixFingerprintWindows=3/3");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.actual).toContain("A_fusionChecksums=3");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.actual).toContain("fingerprintsMatch=true");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.evidence).toContain("firstWindowFingerprintIds=S|W|B|G|A_fusion");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.evidence).toContain("firstWindowFingerprintIds=S|W|B|B_PC|B_CP|G|A_fusion");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.evidence.some((entry) => entry.startsWith("firstWindowA_fusionChecksum=0x"))).toBe(true);
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "markdown-handoff")?.evidence).toContain("analysisWindow=true");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "markdown-handoff")?.evidence).toContain("temporalTrace=true");
@@ -3597,14 +3641,16 @@ describe("SENA model builder", () => {
     expect(packet.contents.projectSnapshot.reproducibility.requiredRuntimes.sna.dependencySpec).toBe("file:vendor/sna-js");
     expect(packet.contents.projectSnapshot.analysis.nodes?.length).toBe(packet.contents.reportJson.figures.fusionGraph.nodes.length);
     expect(packet.contents.projectSnapshot.analysis.edges?.length).toBe(packet.contents.reportJson.figures.fusionGraph.edges.length);
+    expect(new Set(packet.contents.projectSnapshot.analysis.edges?.map((edge) => edge.edgeType))).toEqual(new Set(["PP", "CC", "PC"]));
+    expect(packet.contents.projectSnapshot.analysis.edges?.map((edge) => edge.edgeType)).toEqual(packet.contents.reportJson.figures.fusionGraph.edges.map((edge) => edge.edgeType));
     expect(packet.contents.projectSnapshot.analysis.matrices.fusion.values).toEqual(packet.contents.runtimeBundle.runtimes.sena.matrices.fusion.values);
     expect(packet.contents.projectSnapshot.analysis.temporalRuntimeTrace?.windows.length).toBe(packet.contents.temporalRuntimeTrace.windows.length);
-    expect(packet.contents.projectSnapshot.analysis.temporalRuntimeTrace?.windows.every((entry) => entry.sena.matrixFingerprints.length === 5)).toBe(true);
+    expect(packet.contents.projectSnapshot.analysis.temporalRuntimeTrace?.windows.every((entry) => entry.sena.matrixFingerprints.length === 7)).toBe(true);
     expect(packet.contents.runtimeConsistencyAudit).toEqual(packet.contents.reportJson.runtimeConsistencyAudit);
     expect(packet.contents.fusionMathAudit.matrixFingerprints).toEqual(packet.contents.reportJson.fusionMathAudit.matrixFingerprints);
     expect(packet.contents.runtimeBundle.fusionMathAudit.matrixFingerprints).toEqual(packet.contents.reportJson.fusionMathAudit.matrixFingerprints);
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "report-bundle-consistency")?.actual).toContain("matrixFingerprints=5");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "report-bundle-consistency")?.evidence).toContain("matrixFingerprintIds=S|W|B|G|A_fusion");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "report-bundle-consistency")?.actual).toContain("matrixFingerprints=7");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "report-bundle-consistency")?.evidence).toContain("matrixFingerprintIds=S|W|B|B_PC|B_CP|G|A_fusion");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "report-bundle-consistency")?.evidence.some((entry) => entry.startsWith("A_fusionChecksum=0x"))).toBe(true);
     expect(packet.contents.runtimeConsistencyAudit.items.find((item) => item.id === "jena-api-surface")?.status).toBe("pass");
     expect(packet.contents.runtimeConsistencyAudit.items.find((item) => item.id === "jena-rena-parity")?.status).toBe("pass");
@@ -3647,7 +3693,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.pilotPackageManifest.workspaceRoute).toBe("/workspace/sena");
     expect(packet.contents.pilotPackageManifest.assets.sample).toContain("/sena-pilot/sample/lesson-study-sena-contract.json");
     expect(packet.contents.pilotPackageManifest.assets.templates).toContain("/sena-pilot/templates/coded_segments.csv");
-    expect(packet.contents.pilotPackageManifest.assetIntegrity).toHaveLength(12);
+    expect(packet.contents.pilotPackageManifest.assetIntegrity).toHaveLength(13);
     expect(packet.contents.pilotPackageManifest.assetIntegrity.find((asset) => asset.href === "/sena-pilot/sample/lesson-study-sena-contract.json")?.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(packet.contents.pilotPackageManifest.exportArtifacts).toContain("sena-pilot-package-manifest.json");
     expect(packet.contents.pilotPackageManifest.exportArtifacts).toContain("sena-jena-manifest.json");
@@ -3924,7 +3970,7 @@ describe("SENA model builder", () => {
     expect(snapshot.dataset.utterances.length).toBeLessThan(exampleSenaContract.utterances.length);
     expect(snapshot.reproducibility.requiredRuntimes.ena.engine).toBe("jena-js");
     expect(snapshot.reproducibility.requiredRuntimes.sna.engine).toBe("sna.js");
-    expect(snapshot.reproducibility.formula).toBe("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
+    expect(snapshot.reproducibility.formula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(snapshot.reproducibility.interpretationGuardrails.length).toBeGreaterThan(0);
     expect(snapshot.analysis.nodes?.map((node) => node.kind)).toEqual(model.nodes.map((node) => node.kind));
     expect(snapshot.analysis.edges?.map((edge) => edge.layer)).toEqual(model.edges.map((edge) => edge.layer));
@@ -4021,6 +4067,34 @@ describe("SENA model builder", () => {
     expect(imported.analysis.edges?.length).toBe(restoredModel.edges.length);
   });
 
+  it("imports legacy v1 snapshots whose buildOptions predate the analysis-config declarations", () => {
+    const snapshot = buildSenaProjectSnapshot(buildSenaModel(exampleSenaContract), {
+      generatedAt: "2026-06-08T02:10:00.000Z"
+    });
+    const legacy = JSON.parse(JSON.stringify(snapshot));
+    legacy.reproducibility.buildOptions = {
+      alpha: 0.72,
+      beta: 0.64,
+      gamma: 0.86,
+      normalization: "max",
+      undirectedSocial: true,
+      temporal: legacy.reproducibility.buildOptions.temporal
+    };
+
+    const imported = importSenaProjectSnapshot(JSON.stringify(legacy));
+    expect(imported.schemaVersion).toBe("sena-project-snapshot/v1");
+    expect(imported.reproducibility.buildOptions.direction).toBeUndefined();
+
+    const rebuilt = buildSenaModel(imported.dataset, imported.reproducibility.buildOptions);
+    expect(rebuilt.options.direction).toBe("undirected");
+    expect(rebuilt.options.Phi).toBe("classical_mds");
+    expect(rebuilt.options.deg_convention).toBe("row-sum");
+
+    const invalidDeclared = JSON.parse(JSON.stringify(legacy));
+    invalidDeclared.reproducibility.buildOptions.direction = "sideways";
+    expect(() => importSenaProjectSnapshot(invalidDeclared)).toThrow(/buildOptions.direction is not supported/);
+  });
+
   it("rejects malformed project snapshots before workspace restore", () => {
     expect(isSenaProjectSnapshot({ schemaVersion: "sena-project-snapshot/v1" })).toBe(false);
     expect(() => importSenaProjectSnapshot({
@@ -4081,7 +4155,7 @@ describe("SENA model builder", () => {
       generatedAt: "2026-06-08T00:00:00.000Z",
       humanReview: {
         reviewer: "Research lead",
-        interpretation: "The bridge layer identifies who contributes to code-pair links.",
+        interpretation: "The bridge layer identifies who is associated with code-pair windows.",
         limitations: "Check inter-rater agreement before making claims.",
         nextActions: "Attach reviewed excerpts to the final report."
       }
@@ -4094,11 +4168,33 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("Analysis window: Full conversation");
     expect(markdown).toContain("## Parameters");
     expect(markdown).toContain("- Analysis window: Full conversation");
+    expect(markdown).toContain("- Bridge weight rule: count");
+    expect(markdown).toContain("- Dataset version:");
+    expect(markdown).toContain("- Dataset content hash: 0x");
+    expect(markdown).toContain("- Analysis config hash: 0x");
+    expect(report.modelCard.schemaVersion).toBe("sena-model-card/v2");
+    expect(report.modelCard.renderGate.status).toBe("blocked");
+    expect(report.modelCard.renderGate.missingSectionIds).toContain("coding-reliability");
+    expect(markdown).toContain("## Model Card");
+    expect(markdown).toContain("Model card incomplete - rendering blocked");
+    expect(markdown).toContain("Sections complete:");
     expect(markdown).toContain("## Runtime Provenance");
     expect(markdown).toContain("## Interpretation Guardrails");
-    expect(markdown).toContain("Joint mode is a deterministic A_fusion visual embedding");
-    expect(markdown).toContain("layout distance is not an inferential statistic");
-    expect(markdown).toContain("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
+    expect(markdown).toContain("Joint mode uses declared A_fusion embedding operators");
+    expect(markdown).toContain("Laplacian eigenmaps");
+    expect(markdown).toContain("operator, delta, dimension, seed, metric exactness, and stress");
+    expect(report.operatorDiagnostics.embedding.mds.delta).toBe("shortest-path-reciprocal-weight");
+    expect(markdown).toContain("## Embedding Diagnostics");
+    expect(markdown).toContain("MDS delta: shortest-path-reciprocal-weight");
+    expect(markdown).toContain("metric_exact");
+    expect(markdown).toContain("Commute-time");
+    expect(markdown).toContain("## Bridge Weight Rule");
+    expect(markdown).toContain("Active code value: segment-code-count");
+    expect(markdown).toContain("## Attribution Wording Gate");
+    expect(markdown).toContain("associated with windows containing the pair");
+    expect(markdown).toContain("## Typed Centrality Families");
+    expect(markdown).toContain("mixed-type centrality ranking");
+    expect(markdown).toContain("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(markdown).toContain("- ENA dependency: file:vendor/jena-js (vendor/jena-js/package.json)");
     expect(markdown).toContain("- ENA API surface: ena()");
     expect(markdown).toContain("- SNA dependency: file:vendor/sna-js (vendor/sna-js/package.json)");
@@ -4144,7 +4240,7 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("| Metric | Scope | Source | Implementation | Parity status | Interpretation limit |");
     expect(markdown).toContain("sna.js gden() over the S block with diag=false.");
     expect(markdown).toContain("sna.js betweenness(cmode=\"undirected\", rescale=false) over the S block.");
-    expect(markdown).toContain("SENA normalized block matrix [alpha*S gamma*B; gamma*B' beta*W].");
+    expect(markdown).toContain("SENA normalized block matrix [alpha*S gamma*B_PC; gamma*B_CP beta*W].");
     expect(markdown).toContain("Alpha/beta/gamma sensitivity");
     expect(markdown).toContain("Community Stability");
     expect(markdown).toContain("Temporal Stability");
@@ -4153,11 +4249,22 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("sena-self-implemented");
     expect(markdown).toContain("## Evidence Snippets");
     expect(markdown).toContain("## Human-Reviewed Interpretation");
-    expect(markdown).toContain("The bridge layer identifies who contributes to code-pair links.");
+    expect(markdown).toContain("The bridge layer identifies who is associated with code-pair windows.");
   });
 
-  it("keeps the social and epistemic blocks symmetric in the default undirected model", () => {
-    const model = buildSenaModel(exampleSenaContract);
+  it("keeps Joint layout documentation scoped to declared embedding provenance", () => {
+    const readme = readWorkspaceBytes("README.md").toString("utf8");
+    const layoutSource = readWorkspaceBytes("components/sena/workspace/fusion-layout.ts").toString("utf8");
+
+    expect(readme).toContain("Joint mode uses declared `A_fusion` embedding operators");
+    expect(readme).toContain("Laplacian eigenmaps");
+    expect(readme).toContain("operator, delta, dimension, deterministic seed, metric exactness, and stress");
+    expect(layoutSource).toContain("operatorDiagnostics.embedding.mds.coordinates");
+    expect(layoutSource).not.toContain("for (let iteration = 0; iteration < 130");
+  });
+
+  it("keeps the social and epistemic blocks symmetric when undirected social mode is declared", () => {
+    const model = buildSenaModel(exampleSenaContract, { undirectedSocial: true });
 
     for (let i = 0; i < model.matrices.S.raw.length; i += 1) {
       for (let j = 0; j < model.matrices.S.raw.length; j += 1) {
@@ -4173,7 +4280,7 @@ describe("SENA model builder", () => {
   });
 
   it("computes social-network metrics through SNA.js", () => {
-    const model = buildSenaModel(exampleSenaContract);
+    const model = buildSenaModel(exampleSenaContract, { undirectedSocial: true });
     const ava = model.nodes.find((node) => node.id === "A");
 
     expect(model.summary.socialAnalysis.engine).toBe("sna.js");
@@ -4210,7 +4317,7 @@ describe("SENA model builder", () => {
   });
 
   it("builds a jSNA manifest from sna.js social outputs", () => {
-    const model = buildSenaModel(exampleSenaContract);
+    const model = buildSenaModel(exampleSenaContract, { undirectedSocial: true });
     const manifest = buildSenaSnaManifest(model);
 
     expect(manifest.schemaVersion).toBe("sena-jsna-manifest/v1");
@@ -4295,7 +4402,7 @@ describe("SENA model builder", () => {
     expect(gArtifact.schemaVersion).toBe("sena-person-code-pair-g-report/v1");
     expect(gArtifact.workspaceRoute).toBe("/workspace/sena");
     expect(gArtifact.analysisWindow?.id).toBe(activeWindow?.id);
-    expect(gArtifact.runtimeProvenance.senaModel.matrixFormula).toBe("A_fusion = [alpha*S gamma*B; gamma*B' beta*W]");
+    expect(gArtifact.runtimeProvenance.senaModel.matrixFormula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(gArtifact.runtimeProvenance.enaRuntime.dependencySpec).toBe("file:vendor/jena-js");
     expect(gArtifact.runtimeProvenance.snaRuntime.dependencySpec).toBe("file:vendor/sna-js");
     expect(gArtifact.parameters).toEqual({
@@ -4523,13 +4630,13 @@ describe("SENA model builder", () => {
     const ava = evidenceExplanation?.topContributors.find((contributor) => contributor.id === "A");
     const eli = evidenceExplanation?.topContributors.find((contributor) => contributor.id === "E");
 
-    expect(evidenceExplanation?.totalContribution).toBeCloseTo(9);
-    expect(ava?.weight).toBeCloseTo(2.5);
+    expect(evidenceExplanation?.totalContribution).toBeCloseTo(15);
+    expect(ava?.weight).toBeCloseTo(3);
     expect(ava?.directWeight).toBeCloseTo(2);
-    expect(ava?.supportingWeight).toBeCloseTo(0.5);
+    expect(ava?.supportingWeight).toBeCloseTo(1);
     expect(ava?.evidence.map((snippet) => snippet.id)).toEqual(["s1", "s6", "s12"]);
     expect(eli?.directWeight).toBe(0);
-    expect(eli?.supportingWeight).toBeGreaterThan(0);
+    expect(eli?.supportingWeight).toBeCloseTo(3);
   });
 
   it("scales the fusion matrix when layer weights change", () => {
@@ -4752,7 +4859,7 @@ describe("SENA model builder", () => {
     expect(senaPilotSampleAssets[0]?.href).toBe(lessonStudySampleUrl);
     expect(senaPilotSampleCsvAssets).toHaveLength(5);
     expect(senaPilotSampleAssets).toHaveLength(6);
-    expect(senaPilotTemplateAssets).toHaveLength(6);
+    expect(senaPilotTemplateAssets).toHaveLength(7);
     expect(new Set([...sampleHrefs, ...templateHrefs]).size).toBe(sampleHrefs.length + templateHrefs.length);
     expect(sampleHrefs.every((href) => href.includes("/sample/"))).toBe(true);
     expect(templateHrefs.every((href) => href.includes("/templates/"))).toBe(true);
@@ -4820,7 +4927,7 @@ describe("SENA model builder", () => {
     expect(packageManifest.handoffChecks.find((check) => check.id === "metric-provenance")?.expectedEvidence).toContain("epistemicMetricSnapshot");
     expect(packageManifest.handoffChecks.find((check) => check.id === "metric-provenance")?.expectedEvidence).toContain("fusionMetricSnapshot");
     expect(packageManifest.handoffChecks.find((check) => check.id === "metric-provenance")?.expectedEvidence).toContain("interpretation limits");
-    expect(packageManifest.handoffChecks.find((check) => check.id === "model-json-export")?.expectedEvidence).toContain("S/W/B/G matrices");
+    expect(packageManifest.handoffChecks.find((check) => check.id === "model-json-export")?.expectedEvidence).toContain("S/W/B/B_PC/B_CP/G matrices");
     expect(packageManifest.handoffChecks.find((check) => check.id === "model-json-export")?.expectedEvidence).toContain("temporal trace windows");
     expect(packageManifest.sampleDataset.expectedCounts).toEqual({
       people: model.dataset.people.length,
@@ -4877,7 +4984,7 @@ describe("SENA model builder", () => {
 
   it("keeps the pilot lesson-study social arcs visually tiered", () => {
     const result = importSenaJsonContract(readPilotAsset("sample/lesson-study-sena-contract.json"));
-    const model = buildSenaModel(result.dataset);
+    const model = buildSenaModel(result.dataset, { undirectedSocial: true });
     const socialEdges = model.edges
       .filter((edge) => edge.layer === "social")
       .sort((a, b) => a.id.localeCompare(b.id));

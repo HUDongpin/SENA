@@ -709,7 +709,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       project.id,
       registered.context.user.id,
       "pending-review",
-      "bridgeScore",
+      "socialStrength",
       "role",
       "Lead teacher",
       "Curriculum designer",
@@ -740,7 +740,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       registered.context.user.id,
       "approved",
       registered.context.user.id,
-      "bridgeScore"
+      "socialStrength"
     ]));
 
     const opsStatus = enterprise.getEnterpriseOpsStatus();
