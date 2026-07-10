@@ -1,17 +1,92 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSenaDataContractAudit } from "../lib/sena/data-contract-audit";
-import type { SenaDataset } from "../lib/sena/types";
+import { buildSenaModel, scopeSenaDatasetToWindow } from "../lib/sena/model";
+import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../lib/sena/schema-registry";
+import type { SenaDataContractAudit, SenaDataset, SenaMatrixBlock, SenaModel } from "../lib/sena/types";
 
 const APP_ROOT = process.cwd();
-const DEFAULT_INPUT = path.join(APP_ROOT, "public", "sena-pilot", "sample", "lesson-study-sena-contract.json");
+const SOURCE_RELATIVE_PATH = "public/sena-pilot/sample/lesson-study-sena-contract.json" as const;
+const DEFAULT_INPUT = path.join(APP_ROOT, SOURCE_RELATIVE_PATH);
 const DEFAULT_OUTPUT_DIR = path.join(APP_ROOT, "output", "sena-publication-figures-human-concept");
 const REQUIRED_STAGES = ["Plan", "Teach", "Reflect"] as const;
 const REQUIRED_TABLES = ["people", "interactions", "utterances", "coded_segments", "codebook"] as const;
+const BUILD_OPTIONS = {
+  normalization: "max",
+  bridgeWeightRule: "count",
+  direction: "directed",
+  undirectedSocial: false,
+  temporal: { mode: "stage" },
+  seed: 0
+} as const;
 
 type RequiredTable = (typeof REQUIRED_TABLES)[number];
+type StageName = (typeof REQUIRED_STAGES)[number];
+type RunIdentity = SenaModel["operatorDiagnostics"]["runIdentity"];
+type FigureDataV1 = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.humanConceptFigureData;
+  dataset: {
+    source: typeof SOURCE_RELATIVE_PATH;
+    version: string;
+    sha256: string;
+    synthetic: true;
+  };
+  configuration: typeof BUILD_OPTIONS;
+  runIdentity: RunIdentity;
+  dataContractAudit: SenaDataContractAudit;
+  stageOrder: StageName[];
+  publicationUse: {
+    classification: "synthetic-demo-figure";
+    layoutReady: true;
+    empiricalClaimReady: false;
+    existingPublicationGate: "not-invoked-by-standalone-figure-generator";
+    limitation: "Method-illustration figures only; not cleared as empirical evidence.";
+  };
+  participants: Array<{
+    id: string;
+    label: string;
+    role: string;
+    initials: string;
+  }>;
+  codes: Array<{
+    id: string;
+    label: string;
+    family: string;
+    color: string;
+    description: string;
+  }>;
+  overall: {
+    S: SenaMatrixBlock;
+    W: SenaMatrixBlock;
+  };
+  temporal: Array<{
+    stage: StageName;
+    windowId: string;
+    runIdentity: RunIdentity;
+    counts: {
+      people: number;
+      codes: number;
+      interactions: number;
+      utterances: number;
+      codedSegments: number;
+    };
+    S: SenaMatrixBlock;
+    W: SenaMatrixBlock;
+  }>;
+  scales: {
+    S: {
+      minimumVisible: 1;
+      maxRaw: number;
+    };
+    W: {
+      minimumVisible: 1;
+      maxRaw: number;
+    };
+  };
+  interpretationGuardrails: string[];
+};
 
 function parseArgs(args: string[]) {
   let outputDir = DEFAULT_OUTPUT_DIR;
@@ -285,10 +360,144 @@ export function loadDataset(sourcePath: string) {
   };
 }
 
+function assertMatrixBlock(name: string, block: SenaMatrixBlock) {
+  const size = block.labels.length;
+  if (size === 0) {
+    throw new Error(`${name} matrix requires non-empty labels`);
+  }
+
+  for (const [matrixName, matrix] of [
+    ["raw", block.raw],
+    ["normalized", block.normalized]
+  ] as const) {
+    if (matrix.length !== size || matrix.some((row) => row.length !== size)) {
+      throw new Error(`${name}.${matrixName} matrix dimensions must match ${size} labels`);
+    }
+    if (matrix.some((row) => row.some((value) => !Number.isFinite(value)))) {
+      throw new Error(`${name}.${matrixName} matrix values must be finite`);
+    }
+  }
+}
+
+function resolveStageWindows(model: SenaModel) {
+  if (model.temporal.settings.mode !== "stage") {
+    throw new Error(`expected stage temporal mode, received ${model.temporal.settings.mode}`);
+  }
+
+  return REQUIRED_STAGES.map((stage) => {
+    const window = model.temporal.windows.find(
+      (candidate) => candidate.mode === "stage" && candidate.label === stage
+    );
+    if (!window) {
+      throw new Error(`missing exact stage temporal window: ${stage}`);
+    }
+    return { stage, window };
+  });
+}
+
+function maxNonZero(matrix: number[][], layer: string) {
+  const maximum = matrix.reduce(
+    (currentMaximum, row) => row.reduce((rowMaximum, value) => Math.max(rowMaximum, value), currentMaximum),
+    Number.NEGATIVE_INFINITY
+  );
+  if (maximum <= 0) {
+    throw new Error(`${layer} matrix requires at least one positive value`);
+  }
+  return maximum;
+}
+
+function buildFigureData({
+  dataset,
+  dataContractAudit,
+  datasetVersion,
+  sourceSha256
+}: ReturnType<typeof loadDataset>): FigureDataV1 {
+  const overallModel = buildSenaModel(dataset, BUILD_OPTIONS);
+  assertMatrixBlock("overall.S", overallModel.matrices.S);
+  assertMatrixBlock("overall.W", overallModel.matrices.W);
+
+  const temporal = resolveStageWindows(overallModel).map(({ stage, window }) => {
+    const scopedDataset = scopeSenaDatasetToWindow(dataset, window);
+    const scopedModel = buildSenaModel(scopedDataset, BUILD_OPTIONS);
+    assertMatrixBlock(`${stage}.S`, scopedModel.matrices.S);
+    assertMatrixBlock(`${stage}.W`, scopedModel.matrices.W);
+
+    return {
+      stage,
+      windowId: window.id,
+      runIdentity: scopedModel.operatorDiagnostics.runIdentity,
+      counts: {
+        people: scopedDataset.people.length,
+        codes: scopedDataset.codebook.length,
+        interactions: scopedDataset.interactions.length,
+        utterances: scopedDataset.utterances.length,
+        codedSegments: scopedDataset.coded_segments.length
+      },
+      S: scopedModel.matrices.S,
+      W: scopedModel.matrices.W
+    };
+  });
+
+  return createSenaSchemaPayload("humanConceptFigureData", {
+    dataset: {
+      source: SOURCE_RELATIVE_PATH,
+      version: datasetVersion,
+      sha256: sourceSha256,
+      synthetic: true as const
+    },
+    configuration: BUILD_OPTIONS,
+    runIdentity: overallModel.operatorDiagnostics.runIdentity,
+    dataContractAudit,
+    stageOrder: [...REQUIRED_STAGES],
+    publicationUse: {
+      classification: "synthetic-demo-figure" as const,
+      layoutReady: true as const,
+      empiricalClaimReady: false as const,
+      existingPublicationGate: "not-invoked-by-standalone-figure-generator" as const,
+      limitation: "Method-illustration figures only; not cleared as empirical evidence." as const
+    },
+    participants: dataset.people.map((person) => ({
+      id: person.id,
+      label: person.label,
+      role: person.role,
+      initials: person.initials ?? person.label.slice(0, 2).toUpperCase()
+    })),
+    codes: dataset.codebook.map((code) => ({
+      id: code.id,
+      label: code.label,
+      family: code.family,
+      color: code.color,
+      description: code.description
+    })),
+    overall: {
+      S: overallModel.matrices.S,
+      W: overallModel.matrices.W
+    },
+    temporal,
+    scales: {
+      S: {
+        minimumVisible: 1 as const,
+        maxRaw: maxNonZero(overallModel.matrices.S.raw, "S")
+      },
+      W: {
+        minimumVisible: 1 as const,
+        maxRaw: maxNonZero(overallModel.matrices.W.raw, "W")
+      }
+    },
+    interpretationGuardrails: [
+      "S encodes observed directed interaction weights; it is not a causal influence model.",
+      "W encodes code co-occurrence within unit-scoped stanzas; it is not semantic or causal direction.",
+      "The bundled lesson-study dataset is synthetic and supports demonstration, not population inference."
+    ]
+  }) satisfies FigureDataV1;
+}
+
 function main() {
   const { inputPath, outputDir } = parseArgs(process.argv.slice(2));
-  loadDataset(inputPath);
+  const loadedDataset = loadDataset(inputPath);
+  const figureData = buildFigureData(loadedDataset);
   mkdirSync(outputDir, { recursive: true });
+  writeFileSync(path.join(outputDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
 }
 
 const isMainModule =

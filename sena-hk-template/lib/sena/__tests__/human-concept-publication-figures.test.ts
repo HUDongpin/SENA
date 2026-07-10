@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import type { SenaDataContractAudit, SenaMatrixBlock } from "../types";
 import { loadDataset } from "../../../scripts/generate-sena-human-concept-publication-figures";
 
 const appRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
@@ -12,6 +15,75 @@ const packageJsonPath = path.join(appRoot, "package.json");
 const viteNodePath = path.join(appRoot, "node_modules", ".bin", "vite-node");
 const generatorPath = path.join(appRoot, "scripts", "generate-sena-human-concept-publication-figures.ts");
 const fixedSourcePath = path.join(appRoot, "public", "sena-pilot", "sample", "lesson-study-sena-contract.json");
+const fixedSourceRelativePath = "public/sena-pilot/sample/lesson-study-sena-contract.json";
+const requiredStages = ["Plan", "Teach", "Reflect"] as const;
+const buildOptions = {
+  normalization: "max",
+  bridgeWeightRule: "count",
+  direction: "directed",
+  undirectedSocial: false,
+  temporal: { mode: "stage" },
+  seed: 0
+} as const;
+
+type GeneratedFigureData = {
+  schemaVersion: string;
+  dataset: {
+    source: string;
+    version: string;
+    sha256: string;
+    synthetic: boolean;
+  };
+  configuration: typeof buildOptions;
+  runIdentity: {
+    hashAlgorithm: string;
+    datasetVersion: string;
+    datasetContentHash: string;
+    configHash: string;
+  };
+  dataContractAudit: SenaDataContractAudit;
+  stageOrder: string[];
+  publicationUse: {
+    classification: string;
+    layoutReady: boolean;
+    empiricalClaimReady: boolean;
+    existingPublicationGate: string;
+    limitation: string;
+  };
+  participants: Array<{ id: string; label: string; role: string; initials: string }>;
+  codes: Array<{ id: string; label: string; family: string; color: string; description: string }>;
+  overall: { S: SenaMatrixBlock; W: SenaMatrixBlock };
+  temporal: Array<{
+    stage: string;
+    windowId: string;
+    runIdentity: GeneratedFigureData["runIdentity"];
+    counts: {
+      people: number;
+      codes: number;
+      interactions: number;
+      utterances: number;
+      codedSegments: number;
+    };
+    S: SenaMatrixBlock;
+    W: SenaMatrixBlock;
+  }>;
+  scales: {
+    S: { minimumVisible: number; maxRaw: number };
+    W: { minimumVisible: number; maxRaw: number };
+  };
+  interpretationGuardrails: string[];
+};
+
+type CachedGeneratorRun = {
+  temporaryRoot: string;
+  outputDir: string;
+  result: SpawnSyncReturns<string>;
+  figureDataText: string;
+  figureData: GeneratedFigureData;
+};
+
+let cachedGeneratorRun: CachedGeneratorRun | undefined;
+let cachedGeneratorTemporaryRoot: string | undefined;
 
 type MutableDatasetFixture = {
   metadata: Record<string, unknown>;
@@ -67,6 +139,31 @@ function runGenerator(
   });
 }
 
+function getCachedGeneratorRun(): CachedGeneratorRun {
+  if (cachedGeneratorRun) return cachedGeneratorRun;
+
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "sena-human-concept-output-"));
+  cachedGeneratorTemporaryRoot = temporaryRoot;
+  const outputDir = path.join(temporaryRoot, "generated");
+  const result = runGenerator(["--output-dir", outputDir]);
+  const figureDataText = readFileSync(path.join(outputDir, "figure-data.json"), "utf8");
+
+  cachedGeneratorRun = {
+    temporaryRoot,
+    outputDir,
+    result,
+    figureDataText,
+    figureData: JSON.parse(figureDataText) as GeneratedFigureData
+  };
+  return cachedGeneratorRun;
+}
+
+afterAll(() => {
+  if (cachedGeneratorTemporaryRoot) {
+    rmSync(cachedGeneratorTemporaryRoot, { recursive: true, force: true });
+  }
+});
+
 describe("SENA human-concept publication figure generator", () => {
   it("registers the fixed generator command and direct Sharp dependency", () => {
     const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
@@ -91,20 +188,88 @@ describe("SENA human-concept publication figure generator", () => {
     }
   });
 
-  it("creates the requested output directory without writing artifacts", () => {
-    const temporaryCwd = mkdtempSync(path.join(tmpdir(), "sena-human-concept-output-"));
-    const outputDir = path.join(temporaryCwd, "generated");
+  it("writes auditable overall and stage-scoped runtime figure data", () => {
+    const { dataset, datasetVersion, sourceSha256 } = loadDataset(fixedSourcePath);
+    const overallModel = buildSenaModel(dataset, buildOptions);
+    const { result, outputDir, figureData, figureDataText } = getCachedGeneratorRun();
 
-    try {
-      const result = runGenerator(["--output-dir", outputDir]);
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(outputDir)).toBe(true);
+    expect(readdirSync(outputDir)).toEqual(["figure-data.json"]);
+    expect(figureDataText.length).toBeGreaterThan(0);
+    expect(figureDataText.endsWith("\n")).toBe(true);
 
-      expect(result.error).toBeUndefined();
-      expect(result.status, result.stderr).toBe(0);
-      expect(existsSync(outputDir)).toBe(true);
-      expect(readdirSync(outputDir)).toEqual([]);
-    } finally {
-      rmSync(temporaryCwd, { recursive: true, force: true });
+    expect(figureData.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.humanConceptFigureData);
+    expect(figureData.dataset).toEqual({
+      source: fixedSourceRelativePath,
+      version: datasetVersion,
+      sha256: sourceSha256,
+      synthetic: true
+    });
+    expect(figureData.configuration).toEqual(buildOptions);
+    expect(figureData.runIdentity).toEqual(overallModel.operatorDiagnostics.runIdentity);
+    expect(figureData.dataContractAudit.status).toBe("valid");
+    expect(figureData.stageOrder).toEqual(requiredStages);
+    expect(figureData.publicationUse).toEqual({
+      classification: "synthetic-demo-figure",
+      layoutReady: true,
+      empiricalClaimReady: false,
+      existingPublicationGate: "not-invoked-by-standalone-figure-generator",
+      limitation: "Method-illustration figures only; not cleared as empirical evidence."
+    });
+    expect(figureData.participants).toEqual(
+      dataset.people.map(({ id, label, role, initials }) => ({ id, label, role, initials }))
+    );
+    expect(figureData.codes).toEqual(
+      dataset.codebook.map(({ id, label, family, color, description }) => ({ id, label, family, color, description }))
+    );
+    expect(figureData.overall.S).toEqual(overallModel.matrices.S);
+    expect(figureData.overall.W).toEqual(overallModel.matrices.W);
+    expect(figureData.overall.S.raw).toEqual([
+      [0, 7, 0, 3],
+      [0, 0, 3, 6],
+      [4, 6, 0, 0],
+      [2, 0, 2, 0]
+    ]);
+    expect(figureData.overall.W.raw[2][3]).toBe(3);
+    expect(figureData.overall.W.raw[2][4]).toBe(3);
+    expect(figureData.overall.W.raw[3][4]).toBe(3);
+
+    expect(figureData.temporal).toHaveLength(3);
+    expect(figureData.temporal.map(({ stage }) => stage)).toEqual(requiredStages);
+    for (const temporalFigureData of figureData.temporal) {
+      const matchingWindow = overallModel.temporal.windows.find(
+        (window) => window.mode === "stage" && window.label === temporalFigureData.stage
+      );
+      expect(matchingWindow).toBeDefined();
+      if (!matchingWindow) throw new Error(`Missing expected ${temporalFigureData.stage} stage window`);
+
+      const scopedDataset = scopeSenaDatasetToWindow(dataset, matchingWindow);
+      const scopedModel = buildSenaModel(scopedDataset, buildOptions);
+      expect(temporalFigureData.windowId).toBe(matchingWindow.id);
+      expect(temporalFigureData.runIdentity).toEqual(scopedModel.operatorDiagnostics.runIdentity);
+      expect(temporalFigureData.counts).toEqual({
+        people: scopedDataset.people.length,
+        codes: scopedDataset.codebook.length,
+        interactions: scopedDataset.interactions.length,
+        utterances: scopedDataset.utterances.length,
+        codedSegments: scopedDataset.coded_segments.length
+      });
+      expect(temporalFigureData.S).toEqual(scopedModel.matrices.S);
+      expect(temporalFigureData.W).toEqual(scopedModel.matrices.W);
     }
+
+    const maxRaw = (matrix: number[][]) => Math.max(...matrix.flat());
+    expect(figureData.scales).toEqual({
+      S: { minimumVisible: 1, maxRaw: maxRaw(overallModel.matrices.S.raw) },
+      W: { minimumVisible: 1, maxRaw: maxRaw(overallModel.matrices.W.raw) }
+    });
+    expect(figureData.interpretationGuardrails).toEqual([
+      "S encodes observed directed interaction weights; it is not a causal influence model.",
+      "W encodes code co-occurrence within unit-scoped stanzas; it is not semantic or causal direction.",
+      "The bundled lesson-study dataset is synthetic and supports demonstration, not population inference."
+    ]);
   });
 
   it("rejects --output-dir without a value", () => {
