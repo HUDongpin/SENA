@@ -1,0 +1,10 @@
+import type { WorkspaceReportGeneratorGovernanceBoundaryCompositionFieldPropGroup } from "./workspace-report-generator-governance-boundary-composition-field-prop-group";
+
+export type WorkspaceReportGeneratorGovernanceBoundaryCompositionPropGroup =
+  WorkspaceReportGeneratorGovernanceBoundaryCompositionFieldPropGroup;
+
+export function buildWorkspaceReportGeneratorGovernanceBoundaryCompositionProps(
+  props: WorkspaceReportGeneratorGovernanceBoundaryCompositionPropGroup
+): WorkspaceReportGeneratorGovernanceBoundaryCompositionPropGroup {
+  return props;
+}

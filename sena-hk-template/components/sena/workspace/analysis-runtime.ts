@@ -16,6 +16,7 @@ export {
   inferSenaTableFromName,
   missingRequiredSenaFields,
   parseSenaCsv,
+  senaDatasetMetadataFromJson,
   senaImportFields,
   senaImportTables,
   type SenaImportTable,

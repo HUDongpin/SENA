@@ -10,6 +10,8 @@ export const fusionCanvasWidth = 900;
 export const fusionCanvasHeight = 620;
 export const fusionCanvasCenter = { x: fusionCanvasWidth / 2, y: fusionCanvasHeight / 2 };
 export const fusionConceptGuideRadius = 184;
+const jointLayoutMargin = { x: 86, y: 72 };
+export type SenaJointEmbeddingOperator = "mds-schoenberg" | "laplacian-eigenmaps" | "commute-time";
 
 function socialNodePositions(people: SenaModel["people"]) {
   const positions = new Map<string, { x: number; y: number }>();
@@ -101,56 +103,70 @@ function enaSpaceLayout(model: SenaModel, enaManifest?: SenaEnaManifest): Positi
   });
 }
 
-// Deterministic force layout over A_fusion weights; this is a visual embedding, not an inferential distance model.
-function jointLayout(model: SenaModel): PositionedSenaNode[] {
-  const initial = explanatoryLayout(model);
-  const coords = initial.map((node) => ({
-    x: (node.x - fusionCanvasCenter.x) / 310,
-    y: (node.y - fusionCanvasCenter.y) / 245
+function scaleJointCoordinatesToFit(coords: Array<{ x: number; y: number }>) {
+  if (coords.length === 0) return [];
+
+  const finiteCoords = coords.map((coordinate) => ({
+    x: Number.isFinite(coordinate.x) ? coordinate.x : 0,
+    y: Number.isFinite(coordinate.y) ? coordinate.y : 0
   }));
-  const weights = model.matrices.fusion.values;
+  const minX = Math.min(...finiteCoords.map((coordinate) => coordinate.x));
+  const maxX = Math.max(...finiteCoords.map((coordinate) => coordinate.x));
+  const minY = Math.min(...finiteCoords.map((coordinate) => coordinate.y));
+  const maxY = Math.max(...finiteCoords.map((coordinate) => coordinate.y));
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  const availableWidth = fusionCanvasWidth - jointLayoutMargin.x * 2;
+  const availableHeight = fusionCanvasHeight - jointLayoutMargin.y * 2;
+  const scaleX = spanX > 1e-9 ? availableWidth / spanX : availableWidth;
+  const scaleY = spanY > 1e-9 ? availableHeight / spanY : availableHeight;
+  const scale = Math.min(scaleX, scaleY, 285);
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
 
-  for (let iteration = 0; iteration < 130; iteration += 1) {
-    const forces = coords.map(() => ({ x: 0, y: 0 }));
-
-    for (let i = 0; i < coords.length; i += 1) {
-      for (let j = i + 1; j < coords.length; j += 1) {
-        const dx = coords[j].x - coords[i].x;
-        const dy = coords[j].y - coords[i].y;
-        const distance = Math.max(0.08, Math.sqrt(dx * dx + dy * dy));
-        const repulsion = 0.006 / (distance * distance);
-        forces[i].x -= (dx / distance) * repulsion;
-        forces[i].y -= (dy / distance) * repulsion;
-        forces[j].x += (dx / distance) * repulsion;
-        forces[j].y += (dy / distance) * repulsion;
-
-        const attraction = Math.max(weights[i]?.[j] ?? 0, weights[j]?.[i] ?? 0);
-        if (attraction > 0) {
-          const target = Math.max(0.28, 1.1 - attraction * 0.55);
-          const pull = (distance - target) * 0.018 * attraction;
-          forces[i].x += (dx / distance) * pull;
-          forces[i].y += (dy / distance) * pull;
-          forces[j].x -= (dx / distance) * pull;
-          forces[j].y -= (dy / distance) * pull;
-        }
-      }
-    }
-
-    for (let i = 0; i < coords.length; i += 1) {
-      coords[i].x = Math.max(-1.35, Math.min(1.35, coords[i].x + forces[i].x));
-      coords[i].y = Math.max(-1.22, Math.min(1.22, coords[i].y + forces[i].y));
-    }
-  }
-
-  return initial.map((node, index) => ({
-    ...node,
-    x: fusionCanvasCenter.x + coords[index].x * 285,
-    y: fusionCanvasCenter.y + coords[index].y * 230
+  return finiteCoords.map((coordinate) => ({
+    x: fusionCanvasCenter.x + (coordinate.x - midX) * scale,
+    y: fusionCanvasCenter.y + (coordinate.y - midY) * scale
   }));
 }
 
-export function computeFusionLayout(model: SenaModel, layout: SenaLayoutMode, enaManifest?: SenaEnaManifest): PositionedSenaNode[] {
+function formalEmbeddingCoordinates(model: SenaModel, operator: SenaJointEmbeddingOperator) {
+  if (operator === "laplacian-eigenmaps" && model.operatorDiagnostics.embedding.laplacianEigenmaps.available) {
+    return model.operatorDiagnostics.embedding.laplacianEigenmaps.coordinates;
+  }
+  if (operator === "commute-time" && model.operatorDiagnostics.embedding.commuteTime.available) {
+    return model.operatorDiagnostics.embedding.commuteTime.coordinates;
+  }
+  if (model.operatorDiagnostics.embedding.mds.available) {
+    return model.operatorDiagnostics.embedding.mds.coordinates;
+  }
+  return null;
+}
+
+function jointLayout(model: SenaModel, operator: SenaJointEmbeddingOperator): PositionedSenaNode[] {
+  const initial = explanatoryLayout(model);
+  const coordinates = formalEmbeddingCoordinates(model, operator);
+  if (!coordinates || coordinates.length !== initial.length) return initial;
+  const coords = coordinates.map((row) => ({
+    x: row[0] ?? 0,
+    y: row[1] ?? 0
+  }));
+
+  const scaledCoords = scaleJointCoordinatesToFit(coords);
+  return initial.map((node, index) => ({
+    ...node,
+    x: scaledCoords[index]?.x ?? fusionCanvasCenter.x,
+    y: scaledCoords[index]?.y ?? fusionCanvasCenter.y
+  }));
+}
+
+export function computeFusionLayout(
+  model: SenaModel,
+  layout: SenaLayoutMode,
+  enaManifest?: SenaEnaManifest,
+  jointEmbeddingOperator: SenaJointEmbeddingOperator = "mds-schoenberg"
+): PositionedSenaNode[] {
   if (layout === "ena-space") return enaSpaceLayout(model, enaManifest);
-  if (layout === "joint") return jointLayout(model);
+  if (layout === "joint") return jointLayout(model, jointEmbeddingOperator);
   return explanatoryLayout(model);
 }

@@ -1,0 +1,10 @@
+import type { WorkspaceReportGeneratorReliabilityBoundaryCompositionFieldPropGroup } from "./workspace-report-generator-reliability-boundary-composition-field-prop-group";
+
+export type WorkspaceReportGeneratorReliabilityBoundaryCompositionPropGroup =
+  WorkspaceReportGeneratorReliabilityBoundaryCompositionFieldPropGroup;
+
+export function buildWorkspaceReportGeneratorReliabilityBoundaryCompositionProps(
+  props: WorkspaceReportGeneratorReliabilityBoundaryCompositionPropGroup
+): WorkspaceReportGeneratorReliabilityBoundaryCompositionPropGroup {
+  return props;
+}

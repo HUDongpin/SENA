@@ -1,0 +1,10 @@
+import type { WorkspaceCentralPlotTemporalControlsBoundaryCompositionFieldPropGroup } from "./workspace-central-plot-temporal-controls-boundary-composition-field-prop-group";
+
+export type WorkspaceCentralPlotTemporalControlsBoundaryCompositionPropGroup =
+  WorkspaceCentralPlotTemporalControlsBoundaryCompositionFieldPropGroup;
+
+export function buildWorkspaceCentralPlotTemporalControlsBoundaryCompositionProps(
+  props: WorkspaceCentralPlotTemporalControlsBoundaryCompositionPropGroup
+): WorkspaceCentralPlotTemporalControlsBoundaryCompositionPropGroup {
+  return props;
+}

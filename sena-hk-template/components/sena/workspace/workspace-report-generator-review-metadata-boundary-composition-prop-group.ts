@@ -1,0 +1,10 @@
+import type { WorkspaceReportGeneratorReviewMetadataBoundaryCompositionFieldPropGroup } from "./workspace-report-generator-review-metadata-boundary-composition-field-prop-group";
+
+export type WorkspaceReportGeneratorReviewMetadataBoundaryCompositionPropGroup =
+  WorkspaceReportGeneratorReviewMetadataBoundaryCompositionFieldPropGroup;
+
+export function buildWorkspaceReportGeneratorReviewMetadataBoundaryCompositionProps(
+  props: WorkspaceReportGeneratorReviewMetadataBoundaryCompositionPropGroup
+): WorkspaceReportGeneratorReviewMetadataBoundaryCompositionPropGroup {
+  return props;
+}
