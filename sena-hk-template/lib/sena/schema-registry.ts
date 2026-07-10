@@ -148,6 +148,8 @@ export const SENA_SCHEMA_VERSIONS = {
   goLiveCloseoutCheck: "sena-go-live-closeout-check/v1",
   groupComparisonSuite: "sena-group-comparison-suite/v1",
   groupComparison: "sena-group-comparison/v1",
+  humanConceptFigureData: "sena-human-concept-figure-data/v1",
+  humanConceptPublicationFigureManifest: "sena-human-concept-publication-figure-manifest/v1",
   humanReview: "sena-human-review/v1",
   importCleaningManifest: "sena-import-cleaning-manifest/v1",
   importRunList: "sena-import-run-list/v1",

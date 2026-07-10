@@ -75,6 +75,10 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterpriseVercelProductionPreflight).toBe("sena-enterprise-vercel-production-preflight/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseProductionRuntimeEnvPacket).toBe("sena-enterprise-production-runtime-env-packet/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseProductionGoLiveGate).toBe("sena-enterprise-production-go-live-gate/v1");
+    expect(SENA_SCHEMA_VERSIONS.humanConceptFigureData).toBe("sena-human-concept-figure-data/v1");
+    expect(SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest).toBe(
+      "sena-human-concept-publication-figure-manifest/v1"
+    );
 
     expect(getSenaSchemaVersion("productionPageContract")).toBe(buildSenaProductionPageContract().schemaVersion);
 
