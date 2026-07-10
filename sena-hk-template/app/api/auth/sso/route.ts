@@ -1,7 +1,7 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence,
+  getEnterpriseIdentityProductionEvidence,
   type SenaEnterpriseIdentityProductionEvidence
 } from "@/lib/sena/enterprise/identity-production-evidence";
 import {
@@ -95,9 +95,10 @@ export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const url = new URL(request.url);
     if (url.searchParams.get("status") === "1") {
-      // Serverless-safe: the async variant reads the primary Postgres state
-      // (or the non-persisting file fallback) instead of the sync file store.
-      const identityEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence();
+      // Serverless-safe: the file-store read path never initializes the store
+      // directory, so this stays a fast non-persisting read on read-only
+      // filesystems; the full Postgres-backed evidence lives on the ops routes.
+      const identityEvidence = getEnterpriseIdentityProductionEvidence();
       if (url.searchParams.get("preflight") === "1") {
         await enforceAuthRateLimitAsync(request, {
           bucket: "auth.sso.preflight",
