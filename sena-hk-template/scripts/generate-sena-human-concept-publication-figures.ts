@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -44,6 +44,10 @@ const STAGING_MARKER_SCHEMA = "sena-publication-staging-owner/v2" as const;
 const READY_MARKER_FILENAME = ".sena-publication-ready-owner.json";
 const COMMITTED_MARKER_FILENAME = ".sena-publication-committed-owner.json";
 const PUBLICATION_MARKER_SCHEMA = "sena-publication-package-owner/v1" as const;
+const QUARANTINE_RECEIPT_FILENAME = ".sena-publication-commit-receipt.json";
+const QUARANTINE_RECEIPT_SCHEMA = "sena-publication-commit-receipt/v1" as const;
+const PUBLICATION_LOCK_SCHEMA = "sena-publication-lock/v1" as const;
+const PUBLICATION_LOCK_OWNER_FILENAME = "owner.json";
 const BUILD_OPTIONS = {
   normalization: "max",
   bridgeWeightRule: "count",
@@ -86,6 +90,28 @@ type PublicationPackageMarker = {
   device: number;
   inode: number;
   artifacts: FileFingerprint[];
+};
+type QuarantineCommitReceipt = {
+  schemaVersion: typeof QUARANTINE_RECEIPT_SCHEMA;
+  outputDirectory: string;
+  quarantineDirectory: string;
+  outputDevice: number;
+  outputInode: number;
+  artifacts: FileFingerprint[];
+};
+type PublicationLockMarker = {
+  schemaVersion: typeof PUBLICATION_LOCK_SCHEMA;
+  outputDirectory: string;
+  lockPath: string;
+  pid: number;
+  token: string;
+  createdAt: string;
+};
+type OwnedPublicationLock = {
+  path: string;
+  device: number;
+  inode: number;
+  marker: PublicationLockMarker;
 };
 type OwnedStagingDirectory = {
   path: string;
@@ -1187,6 +1213,14 @@ function backupPathFor(outputDir: string) {
   return `${outputDir}.sena-publication-backup`;
 }
 
+function quarantinePathFor(outputDir: string) {
+  return `${outputDir}.sena-publication-quarantine`;
+}
+
+function publicationLockPathFor(outputDir: string) {
+  return `${outputDir}.sena-publication.lock`;
+}
+
 function stagingPrefixFor(outputDir: string) {
   return `.${path.basename(outputDir)}.staging-`;
 }
@@ -1212,7 +1246,293 @@ function isFilesystemIdentity(value: unknown) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-function assertRealDirectory(directory: string, label: "output" | "backup" | "staging") {
+function readPublicationLock(lockPath: string, outputDir: string) {
+  const stats = lstatIfExists(lockPath);
+  const failure = `publication lock is not a recognized real owned directory: ${lockPath}`;
+  if (!stats?.isDirectory() || stats.isSymbolicLink()) throw new Error(failure);
+  const entries = readdirSync(lockPath).sort();
+  if (!sameJson(entries, [PUBLICATION_LOCK_OWNER_FILENAME])) throw new Error(failure);
+  const ownerPath = path.join(lockPath, PUBLICATION_LOCK_OWNER_FILENAME);
+  const ownerStats = lstatIfExists(ownerPath);
+  if (!ownerStats?.isFile() || ownerStats.isSymbolicLink()) throw new Error(failure);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(ownerPath, "utf8"));
+  } catch {
+    throw new Error(failure);
+  }
+  const identity = publicationIdentity(outputDir);
+  if (
+    !isRecord(parsed) ||
+    parsed.schemaVersion !== PUBLICATION_LOCK_SCHEMA ||
+    parsed.outputDirectory !== identity.outputDirectory ||
+    parsed.lockPath !== publicationLockPathFor(identity.outputDirectory) ||
+    typeof parsed.pid !== "number" ||
+    !Number.isSafeInteger(parsed.pid) ||
+    parsed.pid <= 0 ||
+    typeof parsed.token !== "string" ||
+    !/^[0-9a-f-]{16,}$/.test(parsed.token) ||
+    typeof parsed.createdAt !== "string" ||
+    Number.isNaN(Date.parse(parsed.createdAt))
+  ) {
+    throw new Error(failure);
+  }
+  return { stats, marker: parsed as PublicationLockMarker };
+}
+
+function processIsLive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function createPublicationLockMarker(outputDir: string) {
+  const identity = publicationIdentity(outputDir);
+  return {
+    schemaVersion: PUBLICATION_LOCK_SCHEMA,
+    outputDirectory: identity.outputDirectory,
+    lockPath: publicationLockPathFor(identity.outputDirectory),
+    pid: process.pid,
+    token: randomUUID(),
+    createdAt: new Date().toISOString()
+  } satisfies PublicationLockMarker;
+}
+
+function publicationLockTransientPaths(
+  outputDir: string,
+  kind: "candidate" | "release"
+) {
+  const lockPath = publicationLockPathFor(outputDir);
+  const parent = path.dirname(lockPath);
+  const prefix = `${path.basename(lockPath)}.${kind}-`;
+  return readdirSync(parent)
+    .filter((entry) => entry.startsWith(prefix))
+    .sort()
+    .map((entry) => path.join(parent, entry));
+}
+
+function validateUniquePublicationLockDirectory(
+  directory: string,
+  outputDir: string,
+  kind: "candidate" | "release"
+) {
+  const owned = readPublicationLock(directory, outputDir);
+  const expectedName = `${path.basename(publicationLockPathFor(outputDir))}.${kind}-${owned.marker.token}`;
+  if (path.basename(directory) !== expectedName) {
+    throw new Error(`publication lock ${kind} directory identity is invalid: ${directory}`);
+  }
+  return owned;
+}
+
+function safelyRemoveUniquePublicationLockDirectory(
+  directory: string,
+  outputDir: string,
+  kind: "candidate" | "release"
+) {
+  const stats = lstatIfExists(directory);
+  if (!stats?.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error(`publication lock ${kind} path is not a real directory: ${directory}`);
+  }
+  if (readdirSync(directory).length === 0) {
+    rmdirSync(directory);
+    return;
+  }
+  validateUniquePublicationLockDirectory(directory, outputDir, kind);
+  const ownerPath = path.join(directory, PUBLICATION_LOCK_OWNER_FILENAME);
+  unlinkSync(ownerPath);
+  if (
+    kind === "release" &&
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_AFTER_LOCK_RELEASE_OWNER_UNLINK === "1"
+  ) {
+    process.exit(94);
+  }
+  if (readdirSync(directory).length !== 0) {
+    throw new Error(`publication lock ${kind} directory acquired unknown content: ${directory}`);
+  }
+  rmdirSync(directory);
+}
+
+function cleanAbandonedPublicationLockTransients(outputDir: string) {
+  for (const kind of ["candidate", "release"] as const) {
+    for (const directory of publicationLockTransientPaths(outputDir, kind)) {
+      const stats = lstatIfExists(directory);
+      if (!stats?.isDirectory() || stats.isSymbolicLink()) {
+        throw new Error(`publication lock ${kind} path is not a real directory: ${directory}`);
+      }
+      if (readdirSync(directory).length === 0) {
+        rmdirSync(directory);
+        continue;
+      }
+      const owned = validateUniquePublicationLockDirectory(directory, outputDir, kind);
+      if (processIsLive(owned.marker.pid)) {
+        throw new Error(
+          `publication lock ${kind} is held by live process ${owned.marker.pid}: ${directory}`
+        );
+      }
+      safelyRemoveUniquePublicationLockDirectory(directory, outputDir, kind);
+    }
+  }
+}
+
+function preparePublicationLockCandidate(outputDir: string) {
+  const marker = createPublicationLockMarker(outputDir);
+  const lockPath = publicationLockPathFor(outputDir);
+  const candidatePath = `${lockPath}.candidate-${marker.token}`;
+  mkdirSync(candidatePath);
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_AFTER_LOCK_CANDIDATE_MKDIR === "1"
+  ) {
+    process.exit(93);
+  }
+  writeFileSync(
+    path.join(candidatePath, PUBLICATION_LOCK_OWNER_FILENAME),
+    `${JSON.stringify(marker, null, 2)}\n`,
+    { encoding: "utf8", flag: "wx" }
+  );
+  const owned = validateUniquePublicationLockDirectory(candidatePath, outputDir, "candidate");
+  if (owned.marker.token !== marker.token || owned.marker.pid !== process.pid) {
+    throw new Error(`publication lock candidate ownership changed: ${candidatePath}`);
+  }
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_WITH_PUBLICATION_LOCK_GUARD === "1"
+  ) {
+    process.exit(92);
+  }
+  return { path: candidatePath, marker, stats: owned.stats };
+}
+
+function injectStaleLockReplacement(lockPath: string, outputDir: string) {
+  if (
+    process.env.NODE_ENV !== "test" ||
+    process.env.SENA_FIGURE_TEST_REPLACE_STALE_LOCK_BEFORE_RECLAIM !== "1"
+  ) return;
+  const identity = publicationIdentity(outputDir);
+  const replacement: PublicationLockMarker = {
+    schemaVersion: PUBLICATION_LOCK_SCHEMA,
+    outputDirectory: identity.outputDirectory,
+    lockPath: publicationLockPathFor(identity.outputDirectory),
+    pid: process.ppid,
+    token: randomUUID(),
+    createdAt: new Date().toISOString()
+  };
+  writeFileSync(
+    path.join(lockPath, PUBLICATION_LOCK_OWNER_FILENAME),
+    `${JSON.stringify(replacement, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+function acquirePublicationLock(outputDir: string) {
+  const parent = path.dirname(outputDir);
+  mkdirSync(parent, { recursive: true });
+  const lockPath = publicationLockPathFor(outputDir);
+  cleanAbandonedPublicationLockTransients(outputDir);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const candidate = preparePublicationLockCandidate(outputDir);
+    try {
+      renameSync(candidate.path, lockPath);
+      const installed = readPublicationLock(lockPath, outputDir);
+      if (
+        installed.stats.dev !== candidate.stats.dev ||
+        installed.stats.ino !== candidate.stats.ino ||
+        installed.marker.token !== candidate.marker.token ||
+        installed.marker.pid !== process.pid
+      ) {
+        throw new Error(`publication lock changed during candidate installation: ${lockPath}`);
+      }
+      return {
+        path: lockPath,
+        device: installed.stats.dev,
+        inode: installed.stats.ino,
+        marker: candidate.marker
+      } satisfies OwnedPublicationLock;
+    } catch (error) {
+      if (lstatIfExists(candidate.path)) {
+        safelyRemoveUniquePublicationLockDirectory(candidate.path, outputDir, "candidate");
+      }
+      if (!lstatIfExists(lockPath)) throw error;
+      const existing = readPublicationLock(lockPath, outputDir);
+      if (processIsLive(existing.marker.pid)) {
+        throw new Error(`publication lock is held by live process ${existing.marker.pid}: ${lockPath}`);
+      }
+      injectStaleLockReplacement(lockPath, outputDir);
+      const revalidated = readPublicationLock(lockPath, outputDir);
+      if (
+        revalidated.stats.dev !== existing.stats.dev ||
+        revalidated.stats.ino !== existing.stats.ino ||
+        revalidated.marker.token !== existing.marker.token ||
+        revalidated.marker.pid !== existing.marker.pid
+      ) {
+        throw new Error(
+          `stale publication lock changed during guarded recovery and was preserved: ${lockPath}`
+        );
+      }
+      const fencePath = `${lockPath}.fence-${existing.marker.token}`;
+      if (lstatIfExists(fencePath)) {
+        throw new Error(`stale publication lock fence already exists and was preserved: ${fencePath}`);
+      }
+      try {
+        renameSync(lockPath, fencePath);
+      } catch (fencingError) {
+        throw new Error(
+          `stale publication lock fencing lost a race and all paths were preserved: ${
+            fencingError instanceof Error ? fencingError.message : String(fencingError)
+          }`
+        );
+      }
+      const fenced = readPublicationLock(fencePath, outputDir);
+      if (
+        fenced.stats.dev !== existing.stats.dev ||
+        fenced.stats.ino !== existing.stats.ino ||
+        fenced.marker.token !== existing.marker.token ||
+        fenced.marker.pid !== existing.marker.pid
+      ) {
+        throw new Error(`fenced stale publication lock changed and was preserved: ${fencePath}`);
+      }
+      continue;
+    }
+  }
+  throw new Error(`could not acquire publication lock after stale fencing: ${lockPath}`);
+}
+
+function releasePublicationLock(lock: OwnedPublicationLock, outputDir: string) {
+  const current = readPublicationLock(lock.path, outputDir);
+  if (
+    current.stats.dev !== lock.device ||
+    current.stats.ino !== lock.inode ||
+    current.marker.token !== lock.marker.token ||
+    current.marker.pid !== process.pid
+  ) {
+    throw new Error(`publication lock ownership changed before release: ${lock.path}`);
+  }
+  const releasePath = `${lock.path}.release-${lock.marker.token}`;
+  if (lstatIfExists(releasePath)) {
+    throw new Error(`publication lock release path already exists and was preserved: ${releasePath}`);
+  }
+  renameSync(lock.path, releasePath);
+  const released = validateUniquePublicationLockDirectory(releasePath, outputDir, "release");
+  if (
+    released.stats.dev !== lock.device ||
+    released.stats.ino !== lock.inode ||
+    released.marker.token !== lock.marker.token
+  ) {
+    throw new Error(`publication lock changed during guarded release: ${releasePath}`);
+  }
+  safelyRemoveUniquePublicationLockDirectory(releasePath, outputDir, "release");
+}
+
+function assertRealDirectory(
+  directory: string,
+  label: "output" | "backup" | "quarantine" | "staging"
+) {
   const stats = lstatIfExists(directory);
   if (!stats) return undefined;
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
@@ -1224,7 +1544,7 @@ function assertRealDirectory(directory: string, label: "output" | "backup" | "st
 function assertTopLevelRegularFile(
   filePath: string,
   filename: string,
-  label: "output" | "backup" | "staging"
+  label: "output" | "backup" | "quarantine" | "staging"
 ) {
   const stats = lstatIfExists(filePath);
   if (!stats?.isFile() || stats.isSymbolicLink()) {
@@ -1250,7 +1570,7 @@ function assertOutputDirectoryReplaceable(outputDir: string, allowed: Set<string
 function fingerprintFile(
   directory: string,
   filename: RequiredArtifact,
-  label: "output" | "backup" | "staging"
+  label: "output" | "backup" | "quarantine" | "staging"
 ) {
   assertTopLevelRegularFile(path.join(directory, filename), filename, label);
   const bytes = readFileSync(path.join(directory, filename));
@@ -1274,7 +1594,11 @@ function isFileFingerprint(value: unknown): value is FileFingerprint {
   );
 }
 
-function readBackupMarker(containerDir: string, outputDir: string, label: "output" | "backup") {
+function readBackupMarker(
+  containerDir: string,
+  outputDir: string,
+  label: "output" | "backup" | "quarantine"
+) {
   const markerPath = path.join(containerDir, BACKUP_MARKER_FILENAME);
   const markerStats = lstatIfExists(markerPath);
   if (!markerStats?.isFile() || markerStats.isSymbolicLink()) {
@@ -1310,7 +1634,7 @@ function readBackupMarker(containerDir: string, outputDir: string, label: "outpu
 function validateOwnedBackupContainer(
   containerDir: string,
   outputDir: string,
-  label: "output" | "backup",
+  label: "output" | "backup" | "quarantine",
   expectedArtifacts?: FileFingerprint[]
 ) {
   assertRealDirectory(containerDir, label);
@@ -1738,58 +2062,6 @@ function recoverOwnedStagingDirectories(outputDir: string) {
   }
 }
 
-function validateOwnedBackupForCleanup(backupDir: string, outputDir: string) {
-  assertRealDirectory(backupDir, "backup");
-  const marker = readBackupMarker(backupDir, outputDir, "backup");
-  const actualEntries = readdirSync(backupDir).sort();
-  if (!actualEntries.includes(BACKUP_MARKER_FILENAME)) {
-    throw new Error("backup directory contents do not match its owned marker");
-  }
-  const presentArtifacts = actualEntries.filter((entry) => entry !== BACKUP_MARKER_FILENAME);
-  const markerByFilename = new Map(marker.artifacts.map((artifact) => [artifact.filename, artifact]));
-  if (presentArtifacts.some((filename) => !markerByFilename.has(filename as RequiredArtifact))) {
-    throw new Error("backup directory contents do not match its owned marker");
-  }
-  const remaining = marker.artifacts.filter(({ filename }) => presentArtifacts.includes(filename));
-  validateOwnedBackupContainer(backupDir, outputDir, "backup", remaining);
-  return { marker, remaining };
-}
-
-function safelyRemoveOwnedBackup(backupDir: string, outputDir: string) {
-  const { remaining: validatedRemaining } = validateOwnedBackupForCleanup(backupDir, outputDir);
-  const remaining = [...validatedRemaining];
-  let removedArtifacts = 0;
-  while (remaining.length > 0) {
-    validateOwnedBackupContainer(backupDir, outputDir, "backup", remaining);
-    const next = remaining[0];
-    assertTopLevelRegularFile(path.join(backupDir, next.filename), next.filename, "backup");
-    unlinkSync(path.join(backupDir, next.filename));
-    remaining.shift();
-    removedArtifacts += 1;
-    if (
-      removedArtifacts === 1 &&
-      process.env.NODE_ENV === "test" &&
-      process.env.SENA_FIGURE_TEST_CRASH_DURING_BACKUP_CLEANUP === "1"
-    ) {
-      process.exit(88);
-    }
-  }
-  validateOwnedBackupContainer(backupDir, outputDir, "backup", []);
-  const markerPath = path.join(backupDir, BACKUP_MARKER_FILENAME);
-  assertTopLevelRegularFile(markerPath, BACKUP_MARKER_FILENAME, "backup");
-  unlinkSync(markerPath);
-  if (
-    process.env.NODE_ENV === "test" &&
-    process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_MARKER_UNLINK === "1"
-  ) {
-    process.exit(90);
-  }
-  if (readdirSync(backupDir).length !== 0) {
-    throw new Error("backup directory acquired unknown content during safe cleanup; preserved");
-  }
-  rmdirSync(backupDir);
-}
-
 function ensureCommittedOutput(outputDir: string) {
   assertRealDirectory(outputDir, "output");
   const entries = readdirSync(outputDir).sort();
@@ -1811,11 +2083,124 @@ function ensureCommittedOutput(outputDir: string) {
   );
 }
 
-function removeCommittedMarkerFromOutput(outputDir: string) {
-  if (lstatIfExists(backupPathFor(outputDir))) {
-    throw new Error("committed output marker cannot be removed while the backup path exists");
+function readQuarantineCommitReceiptStructure(quarantineDir: string, outputDir: string) {
+  const failure = `quarantine has no recognized commit receipt: ${quarantineDir}`;
+  assertRealDirectory(quarantineDir, "quarantine");
+  const receiptPath = path.join(quarantineDir, QUARANTINE_RECEIPT_FILENAME);
+  const receiptStats = lstatIfExists(receiptPath);
+  if (!receiptStats?.isFile() || receiptStats.isSymbolicLink()) throw new Error(failure);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(receiptPath, "utf8"));
+  } catch {
+    throw new Error(failure);
   }
-  ensureCommittedOutput(outputDir);
+  const identity = publicationIdentity(outputDir);
+  if (
+    !isRecord(parsed) ||
+    parsed.schemaVersion !== QUARANTINE_RECEIPT_SCHEMA ||
+    parsed.outputDirectory !== identity.outputDirectory ||
+    parsed.quarantineDirectory !== quarantinePathFor(identity.outputDirectory) ||
+    !isFilesystemIdentity(parsed.outputDevice) ||
+    !isFilesystemIdentity(parsed.outputInode) ||
+    !Array.isArray(parsed.artifacts) ||
+    !parsed.artifacts.every(isFileFingerprint)
+  ) {
+    throw new Error(failure);
+  }
+  const receipt = parsed as QuarantineCommitReceipt;
+  if (!sameJson(receipt.artifacts.map(({ filename }) => filename), sortedRequiredArtifacts())) {
+    throw new Error(failure);
+  }
+  return receipt;
+}
+
+function readQuarantineCommitReceipt(quarantineDir: string, outputDir: string) {
+  const receipt = readQuarantineCommitReceiptStructure(quarantineDir, outputDir);
+  const outputStats = assertRealDirectory(outputDir, "output");
+  if (
+    !outputStats ||
+    receipt.outputDevice !== outputStats.dev ||
+    receipt.outputInode !== outputStats.ino
+  ) {
+    throw new Error(`quarantine commit receipt does not match the current output: ${quarantineDir}`);
+  }
+  return receipt;
+}
+
+function writeQuarantineCommitReceipt(
+  quarantineDir: string,
+  outputDir: string,
+  committed: PublicationPackageMarker
+) {
+  const outputStats = assertRealDirectory(outputDir, "output");
+  if (!outputStats || outputStats.dev !== committed.device || outputStats.ino !== committed.inode) {
+    throw new Error("committed output identity changed before quarantine receipt creation");
+  }
+  const identity = publicationIdentity(outputDir);
+  const receipt: QuarantineCommitReceipt = {
+    schemaVersion: QUARANTINE_RECEIPT_SCHEMA,
+    outputDirectory: identity.outputDirectory,
+    quarantineDirectory: quarantinePathFor(identity.outputDirectory),
+    outputDevice: outputStats.dev,
+    outputInode: outputStats.ino,
+    artifacts: committed.artifacts
+  };
+  writeFileSync(
+    path.join(quarantineDir, QUARANTINE_RECEIPT_FILENAME),
+    `${JSON.stringify(receipt, null, 2)}\n`,
+    { encoding: "utf8", flag: "wx" }
+  );
+  const stored = readQuarantineCommitReceipt(quarantineDir, outputDir);
+  if (!sameJson(stored.artifacts, committed.artifacts)) {
+    throw new Error("quarantine commit receipt does not match committed output fingerprints");
+  }
+  return stored;
+}
+
+function validateMarkerlessOutputAgainstFingerprints(
+  outputDir: string,
+  expectedArtifacts: FileFingerprint[]
+) {
+  try {
+    const entries = assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
+    if (!sameJson(entries, sortedRequiredArtifacts())) {
+      throw new Error("output is not the exact nine-file package");
+    }
+    for (const expected of expectedArtifacts) {
+      const actual = fingerprintFile(outputDir, expected.filename, "output");
+      if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
+        throw new Error(`output fingerprint mismatch: ${expected.filename}`);
+      }
+    }
+    validateManifestPayloadRecords(outputDir, "output");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`final steady-state output changed before validation: ${message}`);
+  }
+}
+
+function validateMarkerlessOutputPackage(outputDir: string) {
+  const entries = assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
+  if (!sameJson(entries, sortedRequiredArtifacts())) {
+    throw new Error("markerless output is not the exact nine-file package");
+  }
+  validateManifestPayloadRecords(outputDir, "output");
+}
+
+function removeCommittedMarkerForFinalValidation(
+  outputDir: string,
+  expected: PublicationPackageMarker | QuarantineCommitReceipt
+) {
+  const committed = ensureCommittedOutput(outputDir);
+  if (
+    committed.device !== ("device" in expected ? expected.device : expected.outputDevice) ||
+    committed.inode !== ("inode" in expected ? expected.inode : expected.outputInode) ||
+    !sameJson(committed.artifacts, expected.artifacts)
+  ) {
+    throw new Error("committed output does not match the final-validation receipt");
+  }
   const markerPath = path.join(outputDir, COMMITTED_MARKER_FILENAME);
   assertTopLevelRegularFile(markerPath, COMMITTED_MARKER_FILENAME, "output");
   unlinkSync(markerPath);
@@ -1825,11 +2210,172 @@ function removeCommittedMarkerFromOutput(outputDir: string) {
   }
 }
 
+function validateQuarantineForCleanup(
+  quarantineDir: string,
+  outputDir: string,
+  requireCurrentOutput = true
+) {
+  const receipt = requireCurrentOutput
+    ? readQuarantineCommitReceipt(quarantineDir, outputDir)
+    : readQuarantineCommitReceiptStructure(quarantineDir, outputDir);
+  const entries = readdirSync(quarantineDir).sort();
+  const hasBackupMarker = entries.includes(BACKUP_MARKER_FILENAME);
+  if (!hasBackupMarker) {
+    const unknown = entries.filter((entry) => entry !== QUARANTINE_RECEIPT_FILENAME);
+    if (unknown.length > 0) {
+      throw new Error(`quarantine contains unknown content without its old-version marker: ${unknown.join(", ")}`);
+    }
+    return { receipt, marker: undefined, remaining: [] as FileFingerprint[] };
+  }
+
+  const marker = readBackupMarker(quarantineDir, outputDir, "quarantine");
+  const markerByFilename = new Map(marker.artifacts.map((artifact) => [artifact.filename, artifact]));
+  const allowed = new Set<string>([
+    ...markerByFilename.keys(),
+    BACKUP_MARKER_FILENAME,
+    QUARANTINE_RECEIPT_FILENAME
+  ]);
+  const unknown = entries.filter((entry) => !allowed.has(entry));
+  if (unknown.length > 0) {
+    throw new Error(`quarantine directory contains unknown files: ${unknown.join(", ")}`);
+  }
+  const presentArtifacts = entries.filter((entry) => markerByFilename.has(entry as RequiredArtifact));
+  const remaining = marker.artifacts.filter(({ filename }) => presentArtifacts.includes(filename));
+  for (const expected of remaining) {
+    const actual = fingerprintFile(quarantineDir, expected.filename, "quarantine");
+    if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
+      throw new Error("quarantine directory contents do not match its old-version marker");
+    }
+  }
+  return { receipt, marker, remaining };
+}
+
+function safelyRemoveValidatedQuarantine(quarantineDir: string, outputDir: string) {
+  let removedArtifacts = 0;
+  while (true) {
+    const state = validateQuarantineForCleanup(quarantineDir, outputDir);
+    validateMarkerlessOutputAgainstFingerprints(outputDir, state.receipt.artifacts);
+    if (state.remaining.length > 0) {
+      const next = state.remaining[0];
+      assertTopLevelRegularFile(path.join(quarantineDir, next.filename), next.filename, "quarantine");
+      unlinkSync(path.join(quarantineDir, next.filename));
+      removedArtifacts += 1;
+      if (
+        removedArtifacts === 1 &&
+        process.env.NODE_ENV === "test" &&
+        process.env.SENA_FIGURE_TEST_CRASH_DURING_BACKUP_CLEANUP === "1"
+      ) {
+        process.exit(88);
+      }
+      continue;
+    }
+    if (state.marker) {
+      assertTopLevelRegularFile(
+        path.join(quarantineDir, BACKUP_MARKER_FILENAME),
+        BACKUP_MARKER_FILENAME,
+        "quarantine"
+      );
+      unlinkSync(path.join(quarantineDir, BACKUP_MARKER_FILENAME));
+      continue;
+    }
+    assertTopLevelRegularFile(
+      path.join(quarantineDir, QUARANTINE_RECEIPT_FILENAME),
+      QUARANTINE_RECEIPT_FILENAME,
+      "quarantine"
+    );
+    unlinkSync(path.join(quarantineDir, QUARANTINE_RECEIPT_FILENAME));
+    if (
+      process.env.NODE_ENV === "test" &&
+      process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_MARKER_UNLINK === "1"
+    ) {
+      process.exit(90);
+    }
+    if (readdirSync(quarantineDir).length !== 0) {
+      throw new Error("quarantine acquired unknown content during safe cleanup; preserved");
+    }
+    rmdirSync(quarantineDir);
+    return;
+  }
+}
+
+function injectFinalValidationMutation(outputDir: string) {
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_MUTATE_OUTPUT_BEFORE_FINAL_VALIDATION === "1"
+  ) {
+    const captionsPath = path.join(outputDir, "captions.md");
+    writeFileSync(
+      captionsPath,
+      `${readFileSync(captionsPath, "utf8")}tampered before final steady-state validation\n`,
+      "utf8"
+    );
+  }
+}
+
+function finalizeCommittedOutputWithoutQuarantine(outputDir: string) {
+  const committed = ensureCommittedOutput(outputDir);
+  removeCommittedMarkerForFinalValidation(outputDir, committed);
+  injectFinalValidationMutation(outputDir);
+  validateMarkerlessOutputAgainstFingerprints(outputDir, committed.artifacts);
+}
+
+function finalizeOutputWithQuarantine(outputDir: string, quarantineDir: string) {
+  const entries = readdirSync(outputDir).sort();
+  const hasTransactionMarker =
+    entries.includes(READY_MARKER_FILENAME) || entries.includes(COMMITTED_MARKER_FILENAME);
+  let receipt: QuarantineCommitReceipt;
+  if (hasTransactionMarker) {
+    const committed = ensureCommittedOutput(outputDir);
+    if (readdirSync(quarantineDir).includes(QUARANTINE_RECEIPT_FILENAME)) {
+      receipt = readQuarantineCommitReceipt(quarantineDir, outputDir);
+      if (!sameJson(receipt.artifacts, committed.artifacts)) {
+        throw new Error("quarantine receipt does not match the committed output marker");
+      }
+    } else {
+      validateOwnedBackupContainer(quarantineDir, outputDir, "quarantine");
+      receipt = writeQuarantineCommitReceipt(quarantineDir, outputDir, committed);
+    }
+    removeCommittedMarkerForFinalValidation(outputDir, receipt);
+  } else {
+    receipt = readQuarantineCommitReceipt(quarantineDir, outputDir);
+  }
+
+  injectFinalValidationMutation(outputDir);
+  validateMarkerlessOutputAgainstFingerprints(outputDir, receipt.artifacts);
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_REMOVED === "1"
+  ) {
+    process.exit(91);
+  }
+  safelyRemoveValidatedQuarantine(quarantineDir, outputDir);
+}
+
+function restoreOwnedQuarantine(quarantineDir: string, outputDir: string) {
+  if (readdirSync(quarantineDir).includes(QUARANTINE_RECEIPT_FILENAME)) {
+    const state = validateQuarantineForCleanup(quarantineDir, outputDir, false);
+    if (!state.marker || state.remaining.length !== state.marker.artifacts.length) {
+      throw new Error("quarantined old version is incomplete and cannot be restored");
+    }
+    unlinkSync(path.join(quarantineDir, QUARANTINE_RECEIPT_FILENAME));
+  }
+  validateOwnedBackupContainer(quarantineDir, outputDir, "quarantine");
+  renameSync(quarantineDir, outputDir);
+  validateOwnedBackupContainer(outputDir, outputDir, "output");
+  removeOwnedMarkerFromOutput(outputDir);
+}
+
 function recoverInterruptedPublication(outputDir: string) {
   const parent = path.dirname(outputDir);
   mkdirSync(parent, { recursive: true });
   const backupDir = backupPathFor(outputDir);
+  const quarantineDir = quarantinePathFor(outputDir);
   const backupStats = lstatIfExists(backupDir);
+  const quarantineStats = lstatIfExists(quarantineDir);
+
+  if (backupStats && quarantineStats) {
+    throw new Error("backup and quarantine paths both exist; both were preserved");
+  }
 
   if (backupStats) {
     assertRealDirectory(backupDir, "backup");
@@ -1842,11 +2388,27 @@ function recoverInterruptedPublication(outputDir: string) {
     } else {
       ensureCommittedOutput(outputDir);
       if (readdirSync(backupDir).length === 0) {
+        finalizeCommittedOutputWithoutQuarantine(outputDir);
         rmdirSync(backupDir);
       } else {
-        safelyRemoveOwnedBackup(backupDir, outputDir);
+        validateOwnedBackupContainer(backupDir, outputDir, "backup");
+        renameSync(backupDir, quarantineDir);
+        finalizeOutputWithQuarantine(outputDir, quarantineDir);
       }
-      removeCommittedMarkerFromOutput(outputDir);
+    }
+  }
+
+  const recoveredQuarantineStats = lstatIfExists(quarantineDir);
+  if (recoveredQuarantineStats) {
+    assertRealDirectory(quarantineDir, "quarantine");
+    const outputStats = lstatIfExists(outputDir);
+    if (!outputStats) {
+      restoreOwnedQuarantine(quarantineDir, outputDir);
+    } else if (readdirSync(quarantineDir).length === 0) {
+      validateMarkerlessOutputPackage(outputDir);
+      rmdirSync(quarantineDir);
+    } else {
+      finalizeOutputWithQuarantine(outputDir, quarantineDir);
     }
   }
 
@@ -1861,8 +2423,7 @@ function recoverInterruptedPublication(outputDir: string) {
       entries.includes(READY_MARKER_FILENAME) ||
       entries.includes(COMMITTED_MARKER_FILENAME)
     ) {
-      ensureCommittedOutput(outputDir);
-      removeCommittedMarkerFromOutput(outputDir);
+      finalizeCommittedOutputWithoutQuarantine(outputDir);
     } else {
       assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
     }
@@ -1873,13 +2434,17 @@ function recoverInterruptedPublication(outputDir: string) {
 
 function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: string) {
   const backupDir = backupPathFor(outputDir);
+  const quarantineDir = quarantinePathFor(outputDir);
   validateCompletePublicationPackage(staging.path, outputDir, READY_MARKER_FILENAME, "staging");
   assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
   if (lstatIfExists(backupDir)) {
     throw new Error(`backup path appeared after recovery and was preserved: ${backupDir}`);
   }
+  if (lstatIfExists(quarantineDir)) {
+    throw new Error(`quarantine path appeared after recovery and was preserved: ${quarantineDir}`);
+  }
 
-  let previousMoved = false;
+  let previousLocation: "none" | "backup" | "quarantine" = "none";
   try {
     if (lstatIfExists(outputDir)) {
       writeBackupMarker(outputDir);
@@ -1888,7 +2453,7 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
       }
       validateOwnedBackupContainer(outputDir, outputDir, "output");
       renameSync(outputDir, backupDir);
-      previousMoved = true;
+      previousLocation = "backup";
 
       if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_LATE_BACKUP_UNKNOWN === "1") {
         writeFileSync(path.join(backupDir, "researcher-late-backup-note.txt"), "late backup note\n", "utf8");
@@ -1906,6 +2471,12 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
       process.exit(89);
     }
 
+    if (previousLocation === "backup") {
+      renameSync(backupDir, quarantineDir);
+      previousLocation = "quarantine";
+      validateOwnedBackupContainer(quarantineDir, outputDir, "quarantine");
+    }
+
     renameSync(staging.path, outputDir);
     validateCompletePublicationPackage(outputDir, outputDir, READY_MARKER_FILENAME, "output");
     renameSync(
@@ -1914,12 +2485,16 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
     );
     ensureCommittedOutput(outputDir);
   } catch (error) {
-    if (!lstatIfExists(outputDir) && previousMoved && lstatIfExists(backupDir)) {
+    if (!lstatIfExists(outputDir) && previousLocation !== "none") {
       try {
-        validateOwnedBackupContainer(backupDir, outputDir, "backup");
-        renameSync(backupDir, outputDir);
-        validateOwnedBackupContainer(outputDir, outputDir, "output");
-        removeOwnedMarkerFromOutput(outputDir);
+        if (previousLocation === "quarantine" && lstatIfExists(quarantineDir)) {
+          restoreOwnedQuarantine(quarantineDir, outputDir);
+        } else if (lstatIfExists(backupDir)) {
+          validateOwnedBackupContainer(backupDir, outputDir, "backup");
+          renameSync(backupDir, outputDir);
+          validateOwnedBackupContainer(outputDir, outputDir, "output");
+          removeOwnedMarkerFromOutput(outputDir);
+        }
       } catch (recoveryError) {
         const recoveryMessage = recoveryError instanceof Error ? recoveryError.message : String(recoveryError);
         const originalMessage = error instanceof Error ? error.message : String(error);
@@ -1929,15 +2504,11 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
     throw error;
   }
 
-  if (previousMoved) safelyRemoveOwnedBackup(backupDir, outputDir);
-  if (
-    previousMoved &&
-    process.env.NODE_ENV === "test" &&
-    process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_REMOVED === "1"
-  ) {
-    process.exit(91);
+  if (previousLocation === "quarantine") {
+    finalizeOutputWithQuarantine(outputDir, quarantineDir);
+  } else {
+    finalizeCommittedOutputWithoutQuarantine(outputDir);
   }
-  removeCommittedMarkerFromOutput(outputDir);
 }
 
 function resolveGenerationClock() {
@@ -2155,75 +2726,80 @@ async function validatePublicationPackage(
 
 async function main() {
   const { inputPath, outputDir } = parseArgs(process.argv.slice(2));
-  recoverInterruptedPublication(outputDir);
-  const { generatedAt, generationClock } = resolveGenerationClock();
-  const loadedDataset = loadDataset(inputPath);
-  const sharpModule = (await import("sharp")) as unknown as { default: SharpRuntime };
-  const sharpRuntime = sharpModule.default;
-  const figureData = buildFigureData(loadedDataset);
-  const figure1 = renderOverallHumanHumanFigure(figureData);
-  const figure2 = renderOverallConceptConceptFigure(figureData);
-  const figure3 = renderTemporalPairedFigure(figureData);
-  const captions = buildCaptions(figureData, sharpRuntime);
-  const staging = createStagingDirectory(outputDir);
-  const stagingDir = staging.path;
-
+  const publicationLock = acquirePublicationLock(outputDir);
   try {
-    writeFileSync(path.join(stagingDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
-    writeFileSync(path.join(stagingDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
-    writeFileSync(path.join(stagingDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
-    writeFileSync(path.join(stagingDir, "figure-3-temporal-paired-small-multiples.svg"), figure3, "utf8");
-    writeFileSync(path.join(stagingDir, "captions.md"), captions, "utf8");
+    recoverInterruptedPublication(outputDir);
+    const { generatedAt, generationClock } = resolveGenerationClock();
+    const loadedDataset = loadDataset(inputPath);
+    const sharpModule = (await import("sharp")) as unknown as { default: SharpRuntime };
+    const sharpRuntime = sharpModule.default;
+    const figureData = buildFigureData(loadedDataset);
+    const figure1 = renderOverallHumanHumanFigure(figureData);
+    const figure2 = renderOverallConceptConceptFigure(figureData);
+    const figure3 = renderTemporalPairedFigure(figureData);
+    const captions = buildCaptions(figureData, sharpRuntime);
+    const staging = createStagingDirectory(outputDir);
+    const stagingDir = staging.path;
 
-    if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_FAIL_PNG === "1") {
-      throw new Error("injected PNG rendering failure");
+    try {
+      writeFileSync(path.join(stagingDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
+      writeFileSync(path.join(stagingDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
+      writeFileSync(path.join(stagingDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
+      writeFileSync(path.join(stagingDir, "figure-3-temporal-paired-small-multiples.svg"), figure3, "utf8");
+      writeFileSync(path.join(stagingDir, "captions.md"), captions, "utf8");
+
+      if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_FAIL_PNG === "1") {
+        throw new Error("injected PNG rendering failure");
+      }
+
+      await writePng(
+        sharpRuntime,
+        figure1,
+        path.join(stagingDir, "figure-1-human-human-overall.png"),
+        3600,
+        2400
+      );
+      await writePng(
+        sharpRuntime,
+        figure2,
+        path.join(stagingDir, "figure-2-concept-concept-overall.png"),
+        3600,
+        2400
+      );
+      await writePng(
+        sharpRuntime,
+        figure3,
+        path.join(stagingDir, "figure-3-temporal-paired-small-multiples.png"),
+        4800,
+        2880
+      );
+
+      const artifactRecords = buildArtifactRecords(stagingDir);
+      const manifest = buildManifest(
+        figureData,
+        artifactRecords,
+        generatedAt,
+        generationClock,
+        sharpRuntime
+      );
+      writeFileSync(
+        path.join(stagingDir, "figure-manifest.json"),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        "utf8"
+      );
+
+      await validatePublicationPackage(staging, outputDir, figureData, sharpRuntime);
+      transitionStagingToReady(staging, outputDir);
+      if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_LATE_UNKNOWN_FILE === "1") {
+        if (!lstatIfExists(outputDir)) throw new Error("late unknown output seam requires existing output");
+        writeFileSync(path.join(outputDir, "researcher-late-note.txt"), "late researcher note\n", "utf8");
+      }
+      publishStagingDirectory(staging, outputDir);
+    } finally {
+      removeOwnedStagingDirectory(staging, outputDir);
     }
-
-    await writePng(
-      sharpRuntime,
-      figure1,
-      path.join(stagingDir, "figure-1-human-human-overall.png"),
-      3600,
-      2400
-    );
-    await writePng(
-      sharpRuntime,
-      figure2,
-      path.join(stagingDir, "figure-2-concept-concept-overall.png"),
-      3600,
-      2400
-    );
-    await writePng(
-      sharpRuntime,
-      figure3,
-      path.join(stagingDir, "figure-3-temporal-paired-small-multiples.png"),
-      4800,
-      2880
-    );
-
-    const artifactRecords = buildArtifactRecords(stagingDir);
-    const manifest = buildManifest(
-      figureData,
-      artifactRecords,
-      generatedAt,
-      generationClock,
-      sharpRuntime
-    );
-    writeFileSync(
-      path.join(stagingDir, "figure-manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8"
-    );
-
-    await validatePublicationPackage(staging, outputDir, figureData, sharpRuntime);
-    transitionStagingToReady(staging, outputDir);
-    if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_LATE_UNKNOWN_FILE === "1") {
-      if (!lstatIfExists(outputDir)) throw new Error("late unknown output seam requires existing output");
-      writeFileSync(path.join(outputDir, "researcher-late-note.txt"), "late researcher note\n", "utf8");
-    }
-    publishStagingDirectory(staging, outputDir);
   } finally {
-    removeOwnedStagingDirectory(staging, outputDir);
+    releasePublicationLock(publicationLock, outputDir);
   }
 }
 

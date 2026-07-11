@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
@@ -214,6 +214,14 @@ function runGenerator(
   });
 }
 
+async function waitForPath(targetPath: string, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(targetPath)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for path: ${targetPath}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 function getCachedGeneratorRun(): CachedGeneratorRun {
   if (cachedGeneratorRun) return cachedGeneratorRun;
 
@@ -253,6 +261,35 @@ function makeOutputPath() {
 
 function backupPathFor(outputDir: string) {
   return `${outputDir}.sena-publication-backup`;
+}
+
+function quarantinePathFor(outputDir: string) {
+  return `${outputDir}.sena-publication-quarantine`;
+}
+
+function lockPathFor(outputDir: string) {
+  return `${outputDir}.sena-publication.lock`;
+}
+
+function lockOwnerPathFor(lockDir: string) {
+  return path.join(lockDir, "owner.json");
+}
+
+function lockTransientPathsFor(outputDir: string, kind: "candidate" | "release") {
+  const lockPath = lockPathFor(outputDir);
+  const prefix = `${path.basename(lockPath)}.${kind}-`;
+  return readdirSync(path.dirname(lockPath))
+    .filter((entry) => entry.startsWith(prefix))
+    .map((entry) => path.join(path.dirname(lockPath), entry))
+    .sort();
+}
+
+function lockCandidatePathsFor(outputDir: string) {
+  return lockTransientPathsFor(outputDir, "candidate");
+}
+
+function lockReleasePathsFor(outputDir: string) {
+  return lockTransientPathsFor(outputDir, "release");
 }
 
 function stagingPathsFor(outputDir: string) {
@@ -1091,22 +1128,21 @@ describe("SENA human-concept publication figure generator", () => {
     );
     expect(interrupted.status).toBe(88);
 
-    const markerName = readdirSync(outputDir).find(
-      (entry) => !(requiredArtifacts as readonly string[]).includes(entry)
-    );
-    expect(markerName).toBeDefined();
-    const markerPath = path.join(outputDir, markerName as string);
-    const marker = JSON.parse(readFileSync(markerPath, "utf8")) as {
+    const quarantineDir = quarantinePathFor(outputDir);
+    const receiptName = readdirSync(quarantineDir).find((entry) => entry.includes("commit-receipt"));
+    expect(receiptName).toBeDefined();
+    const receiptPath = path.join(quarantineDir, receiptName as string);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
       artifacts: Array<{ filename: string; bytes: number; sha256: string }>;
     };
     const captionsPath = path.join(outputDir, "captions.md");
     writeFileSync(captionsPath, `${readFileSync(captionsPath, "utf8")}tampered after commit\n`, "utf8");
     const captionsBytes = readFileSync(captionsPath);
-    const captionsFingerprint = marker.artifacts.find(({ filename }) => filename === "captions.md");
+    const captionsFingerprint = receipt.artifacts.find(({ filename }) => filename === "captions.md");
     expect(captionsFingerprint).toBeDefined();
     captionsFingerprint!.bytes = captionsBytes.byteLength;
     captionsFingerprint!.sha256 = sha256(captionsBytes);
-    writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+    writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 
     const recovery = runGenerator(["--output-dir", outputDir]);
 
@@ -1114,9 +1150,9 @@ describe("SENA human-concept publication figure generator", () => {
     expect(recovery.stderr).toContain(
       "output publication package manifest does not validate its eight payload artifacts"
     );
-    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
+    expect(lstatSync(quarantineDir).isDirectory()).toBe(true);
     expect(readFileSync(captionsPath, "utf8")).toContain("tampered after commit");
-    expect(existsSync(markerPath)).toBe(true);
+    expect(existsSync(receiptPath)).toBe(true);
 
     const manifestPath = path.join(outputDir, "figure-manifest.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -1134,13 +1170,13 @@ describe("SENA human-concept publication figure generator", () => {
     captionsRecord!.sha256 = sha256(captionsBytes);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const manifestBytes = readFileSync(manifestPath);
-    const manifestFingerprint = marker.artifacts.find(
+    const manifestFingerprint = receipt.artifacts.find(
       ({ filename }) => filename === "figure-manifest.json"
     );
     expect(manifestFingerprint).toBeDefined();
     manifestFingerprint!.bytes = manifestBytes.byteLength;
     manifestFingerprint!.sha256 = sha256(manifestBytes);
-    writeFileSync(markerPath, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+    writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
 
     const structuralRecovery = runGenerator(["--output-dir", outputDir]);
 
@@ -1148,8 +1184,324 @@ describe("SENA human-concept publication figure generator", () => {
     expect(structuralRecovery.stderr).toContain(
       "output publication package manifest does not validate its eight payload artifacts"
     );
-    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
-    expect(existsSync(markerPath)).toBe(true);
+    expect(lstatSync(quarantineDir).isDirectory()).toBe(true);
+    expect(existsSync(receiptPath)).toBe(true);
+  }, 15_000);
+
+  it("finalization state: retains the complete old version when markerless output mutates", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousArtifacts = new Map<string, Buffer>([
+      ["captions.md", Buffer.from("previous captions\n")],
+      ["figure-data.json", Buffer.from('{"previous":true}\n')],
+      ["figure-manifest.json", Buffer.from("previous manifest\n")]
+    ]);
+    for (const [filename, bytes] of previousArtifacts) {
+      writeFileSync(path.join(outputDir, filename), bytes);
+    }
+    const previousHashes = new Map(
+      [...previousArtifacts].map(([filename, bytes]) => [filename, sha256(bytes)])
+    );
+
+    const result = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_MUTATE_OUTPUT_BEFORE_FINAL_VALIDATION: "1" }
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("final steady-state output changed before validation");
+    const quarantineDir = quarantinePathFor(outputDir);
+    expect(lstatSync(quarantineDir).isDirectory()).toBe(true);
+    for (const [filename, bytes] of previousArtifacts) {
+      const quarantined = readFileSync(path.join(quarantineDir, filename));
+      expect(quarantined).toEqual(bytes);
+      expect(sha256(quarantined)).toBe(previousHashes.get(filename));
+    }
+    const quarantineEntries = readdirSync(quarantineDir);
+    const oldVersionMarkerName = quarantineEntries.find((entry) => entry.includes("backup-owner"));
+    const receiptName = quarantineEntries.find((entry) => entry.includes("commit-receipt"));
+    expect(oldVersionMarkerName).toBeDefined();
+    expect(receiptName).toBeDefined();
+    const oldVersionMarker = JSON.parse(
+      readFileSync(path.join(quarantineDir, oldVersionMarkerName as string), "utf8")
+    ) as { artifacts: Array<{ filename: string; sha256: string }> };
+    expect(oldVersionMarker.artifacts.map(({ filename }) => filename)).toEqual(
+      [...previousArtifacts.keys()].sort()
+    );
+    for (const artifact of oldVersionMarker.artifacts) {
+      expect(artifact.sha256).toBe(previousHashes.get(artifact.filename));
+    }
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(readFileSync(path.join(outputDir, "captions.md"), "utf8")).toContain(
+      "tampered before final steady-state validation"
+    );
+  }, 15_000);
+
+  it("lock state: recovers the owned stale lock left by a hard exit", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_READY_BEFORE_RENAME: "1" }
+    );
+
+    expect(interrupted.status).toBe(89);
+    const lockPath = lockPathFor(outputDir);
+    expect(lstatSync(lockPath).isDirectory()).toBe(true);
+    const lockMarker = JSON.parse(readFileSync(lockOwnerPathFor(lockPath), "utf8")) as {
+      outputDirectory: string;
+      pid: number;
+      token: string;
+    };
+    expect(lockMarker.outputDirectory).toBe(
+      path.join(realpathSync.native(path.dirname(outputDir)), path.basename(outputDir))
+    );
+    expect(lockMarker.pid).toBeGreaterThan(0);
+    expect(lockMarker.token).toMatch(/^[0-9a-f-]{16,}$/);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(existsSync(lockPath)).toBe(false);
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  }, 15_000);
+
+  it("lock state: rejects a concurrent generator without moving the live directory lock", async () => {
+    const outputDir = makeOutputPath();
+    const first = spawn(viteNodePath, ["--script", generatorPath, "--output-dir", outputDir], {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        TZ: "UTC",
+        SOURCE_DATE_EPOCH: "1783728000",
+        NODE_ENV: "test"
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let firstStdout = "";
+    let firstStderr = "";
+    first.stdout.setEncoding("utf8");
+    first.stderr.setEncoding("utf8");
+    first.stdout.on("data", (chunk: string) => {
+      firstStdout += chunk;
+    });
+    first.stderr.on("data", (chunk: string) => {
+      firstStderr += chunk;
+    });
+    const firstCompletion = new Promise<{ status: number | null; signal: NodeJS.Signals | null }>(
+      (resolve, reject) => {
+        first.once("error", reject);
+        first.once("close", (status, signal) => resolve({ status, signal }));
+      }
+    );
+
+    const lockPath = lockPathFor(outputDir);
+    await waitForPath(lockPath);
+    const liveOwner = JSON.parse(readFileSync(lockOwnerPathFor(lockPath), "utf8")) as {
+      pid: number;
+      token: string;
+    };
+    const blocked = runGenerator(["--output-dir", outputDir]);
+
+    expect(blocked.status).toBe(1);
+    expect(blocked.stderr).toContain(`publication lock is held by live process ${liveOwner.pid}`);
+    expect(lstatSync(lockPath).isDirectory()).toBe(true);
+    const preservedOwner = JSON.parse(readFileSync(lockOwnerPathFor(lockPath), "utf8")) as {
+      pid: number;
+      token: string;
+    };
+    expect(preservedOwner).toEqual(liveOwner);
+
+    const firstResult = await firstCompletion;
+    expect(firstResult.signal).toBeNull();
+    expect(firstResult.status, `${firstStdout}\n${firstStderr}`).toBe(0);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(existsSync(lockPath)).toBe(false);
+    expect(lockCandidatePathsFor(outputDir)).toEqual([]);
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+  }, 15_000);
+
+  it("lock state: preserves a replacement lock at the stale-reclaim boundary", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "figure-manifest.json"), "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_READY_BEFORE_RENAME: "1" }
+    );
+    expect(interrupted.status).toBe(89);
+    const lockPath = lockPathFor(outputDir);
+    const staleMarker = JSON.parse(readFileSync(lockOwnerPathFor(lockPath), "utf8")) as {
+      token: string;
+    };
+
+    const recovery = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      {
+        NODE_ENV: "test",
+        SENA_FIGURE_TEST_FAIL_PNG: "1",
+        SENA_FIGURE_TEST_REPLACE_STALE_LOCK_BEFORE_RECLAIM: "1"
+      }
+    );
+
+    expect(recovery.status).toBe(1);
+    expect(recovery.stderr).toContain("stale publication lock changed during guarded recovery");
+    const replacementMarker = JSON.parse(readFileSync(lockOwnerPathFor(lockPath), "utf8")) as {
+      pid: number;
+      token: string;
+    };
+    expect(replacementMarker.pid).toBeGreaterThan(0);
+    expect(replacementMarker.token).not.toBe(staleMarker.token);
+    expect(existsSync(backupPathFor(outputDir))).toBe(true);
+  }, 15_000);
+
+  it("lock state: recovers a prepared candidate left by a hard exit", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_WITH_PUBLICATION_LOCK_GUARD: "1" }
+    );
+
+    expect(interrupted.status).toBe(92);
+    const candidatePaths = lockCandidatePathsFor(outputDir);
+    expect(candidatePaths).toHaveLength(1);
+    const [candidatePath] = candidatePaths;
+    expect(lstatSync(candidatePath).isDirectory()).toBe(true);
+    expect(lstatSync(lockOwnerPathFor(candidatePath)).isFile()).toBe(true);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+    expect(lockCandidatePathsFor(outputDir)).toEqual([]);
+  }, 15_000);
+
+  it("lock state: recovers an empty candidate mkdir gap", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_LOCK_CANDIDATE_MKDIR: "1" }
+    );
+
+    expect(interrupted.status).toBe(93);
+    const candidatePaths = lockCandidatePathsFor(outputDir);
+    expect(candidatePaths).toHaveLength(1);
+    expect(readdirSync(candidatePaths[0])).toEqual([]);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(lockCandidatePathsFor(outputDir)).toEqual([]);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+  }, 15_000);
+
+  it("lock state: recovers an empty release marker gap", () => {
+    const outputDir = makeOutputPath();
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_LOCK_RELEASE_OWNER_UNLINK: "1" }
+    );
+
+    expect(interrupted.status).toBe(94);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    const releasePaths = lockReleasePathsFor(outputDir);
+    expect(releasePaths).toHaveLength(1);
+    expect(readdirSync(releasePaths[0])).toEqual([]);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+
+    const committedBytes = requiredArtifactBytes(outputDir);
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expectRequiredArtifactBytes(outputDir, committedBytes);
+    expect(lockReleasePathsFor(outputDir)).toEqual([]);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+  }, 15_000);
+
+  it("recovery state: restores a complete receipt-bearing quarantine when output is absent", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousArtifacts = new Map<string, Buffer>([
+      ["captions.md", Buffer.from("previous captions\n")],
+      ["figure-manifest.json", Buffer.from("previous manifest\n")]
+    ]);
+    for (const [filename, bytes] of previousArtifacts) {
+      writeFileSync(path.join(outputDir, filename), bytes);
+    }
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_MUTATE_OUTPUT_BEFORE_FINAL_VALIDATION: "1" }
+    );
+    expect(interrupted.status).toBe(1);
+    expect(lstatSync(quarantinePathFor(outputDir)).isDirectory()).toBe(true);
+    const lostNewOutput = `${outputDir}.lost-new-output`;
+    renameSync(outputDir, lostNewOutput);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readdirSync(outputDir).sort()).toEqual([...previousArtifacts.keys()].sort());
+    for (const [filename, bytes] of previousArtifacts) {
+      expect(readFileSync(path.join(outputDir, filename))).toEqual(bytes);
+    }
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
+    expect(lstatSync(lostNewOutput).isDirectory()).toBe(true);
   }, 15_000);
 
   it("recovery state: restores the backup before preserving suspicious marked staging", () => {
@@ -1193,9 +1545,10 @@ describe("SENA human-concept publication figure generator", () => {
 
     expect(interrupted.status).toBe(90);
     const committedBytes = requiredArtifactBytes(outputDir);
-    expect(readdirSync(outputDir)).toHaveLength(requiredArtifacts.length + 1);
-    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
-    expect(readdirSync(backupPathFor(outputDir))).toEqual([]);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(lstatSync(quarantinePathFor(outputDir)).isDirectory()).toBe(true);
+    expect(readdirSync(quarantinePathFor(outputDir))).toEqual([]);
 
     const recovered = runGenerator(
       ["--output-dir", outputDir],
@@ -1207,10 +1560,12 @@ describe("SENA human-concept publication figure generator", () => {
     expect(recovered.stderr).toContain("injected PNG rendering failure");
     expectRequiredArtifactBytes(outputDir, committedBytes);
     expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
     expect(stagingPathsFor(outputDir)).toEqual([]);
   }, 15_000);
 
-  it("recovery state: recognizes committed output after backup cleanup completed", () => {
+  it("recovery state: recognizes markerless output with a retained quarantine receipt", () => {
     const outputDir = makeOutputPath();
     mkdirSync(outputDir);
     writeFileSync(path.join(outputDir, "figure-manifest.json"), "previous-manifest\n", "utf8");
@@ -1223,8 +1578,12 @@ describe("SENA human-concept publication figure generator", () => {
 
     expect(interrupted.status).toBe(91);
     const committedBytes = requiredArtifactBytes(outputDir);
-    expect(readdirSync(outputDir)).toHaveLength(requiredArtifacts.length + 1);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
     expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(lstatSync(quarantinePathFor(outputDir)).isDirectory()).toBe(true);
+    expect(readdirSync(quarantinePathFor(outputDir))).toContain(
+      ".sena-publication-commit-receipt.json"
+    );
 
     const recovered = runGenerator(
       ["--output-dir", outputDir],
@@ -1236,6 +1595,8 @@ describe("SENA human-concept publication figure generator", () => {
     expect(recovered.stderr).toContain("injected PNG rendering failure");
     expectRequiredArtifactBytes(outputDir, committedBytes);
     expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
     expect(stagingPathsFor(outputDir)).toEqual([]);
   }, 15_000);
 
@@ -1346,6 +1707,8 @@ describe("SENA human-concept publication figure generator", () => {
   it("resumes safe cleanup of a partially unlinked owned backup", () => {
     const outputDir = makeOutputPath();
     mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "captions.md"), "old captions\n", "utf8");
+    writeFileSync(path.join(outputDir, "figure-data.json"), '{"old":true}\n', "utf8");
     writeFileSync(path.join(outputDir, "figure-manifest.json"), "old-manifest\n", "utf8");
 
     const interrupted = runGenerator(
@@ -1359,8 +1722,18 @@ describe("SENA human-concept publication figure generator", () => {
     expect(interruptedEntries.filter((entry) => (requiredArtifacts as readonly string[]).includes(entry))).toEqual(
       [...requiredArtifacts].sort()
     );
-    expect(interruptedEntries).toHaveLength(requiredArtifacts.length + 1);
-    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
+    expect(interruptedEntries).toHaveLength(requiredArtifacts.length);
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(lstatSync(quarantinePathFor(outputDir)).isDirectory()).toBe(true);
+    expect(readdirSync(quarantinePathFor(outputDir))).toContain(
+      ".sena-publication-commit-receipt.json"
+    );
+    expect(readFileSync(path.join(quarantinePathFor(outputDir), "figure-data.json"), "utf8")).toBe(
+      '{"old":true}\n'
+    );
+    expect(readFileSync(path.join(quarantinePathFor(outputDir), "figure-manifest.json"), "utf8")).toBe(
+      "old-manifest\n"
+    );
 
     const recovered = runGenerator(
       ["--output-dir", outputDir],
@@ -1372,6 +1745,8 @@ describe("SENA human-concept publication figure generator", () => {
     expect(recovered.stderr).toContain("injected PNG rendering failure");
     expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
     expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(existsSync(quarantinePathFor(outputDir))).toBe(false);
+    expect(existsSync(lockPathFor(outputDir))).toBe(false);
     expect(stagingPathsFor(outputDir)).toEqual([]);
   });
 
