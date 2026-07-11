@@ -1486,8 +1486,8 @@ async function verifyArtifactDownloadsAndRestore(page) {
   }
 
   const { parsed: reportJson } = await downloadJsonByButton(page, /Export report JSON/i, "sena-analysis-report.json", "sena-report/v1");
-  assertTextIncludes(reportJson.runtimeProvenance?.enaRuntime?.dependencySpec ?? "", "vendor/jena-js", "report JSON jENA provenance");
-  assertTextIncludes(reportJson.runtimeProvenance?.snaRuntime?.dependencySpec ?? "", "vendor/sna-js", "report JSON jSNA provenance");
+  assertTextIncludes(reportJson.runtimeProvenance?.enaRuntime?.dependencySpec ?? "", "0.6.1", "report JSON jENA provenance");
+  assertTextIncludes(reportJson.runtimeProvenance?.snaRuntime?.dependencySpec ?? "", "npm:@peterhudongpin/sna.js@0.4.0", "report JSON jSNA provenance");
   if (!reportJson.runtimeProvenance?.parityEvidence?.some((evidence) => evidence.id === "jena-rena-sample-parity" && evidence.referenceRuntime === "rENA")) {
     throw new Error("Report JSON is missing jENA rENA fixture parity provenance.");
   }
@@ -1740,7 +1740,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
   assertArrayIncludes(pilotPackageHandoff.evidence, "runtimeArtifact=sena-runtime-bundle.json", "review packet pilot package runtime handoff evidence");
   assertArrayIncludes(
     pilotPackageHandoff.evidence,
-    "runtimeEvidence=sena-jena-manifest.json|sena-ena-report.json|sena-jsna-manifest.json|sena-runtime-consistency-audit.json|jena-api-surface|jsna-api-surface|jena-rena-parity|jsna-r-sna-parity|matrix-fingerprints|file:vendor/jena-js|file:vendor/sna-js",
+    "runtimeEvidence=sena-jena-manifest.json|sena-ena-report.json|sena-jsna-manifest.json|sena-runtime-consistency-audit.json|jena-api-surface|jsna-api-surface|jena-rena-parity|jsna-r-sna-parity|matrix-fingerprints|0.6.1|npm:@peterhudongpin/sna.js@0.4.0",
     "review packet pilot package runtime handoff evidence"
   );
   if (!reviewPacket.contents?.pilotPackageManifest?.assetIntegrity?.some((asset) => asset.href === "/sena-pilot/sample/lesson-study-sena-contract.json" && /^[a-f0-9]{64}$/.test(asset.sha256))) {
@@ -2092,7 +2092,7 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     }
     await openResearchDetailsTab(page, "exports");
     await waitForVisibleText(page, "jena-js");
-    await waitForVisibleText(page, "sna.js closeness()");
+    await waitForVisibleText(page, "sna.js geodist() component-scoped closeness");
     await waitForVisibleText(page, "sna.js labelPropagation()");
     await waitForVisibleText(page, "sena-self-implemented");
     await waitForVisibleText(page, "sena-composite");

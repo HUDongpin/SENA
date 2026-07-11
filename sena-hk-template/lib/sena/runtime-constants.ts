@@ -1,21 +1,30 @@
 import appPackage from "../../package.json";
 import rEnaParityFixture from "../ena/__fixtures__/r-ena-sample-parity.json";
 import rSnaSocialParityFixture from "./__fixtures__/r-sna-social-parity.json";
-import jenaPackage from "../../vendor/jena-js/package.json";
-import snaPackage from "../../vendor/sna-js/package.json";
 import type { SenaRuntimeProvenance } from "./types";
 
 export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormula"] = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 
-export const jenaRuntimeVersion = jenaPackage.version;
+// Exact published versions of the local JavaScript analysis runtimes. Both
+// are pinned exactly in package.json (jena-js from the npm registry; sna.js
+// as an npm alias of @peterhudongpin/sna.js), and the test suite verifies
+// these constants against the installed node_modules package manifests so
+// the reproducibility record cannot drift from the running code.
+export const jenaRuntimeVersion = "0.6.1";
 
-export const snaRuntimeVersion = snaPackage.version;
+export const snaRuntimeVersion = "0.4.0";
+
+export const snaRuntimePackageName = "@peterhudongpin/sna.js";
 
 const packageDependencies = appPackage.dependencies as Record<string, string>;
 
-export const jenaRuntimeDependencySpec = packageDependencies["jena-js"] ?? "file:vendor/jena-js";
+export const jenaRuntimeExpectedDependencySpec = jenaRuntimeVersion;
 
-export const snaRuntimeDependencySpec = packageDependencies["sna.js"] ?? "file:vendor/sna-js";
+export const snaRuntimeExpectedDependencySpec = `npm:${snaRuntimePackageName}@${snaRuntimeVersion}`;
+
+export const jenaRuntimeDependencySpec = packageDependencies["jena-js"] ?? jenaRuntimeExpectedDependencySpec;
+
+export const snaRuntimeDependencySpec = packageDependencies["sna.js"] ?? snaRuntimeExpectedDependencySpec;
 
 const rEnaLineWeightColumns = Object.keys(rEnaParityFixture.lineWeights[0] ?? {}).filter((column) => column !== "participant");
 const rEnaConnectionCountColumns = Object.keys(rEnaParityFixture.connectionCounts[0] ?? {}).filter((column) => column !== "participant");
@@ -80,23 +89,22 @@ export const senaRuntimeProvenance: SenaRuntimeProvenance = {
     version: jenaRuntimeVersion,
     packageName: "jena-js",
     dependencySpec: jenaRuntimeDependencySpec,
-    packagePath: "vendor/jena-js/package.json",
+    packagePath: "node_modules/jena-js/package.json",
     runtimeRole: "browser-and-node-javascript-ena-engine",
     apiSurface: ["ena()"]
   },
   snaRuntime: {
     engine: "sna.js",
     version: snaRuntimeVersion,
-    packageName: "sna.js",
+    packageName: snaRuntimePackageName,
     dependencySpec: snaRuntimeDependencySpec,
-    packagePath: "vendor/sna-js/package.json",
+    packagePath: "node_modules/sna.js/package.json",
     runtimeRole: "browser-and-node-javascript-sna-engine",
     apiSurface: [
       "gden()",
       "nties()",
       "degree()",
       "betweenness()",
-      "closeness()",
       "reachability()",
       "averagePathLength()",
       "labelPropagation()",

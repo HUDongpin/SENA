@@ -1,6 +1,6 @@
 "use client";
 
-import type { ENAPlotModel } from "jena-js";
+import type { ENAPlotModel } from "jena-js/plot";
 
 type PlotPoint = {
   x: number;

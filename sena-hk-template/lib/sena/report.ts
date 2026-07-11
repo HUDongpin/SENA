@@ -167,7 +167,7 @@ const metricProvenance: SenaMetricProvenance[] = [
     label: "Average path, closeness, and reachable actors",
     scope: "social-actor",
     source: "sna.js",
-    implementation: "sna.js closeness(), reachability(), and averagePathLength() over the S block.",
+    implementation: "sna.js geodist() component-scoped closeness, reachability(), and averagePathLength() over the S block.",
     parityStatus: "Covered by R sna geodist-derived parity fixtures.",
     interpretationLimit: "Disconnected nodes use reachable-only closeness; compare only under the same convention."
   },

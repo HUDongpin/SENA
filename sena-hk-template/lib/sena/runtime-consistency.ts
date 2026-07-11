@@ -7,7 +7,13 @@ import type {
   SenaSnaManifest
 } from "./types";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
-import { jenaRuntimeDependencySpec, senaRuntimeProvenance, snaRuntimeDependencySpec } from "./runtime-constants";
+import {
+  jenaRuntimeDependencySpec,
+  jenaRuntimeExpectedDependencySpec,
+  senaRuntimeProvenance,
+  snaRuntimeDependencySpec,
+  snaRuntimeExpectedDependencySpec
+} from "./runtime-constants";
 
 function uniqueCount(values: string[]) {
   return new Set(values).size;
@@ -185,10 +191,10 @@ export function buildSenaRuntimeConsistencyAudit({
     item(
       "jena-local-dependency",
       "jENA local dependency provenance",
-      jenaRuntimeDependencySpec === "file:vendor/jena-js" &&
+      jenaRuntimeDependencySpec === jenaRuntimeExpectedDependencySpec &&
         senaRuntimeProvenance.enaRuntime.dependencySpec === jenaRuntimeDependencySpec &&
         enaManifest.engineVersion === senaRuntimeProvenance.enaRuntime.version,
-      `file:vendor/jena-js at ${senaRuntimeProvenance.enaRuntime.packagePath}`,
+      `jena-js@${jenaRuntimeExpectedDependencySpec} pinned exactly at ${senaRuntimeProvenance.enaRuntime.packagePath}`,
       `${jenaRuntimeDependencySpec}; manifestVersion=${enaManifest.engineVersion}; runtimeVersion=${senaRuntimeProvenance.enaRuntime.version}`,
       [
         `packageName=${senaRuntimeProvenance.enaRuntime.packageName}`,
@@ -282,10 +288,10 @@ export function buildSenaRuntimeConsistencyAudit({
     item(
       "jsna-local-dependency",
       "jSNA local dependency provenance",
-      snaRuntimeDependencySpec === "file:vendor/sna-js" &&
+      snaRuntimeDependencySpec === snaRuntimeExpectedDependencySpec &&
         senaRuntimeProvenance.snaRuntime.dependencySpec === snaRuntimeDependencySpec &&
         snaManifest.engineVersion === senaRuntimeProvenance.snaRuntime.version,
-      `file:vendor/sna-js at ${senaRuntimeProvenance.snaRuntime.packagePath}`,
+      `${snaRuntimeExpectedDependencySpec} pinned exactly at ${senaRuntimeProvenance.snaRuntime.packagePath}`,
       `${snaRuntimeDependencySpec}; manifestVersion=${snaManifest.engineVersion}; runtimeVersion=${senaRuntimeProvenance.snaRuntime.version}`,
       [
         `packageName=${senaRuntimeProvenance.snaRuntime.packageName}`,
@@ -300,7 +306,6 @@ export function buildSenaRuntimeConsistencyAudit({
         "nties()",
         "degree()",
         "betweenness()",
-        "closeness()",
         "reachability()",
         "averagePathLength()",
         "labelPropagation()",
@@ -312,7 +317,7 @@ export function buildSenaRuntimeConsistencyAudit({
       "sna.js graph metric APIs are recorded for the social runtime layer",
       senaRuntimeProvenance.snaRuntime.apiSurface.join(", ") || "none",
       [
-        "runtimeAPIs=averagePathLength|betweenness|closeness|components|degree|gden|geodist|grecip|isConnected|labelPropagation|nties|reachability from sna.js",
+        "runtimeAPIs=averagePathLength|betweenness|components|degree|gden|geodist|grecip|isConnected|labelPropagation|nties|reachability from sna.js",
         "source=lib/sena/model.ts",
         `runtimeRole=${senaRuntimeProvenance.snaRuntime.runtimeRole}`
       ]

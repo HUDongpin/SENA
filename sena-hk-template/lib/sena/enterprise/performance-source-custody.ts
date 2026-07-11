@@ -68,9 +68,7 @@ const includePrefixes = [
   "components/",
   "lib/",
   "public/",
-  "scripts/",
-  "vendor/jena-js/",
-  "vendor/sna-js/"
+  "scripts/"
 ];
 
 const includeRootFiles = [

@@ -4,6 +4,7 @@ import { buildSenaMethodProtocol } from "./method-protocol";
 import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
+import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
   getSenaReviewPacketContentKey,
@@ -253,8 +254,8 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     runtimeArtifactEvidenceReady;
   const runtimeDependenciesConsistent = input.summary.localRuntimeDependencies.jena === report.runtimeProvenance.enaRuntime.dependencySpec &&
     input.summary.localRuntimeDependencies.jsna === report.runtimeProvenance.snaRuntime.dependencySpec &&
-    input.summary.localRuntimeDependencies.jena.startsWith("file:vendor/") &&
-    input.summary.localRuntimeDependencies.jsna.startsWith("file:vendor/");
+    input.summary.localRuntimeDependencies.jena === jenaRuntimeExpectedDependencySpec &&
+    input.summary.localRuntimeDependencies.jsna === snaRuntimeExpectedDependencySpec;
   const evidenceReady = input.contents.evidenceLedger.snippets.length > 0 && report.evidenceSnippets.length > 0;
   const temporalMatrixFingerprintWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length;
   const temporalFusionChecksumWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))).length;

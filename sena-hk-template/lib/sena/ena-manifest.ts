@@ -1,5 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { ena, type ENAOptions, type Row } from "jena-js";
+import { displayedRotationColumns, displayedVariance } from "../ena/display-dimensions";
 import type { SenaDataset, SenaEnaManifest, SenaManifestRow } from "./types";
 import { jenaRuntimeVersion } from "./runtime-constants";
 
@@ -123,8 +124,8 @@ export function buildSenaEnaManifest(dataset: SenaDataset): SenaEnaManifest {
       },
       outputs: {
         adjacencyKey: set.adjacencyKey,
-        dimensions: set.rotation.rotationColumns,
-        variance: set.variance,
+        dimensions: displayedRotationColumns(set),
+        variance: displayedVariance(set),
         connectionCounts: serializableRows(set.connectionCounts),
         lineWeights: serializableRows(set.lineWeights),
         pointsForProjection: serializableRows(set.pointsForProjection),

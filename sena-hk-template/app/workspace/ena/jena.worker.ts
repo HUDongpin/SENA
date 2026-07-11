@@ -1,56 +1,16 @@
-import { ena, type ENAOptions } from "jena-js";
+// The packaged jENA worker host implements worker protocol v1 (versioned
+// run/cancel messages, chunked accumulation progress, cooperative
+// cancellation) that createENAWorkerClient from "jena-js/browser" speaks.
+// It registers its message handler when evaluated inside a Worker scope.
+//
+// jena-js declares sideEffects:false, so a bare side-effect import here
+// would be tree-shaken into an EMPTY worker chunk (the registration is a
+// side effect). Reading an export anchors the module in the bundle; its
+// evaluation then registers the protocol-v1 host exactly once.
+import { ENA_WORKER_PROTOCOL_VERSION } from "jena-js/browser/worker";
 
-type ENAWorkerRequest = {
-  id: string;
-  options: ENAOptions;
-};
-
-type ENAWorkerCancel = {
-  id: string;
-  cancel: true;
-};
-
-type ENAWorkerResponse = {
-  id: string;
-  ok: boolean;
-  result?: unknown;
-  error?: string;
-  progress?: number;
-  stage?: string;
-};
-
-const cancelled = new Set<string>();
-
-function isCancel(message: ENAWorkerRequest | ENAWorkerCancel): message is ENAWorkerCancel {
-  return "cancel" in message && message.cancel;
+if (!Number.isInteger(ENA_WORKER_PROTOCOL_VERSION)) {
+  throw new Error("jena-js worker host failed to initialize.");
 }
-
-function send(response: ENAWorkerResponse) {
-  self.postMessage(response);
-}
-
-self.addEventListener("message", (event: MessageEvent<ENAWorkerRequest | ENAWorkerCancel>) => {
-  const message = event.data;
-
-  if (isCancel(message)) {
-    cancelled.add(message.id);
-    send({ id: message.id, ok: false, error: "Worker request was cancelled.", progress: 1, stage: "cancelled" });
-    return;
-  }
-
-  try {
-    if (cancelled.has(message.id)) throw new Error("Worker request was cancelled.");
-    send({ id: message.id, ok: true, progress: 0, stage: "started" });
-
-    const result = ena(message.options);
-
-    if (cancelled.has(message.id)) throw new Error("Worker request was cancelled.");
-    send({ id: message.id, ok: true, result, progress: 1, stage: "complete" });
-  } catch (error) {
-    send({ id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) });
-  } finally {
-    cancelled.delete(message.id);
-  }
-});
 
 export {};

@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createENAWorkerClient, type ENAWorkerClient, type ENAWorkerProgress, type ENAWorkerRunHandle } from "jena-js";
+import { createENAWorkerClient, type ENAWorkerClient, type ENAWorkerProgress, type ENAWorkerRunHandle } from "jena-js/browser";
 import {
   AlertCircle,
   Braces,

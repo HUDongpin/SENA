@@ -75,12 +75,43 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterpriseVercelProductionPreflight).toBe("sena-enterprise-vercel-production-preflight/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseProductionRuntimeEnvPacket).toBe("sena-enterprise-production-runtime-env-packet/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseProductionGoLiveGate).toBe("sena-enterprise-production-go-live-gate/v1");
+    expect(SENA_SCHEMA_VERSIONS.humanConceptFigureData).toBe("sena-human-concept-figure-data/v1");
+    expect(SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest).toBe(
+      "sena-human-concept-publication-figure-manifest/v1"
+    );
 
     expect(getSenaSchemaVersion("productionPageContract")).toBe(buildSenaProductionPageContract().schemaVersion);
 
     const model = buildSenaModel(lessonStudySenaContract);
     const bundle = buildSenaRuntimeBundle(model, { sourceDataset: lessonStudySenaContract });
     expect(getSenaSchemaVersion("runtimeBundle")).toBe(bundle.schemaVersion);
+  });
+
+  it("registers every persisted publication transaction contract without changing its version", () => {
+    expect(SENA_SCHEMA_VERSIONS.publicationBackupOwner).toBe(
+      "sena-publication-backup-owner/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationStagingOwner).toBe(
+      "sena-publication-staging-owner/v2"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationPackageOwner).toBe(
+      "sena-publication-package-owner/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationCommitReceipt).toBe(
+      "sena-publication-commit-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationLock).toBe("sena-publication-lock/v1");
+  });
+
+  it("keeps publication transaction schema values behind the registry module", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "scripts", "generate-sena-human-concept-publication-figures.ts"),
+      "utf8"
+    );
+
+    expect(source).not.toMatch(
+      /["']sena-publication-(?:backup-owner|staging-owner|package-owner|commit-receipt|lock)\/v\d+["']/
+    );
   });
 
   it("provides registry introspection and runtime validation helpers", () => {

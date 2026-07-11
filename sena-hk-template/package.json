@@ -13,6 +13,7 @@
     "sena:pilot:smoke": "vitest run lib/sena/__tests__/pilot-smoke.test.ts",
     "sena:pilot:browser-smoke": "node scripts/verify-sena-browser-smoke.mjs",
     "sena:pilot:verify": "node scripts/verify-sena-pilot.mjs",
+    "sena:figures:human-concept": "vite-node scripts/generate-sena-human-concept-publication-figures.ts",
     "sena:performance:check": "vite-node scripts/verify-sena-performance-path.ts",
     "sena:performance:source-custody": "vite-node scripts/prepare-sena-performance-source-custody.ts",
     "sena:conference:prepare": "vite-node scripts/prepare-sena-conference-rehearsal.ts",
@@ -57,7 +58,7 @@
     "docx": "^9.7.1",
     "exceljs": "^4.4.0",
     "framer-motion": "^11.0.8",
-    "jena-js": "file:vendor/jena-js",
+    "jena-js": "0.6.1",
     "lucide-react": "^0.468.0",
     "next": "^16.2.9",
     "pdf-lib": "^1.17.1",
@@ -65,7 +66,7 @@
     "postcss": "^8.5.15",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "sna.js": "file:vendor/sna-js",
+    "sna.js": "npm:@peterhudongpin/sna.js@0.4.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.4.2"
@@ -75,6 +76,8 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.9",
     "playwright": "^1.60.0",
+    "sharp": "^0.34.5",
+    "vite-node": "^3.2.4",
     "vitest": "^4.1.7"
   },
   "overrides": {

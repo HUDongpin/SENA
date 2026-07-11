@@ -1,10 +1,10 @@
 import {
   averagePathLength as snaAveragePathLength,
   betweenness,
-  closeness as snaCloseness,
   components,
   degree,
   gden,
+  geodist,
   grecip,
   isConnected,
   labelPropagation,
@@ -549,15 +549,43 @@ function buildSocialAnalysis(S: number[][], directedS: number[][], undirected: b
   const degreeMode = undirected ? "freeman" : "total";
   const componentResult = components(S, { ...graphOptions, connected: "weak" });
   const connected = S.length <= 1 ? true : isConnected(S, { ...graphOptions, connected: "weak" });
-  const closeness = snaCloseness(S, graphOptions);
-  const reachable = reachability(S, graphOptions).counts;
+  // SENA's actor closeness is component-scoped (reachable count over summed
+  // finite geodesic distance, 0 for isolates) so sparse classroom networks
+  // stay comparable; the committed R parity fixtures encode this same
+  // definition from sna::geodist distances. R-faithful closeness() would
+  // instead report 0 for every vertex of a disconnected graph.
+  const geodesics = geodist(S, graphOptions);
+  const closeness = geodesics.distances.map((row, vertex) => {
+    let reachableCount = 0;
+    let totalDistance = 0;
+    row.forEach((distance, column) => {
+      if (column === vertex || !Number.isFinite(distance) || distance <= 0) return;
+      reachableCount += 1;
+      totalDistance += distance;
+    });
+    return totalDistance > 0 ? reachableCount / totalDistance : 0;
+  });
+  // sna.js >= 0.3 returns the R-faithful reflexive reachability matrix
+  // (diagonal 1); SENA reports how many OTHER vertices each vertex reaches,
+  // so the diagonal is excluded to keep the pre-0.3 numbers.
+  const reachabilityMatrix = reachability(S, graphOptions);
+  const reachable = reachabilityMatrix.map((row, vertex) =>
+    row.reduce((total, value, column) => (column === vertex ? total : total + value), 0)
+  );
   const communityResult = labelPropagation(S, graphOptions);
   const reciprocity = grecip(directedS, { mode: "digraph", diag: false, measure: "edgewise" });
 
+  // sna.js >= 0.3 follows R sna semantics: nties() is the number of POSSIBLE
+  // dyads and gden() defaults to valued density. SENA reports binary density
+  // and the count of realized ties, so density uses ignoreEval and the tie
+  // count is recovered as density * possible dyads.
+  const possibleTies = nties(S, graphOptions);
+  const binaryDensity = S.length <= 1 ? 0 : gden(S, { ...graphOptions, ignoreEval: true });
+
   return {
     engine: "sna.js",
-    density: S.length <= 1 ? 0 : gden(S, graphOptions),
-    tieCount: nties(S, graphOptions),
+    density: binaryDensity,
+    tieCount: Math.round(binaryDensity * possibleTies),
     reciprocity: Number.isFinite(reciprocity) ? reciprocity : 0,
     connected,
     componentCount: componentResult.count,

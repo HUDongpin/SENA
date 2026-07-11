@@ -1,0 +1,1129 @@
+{
+  "schemaVersion": "sena-human-concept-publication-figure-manifest/v1",
+  "generatedAt": "2026-07-11T07:32:12.631Z",
+  "generationClock": "wall-clock",
+  "dataset": {
+    "source": "public/sena-pilot/sample/lesson-study-sena-contract.json",
+    "version": "lesson-study-public-synthetic-v1",
+    "sha256": "c9eb2197c40b4f86308fce16fc1ff8344f1240da79085159292213e9f677982c",
+    "synthetic": true
+  },
+  "publicationUse": {
+    "classification": "synthetic-demo-figure",
+    "layoutReady": true,
+    "empiricalClaimReady": false,
+    "existingPublicationGate": "not-invoked-by-standalone-figure-generator",
+    "limitation": "Method-illustration figures only; not cleared as empirical evidence."
+  },
+  "dataContractAudit": {
+    "schemaVersion": "sena-data-contract-audit/v1",
+    "status": "valid",
+    "passed": 9,
+    "reviewNeeded": 0,
+    "items": [
+      {
+        "id": "five-table-shape",
+        "label": "Five-table contract shape",
+        "status": "pass",
+        "expected": "people, interactions, utterances, coded_segments, and codebook arrays with pilot-ready row counts",
+        "actual": "4 people, 8 interactions, 10 utterances, 10 coded segments, 7 codes",
+        "detail": [
+          "people array=true",
+          "interactions array=true",
+          "utterances array=true",
+          "coded_segments array=true",
+          "codebook array=true"
+        ]
+      },
+      {
+        "id": "people-table",
+        "label": "People identifiers",
+        "status": "pass",
+        "expected": "Every person has a unique id and display label",
+        "actual": "4 people; 0 blank ids; 0 duplicate ids; 0 blank labels",
+        "detail": [
+          "derivedPlaceholders=0",
+          "duplicates=none"
+        ]
+      },
+      {
+        "id": "codebook-table",
+        "label": "Codebook identifiers",
+        "status": "pass",
+        "expected": "At least two unique code ids with labels for ENA code-pair construction",
+        "actual": "7 codes; 0 blank ids; 0 duplicate ids; 0 blank labels",
+        "detail": [
+          "derivedPlaceholders=0",
+          "duplicates=none"
+        ]
+      },
+      {
+        "id": "dataset-governance-metadata",
+        "label": "Dataset governance metadata",
+        "status": "pass",
+        "expected": "Dataset version, consent, retention, pseudonymization, and codebook version/hash are recorded",
+        "actual": "datasetVersion=lesson-study-public-synthetic-v1; contentHash=0xc41285ae",
+        "detail": [
+          "datasetVersion=lesson-study-public-synthetic-v1",
+          "contentHash=0xc41285ae",
+          "consent=present",
+          "retention=present",
+          "personIdPolicy=opaque",
+          "rosterMapping=not-stored",
+          "codebook=sena-lesson-study-public-codebook@v1"
+        ]
+      },
+      {
+        "id": "utterances-table",
+        "label": "Utterance references",
+        "status": "pass",
+        "expected": "Every utterance has a unique id, valid personId, and finite turnIndex",
+        "actual": "10 utterances; 0 person reference issues; 0 turn issues",
+        "detail": [
+          "duplicates=none",
+          "missingPeople=none"
+        ]
+      },
+      {
+        "id": "coded-segments-table",
+        "label": "Coded-segment references",
+        "status": "pass",
+        "expected": "Every coded segment links to an utterance, person, and codebook code with aligned temporal fields",
+        "actual": "10 segments; 0 utterance issues; 0 person issues; 0 code issues",
+        "detail": [
+          "duplicates=none",
+          "missingCodes=none",
+          "alignmentIssues=none"
+        ]
+      },
+      {
+        "id": "interactions-table",
+        "label": "Interaction references",
+        "status": "pass",
+        "expected": "Every interaction references valid people and has finite nonnegative weight/turn fields when present",
+        "actual": "8 interactions; 0 person reference issues; 0 weight issues; 0 turn issues",
+        "detail": [
+          "missingPeople=none",
+          "badWeights=none"
+        ]
+      },
+      {
+        "id": "temporal-fields",
+        "label": "Temporal readiness",
+        "status": "pass",
+        "expected": "Stage/stanza labels and finite turn indices are available for temporal windows",
+        "actual": "3 stages, 3 stanzas, 0 turn issues",
+        "detail": [
+          "stages=Plan, Teach, Reflect",
+          "stanzas=3",
+          "utteranceTurns=10/10",
+          "segmentTurns=10/10"
+        ]
+      },
+      {
+        "id": "import-and-model-warnings",
+        "label": "Import/model warnings",
+        "status": "pass",
+        "expected": "No import-derived placeholders or model reference warnings",
+        "actual": "0 warnings",
+        "detail": [
+          "warnings=none"
+        ]
+      }
+    ],
+    "notes": [
+      "The data-contract audit checks the five-table SENA contract before mathematical interpretation.",
+      "A valid contract means references and temporal fields are internally consistent; it does not certify coding reliability or substantive claims."
+    ]
+  },
+  "configuration": {
+    "alpha": 1,
+    "beta": 1,
+    "gamma": 1,
+    "normalization": "max",
+    "bridgeWeightRule": "count",
+    "direction": "directed",
+    "deg_convention": "row-sum",
+    "delta": "shortest_path_reciprocal_weight",
+    "Phi": "classical_mds",
+    "d": 2,
+    "seed": 0,
+    "undirectedSocial": false,
+    "temporal": {
+      "mode": "stage",
+      "movingWindowSize": 3,
+      "movingWindowStep": 1,
+      "turnWindowRadius": 1
+    }
+  },
+  "stageOrder": [
+    "Plan",
+    "Teach",
+    "Reflect"
+  ],
+  "runtime": {
+    "overall": {
+      "hashAlgorithm": "sena-stable-fnv1a32/v1",
+      "datasetVersion": "lesson-study-public-synthetic-v1",
+      "datasetContentHash": "0xc41285ae",
+      "configHash": "0x01748f60"
+    },
+    "stages": [
+      {
+        "stage": "Plan",
+        "windowId": "stage:0:1-3",
+        "runIdentity": {
+          "hashAlgorithm": "sena-stable-fnv1a32/v1",
+          "datasetVersion": "lesson-study-public-synthetic-v1",
+          "datasetContentHash": "0x3cc7cecb",
+          "configHash": "0x01748f60"
+        }
+      },
+      {
+        "stage": "Teach",
+        "windowId": "stage:1:2-6",
+        "runIdentity": {
+          "hashAlgorithm": "sena-stable-fnv1a32/v1",
+          "datasetVersion": "lesson-study-public-synthetic-v1",
+          "datasetContentHash": "0xa71f0a86",
+          "configHash": "0x01748f60"
+        }
+      },
+      {
+        "stage": "Reflect",
+        "windowId": "stage:2:3-10",
+        "runIdentity": {
+          "hashAlgorithm": "sena-stable-fnv1a32/v1",
+          "datasetVersion": "lesson-study-public-synthetic-v1",
+          "datasetContentHash": "0xb6947371",
+          "configHash": "0x01748f60"
+        }
+      }
+    ],
+    "environment": {
+      "node": "v24.15.0",
+      "sharp": "0.34.5",
+      "libvips": "8.17.3",
+      "platform": "darwin",
+      "arch": "arm64",
+      "fontFallback": [
+        "Arial",
+        "Helvetica",
+        "sans-serif"
+      ]
+    }
+  },
+  "matrices": {
+    "overall": {
+      "S": {
+        "labels": [
+          "Ms Lee",
+          "Mr Chan",
+          "Dr Wong",
+          "Ms Ho"
+        ],
+        "raw": [
+          [
+            0,
+            7,
+            0,
+            3
+          ],
+          [
+            0,
+            0,
+            3,
+            6
+          ],
+          [
+            4,
+            6,
+            0,
+            0
+          ],
+          [
+            2,
+            0,
+            2,
+            0
+          ]
+        ],
+        "normalized": [
+          [
+            0,
+            1,
+            0,
+            0.42857142857142855
+          ],
+          [
+            0,
+            0,
+            0.42857142857142855,
+            0.8571428571428571
+          ],
+          [
+            0.5714285714285714,
+            0.8571428571428571,
+            0,
+            0
+          ],
+          [
+            0.2857142857142857,
+            0,
+            0.2857142857142857,
+            0
+          ]
+        ]
+      },
+      "W": {
+        "labels": [
+          "Question",
+          "Hypothesis",
+          "Evidence",
+          "Explanation",
+          "Critique",
+          "Reflection",
+          "Coordination"
+        ],
+        "raw": [
+          [
+            0,
+            1,
+            2,
+            2,
+            2,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            2,
+            2,
+            2,
+            1,
+            1
+          ],
+          [
+            2,
+            2,
+            0,
+            3,
+            3,
+            1,
+            2
+          ],
+          [
+            2,
+            2,
+            3,
+            0,
+            3,
+            1,
+            2
+          ],
+          [
+            2,
+            2,
+            3,
+            3,
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1
+          ],
+          [
+            1,
+            1,
+            2,
+            2,
+            2,
+            1,
+            0
+          ]
+        ],
+        "normalized": [
+          [
+            0,
+            0.3333333333333333,
+            0.6666666666666666,
+            0.6666666666666666,
+            0.6666666666666666,
+            0,
+            0.3333333333333333
+          ],
+          [
+            0.3333333333333333,
+            0,
+            0.6666666666666666,
+            0.6666666666666666,
+            0.6666666666666666,
+            0.3333333333333333,
+            0.3333333333333333
+          ],
+          [
+            0.6666666666666666,
+            0.6666666666666666,
+            0,
+            1,
+            1,
+            0.3333333333333333,
+            0.6666666666666666
+          ],
+          [
+            0.6666666666666666,
+            0.6666666666666666,
+            1,
+            0,
+            1,
+            0.3333333333333333,
+            0.6666666666666666
+          ],
+          [
+            0.6666666666666666,
+            0.6666666666666666,
+            1,
+            1,
+            0,
+            0.3333333333333333,
+            0.6666666666666666
+          ],
+          [
+            0,
+            0.3333333333333333,
+            0.3333333333333333,
+            0.3333333333333333,
+            0.3333333333333333,
+            0,
+            0.3333333333333333
+          ],
+          [
+            0.3333333333333333,
+            0.3333333333333333,
+            0.6666666666666666,
+            0.6666666666666666,
+            0.6666666666666666,
+            0.3333333333333333,
+            0
+          ]
+        ]
+      }
+    },
+    "temporal": [
+      {
+        "stage": "Plan",
+        "windowId": "stage:0:1-3",
+        "S": {
+          "labels": [
+            "Ms Lee",
+            "Mr Chan",
+            "Dr Wong",
+            "Ms Ho"
+          ],
+          "raw": [
+            [
+              0,
+              7,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              3,
+              0
+            ],
+            [
+              4,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0.42857142857142855,
+              0
+            ],
+            [
+              0.5714285714285714,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "W": {
+          "labels": [
+            "Question",
+            "Hypothesis",
+            "Evidence",
+            "Explanation",
+            "Critique",
+            "Reflection",
+            "Coordination"
+          ],
+          "raw": [
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              0,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              1,
+              0,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              0,
+              1,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              1,
+              0,
+              1,
+              0,
+              0
+            ],
+            [
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "stage": "Teach",
+        "windowId": "stage:1:2-6",
+        "S": {
+          "labels": [
+            "Ms Lee",
+            "Mr Chan",
+            "Dr Wong",
+            "Ms Ho"
+          ],
+          "raw": [
+            [
+              0,
+              0,
+              0,
+              3
+            ],
+            [
+              0,
+              0,
+              3,
+              0
+            ],
+            [
+              4,
+              0,
+              0,
+              0
+            ],
+            [
+              2,
+              0,
+              0,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              0,
+              0,
+              0.75
+            ],
+            [
+              0,
+              0,
+              0.75,
+              0
+            ],
+            [
+              1,
+              0,
+              0,
+              0
+            ],
+            [
+              0.5,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "W": {
+          "labels": [
+            "Question",
+            "Hypothesis",
+            "Evidence",
+            "Explanation",
+            "Critique",
+            "Reflection",
+            "Coordination"
+          ],
+          "raw": [
+            [
+              0,
+              0,
+              1,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              0,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              0,
+              1,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              0,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              0,
+              0,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              1,
+              1,
+              1,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      {
+        "stage": "Reflect",
+        "windowId": "stage:2:3-10",
+        "S": {
+          "labels": [
+            "Ms Lee",
+            "Mr Chan",
+            "Dr Wong",
+            "Ms Ho"
+          ],
+          "raw": [
+            [
+              0,
+              0,
+              0,
+              3
+            ],
+            [
+              0,
+              0,
+              0,
+              6
+            ],
+            [
+              4,
+              6,
+              0,
+              0
+            ],
+            [
+              2,
+              0,
+              2,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              0,
+              0,
+              0.5
+            ],
+            [
+              0,
+              0,
+              0,
+              1
+            ],
+            [
+              0.6666666666666666,
+              1,
+              0,
+              0
+            ],
+            [
+              0.3333333333333333,
+              0,
+              0.3333333333333333,
+              0
+            ]
+          ]
+        },
+        "W": {
+          "labels": [
+            "Question",
+            "Hypothesis",
+            "Evidence",
+            "Explanation",
+            "Critique",
+            "Reflection",
+            "Coordination"
+          ],
+          "raw": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              0,
+              1,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              0,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0
+            ]
+          ],
+          "normalized": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              0,
+              1,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              0,
+              1,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              0,
+              1,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              0,
+              1
+            ],
+            [
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "artifactCount": 8,
+  "artifacts": [
+    {
+      "filename": "figure-1-human-human-overall.svg",
+      "role": "figure-vector",
+      "mediaType": "image/svg+xml",
+      "dimensions": {
+        "width": 1800,
+        "height": 1200
+      },
+      "bytes": 6939,
+      "sha256": "ae9c9b4ca90a068a4e90208bdc0c1135194ac3e0b8b5a4f7a61f47caf16e85a9"
+    },
+    {
+      "filename": "figure-1-human-human-overall.png",
+      "role": "figure-raster",
+      "mediaType": "image/png",
+      "dimensions": {
+        "width": 3600,
+        "height": 2400
+      },
+      "bytes": 374844,
+      "sha256": "c3fc42b22fd0763498f4d2d4c466aac2e2e731657b7c8efa687a07699ed94904"
+    },
+    {
+      "filename": "figure-2-concept-concept-overall.svg",
+      "role": "figure-vector",
+      "mediaType": "image/svg+xml",
+      "dimensions": {
+        "width": 1800,
+        "height": 1200
+      },
+      "bytes": 10776,
+      "sha256": "ce167118699093a663c35b9c8e1b6f64dd5b9616242518b817924d04661bbc3c"
+    },
+    {
+      "filename": "figure-2-concept-concept-overall.png",
+      "role": "figure-raster",
+      "mediaType": "image/png",
+      "dimensions": {
+        "width": 3600,
+        "height": 2400
+      },
+      "bytes": 598735,
+      "sha256": "5af0bfadb3f62b858cc90ef5796e42ec106c629ad1dee658adf380d7ee130a20"
+    },
+    {
+      "filename": "figure-3-temporal-paired-small-multiples.svg",
+      "role": "figure-vector",
+      "mediaType": "image/svg+xml",
+      "dimensions": {
+        "width": 2400,
+        "height": 1440
+      },
+      "bytes": 35332,
+      "sha256": "e2e3a91febe1a0201b9cf984a44e10c292ea2218b0222f270c414a9292b7ff36"
+    },
+    {
+      "filename": "figure-3-temporal-paired-small-multiples.png",
+      "role": "figure-raster",
+      "mediaType": "image/png",
+      "dimensions": {
+        "width": 4800,
+        "height": 2880
+      },
+      "bytes": 776054,
+      "sha256": "3531b22bb5ed0a0d2ebe4c5a21ff28969ec917faadbdb2e6aba1ee33afbdc022"
+    },
+    {
+      "filename": "figure-data.json",
+      "role": "figure-data",
+      "mediaType": "application/json",
+      "dimensions": null,
+      "bytes": 21542,
+      "sha256": "fe1f15e08c4a6a1d832562127e15080f732def6d28e576969055ad30bc989ae6"
+    },
+    {
+      "filename": "captions.md",
+      "role": "captions",
+      "mediaType": "text/markdown",
+      "dimensions": null,
+      "bytes": 1964,
+      "sha256": "d5b3b3efafed833f65ea1d8dd6d89fd0072c77eecaf7a5bed29d5c3350bcac19"
+    }
+  ],
+  "interpretationGuardrails": [
+    "S encodes observed directed interaction weights; it is not a causal influence model.",
+    "W encodes code co-occurrence within unit-scoped stanzas; it is not semantic or causal direction.",
+    "The bundled lesson-study dataset is synthetic and supports demonstration, not population inference."
+  ],
+  "selfHashPolicy": "The manifest hashes eight payload artifacts and does not self-hash."
+}
