@@ -9,7 +9,6 @@ import {
   realpathSync,
   renameSync,
   rmdirSync,
-  rmSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
@@ -41,7 +40,10 @@ const REQUIRED_ARTIFACTS = [
 const BACKUP_MARKER_FILENAME = ".sena-publication-backup-owner.json";
 const BACKUP_MARKER_SCHEMA = "sena-publication-backup-owner/v1" as const;
 const STAGING_MARKER_FILENAME = ".sena-publication-staging-owner.json";
-const STAGING_MARKER_SCHEMA = "sena-publication-staging-owner/v1" as const;
+const STAGING_MARKER_SCHEMA = "sena-publication-staging-owner/v2" as const;
+const READY_MARKER_FILENAME = ".sena-publication-ready-owner.json";
+const COMMITTED_MARKER_FILENAME = ".sena-publication-committed-owner.json";
+const PUBLICATION_MARKER_SCHEMA = "sena-publication-package-owner/v1" as const;
 const BUILD_OPTIONS = {
   normalization: "max",
   bridgeWeightRule: "count",
@@ -71,7 +73,19 @@ type BackupMarker = {
 type StagingMarker = {
   schemaVersion: typeof STAGING_MARKER_SCHEMA;
   outputDirectory: string;
+  backupDirectory: string;
   stagingDirectory: string;
+  device: number;
+  inode: number;
+};
+type PublicationPackageMarker = {
+  schemaVersion: typeof PUBLICATION_MARKER_SCHEMA;
+  outputDirectory: string;
+  backupDirectory: string;
+  stagingDirectory: string;
+  device: number;
+  inode: number;
+  artifacts: FileFingerprint[];
 };
 type OwnedStagingDirectory = {
   path: string;
@@ -1186,6 +1200,18 @@ function publicationIdentity(outputDir: string) {
   };
 }
 
+function canonicalDirectoryPath(directory: string) {
+  return path.join(realpathSync.native(path.dirname(directory)), path.basename(directory));
+}
+
+function sortedRequiredArtifacts() {
+  return [...REQUIRED_ARTIFACTS].sort() as RequiredArtifact[];
+}
+
+function isFilesystemIdentity(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function assertRealDirectory(directory: string, label: "output" | "backup" | "staging") {
   const stats = lstatIfExists(directory);
   if (!stats) return undefined;
@@ -1195,10 +1221,14 @@ function assertRealDirectory(directory: string, label: "output" | "backup" | "st
   return stats;
 }
 
-function assertTopLevelRegularFile(filePath: string, filename: string, label: "output" | "backup") {
+function assertTopLevelRegularFile(
+  filePath: string,
+  filename: string,
+  label: "output" | "backup" | "staging"
+) {
   const stats = lstatIfExists(filePath);
   if (!stats?.isFile() || stats.isSymbolicLink()) {
-    const prefix = label === "output" ? "output directory entry" : "backup directory entry";
+    const prefix = `${label} directory entry`;
     throw new Error(`${prefix} must be a top-level regular file: ${filename}`);
   }
   return stats;
@@ -1217,15 +1247,11 @@ function assertOutputDirectoryReplaceable(outputDir: string, allowed: Set<string
   return entries;
 }
 
-function assertCompleteOutputDirectory(outputDir: string) {
-  const entries = assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
-  const expected = [...REQUIRED_ARTIFACTS].sort();
-  if (!sameJson(entries, expected)) {
-    throw new Error("output directory must be a complete nine-file package while an owned backup exists");
-  }
-}
-
-function fingerprintFile(directory: string, filename: RequiredArtifact, label: "output" | "backup") {
+function fingerprintFile(
+  directory: string,
+  filename: RequiredArtifact,
+  label: "output" | "backup" | "staging"
+) {
   assertTopLevelRegularFile(path.join(directory, filename), filename, label);
   const bytes = readFileSync(path.join(directory, filename));
   return {
@@ -1353,11 +1379,18 @@ function readStagingMarker(stagingDir: string, outputDir: string) {
     throw new Error(`unrecognized staging directory preserved: ${stagingDir}`);
   }
   const identity = publicationIdentity(outputDir);
+  const directoryStats = assertRealDirectory(stagingDir, "staging");
   if (
     !isRecord(parsed) ||
     parsed.schemaVersion !== STAGING_MARKER_SCHEMA ||
     parsed.outputDirectory !== identity.outputDirectory ||
-    parsed.stagingDirectory !== path.resolve(stagingDir)
+    parsed.backupDirectory !== identity.backupDirectory ||
+    parsed.stagingDirectory !== canonicalDirectoryPath(stagingDir) ||
+    !isFilesystemIdentity(parsed.device) ||
+    !isFilesystemIdentity(parsed.inode) ||
+    !directoryStats ||
+    parsed.device !== directoryStats.dev ||
+    parsed.inode !== directoryStats.ino
   ) {
     throw new Error(`unrecognized staging directory preserved: ${stagingDir}`);
   }
@@ -1379,8 +1412,10 @@ function createStagingDirectory(outputDir: string) {
   const stats = lstatSync(stagingDir);
   const marker: StagingMarker = {
     schemaVersion: STAGING_MARKER_SCHEMA,
-    outputDirectory: publicationIdentity(outputDir).outputDirectory,
-    stagingDirectory: path.resolve(stagingDir)
+    ...publicationIdentity(outputDir),
+    stagingDirectory: canonicalDirectoryPath(stagingDir),
+    device: stats.dev,
+    inode: stats.ino
   };
   writeFileSync(
     path.join(stagingDir, STAGING_MARKER_FILENAME),
@@ -1390,13 +1425,283 @@ function createStagingDirectory(outputDir: string) {
   return { path: stagingDir, device: stats.dev, inode: stats.ino } satisfies OwnedStagingDirectory;
 }
 
-function removeOwnedStagingDirectory(staging: OwnedStagingDirectory) {
-  const stats = lstatIfExists(staging.path);
-  if (!stats) return;
-  if (stats.isSymbolicLink() || !stats.isDirectory() || stats.dev !== staging.device || stats.ino !== staging.inode) {
+function publicationMarkerError(
+  containerDir: string,
+  markerFilename: typeof READY_MARKER_FILENAME | typeof COMMITTED_MARKER_FILENAME,
+  label: "output" | "staging"
+) {
+  if (label === "output" && markerFilename === COMMITTED_MARKER_FILENAME) {
+    return "output directory has no recognized committed marker";
+  }
+  if (label === "output") return "output directory has no recognized ready marker";
+  return `unrecognized READY staging directory preserved: ${containerDir}`;
+}
+
+function readPublicationPackageMarker(
+  containerDir: string,
+  outputDir: string,
+  markerFilename: typeof READY_MARKER_FILENAME | typeof COMMITTED_MARKER_FILENAME,
+  label: "output" | "staging"
+) {
+  const errorMessage = publicationMarkerError(containerDir, markerFilename, label);
+  const markerPath = path.join(containerDir, markerFilename);
+  const markerStats = lstatIfExists(markerPath);
+  if (!markerStats?.isFile() || markerStats.isSymbolicLink()) {
+    throw new Error(errorMessage);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(markerPath, "utf8"));
+  } catch {
+    throw new Error(errorMessage);
+  }
+
+  const identity = publicationIdentity(outputDir);
+  const containerStats = assertRealDirectory(containerDir, label);
+  const expectedArtifactNames = sortedRequiredArtifacts();
+  if (
+    !isRecord(parsed) ||
+    parsed.schemaVersion !== PUBLICATION_MARKER_SCHEMA ||
+    parsed.outputDirectory !== identity.outputDirectory ||
+    parsed.backupDirectory !== identity.backupDirectory ||
+    typeof parsed.stagingDirectory !== "string" ||
+    path.dirname(parsed.stagingDirectory) !== path.dirname(identity.outputDirectory) ||
+    !path.basename(parsed.stagingDirectory).startsWith(stagingPrefixFor(identity.outputDirectory)) ||
+    !isFilesystemIdentity(parsed.device) ||
+    !isFilesystemIdentity(parsed.inode) ||
+    !containerStats ||
+    parsed.device !== containerStats.dev ||
+    parsed.inode !== containerStats.ino ||
+    !Array.isArray(parsed.artifacts) ||
+    !parsed.artifacts.every(isFileFingerprint)
+  ) {
+    throw new Error(errorMessage);
+  }
+
+  const marker = parsed as PublicationPackageMarker;
+  if (label === "staging" && marker.stagingDirectory !== canonicalDirectoryPath(containerDir)) {
+    throw new Error(errorMessage);
+  }
+  const artifactNames = marker.artifacts.map(({ filename }) => filename);
+  if (!sameJson(artifactNames, expectedArtifactNames)) {
+    throw new Error(errorMessage);
+  }
+  return marker;
+}
+
+function validateManifestPayloadRecords(directory: string, label: "output" | "staging") {
+  const failure = `${label} publication package manifest does not validate its eight payload artifacts`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path.join(directory, "figure-manifest.json"), "utf8"));
+  } catch {
+    throw new Error(failure);
+  }
+  if (
+    !isRecord(parsed) ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest ||
+    parsed.artifactCount !== PAYLOAD_ARTIFACT_SPECS.length ||
+    !Array.isArray(parsed.artifacts) ||
+    parsed.artifacts.length !== PAYLOAD_ARTIFACT_SPECS.length
+  ) {
+    throw new Error(failure);
+  }
+
+  for (const [index, spec] of PAYLOAD_ARTIFACT_SPECS.entries()) {
+    const record = parsed.artifacts[index];
+    if (
+      !isRecord(record) ||
+      record.filename !== spec.filename ||
+      record.role !== spec.role ||
+      record.mediaType !== spec.mediaType ||
+      !sameJson(record.dimensions, spec.dimensions) ||
+      typeof record.bytes !== "number" ||
+      !Number.isSafeInteger(record.bytes) ||
+      record.bytes < 0 ||
+      typeof record.sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(record.sha256)
+    ) {
+      throw new Error(failure);
+    }
+    const actual = fingerprintFile(directory, spec.filename, label);
+    if (actual.bytes !== record.bytes || actual.sha256 !== record.sha256) {
+      throw new Error(failure);
+    }
+  }
+}
+
+function validateCompletePublicationPackage(
+  containerDir: string,
+  outputDir: string,
+  markerFilename: typeof READY_MARKER_FILENAME | typeof COMMITTED_MARKER_FILENAME,
+  label: "output" | "staging",
+  allowBuildingMarker = false
+) {
+  const marker = readPublicationPackageMarker(containerDir, outputDir, markerFilename, label);
+  const actualEntries = readdirSync(containerDir).sort();
+  const allowed = new Set<string>([...REQUIRED_ARTIFACTS, markerFilename]);
+  if (allowBuildingMarker && actualEntries.includes(STAGING_MARKER_FILENAME)) {
+    readStagingMarker(containerDir, outputDir);
+    allowed.add(STAGING_MARKER_FILENAME);
+  }
+  const unknown = actualEntries.filter((entry) => !allowed.has(entry));
+  if (unknown.length > 0) {
+    throw new Error(`${label} directory contains unknown files: ${unknown.join(", ")}`);
+  }
+  const expected = [...allowed].sort();
+  if (!sameJson(actualEntries, expected)) {
+    throw new Error(`${label} directory contents do not match its publication marker`);
+  }
+
+  for (const expectedFingerprint of marker.artifacts) {
+    const actual = fingerprintFile(containerDir, expectedFingerprint.filename, label);
+    if (actual.bytes !== expectedFingerprint.bytes || actual.sha256 !== expectedFingerprint.sha256) {
+      throw new Error(`${label} directory contents do not match its publication marker`);
+    }
+  }
+  validateManifestPayloadRecords(containerDir, label);
+  return marker;
+}
+
+function transitionStagingToReady(staging: OwnedStagingDirectory, outputDir: string) {
+  assertOwnedStagingDirectory(staging, outputDir);
+  const expectedBefore = [...REQUIRED_ARTIFACTS, STAGING_MARKER_FILENAME].sort();
+  if (!sameJson(readdirSync(staging.path).sort(), expectedBefore)) {
+    throw new Error("staging package changed before READY transition");
+  }
+  const marker: PublicationPackageMarker = {
+    schemaVersion: PUBLICATION_MARKER_SCHEMA,
+    ...publicationIdentity(outputDir),
+    stagingDirectory: canonicalDirectoryPath(staging.path),
+    device: staging.device,
+    inode: staging.inode,
+    artifacts: sortedRequiredArtifacts().map((filename) =>
+      fingerprintFile(staging.path, filename, "staging")
+    )
+  };
+  writeFileSync(
+    path.join(staging.path, READY_MARKER_FILENAME),
+    `${JSON.stringify(marker, null, 2)}\n`,
+    { encoding: "utf8", flag: "wx" }
+  );
+  validateCompletePublicationPackage(staging.path, outputDir, READY_MARKER_FILENAME, "staging", true);
+  assertOwnedStagingDirectory(staging, outputDir);
+  unlinkSync(path.join(staging.path, STAGING_MARKER_FILENAME));
+  validateCompletePublicationPackage(staging.path, outputDir, READY_MARKER_FILENAME, "staging");
+}
+
+function validateBuildingStagingForCleanup(staging: OwnedStagingDirectory, outputDir: string) {
+  assertOwnedStagingDirectory(staging, outputDir);
+  const actualEntries = readdirSync(staging.path).sort();
+  const allowed = new Set<string>([...REQUIRED_ARTIFACTS, STAGING_MARKER_FILENAME]);
+  const unknown = actualEntries.filter((entry) => !allowed.has(entry));
+  if (unknown.length > 0) {
+    throw new Error(`staging directory contains unknown files: ${unknown.join(", ")}`);
+  }
+  const presentArtifacts = sortedRequiredArtifacts().filter((filename) => actualEntries.includes(filename));
+  for (const filename of presentArtifacts) {
+    assertTopLevelRegularFile(path.join(staging.path, filename), filename, "staging");
+  }
+  return presentArtifacts;
+}
+
+function validateReadyStagingForCleanup(staging: OwnedStagingDirectory, outputDir: string) {
+  const marker = readPublicationPackageMarker(staging.path, outputDir, READY_MARKER_FILENAME, "staging");
+  const actualEntries = readdirSync(staging.path).sort();
+  const allowed = new Set<string>([...REQUIRED_ARTIFACTS, READY_MARKER_FILENAME, STAGING_MARKER_FILENAME]);
+  const unknown = actualEntries.filter((entry) => !allowed.has(entry));
+  if (unknown.length > 0) {
+    throw new Error(`staging directory contains unknown files: ${unknown.join(", ")}`);
+  }
+  const hasBuildingMarker = actualEntries.includes(STAGING_MARKER_FILENAME);
+  if (hasBuildingMarker) readStagingMarker(staging.path, outputDir);
+  const markerByFilename = new Map(marker.artifacts.map((artifact) => [artifact.filename, artifact]));
+  const presentArtifacts = sortedRequiredArtifacts().filter((filename) => actualEntries.includes(filename));
+  for (const filename of presentArtifacts) {
+    const expected = markerByFilename.get(filename);
+    const actual = fingerprintFile(staging.path, filename, "staging");
+    if (!expected || actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) {
+      throw new Error("staging directory contents do not match its READY marker");
+    }
+  }
+  if (presentArtifacts.length === REQUIRED_ARTIFACTS.length) {
+    validateManifestPayloadRecords(staging.path, "staging");
+  }
+  return { presentArtifacts, hasBuildingMarker };
+}
+
+function revalidateStagingIdentity(staging: OwnedStagingDirectory) {
+  const stats = assertRealDirectory(staging.path, "staging");
+  if (!stats || stats.dev !== staging.device || stats.ino !== staging.inode) {
     throw new Error(`owned staging directory identity changed: ${staging.path}`);
   }
-  rmSync(staging.path, { recursive: true, force: false });
+}
+
+function removeOwnedStagingDirectory(staging: OwnedStagingDirectory, outputDir: string) {
+  const stats = lstatIfExists(staging.path);
+  if (!stats) return;
+  revalidateStagingIdentity(staging);
+  const initialEntries = readdirSync(staging.path).sort();
+  if (initialEntries.length === 0) {
+    rmdirSync(staging.path);
+    return;
+  }
+
+  if (initialEntries.includes(READY_MARKER_FILENAME)) {
+    while (true) {
+      revalidateStagingIdentity(staging);
+      const { presentArtifacts, hasBuildingMarker } = validateReadyStagingForCleanup(staging, outputDir);
+      if (presentArtifacts.length > 0) {
+        const next = presentArtifacts[0];
+        assertTopLevelRegularFile(path.join(staging.path, next), next, "staging");
+        unlinkSync(path.join(staging.path, next));
+        continue;
+      }
+      if (hasBuildingMarker) {
+        assertTopLevelRegularFile(
+          path.join(staging.path, STAGING_MARKER_FILENAME),
+          STAGING_MARKER_FILENAME,
+          "staging"
+        );
+        unlinkSync(path.join(staging.path, STAGING_MARKER_FILENAME));
+        continue;
+      }
+      assertTopLevelRegularFile(
+        path.join(staging.path, READY_MARKER_FILENAME),
+        READY_MARKER_FILENAME,
+        "staging"
+      );
+      unlinkSync(path.join(staging.path, READY_MARKER_FILENAME));
+      break;
+    }
+  } else if (initialEntries.includes(STAGING_MARKER_FILENAME)) {
+    while (true) {
+      revalidateStagingIdentity(staging);
+      const presentArtifacts = validateBuildingStagingForCleanup(staging, outputDir);
+      if (presentArtifacts.length > 0) {
+        const next = presentArtifacts[0];
+        assertTopLevelRegularFile(path.join(staging.path, next), next, "staging");
+        unlinkSync(path.join(staging.path, next));
+        continue;
+      }
+      assertTopLevelRegularFile(
+        path.join(staging.path, STAGING_MARKER_FILENAME),
+        STAGING_MARKER_FILENAME,
+        "staging"
+      );
+      unlinkSync(path.join(staging.path, STAGING_MARKER_FILENAME));
+      break;
+    }
+  } else {
+    throw new Error(`unrecognized staging directory preserved: ${staging.path}`);
+  }
+
+  revalidateStagingIdentity(staging);
+  if (readdirSync(staging.path).length !== 0) {
+    throw new Error(`staging directory acquired unknown content during safe cleanup; preserved: ${staging.path}`);
+  }
+  rmdirSync(staging.path);
 }
 
 function recoverOwnedStagingDirectories(outputDir: string) {
@@ -1407,12 +1712,29 @@ function recoverOwnedStagingDirectories(outputDir: string) {
     throw new Error(`output parent must be a real directory: ${parent}`);
   }
   const prefix = stagingPrefixFor(outputDir);
-  for (const entry of readdirSync(parent).filter((name) => name.startsWith(prefix)).sort()) {
-    const stagingDir = path.join(parent, entry);
-    const stats = assertRealDirectory(stagingDir, "staging");
-    if (!stats) continue;
-    readStagingMarker(stagingDir, outputDir);
-    removeOwnedStagingDirectory({ path: stagingDir, device: stats.dev, inode: stats.ino });
+  const stagingDirectories = readdirSync(parent)
+    .filter((name) => name.startsWith(prefix))
+    .sort()
+    .map((entry) => {
+      const stagingDir = path.join(parent, entry);
+      const stats = assertRealDirectory(stagingDir, "staging");
+      if (!stats) throw new Error(`staging directory disappeared during recovery: ${stagingDir}`);
+      return { path: stagingDir, device: stats.dev, inode: stats.ino } satisfies OwnedStagingDirectory;
+    });
+
+  for (const staging of stagingDirectories) {
+    const entries = readdirSync(staging.path).sort();
+    if (entries.length === 0) continue;
+    if (entries.includes(READY_MARKER_FILENAME)) {
+      validateReadyStagingForCleanup(staging, outputDir);
+    } else if (entries.includes(STAGING_MARKER_FILENAME)) {
+      validateBuildingStagingForCleanup(staging, outputDir);
+    } else {
+      throw new Error(`unrecognized staging directory preserved: ${staging.path}`);
+    }
+  }
+  for (const staging of stagingDirectories) {
+    removeOwnedStagingDirectory(staging, outputDir);
   }
 }
 
@@ -1456,20 +1778,61 @@ function safelyRemoveOwnedBackup(backupDir: string, outputDir: string) {
   const markerPath = path.join(backupDir, BACKUP_MARKER_FILENAME);
   assertTopLevelRegularFile(markerPath, BACKUP_MARKER_FILENAME, "backup");
   unlinkSync(markerPath);
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_MARKER_UNLINK === "1"
+  ) {
+    process.exit(90);
+  }
   if (readdirSync(backupDir).length !== 0) {
     throw new Error("backup directory acquired unknown content during safe cleanup; preserved");
   }
   rmdirSync(backupDir);
 }
 
+function ensureCommittedOutput(outputDir: string) {
+  assertRealDirectory(outputDir, "output");
+  const entries = readdirSync(outputDir).sort();
+  if (entries.includes(READY_MARKER_FILENAME)) {
+    validateCompletePublicationPackage(outputDir, outputDir, READY_MARKER_FILENAME, "output");
+    if (entries.includes(COMMITTED_MARKER_FILENAME)) {
+      throw new Error("output directory contains conflicting READY and COMMITTED markers");
+    }
+    renameSync(
+      path.join(outputDir, READY_MARKER_FILENAME),
+      path.join(outputDir, COMMITTED_MARKER_FILENAME)
+    );
+  }
+  return validateCompletePublicationPackage(
+    outputDir,
+    outputDir,
+    COMMITTED_MARKER_FILENAME,
+    "output"
+  );
+}
+
+function removeCommittedMarkerFromOutput(outputDir: string) {
+  if (lstatIfExists(backupPathFor(outputDir))) {
+    throw new Error("committed output marker cannot be removed while the backup path exists");
+  }
+  ensureCommittedOutput(outputDir);
+  const markerPath = path.join(outputDir, COMMITTED_MARKER_FILENAME);
+  assertTopLevelRegularFile(markerPath, COMMITTED_MARKER_FILENAME, "output");
+  unlinkSync(markerPath);
+  const entries = assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
+  if (!sameJson(entries, sortedRequiredArtifacts())) {
+    throw new Error("committed output did not resolve to the exact nine-file package");
+  }
+}
+
 function recoverInterruptedPublication(outputDir: string) {
   const parent = path.dirname(outputDir);
   mkdirSync(parent, { recursive: true });
-  recoverOwnedStagingDirectories(outputDir);
   const backupDir = backupPathFor(outputDir);
   const backupStats = lstatIfExists(backupDir);
 
   if (backupStats) {
+    assertRealDirectory(backupDir, "backup");
     const outputStats = lstatIfExists(outputDir);
     if (!outputStats) {
       validateOwnedBackupContainer(backupDir, outputDir, "backup");
@@ -1477,36 +1840,40 @@ function recoverInterruptedPublication(outputDir: string) {
       validateOwnedBackupContainer(outputDir, outputDir, "output");
       removeOwnedMarkerFromOutput(outputDir);
     } else {
-      assertCompleteOutputDirectory(outputDir);
-      safelyRemoveOwnedBackup(backupDir, outputDir);
+      ensureCommittedOutput(outputDir);
+      if (readdirSync(backupDir).length === 0) {
+        rmdirSync(backupDir);
+      } else {
+        safelyRemoveOwnedBackup(backupDir, outputDir);
+      }
+      removeCommittedMarkerFromOutput(outputDir);
     }
   }
 
   const outputStats = lstatIfExists(outputDir);
   if (outputStats) {
     assertRealDirectory(outputDir, "output");
-    if (readdirSync(outputDir).includes(BACKUP_MARKER_FILENAME)) {
+    const entries = readdirSync(outputDir).sort();
+    if (entries.includes(BACKUP_MARKER_FILENAME)) {
       validateOwnedBackupContainer(outputDir, outputDir, "output");
       removeOwnedMarkerFromOutput(outputDir);
+    } else if (
+      entries.includes(READY_MARKER_FILENAME) ||
+      entries.includes(COMMITTED_MARKER_FILENAME)
+    ) {
+      ensureCommittedOutput(outputDir);
+      removeCommittedMarkerFromOutput(outputDir);
+    } else {
+      assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
     }
   }
+  recoverOwnedStagingDirectories(outputDir);
   assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
-}
-
-function removeStagingMarkerForPublish(staging: OwnedStagingDirectory, outputDir: string) {
-  assertOwnedStagingDirectory(staging, outputDir);
-  const markerPath = path.join(staging.path, STAGING_MARKER_FILENAME);
-  unlinkSync(markerPath);
-  const entries = readdirSync(staging.path).sort();
-  const expected = [...REQUIRED_ARTIFACTS].sort();
-  if (!sameJson(entries, expected)) {
-    throw new Error("staging package changed after validation");
-  }
 }
 
 function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: string) {
   const backupDir = backupPathFor(outputDir);
-  assertOwnedStagingDirectory(staging, outputDir);
+  validateCompletePublicationPackage(staging.path, outputDir, READY_MARKER_FILENAME, "staging");
   assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
   if (lstatIfExists(backupDir)) {
     throw new Error(`backup path appeared after recovery and was preserved: ${backupDir}`);
@@ -1532,8 +1899,20 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
       }
     }
 
-    removeStagingMarkerForPublish(staging, outputDir);
+    if (
+      process.env.NODE_ENV === "test" &&
+      process.env.SENA_FIGURE_TEST_CRASH_AFTER_READY_BEFORE_RENAME === "1"
+    ) {
+      process.exit(89);
+    }
+
     renameSync(staging.path, outputDir);
+    validateCompletePublicationPackage(outputDir, outputDir, READY_MARKER_FILENAME, "output");
+    renameSync(
+      path.join(outputDir, READY_MARKER_FILENAME),
+      path.join(outputDir, COMMITTED_MARKER_FILENAME)
+    );
+    ensureCommittedOutput(outputDir);
   } catch (error) {
     if (!lstatIfExists(outputDir) && previousMoved && lstatIfExists(backupDir)) {
       try {
@@ -1551,6 +1930,14 @@ function publishStagingDirectory(staging: OwnedStagingDirectory, outputDir: stri
   }
 
   if (previousMoved) safelyRemoveOwnedBackup(backupDir, outputDir);
+  if (
+    previousMoved &&
+    process.env.NODE_ENV === "test" &&
+    process.env.SENA_FIGURE_TEST_CRASH_AFTER_BACKUP_REMOVED === "1"
+  ) {
+    process.exit(91);
+  }
+  removeCommittedMarkerFromOutput(outputDir);
 }
 
 function resolveGenerationClock() {
@@ -1829,13 +2216,14 @@ async function main() {
     );
 
     await validatePublicationPackage(staging, outputDir, figureData, sharpRuntime);
+    transitionStagingToReady(staging, outputDir);
     if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_LATE_UNKNOWN_FILE === "1") {
       if (!lstatIfExists(outputDir)) throw new Error("late unknown output seam requires existing output");
       writeFileSync(path.join(outputDir, "researcher-late-note.txt"), "late researcher note\n", "utf8");
     }
     publishStagingDirectory(staging, outputDir);
   } finally {
-    removeOwnedStagingDirectory(staging);
+    removeOwnedStagingDirectory(staging, outputDir);
   }
 }
 
