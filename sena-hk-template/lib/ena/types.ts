@@ -1,12 +1,12 @@
 import type {
   ENAOptions,
-  ENAPlotModel,
   ENASet,
   ModelType,
   NodePositionMethod,
   Scalar,
   WindowType
 } from "jena-js";
+import type { ENAPlotModel } from "jena-js/plot";
 
 export type EnaRuntime = "worker" | "api";
 export type EnaWeightBy = "binary" | "sum";
@@ -53,8 +53,13 @@ export type EnaRunResult = {
   warnings: string[];
 };
 
+// SENA restricts weightBy to the structured-clone-safe string forms so one
+// prepared options object is valid both for the in-page ena() run and for
+// the jena-js worker boundary (which cannot transfer weightBy functions).
+export type EnaPreparedOptions = ENAOptions & { weightBy?: EnaWeightBy };
+
 export type EnaPreparedRun = {
-  options: ENAOptions;
+  options: EnaPreparedOptions;
   warnings: string[];
 };
 

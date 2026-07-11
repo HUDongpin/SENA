@@ -549,16 +549,16 @@ export type SenaRuntimeProvenance = {
     version: string;
     packageName: "jena-js";
     dependencySpec: string;
-    packagePath: "vendor/jena-js/package.json";
+    packagePath: "node_modules/jena-js/package.json";
     runtimeRole: "browser-and-node-javascript-ena-engine";
     apiSurface: string[];
   };
   snaRuntime: {
     engine: "sna.js";
     version: string;
-    packageName: "sna.js";
+    packageName: "@peterhudongpin/sna.js";
     dependencySpec: string;
-    packagePath: "vendor/sna-js/package.json";
+    packagePath: "node_modules/sna.js/package.json";
     runtimeRole: "browser-and-node-javascript-sna-engine";
     apiSurface: string[];
   };

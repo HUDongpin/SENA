@@ -94,7 +94,7 @@ const nextStageRegressionRules = [
 const nextStagePublicInterfacePolicy = [
   "Keep /workspace/sena and /workspace/ena as stable pilot routes, with /api/ena/run retained as a session-protected compatibility endpoint.",
   "Keep sena-project-snapshot/v1, sena-runtime-bundle/v1, sena-review-packet/v1, sena-report/v1, and sena-claim-readiness-gate/v1 export schemas backward compatible.",
-  "Do not introduce a live R runtime; local vendor/jena-js and vendor/sna-js remain the website runtimes, with R-derived fixtures used only as validation evidence.",
+  "Do not introduce a live R runtime; the exactly pinned published jena-js and @peterhudongpin/sna.js packages remain the local JavaScript website runtimes, with R-derived fixtures used only as validation evidence.",
   "Do not make an external production-managed database a required pilot dependency; adapter certification and platform-owner acceptance records remain the institution cutover handoff path while sena-project-snapshot.json stays portable."
 ];
 
@@ -128,7 +128,7 @@ function buildPhases(model: SenaModel, options: SenaDevelopmentPlanOptions): Sen
       ],
       evidence: phaseEvidence(options.pilotReadinessAudit, ["fusion-model", "model-json-export", "fusion-math", "runtime-consistency", "runtime-artifacts"]),
       exitCriteria: [
-        "Local runtime dependency specs are recorded as file:vendor packages.",
+        "Local runtime dependency specs are recorded as exactly pinned published npm packages.",
         "Fusion math audit is verified for the active model.",
         "Project snapshot export preserves graph nodes, typed edges, S/W/B/B_PC/B_CP/G, fusion, and temporal trace.",
         "jENA and jSNA manifests match the SENA model evidence chain.",

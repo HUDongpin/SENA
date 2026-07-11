@@ -1,5 +1,4 @@
-import type { ENAOptions } from "jena-js";
-import type { EnaMapping, EnaPreparedRun, EnaRow, EnaRunOptions, EnaRunRequest } from "./types";
+import type { EnaMapping, EnaPreparedOptions, EnaPreparedRun, EnaRow, EnaRunOptions, EnaRunRequest } from "./types";
 import { EnaInputError } from "./types";
 
 export const defaultEnaOptions: Required<EnaRunOptions> = {
@@ -163,7 +162,7 @@ export function prepareEnaRun(request: EnaRunRequest): EnaPreparedRun {
   if (emptyCodeCells > 0) warnings.push(`${emptyCodeCells} empty code cells were treated as 0.`);
   if (nonBinaryCodeCells > 0) warnings.push(`${nonBinaryCodeCells} non-binary code values will be interpreted as present/absent by binary weighting.`);
 
-  const options: ENAOptions = {
+  const options: EnaPreparedOptions = {
     rows,
     units: mapping.units,
     conversation: mapping.conversation,

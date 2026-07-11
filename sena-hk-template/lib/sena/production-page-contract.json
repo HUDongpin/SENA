@@ -130,7 +130,7 @@
         "jena-js",
         "sena-self-implemented",
         "sena-composite",
-        "sna.js closeness()",
+        "sna.js geodist() component-scoped closeness",
         "sna.js labelPropagation()",
         "R sna::betweenness fixtures",
         "interpretation limits",

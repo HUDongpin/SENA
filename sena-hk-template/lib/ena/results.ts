@@ -1,4 +1,6 @@
-import { addNetwork, addNodes, addPoints, createENAPlotModel, type ENAPlotModel, type ENASet, type Row } from "jena-js";
+import type { ENASet, Row } from "jena-js";
+import { addNetwork, addNodes, addPoints, createENAPlotModel, type ENAPlotModel } from "jena-js/plot";
+import { displayedRotationColumns, displayedVariance } from "./display-dimensions";
 import type { EnaRunResult, EnaRuntime } from "./types";
 
 const plotPalette = ["#18b7c9", "#7b50f5", "#e850d2", "#16a34a", "#f59e0b", "#ef4444"];
@@ -46,8 +48,8 @@ export function buildEnaRunResult(
       rows: rowCount,
       units: set.unitLabels.length,
       codes: set.codes.length,
-      dimensions: set.rotation.rotationColumns,
-      variance: set.variance,
+      dimensions: displayedRotationColumns(set),
+      variance: displayedVariance(set),
       elapsedMs,
       runtime
     },

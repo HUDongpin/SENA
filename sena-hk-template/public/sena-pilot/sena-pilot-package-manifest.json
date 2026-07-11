@@ -224,8 +224,8 @@
         "jena-rena-parity",
         "jsna-r-sna-parity",
         "matrix-fingerprints",
-        "file:vendor/jena-js",
-        "file:vendor/sna-js"
+        "0.6.1",
+        "npm:@peterhudongpin/sna.js@0.4.0"
       ]
     },
     {
