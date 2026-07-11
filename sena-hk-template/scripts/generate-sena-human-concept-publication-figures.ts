@@ -78,11 +78,11 @@ type FigureDataV1 = {
   scales: {
     S: {
       minimumVisible: 1;
-      maxRaw: number;
+      maximumRaw: number;
     };
     W: {
       minimumVisible: 1;
-      maxRaw: number;
+      maximumRaw: number;
     };
   };
   interpretationGuardrails: string[];
@@ -360,7 +360,16 @@ export function loadDataset(sourcePath: string) {
   };
 }
 
-function assertMatrixBlock(name: string, block: SenaMatrixBlock) {
+export function assertMatrixBlock(name: string, block: SenaMatrixBlock, expectedLabels: string[]) {
+  if (
+    block.labels.length !== expectedLabels.length ||
+    block.labels.some((label, index) => label !== expectedLabels[index])
+  ) {
+    throw new Error(
+      `${name} matrix labels must exactly match expected labels; expected ${JSON.stringify(expectedLabels)}, received ${JSON.stringify(block.labels)}`
+    );
+  }
+
   const size = block.labels.length;
   if (size === 0) {
     throw new Error(`${name} matrix requires non-empty labels`);
@@ -413,14 +422,14 @@ function buildFigureData({
   sourceSha256
 }: ReturnType<typeof loadDataset>): FigureDataV1 {
   const overallModel = buildSenaModel(dataset, BUILD_OPTIONS);
-  assertMatrixBlock("overall.S", overallModel.matrices.S);
-  assertMatrixBlock("overall.W", overallModel.matrices.W);
+  assertMatrixBlock("overall.S", overallModel.matrices.S, dataset.people.map(({ label }) => label));
+  assertMatrixBlock("overall.W", overallModel.matrices.W, dataset.codebook.map(({ label }) => label));
 
   const temporal = resolveStageWindows(overallModel).map(({ stage, window }) => {
     const scopedDataset = scopeSenaDatasetToWindow(dataset, window);
     const scopedModel = buildSenaModel(scopedDataset, BUILD_OPTIONS);
-    assertMatrixBlock(`${stage}.S`, scopedModel.matrices.S);
-    assertMatrixBlock(`${stage}.W`, scopedModel.matrices.W);
+    assertMatrixBlock(`${stage}.S`, scopedModel.matrices.S, scopedDataset.people.map(({ label }) => label));
+    assertMatrixBlock(`${stage}.W`, scopedModel.matrices.W, scopedDataset.codebook.map(({ label }) => label));
 
     return {
       stage,
@@ -477,11 +486,11 @@ function buildFigureData({
     scales: {
       S: {
         minimumVisible: 1 as const,
-        maxRaw: maxNonZero(overallModel.matrices.S.raw, "S")
+        maximumRaw: maxNonZero(overallModel.matrices.S.raw, "S")
       },
       W: {
         minimumVisible: 1 as const,
-        maxRaw: maxNonZero(overallModel.matrices.W.raw, "W")
+        maximumRaw: maxNonZero(overallModel.matrices.W.raw, "W")
       }
     },
     interpretationGuardrails: [

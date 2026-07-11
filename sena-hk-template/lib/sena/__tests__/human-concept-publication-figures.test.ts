@@ -7,8 +7,11 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import type { SenaDataContractAudit, SenaMatrixBlock } from "../types";
-import { loadDataset } from "../../../scripts/generate-sena-human-concept-publication-figures";
+import type { SenaDataContractAudit, SenaMatrixBlock, SenaModel } from "../types";
+import {
+  assertMatrixBlock,
+  loadDataset
+} from "../../../scripts/generate-sena-human-concept-publication-figures";
 
 const appRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const packageJsonPath = path.join(appRoot, "package.json");
@@ -17,6 +20,7 @@ const generatorPath = path.join(appRoot, "scripts", "generate-sena-human-concept
 const fixedSourcePath = path.join(appRoot, "public", "sena-pilot", "sample", "lesson-study-sena-contract.json");
 const fixedSourceRelativePath = "public/sena-pilot/sample/lesson-study-sena-contract.json";
 const requiredStages = ["Plan", "Teach", "Reflect"] as const;
+type StageName = (typeof requiredStages)[number];
 const buildOptions = {
   normalization: "max",
   bridgeWeightRule: "count",
@@ -27,14 +31,14 @@ const buildOptions = {
 } as const;
 
 type GeneratedFigureData = {
-  schemaVersion: string;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.humanConceptFigureData;
   dataset: {
     source: string;
     version: string;
     sha256: string;
     synthetic: boolean;
   };
-  configuration: typeof buildOptions;
+  configuration: SenaModel["options"];
   runIdentity: {
     hashAlgorithm: string;
     datasetVersion: string;
@@ -42,7 +46,7 @@ type GeneratedFigureData = {
     configHash: string;
   };
   dataContractAudit: SenaDataContractAudit;
-  stageOrder: string[];
+  stageOrder: StageName[];
   publicationUse: {
     classification: string;
     layoutReady: boolean;
@@ -54,7 +58,7 @@ type GeneratedFigureData = {
   codes: Array<{ id: string; label: string; family: string; color: string; description: string }>;
   overall: { S: SenaMatrixBlock; W: SenaMatrixBlock };
   temporal: Array<{
-    stage: string;
+    stage: StageName;
     windowId: string;
     runIdentity: GeneratedFigureData["runIdentity"];
     counts: {
@@ -68,8 +72,8 @@ type GeneratedFigureData = {
     W: SenaMatrixBlock;
   }>;
   scales: {
-    S: { minimumVisible: number; maxRaw: number };
-    W: { minimumVisible: number; maxRaw: number };
+    S: { minimumVisible: 1; maximumRaw: number };
+    W: { minimumVisible: 1; maximumRaw: number };
   };
   interpretationGuardrails: string[];
 };
@@ -146,6 +150,12 @@ function getCachedGeneratorRun(): CachedGeneratorRun {
   cachedGeneratorTemporaryRoot = temporaryRoot;
   const outputDir = path.join(temporaryRoot, "generated");
   const result = runGenerator(["--output-dir", outputDir]);
+  if (result.error) {
+    throw new Error(`figure generator failed: ${result.error.message}\nstderr: ${result.stderr}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`figure generator exited with status ${result.status}\nstderr: ${result.stderr}`);
+  }
   const figureDataText = readFileSync(path.join(outputDir, "figure-data.json"), "utf8");
 
   cachedGeneratorRun = {
@@ -224,8 +234,12 @@ describe("SENA human-concept publication figure generator", () => {
     expect(figureData.codes).toEqual(
       dataset.codebook.map(({ id, label, family, color, description }) => ({ id, label, family, color, description }))
     );
+    const participantLabels = figureData.participants.map(({ label }) => label);
+    const codeLabels = figureData.codes.map(({ label }) => label);
     expect(figureData.overall.S).toEqual(overallModel.matrices.S);
     expect(figureData.overall.W).toEqual(overallModel.matrices.W);
+    expect(figureData.overall.S.labels).toEqual(participantLabels);
+    expect(figureData.overall.W.labels).toEqual(codeLabels);
     expect(figureData.overall.S.raw).toEqual([
       [0, 7, 0, 3],
       [0, 0, 3, 6],
@@ -258,13 +272,16 @@ describe("SENA human-concept publication figure generator", () => {
       });
       expect(temporalFigureData.S).toEqual(scopedModel.matrices.S);
       expect(temporalFigureData.W).toEqual(scopedModel.matrices.W);
+      expect(temporalFigureData.S.labels).toEqual(participantLabels);
+      expect(temporalFigureData.W.labels).toEqual(codeLabels);
     }
 
-    const maxRaw = (matrix: number[][]) => Math.max(...matrix.flat());
     expect(figureData.scales).toEqual({
-      S: { minimumVisible: 1, maxRaw: maxRaw(overallModel.matrices.S.raw) },
-      W: { minimumVisible: 1, maxRaw: maxRaw(overallModel.matrices.W.raw) }
+      S: { minimumVisible: 1, maximumRaw: 7 },
+      W: { minimumVisible: 1, maximumRaw: 3 }
     });
+    expect(figureData.scales.S).not.toHaveProperty("maxRaw");
+    expect(figureData.scales.W).not.toHaveProperty("maxRaw");
     expect(figureData.interpretationGuardrails).toEqual([
       "S encodes observed directed interaction weights; it is not a causal influence model.",
       "W encodes code co-occurrence within unit-scoped stanzas; it is not semantic or causal direction.",
@@ -288,13 +305,14 @@ describe("SENA human-concept publication figure generator", () => {
     expect(result.stderr).toBe("SENA figure generation failed: unknown argument: --input\n");
   });
 
-  it("is import-safe and exposes the dataset loader", () => {
+  it("is import-safe and exposes the dataset loader and matrix validator", () => {
     const temporaryCwd = mkdtempSync(path.join(tmpdir(), "sena-human-concept-import-"));
     const probePath = path.join(temporaryCwd, "import-generator.ts");
     writeFileSync(
       probePath,
-      `import { loadDataset } from ${JSON.stringify(pathToFileURL(generatorPath).href)};\n` +
-        `if (typeof loadDataset !== "function") throw new Error("loadDataset export missing");\n`
+      `import { assertMatrixBlock, loadDataset } from ${JSON.stringify(pathToFileURL(generatorPath).href)};\n` +
+        `if (typeof loadDataset !== "function") throw new Error("loadDataset export missing");\n` +
+        `if (typeof assertMatrixBlock !== "function") throw new Error("assertMatrixBlock export missing");\n`
     );
 
     try {
@@ -315,6 +333,40 @@ describe("SENA human-concept publication figure generator", () => {
     } finally {
       rmSync(temporaryCwd, { recursive: true, force: true });
     }
+  });
+
+  it("accepts matrix labels in the exact renderer order", () => {
+    const block: SenaMatrixBlock = {
+      labels: ["Facilitator", "Teacher"],
+      raw: [
+        [0, 2],
+        [1, 0]
+      ],
+      normalized: [
+        [0, 1],
+        [0.5, 0]
+      ]
+    };
+
+    expect(() => assertMatrixBlock("overall.S", block, ["Facilitator", "Teacher"])).not.toThrow();
+  });
+
+  it("rejects matrix labels that do not match the renderer order", () => {
+    const block: SenaMatrixBlock = {
+      labels: ["Teacher", "Facilitator"],
+      raw: [
+        [0, 2],
+        [1, 0]
+      ],
+      normalized: [
+        [0, 1],
+        [0.5, 0]
+      ]
+    };
+
+    expect(() => assertMatrixBlock("overall.S", block, ["Facilitator", "Teacher"])).toThrow(
+      'overall.S matrix labels must exactly match expected labels; expected ["Facilitator","Teacher"], received ["Teacher","Facilitator"]'
+    );
   });
 
   it("returns the exact SHA-256 of the source bytes", () => {
