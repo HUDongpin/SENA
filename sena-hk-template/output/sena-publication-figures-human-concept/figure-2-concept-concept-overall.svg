@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" data-figure-id="figure-2-concept-concept-overall" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" font-family="Arial, Helvetica, sans-serif">
+<title>Figure 2. Overall Concept–Concept Network</title>
+<desc>Overall undirected code co-occurrence within unit-scoped stanzas. W records association, not causal or semantic direction.</desc>
+<rect data-background="opaque-white" x="0" y="0" width="1800" height="1200" fill="#ffffff"/>
+<text x="900" y="62" text-anchor="middle" font-size="48" font-weight="700" fill="#0f172a">Figure 2. Overall Concept–Concept Network</text>
+<text x="900" y="112" text-anchor="middle" font-size="36" fill="#334155">Concept–Concept co-occurrence network (W), full lesson-study cycle</text>
+<g data-edge-set="W-overall">
+<path data-layer="W" data-edge-id="W-question-hypothesis" data-weight="1" data-stroke-width="5" d="M 1069.215 268.622 L 1280.222 533.217" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-question-evidence" data-weight="2" data-stroke-width="10" d="M 1069.215 268.622 L 1204.914 863.161" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-question-explanation" data-weight="2" data-stroke-width="10" d="M 1069.215 268.622 L 900 1010" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-question-critique" data-weight="2" data-stroke-width="10" d="M 1069.215 268.622 L 595.086 863.161" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-question-coordination" data-weight="1" data-stroke-width="5" d="M 1069.215 268.622 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-hypothesis-evidence" data-weight="2" data-stroke-width="10" d="M 1280.222 533.217 L 1204.914 863.161" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-hypothesis-explanation" data-weight="2" data-stroke-width="10" d="M 1280.222 533.217 L 900 1010" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-hypothesis-critique" data-weight="2" data-stroke-width="10" d="M 1280.222 533.217 L 595.086 863.161" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-hypothesis-reflection" data-weight="1" data-stroke-width="5" d="M 1280.222 533.217 L 519.778 533.217" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-hypothesis-coordination" data-weight="1" data-stroke-width="5" d="M 1280.222 533.217 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-evidence-explanation" data-weight="3" data-stroke-width="15" d="M 1204.914 863.161 L 900 1010" fill="none" stroke="#7e22ce" stroke-width="15" stroke-opacity="0.95" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-evidence-critique" data-weight="3" data-stroke-width="15" d="M 1204.914 863.161 L 595.086 863.161" fill="none" stroke="#7e22ce" stroke-width="15" stroke-opacity="0.95" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-evidence-reflection" data-weight="1" data-stroke-width="5" d="M 1204.914 863.161 L 519.778 533.217" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-evidence-coordination" data-weight="2" data-stroke-width="10" d="M 1204.914 863.161 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-explanation-critique" data-weight="3" data-stroke-width="15" d="M 900 1010 L 595.086 863.161" fill="none" stroke="#7e22ce" stroke-width="15" stroke-opacity="0.95" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-explanation-reflection" data-weight="1" data-stroke-width="5" d="M 900 1010 L 519.778 533.217" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-explanation-coordination" data-weight="2" data-stroke-width="10" d="M 900 1010 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-critique-reflection" data-weight="1" data-stroke-width="5" d="M 595.086 863.161 L 519.778 533.217" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-critique-coordination" data-weight="2" data-stroke-width="10" d="M 595.086 863.161 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="10" stroke-opacity="0.783" stroke-dasharray="none" stroke-linecap="round"/>
+<path data-layer="W" data-edge-id="W-reflection-coordination" data-weight="1" data-stroke-width="5" d="M 519.778 533.217 L 730.785 268.622" fill="none" stroke="#7e22ce" stroke-width="5" stroke-opacity="0.617" stroke-dasharray="none" stroke-linecap="round"/>
+</g>
+<g data-node-set="concept-overall">
+<line data-leader-for="question" x1="1094.38" y1="216.366" x2="1106.529" y2="191.139" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="1069.215" cy="268.622" r="58" fill="#7c3aed" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="question" cx="1069.215" cy="268.622" r="52" fill="#7c3aed" stroke="#ffffff" stroke-width="6"/>
+<text x="1116.942" y="181.516" text-anchor="start" font-size="36" font-weight="700" fill="#0f172a">Question</text>
+<line data-leader-for="hypothesis" x1="1336.768" y1="520.311" x2="1364.066" y2="514.08" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="1280.222" cy="533.217" r="58" fill="#8b5cf6" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="hypothesis" cx="1280.222" cy="533.217" r="52" fill="#8b5cf6" stroke="#ffffff" stroke-width="6"/>
+<text x="1387.464" y="520.74" text-anchor="start" font-size="36" font-weight="700" fill="#0f172a">Hypothesis</text>
+<line data-leader-for="evidence" x1="1250.261" y1="899.323" x2="1272.152" y2="916.781" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="1204.914" cy="863.161" r="58" fill="#2563eb" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="evidence" cx="1204.914" cy="863.161" r="52" fill="#2563eb" stroke="#ffffff" stroke-width="6"/>
+<text x="1290.916" y="943.745" text-anchor="start" font-size="36" font-weight="700" fill="#0f172a">Evidence</text>
+<line data-leader-for="explanation" x1="900" y1="1068" x2="900" y2="1096" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="900" cy="1010" r="58" fill="#d946ef" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="explanation" cx="900" cy="1010" r="52" fill="#d946ef" stroke="#ffffff" stroke-width="6"/>
+<text x="900" y="1132" text-anchor="middle" font-size="36" font-weight="700" fill="#0f172a">Explanation</text>
+<line data-leader-for="critique" x1="549.739" y1="899.323" x2="527.848" y2="916.781" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="595.086" cy="863.161" r="58" fill="#f97316" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="critique" cx="595.086" cy="863.161" r="52" fill="#f97316" stroke="#ffffff" stroke-width="6"/>
+<text x="509.084" y="943.745" text-anchor="end" font-size="36" font-weight="700" fill="#0f172a">Critique</text>
+<line data-leader-for="reflection" x1="463.232" y1="520.311" x2="435.934" y2="514.08" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="519.778" cy="533.217" r="58" fill="#ec4899" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="reflection" cx="519.778" cy="533.217" r="52" fill="#ec4899" stroke="#ffffff" stroke-width="6"/>
+<text x="412.536" y="520.74" text-anchor="end" font-size="36" font-weight="700" fill="#0f172a">Reflection</text>
+<line data-leader-for="coordination" x1="705.62" y1="216.366" x2="693.471" y2="191.139" stroke="#64748b" stroke-width="3"/>
+<circle data-node-decoration="concept-keyline" cx="730.785" cy="268.622" r="58" fill="#14b8a6" stroke="#0f172a" stroke-width="6"/>
+<circle data-node-kind="concept" data-node-id="coordination" cx="730.785" cy="268.622" r="52" fill="#14b8a6" stroke="#ffffff" stroke-width="6"/>
+<text x="683.058" y="181.516" text-anchor="end" font-size="36" font-weight="700" fill="#0f172a">Coordination</text>
+</g>
+<g data-legend="W-encoding">
+<desc>W encoding defines unit-scoped stanza co-occurrence; undirected; no causal direction.</desc>
+<rect x="20" y="735" width="340" height="425" rx="24" fill="#ffffff" stroke="#94a3b8" stroke-width="4"/>
+<text x="48" y="775" font-size="36" font-weight="700" fill="#0f172a">W encoding</text>
+<text x="48" y="817" font-size="34" fill="#334155">unit-scoped stanza</text>
+<text x="48" y="857" font-size="34" fill="#334155">co-occurrence</text>
+<text x="48" y="897" font-size="34" fill="#334155">undirected; no</text>
+<text x="48" y="937" font-size="34" fill="#334155">causal direction</text>
+<path data-scale-sample="W-1" stroke-width="5" d="M 54 980 L 166 980" fill="none" stroke="#7e22ce" stroke-opacity="0.617" stroke-dasharray="none"/>
+<text x="194" y="992" font-size="34" fill="#0f172a">raw 1</text>
+<path data-scale-sample="W-2" stroke-width="10" d="M 54 1040 L 166 1040" fill="none" stroke="#7e22ce" stroke-opacity="0.783" stroke-dasharray="none"/>
+<text x="194" y="1052" font-size="34" fill="#0f172a">raw 2</text>
+<path data-scale-sample="W-3" stroke-width="15" d="M 54 1100 L 166 1100" fill="none" stroke="#7e22ce" stroke-opacity="0.95" stroke-dasharray="none"/>
+<text x="194" y="1112" font-size="34" fill="#0f172a">raw 3</text>
+</g>
+</svg>

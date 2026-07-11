@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" data-figure-id="figure-1-human-human-overall" width="1800" height="1200" viewBox="0 0 1800 1200" role="img" font-family="Arial, Helvetica, sans-serif">
+<title>Figure 1. Overall Human–Human Network</title>
+<desc>Overall directed human-to-human interaction weights. Arrowheads show observed source-to-target direction; edge labels show raw weights.</desc>
+<rect data-background="opaque-white" x="0" y="0" width="1800" height="1200" fill="#ffffff"/>
+<defs><marker id="s-arrow" viewBox="0 0 20 20" refX="19" refY="10" markerWidth="36" markerHeight="36" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 19 10 L 0 19 Z" fill="#2563eb"/></marker></defs>
+<text x="900" y="62" text-anchor="middle" font-size="48" font-weight="700" fill="#0f172a">Figure 1. Overall Human–Human Network</text>
+<text x="900" y="112" text-anchor="middle" font-size="36" fill="#334155">Directed Human–Human interaction network (S), full lesson-study cycle</text>
+<g data-edge-set="S-overall">
+<path data-layer="S" data-edge-id="S-T1-T2" data-weight="7" data-stroke-width="18" d="M 994.851 276 Q 1141.77 378.23 1264.075 554" fill="none" stroke="#2563eb" stroke-width="18" stroke-opacity="0.95" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="1135.616" y="408.615" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">7</text>
+<path data-layer="S" data-edge-id="S-T1-T4" data-weight="3" data-stroke-width="7.714" d="M 760.159 276 Q 621.461 341.461 521.15 554" fill="none" stroke="#2563eb" stroke-width="7.714" stroke-opacity="0.664" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="631.058" y="390.23" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">3</text>
+<path data-layer="S" data-edge-id="S-T2-T3" data-weight="3" data-stroke-width="7.714" d="M 1170.159 686 Q 1031.461 751.461 931.15 964" fill="none" stroke="#2563eb" stroke-width="7.714" stroke-opacity="0.664" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="1041.058" y="800.23" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">3</text>
+<path data-layer="S" data-edge-id="S-T2-T4" data-weight="6" data-stroke-width="15.429" d="M 1100 646.634 Q 900 672 700 646.634" fill="none" stroke="#2563eb" stroke-width="15.429" stroke-opacity="0.879" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="900" y="671.317" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">6</text>
+<path data-layer="S" data-edge-id="S-T3-T1" data-weight="4" data-stroke-width="10.286" d="M 908.371 964 Q 952 620 908.371 276" fill="none" stroke="#2563eb" stroke-width="10.286" stroke-opacity="0.736" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="930.185" y="632" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">4</text>
+<path data-layer="S" data-edge-id="S-T3-T2" data-weight="6" data-stroke-width="15.429" d="M 1039.841 964 Q 1178.539 898.539 1278.85 686" fill="none" stroke="#2563eb" stroke-width="15.429" stroke-opacity="0.879" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="1168.942" y="873.77" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">6</text>
+<path data-layer="S" data-edge-id="S-T4-T1" data-weight="2" data-stroke-width="5.143" d="M 629.841 554 Q 768.539 488.539 868.85 276" fill="none" stroke="#2563eb" stroke-width="5.143" stroke-opacity="0.593" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="758.942" y="463.77" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">2</text>
+<path data-layer="S" data-edge-id="S-T4-T3" data-weight="2" data-stroke-width="5.143" d="M 535.925 686 Q 658.23 861.77 805.149 964" fill="none" stroke="#2563eb" stroke-width="5.143" stroke-opacity="0.593" stroke-linecap="round" marker-end="url(#s-arrow)"/>
+<text x="664.384" y="855.385" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">2</text>
+</g>
+<g data-node-set="human-overall">
+<rect data-node-kind="human" data-node-id="T1" x="690" y="144" width="420" height="132" rx="28" fill="#eff6ff" stroke="#0f3f83" stroke-width="6"/>
+<text x="900" y="200" text-anchor="middle" font-size="40" font-weight="700" fill="#0f172a">Ms Lee</text>
+<text x="900" y="250" text-anchor="middle" font-size="34" fill="#334155">Lead teacher</text>
+<rect data-node-kind="human" data-node-id="T2" x="1100" y="554" width="420" height="132" rx="28" fill="#eff6ff" stroke="#0f3f83" stroke-width="6"/>
+<text x="1310" y="610" text-anchor="middle" font-size="40" font-weight="700" fill="#0f172a">Mr Chan</text>
+<text x="1310" y="660" text-anchor="middle" font-size="34" fill="#334155">Curriculum designer</text>
+<rect data-node-kind="human" data-node-id="T3" x="690" y="964" width="420" height="132" rx="28" fill="#eff6ff" stroke="#0f3f83" stroke-width="6"/>
+<text x="900" y="1020" text-anchor="middle" font-size="40" font-weight="700" fill="#0f172a">Dr Wong</text>
+<text x="900" y="1070" text-anchor="middle" font-size="34" fill="#334155">Research mentor</text>
+<rect data-node-kind="human" data-node-id="T4" x="280" y="554" width="420" height="132" rx="28" fill="#eff6ff" stroke="#0f3f83" stroke-width="6"/>
+<text x="490" y="610" text-anchor="middle" font-size="40" font-weight="700" fill="#0f172a">Ms Ho</text>
+<text x="490" y="660" text-anchor="middle" font-size="34" fill="#334155">Peer observer</text>
+</g>
+<g data-legend="S-encoding">
+<rect x="38" y="900" width="620" height="270" rx="24" fill="#ffffff" stroke="#94a3b8" stroke-width="4"/>
+<text x="72" y="948" font-size="36" font-weight="700" fill="#0f172a">S encoding</text>
+<text x="72" y="990" font-size="34" fill="#334155">arrow = observed direction</text>
+<path data-scale-sample="S-1" stroke-width="2.571" d="M 82 1025 L 250 1025" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>
+<text x="286" y="1037" font-size="34" fill="#0f172a">raw weight 1</text>
+<path data-scale-sample="S-4" stroke-width="10.286" d="M 82 1080 L 250 1080" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>
+<text x="286" y="1092" font-size="34" fill="#0f172a">raw weight 4</text>
+<path data-scale-sample="S-7" stroke-width="18" d="M 82 1135 L 250 1135" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>
+<text x="286" y="1147" font-size="34" fill="#0f172a">raw weight 7</text>
+</g>
+</svg>
