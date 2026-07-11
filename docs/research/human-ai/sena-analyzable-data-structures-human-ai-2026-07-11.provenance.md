@@ -122,7 +122,7 @@
 
 本轮只新增两份研究输出：
 
-- outputs/sena-analyzable-data-structures-human-ai-2026-07-11.md
-- outputs/sena-analyzable-data-structures-human-ai-2026-07-11.provenance.md
+- docs/research/human-ai/sena-analyzable-data-structures-human-ai-2026-07-11.md
+- docs/research/human-ai/sena-analyzable-data-structures-human-ai-2026-07-11.provenance.md
 
 未修改 SENA feature code、data contract、templates、tests 或部署状态。
