@@ -38,15 +38,10 @@ const REQUIRED_ARTIFACTS = [
   "captions.md"
 ] as const;
 const BACKUP_MARKER_FILENAME = ".sena-publication-backup-owner.json";
-const BACKUP_MARKER_SCHEMA = "sena-publication-backup-owner/v1" as const;
 const STAGING_MARKER_FILENAME = ".sena-publication-staging-owner.json";
-const STAGING_MARKER_SCHEMA = "sena-publication-staging-owner/v2" as const;
 const READY_MARKER_FILENAME = ".sena-publication-ready-owner.json";
 const COMMITTED_MARKER_FILENAME = ".sena-publication-committed-owner.json";
-const PUBLICATION_MARKER_SCHEMA = "sena-publication-package-owner/v1" as const;
 const QUARANTINE_RECEIPT_FILENAME = ".sena-publication-commit-receipt.json";
-const QUARANTINE_RECEIPT_SCHEMA = "sena-publication-commit-receipt/v1" as const;
-const PUBLICATION_LOCK_SCHEMA = "sena-publication-lock/v1" as const;
 const PUBLICATION_LOCK_OWNER_FILENAME = "owner.json";
 const BUILD_OPTIONS = {
   normalization: "max",
@@ -69,13 +64,13 @@ type FileFingerprint = {
   sha256: string;
 };
 type BackupMarker = {
-  schemaVersion: typeof BACKUP_MARKER_SCHEMA;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationBackupOwner;
   outputDirectory: string;
   backupDirectory: string;
   artifacts: FileFingerprint[];
 };
 type StagingMarker = {
-  schemaVersion: typeof STAGING_MARKER_SCHEMA;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationStagingOwner;
   outputDirectory: string;
   backupDirectory: string;
   stagingDirectory: string;
@@ -83,7 +78,7 @@ type StagingMarker = {
   inode: number;
 };
 type PublicationPackageMarker = {
-  schemaVersion: typeof PUBLICATION_MARKER_SCHEMA;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationPackageOwner;
   outputDirectory: string;
   backupDirectory: string;
   stagingDirectory: string;
@@ -92,7 +87,7 @@ type PublicationPackageMarker = {
   artifacts: FileFingerprint[];
 };
 type QuarantineCommitReceipt = {
-  schemaVersion: typeof QUARANTINE_RECEIPT_SCHEMA;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationCommitReceipt;
   outputDirectory: string;
   quarantineDirectory: string;
   outputDevice: number;
@@ -100,7 +95,7 @@ type QuarantineCommitReceipt = {
   artifacts: FileFingerprint[];
 };
 type PublicationLockMarker = {
-  schemaVersion: typeof PUBLICATION_LOCK_SCHEMA;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationLock;
   outputDirectory: string;
   lockPath: string;
   pid: number;
@@ -1265,7 +1260,7 @@ function readPublicationLock(lockPath: string, outputDir: string) {
   const identity = publicationIdentity(outputDir);
   if (
     !isRecord(parsed) ||
-    parsed.schemaVersion !== PUBLICATION_LOCK_SCHEMA ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.publicationLock ||
     parsed.outputDirectory !== identity.outputDirectory ||
     parsed.lockPath !== publicationLockPathFor(identity.outputDirectory) ||
     typeof parsed.pid !== "number" ||
@@ -1293,7 +1288,7 @@ function processIsLive(pid: number) {
 function createPublicationLockMarker(outputDir: string) {
   const identity = publicationIdentity(outputDir);
   return {
-    schemaVersion: PUBLICATION_LOCK_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationLock,
     outputDirectory: identity.outputDirectory,
     lockPath: publicationLockPathFor(identity.outputDirectory),
     pid: process.pid,
@@ -1415,7 +1410,7 @@ function injectStaleLockReplacement(lockPath: string, outputDir: string) {
   ) return;
   const identity = publicationIdentity(outputDir);
   const replacement: PublicationLockMarker = {
-    schemaVersion: PUBLICATION_LOCK_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationLock,
     outputDirectory: identity.outputDirectory,
     lockPath: publicationLockPathFor(identity.outputDirectory),
     pid: process.ppid,
@@ -1475,6 +1470,10 @@ function acquirePublicationLock(outputDir: string) {
           `stale publication lock changed during guarded recovery and was preserved: ${lockPath}`
         );
       }
+      // This non-empty fence is an intentional durable ABA-prevention tombstone. It contains
+      // coordination metadata only, is not transient output residue, and is created only by
+      // stale-lock recovery. Never auto-delete it; maintenance may remove it only after confirming
+      // in a controlled window that no figure-generator process is running.
       const fencePath = `${lockPath}.fence-${existing.marker.token}`;
       if (lstatIfExists(fencePath)) {
         throw new Error(`stale publication lock fence already exists and was preserved: ${fencePath}`);
@@ -1497,6 +1496,12 @@ function acquirePublicationLock(outputDir: string) {
       ) {
         throw new Error(`fenced stale publication lock changed and was preserved: ${fencePath}`);
       }
+      console.error(
+        `SENA publication recovery: recovered stale publication lock into durable ABA-prevention fence: ${fencePath}. ` +
+          "It contains coordination metadata only; it is intentionally not auto-deleted or treated as transient " +
+          "output residue, is created only by stale-lock recovery, and may be removed only in a controlled " +
+          "maintenance window after confirming no figure-generator process is running."
+      );
       continue;
     }
   }
@@ -1614,7 +1619,7 @@ function readBackupMarker(
   const identity = publicationIdentity(outputDir);
   if (
     !isRecord(parsed) ||
-    parsed.schemaVersion !== BACKUP_MARKER_SCHEMA ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.publicationBackupOwner ||
     parsed.outputDirectory !== identity.outputDirectory ||
     parsed.backupDirectory !== identity.backupDirectory ||
     !Array.isArray(parsed.artifacts) ||
@@ -1665,7 +1670,7 @@ function writeBackupMarker(outputDir: string) {
   const identity = publicationIdentity(outputDir);
   const artifacts = entries.map((entry) => fingerprintFile(outputDir, entry as RequiredArtifact, "output"));
   const marker: BackupMarker = {
-    schemaVersion: BACKUP_MARKER_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationBackupOwner,
     outputDirectory: identity.outputDirectory,
     backupDirectory: identity.backupDirectory,
     artifacts
@@ -1706,7 +1711,7 @@ function readStagingMarker(stagingDir: string, outputDir: string) {
   const directoryStats = assertRealDirectory(stagingDir, "staging");
   if (
     !isRecord(parsed) ||
-    parsed.schemaVersion !== STAGING_MARKER_SCHEMA ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.publicationStagingOwner ||
     parsed.outputDirectory !== identity.outputDirectory ||
     parsed.backupDirectory !== identity.backupDirectory ||
     parsed.stagingDirectory !== canonicalDirectoryPath(stagingDir) ||
@@ -1735,7 +1740,7 @@ function createStagingDirectory(outputDir: string) {
   const stagingDir = mkdtempSync(path.join(parent, stagingPrefixFor(outputDir)));
   const stats = lstatSync(stagingDir);
   const marker: StagingMarker = {
-    schemaVersion: STAGING_MARKER_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationStagingOwner,
     ...publicationIdentity(outputDir),
     stagingDirectory: canonicalDirectoryPath(stagingDir),
     device: stats.dev,
@@ -1786,7 +1791,7 @@ function readPublicationPackageMarker(
   const expectedArtifactNames = sortedRequiredArtifacts();
   if (
     !isRecord(parsed) ||
-    parsed.schemaVersion !== PUBLICATION_MARKER_SCHEMA ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.publicationPackageOwner ||
     parsed.outputDirectory !== identity.outputDirectory ||
     parsed.backupDirectory !== identity.backupDirectory ||
     typeof parsed.stagingDirectory !== "string" ||
@@ -1895,7 +1900,7 @@ function transitionStagingToReady(staging: OwnedStagingDirectory, outputDir: str
     throw new Error("staging package changed before READY transition");
   }
   const marker: PublicationPackageMarker = {
-    schemaVersion: PUBLICATION_MARKER_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationPackageOwner,
     ...publicationIdentity(outputDir),
     stagingDirectory: canonicalDirectoryPath(staging.path),
     device: staging.device,
@@ -2099,7 +2104,7 @@ function readQuarantineCommitReceiptStructure(quarantineDir: string, outputDir: 
   const identity = publicationIdentity(outputDir);
   if (
     !isRecord(parsed) ||
-    parsed.schemaVersion !== QUARANTINE_RECEIPT_SCHEMA ||
+    parsed.schemaVersion !== SENA_SCHEMA_VERSIONS.publicationCommitReceipt ||
     parsed.outputDirectory !== identity.outputDirectory ||
     parsed.quarantineDirectory !== quarantinePathFor(identity.outputDirectory) ||
     !isFilesystemIdentity(parsed.outputDevice) ||
@@ -2140,7 +2145,7 @@ function writeQuarantineCommitReceipt(
   }
   const identity = publicationIdentity(outputDir);
   const receipt: QuarantineCommitReceipt = {
-    schemaVersion: QUARANTINE_RECEIPT_SCHEMA,
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationCommitReceipt,
     outputDirectory: identity.outputDirectory,
     quarantineDirectory: quarantinePathFor(identity.outputDirectory),
     outputDevice: outputStats.dev,

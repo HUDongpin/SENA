@@ -87,6 +87,33 @@ describe("SENA schema registry", () => {
     expect(getSenaSchemaVersion("runtimeBundle")).toBe(bundle.schemaVersion);
   });
 
+  it("registers every persisted publication transaction contract without changing its version", () => {
+    expect(SENA_SCHEMA_VERSIONS.publicationBackupOwner).toBe(
+      "sena-publication-backup-owner/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationStagingOwner).toBe(
+      "sena-publication-staging-owner/v2"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationPackageOwner).toBe(
+      "sena-publication-package-owner/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationCommitReceipt).toBe(
+      "sena-publication-commit-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.publicationLock).toBe("sena-publication-lock/v1");
+  });
+
+  it("keeps publication transaction schema values behind the registry module", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "scripts", "generate-sena-human-concept-publication-figures.ts"),
+      "utf8"
+    );
+
+    expect(source).not.toMatch(
+      /["']sena-publication-(?:backup-owner|staging-owner|package-owner|commit-receipt|lock)\/v\d+["']/
+    );
+  });
+
   it("provides registry introspection and runtime validation helpers", () => {
     const versions = listSenaSchemaVersions();
     expect(versions).toContain("sena-review-packet/v1");

@@ -1274,6 +1274,18 @@ describe("SENA human-concept publication figure generator", () => {
 
     expect(recovered.status).toBe(1);
     expect(recovered.stderr).toContain("injected PNG rendering failure");
+    const fencePath = `${lockPath}.fence-${lockMarker.token}`;
+    expect(recovered.stderr).toContain(
+      `recovered stale publication lock into durable ABA-prevention fence: ${fencePath}`
+    );
+    expect(recovered.stderr).toContain(
+      "coordination metadata only; it is intentionally not auto-deleted"
+    );
+    expect(recovered.stderr).toContain(
+      "controlled maintenance window after confirming no figure-generator process is running"
+    );
+    expect(lstatSync(fencePath).isDirectory()).toBe(true);
+    expect(JSON.parse(readFileSync(lockOwnerPathFor(fencePath), "utf8"))).toEqual(lockMarker);
     expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
     expect(existsSync(lockPath)).toBe(false);
     expect(existsSync(backupPathFor(outputDir))).toBe(false);
