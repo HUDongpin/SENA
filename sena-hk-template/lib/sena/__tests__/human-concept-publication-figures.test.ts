@@ -770,6 +770,7 @@ describe("SENA human-concept publication figure generator", () => {
       "shared global raw-weight scales",
       "inactive nodes are muted",
       "descriptive and non-causal",
+      "These figures intentionally isolate the S (Human–Human) and W (Concept–Concept) layers for interpretability; B and G remain part of SENA but are not visualized here.",
       "## Data and software note",
       `Source contract: \`${figureData.dataset.source}\``,
       `Dataset version: \`${figureData.dataset.version}\``,

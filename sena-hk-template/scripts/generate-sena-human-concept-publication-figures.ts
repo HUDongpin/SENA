@@ -1193,6 +1193,8 @@ function buildCaptions(figureData: FigureDataV1, sharpRuntime: SharpRuntime) {
     "",
     "Each column is stage-scoped to Plan, Teach, or Reflect. Human and concept nodes retain fixed node positions, edge widths use shared global raw-weight scales, and inactive nodes are muted. These comparisons are descriptive and non-causal.",
     "",
+    "These figures intentionally isolate the S (Human–Human) and W (Concept–Concept) layers for interpretability; B and G remain part of SENA but are not visualized here.",
+    "",
     "## Data and software note",
     "",
     `Source contract: \`${figureData.dataset.source}\``,
