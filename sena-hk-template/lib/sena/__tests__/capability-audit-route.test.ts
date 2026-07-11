@@ -89,6 +89,8 @@ describe("SENA capability audit route", () => {
           "sena-enterprise-identity-cutover-checklist/v1"
         ])
       }));
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-capability-audit");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("x-sena-auth-capability-status")).toBe(authCapability?.status);
       expect(response.headers.get("x-sena-auth-capability-remaining-platform-decisions")).toBe(authCapability?.remainingPlatformDecisions.join("|"));
       expect(response.headers.get("x-sena-auth-capability-required-artifacts")).toBe(authCapability?.requiredArtifacts.join("|"));

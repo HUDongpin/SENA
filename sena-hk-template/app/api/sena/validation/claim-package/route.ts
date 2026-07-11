@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseClaimEvidencePackage
-} from "@/lib/sena/enterprise/reliability-validation";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+  getEnterpriseClaimEvidencePackageWithPostgresEvidence
+} from "@/lib/sena/enterprise/claim-evidence-package";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  try {
-    const context = requireApiSession();
+  return observeSenaApiRoute(request, { routeId: "sena-validation-claim-package" }, async () => {
+    const context = await requireApiSession();
     const url = new URL(request.url);
-    const claimPackage = getEnterpriseClaimEvidencePackage(context, {
+    const claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(context, {
       projectId: String(url.searchParams.get("projectId") ?? "")
     });
     return NextResponse.json(claimPackage, {
@@ -19,10 +19,12 @@ export async function GET(request: Request) {
         "x-sena-project-id": claimPackage.project.id,
         "x-sena-project-version": String(claimPackage.project.currentVersion),
         "x-sena-source-snapshot-sha256": claimPackage.sourceSnapshotEvidence.snapshotSha256,
-        "x-sena-report-sha256": claimPackage.sourceSnapshotEvidence.reportSha256
+        "x-sena-report-sha256": claimPackage.sourceSnapshotEvidence.reportSha256,
+        "x-sena-claim-evidence-reliability-source": claimPackage.evidenceSource.reliabilityRuns,
+        "x-sena-claim-evidence-validation-source": claimPackage.evidenceSource.validationRuns,
+        "x-sena-claim-evidence-expert-review-source": claimPackage.evidenceSource.expertReviews,
+        "x-sena-claim-evidence-adjudication-source": claimPackage.evidenceSource.adjudications
       }
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

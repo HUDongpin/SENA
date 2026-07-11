@@ -1,9 +1,5 @@
-import { SenaFusionWorkspace } from "@/components/sena/SenaFusionWorkspace";
+import { SenaFusionWorkspaceLoader } from "@/components/sena/SenaFusionWorkspaceLoader";
 
 export default function SenaWorkspacePage() {
-  return (
-    <main>
-      <SenaFusionWorkspace />
-    </main>
-  );
+  return <SenaFusionWorkspaceLoader />;
 }

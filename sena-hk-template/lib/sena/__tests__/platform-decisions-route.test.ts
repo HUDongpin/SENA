@@ -2,6 +2,83 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { SenaEnterpriseDb } from "../enterprise/state";
+
+class PlatformDecisionRouteMemoryPostgres {
+  state: { revision: number; payload: SenaEnterpriseDb } | null = null;
+  queries: string[] = [];
+  jobRows = [
+    platformDecisionServerJobRow("job_platform_decision_queued", "queued", true)
+  ];
+
+  async query(sql: string, values: unknown[] = []) {
+    const normalizedSql = sql.replace(/\s+/g, " ").trim();
+    this.queries.push(normalizedSql);
+    if (/CREATE TABLE IF NOT EXISTS/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/CREATE INDEX IF NOT EXISTS/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+      return {
+        rows: this.state ? [{ revision: this.state.revision, payload: this.state.payload }] : [],
+        rowCount: this.state ? 1 : 0
+      };
+    }
+    if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO NOTHING/i.test(normalizedSql)) {
+      if (!this.state) {
+        this.state = {
+          revision: 0,
+          payload: values[2] as SenaEnterpriseDb
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_state" SET payload/i.test(normalizedSql)) {
+      const expectedRevision = Number(values[2]);
+      if (!this.state || this.state.revision !== expectedRevision) {
+        return { rows: [], rowCount: 0 };
+      }
+      this.state = {
+        revision: this.state.revision + 1,
+        payload: values[0] as SenaEnterpriseDb
+      };
+      return { rows: [{ revision: this.state.revision }], rowCount: 1 };
+    }
+    if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO UPDATE/i.test(normalizedSql)) {
+      this.state = {
+        revision: (this.state?.revision ?? -1) + 1,
+        payload: values[2] as SenaEnterpriseDb
+      };
+      return { rows: [{ revision: this.state.revision }], rowCount: 1 };
+    }
+    if (/SELECT count\(\*\) AS total FROM "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+      return { rows: [{ total: 0 }], rowCount: 1 };
+    }
+    if (/SELECT \* FROM "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/SELECT count\(\*\) AS total/i.test(normalizedSql)) {
+      return {
+        rows: [{
+          total: this.jobRows.length,
+          queued: this.jobRows.filter((row) => row.status === "queued").length,
+          running: this.jobRows.filter((row) => row.status === "running").length,
+          succeeded: 0,
+          failed: 0,
+          dead_lettered: 0,
+          retryable: this.jobRows.filter((row) => (row.lifecycle as { retryable?: boolean }).retryable).length
+        }],
+        rowCount: 1
+      };
+    }
+    if (/SELECT \* FROM "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
+      return { rows: this.jobRows.slice(0, 1), rowCount: Math.min(this.jobRows.length, 1) };
+    }
+    throw new Error(`Unexpected Postgres query in platform decisions route test: ${normalizedSql}`);
+  }
+}
 
 describe("SENA platform decisions route", () => {
   it("requires current identity request packet policy hash and returns audit headers", async () => {
@@ -80,6 +157,8 @@ describe("SENA platform decisions route", () => {
         };
       };
       expect(listResponse.status).toBe(200);
+      expect(listResponse.headers.get("x-sena-observed-route")).toBe("sena-ops-platform-decisions");
+      expect(listResponse.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(listBody.identityProductionEvidence?.status).toBe(currentIdentityEvidence.status);
       expect(listBody.identityProductionEvidence?.platformRequestPacket?.evidence).toContain(`requestPacketPolicyHash=${currentRequestPacketPolicyHash}`);
       expect(listBody.identityProductionEvidence?.platformRequestPacket?.submission?.requiredBodyFields).toContain("requestPacketPolicyHash");
@@ -282,6 +361,8 @@ describe("SENA platform decisions route", () => {
       };
 
       expect(response.status).toBe(201);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-platform-decisions");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(body.acceptance?.decisionId).toBe("institution-idp-approval");
       expect(body.acceptance?.productionEvidenceArtifactDigest).toBe(baseBody.productionEvidenceArtifactDigest);
       expect(body.acceptance?.submittedRequestPacketPolicyHash).toBe(currentRequestPacketPolicyHash);
@@ -398,4 +479,183 @@ describe("SENA platform decisions route", () => {
       vi.resetModules();
     }
   });
+
+  it("uses Postgres primary state for platform owner production evidence submissions", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-platform-decisions-postgres-route-"));
+    const pg = new PlatformDecisionRouteMemoryPostgres();
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.SENA_ENTERPRISE_POSTGRES_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+    process.env.SENA_APP_URL = "https://sena.example.test";
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = await enterprise.registerEnterpriseUserAsync({
+        name: "Postgres Platform Decision Owner",
+        email: "postgres-platform-decision@example.edu",
+        password: "sena-secure-123",
+        organization: "Postgres Platform Decision Lab",
+        plan: "enterprise"
+      });
+      const teamId = registered.context.teams[0].id;
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const route = await import("../../../app/api/sena/ops/platform-decisions/route");
+
+      const listResponse = await route.GET(new Request(`https://sena.example.test/api/sena/ops/platform-decisions?teamId=${encodeURIComponent(teamId)}`));
+      const listBody = await listResponse.json() as {
+        identityProductionEvidence?: {
+          platformRequestPacket?: { evidence?: string[] };
+        };
+      };
+      const currentRequestPacketPolicyHash = listBody.identityProductionEvidence?.platformRequestPacket?.evidence
+        ?.find((entry) => entry.startsWith("requestPacketPolicyHash="))
+        ?.slice("requestPacketPolicyHash=".length);
+      expect(listResponse.status).toBe(200);
+      expect(listResponse.headers.get("x-sena-observed-route")).toBe("sena-ops-platform-decisions");
+      expect(listResponse.headers.get("x-sena-observed-status-class")).toBe("2xx");
+      expect(currentRequestPacketPolicyHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(pg.queries.some((query) => /SELECT revision, payload FROM "public"\."sena_enterprise_state"/.test(query))).toBe(true);
+
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/ops/platform-decisions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          teamId,
+          decisionId: "institution-idp-approval",
+          status: "accepted",
+          acceptedBridge: true,
+          ownerName: "Maya Lee",
+          ownerRole: "Institution identity platform owner",
+          environment: "pilot-production",
+          evidenceUrl: "https://ops.institution.edu/sena/idp-route-policy",
+          productionEvidenceIds: ["idp-tenant-approval"],
+          productionEvidenceArtifactDigest: "a".repeat(64),
+          productionEvidenceVerifiedAt: "2026-01-15T00:00:00.000Z",
+          requestPacketPolicyHash: currentRequestPacketPolicyHash,
+          notes: "Institution IdP route evidence references the external approval artifact without raw secrets."
+        })
+      }));
+      const body = await response.json() as {
+        acceptance?: {
+          decisionId?: string;
+          productionEvidenceReceipt?: {
+            requestPacketPolicyBindingStatus?: string;
+          };
+        };
+        identityProductionEvidence?: {
+          receiptArchiveManifest?: {
+            evidence?: string[];
+          };
+        };
+      };
+      const serialized = JSON.stringify(body);
+
+      expect(response.status).toBe(201);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-platform-decisions");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+      expect(body.acceptance?.decisionId).toBe("institution-idp-approval");
+      expect(body.acceptance?.productionEvidenceReceipt?.requestPacketPolicyBindingStatus).toBe("current");
+      expect(body.identityProductionEvidence?.receiptArchiveManifest?.evidence)
+        .toContain("receiptArchiveArtifactCompleteness=complete:0|partial:1|missing:1");
+      expect(pg.state?.payload.platformDecisionAcceptances.map((acceptance) => acceptance.decisionId))
+        .toContain("institution-idp-approval");
+      expect(pg.state?.payload.auditLog.map((entry) => entry.event))
+        .toContain("ops.platform_decision.review");
+      expect(pg.queries.some((query) => /UPDATE "public"\."sena_enterprise_state" SET payload/.test(query))).toBe(true);
+      expect(serialized).not.toContain("super-secret");
+      expect(serialized).not.toContain("example.neon.tech");
+      expect(JSON.stringify(pg.state?.payload)).not.toContain("super-secret");
+      expect(JSON.stringify(pg.state?.payload)).not.toContain("example.neon.tech");
+    } finally {
+      delete process.env.SENA_APP_URL;
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_ENTERPRISE_DB_ADAPTER;
+      delete process.env.SENA_ENTERPRISE_STATE_STORE;
+      delete process.env.SENA_ENTERPRISE_POSTGRES_URL;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.doUnmock("pg");
+      vi.resetModules();
+    }
+  });
 });
+
+function platformDecisionServerJobRow(id: string, status: string, retryable: boolean) {
+  const nowIso = new Date("2026-07-01T00:00:00.000Z").toISOString();
+  return {
+    id,
+    schema_version: "sena-enterprise-server-job/v1",
+    kind: "analysis",
+    status,
+    team_id: "team_platform_decision_pg",
+    project_id: "project_platform_decision_pg",
+    actor_user_id: "user_platform_decision_pg",
+    payload_sha256: "e".repeat(64),
+    payload_summary: {
+      source: "project",
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    },
+    provider: {
+      schemaVersion: "sena-enterprise-server-job-queue/v1",
+      generatedAt: nowIso,
+      mode: "local",
+      configured: true,
+      productionReady: false,
+      secretConfigured: false,
+      timeoutMs: 1000,
+      inlinePayloadAllowed: false,
+      localModeEnabled: true,
+      evidence: []
+    },
+    delivery: {
+      attempted: true,
+      webhookStatus: "local-sink",
+      attemptedAt: nowIso
+    },
+    worker: {
+      expectedAction: "run-analysis",
+      payloadDelivery: "project-pointer",
+      execution: "local-receipt-only",
+      statusCallback: "/api/sena/ops/jobs"
+    },
+    lifecycle: {
+      attempts: 1,
+      maxAttempts: 3,
+      retryable,
+      lastTransition: "enqueue"
+    },
+    redaction: {
+      payloadValuesExcluded: true,
+      secretValuesExcluded: true,
+      endpointValueExcluded: true
+    },
+    queued_at: nowIso,
+    updated_at: nowIso
+  };
+}

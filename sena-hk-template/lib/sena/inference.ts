@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import type { SenaBuildOptions, SenaDataset, SenaModel, SenaPersonMetrics } from "./types";
 
@@ -11,7 +12,7 @@ export type SenaGroupComparisonMetric =
   | "alignment";
 
 export type SenaGroupComparisonResult = {
-  schemaVersion: "sena-group-comparison/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparison;
   metric: SenaGroupComparisonMetric;
   groupField: "group" | "role";
   groupA: string;
@@ -60,7 +61,7 @@ export type SenaGroupComparisonSuiteEntry = SenaGroupComparisonResult & {
 };
 
 export type SenaGroupComparisonSuiteResult = {
-  schemaVersion: "sena-group-comparison-suite/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparisonSuite;
   alpha: number;
   correction: "holm";
   comparisonCount: number;
@@ -154,7 +155,7 @@ export function buildSenaGroupComparison(input: {
   bootstrapIterations?: number;
 }): SenaGroupComparisonResult {
   const model = buildSenaModel(input.dataset, input.buildOptions ?? {});
-  const metric = input.metric ?? "bridgeScore";
+  const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
   const rows = actorRows(model, groupField, metric);
   const a = rows.filter((row) => row.group === input.groupA).map((row) => row.value);
@@ -195,7 +196,7 @@ export function buildSenaGroupComparison(input: {
   ));
 
   return {
-    schemaVersion: "sena-group-comparison/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
     metric,
     groupField,
     groupA: input.groupA,
@@ -273,7 +274,7 @@ export function buildSenaGroupComparisonSuite(input: {
     groupField: comparison.groupField ?? input.defaultGroupField ?? "group",
     groupA: comparison.groupA,
     groupB: comparison.groupB,
-    metric: comparison.metric ?? input.defaultMetric ?? "bridgeScore",
+    metric: comparison.metric ?? input.defaultMetric ?? "socialStrength",
     iterations: input.iterations,
     seed: (input.seed ?? 20260611) + (index * 101),
     bootstrapIterations: input.bootstrapIterations
@@ -307,7 +308,7 @@ export function buildSenaGroupComparisonSuite(input: {
   if (!primary) throw new Error("At least one group-comparison specification is required.");
 
   return {
-    schemaVersion: "sena-group-comparison-suite/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.groupComparisonSuite,
     alpha,
     correction: "holm",
     comparisonCount: entries.length,

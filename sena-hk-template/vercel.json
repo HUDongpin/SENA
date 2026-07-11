@@ -1,0 +1,4 @@
+{
+  "installCommand": "npx -y npm@9.9.4 ci --no-audit --fund=false",
+  "buildCommand": "npm run build"
+}

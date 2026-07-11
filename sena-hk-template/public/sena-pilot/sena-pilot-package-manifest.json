@@ -96,6 +96,7 @@
     ],
     "templates": [
       "/sena-pilot/templates/sena-data-contract-template.json",
+      "/sena-pilot/templates/sena-dataset-metadata-template.json",
       "/sena-pilot/templates/people.csv",
       "/sena-pilot/templates/interactions.csv",
       "/sena-pilot/templates/utterances.csv",
@@ -108,8 +109,8 @@
       "href": "/sena-pilot/sample/lesson-study-sena-contract.json",
       "kind": "sample",
       "format": "json",
-      "bytes": 9276,
-      "sha256": "e2525b3db948a3e606e53355cc9fb91a33fcde60928bdde96294a0eb23dc5b29"
+      "bytes": 9989,
+      "sha256": "c9eb2197c40b4f86308fce16fc1ff8344f1240da79085159292213e9f677982c"
     },
     {
       "href": "/sena-pilot/sample/lesson-study-people.csv",
@@ -150,8 +151,15 @@
       "href": "/sena-pilot/templates/sena-data-contract-template.json",
       "kind": "template",
       "format": "json",
-      "bytes": 103,
-      "sha256": "7e05e7ff625494cf318da66d8a1a7ad75a2b565f9daf67f4b5add22e561fd1cb"
+      "bytes": 503,
+      "sha256": "8824ce585a3145ae4caa35e5ab29fbccdca79e032f5733cac7d45fa334c38774"
+    },
+    {
+      "href": "/sena-pilot/templates/sena-dataset-metadata-template.json",
+      "kind": "template",
+      "format": "json",
+      "bytes": 403,
+      "sha256": "dc63ab7d1efe6652609223c4410f0ae09211079127ffe3e86116a937dc6628d4"
     },
     {
       "href": "/sena-pilot/templates/people.csv",
@@ -197,7 +205,7 @@
       "expectedEvidence": [
         "graph nodes",
         "typed edge layers",
-        "S/W/B/G matrices",
+        "S/W/B/B_PC/B_CP/G matrices",
         "A_fusion matrix",
         "temporal trace windows"
       ]

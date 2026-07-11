@@ -1,4 +1,24 @@
 {
+  "metadata": {
+    "datasetVersion": "lesson-study-public-synthetic-v1",
+    "consent": {
+      "instrument": "Synthetic sample; no human-subject consent instrument.",
+      "date": "2026-06-08",
+      "scope": "Bundled de-identified synthetic lesson-study discourse for local SENA pilot verification."
+    },
+    "retention": {
+      "policy": "Retain generated synthetic sample artifacts only for local verification and reproducibility review."
+    },
+    "pseudonymization": {
+      "personIdPolicy": "opaque",
+      "rosterMapping": "not-stored"
+    },
+    "codebook": {
+      "id": "sena-lesson-study-public-codebook",
+      "version": "v1",
+      "contentHash": "0xsynthetic-public-codebook-v1"
+    }
+  },
   "people": [
     { "id": "T1", "label": "Ms Lee", "role": "Lead teacher", "group": "Lesson Study Team", "initials": "ML" },
     { "id": "T2", "label": "Mr Chan", "role": "Curriculum designer", "group": "Lesson Study Team", "initials": "MC" },

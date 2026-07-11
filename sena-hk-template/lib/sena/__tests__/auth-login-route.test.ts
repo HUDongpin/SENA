@@ -2,6 +2,47 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { SenaEnterpriseDb } from "../enterprise/state";
+
+class AuthLoginRouteMemoryPostgres {
+  state: { revision: number; payload: SenaEnterpriseDb } | null = null;
+  queries: string[] = [];
+
+  async query(sql: string, values: unknown[] = []) {
+    const normalizedSql = sql.replace(/\s+/g, " ").trim();
+    this.queries.push(normalizedSql);
+    if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+      return {
+        rows: this.state ? [{ revision: this.state.revision, payload: this.state.payload }] : [],
+        rowCount: this.state ? 1 : 0
+      };
+    }
+    if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO NOTHING/i.test(normalizedSql)) {
+      if (!this.state) {
+        this.state = {
+          revision: 0,
+          payload: values[2] as SenaEnterpriseDb
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_state" SET payload/i.test(normalizedSql)) {
+      const expectedRevision = Number(values[2]);
+      if (!this.state || this.state.revision !== expectedRevision) {
+        return { rows: [], rowCount: 0 };
+      }
+      this.state = {
+        revision: this.state.revision + 1,
+        payload: values[0] as SenaEnterpriseDb
+      };
+      return { rows: [{ revision: this.state.revision }], rowCount: 1 };
+    }
+    throw new Error(`Unexpected Postgres query in auth login route test: ${normalizedSql}`);
+  }
+}
 
 describe("SENA auth login route", () => {
   it("returns audit-ready session headers for password login", async () => {
@@ -43,6 +84,8 @@ describe("SENA auth login route", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("set-cookie")).toContain("sena_session=");
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-login");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("x-sena-auth-flow")).toBe("password-login");
       expect(response.headers.get("x-sena-auth-user-id")).toBe(body.user?.id);
       expect(response.headers.get("x-sena-auth-session-id")).toBe(body.session?.id);
@@ -76,6 +119,80 @@ describe("SENA auth login route", () => {
       vi.unstubAllEnvs();
       delete process.env.SENA_APP_URL;
       delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  });
+
+  it("persists API password login, session, and rate-limit state through Postgres primary", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-auth-login-postgres-route-"));
+    const pg = new AuthLoginRouteMemoryPostgres();
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.SENA_ENTERPRISE_POSTGRES_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+
+    try {
+      const { registerEnterpriseUserAsync } = await import("../enterprise/auth-registration");
+      await registerEnterpriseUserAsync({
+        name: "Postgres Login Route User",
+        email: "postgres-login-route-user@example.edu",
+        password: "sena-secure-123",
+        organization: "Postgres Login Route Lab",
+        plan: "lab"
+      });
+      const route = await import("../../../app/api/auth/login/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "postgres-login-route-user@example.edu",
+          password: "sena-secure-123",
+          rememberSession: true
+        })
+      }));
+      const body = await response.json() as {
+        user?: { id?: string; email?: string };
+        session?: { id?: string; sessionProfile?: string };
+      };
+      const enterprise = await import("../enterprise");
+      const fileBackedDb = enterprise.readEnterpriseDb();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-sena-observed-route")).toBe("auth-login");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+      expect(body.session?.sessionProfile).toBe("remembered");
+      expect(pg.state?.payload.users.map((user) => user.email)).toContain("postgres-login-route-user@example.edu");
+      expect(pg.state?.payload.sessions.map((session) => session.id)).toContain(body.session?.id);
+      expect(pg.state?.payload.apiRateLimits.map((record) => record.bucket)).toEqual(expect.arrayContaining([
+        "auth.login"
+      ]));
+      expect(pg.state?.payload.auditLog.map((entry) => entry.event)).toEqual(expect.arrayContaining([
+        "auth.register",
+        "auth.login"
+      ]));
+      expect(fileBackedDb.sessions.map((session) => session.id)).not.toContain(body.session?.id);
+      expect(JSON.stringify({ body, postgresState: pg.state })).not.toContain("super-secret");
+      expect(JSON.stringify({ body, postgresState: pg.state })).not.toContain("example.neon.tech");
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_ENTERPRISE_DB_ADAPTER;
+      delete process.env.SENA_ENTERPRISE_STATE_STORE;
+      delete process.env.SENA_ENTERPRISE_POSTGRES_URL;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }

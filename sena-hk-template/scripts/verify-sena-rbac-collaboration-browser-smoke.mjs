@@ -3,14 +3,11 @@ import { chromium } from "playwright";
 
 const defaultTimeout = 15000;
 const password = "sena-secure-123";
+const pageOrigins = new WeakMap();
 
 function rbacSmokeOriginFromCli() {
   const positional = process.argv.find((arg) => arg.startsWith("http://") || arg.startsWith("https://"));
   return new URL(positional ?? process.env.SENA_RBAC_COLLABORATION_BROWSER_SMOKE_URL ?? "http://127.0.0.1:3001").origin;
-}
-
-function header(response, name) {
-  return response.headers()[name.toLowerCase()] ?? "";
 }
 
 function requireHeader(responseOrHeaders, name, expected) {
@@ -27,63 +24,176 @@ function requireHeader(responseOrHeaders, name, expected) {
   return actual;
 }
 
-async function fillByTestId(page, testId, value) {
-  await page.locator(`[data-testid="${testId}"]`).first().fill(value, { timeout: defaultTimeout });
+function rememberPageOrigin(page, origin) {
+  pageOrigins.set(page, origin);
 }
 
-async function checkByTestId(page, testId) {
-  const locator = page.locator(`[data-testid="${testId}"]`).first();
-  await locator.waitFor({ state: "visible", timeout: defaultTimeout });
-  await locator.check({ timeout: defaultTimeout });
+function pageBaseUrl(page) {
+  if (!page.isClosed() && page.url().startsWith("http")) return page.url();
+  return pageOrigins.get(page) ?? rbacSmokeOriginFromCli();
 }
 
-async function submitAndWaitForResponse(page, submitTestId, apiPath) {
-  const [response] = await Promise.all([
-    page.waitForResponse((candidate) => (
-      new URL(candidate.url()).pathname === apiPath &&
-      candidate.request().method() === "POST"
-    ), { timeout: defaultTimeout }),
-    page.locator(`[data-testid="${submitTestId}"]`).first().click({ timeout: defaultTimeout })
-  ]);
-  if (!response.ok()) {
-    throw new Error(`${apiPath} returned HTTP ${response.status()}: ${await response.text()}`);
+function splitSetCookieHeader(value) {
+  if (!value) return [];
+  return value.split(/,(?=\s*[-!#$%&'*+.^_`|~0-9A-Za-z]+=)/).map((cookie) => cookie.trim()).filter(Boolean);
+}
+
+function sameSiteCookieValue(value) {
+  const normalized = value.toLowerCase();
+  if (normalized === "strict") return "Strict";
+  if (normalized === "none") return "None";
+  return "Lax";
+}
+
+function cookieFromSetCookie(setCookie, origin) {
+  const [nameAndValue, ...attributes] = setCookie.split(";").map((part) => part.trim());
+  const separator = nameAndValue.indexOf("=");
+  if (separator <= 0) return null;
+
+  const cookie = {
+    name: nameAndValue.slice(0, separator),
+    value: nameAndValue.slice(separator + 1),
+    url: origin
+  };
+
+  for (const attribute of attributes) {
+    const [rawKey, ...rawValueParts] = attribute.split("=");
+    const key = rawKey.toLowerCase();
+    const rawValue = rawValueParts.join("=");
+    if (key === "httponly") cookie.httpOnly = true;
+    if (key === "secure") cookie.secure = true;
+    if (key === "samesite" && rawValue) cookie.sameSite = sameSiteCookieValue(rawValue);
+    if (key === "max-age" && Number.isFinite(Number(rawValue))) {
+      cookie.expires = Math.floor(Date.now() / 1000) + Number(rawValue);
+    }
+    if (key === "expires" && Number.isFinite(Date.parse(rawValue))) {
+      cookie.expires = Math.floor(Date.parse(rawValue) / 1000);
+    }
   }
-  return response;
+
+  return cookie;
 }
 
-async function registerOwnerThroughUi(page, origin, unique) {
-  const email = `rbac-owner-${unique}@example.edu`;
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
-  await fillByTestId(page, "register-full-name", "SENA RBAC Owner");
-  await fillByTestId(page, "register-email", email);
-  await fillByTestId(page, "register-organization", "SENA RBAC Collaboration Lab");
-  await fillByTestId(page, "register-password", password);
-  await fillByTestId(page, "register-confirm-password", password);
-  await checkByTestId(page, "register-terms");
-  const registerResponse = await submitAndWaitForResponse(page, "register-submit", "/api/auth/register");
-  requireHeader(registerResponse, "x-sena-auth-flow", "password-register");
-  requireHeader(registerResponse, "x-sena-auth-membership-role", "owner");
-  const teamId = requireHeader(registerResponse, "x-sena-auth-team-id");
-  await page.waitForURL("**/workspace/sena", { timeout: defaultTimeout });
-  return { email, teamId };
+async function syncResponseCookies(page, origin, headers) {
+  const cookies = splitSetCookieHeader(headers["set-cookie"])
+    .map((setCookie) => cookieFromSetCookie(setCookie, origin))
+    .filter(Boolean);
+  if (cookies.length > 0) await page.context().addCookies(cookies);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientNavigationError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("ERR_CONNECTION_REFUSED") || message.includes("ERR_CONNECTION_RESET");
+}
+
+async function gotoWithRetry(page, url) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+      return;
+    } catch (error) {
+      if (!isTransientNavigationError(error) || attempt === 3) throw error;
+      await sleep(500 * attempt);
+    }
+  }
+}
+
+async function openWorkspacePage(page, origin) {
+  rememberPageOrigin(page, origin);
+  await gotoWithRetry(page, `${origin}/workspace/sena`);
 }
 
 async function fetchJson(page, path, init = {}) {
-  return await page.evaluate(async ({ path: requestPath, init: requestInit }) => {
-    const response = await fetch(requestPath, {
-      credentials: "include",
-      ...requestInit
-    });
-    const body = await response.json().catch(async () => ({
-      parseError: await response.text()
-    }));
-    return {
-      status: response.status,
-      ok: response.ok,
-      headers: Object.fromEntries(Array.from(response.headers.entries())),
-      body
-    };
-  }, { path, init });
+  if (!page.isClosed() && page.url().startsWith("http")) {
+    try {
+      return await page.evaluate(async ({ path: requestPath, init: requestInit }) => {
+        const response = await fetch(requestPath, {
+          credentials: "include",
+          ...requestInit
+        });
+        const body = await response.json().catch(async () => ({
+          parseError: await response.text()
+        }));
+        return {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(Array.from(response.headers.entries())),
+          body
+        };
+      }, { path, init });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("Target page") && !message.includes("has been closed")) throw error;
+    }
+  }
+
+  const baseUrl = pageBaseUrl(page);
+  const requestUrl = new URL(path, baseUrl).toString();
+  const { body, credentials: _credentials, ...requestInit } = init;
+  const cookies = await page.context().cookies(requestUrl);
+  const cookieHeader = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  const requestOptions = { ...requestInit };
+  requestOptions.headers = {
+    ...(cookieHeader ? { cookie: cookieHeader } : {}),
+    ...(requestOptions.headers ?? {})
+  };
+  if (body !== undefined && requestOptions.data === undefined) requestOptions.data = body;
+  const response = await page.context().request.fetch(requestUrl, requestOptions);
+  const text = await response.text();
+  let parsedBody;
+  try {
+    parsedBody = JSON.parse(text);
+  } catch {
+    parsedBody = { parseError: text };
+  }
+  return {
+    status: response.status(),
+    ok: response.ok(),
+    headers: response.headers(),
+    body: parsedBody
+  };
+}
+
+async function registerThroughApi(page, origin, input) {
+  rememberPageOrigin(page, origin);
+  const result = await fetchJson(page, "/api/auth/register", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      name: input.name,
+      email: input.email,
+      password,
+      organization: input.organization,
+      plan: input.plan
+    })
+  });
+  if (result.status !== 201) {
+    throw new Error(`${input.label} registration failed: ${JSON.stringify(result)}.`);
+  }
+  requireHeader(result.headers, "x-sena-auth-flow", "password-register");
+  await syncResponseCookies(page, origin, result.headers);
+  return result;
+}
+
+async function registerOwner(page, origin, unique) {
+  const email = `rbac-owner-${unique}@example.edu`;
+  const result = await registerThroughApi(page, origin, {
+    label: "Owner",
+    name: "SENA RBAC Owner",
+    email,
+    organization: "SENA RBAC Collaboration Lab",
+    plan: "lab"
+  });
+  requireHeader(result.headers, "x-sena-auth-membership-role", "owner");
+  const teamId = requireHeader(result.headers, "x-sena-auth-team-id");
+  await openWorkspacePage(page, origin);
+  return { email, teamId };
 }
 
 async function csrfToken(page) {
@@ -169,24 +279,13 @@ async function inviteReviewer(page, csrf, teamId, reviewerEmail) {
 }
 
 async function registerReviewerWithInvite(page, origin, input) {
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
-  const result = await fetchJson(page, "/api/auth/register", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      name: "SENA Invited Reviewer",
-      email: input.email,
-      password,
-      organization: "External Reviewer Lab",
-      plan: "individual"
-    })
+  await registerThroughApi(page, origin, {
+    label: "Reviewer",
+    name: "SENA Invited Reviewer",
+    email: input.email,
+    organization: "External Reviewer Lab",
+    plan: "individual"
   });
-  if (result.status !== 201) {
-    throw new Error(`Reviewer registration failed: ${JSON.stringify(result)}.`);
-  }
-  requireHeader(result.headers, "x-sena-auth-flow", "password-register");
   const reviewerCsrf = await csrfToken(page);
   const accepted = await fetchJson(page, "/api/sena/team/invitations", {
     method: "PATCH",
@@ -205,26 +304,17 @@ async function registerReviewerWithInvite(page, origin, input) {
   requireHeader(accepted.headers, "x-sena-invitation-status", "accepted");
   requireHeader(accepted.headers, "x-sena-membership-role", "reviewer");
   requireHeader(accepted.headers, "x-sena-membership-status", "active");
+  await openWorkspacePage(page, origin);
 }
 
 async function registerOutsider(page, origin, unique) {
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
-  const result = await fetchJson(page, "/api/auth/register", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      name: "SENA RBAC Outsider",
-      email: `rbac-outsider-${unique}@example.edu`,
-      password,
-      organization: "Outside Collaboration Lab",
-      plan: "lab"
-    })
+  await registerThroughApi(page, origin, {
+    label: "Outsider",
+    name: "SENA RBAC Outsider",
+    email: `rbac-outsider-${unique}@example.edu`,
+    organization: "Outside Collaboration Lab",
+    plan: "lab"
   });
-  if (result.status !== 201) {
-    throw new Error(`Outsider registration failed: ${JSON.stringify(result)}.`);
-  }
 }
 
 async function verifyOutsiderDenied(page, projectId) {
@@ -349,7 +439,7 @@ export async function verifySenaRbacCollaborationBrowserSmoke(baseUrl = rbacSmok
   const outsiderPage = await outsiderContext.newPage();
 
   try {
-    const owner = await registerOwnerThroughUi(ownerPage, origin, unique);
+    const owner = await registerOwner(ownerPage, origin, unique);
     const ownerCsrf = await csrfToken(ownerPage);
     const projectId = await createProjectFromTranscript(ownerPage, ownerCsrf);
     const reviewerEmail = `rbac-reviewer-${unique}@example.edu`;

@@ -2,9 +2,33 @@ import type { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 export type SenaLayer = "social" | "concept" | "bridge";
 
+export type SenaEdgeType = "PP" | "CC" | "PC" | "CP";
+
 export type SenaLayoutMode = "explanatory" | "ena-space" | "joint";
 
-export type SenaNormalization = "max" | "log-max" | "none";
+export type SenaNormalization = "max" | "frobenius" | "log1p-max" | "log-max" | "none";
+
+export type SenaBridgeWeightRule = "count" | "confidence";
+
+export type SenaAnalysisDirection = "directed" | "undirected";
+
+export type SenaDegreeConvention = "row-sum";
+
+export type SenaEmbeddingPhi = "classical_mds" | "laplacian_eigenmaps" | "commute_time";
+
+export type SenaEmbeddingDelta =
+  | "shortest_path_reciprocal_weight"
+  | "combinatorial_laplacian"
+  | "commute_time_resistance";
+
+export type SenaAnalysisConfigDeclaration = {
+  direction: SenaAnalysisDirection;
+  deg_convention: SenaDegreeConvention;
+  delta: SenaEmbeddingDelta;
+  Phi: SenaEmbeddingPhi;
+  d: number;
+  seed: number;
+};
 
 export type SenaTemporalMode = "stage" | "moving-window" | "turn-window";
 
@@ -56,6 +80,7 @@ export type SenaCodedSegment = {
   segmentId: string;
   utteranceId: string;
   personId: string;
+  targetPersonIds?: string[];
   unitId: string;
   stanzaId: string;
   stage: string;
@@ -65,7 +90,30 @@ export type SenaCodedSegment = {
   confidence?: number;
 };
 
+export type SenaDatasetMetadata = {
+  datasetVersion: string;
+  consent: {
+    instrument: string;
+    date: string;
+    scope: string;
+  };
+  retention: {
+    policy: string;
+    deleteBy?: string;
+  };
+  pseudonymization: {
+    personIdPolicy: "opaque" | "human-readable" | "unknown";
+    rosterMapping: "external-encrypted-store" | "not-stored" | "unknown";
+  };
+  codebook: {
+    id: string;
+    version: string;
+    contentHash: string;
+  };
+};
+
 export type SenaDataset = {
+  metadata?: SenaDatasetMetadata;
   people: SenaPerson[];
   interactions: SenaInteraction[];
   utterances: SenaUtterance[];
@@ -79,15 +127,23 @@ export type SenaBuildOptions = {
   beta: number;
   gamma: number;
   normalization: SenaNormalization;
+  bridgeWeightRule: SenaBridgeWeightRule;
+  direction?: SenaAnalysisDirection;
+  deg_convention?: SenaDegreeConvention;
+  delta?: SenaEmbeddingDelta;
+  Phi?: SenaEmbeddingPhi;
+  d?: number;
+  seed?: number;
   undirectedSocial?: boolean;
   temporal?: Partial<SenaTemporalOptions>;
 };
 
-export type SenaResolvedBuildOptions = {
+export type SenaResolvedBuildOptions = SenaAnalysisConfigDeclaration & {
   alpha: number;
   beta: number;
   gamma: number;
   normalization: SenaNormalization;
+  bridgeWeightRule: SenaBridgeWeightRule;
   undirectedSocial: boolean;
   temporal: SenaTemporalOptions;
 };
@@ -136,6 +192,9 @@ export type SenaNode =
 export type SenaEdge = {
   id: string;
   layer: SenaLayer;
+  edgeType: SenaEdgeType;
+  sourceKind: SenaNode["kind"];
+  targetKind: SenaNode["kind"];
   source: string;
   target: string;
   weight: number;
@@ -483,7 +542,7 @@ export type SenaRuntimeProvenance = {
   senaModel: {
     engine: "sena-js";
     implementation: "lib/sena/model.ts";
-    matrixFormula: "A_fusion = [alpha*S gamma*B; gamma*B' beta*W]";
+    matrixFormula: "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
   };
   enaRuntime: {
     engine: "jena-js";
@@ -650,7 +709,7 @@ export type SenaFusionMathAuditItem = {
 };
 
 export type SenaMatrixFingerprint = {
-  id: "S" | "W" | "B" | "G" | "A_fusion";
+  id: "S" | "W" | "B" | "B_PC" | "B_CP" | "G" | "A_fusion";
   label: string;
   shape: string;
   checksumAlgorithm: "sena-stable-fnv1a32/v1";
@@ -704,7 +763,7 @@ export type SenaFusionMathAuditArtifact = {
 };
 
 export type SenaMethodProtocolLayer = {
-  id: "S" | "W" | "B" | "G" | "A_fusion";
+  id: "S" | "W" | "B" | "B_PC" | "B_CP" | "G" | "A_fusion";
   label: string;
   source: string;
   construction: string;
@@ -1093,6 +1152,7 @@ export type SenaReport = {
   };
   runtimeProvenance: SenaRuntimeProvenance;
   interpretationGuardrails: SenaInterpretationGuardrail[];
+  operatorDiagnostics: SenaOperatorDiagnostics;
   enaManifest: SenaEnaManifest;
   snaManifest: SenaSnaManifest;
   summary: SenaSummary;
@@ -1107,6 +1167,9 @@ export type SenaReport = {
       edges: Array<{
         id: string;
         layer: SenaLayer;
+        edgeType: SenaEdgeType;
+        sourceKind: SenaNode["kind"];
+        targetKind: SenaNode["kind"];
         source: string;
         target: string;
         label: string;
@@ -1126,6 +1189,7 @@ export type SenaReport = {
   socialReport: SenaSocialReport;
   pairReport: SenaPairReport[];
   validation: SenaValidation;
+  modelCard: SenaModelCard;
   codingReliabilityGate: SenaCodingReliabilityGate;
   completenessAudit: SenaReportCompletenessAudit;
   dataContractAudit: SenaDataContractAudit;
@@ -1187,6 +1251,7 @@ export type SenaRuntimeBundle = {
       matrices: SenaMatrices;
       temporal: SenaTemporalSeries;
       pairReport: SenaPairReport[];
+      operatorDiagnostics: SenaOperatorDiagnostics;
     };
     ena: SenaRuntimeProvenance["enaRuntime"] & {
       manifest: SenaEnaManifest;
@@ -1198,6 +1263,7 @@ export type SenaRuntimeBundle = {
     };
   };
   validation: SenaValidation;
+  modelCard: SenaModelCard;
   codingReliabilityGate: SenaCodingReliabilityGate;
   dataContractAudit: SenaDataContractAudit;
   fusionMathAudit: SenaFusionMathAudit;
@@ -1507,6 +1573,8 @@ export type SenaTemporalRuntimeMatrixTotals = {
   S: number;
   W: number;
   B: number;
+  B_PC: number;
+  B_CP: number;
   G: number;
   fusion: number;
 };
@@ -1830,10 +1898,363 @@ export type SenaMatrices = {
     raw: number[][];
     normalized: number[][];
   };
+  B_PC: {
+    rowLabels: string[];
+    columnLabels: string[];
+    raw: number[][];
+    normalized: number[][];
+  };
+  B_CP: {
+    rowLabels: string[];
+    columnLabels: string[];
+    raw: number[][];
+    normalized: number[][];
+  };
+  Y: {
+    rowLabels: string[];
+    columnLabels: string[];
+    windowIds: string[];
+    raw: number[][];
+  };
   G: SenaPairMatrixBlock;
   fusion: {
     labels: string[];
     values: number[][];
+  };
+};
+
+export type SenaNormalizationDiagnostic = {
+  rule: SenaNormalization;
+  divisor: number;
+  admissible: boolean;
+  scaleInvariant: boolean;
+  warnings: string[];
+};
+
+export type SenaOperatorDiagnostics = {
+  runIdentity: {
+    hashAlgorithm: "sena-stable-fnv1a32/v1";
+    datasetVersion: string;
+    datasetContentHash: string;
+    configHash: string;
+  };
+  analysisConfig: SenaAnalysisConfigDeclaration;
+  degreeConvention: SenaDegreeConvention;
+  degreeVector: number[];
+  isolatedVertices: Array<{
+    index: number;
+    label: string;
+    degree: number;
+  }>;
+  normalization: {
+    S: SenaNormalizationDiagnostic;
+    W: SenaNormalizationDiagnostic;
+    B: SenaNormalizationDiagnostic;
+    G: SenaNormalizationDiagnostic;
+  };
+  bridgeWeighting: {
+    rule: SenaBridgeWeightRule;
+    activeCodeValue: "segment-code-count" | "segment-confidence-or-1";
+    confidenceValuesPresent: boolean;
+    missingConfidenceCount: number;
+    warnings: string[];
+  };
+  direction: {
+    socialMode: "directed" | "undirected";
+    fusionMode: "directed" | "undirected";
+    socialSymmetrized: boolean;
+    directedInputPreserved: boolean;
+    bridgeMode: "pc-transpose-fallback" | "pc-cp-independent";
+    pcEdgeType: "PC";
+    cpEdgeType: "CP";
+    pcEdgeCount: number;
+    cpEdgeCount: number;
+    independentBridgeMatrices: boolean;
+    badge: string;
+    warnings: string[];
+  };
+  embedding: {
+    input: {
+      matrix: "fusion";
+      asymmetry: number;
+      symmetrized: boolean;
+      symmetrization: "none" | "declared-sym(A)=(A+At)/2";
+      warning: string | null;
+    };
+    exploratoryLayout: {
+      operator: "deterministic-force-layout";
+      metricExact: false;
+      warning: string;
+    };
+    mds: {
+      operator: "classical-mds";
+      delta: "shortest-path-reciprocal-weight";
+      dimensions: number;
+      available: boolean;
+      metricExact: boolean;
+      coordinates: number[][] | null;
+      stress: number | null;
+      maxDistortion: number | null;
+      minCenteredGramEigenvalue: number | null;
+      warnings: string[];
+    };
+    laplacianEigenmaps: {
+      operator: "laplacian-eigenmaps";
+      laplacian: "combinatorial";
+      dimensions: number;
+      available: boolean;
+      metricExact: false;
+      coordinates: number[][] | null;
+      eigenvalues: number[] | null;
+      zeroEigenvalueCount: number | null;
+      warnings: string[];
+    };
+    commuteTime: {
+      operator: "commute-time";
+      available: boolean;
+      metricExact: boolean;
+      coordinates: number[][] | null;
+      maxPairwiseError: number | null;
+      checkedPairs: number | null;
+      excludedSelfPairs: number | null;
+      warnings: string[];
+    };
+  };
+  attribution: {
+    estimator: "x-transpose-diag-y-x";
+    defaultWording: "associated with windows containing the pair";
+    contributionWordingAllowed: boolean;
+    contributionWordingReason: string;
+    participation: {
+      symbol: "Y";
+      sourceTable: "coded_segments";
+      rowCount: number;
+      columnCount: number;
+      activeCells: number;
+      firstClass: true;
+      warnings: string[];
+    };
+    gHat: {
+      normalization: "participation-window-share";
+      values: number[][];
+      rowSums: number[];
+      boundsWithinWindowProducts: boolean;
+      minValue: number;
+      maxValue: number;
+      zeroParticipationRows: number[];
+    };
+    identities: {
+      rawSlicesPsd: boolean;
+      rawSumMatchesParticipantWeightedCooccurrence: boolean;
+      windowNormalizedOffDiagonalMatchesCodeCooccurrence: boolean;
+    };
+    guardrail: string;
+  };
+  typedCentrality: {
+    mixedRankingRenderable: false;
+    guardrail: string;
+    families: {
+      personsOnS: Array<{
+        id: string;
+        label: string;
+        metric: "social-strength";
+        value: number;
+      }>;
+      codesOnW: Array<{
+        id: string;
+        label: string;
+        metric: "concept-weighted-degree";
+        value: number;
+      }>;
+      bridgesOnB: Array<{
+        id: string;
+        personId: string;
+        personLabel: string;
+        codeId: string;
+        codeLabel: string;
+        metric: "bridge-weight";
+        value: number;
+      }>;
+      typedGraph: Array<{
+        id: string;
+        label: string;
+        nodeType: "person" | "code";
+        metric: "typed-fused-degree";
+        value: number;
+      }>;
+    };
+  };
+};
+
+export type SenaModelCardSectionId =
+  | "data-contract"
+  | "exact-formulas"
+  | "normalization"
+  | "layer-weights"
+  | "embedding-geometry"
+  | "coding-reliability"
+  | "attribution-wording"
+  | "validation"
+  | "isolated-zero-degree"
+  | "directed-graph";
+
+export type SenaModelCardSection = {
+  id: SenaModelCardSectionId;
+  label: string;
+  status: "complete" | "needs-review";
+  evidence: string[];
+};
+
+export type SenaModelCard = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.modelCard;
+  generatedAt: string;
+  sections: SenaModelCardSection[];
+  dataset: {
+    id: string | null;
+    version: {
+      declared: string;
+      contentHash: string;
+    };
+    counts: {
+      people: number;
+      interactions: number;
+      utterances: number;
+      codedSegments: number;
+      codes: number;
+    };
+    codebook: {
+      id: string | null;
+      version: string | null;
+      contentHash: string | null;
+    };
+    pseudonymized: boolean;
+    consentRecord: string | null;
+    xItaPresent: boolean;
+  };
+  formulas: {
+    social: {
+      formula: "S = R" | "S = R + R^T";
+      direction: "directed" | "undirected";
+      directedInputPreserved: boolean;
+    };
+    concept: {
+      formula: "W_ab = sum_t X_ta X_tb, a != b, W_aa = 0";
+      codeFrequenciesAsNodeAttributes: boolean;
+    };
+    bridge: {
+      formula: "B_ic = sum_{s: person(s)=i} w_s * 1[c in codes_s]";
+      weightRule: "segment-count" | "confidence-weighted";
+      activeCodeValue: SenaOperatorDiagnostics["bridgeWeighting"]["activeCodeValue"];
+    };
+    attribution: {
+      variant: "G_hat";
+      estimator: SenaOperatorDiagnostics["attribution"]["estimator"];
+    };
+  };
+  normalization: {
+    rule: SenaNormalization;
+    divisors: {
+      S: number;
+      W: number;
+      B: number;
+      G: number;
+    };
+    scaleInvariant: boolean;
+    warnings: string[];
+  };
+  weights: {
+    alpha: number;
+    beta: number;
+    gamma: number;
+    configHash: string;
+    interpretation: string;
+  };
+  embedding: {
+    operator: "layout-only" | "classical-mds";
+    delta: "none" | "shortest-path-reciprocal-weight";
+    dimensions: number | null;
+    seed: number | null;
+    metricExact: boolean;
+    stress: number | null;
+    maxDistortion: number | null;
+    layoutBadge: "Exploratory layout — distances are not metric.";
+    exactnessBadge: string;
+  };
+  reliability: {
+    status: "complete" | "needs-review";
+    summary: string;
+    evidence: string[];
+  };
+  attribution: {
+    wording: "contribution-supported" | "association-exposure-only";
+    variant: "G_hat";
+    contributionWordingAllowed: boolean;
+    badge: string;
+  };
+  validation: {
+    status: "complete" | "needs-review";
+    claims: string[];
+    seed: number | null;
+    pValue: number | null;
+    badge: string;
+  };
+  isolated: {
+    I0: SenaOperatorDiagnostics["isolatedVertices"];
+    degreeConvention: SenaOperatorDiagnostics["degreeConvention"];
+    selfLoopConvention: string;
+    zeroDegreeConvention: string;
+    badge: string;
+  };
+  direction: {
+    mode: "directed" | "undirected";
+    operator: "declared-spectral-symmetrization" | "symmetrized";
+    collapsed: boolean;
+    bridgesIndependent: boolean | null;
+    badge: string | null;
+  };
+  renderGate: {
+    status: "ready" | "blocked";
+    missingSectionIds: SenaModelCardSectionId[];
+    message: string;
+  };
+};
+
+export type SenaAnalysisProvenanceEnvelope = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.analysisProvenanceEnvelope;
+  norm_rule: SenaNormalization;
+  divisors: {
+    S: number;
+    W: number;
+    B: number;
+    G: number;
+  };
+  alpha: number;
+  beta: number;
+  gamma: number;
+  direction: "directed" | "undirected";
+  deg_convention: SenaOperatorDiagnostics["degreeConvention"];
+  operator_conventions: {
+    self_loops: string;
+    zero_degree: string;
+    directed: string;
+  };
+  Phi: SenaEmbeddingPhi | "layout_only";
+  delta: SenaEmbeddingDelta | "none";
+  d: number | null;
+  seed: number | null;
+  metric_exact: boolean;
+  stress: number | null;
+  isolated: SenaOperatorDiagnostics["isolatedVertices"];
+  bridge_direction: SenaOperatorDiagnostics["direction"]["bridgeMode"];
+  bridge_pc_cp_independent: boolean;
+  direction_badge: string;
+  dataset_version: string;
+  dataset_content_hash: string;
+  codebook_version: string;
+  model_card: {
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.modelCard;
+    renderGateStatus: SenaModelCard["renderGate"]["status"];
+    missingSectionIds: SenaModelCardSectionId[];
   };
 };
 
@@ -1857,6 +2278,7 @@ export type SenaModel = {
   nodes: SenaNode[];
   edges: SenaEdge[];
   matrices: SenaMatrices;
+  operatorDiagnostics: SenaOperatorDiagnostics;
   people: SenaPerson[];
   codes: SenaCode[];
   utterances: SenaUtterance[];

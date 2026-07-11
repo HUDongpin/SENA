@@ -1,23 +1,27 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseSsoAuthorization,
+  getEnterpriseIdentityProductionEvidence,
+  type SenaEnterpriseIdentityProductionEvidence
+} from "@/lib/sena/enterprise/identity-production-evidence";
+import {
+  createEnterpriseSsoAuthorizationAsync,
   getEnterpriseSsoProviderStatuses,
   isEnterpriseSsoProviderConfigured,
-  preflightEnterpriseSsoProviders,
+  preflightEnterpriseSsoProvidersAsync,
   requireEnterpriseLocalSsoFallbackAllowed,
-  sanitizeEnterpriseContext,
-  senaSessionCookieName,
-  ssoEnterpriseUser,
+  ssoEnterpriseUserAsync,
   type SenaEnterpriseSsoProvider
-} from "@/lib/sena/enterprise/identity-auth";
+} from "@/lib/sena/enterprise/auth-sso";
 import {
-  getEnterpriseIdentityProductionEvidence
-} from "@/lib/sena/enterprise/ops-governance";
+  sanitizeEnterpriseContext,
+  senaSessionCookieName
+} from "@/lib/sena/enterprise/auth-session";
 import {
   authSessionHeaders,
-  enforceAuthRateLimit,
+  enforceAuthRateLimitAsync,
   identityInstitutionActionPlanHeaders,
-  jsonError,
+  observeSenaApiRoute,
   sessionCookieMaxAgeSeconds,
   sessionCookieOptions
 } from "@/lib/sena/api-helpers";
@@ -33,7 +37,7 @@ function requestOrigin(request: Request) {
 }
 
 function ssoProductionGateHeaders(
-  evidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
+  evidence: SenaEnterpriseIdentityProductionEvidence
 ): Record<string, string> {
   return {
     "x-sena-sso-production-gate": evidence.status,
@@ -50,10 +54,10 @@ function ssoProductionGateHeaders(
 }
 
 function identityProductionGateSummary(
-  evidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
+  evidence: SenaEnterpriseIdentityProductionEvidence
 ) {
   return {
-    schemaVersion: "sena-enterprise-identity-production-gate-summary/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary,
     generatedAt: evidence.generatedAt,
     status: evidence.status,
     releaseGateBlocked: evidence.releaseGate.approvalBlocked,
@@ -88,21 +92,24 @@ function identityProductionGateSummary(
 }
 
 export async function GET(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const url = new URL(request.url);
     if (url.searchParams.get("status") === "1") {
+      // Serverless-safe: the file-store read path never initializes the store
+      // directory, so this stays a fast non-persisting read on read-only
+      // filesystems; the full Postgres-backed evidence lives on the ops routes.
       const identityEvidence = getEnterpriseIdentityProductionEvidence();
       if (url.searchParams.get("preflight") === "1") {
-        enforceAuthRateLimit(request, {
+        await enforceAuthRateLimitAsync(request, {
           bucket: "auth.sso.preflight",
           discriminator: `${url.searchParams.get("provider") ?? "all"}:${requestOrigin(request)}`
         });
         const provider = url.searchParams.get("provider");
         return NextResponse.json({
-          schemaVersion: "sena-sso-provider-status/v1",
+          schemaVersion: SENA_SCHEMA_VERSIONS.ssoProviderStatus,
           providers: getEnterpriseSsoProviderStatuses(),
           identityProductionGate: identityProductionGateSummary(identityEvidence),
-          preflight: await preflightEnterpriseSsoProviders({
+          preflight: await preflightEnterpriseSsoProvidersAsync({
             baseUrl: requestOrigin(request),
             providers: provider ? [ssoProvider(provider)] : undefined
           })
@@ -111,7 +118,7 @@ export async function GET(request: Request) {
         });
       }
       return NextResponse.json({
-        schemaVersion: "sena-sso-provider-status/v1",
+        schemaVersion: SENA_SCHEMA_VERSIONS.ssoProviderStatus,
         providers: getEnterpriseSsoProviderStatuses(),
         identityProductionGate: identityProductionGateSummary(identityEvidence)
       }, {
@@ -119,32 +126,30 @@ export async function GET(request: Request) {
       });
     }
 
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.sso.start",
       discriminator: `${url.searchParams.get("provider") ?? "institution"}:${url.searchParams.get("redirectTo") ?? ""}`
     });
-    const authorization = await createEnterpriseSsoAuthorization({
+    const authorization = await createEnterpriseSsoAuthorizationAsync({
       provider: ssoProvider(url.searchParams.get("provider")),
       baseUrl: requestOrigin(request),
       redirectTo: url.searchParams.get("redirectTo") ?? undefined,
       inviteCode: url.searchParams.get("inviteCode") ?? undefined
     });
     return NextResponse.redirect(authorization.authorizationUrl);
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-sso" }, async () => {
     const body = await request.json();
     const provider = ssoProvider(body.provider);
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.sso.start",
       discriminator: `${provider}:${body.email ?? body.subject ?? body.redirectTo ?? ""}`
     });
     if (isEnterpriseSsoProviderConfigured(provider)) {
-      const authorization = await createEnterpriseSsoAuthorization({
+      const authorization = await createEnterpriseSsoAuthorizationAsync({
         provider,
         baseUrl: requestOrigin(request),
         redirectTo: body.redirectTo ? String(body.redirectTo) : undefined,
@@ -154,7 +159,7 @@ export async function POST(request: Request) {
     }
 
     requireEnterpriseLocalSsoFallbackAllowed(provider);
-    const result = ssoEnterpriseUser({
+    const result = await ssoEnterpriseUserAsync({
       provider,
       email: String(body.email ?? ""),
       name: body.name ? String(body.name) : undefined,
@@ -172,7 +177,5 @@ export async function POST(request: Request) {
     });
     response.cookies.set(senaSessionCookieName, result.token, sessionCookieOptions(sessionCookieMaxAgeSeconds(result.context.session.expiresAt)));
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

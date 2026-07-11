@@ -1,8 +1,9 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { SENA_WORKSPACE_API_ROUTES } from "./api-client";
 import type {
   SenaGroupComparisonMetric,
   SenaGroupComparisonValidationResult
-} from "@/lib/sena";
+} from "@/lib/sena/inference";
 import type { SenaReliabilityDashboard } from "@/lib/sena/reliability";
 
 export type EnterpriseContext = {
@@ -41,7 +42,7 @@ export type EnterpriseUploadRecord = {
   createdAt: string;
 };
 export type EnterpriseUploadStorageVerification = {
-  schemaVersion: "sena-enterprise-upload-storage-verification/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseUploadStorageVerification;
   status: "pass" | "review";
   generatedAt: string;
   summary: {
@@ -56,12 +57,12 @@ export type EnterpriseUploadStorageVerification = {
   };
 };
 export type EnterpriseUploadStorageState = {
-  schemaVersion: "sena-upload-list/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.uploadList;
   uploads: EnterpriseUploadRecord[];
   storageVerification?: EnterpriseUploadStorageVerification;
 };
 export type EnterpriseMfaStatus = {
-  schemaVersion: "sena-enterprise-mfa-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaStatus;
   enabled: boolean;
   method: "totp" | null;
   factorId?: string;
@@ -69,7 +70,7 @@ export type EnterpriseMfaStatus = {
   lastUsedAt?: string;
 };
 export type EnterpriseMfaSetup = {
-  schemaVersion: "sena-enterprise-mfa-setup/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseMfaSetup;
   method: "totp";
   setupToken: string;
   secret: string;
@@ -86,7 +87,7 @@ export type EnterpriseSessionSummary = {
   ttlDays?: number;
 };
 export type EnterpriseSessionList = {
-  schemaVersion: "sena-enterprise-session-list/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSessionList;
   generatedAt: string;
   currentSessionId: string;
   sessionDays: number;
@@ -109,7 +110,7 @@ export type EnterpriseSsoProviderPreflight = {
   errorHash?: string;
 };
 export type EnterpriseSsoPreflight = {
-  schemaVersion: "sena-enterprise-sso-preflight/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight;
   generatedAt: string;
   baseUrl: string;
   summary: {
@@ -121,7 +122,7 @@ export type EnterpriseSsoPreflight = {
   providers: EnterpriseSsoProviderPreflight[];
 };
 export type EnterpriseSsoProviderStatusResponse = {
-  schemaVersion: "sena-sso-provider-status/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.ssoProviderStatus;
   preflight?: EnterpriseSsoPreflight;
 };
 export type EnterpriseDeploymentEnv = {
@@ -152,20 +153,20 @@ export type EnterpriseDeploymentPlatformDecision = {
   nextAction: string;
 };
 export type EnterpriseIdentityProductionEvidence = {
-  schemaVersion: "sena-enterprise-identity-production-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence;
   generatedAt: string;
   status: "ready" | "review";
   capabilityStatus: "ready" | "review" | "blocked";
   missingEvidenceIds: string[];
   submissionVerifier: {
-    schemaVersion: "sena-enterprise-identity-submission-verifier/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionVerifier;
     verifiedDecisions: number;
     incompleteDecisions: number;
     missingProductionEvidence: number;
     missingTechnicalPrerequisites: number;
   };
   platformRequestPacket: {
-    schemaVersion: "sena-enterprise-identity-platform-decision-request-packet/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket;
     blockingRequests: number;
     missingProductionEvidence: number;
     missingTechnicalPrerequisites: number;
@@ -173,13 +174,13 @@ export type EnterpriseIdentityProductionEvidence = {
     evidence: string[];
   };
   rotationFreshness: {
-    schemaVersion: "sena-enterprise-identity-rotation-freshness/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityRotationFreshness;
     status: "ready" | "review";
     expiredEvidenceIds: string[];
     dueSoonEvidenceIds: string[];
   };
   cutoverChecklist: {
-    schemaVersion: "sena-enterprise-identity-cutover-checklist/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist;
     status: "ready" | "review";
     summary: {
       items: number;
@@ -190,7 +191,7 @@ export type EnterpriseIdentityProductionEvidence = {
   releaseGateBlocked: boolean;
 };
 export type EnterpriseIdentityPlatformDecisionRequestPacket = {
-  schemaVersion: "sena-enterprise-identity-platform-decision-request-packet/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityPlatformDecisionRequestPacket;
   summary: {
     requests: number;
     blockingRequests: number;
@@ -299,7 +300,7 @@ export type EnterpriseIdentityPlatformDecisionRequestPacket = {
   }>;
  };
 export type EnterpriseIdentityInstitutionActionPlan = {
-  schemaVersion: "sena-enterprise-identity-institution-action-plan/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityInstitutionActionPlan;
   status: "ready" | "review";
   digest?: string;
   redaction: {
@@ -320,6 +321,7 @@ export type EnterpriseIdentityInstitutionActionPlan = {
   };
   lanes: Array<{
     id: "institution-idp-owner" | "institution-provisioning-owner";
+    laneId: "institution-idp-owner" | "institution-provisioning-owner";
     ownerRole: "Institution IdP owner" | "Institution provisioning owner";
     status: "ready" | "review";
     blocking: boolean;
@@ -346,7 +348,7 @@ export type EnterpriseIdentityInstitutionActionPlan = {
   nextActions: string[];
 };
 export type EnterpriseIdentityProductionEvidenceDossier = {
-  schemaVersion: "sena-enterprise-identity-production-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence;
   status: "ready" | "review";
   evidenceManifest: {
     missingEvidenceIds: string[];
@@ -361,7 +363,7 @@ export type EnterpriseIdentityProductionEvidenceDossier = {
     evidence: string[];
   };
   cutoverChecklist: {
-    schemaVersion: "sena-enterprise-identity-cutover-checklist/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist;
     status: "ready" | "review";
     summary: {
       items: number;
@@ -379,7 +381,7 @@ export type EnterpriseIdentityProductionEvidenceDossier = {
   institutionActionPlan: EnterpriseIdentityInstitutionActionPlan;
 };
 export type EnterpriseOrganizationDeploymentPackage = {
-  schemaVersion: "sena-enterprise-organization-deployment/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment;
   generatedAt: string;
   status: "ready" | "review" | "blocked";
   summary: {
@@ -398,7 +400,7 @@ export type EnterpriseOrganizationDeploymentPackage = {
   serviceEndpoints: EnterpriseDeploymentServiceEndpoint[];
   platformDecisions: EnterpriseDeploymentPlatformDecision[];
   platformDecisionRegister: {
-    schemaVersion: "sena-enterprise-platform-decision-register/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister;
     summary: {
       open: number;
       productionBlocking: number;
@@ -406,7 +408,7 @@ export type EnterpriseOrganizationDeploymentPackage = {
     };
   };
   releaseGate: {
-    schemaVersion: "sena-enterprise-release-gate-reviews/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReviews;
     summary: {
       total: number;
       approved: number;
@@ -439,7 +441,7 @@ export type EnterpriseImportRun = {
   warningCount: number;
   datasetCounts: { people: number; interactions: number; utterances: number; codedSegments: number; codes: number };
   cleaningManifest?: {
-    schemaVersion: "sena-import-cleaning-manifest/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.importCleaningManifest;
     summary: {
       adapterProfiles: string[];
       totalSourceRows: number;
@@ -472,7 +474,7 @@ export type EnterpriseAnalysisRun = {
   createdAt: string;
 };
 export type EnterpriseValidationParityEvidence = {
-  schemaVersion: "sena-validation-parity-evidence/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.validationParityEvidence;
   status: "ready-for-review" | "incomplete";
   validationRunHash: string;
   analysis: "single-comparison" | "holm-suite";
@@ -503,7 +505,7 @@ export type EnterpriseValidationParityEvidence = {
     studySpecificInferenceReference?: string;
   };
   formalInference?: {
-    schemaVersion: "sena-formal-inference-readiness/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.formalInferenceReadiness;
     status: "model-referenced" | "model-required" | "incomplete";
     resultSchemaVersion: string;
     comparisonCount: number;
@@ -522,7 +524,7 @@ export type EnterpriseValidationParityEvidence = {
   notes: string[];
 };
 export type LocalValidationPreregistrationPlan = {
-  schemaVersion: "sena-validation-preregistration-plan/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.validationPreregistrationPlan;
   planHash: string;
   hashAlgorithm: "sha256";
   analysis: "single-comparison" | "holm-suite";
@@ -566,7 +568,7 @@ export type EnterpriseCollaborationState = {
     krippendorffAlphaNominal: number;
     disagreementCount: number;
     adjudicationCoverage?: {
-      schemaVersion: "sena-reliability-adjudication-coverage/v1";
+      schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
       queuedDisagreements: number;
       resolvedDisagreements: number;
       unresolvedDisagreements: number;
@@ -622,7 +624,7 @@ export type EnterpriseCollaborationState = {
   }>;
 };
 export type LocalEnterpriseValidationResult = {
-  schemaVersion: "sena-local-validation-run/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.localValidationRun;
   generatedAt: string;
   result: SenaGroupComparisonValidationResult;
   preregistrationNote: string;
@@ -631,11 +633,11 @@ export type LocalEnterpriseValidationResult = {
   preregistrationPlan?: LocalValidationPreregistrationPlan;
 };
 export type EnterpriseClaimEvidencePackage = {
-  schemaVersion: "sena-enterprise-claim-evidence-package/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
   generatedAt: string;
   status: "claim-ready-with-limits" | "exploratory-only" | "not-claim-ready";
   sourceSnapshotEvidence: {
-    schemaVersion: "sena-enterprise-claim-source-snapshot/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimSourceSnapshot;
     projectVersion: number;
     revisionId?: string;
     revisionMatchesCurrentVersion: boolean;
@@ -674,7 +676,7 @@ export type EnterprisePlatformDecisionId =
   | "full-saas-backend-operations";
 export type EnterprisePlatformDecisionStatus = "accepted" | "rejected" | "needs-native-adapter" | "superseded";
 export type EnterprisePlatformDecisionAcceptance = {
-  schemaVersion: "sena-enterprise-platform-decision-acceptance/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptance;
   id: string;
   teamId: string;
   decisionId: EnterprisePlatformDecisionId;
@@ -688,7 +690,7 @@ export type EnterprisePlatformDecisionAcceptance = {
   productionEvidenceIds?: string[];
   productionEvidenceVerifiedAt?: string;
   productionEvidenceReceipt?: {
-    schemaVersion: "sena-enterprise-platform-decision-production-evidence-receipt/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionProductionEvidenceReceipt;
     allowedEvidenceIds: string[];
     submittedEvidenceIds: string[];
     acceptedEvidenceIds: string[];
@@ -708,7 +710,7 @@ export type EnterprisePlatformDecisionAcceptance = {
   updatedAt: string;
 };
 export type EnterprisePlatformDecisionRegister = {
-  schemaVersion: "sena-enterprise-platform-decision-register/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister;
   summary: {
     decisions: number;
     ready: number;
@@ -739,7 +741,7 @@ export type EnterprisePlatformDecisionRegister = {
   nextActions: string[];
 };
 export type EnterprisePlatformDecisionState = {
-  schemaVersion: "sena-enterprise-platform-decision-acceptances/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionAcceptances;
   summary: {
     total: number;
     accepted: number;
@@ -755,13 +757,13 @@ export type EnterprisePlatformDecisionState = {
 export type EnterpriseReleaseGateDecision = "approved" | "blocked" | "conditional";
 export type EnterpriseReleaseVerificationStatus = "passed" | "failed" | "not-run";
 export type EnterpriseReleaseGateDraft = {
-  schemaVersion: "sena-enterprise-release-gate-draft/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateDraft;
   decision: EnterpriseReleaseGateDecision;
   environment: string;
   releaseVersion: string;
   verificationCommand: string;
   verificationEvidence: {
-    schemaVersion: "sena-enterprise-release-verification-evidence/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence;
     command: string;
     status: EnterpriseReleaseVerificationStatus;
     summary: string;
@@ -771,28 +773,28 @@ export type EnterpriseReleaseGateDraft = {
   evidence: string[];
 };
 export type EnterpriseGoLiveRehearsal = {
-  schemaVersion: "sena-enterprise-go-live-rehearsal/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal;
   status: "ready" | "review" | "blocked";
   identityProductionHandoff: EnterpriseIdentityProductionEvidenceDossier;
   releaseGateDraft: EnterpriseReleaseGateDraft;
   rollbackDrill?: {
-    schemaVersion: "sena-enterprise-go-live-rollback-drill/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveRollbackDrill;
     status: "ready" | "review" | "blocked";
   };
   postCutoverMonitor?: {
-    schemaVersion: "sena-enterprise-go-live-monitor/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveMonitor;
     status: "ready" | "watch" | "blocked";
   };
 };
 export type EnterpriseGoLiveAttestation = {
-  schemaVersion: "sena-enterprise-go-live-attestation/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseGoLiveAttestation;
   id: string;
   decision: EnterpriseReleaseGateDecision;
   status: EnterpriseReleaseGateDecision;
   releaseVersion: string;
   identityProductionHandoffSnapshot?: EnterpriseIdentityProductionEvidenceDossier;
   latestReleaseGateSnapshot?: {
-    schemaVersion: "sena-enterprise-release-gate-review/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview;
     id: string;
     decision: EnterpriseReleaseGateDecision;
     verificationStatus: EnterpriseReleaseVerificationStatus;
@@ -807,7 +809,7 @@ export type EnterpriseGoLiveAttestation = {
   };
 };
 export type EnterpriseReleaseGateReview = {
-  schemaVersion: "sena-enterprise-release-gate-review/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReview;
   id: string;
   teamId: string;
   environment: string;
@@ -819,7 +821,7 @@ export type EnterpriseReleaseGateReview = {
   notes: string;
   verificationCommand: string;
   verificationEvidence?: {
-    schemaVersion: "sena-enterprise-release-verification-evidence/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseVerificationEvidence;
     command: string;
     status: EnterpriseReleaseVerificationStatus;
     summary: string;
@@ -828,14 +830,14 @@ export type EnterpriseReleaseGateReview = {
     recordedAt: string;
   };
   readinessSnapshot: {
-    schemaVersion: "sena-enterprise-deployment-readiness/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseDeploymentReadiness;
     status: "ready" | "review" | "blocked";
     blockingReview: number;
     advisoryReview: number;
     blockers: string[];
   };
   platformDecisionSnapshot: {
-    schemaVersion: "sena-enterprise-platform-decision-register/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePlatformDecisionRegister;
     productionBlocking: number;
     open: number;
     acceptedBridge: number;
@@ -844,7 +846,7 @@ export type EnterpriseReleaseGateReview = {
   updatedAt: string;
 };
 export type EnterpriseReleaseGateState = {
-  schemaVersion: "sena-enterprise-release-gate-reviews/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseReleaseGateReviews;
   summary: {
     total: number;
     approved: number;

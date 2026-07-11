@@ -1,6 +1,26 @@
 import type { SenaDataset } from "./types";
 
 export const exampleSenaContract: SenaDataset = {
+  metadata: {
+    datasetVersion: "lesson-study-synthetic-v1",
+    consent: {
+      instrument: "Synthetic sample; no human-subject consent instrument.",
+      date: "2026-06-08",
+      scope: "Bundled de-identified synthetic lesson-study discourse for local SENA pilot verification."
+    },
+    retention: {
+      policy: "Retain generated synthetic sample artifacts only for local verification and reproducibility review."
+    },
+    pseudonymization: {
+      personIdPolicy: "opaque",
+      rosterMapping: "not-stored"
+    },
+    codebook: {
+      id: "sena-lesson-study-codebook",
+      version: "v1",
+      contentHash: "0xsynthetic-codebook-v1"
+    }
+  },
   people: [
     { id: "A", label: "Ava", role: "Facilitator", group: "Team Blue", initials: "A" },
     { id: "B", label: "Ben", role: "Evidence builder", group: "Team Blue", initials: "B" },

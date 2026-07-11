@@ -1,4 +1,4 @@
-import type { SenaGroupComparisonMetric } from "@/lib/sena";
+import type { SenaGroupComparisonMetric } from "@/lib/sena/inference";
 import type {
   EnterprisePlatformDecisionId,
   EnterprisePlatformDecisionStatus,
@@ -7,13 +7,13 @@ import type {
 } from "./enterprise-contracts";
 
 export const enterpriseValidationMetrics: Array<{ value: SenaGroupComparisonMetric; label: string }> = [
-  { value: "bridgeScore", label: "Bridge score" },
-  { value: "epistemicContribution", label: "Epistemic contribution" },
-  { value: "epistemicDiversity", label: "Epistemic diversity" },
   { value: "socialStrength", label: "Social strength" },
   { value: "socialDegree", label: "Social degree" },
-  { value: "conceptBrokerage", label: "Concept brokerage" },
-  { value: "alignment", label: "Alignment" }
+  { value: "epistemicContribution", label: "Epistemic contribution" },
+  { value: "epistemicDiversity", label: "Epistemic diversity" },
+  { value: "bridgeScore", label: "Bridge score (experimental)" },
+  { value: "conceptBrokerage", label: "Concept brokerage (experimental)" },
+  { value: "alignment", label: "Alignment (experimental)" }
 ];
 export const enterprisePlatformDecisionOptions: Array<{ id: EnterprisePlatformDecisionId; label: string }> = [
   { id: "native-managed-database", label: "Managed database bridge" },

@@ -1,81 +1,117 @@
 import { NextResponse } from "next/server";
 import {
-  createEnterpriseAnalysisRun,
-  listEnterpriseAnalysisRuns
+  createEnterpriseAnalysisRunWithPostgresMirrorAsync,
+  listEnterpriseAnalysisRunsAsync
 } from "@/lib/sena/enterprise/import-analysis";
 import {
-  createEnterpriseProject,
-  getEnterpriseProject,
-  updateEnterpriseProject
+  createEnterpriseProjectAsync,
+  getEnterpriseProjectAsync,
+  updateEnterpriseProjectAsync
 } from "@/lib/sena/enterprise/team-project";
-import type { SenaEnterpriseAnalysisRun } from "@/lib/sena/enterprise/import-analysis";
-import type { SenaEnterpriseProject } from "@/lib/sena/enterprise/team-project";
-import { buildSenaAnalysisRun } from "@/lib/sena/analysis-run";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { buildSenaAnalysisRun } from "@sena/kernel";
+import { requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { requireEnterprisePermission } from "@/lib/sena/enterprise/access-control";
+import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
+import { recordEnterpriseAuditAsync } from "@/lib/sena/enterprise/ops-audit";
+import {
+  assertServerJobPayloadAllowed,
+  enqueueEnterpriseServerJob,
+  serverJobHeaders,
+  serverJobQueueStatus,
+  shouldQueueServerJob
+} from "@/lib/sena/enterprise/server-job-queue";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
+import {
+  analysisRunHeaders,
+  buildSenaAnalysisQueueJobInput,
+  buildSenaAnalysisRunRequestInput,
+  resolveSenaAnalysisTeamId,
+  type SenaAnalysisApiBody
+} from "@/lib/sena/analysis-api";
 
 export const runtime = "nodejs";
 
-function analysisRunHeaders(run: SenaEnterpriseAnalysisRun, project?: SenaEnterpriseProject): HeadersInit {
-  const headers: Record<string, string> = {
-    "x-sena-analysis-run-id": run.id,
-    "x-sena-analysis-source-kind": run.sourceKind,
-    "x-sena-report-sha256": run.artifactFingerprints.reportSha256,
-    "x-sena-project-snapshot-sha256": run.artifactFingerprints.projectSnapshotSha256
-  };
-  const projectId = project?.id ?? run.persistedProjectId ?? run.projectId;
-  if (projectId) headers["x-sena-project-id"] = projectId;
-  if (project) headers["x-sena-project-version"] = String(project.currentVersion);
-  if (run.artifactFingerprints.runtimeBundleSha256) {
-    headers["x-sena-runtime-bundle-sha256"] = run.artifactFingerprints.runtimeBundleSha256;
-  }
-  return headers;
-}
-
 export async function GET(request: Request) {
-  try {
-    const context = requireApiSession();
+  return observeSenaApiRoute(request, { routeId: "sena-analyze" }, async () => {
+    const context = await requireApiSession();
     const url = new URL(request.url);
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.analysisRunList,
-      analysisRuns: listEnterpriseAnalysisRuns(context, {
+      analysisRuns: await listEnterpriseAnalysisRunsAsync(context, {
         teamId: url.searchParams.get("teamId") || undefined,
         projectId: url.searchParams.get("projectId") || undefined
       })
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
-    const body = await request.json();
-    const sourceProject = body.projectId ? getEnterpriseProject(context, String(body.projectId)) : null;
-    const run = buildSenaAnalysisRun({
-      sourceKind: sourceProject ? "project" : undefined,
-      snapshot: sourceProject?.snapshot ?? body.snapshot,
-      dataset: body.dataset,
-      buildOptions: body.buildOptions,
-      title: body.title ? String(body.title) : sourceProject?.title,
-      activeTemporalWindowId: body.activeTemporalWindowId ? String(body.activeTemporalWindowId) : undefined,
-      includeRuntimeBundle: body.includeRuntimeBundle === true,
-      humanReview: body.humanReview,
-      codingReliability: body.codingReliability
+  return observeSenaApiRoute(request, { routeId: "sena-analyze" }, async () => {
+    const context = await requireApiSessionForMutation(request);
+    const body = await request.json() as SenaAnalysisApiBody;
+    const sourceProject = body.projectId ? await getEnterpriseProjectAsync(context, String(body.projectId)) : null;
+    const teamId = resolveSenaAnalysisTeamId({
+      body,
+      sourceProject,
+      fallbackTeamId: context.teams[0]?.id
     });
-    const teamId = String(body.teamId || sourceProject?.teamId || context.teams[0]?.id || "");
+    if (shouldQueueServerJob(request, body)) {
+      if (sourceProject && teamId !== sourceProject.teamId) {
+        throw new SenaEnterpriseError("Queued analysis team does not match the project team.", 400, "analysis_project_team_mismatch");
+      }
+      const queue = serverJobQueueStatus();
+      assertServerJobPayloadAllowed({
+        projectId: sourceProject?.id,
+        hasInlinePayload: Boolean(body.snapshot || body.dataset),
+        queue
+      });
+      requireEnterprisePermission(context, teamId, "analysis:run");
+      const job = await enqueueEnterpriseServerJob({
+        ...buildSenaAnalysisQueueJobInput({
+          body,
+          teamId,
+          sourceProject,
+          actorUserId: context.user.id,
+          inlinePayloadAllowed: queue.inlinePayloadAllowed
+        }),
+        queue
+      });
+      await recordEnterpriseAuditAsync({
+        event: "analysis.queue",
+        userId: context.user.id,
+        teamId,
+        projectId: sourceProject?.id,
+        detail: {
+          serverJobId: job.id,
+          serverJobKind: job.kind,
+          queueProvider: job.provider.mode,
+          queueDelivery: job.delivery.webhookStatus,
+          queueHttpStatus: job.delivery.httpStatus ?? null,
+          queueProductionReady: job.provider.productionReady,
+          payloadSha256: job.payloadSha256,
+          source: job.payloadSummary.source,
+          inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
+          projectVersion: sourceProject?.currentVersion ?? null
+        }
+      });
+      return NextResponse.json(job, {
+        status: 202,
+        headers: serverJobHeaders(job)
+      });
+    }
+    const run = buildSenaAnalysisRun(buildSenaAnalysisRunRequestInput({ body, sourceProject }));
     const persist = body.persist === true;
     const updateExistingProject = persist && sourceProject && body.updateProject !== false;
     const persistedProject = persist
       ? updateExistingProject
-        ? updateEnterpriseProject(context, sourceProject.id, {
+        ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
           title: body.title === undefined ? undefined : String(body.title),
           description: body.description === undefined ? undefined : String(body.description),
           expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion),
           snapshot: run.projectSnapshot
         })
-        : createEnterpriseProject(context, {
+        : await createEnterpriseProjectAsync(context, {
           teamId,
           title: String(body.title ?? run.summary.title),
           description: String(body.description ?? "Created by /api/sena/analyze."),
@@ -83,7 +119,7 @@ export async function POST(request: Request) {
         })
       : null;
 
-    const enterpriseAnalysisRun = createEnterpriseAnalysisRun(context, {
+    const enterpriseAnalysisRun = await createEnterpriseAnalysisRunWithPostgresMirrorAsync(context, {
       teamId,
       projectId: sourceProject?.id,
       persistedProjectId: persistedProject?.id,
@@ -97,7 +133,5 @@ export async function POST(request: Request) {
     }, {
       headers: analysisRunHeaders(enterpriseAnalysisRun, persistedProject ?? sourceProject ?? undefined)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

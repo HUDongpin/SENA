@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseSaasOperationsReadiness,
-  listEnterprisePlatformDecisionAcceptances,
-  type SenaEnterpriseSaasOperationsReadiness
-} from "@/lib/sena/enterprise/ops-governance";
+  getEnterpriseSaasOperationsReadiness
+} from "@/lib/sena/enterprise/ops-deployment";
+import type {
+  SenaEnterpriseSaasOperationsReadiness
+} from "@/lib/sena/enterprise/ops-saas-operations";
+import {
+  listEnterprisePlatformDecisionAcceptances
+} from "@/lib/sena/enterprise/ops-platform-decisions";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
@@ -43,8 +47,8 @@ function saasOperationsReadinessHeaders(readiness: SenaEnterpriseSaasOperationsR
 }
 
 export async function GET(request: Request) {
-  try {
-    const access = requireOpsAccess(request);
+  return observeSenaApiRoute(request, { routeId: "sena-ops-saas-operations" }, async () => {
+    const access = await requireOpsAccess(request);
     const teamId = new URL(request.url).searchParams.get("teamId")?.trim() || undefined;
     if (access.mode === "session") {
       if (!teamId) {
@@ -54,7 +58,7 @@ export async function GET(request: Request) {
           "saas_operations_team_required"
         );
       }
-      const context = requireApiSession();
+      const context = await requireApiSession();
       listEnterprisePlatformDecisionAcceptances(context, { teamId });
     }
     const readiness = getEnterpriseSaasOperationsReadiness({ teamId });
@@ -64,7 +68,5 @@ export async function GET(request: Request) {
     }, {
       headers: saasOperationsReadinessHeaders(readiness)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

@@ -2,7 +2,7 @@
   "schemaVersion": "sena-production-page-contract/v1",
   "title": "SENA Production Page Contract",
   "workspaceRoute": "/workspace/sena",
-  "description": "Static contract for the local production smoke test and reviewer handoff. Each required text item should be present in the built /workspace/sena page.",
+  "description": "Static contract for the local production smoke test and reviewer handoff. The default /workspace/sena surface stays concise while task drawers and Research Details tabs preserve progressively revealed capabilities.",
   "sections": [
     {
       "id": "workflow",
@@ -14,6 +14,22 @@
         "Evidence",
         "Temporal Trace",
         "Report"
+      ]
+    },
+    {
+      "id": "essential-workbench",
+      "label": "Essential Fusion and Dual Lens workbench",
+      "requiredText": [
+        "Core workspace figure",
+        "Fusion",
+        "Dual Lens",
+        "Research Details",
+        "Data",
+        "Analysis",
+        "Evidence",
+        "Validation",
+        "Exports",
+        "Administration"
       ]
     },
     {
@@ -260,6 +276,42 @@
       "expectedOutcome": "The left workspace rail keeps the compact Apple-style glass visual grammar selected for the SENA workbench."
     },
     {
+      "id": "workspace-mobile-figure-switcher",
+      "label": "Responsive core-figure switcher",
+      "requiredText": "data-testid=\"workspace-mobile-figure-switcher\"",
+      "expectedOutcome": "Below the desktop breakpoint, the workspace exposes a labelled tablist for choosing the single visible core figure."
+    },
+    {
+      "id": "workspace-mobile-figure-fusion",
+      "label": "Responsive Fusion figure tab",
+      "requiredText": "data-testid=\"workspace-mobile-figure-fusion\"",
+      "expectedOutcome": "Mobile and tablet users can reveal the Fusion Canvas through a stable, keyboard-usable tab."
+    },
+    {
+      "id": "workspace-mobile-figure-dual",
+      "label": "Responsive Dual Lens figure tab",
+      "requiredText": "data-testid=\"workspace-mobile-figure-dual\"",
+      "expectedOutcome": "Mobile and tablet users can reveal the Dual Lens or selected evidence context through a stable, keyboard-usable tab."
+    },
+    {
+      "id": "workspace-research-details-toggle",
+      "label": "Research Details disclosure toggle",
+      "requiredText": "data-testid=\"workspace-research-details-toggle\"",
+      "expectedOutcome": "The concise default surface exposes one control for opening advanced research capabilities."
+    },
+    {
+      "id": "workspace-research-details-drawer",
+      "label": "Research Details drawer",
+      "requiredText": "data-testid=\"workspace-research-details-drawer\"",
+      "expectedOutcome": "Advanced research panels remain available in a default-closed overlay outside the main document flow."
+    },
+    {
+      "id": "workspace-research-details-tabs",
+      "label": "Research Details tab set",
+      "requiredText": "data-testid={`workspace-research-details-tab-${tab.id}`}",
+      "expectedOutcome": "Data, Analysis, Evidence, Validation, Exports, and Administration capabilities mount through one accessible tab set."
+    },
+    {
       "id": "delivery-candidate-plan",
       "label": "Delivery candidate plan anchor",
       "requiredText": "data-testid=\"delivery-candidate-plan\"",
@@ -291,9 +343,9 @@
     },
     {
       "id": "workspace-model-layout-explanatory",
-      "label": "Model explanatory layout control",
+      "label": "Model exploratory overlay layout control",
       "requiredText": "data-testid=\"model-layout-explanatory\"",
-      "expectedOutcome": "The Model Builder rail exposes the explanatory Fusion Canvas layout as a real control."
+      "expectedOutcome": "The Model Builder rail exposes the non-metric Exploratory overlay layout as a real control."
     },
     {
       "id": "workspace-model-layout-ena-space",
@@ -305,7 +357,19 @@
       "id": "workspace-model-layout-joint",
       "label": "Model joint layout control",
       "requiredText": "data-testid=\"model-layout-joint\"",
-      "expectedOutcome": "The Model Builder rail exposes the deterministic A_fusion joint embedding layout as a real control."
+      "expectedOutcome": "The Model Builder rail exposes the formal A_fusion joint embedding layout and operator picker as real controls."
+    },
+    {
+      "id": "workspace-joint-embedding-provenance",
+      "label": "Joint embedding provenance strip",
+      "requiredText": "data-testid=\"joint-embedding-provenance-strip\"",
+      "expectedOutcome": "The workspace exposes operator, delta, dimension, seed, metric exactness, and stress provenance for Joint layout distance interpretation."
+    },
+    {
+      "id": "workspace-joint-embedding-laplacian-operator",
+      "label": "Joint embedding Laplacian eigenmaps operator",
+      "requiredText": "data-testid=\"joint-embedding-operator-laplacian-eigenmaps\"",
+      "expectedOutcome": "The Joint embedding provenance strip exposes Laplacian eigenmaps as a selectable declared operator."
     },
     {
       "id": "workspace-model-layer-social-toggle",
@@ -569,25 +633,25 @@
       "id": "workspace-primary-plot",
       "label": "Primary plot viewport anchor",
       "requiredText": "data-testid=\"workspace-primary-plot\"",
-      "expectedOutcome": "The right-side Primary Plot viewport remains available for Fusion Canvas comparison and layout controls."
+      "expectedOutcome": "The dominant central Primary Plot viewport exposes the single Fusion Canvas in the essential default surface."
     },
     {
       "id": "workspace-primary-plot-role",
       "label": "Primary plot viewport visual role",
       "requiredText": "data-visual-role=\"workspace-primary-plot\"",
-      "expectedOutcome": "The Primary Plot viewport has a stable semantic hook in the ENA-inspired right plot column."
+      "expectedOutcome": "The central Primary Plot viewport keeps a stable semantic hook for the Fusion Canvas."
     },
     {
       "id": "workspace-secondary-plot",
       "label": "Secondary plot viewport anchor",
       "requiredText": "data-testid=\"workspace-secondary-plot\"",
-      "expectedOutcome": "The right-side Secondary Plot viewport remains available for selected evidence and provenance inspection."
+      "expectedOutcome": "The Secondary Plot viewport exposes Dual Lens comparison by default and selected evidence context on demand."
     },
     {
       "id": "workspace-secondary-plot-role",
       "label": "Secondary plot viewport visual role",
       "requiredText": "data-visual-role=\"workspace-secondary-plot\"",
-      "expectedOutcome": "The Secondary Plot viewport has a stable semantic hook in the ENA-inspired right plot column."
+      "expectedOutcome": "The Secondary Plot viewport keeps a stable semantic hook across desktop and responsive figure tabs."
     },
     {
       "id": "workspace-secondary-comparison-lens",
@@ -965,7 +1029,7 @@
       "id": "fusion-canvas-g-layer-key",
       "label": "Fusion canvas G contribution key",
       "requiredText": "data-visual-role=\"fusion-layer-key-g\"",
-      "expectedOutcome": "The A1 layer key includes the G person-code-pair contribution layer used by Temporal Fusion and report exports."
+      "expectedOutcome": "The A1 layer key includes the G person-code-pair association layer used by Temporal Fusion and report exports."
     },
     {
       "id": "metric-provenance-panel",
@@ -1655,7 +1719,8 @@
   "notes": [
     "This contract verifies demo-critical page affordances in the built production HTML.",
     "It is a smoke contract for local demo readiness, not a full visual regression suite.",
-    "The C3 workspace shell checks preserve the ENA-inspired workbench structure: left Sets/Model/Plot Tools/Stats rail, dominant central plot deck, collapsed plot switcher, and right-side Primary/Secondary plot viewports.",
+    "The essential workspace opens with one dominant Fusion Canvas and one compact Dual Lens comparison on desktop; mobile and tablet widths show one selected core figure through the labelled figure switcher.",
+    "The C3 task rail opens Data, Model, Plot Tools, and Stats as overlays, while the default-closed Research Details drawer progressively reveals Data, Analysis, Evidence, Validation, Exports, and Administration without weakening capability evidence.",
     "The Stats provenance checks keep metric values tied to direct jSNA, jENA, SENA-implemented, and composite source categories before interpretation.",
     "The central Fusion analysis-scope checks make the default plot auditable as the active temporal-window model rather than an unscoped full-conversation graphic.",
     "The central Fusion transition-delta checks keep adjacent-window S/W/B/G/A_fusion changes visible in the main plot surface for temporal interpretation.",

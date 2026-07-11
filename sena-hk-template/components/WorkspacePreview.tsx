@@ -1,6 +1,6 @@
-import type React from "react";
 "use client";
 
+import type React from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AlertTriangle, BarChart3, CheckCircle2, Database, FileText, GitCompare, Network, PanelLeft, Sigma, UploadCloud } from "lucide-react";

@@ -1,8 +1,13 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaReport, type SenaReportOptions } from "./report";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
 import type {
   SenaDataset,
   SenaDemoVerificationCheck,
+  SenaEmbeddingDelta,
+  SenaEmbeddingPhi,
+  SenaDegreeConvention,
+  SenaAnalysisDirection,
   SenaModel,
   SenaNormalization,
   SenaProjectSnapshot,
@@ -42,7 +47,7 @@ export function buildSenaProjectSnapshot(model: SenaModel, options: SenaProjectS
   );
 
   return {
-    schemaVersion: "sena-project-snapshot/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.projectSnapshot,
     title: report.title,
     generatedAt,
     source: {
@@ -80,8 +85,12 @@ export function buildSenaProjectSnapshot(model: SenaModel, options: SenaProjectS
   };
 }
 
-const normalizationValues = new Set<SenaNormalization>(["max", "log-max", "none"]);
+const normalizationValues = new Set<SenaNormalization>(["max", "frobenius", "log1p-max", "log-max", "none"]);
 const temporalModeValues = new Set<SenaTemporalMode>(["stage", "moving-window", "turn-window"]);
+const directionValues = new Set<SenaAnalysisDirection>(["directed", "undirected"]);
+const degreeConventionValues = new Set<SenaDegreeConvention>(["row-sum"]);
+const phiValues = new Set<SenaEmbeddingPhi>(["classical_mds", "laplacian_eigenmaps", "commute_time"]);
+const deltaValues = new Set<SenaEmbeddingDelta>(["shortest_path_reciprocal_weight", "combinatorial_laplacian", "commute_time_resistance"]);
 
 function asRecord(value: unknown, context: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -133,7 +142,7 @@ function assertWorkspaceState(value: unknown) {
 
 function assertDataGovernance(value: unknown, context: string) {
   const governance = asRecord(value, context);
-  if (governance.schemaVersion !== "sena-data-governance-metadata/v1") {
+  if (governance.schemaVersion !== SENA_SCHEMA_VERSIONS.dataGovernanceMetadata) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
   if (governance.status !== "complete" && governance.status !== "needs-review") {
@@ -162,6 +171,27 @@ function assertBuildOptions(value: unknown) {
   if (options.undirectedSocial !== undefined && typeof options.undirectedSocial !== "boolean") {
     throw new Error("project snapshot buildOptions.undirectedSocial must be a boolean when present.");
   }
+  // Analysis-config declarations were added after the first sena-project-snapshot/v1
+  // exports shipped; legacy snapshots omit them and resolveBuildOptions supplies the
+  // declared defaults on rebuild, so they are validated only when present.
+  if (options.direction !== undefined && !directionValues.has(options.direction as SenaAnalysisDirection)) {
+    throw new Error("project snapshot buildOptions.direction is not supported.");
+  }
+  if (options.deg_convention !== undefined && !degreeConventionValues.has(options.deg_convention as SenaDegreeConvention)) {
+    throw new Error("project snapshot buildOptions.deg_convention is not supported.");
+  }
+  if (options.Phi !== undefined && !phiValues.has(options.Phi as SenaEmbeddingPhi)) {
+    throw new Error("project snapshot buildOptions.Phi is not supported.");
+  }
+  if (options.delta !== undefined && !deltaValues.has(options.delta as SenaEmbeddingDelta)) {
+    throw new Error("project snapshot buildOptions.delta is not supported.");
+  }
+  if (options.d !== undefined) {
+    assertFiniteNumber(options.d, "project snapshot buildOptions.d");
+  }
+  if (options.seed !== undefined) {
+    assertFiniteNumber(options.seed, "project snapshot buildOptions.seed");
+  }
 
   const temporal = asRecord(options.temporal, "project snapshot buildOptions.temporal");
   if (!temporalModeValues.has(temporal.mode as SenaTemporalMode)) {
@@ -174,7 +204,7 @@ function assertBuildOptions(value: unknown) {
 
 function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProjectSnapshot {
   const root = asRecord(value, "project snapshot");
-  if (root.schemaVersion !== "sena-project-snapshot/v1") {
+  if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.projectSnapshot) {
     throw new Error("JSON is not a SENA project snapshot.");
   }
 
@@ -214,7 +244,7 @@ function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProject
   }
 
   const report = asRecord(root.report, "project snapshot.report");
-  if (report.schemaVersion !== "sena-report/v1") {
+  if (report.schemaVersion !== SENA_SCHEMA_VERSIONS.report) {
     throw new Error("project snapshot.report must be a SENA report.");
   }
   if (report.dataGovernance !== undefined) {

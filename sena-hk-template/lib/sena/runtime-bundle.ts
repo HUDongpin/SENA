@@ -62,7 +62,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-ena-report.json",
-      schemaVersion: "sena-ena-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enaReport,
       runtimeRole: "jena-epistemic",
       sourceRuntime: report.runtimeProvenance.enaRuntime.engine,
       downloadControl: "Export ENA report",
@@ -110,7 +110,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-sna-report.json",
-      schemaVersion: "sena-sna-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.snaReport,
       runtimeRole: "jsna-social",
       sourceRuntime: report.runtimeProvenance.snaRuntime.engine,
       downloadControl: "Export SNA report",
@@ -134,7 +134,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-metric-provenance.json",
-      schemaVersion: "sena-metric-provenance/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.metricProvenance,
       runtimeRole: "review-handoff",
       sourceRuntime: "sna.js+sena-js+jena-js",
       downloadControl: "Export metric provenance",
@@ -157,7 +157,7 @@ function buildRuntimeArtifactEvidence(
     },
     {
       filename: "sena-person-code-pair-g-report.json",
-      schemaVersion: "sena-person-code-pair-g-report/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.personCodePairGReport,
       runtimeRole: "sena-fusion",
       sourceRuntime: report.runtimeProvenance.senaModel.engine,
       downloadControl: "Export G report",
@@ -254,6 +254,8 @@ function buildRuntimeArtifactEvidence(
         `S=${model.matrices.S.labels.length}`,
         `W=${model.matrices.W.labels.length}`,
         `B=${model.matrices.B.rowLabels.length}x${model.matrices.B.columnLabels.length}`,
+        `B_PC=${model.matrices.B_PC.rowLabels.length}x${model.matrices.B_PC.columnLabels.length}`,
+        `B_CP=${model.matrices.B_CP.rowLabels.length}x${model.matrices.B_CP.columnLabels.length}`,
         `G=${model.matrices.G.pairs.length}`,
         `A_fusion=${model.matrices.fusion.labels.length}`
       ],
@@ -333,7 +335,8 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
         ...report.runtimeProvenance.senaModel,
         matrices: model.matrices,
         temporal: model.temporal,
-        pairReport: model.pairReport
+        pairReport: model.pairReport,
+        operatorDiagnostics: model.operatorDiagnostics
       },
       ena: {
         ...report.runtimeProvenance.enaRuntime,
@@ -347,6 +350,7 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
       }
     },
     validation: report.validation,
+    modelCard: report.modelCard,
     codingReliabilityGate: report.codingReliabilityGate,
     dataContractAudit: report.dataContractAudit,
     fusionMathAudit: report.fusionMathAudit,

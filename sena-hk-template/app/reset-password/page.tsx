@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, KeyRound, LockKeyhole, Mail } from "lucide-react";
 import { NavBar } from "@/components/NavBar";
 import { Button, Card } from "@/components/Primitives";
+import { SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST } from "@/lib/sena/auth-page-manifest";
 
 type ResetRequestPayload = {
   status?: string;
@@ -151,7 +152,7 @@ export default function ResetPasswordPage() {
                     <LockKeyhole className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
                     <input
                       required
-                      minLength={12}
+                      minLength={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.minLength}
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.currentTarget.value)}
@@ -164,7 +165,7 @@ export default function ResetPasswordPage() {
                   Confirm password
                   <input
                     required
-                    minLength={12}
+                    minLength={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.minLength}
                     type="password"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.currentTarget.value)}
@@ -173,8 +174,8 @@ export default function ResetPasswordPage() {
                   />
                 </label>
               </div>
-              <p data-testid="enterprise-password-policy" className="rounded-2xl border border-cardBorder/45 bg-background/35 px-4 py-3 text-xs font-semibold leading-5 text-muted">
-                Enterprise password policy: At least 12 characters with letters and numbers; avoid common passwords and the email name.
+              <p data-testid={SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.testId} className="rounded-2xl border border-cardBorder/45 bg-background/35 px-4 py-3 text-xs font-semibold leading-5 text-muted">
+                {SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST.label}
               </p>
 
               <Button type="submit" size="lg" className="w-full" disabled={status === "loading"}>

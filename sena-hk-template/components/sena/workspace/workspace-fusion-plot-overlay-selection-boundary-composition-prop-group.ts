@@ -1,0 +1,10 @@
+import type { WorkspaceFusionPlotOverlaySelectionBoundaryCompositionFieldPropGroup } from "./workspace-fusion-plot-overlay-selection-boundary-composition-field-prop-group";
+
+export type WorkspaceFusionPlotOverlaySelectionBoundaryCompositionPropGroup =
+  WorkspaceFusionPlotOverlaySelectionBoundaryCompositionFieldPropGroup;
+
+export function buildWorkspaceFusionPlotOverlaySelectionBoundaryCompositionProps(
+  props: WorkspaceFusionPlotOverlaySelectionBoundaryCompositionPropGroup
+): WorkspaceFusionPlotOverlaySelectionBoundaryCompositionPropGroup {
+  return props;
+}

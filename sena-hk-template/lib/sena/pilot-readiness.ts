@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaClaimReadinessGate,
   SenaClaimReadinessGateItem,
@@ -91,7 +92,7 @@ const claimGateConfigs: ClaimGateConfig[] = [
     id: "fusion-math",
     label: "Fusion math",
     sourceItemIds: ["fusion-model", "model-json-export", "fusion-math"],
-    readySummary: "S/W/B/G matrices and A_fusion construction are verified.",
+    readySummary: "S/W/B/B_PC/B_CP/G matrices and A_fusion construction are verified.",
     guardrail: "Claims need verified matrix dimensions, weights, normalization, block placement, and restorable model JSON."
   },
   {
@@ -160,7 +161,7 @@ export function buildSenaClaimReadinessGate(audit: SenaPilotReadinessAudit): Sen
   const status = reviewNeeded === 0 ? "ready" : "exploratory";
 
   return {
-    schemaVersion: "sena-claim-readiness-gate/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.claimReadinessGate,
     status,
     claimUse: status === "ready" ? "research-claim-ready" : "exploratory-only",
     ready,
@@ -245,7 +246,7 @@ export function buildSenaPilotReadinessAudit({
     ),
     readinessItem(
       "fusion-model",
-      "S/W/B/G fusion model",
+      "S/W/B/B_PC/B_CP/G fusion model",
       "model",
       hasFusionGraph && auditItemPassed(completenessAudit, "matrices"),
       `${model.nodes.length} nodes, ${model.edges.length} typed edges, ${model.matrices.G.pairs.length} G pairs`,
@@ -275,7 +276,7 @@ export function buildSenaPilotReadinessAudit({
         `A_fusion=${model.matrices.fusion.values.length}x${model.matrices.fusion.values[0]?.length ?? 0}`,
         `temporalWindows=${model.temporal.windows.length}`
       ],
-      "Export and re-upload sena-project-snapshot.json before a handoff to confirm nodes, edges, S/W/B/G, fusion, and temporal trace are restorable."
+      "Export and re-upload sena-project-snapshot.json before a handoff to confirm nodes, edges, S/W/B/B_PC/B_CP/G, fusion, and temporal trace are restorable."
     ),
     readinessItem(
       "fusion-math",
@@ -352,7 +353,7 @@ export function buildSenaPilotReadinessAudit({
         ? `Data governance documented by ${dataGovernance?.dataSteward || "assigned steward"}`
         : `${dataGovernanceBlockers.length} data-governance blocker${dataGovernanceBlockers.length === 1 ? "" : "s"}`,
       [
-        dataGovernance?.schemaVersion ?? "sena-data-governance-metadata/v1",
+        dataGovernance?.schemaVersion ?? SENA_SCHEMA_VERSIONS.dataGovernanceMetadata,
         `status=${dataGovernance?.status ?? (dataGovernanceBlockers.length === 0 ? "complete" : "needs-review")}`,
         `irb=${dataGovernance?.irbApprovalId?.trim() ? "present" : "missing"}`,
         `consent=${dataGovernance?.consentScope?.trim() ? "present" : "missing"}`,
@@ -392,7 +393,7 @@ export function buildSenaPilotReadinessAudit({
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-pilot-readiness/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.pilotReadiness,
     status: reviewNeeded === 0 ? "ready" : "needs-review",
     passed,
     reviewNeeded,

@@ -92,7 +92,7 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn("glass-panel rounded-2xl p-5", className)}>
+    <section className={cn("glass-panel min-w-0 rounded-2xl p-5", className)}>
       <div className="mb-4 flex items-center gap-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-cyanGlow/12 text-cyanGlow">
           <Icon className="h-4 w-4" />
@@ -120,12 +120,12 @@ function NativeSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <FieldLabel>{label}</FieldLabel>
       <select
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
-        className="h-11 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
+        className="h-11 w-full min-w-0 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
       >
         {children}
       </select>
@@ -145,14 +145,14 @@ function NumberInput({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <FieldLabel>{label}</FieldLabel>
       <input
         type="number"
         min={min}
         value={value}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
-        className="h-11 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
+        className="h-11 w-full min-w-0 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
       />
     </div>
   );
@@ -170,13 +170,13 @@ function ColumnSelect({
   onChange: (values: string[]) => void;
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <FieldLabel>{label}</FieldLabel>
       <select
         multiple
         value={selected}
         onChange={(event) => onChange(selectedOptions(event))}
-        className="min-h-32 rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
+        className="min-h-32 w-full min-w-0 rounded-lg border border-cardBorder/55 bg-background/55 px-3 py-2 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
       >
         {headers.map((header) => (
           <option key={header} value={header}>{header}</option>
@@ -201,9 +201,9 @@ function ColumnChips({
   const metadata = setMembership(mapping.metadata ?? []);
 
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 gap-2">
       <FieldLabel>Columns</FieldLabel>
-      <div className="grid max-h-52 grid-cols-2 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-3">
+      <div className="grid max-h-52 min-w-0 grid-cols-2 gap-2 overflow-auto pr-1 text-xs sm:grid-cols-3">
         {headers.map((header) => {
           const role = units.has(header)
             ? "units"
@@ -260,8 +260,8 @@ function DataTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-cardBorder/45">
-      <div className="overflow-x-auto">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-cardBorder/45">
+      <div className="min-w-0 overflow-x-auto">
         <table className="min-w-full border-collapse text-left text-xs">
           <thead className="bg-background/65 text-muted">
             <tr>
@@ -393,9 +393,17 @@ export function EnaWorkspaceClient() {
   }
 
   async function runWithApi() {
+    const csrfResponse = await fetch("/api/auth/csrf");
+    const csrfPayload = await csrfResponse.json();
+    if (!csrfResponse.ok || typeof csrfPayload.token !== "string") {
+      throw new Error(csrfPayload.error ?? "Sign in is required before using the server ENA runtime.");
+    }
     const response = await fetch("/api/ena/run", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-sena-csrf-token": csrfPayload.token
+      },
       body: JSON.stringify(request)
     });
     const payload = await response.json();
@@ -470,8 +478,8 @@ export function EnaWorkspaceClient() {
           </div>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[24rem_1fr]">
-          <div className="grid content-start gap-5">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+          <div className="grid min-w-0 content-start gap-5">
             <Panel title="Dataset" icon={Database}>
               <div className="grid grid-cols-3 gap-2">
                 {[
@@ -515,7 +523,7 @@ export function EnaWorkspaceClient() {
                 <NativeSelect label="Node Positions" value={options.nodePositionMethod} onChange={(nodePositionMethod) => updateOptions({ nodePositionMethod: nodePositionMethod as Required<EnaRunOptions>["nodePositionMethod"] })}>
                   {nodePositionOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </NativeSelect>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid min-w-0 grid-cols-3 gap-3">
                   <NumberInput label="Back" value={options.windowSizeBack} min={1} onChange={(windowSizeBack) => updateOptions({ windowSizeBack })} />
                   <NumberInput label="Forward" value={options.windowSizeForward} min={0} onChange={(windowSizeForward) => updateOptions({ windowSizeForward })} />
                   <NumberInput label="Dims" value={options.dimensions} min={1} onChange={(dimensions) => updateOptions({ dimensions })} />
@@ -524,7 +532,7 @@ export function EnaWorkspaceClient() {
             </Panel>
           </div>
 
-          <div className="grid content-start gap-5">
+          <div className="grid min-w-0 content-start gap-5">
             <Panel title="Run" icon={Play}>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex rounded-lg border border-cardBorder/55 bg-background/45 p-1">

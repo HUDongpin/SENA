@@ -9,9 +9,11 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 - SENA: Social Epistemic Network Analysis, the project-level method and workbench.
 - S: the person-person social layer.
 - W: the code-code epistemic layer, preserving ENA-style concept co-occurrence semantics.
-- B: the person-code bridge layer.
+- B / B_PC: the person-to-code bridge layer; `B` is the compatibility alias retained in existing artifacts.
+- B_CP: the code-to-person bridge layer. It is independently estimated from declared target-person evidence when available and otherwise falls back to `B_PC` transpose.
 - G: the person-code-pair contribution layer used to explain who contributed to concept-pair evidence.
-- A_fusion: the normalized typed supra-adjacency built from alpha*S, beta*W, and gamma*B blocks.
+- A_fusion: the normalized typed supra-adjacency `[alpha*S gamma*B_PC; gamma*B_CP beta*W]`. Independent `B_CP` evidence makes it directed even when `S` and `W` are symmetric.
+- Directed bridge contract: `docs/adr/0005-directed-bridge-contract.md`, which fixes the evidence trigger, transpose fallback, dimensions, and direction guardrails.
 - Runtime bundle: the schema-versioned handoff artifact that carries runtime provenance, matrices, reports, audits, temporal traces, and evidence.
 - Review packet: the reviewer-facing package that embeds the runtime bundle plus report, visual grammar, readiness gates, and export manifest.
 - Temporal Fusion Arc: the preferred temporal trace story view, organized as Plan -> Teach -> Reflect.
@@ -24,6 +26,9 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 - The app runs local `sna.js` from `sena-hk-template/vendor/sna-js`; it does not directly run the official R `sna` package in the browser.
 - The default enterprise persistence store is `.sena-enterprise/enterprise-db.json`. This file-backed store is a local readiness adapter, not production managed infrastructure.
 - Managed database, identity provider, object storage, pub/sub, SIEM, backup, email, alerting, and staffed operations remain platform-owner decisions until accepted through native-ready evidence.
+- Self-managed closeout evidence is generated with `npm run sena:self-managed:workflow`, `npm run sena:post-cutover:observe -- --watch --attest`, and `npm run sena:go-live:check`; a fresh go-live check supersedes any older closeout note, and the flow never reclassifies the default file-backed adapter as institution-managed SaaS infrastructure.
+- The 2026-06-27 `npm run sena:pilot:verify` release handoff gate passed after the blocking local SENA server on port 3005 was stopped.
+- The 2026-06-27T16:59:26Z self-managed go-live check exited `ready` after `npm run sena:self-managed:workflow` refreshed backup/release evidence and `npm run sena:post-cutover:observe -- --watch --attest` completed the real 60-minute post-cutover observation. This proves the configured self-managed enterprise closeout gate, not institution-owned SaaS cutover.
 
 ## Code Ownership Lanes
 
@@ -35,8 +40,9 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 
 ## Guardrails
 
-- Do not silently change S, W, B, G, A_fusion, normalization, temporal window semantics, or visual direction.
+- Do not silently change S, W, B/B_PC, B_CP, G, A_fusion, bridge-direction fallback, normalization, temporal window semantics, or visual direction.
 - Keep v1 schemaVersion strings, artifact file names, API response shapes, and export formats stable unless an explicit migration is planned.
 - Keep claims exploratory-only unless method, data governance, runtime consistency, coding reliability, validation, and human review gates pass.
 - Preserve `data-testid="sena-fusion-canvas"` and `data-testid="temporal-fusion-arc"` for production page and browser smoke contracts.
 - Prefer adding new enterprise route imports from domain modules under `lib/sena/enterprise/*`; keep `lib/sena/enterprise.ts` as a compatibility facade while the migration is staged.
+- When the worktree is broadly dirty, follow `docs/review-slices/2026-06-21-dirty-worktree-review-slices.md` and review one slice at a time before starting new implementation.

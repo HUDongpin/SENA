@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { SenaEnterpriseDb } from "../enterprise/state";
 
 const identityProductionEvidenceRouteTestTimeoutMs = 30_000;
 
@@ -113,6 +114,8 @@ describe("SENA identity production evidence route", () => {
       };
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-identity-production-evidence");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(body).toEqual(expect.objectContaining({
         dossierDigestAlgorithm: "sha256",
         dossierDigestScope: "identity-production-evidence-dossier",
@@ -249,4 +252,192 @@ describe("SENA identity production evidence route", () => {
       vi.resetModules();
     }
   }, identityProductionEvidenceRouteTestTimeoutMs);
+
+  it("reads Postgres-backed server job evidence for production owner exports", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-identity-production-evidence-postgres-"));
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENA_OPS_TOKEN", "sena-test-ops-token");
+    vi.stubEnv("SENA_ENTERPRISE_DB_ADAPTER", "postgres");
+    vi.stubEnv("SENA_ENTERPRISE_STATE_STORE", "postgres");
+    vi.stubEnv("DATABASE_URL", "postgres://sena_user:super-secret@example.db/senadb");
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_APP_URL = "https://sena.example.test";
+    const jobRows = [
+      serverJobRow("job_identity_evidence_queued", "queued", true),
+      serverJobRow("job_identity_evidence_running", "running", false)
+    ];
+    let postgresState: { revision: number; payload: SenaEnterpriseDb } | null = null;
+    const postgresQueries: string[] = [];
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          const normalizedSql = sql.replace(/\s+/g, " ").trim();
+          postgresQueries.push(normalizedSql);
+          if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/CREATE INDEX IF NOT EXISTS "sena_enterprise_server_jobs_/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/CREATE INDEX IF NOT EXISTS "sena_enterprise_audit_log_/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
+            return {
+              rows: postgresState ? [{ revision: postgresState.revision, payload: postgresState.payload }] : [],
+              rowCount: postgresState ? 1 : 0
+            };
+          }
+          if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO NOTHING/i.test(normalizedSql)) {
+            if (!postgresState) {
+              postgresState = {
+                revision: 0,
+                payload: values[2] as SenaEnterpriseDb
+              };
+            }
+            return { rows: [], rowCount: 1 };
+          }
+          if (/UPDATE "public"\."sena_enterprise_state" SET payload/i.test(normalizedSql)) {
+            postgresState = {
+              revision: (postgresState?.revision ?? 0) + 1,
+              payload: values[0] as SenaEnterpriseDb
+            };
+            return { rows: [{ revision: postgresState.revision }], rowCount: 1 };
+          }
+          if (/SELECT count\(\*\) AS total FROM "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+            return { rows: [{ total: 0 }], rowCount: 1 };
+          }
+          if (/SELECT \* FROM "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
+          if (/SELECT count\(\*\) AS total/i.test(normalizedSql)) {
+            return {
+              rows: [{
+                total: jobRows.length,
+                queued: jobRows.filter((row) => row.status === "queued").length,
+                running: jobRows.filter((row) => row.status === "running").length,
+                succeeded: 0,
+                failed: 0,
+                dead_lettered: 0,
+                retryable: jobRows.filter((row) => (row.lifecycle as { retryable?: boolean }).retryable).length
+              }],
+              rowCount: 1
+            };
+          }
+          if (/SELECT \* FROM "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
+            return { rows: [jobRows[0]], rowCount: 1 };
+          }
+          throw new Error(`Unexpected Postgres query: ${normalizedSql}`);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/ops-api", async () => await import("../ops-api"));
+
+    try {
+      const route = await import("../../../app/api/sena/ops/identity-production-evidence/route");
+      const response = await route.GET(new Request("https://sena.example.test/api/sena/ops/identity-production-evidence", {
+        headers: {
+          authorization: "Bearer sena-test-ops-token"
+        }
+      }));
+      const body = await response.json() as {
+        status?: string;
+        dossierDigest?: string;
+        platformRequestPacket?: {
+          summary?: {
+            blockingRequests?: number;
+          };
+        };
+      };
+      const serialized = JSON.stringify(body);
+
+      expect(response.status).toBe(200);
+      expect(body.status).toBe("review");
+      expect(body.dossierDigest).toMatch(/^[a-f0-9]{64}$/);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-identity-production-evidence");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
+      expect(response.headers.get("x-sena-identity-production-evidence-digest")).toBe(body.dossierDigest);
+      expect(response.headers.get("x-sena-identity-request-blockers"))
+        .toBe(String(body.platformRequestPacket?.summary?.blockingRequests));
+      expect(postgresQueries.some((query) => /SELECT count\(\*\) AS total/i.test(query))).toBe(true);
+      expect(serialized).not.toContain("super-secret");
+      expect(serialized).not.toContain("example.db");
+    } finally {
+      delete process.env.SENA_APP_URL;
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.doUnmock("pg");
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  }, identityProductionEvidenceRouteTestTimeoutMs);
 });
+
+function serverJobRow(id: string, status: string, retryable: boolean) {
+  const nowIso = new Date("2026-07-01T00:00:00.000Z").toISOString();
+  return {
+    id,
+    schema_version: "sena-enterprise-server-job/v1",
+    kind: "analysis",
+    status,
+    team_id: "team_identity_evidence_pg",
+    project_id: "project_identity_evidence_pg",
+    actor_user_id: "user_identity_evidence_pg",
+    payload_sha256: "d".repeat(64),
+    payload_summary: {
+      source: "project",
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    },
+    provider: {
+      schemaVersion: "sena-enterprise-server-job-queue/v1",
+      generatedAt: nowIso,
+      mode: "local",
+      configured: true,
+      productionReady: false,
+      secretConfigured: false,
+      timeoutMs: 1000,
+      inlinePayloadAllowed: false,
+      localModeEnabled: true,
+      evidence: []
+    },
+    delivery: {
+      attempted: true,
+      webhookStatus: "local-sink",
+      attemptedAt: nowIso
+    },
+    worker: {
+      expectedAction: "run-analysis",
+      payloadDelivery: "project-pointer",
+      execution: "local-receipt-only",
+      statusCallback: "/api/sena/ops/jobs"
+    },
+    lifecycle: {
+      attempts: 1,
+      maxAttempts: 3,
+      retryable,
+      lastTransition: "enqueue"
+    },
+    redaction: {
+      payloadValuesExcluded: true,
+      secretValuesExcluded: true,
+      endpointValueExcluded: true
+    },
+    queued_at: nowIso,
+    updated_at: nowIso
+  };
+}

@@ -1,20 +1,41 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 import {
-  createEnterpriseReliabilityAdjudications,
-  createEnterpriseReliabilityRun,
-  listEnterpriseReliabilityRuns,
-  reviewEnterpriseReliabilityRun
-} from "@/lib/sena/enterprise/reliability-validation";
+  buildEnterpriseReliabilityAdjudicationResponseWithPostgresMirrorAsync,
+  buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync,
+  buildEnterpriseReliabilityRunListResponseAsync,
+  buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync,
+  buildEnterpriseReliabilityRunReviewResponseWithPostgresMirrorAsync
+} from "@/lib/sena/enterprise/reliability-runs";
+import {
+  createEnterpriseUploadsWithPostgresMirrorAsync
+} from "@/lib/sena/enterprise/import-analysis";
+import {
+  requireEnterprisePermission
+} from "@/lib/sena/enterprise/access-control";
+import {
+  getEnterpriseProjectAsync
+} from "@/lib/sena/enterprise/team-project";
+import {
+  SenaEnterpriseError
+} from "@/lib/sena/enterprise/errors";
+import {
+  recordEnterpriseAuditAsync
+} from "@/lib/sena/enterprise/ops-audit";
+import {
+  enqueueEnterpriseServerJob,
+  serverJobHeaders,
+  serverJobQueueStatus,
+  shouldQueueServerJob
+} from "@/lib/sena/enterprise/server-job-queue";
+import { readXlsxWorkbookRows } from "@/lib/sena/excel-workbook";
 import { parseSenaCsv, type SenaImportRow } from "@/lib/sena/import";
 import {
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview
 } from "@/lib/sena/reliability";
-import { prepareSenaReliabilityJsonRequest } from "@/lib/sena/reliability-api";
-import { jsonError, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -22,18 +43,6 @@ type BufferedReliabilityFile = {
   name: string;
   size: number;
   bytes: Buffer;
-};
-
-type ReliabilityRunHeaderSource = {
-  id: string;
-  status: string;
-  projectId?: string;
-  meanPairwiseKappa: number;
-  krippendorffAlphaNominal: number;
-  adjudicationCoverage: {
-    coverageRate: number;
-    unresolvedDisagreements: number;
-  };
 };
 
 async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilityFile[]> {
@@ -47,14 +56,14 @@ async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilit
   }));
 }
 
-function rowsFromFile(file: BufferedReliabilityFile): SenaImportRow[] {
+async function rowsFromFile(file: BufferedReliabilityFile): Promise<SenaImportRow[]> {
   const lower = file.name.toLowerCase();
-  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-    const workbook = XLSX.read(file.bytes, { type: "buffer" });
-    return workbook.SheetNames.flatMap((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
-      return sheet ? XLSX.utils.sheet_to_json<SenaImportRow>(sheet, { defval: "" }) : [];
-    });
+  if (lower.endsWith(".xlsx")) {
+    const workbook = await readXlsxWorkbookRows(file.bytes);
+    return workbook.flatMap((sheet) => sheet.rows);
+  }
+  if (lower.endsWith(".xls")) {
+    throw new Error(`${file.name}: legacy .xls reliability uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before uploading.`);
   }
   if (lower.endsWith(".json")) {
     const parsed = JSON.parse(file.bytes.toString("utf8"));
@@ -71,66 +80,159 @@ function fileSummary(file: BufferedReliabilityFile) {
   };
 }
 
-function reliabilityRunHeaders(run: ReliabilityRunHeaderSource) {
-  return {
-    "x-sena-reliability-run-id": run.id,
-    "x-sena-reliability-status": run.status,
-    ...(run.projectId ? { "x-sena-project-id": run.projectId } : {}),
-    "x-sena-reliability-coverage-rate": String(run.adjudicationCoverage.coverageRate),
-    "x-sena-unresolved-disagreements": String(run.adjudicationCoverage.unresolvedDisagreements),
-    "x-sena-mean-pairwise-kappa": String(run.meanPairwiseKappa),
-    "x-sena-krippendorff-alpha": String(run.krippendorffAlphaNominal)
-  };
-}
-
 export async function GET(request: Request) {
-  try {
-    const context = requireApiSession();
+  return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
+    const context = await requireApiSession();
     const url = new URL(request.url);
-    return NextResponse.json({
-      schemaVersion: "sena-reliability-run-list/v1",
-      reliabilityRuns: listEnterpriseReliabilityRuns(context, {
-        teamId: url.searchParams.get("teamId") || undefined,
-        projectId: url.searchParams.get("projectId") || undefined
-      })
+    const response = await buildEnterpriseReliabilityRunListResponseAsync(context, {
+      teamId: url.searchParams.get("teamId") || undefined,
+      projectId: url.searchParams.get("projectId") || undefined
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+    return NextResponse.json(response.body);
+  });
 }
 
 export async function POST(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     if ((request.headers.get("content-type") || "").toLowerCase().includes("application/json")) {
-      const prepared = prepareSenaReliabilityJsonRequest(await request.json(), {
-        defaultReviewer: context.user.name
-      });
-      const reliabilityRun = createEnterpriseReliabilityRun(context, {
-        teamId: prepared.teamId || context.teams[0]?.id || "",
-        projectId: prepared.projectId,
-        reviewer: prepared.reviewer,
-        fileCount: prepared.fileCount,
-        annotationCount: prepared.annotationCount,
-        inputFiles: prepared.inputFiles,
-        dashboard: prepared.dashboard,
-        reviewPatch: prepared.reviewPatch
-      });
-      return NextResponse.json({
-        schemaVersion: "sena-reliability-response/v1",
-        requestSchemaVersion: "sena-reliability-json-request/v1",
-        source: prepared.source,
-        dashboard: prepared.dashboard,
-        reviewPatch: prepared.reviewPatch,
-        reliabilityRun
-      }, {
-        headers: reliabilityRunHeaders(reliabilityRun)
-      });
+      const body = await request.json() as Record<string, unknown>;
+      if (shouldQueueServerJob(request, body)) {
+        const projectId = body.projectId ? String(body.projectId) : undefined;
+        const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+        const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
+        requireEnterprisePermission(context, teamId, "reliability:adjudicate");
+        const queue = serverJobQueueStatus();
+        const uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
+        const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
+        if (uploadIds.length === 0 && !queue.inlinePayloadAllowed) {
+          throw new SenaEnterpriseError(
+            "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
+            400,
+            "reliability_queue_source_required"
+          );
+        }
+        const job = await enqueueEnterpriseServerJob({
+          kind: "reliability",
+          teamId,
+          projectId,
+          actorUserId: context.user.id,
+          payload: {
+            action: "run-reliability",
+            teamId,
+            projectId,
+            uploadIds,
+            reviewer: body.reviewer ? String(body.reviewer) : context.user.name,
+            sourceName: body.sourceName ? String(body.sourceName) : undefined,
+            requestSchemaVersion: body.schemaVersion ? String(body.schemaVersion) : undefined,
+            inlineAnnotations: queue.inlinePayloadAllowed ? body.annotations : undefined
+          },
+          payloadSummary: {
+            source: uploadIds.length > 0 ? "upload" : "dataset",
+            projectVersion: project?.currentVersion,
+            uploadIds,
+            annotationCount,
+            fileCount: uploadIds.length || (body.sourceName ? 1 : undefined),
+            hasInlineSnapshot: false,
+            hasInlineDataset: Array.isArray(body.annotations),
+            payloadValuesExcluded: true
+          },
+          queue
+        });
+        await recordEnterpriseAuditAsync({
+          event: "reliability.queue",
+          userId: context.user.id,
+          teamId,
+          projectId,
+          detail: {
+            serverJobId: job.id,
+            serverJobKind: job.kind,
+            queueProvider: job.provider.mode,
+            queueDelivery: job.delivery.webhookStatus,
+            queueHttpStatus: job.delivery.httpStatus ?? null,
+            queueProductionReady: job.provider.productionReady,
+            payloadSha256: job.payloadSha256,
+            uploadCount: uploadIds.length,
+            annotationCount: annotationCount ?? null,
+            inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
+            projectVersion: project?.currentVersion ?? null
+          }
+        });
+        return NextResponse.json(job, {
+          status: 202,
+          headers: serverJobHeaders(job)
+        });
+      }
+      const response = await buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync(context, body);
+      return NextResponse.json(response.body, { headers: response.headers });
     }
     const form = await request.formData();
     const files = form.getAll("files").filter((value): value is File => value instanceof File);
     const bufferedFiles = await bufferReliabilityFiles(files);
-    const rows = bufferedFiles.flatMap(rowsFromFile);
+    if (shouldQueueServerJob(request, { queue: ["1", "true", "yes", "on"].includes(String(form.get("queue") || "").toLowerCase()) })) {
+      const projectId = form.get("projectId") ? String(form.get("projectId")) : undefined;
+      const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+      const teamId = String(form.get("teamId") || project?.teamId || context.teams[0]?.id || "");
+      requireEnterprisePermission(context, teamId, "reliability:adjudicate");
+      const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+        teamId,
+        files: bufferedFiles.map((file) => ({
+          name: file.name,
+          contentType: "application/octet-stream",
+          bytes: file.bytes,
+          importProfile: "reliability",
+          warningCount: 0
+        }))
+      });
+      const queue = serverJobQueueStatus();
+      const uploadIds = uploads.map((upload) => upload.id);
+      const job = await enqueueEnterpriseServerJob({
+        kind: "reliability",
+        teamId,
+        projectId,
+        actorUserId: context.user.id,
+        payload: {
+          action: "run-reliability",
+          teamId,
+          projectId,
+          uploadIds,
+          reviewer: String(form.get("reviewer") || context.user.name)
+        },
+        payloadSummary: {
+          source: "upload",
+          projectVersion: project?.currentVersion,
+          uploadIds,
+          fileCount: uploads.length,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        },
+        queue
+      });
+      await recordEnterpriseAuditAsync({
+        event: "reliability.queue",
+        userId: context.user.id,
+        teamId,
+        projectId,
+        detail: {
+          serverJobId: job.id,
+          serverJobKind: job.kind,
+          queueProvider: job.provider.mode,
+          queueDelivery: job.delivery.webhookStatus,
+          queueHttpStatus: job.delivery.httpStatus ?? null,
+          queueProductionReady: job.provider.productionReady,
+          payloadSha256: job.payloadSha256,
+          uploadCount: uploads.length,
+          inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
+          projectVersion: project?.currentVersion ?? null
+        }
+      });
+      return NextResponse.json(job, {
+        status: 202,
+        headers: serverJobHeaders(job)
+      });
+    }
+    const rows = (await Promise.all(bufferedFiles.map(rowsFromFile))).flat();
     const parsed = parseCoderAnnotationsFromRows(rows);
     const dashboard = buildSenaReliabilityDashboard(parsed.annotations);
     const dashboardWithWarnings = {
@@ -141,7 +243,7 @@ export async function POST(request: Request) {
     const reviewPatch = reliabilityDashboardToReview(dashboardWithWarnings, reviewer);
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
     const projectId = form.get("projectId") ? String(form.get("projectId")) : undefined;
-    const reliabilityRun = createEnterpriseReliabilityRun(context, {
+    const response = await buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
       teamId,
       projectId,
       reviewer,
@@ -151,55 +253,23 @@ export async function POST(request: Request) {
       dashboard: dashboardWithWarnings,
       reviewPatch
     });
-    return NextResponse.json({
-      schemaVersion: "sena-reliability-response/v1",
-      dashboard: dashboardWithWarnings,
-      reviewPatch,
-      reliabilityRun
-    }, {
-      headers: reliabilityRunHeaders(reliabilityRun)
-    });
-  } catch (error) {
-    return jsonError(error);
-  }
+    return NextResponse.json(response.body, { headers: response.headers });
+  });
 }
 
 export async function PATCH(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
     const action = String(body.action ?? "review");
     if (action === "adjudicate") {
-      const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-        ? body.decision
-        : "revise";
-      const adjudication = createEnterpriseReliabilityAdjudications(context, String(body.runId ?? ""), {
-        decision,
-        notes: body.notes ? String(body.notes) : undefined,
-        limit: body.limit ? Number(body.limit) : undefined
-      });
-      return NextResponse.json({
-        schemaVersion: "sena-reliability-adjudication-response/v1",
-        adjudication
-      }, {
-        status: 201,
-        headers: reliabilityRunHeaders(adjudication.reliabilityRun)
+      const response = await buildEnterpriseReliabilityAdjudicationResponseWithPostgresMirrorAsync(context, body);
+      return NextResponse.json(response.body, {
+        status: response.status,
+        headers: response.headers
       });
     }
-    const status = body.status === "approved" || body.status === "rejected"
-      ? body.status
-      : "pending-adjudication";
-    const reliabilityRun = reviewEnterpriseReliabilityRun(context, String(body.runId ?? ""), {
-      status,
-      notes: body.notes ? String(body.notes) : undefined
-    });
-    return NextResponse.json({
-      schemaVersion: "sena-reliability-run-review/v1",
-      reliabilityRun
-    }, {
-      headers: reliabilityRunHeaders(reliabilityRun)
-    });
-  } catch (error) {
-    return jsonError(error);
-  }
+    const response = await buildEnterpriseReliabilityRunReviewResponseWithPostgresMirrorAsync(context, body);
+    return NextResponse.json(response.body, { headers: response.headers });
+  });
 }

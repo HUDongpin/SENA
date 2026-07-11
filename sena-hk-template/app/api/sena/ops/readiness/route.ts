@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
-} from "@/lib/sena/enterprise/ops-governance";
-import { jsonError } from "@/lib/sena/api-helpers";
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
@@ -17,6 +17,17 @@ const identityReadinessIds = [
   "identity-lifecycle-owner-mode"
 ] as const;
 
+const productionPerformanceIds = [
+  "production-postgres-state",
+  "production-runtime-header",
+  "production-object-storage",
+  "production-cdn-compression",
+  "production-server-job-queue",
+  "production-observability",
+  "production-performance-budget",
+  "production-conference-load-rehearsal"
+] as const;
+
 function readinessItemStatus(readiness: SenaEnterpriseDeploymentReadiness, id: string) {
   return readiness.blocking.find((item) => item.id === id)?.status ?? "missing";
 }
@@ -24,6 +35,8 @@ function readinessItemStatus(readiness: SenaEnterpriseDeploymentReadiness, id: s
 function deploymentReadinessHeaders(readiness: SenaEnterpriseDeploymentReadiness): Record<string, string> {
   const identityBlockers = readiness.summary.blockers
     .filter((blocker) => identityReadinessIds.includes(blocker as (typeof identityReadinessIds)[number]));
+  const productionPerformanceBlockers = readiness.productionPerformancePath.summary.blockers
+    .filter((blocker) => productionPerformanceIds.includes(blocker));
   return {
     "x-sena-deployment-readiness-status": readiness.status,
     "x-sena-deployment-readiness-blocking-review": String(readiness.summary.blockingReview),
@@ -34,14 +47,16 @@ function deploymentReadinessHeaders(readiness: SenaEnterpriseDeploymentReadiness
     "x-sena-identity-secret-store-reference": readinessItemStatus(readiness, "identity-secret-store-reference"),
     "x-sena-identity-secret-rotation-cadence": readinessItemStatus(readiness, "identity-secret-rotation-cadence"),
     "x-sena-identity-idp-tenant-binding": readinessItemStatus(readiness, "identity-idp-tenant-binding"),
-    "x-sena-identity-lifecycle-owner-mode": readinessItemStatus(readiness, "identity-lifecycle-owner-mode")
+    "x-sena-identity-lifecycle-owner-mode": readinessItemStatus(readiness, "identity-lifecycle-owner-mode"),
+    "x-sena-production-performance-path": readiness.productionPerformancePath.status,
+    "x-sena-production-performance-blockers": productionPerformanceBlockers.join("|") || "none"
   };
 }
 
 export async function GET(request: Request) {
-  try {
-    const access = requireOpsAccess(request);
-    const readiness = getEnterpriseDeploymentReadiness();
+  return observeSenaApiRoute(request, { routeId: "sena-ops-readiness" }, async () => {
+    const access = await requireOpsAccess(request);
+    const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence();
     return NextResponse.json({
       ...readiness,
       access
@@ -49,7 +64,5 @@ export async function GET(request: Request) {
       status: readiness.status === "blocked" ? 503 : 200,
       headers: deploymentReadinessHeaders(readiness)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

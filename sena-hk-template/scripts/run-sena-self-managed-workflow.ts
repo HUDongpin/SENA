@@ -115,7 +115,7 @@ const auditIntegrity = enterprise.verifyEnterpriseAuditIntegrity(registered.cont
 const auditDelivery = await enterprise.deliverEnterpriseAuditLog(registered.context, { teamId, force: true });
 
 const releaseVersion = `${new Date().toISOString().slice(0, 10)}-self-managed-enterprise`;
-const releaseGate = enterprise.createEnterpriseReleaseGateReview(registered.context, {
+const releaseGate = await enterprise.createEnterpriseReleaseGateReviewWithPostgresEvidence(registered.context, {
   teamId,
   environment: "self-managed-production",
   releaseVersion,
@@ -130,9 +130,21 @@ const releaseGate = enterprise.createEnterpriseReleaseGateReview(registered.cont
   }
 });
 
-const goLiveAfterRelease = enterprise.getEnterpriseGoLiveRehearsal({ teamId });
-const goLiveAttestation = goLiveAfterRelease.status === "ready"
-  ? enterprise.createEnterpriseGoLiveAttestation(registered.context, {
+const goLiveAfterRelease = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId });
+const postCutoverObservation = goLiveAfterRelease.status === "ready" &&
+  goLiveAfterRelease.postCutoverMonitor.latestObservation.summary.latestStatus === "missing"
+  ? await enterprise.startEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
+    teamId,
+    environment: "self-managed-production",
+    releaseVersion
+  })
+  : null;
+const goLiveAfterObservationStart = postCutoverObservation
+  ? await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId })
+  : goLiveAfterRelease;
+const postCutoverMonitorReady = goLiveAfterObservationStart.postCutoverMonitor.status === "ready";
+const goLiveAttestation = goLiveAfterObservationStart.status === "ready" && postCutoverMonitorReady
+  ? await enterprise.createEnterpriseGoLiveAttestationWithPostgresEvidence(registered.context, {
     teamId,
     environment: "self-managed-production",
     releaseVersion,
@@ -150,11 +162,26 @@ const goLiveAttestation = goLiveAfterRelease.status === "ready"
   })
   : null;
 
-const readiness = enterprise.getEnterpriseDeploymentReadiness();
-const capabilityAudit = enterprise.getEnterpriseCapabilityAudit();
-const deployment = enterprise.getEnterpriseOrganizationDeploymentPackage({ teamId });
+const opsStatus = await enterprise.getEnterpriseOpsStatusWithPostgresEvidence();
+const readiness = await enterprise.getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+const deployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({
+  teamId,
+  readiness,
+  opsStatus
+});
+const capabilityAudit = await enterprise.getEnterpriseCapabilityAuditWithPostgresEvidence({
+  teamId,
+  readiness,
+  deployment,
+  opsStatus
+});
 const security = enterprise.getEnterpriseSecurityPosture();
-const goLive = enterprise.getEnterpriseGoLiveRehearsal({ teamId });
+const goLive = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({
+  teamId,
+  readiness,
+  deployment,
+  opsStatus
+});
 
 const summary = {
   deploymentMode: process.env.SENA_ENTERPRISE_DEPLOYMENT_MODE,
@@ -187,6 +214,9 @@ const summary = {
   releaseGateIdentityVerifierIncomplete: releaseGate.identityProductionSnapshot.submissionVerifier.incompleteDecisions,
   goLiveStatus: goLive.status,
   goLiveBlockers: goLive.summary.blockers,
+  postCutoverObservationStarted: Boolean(postCutoverObservation),
+  postCutoverObservationStatus: goLive.postCutoverMonitor.latestObservation.summary.latestStatus,
+  postCutoverObservationId: goLive.postCutoverMonitor.latestObservation.summary.latestObservationId ?? "none",
   goLiveAttestationStatus: goLiveAttestation?.status ?? "not-created",
   postCutoverMonitorStatus: goLive.postCutoverMonitor.status,
   capabilityStatus: capabilityAudit.status,

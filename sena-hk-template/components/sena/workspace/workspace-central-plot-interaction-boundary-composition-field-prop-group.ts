@@ -1,0 +1,10 @@
+import type { WorkspaceCentralPlotInteractionCompositionFieldPropGroup } from "./workspace-central-plot-interaction-composition-field-prop-group";
+
+export type WorkspaceCentralPlotInteractionBoundaryCompositionFieldPropGroup =
+  Pick<WorkspaceCentralPlotInteractionCompositionFieldPropGroup, keyof WorkspaceCentralPlotInteractionCompositionFieldPropGroup>;
+
+export function buildWorkspaceCentralPlotInteractionBoundaryCompositionFieldProps(
+  props: WorkspaceCentralPlotInteractionBoundaryCompositionFieldPropGroup
+): WorkspaceCentralPlotInteractionBoundaryCompositionFieldPropGroup {
+  return props;
+}

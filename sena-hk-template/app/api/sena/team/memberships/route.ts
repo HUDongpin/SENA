@@ -1,10 +1,11 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  updateEnterpriseMembership,
-  type SenaEnterpriseMembership,
-  type SenaEnterpriseRole
-} from "@/lib/sena/enterprise/identity-auth";
-import { jsonError, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+  updateEnterpriseMembershipAsync,
+  type SenaEnterpriseMembership
+} from "@/lib/sena/enterprise/team-memberships";
+import type { SenaEnterpriseRole } from "@/lib/sena/enterprise/access-control";
+import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -29,17 +30,15 @@ function membershipLifecycleHeaders(membership: SenaEnterpriseMembership): Heade
 }
 
 export async function PATCH(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-team-memberships" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const membership = updateEnterpriseMembership(context, String(body.membershipId ?? ""), {
+    const membership = await updateEnterpriseMembershipAsync(context, String(body.membershipId ?? ""), {
       role: roleFromBody(body.role),
       status: statusFromBody(body.status)
     });
-    return NextResponse.json({ schemaVersion: "sena-team-membership/v1", membership }, {
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.teamMembership, membership }, {
       headers: membershipLifecycleHeaders(membership)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

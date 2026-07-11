@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "datasetVersion": "",
+    "consent": {
+      "instrument": "",
+      "date": "",
+      "scope": ""
+    },
+    "retention": {
+      "policy": "",
+      "deleteBy": ""
+    },
+    "pseudonymization": {
+      "personIdPolicy": "opaque",
+      "rosterMapping": "external-encrypted-store"
+    },
+    "codebook": {
+      "id": "",
+      "version": "",
+      "contentHash": ""
+    }
+  }
+}

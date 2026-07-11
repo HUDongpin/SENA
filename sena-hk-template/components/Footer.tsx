@@ -1,25 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useLanguage, type Lang } from "./LanguageProvider";
+import { useLanguage } from "./LanguageProvider";
 import { SenaLogo } from "./SenaLogo";
-import { cn } from "@/lib/utils";
-
-const languageOptions: { value: Lang; label: string }[] = [
-  { value: "en", label: "ENG" },
-  { value: "zhHant", label: "繁" },
-  { value: "zhHans", label: "简" }
-];
 
 const columns = [
-  { title: "Product", links: ["Platform", "Workspace", "Demo", "Enterprise"] },
-  { title: "Method", links: ["SENA Framework", "SNA", "ENA", "SENS"] },
-  { title: "Resources", links: ["Docs", "API", "Citation Guide", "Research Cases"] },
-  { title: "Legal", links: ["Privacy", "Terms", "Security", "Responsible AI"] }
+  {
+    title: "Product",
+    links: [
+      { label: "Platform", href: "/#platform" },
+      { label: "Workspace", href: "/workspace/sena" },
+      { label: "Demo", href: "/demo" },
+      { label: "Enterprise", href: "/platform" }
+    ]
+  },
+  {
+    title: "Method",
+    links: [
+      { label: "SENA Framework", href: "/method" },
+      { label: "SNA", href: "/method" },
+      { label: "ENA", href: "/workspace/ena" },
+      { label: "SENS", href: "/method" }
+    ]
+  },
+  {
+    title: "Resources",
+    links: [
+      { label: "Docs", href: "/docs" },
+      { label: "API", href: "/api/sena/docs" },
+      { label: "Citation Guide", href: "/docs" },
+      { label: "Research Cases", href: "/#cases" }
+    ]
+  },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy", href: "/privacy" },
+      { label: "Terms", href: "/terms" },
+      { label: "Security", href: "/security" },
+      { label: "Responsible AI", href: "/responsible-ai" }
+    ]
+  }
 ];
 
 export function Footer() {
-  const { copy, lang, setLang } = useLanguage();
+  const { copy } = useLanguage();
 
   return (
     <footer className="relative overflow-hidden px-4 pb-10 pt-20 sm:px-6 lg:px-8">
@@ -30,23 +55,6 @@ export function Footer() {
           <div>
             <SenaLogo />
             <p className="mt-5 max-w-md text-base leading-8 text-muted">{copy.footer.line}</p>
-            <p className="mt-5 rounded-3xl border border-cyanGlow/25 bg-cyanGlow/10 p-4 text-sm font-semibold leading-6 text-foreground/78">
-              {copy.footer.built}
-            </p>
-            <div className="mt-5 flex w-fit rounded-full border border-cardBorder/60 bg-background/50 p-1" aria-label="Footer language selector">
-              {languageOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setLang(option.value)}
-                  className={cn(
-                    "rounded-full px-4 py-2 text-sm font-black transition",
-                    lang === option.value ? "bg-cyanGlow text-slate-950" : "text-muted hover:text-foreground"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -55,8 +63,8 @@ export function Footer() {
                 <h3 className="font-black text-foreground">{column.title}</h3>
                 <div className="mt-4 grid gap-3">
                   {column.links.map((link) => (
-                    <Link key={link} href="/#docs" className="text-sm font-semibold text-muted transition hover:text-cyanGlow">
-                      {link}
+                    <Link key={link.label} href={link.href} className="text-sm font-semibold text-muted transition hover:text-cyanGlow">
+                      {link.label}
                     </Link>
                   ))}
                 </div>

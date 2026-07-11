@@ -1,12 +1,16 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
+import { SENA_GRAPH_OPERATOR_CONVENTIONS } from "./operators";
 import { buildSenaRuntimeBundle } from "./runtime-bundle";
 import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "./snapshot";
 import { importSenaJsonContract } from "./import";
+import type { SenaReportOptions } from "./report";
 import type {
+  SenaAnalysisProvenanceEnvelope,
   SenaBuildOptions,
-  SenaCodingReliabilityReview,
   SenaDataset,
-  SenaReportHumanReview,
+  SenaModel,
+  SenaModelCard,
   SenaTemporalWindow
 } from "./types";
 
@@ -21,8 +25,9 @@ export type SenaAnalysisRunInput = {
   generatedAt?: string;
   activeTemporalWindowId?: string;
   includeRuntimeBundle?: boolean;
-  humanReview?: SenaReportHumanReview;
-  codingReliability?: SenaCodingReliabilityReview;
+  humanReview?: SenaReportOptions["humanReview"];
+  codingReliability?: SenaReportOptions["codingReliability"];
+  dataGovernance?: SenaReportOptions["dataGovernance"];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,6 +91,49 @@ function resolveActiveWindow(sourceDataset: SenaDataset, buildOptions: Partial<S
   return timelineModel.temporal.windows.find((window) => window.id === activeTemporalWindowId) ?? null;
 }
 
+export function buildSenaAnalysisProvenanceEnvelope(
+  model: SenaModel,
+  modelCard: SenaModelCard = buildSenaProjectSnapshot(model).report.modelCard
+): SenaAnalysisProvenanceEnvelope {
+  const diagnostics = model.operatorDiagnostics;
+  const mds = diagnostics.embedding.mds;
+
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.analysisProvenanceEnvelope,
+    norm_rule: model.options.normalization,
+    divisors: {
+      S: diagnostics.normalization.S.divisor,
+      W: diagnostics.normalization.W.divisor,
+      B: diagnostics.normalization.B.divisor,
+      G: diagnostics.normalization.G.divisor
+    },
+    alpha: model.options.alpha,
+    beta: model.options.beta,
+    gamma: model.options.gamma,
+    direction: diagnostics.direction.fusionMode,
+    deg_convention: diagnostics.degreeConvention,
+    operator_conventions: SENA_GRAPH_OPERATOR_CONVENTIONS,
+    Phi: mds.available ? model.options.Phi : "layout_only",
+    delta: mds.available ? model.options.delta : "none",
+    d: mds.available ? model.options.d : null,
+    seed: model.options.seed,
+    metric_exact: mds.available ? mds.metricExact : false,
+    stress: mds.stress,
+    isolated: diagnostics.isolatedVertices,
+    bridge_direction: diagnostics.direction.bridgeMode,
+    bridge_pc_cp_independent: diagnostics.direction.independentBridgeMatrices,
+    direction_badge: diagnostics.direction.badge,
+    dataset_version: diagnostics.runIdentity.datasetVersion,
+    dataset_content_hash: diagnostics.runIdentity.datasetContentHash,
+    codebook_version: model.dataset.metadata?.codebook.version ?? "unversioned",
+    model_card: {
+      schemaVersion: modelCard.schemaVersion,
+      renderGateStatus: modelCard.renderGate.status,
+      missingSectionIds: modelCard.renderGate.missingSectionIds
+    }
+  };
+}
+
 export function buildSenaAnalysisRun(input: SenaAnalysisRunInput) {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
   const source = resolveDatasetSource(input);
@@ -101,7 +149,8 @@ export function buildSenaAnalysisRun(input: SenaAnalysisRunInput) {
     sourceDataset: source.dataset,
     activeTemporalWindow: activeTemporalWindow as SenaTemporalWindow | null,
     humanReview: input.humanReview,
-    codingReliability: input.codingReliability
+    codingReliability: input.codingReliability,
+    dataGovernance: input.dataGovernance
   });
   const runtimeBundle = input.includeRuntimeBundle
     ? buildSenaRuntimeBundle(model, {
@@ -111,10 +160,12 @@ export function buildSenaAnalysisRun(input: SenaAnalysisRunInput) {
       activeTemporalWindow
     })
     : undefined;
+  const provenanceEnvelope = buildSenaAnalysisProvenanceEnvelope(model, projectSnapshot.report.modelCard);
 
   return {
-    schemaVersion: "sena-analysis-run/v1" as const,
+    schemaVersion: SENA_SCHEMA_VERSIONS.analysisRun,
     generatedAt,
+    provenanceEnvelope,
     source: {
       kind: source.kind,
       datasetCounts: datasetCounts(source.dataset),

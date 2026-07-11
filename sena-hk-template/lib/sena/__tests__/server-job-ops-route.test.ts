@@ -1,0 +1,272 @@
+import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const envNames = [
+  "SENA_ENTERPRISE_DB_DIR",
+  "SENA_JOB_QUEUE_ADAPTER",
+  "SENA_JOB_QUEUE_ALLOW_LOCAL",
+  "SENA_JOB_QUEUE_MAX_ATTEMPTS",
+  "SENA_OPS_TOKEN"
+];
+
+describe("SENA server job ops route", () => {
+  let enterpriseDbDir: string | undefined;
+
+  afterEach(() => {
+    for (const name of envNames) delete process.env[name];
+    if (enterpriseDbDir) {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      enterpriseDbDir = undefined;
+    }
+    vi.resetModules();
+  });
+
+  it("lists worker jobs and records running, dead-letter, and force-retry status updates", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-ops-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    process.env.SENA_JOB_QUEUE_MAX_ATTEMPTS = "1";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
+
+    const enterprise = await import("../enterprise");
+    const registered = enterprise.registerEnterpriseUser({
+      name: "Server Job Owner",
+      email: "server-job-owner@example.edu",
+      password: "sena-secure-123",
+      organization: "Server Job Lab",
+      plan: "lab"
+    });
+    const job = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: registered.context.teams[0].id,
+      projectId: "project_status_test",
+      actorUserId: registered.context.user.id,
+      payload: {
+        action: "run-analysis",
+        projectId: "project_status_test"
+      },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const route = await import("../../../app/api/sena/ops/jobs/route");
+    const authHeaders = {
+      authorization: "Bearer sena-test-ops-token"
+    };
+
+    const listResponse = await route.GET(new Request("https://sena.example.test/api/sena/ops/jobs?status=queued", {
+      headers: authHeaders
+    }));
+    const listBody = await listResponse.json() as {
+      schemaVersion?: string;
+      summary?: { total?: number; queued?: number };
+      jobs?: Array<{ id?: string; status?: string; lifecycle?: { maxAttempts?: number } }>;
+    };
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.headers.get("x-sena-server-job-total")).toBe("1");
+    expect(listResponse.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs");
+    expect(listBody.schemaVersion).toBe("sena-enterprise-server-job-list/v1");
+    expect(listBody.summary).toEqual(expect.objectContaining({
+      total: 1,
+      queued: 1
+    }));
+    expect(listBody.jobs?.[0]).toEqual(expect.objectContaining({
+      id: job.id,
+      status: "queued"
+    }));
+    expect(listBody.jobs?.[0].lifecycle).toEqual(expect.objectContaining({
+      maxAttempts: 1
+    }));
+
+    const runningResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: job.id,
+        workerRunId: "worker_run_1"
+      })
+    }));
+    const runningBody = await runningResponse.json() as {
+      schemaVersion?: string;
+      action?: string;
+      job?: { status?: string; lifecycle?: { attempts?: number; workerRunId?: string } };
+    };
+    expect(runningResponse.status).toBe(200);
+    expect(runningResponse.headers.get("x-sena-server-job-status")).toBe("running");
+    expect(runningBody.schemaVersion).toBe("sena-enterprise-server-job-status-update/v1");
+    expect(runningBody.action).toBe("mark-running");
+    expect(runningBody.job?.status).toBe("running");
+    expect(runningBody.job?.lifecycle).toEqual(expect.objectContaining({
+      attempts: 1,
+      workerRunId: "worker_run_1"
+    }));
+
+    const errorMessage = "worker failed with sensitive upstream detail";
+    const expectedErrorHash = createHash("sha256").update(errorMessage).digest("hex");
+    const failedResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-failed",
+        jobId: job.id,
+        errorCode: "worker_exit",
+        errorMessage
+      })
+    }));
+    const failedBody = await failedResponse.json() as {
+      job?: {
+        status?: string;
+        lifecycle?: {
+          attempts?: number;
+          retryable?: boolean;
+          lastErrorCode?: string;
+          lastErrorHash?: string;
+          deadLetteredAt?: string;
+        };
+      };
+    };
+    expect(failedResponse.status).toBe(202);
+    expect(failedResponse.headers.get("x-sena-server-job-status")).toBe("dead-lettered");
+    expect(failedResponse.headers.get("x-sena-server-job-retryable")).toBe("false");
+    expect(failedBody.job?.status).toBe("dead-lettered");
+    expect(failedBody.job?.lifecycle).toEqual(expect.objectContaining({
+      attempts: 1,
+      retryable: false,
+      lastErrorCode: "worker_exit",
+      lastErrorHash: expectedErrorHash
+    }));
+    expect(failedBody.job?.lifecycle?.deadLetteredAt).toBeTruthy();
+    expect(JSON.stringify(failedBody)).not.toContain(errorMessage);
+
+    const retryBlockedResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "retry",
+        jobId: job.id
+      })
+    }));
+    expect(retryBlockedResponse.status).toBe(409);
+
+    const retryResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "retry",
+        jobId: job.id,
+        force: true,
+        reason: "Operator reviewed dead-letter evidence."
+      })
+    }));
+    const retryBody = await retryResponse.json() as {
+      job?: { status?: string; lifecycle?: { retryRequestedAt?: string; statusReason?: string } };
+    };
+    expect(retryResponse.status).toBe(200);
+    expect(retryResponse.headers.get("x-sena-server-job-status")).toBe("queued");
+    expect(retryBody.job?.status).toBe("queued");
+    expect(retryBody.job?.lifecycle?.retryRequestedAt).toBeTruthy();
+    expect(retryBody.job?.lifecycle?.statusReason).toBe("Operator reviewed dead-letter evidence.");
+
+    const audit = enterprise.listEnterpriseAuditLog(registered.context, {
+      event: "ops.server_job.status",
+      projectId: "project_status_test",
+      limit: 10
+    });
+    expect(audit.events.map((entry) => entry.detail.action)).toEqual(expect.arrayContaining([
+      "mark-running",
+      "mark-failed",
+      "retry"
+    ]));
+    expect(JSON.stringify(audit)).not.toContain(errorMessage);
+  });
+
+  it("filters every heavy server job kind from the ops route", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-ops-kinds-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
+
+    const enterprise = await import("../enterprise");
+    const registered = enterprise.registerEnterpriseUser({
+      name: "Server Job Kind Owner",
+      email: "server-job-kind-owner@example.edu",
+      password: "sena-secure-123",
+      organization: "Server Job Kind Lab",
+      plan: "lab"
+    });
+    const jobKinds = [
+      "analysis",
+      "import",
+      "publication-export",
+      "reliability",
+      "validation"
+    ] as const;
+
+    for (const kind of jobKinds) {
+      await enterprise.enqueueEnterpriseServerJob({
+        kind,
+        teamId: registered.context.teams[0].id,
+        projectId: `project_${kind.replace(/-/g, "_")}`,
+        actorUserId: registered.context.user.id,
+        payload: {
+          action: `run-${kind}`,
+          projectId: `project_${kind.replace(/-/g, "_")}`
+        },
+        payloadSummary: {
+          source: "project",
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }
+      });
+    }
+
+    const route = await import("../../../app/api/sena/ops/jobs/route");
+    const authHeaders = {
+      authorization: "Bearer sena-test-ops-token"
+    };
+
+    for (const kind of jobKinds) {
+      const response = await route.GET(new Request(`https://sena.example.test/api/sena/ops/jobs?kind=${encodeURIComponent(kind)}`, {
+        headers: authHeaders
+      }));
+      const body = await response.json() as {
+        summary?: { total?: number; queued?: number };
+        jobs?: Array<{ kind?: string; status?: string }>;
+      };
+
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(body.summary).toEqual(expect.objectContaining({
+        total: 1,
+        queued: 1
+      }));
+      expect(body.jobs).toHaveLength(1);
+      expect(body.jobs?.[0]).toEqual(expect.objectContaining({
+        kind,
+        status: "queued"
+      }));
+    }
+  });
+});

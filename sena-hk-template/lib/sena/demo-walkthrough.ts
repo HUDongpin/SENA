@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaDemoWalkthrough,
   SenaDemoWalkthroughStep,
@@ -135,7 +136,7 @@ export function buildSenaDemoWalkthrough(model: SenaModel, options: SenaDemoWalk
   const readySteps = steps.filter((step) => step.status === "ready").length;
 
   return {
-    schemaVersion: "sena-demo-walkthrough/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.demoWalkthrough,
     title: options.title?.trim() || "SENA Local Demo Walkthrough",
     generatedAt,
     workspaceRoute: "/workspace/sena",

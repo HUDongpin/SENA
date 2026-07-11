@@ -1,24 +1,26 @@
-import * as XLSX from "xlsx";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { readXlsxWorkbookRows } from "./excel-workbook";
 import {
   buildSenaDatasetFromTables,
   importSenaJsonContract,
   inferSenaColumnMapping,
   inferSenaTableFromName,
   parseSenaCsv,
+  senaDatasetMetadataFromJson,
   type SenaImportRow,
   type SenaMappedTable
 } from "./import";
-import type { SenaCode, SenaDataset } from "./types";
+import type { SenaCode, SenaDataset, SenaDatasetMetadata } from "./types";
 
 export type SenaImportAdapterSource = {
   name: string;
-  profile: "sena-contract" | "csv-table" | "excel-workbook" | "lms-forum-json" | "lms-forum-export" | "cleaned-transcript";
+  profile: "sena-contract" | "csv-table" | "excel-workbook" | "lms-forum-json" | "lms-forum-export" | "cleaned-transcript" | "dataset-metadata";
   rows: number;
   warnings: string[];
 };
 
 export type SenaEnterpriseImportCleaningManifest = {
-  schemaVersion: "sena-import-cleaning-manifest/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.importCleaningManifest;
   summary: {
     fileCount: number;
     totalSourceRows: number;
@@ -48,7 +50,7 @@ export type SenaEnterpriseImportCleaningManifest = {
 };
 
 export type SenaEnterpriseImportResult = {
-  schemaVersion: "sena-enterprise-import/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseImport;
   dataset: SenaDataset;
   warnings: string[];
   sources: SenaImportAdapterSource[];
@@ -464,22 +466,19 @@ function adaptForumJson(value: unknown, name: string): { dataset: SenaDataset; w
   return adaptForumRows(posts, name);
 }
 
-function readExcelImport(buffer: ArrayBuffer, name: string): {
+async function readExcelImport(buffer: ArrayBuffer, name: string): Promise<{
   tables: SenaMappedTable[];
   profile: SenaImportAdapterSource["profile"];
   rows: number;
   warnings: string[];
-} {
-  const workbook = XLSX.read(buffer, { type: "array" });
+}> {
+  const workbook = await readXlsxWorkbookRows(buffer);
   const tables: SenaMappedTable[] = [];
   const warnings: string[] = [];
   let forumRows = 0;
   let tableRows = 0;
 
-  workbook.SheetNames.forEach((sheetName) => {
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) return;
-    const rows = XLSX.utils.sheet_to_json<SenaImportRow>(worksheet, { defval: "" });
+  workbook.forEach(({ name: sheetName, rows }) => {
     if (rows.length === 0) return;
     if (looksLikeForumExport(columnsFromRows(rows))) {
       const adapted = adaptForumRows(rows, `${name}:${sheetName}`);
@@ -501,6 +500,13 @@ function readExcelImport(buffer: ArrayBuffer, name: string): {
 }
 
 function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) {
+  if (profile === "dataset-metadata") {
+    return [
+      "dataset governance metadata attachment",
+      "consent/retention/pseudonymization declaration",
+      "codebook version binding"
+    ];
+  }
   if (profile === "cleaned-transcript") {
     return [
       "subtitle cue normalization",
@@ -600,7 +606,7 @@ function buildCleaningManifest(
   ];
 
   return {
-    schemaVersion: "sena-import-cleaning-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.importCleaningManifest,
     summary: {
       fileCount: sources.length,
       totalSourceRows: sources.reduce((total, source) => total + source.rows, 0),
@@ -628,21 +634,35 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   const tables: SenaMappedTable[] = [];
   const sources: SenaImportAdapterSource[] = [];
   const warnings: string[] = [];
+  let datasetMetadata: SenaDatasetMetadata | undefined;
 
   for (const file of files) {
     const lowerName = file.name.toLowerCase();
-    if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
-      const excelImport = readExcelImport(await file.arrayBuffer(), file.name);
+    if (lowerName.endsWith(".xlsx")) {
+      const excelImport = await readExcelImport(await file.arrayBuffer(), file.name);
       tables.push(...excelImport.tables);
       sources.push({ name: file.name, profile: excelImport.profile, rows: excelImport.rows, warnings: excelImport.warnings });
       warnings.push(...excelImport.warnings);
       continue;
     }
+    if (lowerName.endsWith(".xls")) {
+      throw new Error(`${file.name}: legacy .xls uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before importing.`);
+    }
 
     const text = await file.text();
     if (lowerName.endsWith(".json")) {
+      // A standalone governance metadata document lets five-CSV uploads carry
+      // dataset.metadata (consent/retention/pseudonymization/codebook version)
+      // that plain CSV tables cannot express.
+      const standaloneMetadata = senaDatasetMetadataFromJson(text);
+      if (standaloneMetadata) {
+        datasetMetadata = standaloneMetadata;
+        sources.push({ name: file.name, profile: "dataset-metadata", rows: 0, warnings: [] });
+        continue;
+      }
       try {
         const contract = importSenaJsonContract(text);
+        if (contract.dataset.metadata) datasetMetadata = contract.dataset.metadata;
         tables.push(...datasetToTables(contract.dataset, file.name));
         sources.push({ name: file.name, profile: "sena-contract", rows: contract.dataset.utterances.length, warnings: contract.warnings });
         warnings.push(...contract.warnings);
@@ -689,9 +709,10 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
 
   if (tables.length === 0) throw new Error("No supported SENA import tables were found.");
   const result = buildSenaDatasetFromTables(tables);
+  if (datasetMetadata) result.dataset.metadata = datasetMetadata;
   const allWarnings = [...warnings, ...result.warnings];
   return {
-    schemaVersion: "sena-enterprise-import/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseImport,
     dataset: result.dataset,
     warnings: allWarnings,
     sources,

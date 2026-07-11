@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   deliverEnterpriseOpsAlerts,
-  getEnterpriseOpsAlerts,
+  getEnterpriseOpsAlertsWithPostgresEvidence,
   type SenaEnterpriseOpsAlerts
-} from "@/lib/sena/enterprise/ops-governance";
+} from "@/lib/sena/enterprise/ops-alerts";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
-import { jsonError } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess, requireOpsMutationAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
@@ -33,9 +33,9 @@ function opsAlertHeaders(alerts: SenaEnterpriseOpsAlerts): Record<string, string
 }
 
 export async function GET(request: Request) {
-  try {
-    const access = requireOpsAccess(request);
-    const alerts = getEnterpriseOpsAlerts();
+  return observeSenaApiRoute(request, { routeId: "sena-ops-alerts" }, async () => {
+    const access = await requireOpsAccess(request);
+    const alerts = await getEnterpriseOpsAlertsWithPostgresEvidence();
     return NextResponse.json({
       ...alerts,
       access
@@ -43,14 +43,12 @@ export async function GET(request: Request) {
       status: alerts.status === "critical" ? 503 : 200,
       headers: opsAlertHeaders(alerts)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function POST(request: Request) {
-  try {
-    const access = requireOpsMutationAccess(request);
+  return observeSenaApiRoute(request, { routeId: "sena-ops-alerts" }, async () => {
+    const access = await requireOpsMutationAccess(request);
     const body = await request.json().catch(() => ({})) as { action?: string };
     if (!body.action || body.action === "deliver") {
       const delivery = await deliverEnterpriseOpsAlerts();
@@ -62,7 +60,5 @@ export async function POST(request: Request) {
       });
     }
     throw new SenaEnterpriseError("Unsupported ops alert action.", 400, "unsupported_ops_alert_action");
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

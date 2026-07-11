@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseDeploymentReadiness,
-  getEnterpriseGovernanceStatus,
-  getEnterpriseIdentityProductionEvidence,
-  type SenaEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
+  type SenaEnterpriseDeploymentReadiness
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import {
+  getEnterpriseGovernanceStatusWithPostgresEvidence,
   type SenaEnterpriseGovernanceStatus
 } from "@/lib/sena/enterprise/ops-governance";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+import {
+  getEnterpriseOpsStatusWithPostgresEvidence
+} from "@/lib/sena/enterprise/ops-status";
+import {
+  getEnterpriseIdentityProductionEvidenceWithPostgresEvidence
+} from "@/lib/sena/enterprise/identity-production-evidence";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
@@ -26,7 +33,7 @@ function readinessItemStatus(readiness: SenaEnterpriseDeploymentReadiness, id: s
 function governanceHealthHeaders(
   governance: SenaEnterpriseGovernanceStatus,
   readiness: SenaEnterpriseDeploymentReadiness,
-  identityEvidence: ReturnType<typeof getEnterpriseIdentityProductionEvidence>
+  identityEvidence: Awaited<ReturnType<typeof getEnterpriseIdentityProductionEvidenceWithPostgresEvidence>>
 ): Record<string, string> {
   const identityBlockers = readiness.summary.blockers
     .filter((blocker) => identityReadinessIds.includes(blocker as (typeof identityReadinessIds)[number]));
@@ -51,16 +58,15 @@ function governanceHealthHeaders(
   };
 }
 
-export async function GET() {
-  try {
-    requireApiSession();
-    const governance = getEnterpriseGovernanceStatus();
-    const readiness = getEnterpriseDeploymentReadiness();
-    const identityEvidence = getEnterpriseIdentityProductionEvidence();
+export async function GET(request: Request) {
+  return observeSenaApiRoute(request, { routeId: "sena-governance-health" }, async () => {
+    await requireApiSession();
+    const opsStatus = await getEnterpriseOpsStatusWithPostgresEvidence();
+    const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
+    const governance = await getEnterpriseGovernanceStatusWithPostgresEvidence({ opsStatus });
+    const identityEvidence = await getEnterpriseIdentityProductionEvidenceWithPostgresEvidence({ opsStatus, readiness });
     return NextResponse.json(governance, {
       headers: governanceHealthHeaders(governance, readiness, identityEvidence)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

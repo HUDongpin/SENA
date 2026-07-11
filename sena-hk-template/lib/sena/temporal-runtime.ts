@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaMatrixFingerprints } from "./fusion-math";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
@@ -90,6 +91,8 @@ function buildTransitions(windows: SenaTemporalRuntimeTrace["windows"]): SenaTem
       S: roundDelta(toEntry.sena.matrixTotals.S - fromEntry.sena.matrixTotals.S),
       W: roundDelta(toEntry.sena.matrixTotals.W - fromEntry.sena.matrixTotals.W),
       B: roundDelta(toEntry.sena.matrixTotals.B - fromEntry.sena.matrixTotals.B),
+      B_PC: roundDelta(toEntry.sena.matrixTotals.B_PC - fromEntry.sena.matrixTotals.B_PC),
+      B_CP: roundDelta(toEntry.sena.matrixTotals.B_CP - fromEntry.sena.matrixTotals.B_CP),
       G: roundDelta(toEntry.sena.matrixTotals.G - fromEntry.sena.matrixTotals.G),
       fusion: roundDelta(toEntry.sena.matrixTotals.fusion - fromEntry.sena.matrixTotals.fusion),
       activeGPairs: toEntry.sena.activeGPairs - fromEntry.sena.activeGPairs
@@ -119,7 +122,7 @@ function buildTransitions(windows: SenaTemporalRuntimeTrace["windows"]): SenaTem
         to: toTopPair,
         changed: (fromTopPair?.id ?? null) !== (toTopPair?.id ?? null)
       },
-      interpretationGuardrail: "Temporal transitions summarize adjacent-window S/W/B/G deltas for inspection; they are not causal evidence without temporal design, coding reliability, and human review."
+      interpretationGuardrail: "Temporal transitions summarize adjacent-window S/W/B/B_PC/B_CP/G deltas for inspection; they are not causal evidence without temporal design, coding reliability, and human review."
     };
   });
 }
@@ -157,6 +160,8 @@ export function buildSenaTemporalRuntimeTrace(
           S: matrixTotal(scopedModel.matrices.S.raw),
           W: matrixTotal(scopedModel.matrices.W.raw),
           B: matrixTotal(scopedModel.matrices.B.raw),
+          B_PC: matrixTotal(scopedModel.matrices.B_PC.raw),
+          B_CP: matrixTotal(scopedModel.matrices.B_CP.raw),
           G: matrixTotal(scopedModel.matrices.G.raw),
           fusion: matrixTotal(scopedModel.matrices.fusion.values)
         },
@@ -187,7 +192,7 @@ export function buildSenaTemporalRuntimeTrace(
   });
 
   return {
-    schemaVersion: "sena-temporal-runtime-trace/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.temporalRuntimeTrace,
     generatedAt,
     sourceDatasetCounts: datasetCounts(dataset),
     buildOptions: timelineModel.options,

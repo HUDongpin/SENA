@@ -2,49 +2,93 @@
   "name": "sena-hk-template",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "ena:parity:r": "Rscript scripts/generate-ena-r-parity-fixture.R",
     "sna:parity:r": "Rscript scripts/generate-sena-sna-r-parity-fixture.R",
     "sena:pilot:smoke": "vitest run lib/sena/__tests__/pilot-smoke.test.ts",
     "sena:pilot:browser-smoke": "node scripts/verify-sena-browser-smoke.mjs",
     "sena:pilot:verify": "node scripts/verify-sena-pilot.mjs",
+    "sena:performance:check": "vite-node scripts/verify-sena-performance-path.ts",
+    "sena:performance:source-custody": "vite-node scripts/prepare-sena-performance-source-custody.ts",
+    "sena:conference:prepare": "vite-node scripts/prepare-sena-conference-rehearsal.ts",
+    "sena:conference:load-check": "vite-node scripts/verify-sena-conference-load.ts",
+    "sena:postgres:verify": "vite-node scripts/verify-sena-postgres-runtime.ts",
+    "sena:postgres:schema-contract": "vite-node scripts/verify-sena-postgres-schema-contract.ts",
+    "sena:cdn:contract": "vite-node scripts/verify-sena-cdn-contract.ts",
+    "sena:cdn:verify": "vite-node scripts/verify-sena-cdn-runtime.ts",
+    "sena:object-storage:contract": "vite-node scripts/verify-sena-object-storage-contract.ts",
+    "sena:object-storage:verify": "vite-node scripts/verify-sena-object-storage-runtime.ts",
+    "sena:observability:contract": "vite-node scripts/verify-sena-observability-contract.ts",
+    "sena:observability:verify": "vite-node scripts/verify-sena-observability-runtime.ts",
+    "sena:jobs:queue-contract": "vite-node scripts/verify-sena-job-queue-contract.ts",
+    "sena:jobs:queue-verify": "vite-node scripts/verify-sena-job-queue-runtime.ts",
+    "sena:jobs:worker-contract": "vite-node scripts/verify-sena-job-worker-contract.ts",
+    "sena:jobs:worker-heartbeat": "vite-node scripts/verify-sena-job-worker-heartbeat.ts",
+    "sena:production-evidence:check": "vite-node scripts/verify-sena-production-evidence-manifest.ts",
+    "sena:production-evidence:archive": "vite-node scripts/archive-sena-production-evidence.ts",
+    "sena:production-evidence:bind": "node scripts/bind-sena-production-evidence.mjs",
+    "sena:production-env:packet": "vite-node scripts/prepare-sena-production-runtime-env-packet.ts",
+    "sena:production:gate": "NODE_ENV=production vite-node scripts/check-sena-production-go-live-gate.ts",
     "sena:go-live:check": "NODE_ENV=production vite-node scripts/check-sena-go-live-readiness.ts",
     "sena:self-managed:env": "node scripts/setup-sena-self-managed-env.mjs",
+    "sena:vercel:neon:configure": "node scripts/configure-sena-vercel-neon.mjs",
+    "sena:vercel:production-services:configure": "node scripts/configure-sena-vercel-production-services.mjs",
+    "sena:vercel:preflight": "vite-node scripts/verify-sena-vercel-production.ts",
     "sena:self-managed:workflow": "vite-node scripts/run-sena-self-managed-workflow.ts",
+    "sena:post-cutover:observe": "NODE_ENV=production vite-node scripts/run-sena-post-cutover-observation.ts",
     "sena:neon:verify": "SENA_ENTERPRISE_POSTGRES_LIVE_TEST=1 vitest run lib/sena/__tests__/enterprise-postgres.live.test.ts",
     "test": "node scripts/run-vitest-with-enterprise-temp-db.mjs",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/blob": "^2.5.0",
     "autoprefixer": "^10.4.18",
     "clsx": "^2.1.0",
     "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
     "framer-motion": "^11.0.8",
     "jena-js": "file:vendor/jena-js",
     "lucide-react": "^0.468.0",
-    "next": "^14.2.3",
+    "next": "^16.2.9",
     "pdf-lib": "^1.17.1",
     "pg": "^8.21.0",
-    "postcss": "^8.4.35",
+    "postcss": "^8.5.15",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sna.js": "file:vendor/sna-js",
     "tailwind-merge": "^2.2.1",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.4.2",
-    "xlsx": "^0.18.5"
+    "typescript": "^5.4.2"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.35",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.9",
     "playwright": "^1.60.0",
     "vitest": "^4.1.7"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "postcss": "^8.5.15",
+    "tsup": {
+      "esbuild": "0.28.1"
+    },
+    "uuid": "11.1.1",
+    "vite": {
+      "esbuild": "0.28.1"
+    },
+    "vite-node": {
+      "vite": "^8.0.16"
+    }
   }
 }

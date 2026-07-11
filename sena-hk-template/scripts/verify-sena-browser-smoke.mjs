@@ -84,7 +84,8 @@ async function verifyWeightedFusionLinkWidths(page) {
       throw new Error(`Fusion Canvas ${layer} links are missing weight/width provenance: ${JSON.stringify(rows)}`);
     }
     const uniqueWidths = new Set(rows.map((row) => row.width.toFixed(2)));
-    if ((layer === "social" || layer === "concept") && rows.length > 1 && uniqueWidths.size < 2) {
+    const uniqueSignals = new Set(rows.map((row) => `${row.raw.toFixed(4)}:${row.scaled.toFixed(4)}:${row.salience.toFixed(4)}`));
+    if ((layer === "social" || layer === "concept") && rows.length > 1 && uniqueSignals.size > 1 && uniqueWidths.size < 2) {
       throw new Error(`Fusion Canvas ${layer} links should use variable stroke widths, received ${JSON.stringify(rows)}.`);
     }
   }
@@ -107,7 +108,7 @@ async function expectLessonStudyCounts(page) {
   await expectMetricValue(page, "data-count-codes", 7);
   await expectMetricValue(page, "data-count-utterances", 10);
   await expectMetricValue(page, "data-count-segments", 10);
-  await expectMetricValue(page, "data-count-social-ties", 6);
+  await expectMetricValue(page, "data-count-social-ties", 8);
 }
 
 async function verifySampleUploadPaths(page) {
@@ -156,6 +157,225 @@ async function expectWorkspaceRailPanel(page, mode, expectedTitle) {
   await panel.getByText(expectedTitle, { exact: false }).first().waitFor({ state: "visible", timeout: defaultTimeout });
 }
 
+async function closeWorkspaceTaskDrawer(page) {
+  const drawer = page.locator('[data-testid="workspace-left-panel-overlay"]').first();
+  if (await drawer.isVisible().catch(() => false)) {
+    await page.getByRole("button", { name: "Close workspace panel" }).click({ timeout: defaultTimeout });
+    await drawer.waitFor({ state: "hidden", timeout: defaultTimeout });
+  }
+}
+
+async function openResearchDetailsTab(page, tab) {
+  await closeWorkspaceTaskDrawer(page);
+  const drawer = page.locator('[data-testid="workspace-research-details-drawer"]').first();
+  if (await drawer.getAttribute("data-open") !== "true") {
+    await clickByTestId(page, "workspace-research-details-toggle");
+  }
+  await page.locator(`[data-testid="workspace-research-details-tab-${tab}"]`).click({ timeout: defaultTimeout });
+  await page.locator(`[data-testid="workspace-research-details-tab-${tab}"][aria-selected="true"]`).waitFor({ state: "visible", timeout: defaultTimeout });
+  return page.locator(`#workspace-research-details-panel-${tab}`).first();
+}
+
+async function closeResearchDetailsDrawer(page) {
+  const drawer = page.locator('[data-testid="workspace-research-details-drawer"]').first();
+  if (await drawer.getAttribute("data-open") === "true") {
+    await clickByTestId(page, "workspace-research-details-toggle");
+    await page.locator('[data-testid="workspace-research-details-drawer"][data-open="false"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  }
+}
+
+async function verifyResponsiveWorkspaceShell(browser, url) {
+  for (const width of [375, 768, 1024, 1440]) {
+    const height = width >= 1280 ? 1100 : 900;
+    const context = await browser.newContext({ viewport: { width, height } });
+    const page = await context.newPage();
+    try {
+      await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+      await page.locator(width < 1280
+        ? '[data-testid="workspace-mobile-figure-composition"]'
+        : '[data-testid="workspace-desktop-figure-composition"]').waitFor({ state: "visible", timeout: defaultTimeout });
+      await page.locator('[data-testid="workspace-primary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
+
+      const layout = await page.evaluate(() => ({
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight
+      }));
+      if (layout.scrollWidth > layout.clientWidth) {
+        throw new Error(`Responsive workspace overflows horizontally at ${width}px: ${JSON.stringify(layout)}.`);
+      }
+      if (width >= 1280 && layout.scrollHeight > layout.viewportHeight + 4) {
+        throw new Error(`Desktop workspace exceeds the viewport height at ${width}px: ${JSON.stringify(layout)}.`);
+      }
+
+      const detailsDrawer = page.locator('[data-testid="workspace-research-details-drawer"]').first();
+      if (await detailsDrawer.getAttribute("data-open") !== "false") {
+        throw new Error(`Research Details should default closed at ${width}px.`);
+      }
+      if (await detailsDrawer.locator("table:visible").count() !== 0) {
+        throw new Error(`Advanced tables should not be visible by default at ${width}px.`);
+      }
+      for (const selector of ['[data-testid="claim-readiness-gate"]', '[data-testid="enterprise-runtime-panel"]']) {
+        if (await page.locator(`${selector}:visible`).count() !== 0) {
+          throw new Error(`Advanced surface ${selector} should not be visible by default at ${width}px.`);
+        }
+      }
+      const visibleFusionCanvasCount = await page.locator('[data-testid="sena-fusion-canvas"]:visible').count();
+      if (visibleFusionCanvasCount !== 1) {
+        throw new Error(`Expected exactly one visible Fusion Canvas at ${width}px, received ${visibleFusionCanvasCount}.`);
+      }
+
+      const mobileSwitcher = page.locator('[data-testid="workspace-mobile-figure-switcher"]').first();
+      if (width < 1280) {
+        await mobileSwitcher.waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.locator('[data-testid="workspace-mobile-figure-composition"] [role="tabpanel"]').count() !== 1) {
+          throw new Error(`Responsive workspace should mount exactly one core tabpanel at ${width}px.`);
+        }
+        await page.locator('[data-testid="workspace-mobile-figure-fusion"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.locator('[data-testid="workspace-secondary-plot"]:visible').count() !== 0) {
+          throw new Error(`Dual Lens should be hidden behind the responsive switcher at ${width}px.`);
+        }
+        await page.locator('[data-testid="workspace-mobile-figure-fusion"]').focus();
+        await page.keyboard.press("ArrowLeft");
+        await page.locator('[data-testid="workspace-mobile-figure-dual"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) !== "workspace-mobile-figure-dual") {
+          throw new Error(`ArrowLeft should wrap Fusion focus to Dual Lens at ${width}px.`);
+        }
+        await page.keyboard.press("ArrowRight");
+        await page.locator('[data-testid="workspace-mobile-figure-fusion"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) !== "workspace-mobile-figure-fusion") {
+          throw new Error(`ArrowRight should wrap Dual Lens focus to Fusion at ${width}px.`);
+        }
+        await clickByTestId(page, "workspace-mobile-figure-dual");
+        await page.locator('[data-testid="workspace-mobile-figure-dual"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        await page.locator('[data-testid="workspace-secondary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.locator('[data-testid="workspace-primary-plot"]:visible').count() !== 0) {
+          throw new Error(`Fusion should be hidden when Dual Lens is selected at ${width}px.`);
+        }
+        await clickByTestId(page, "workspace-mobile-figure-fusion");
+        await page.locator('[data-testid="workspace-primary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
+      } else {
+        if (await mobileSwitcher.isVisible()) {
+          throw new Error("The responsive figure switcher should be hidden at the desktop breakpoint.");
+        }
+        if (await page.locator('[role="tablist"]:visible, [role="tabpanel"]:visible').count() !== 0) {
+          throw new Error("Desktop core figures should not expose mobile tablist or tabpanel semantics.");
+        }
+        await page.locator('[data-testid="workspace-secondary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
+      }
+
+      if (width === 1024) {
+        await page.setViewportSize({ width: 1440, height });
+        await page.locator('[data-testid="workspace-desktop-figure-composition"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        if (await page.locator('[data-testid="workspace-mobile-figure-switcher"]').count() !== 0) {
+          throw new Error("Workspace matchMedia listener did not remove mobile tab semantics after widening the viewport.");
+        }
+        await page.locator('[data-testid="workspace-secondary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
+        await page.setViewportSize({ width, height });
+        await page.locator('[data-testid="workspace-mobile-figure-composition"]').waitFor({ state: "visible", timeout: defaultTimeout });
+      }
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+async function verifyResearchDetailsDrawer(page) {
+  const drawer = page.locator('[data-testid="workspace-research-details-drawer"]').first();
+  const toggle = page.locator('[data-testid="workspace-research-details-toggle"]').first();
+  await drawer.waitFor({ state: "visible", timeout: defaultTimeout });
+
+  const initialState = await drawer.getAttribute("data-open");
+  if (initialState !== "false") {
+    throw new Error(`Research Details should default closed, received data-open=${initialState}.`);
+  }
+  for (const advancedSelector of ['[role="tabpanel"]', "#sena-stats-deck", "#workflow-report", '[data-testid="enterprise-runtime-panel"]']) {
+    if (await drawer.locator(advancedSelector).count() !== 0) {
+      throw new Error(`Research Details mounted advanced content while closed: ${advancedSelector}.`);
+    }
+  }
+
+  await toggle.click({ timeout: defaultTimeout });
+  await page.locator('[data-testid="workspace-research-details-tab-data"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  await page.locator('#workspace-research-details-panel-data').getByText("Raw Conversation Stream", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
+
+  const tabCases = [
+    ["analysis", "#sena-stats-deck", "SNA Metrics"],
+    ["evidence", "#workspace-research-details-panel-evidence", "Evidence Ledger"],
+    ["validation", "#workspace-research-details-panel-validation", "Method Validation"],
+    ["exports", "#workflow-report", "Report Generator"],
+    ["administration", '[data-testid="enterprise-runtime-panel"]', "Enterprise runtime"]
+  ];
+  for (const [tab, contentSelector, uniqueText] of tabCases) {
+    await page.locator(`[data-testid="workspace-research-details-tab-${tab}"]`).click({ timeout: defaultTimeout });
+    await page.locator(`[data-testid="workspace-research-details-tab-${tab}"][aria-selected="true"]`).waitFor({ state: "visible", timeout: defaultTimeout });
+    const content = drawer.locator(contentSelector).first();
+    await content.waitFor({ state: "visible", timeout: defaultTimeout });
+    await content.getByText(uniqueText, { exact: false }).first().waitFor({ state: "visible", timeout: defaultTimeout });
+  }
+
+  await activateButtonByTestId(page, "workspace-rail-model");
+  const taskDrawer = page.locator('[data-testid="workspace-left-panel-overlay"]').first();
+  await taskDrawer.waitFor({ state: "visible", timeout: defaultTimeout });
+  await page.keyboard.press("Escape");
+  await taskDrawer.waitFor({ state: "hidden", timeout: defaultTimeout });
+  if (await drawer.getAttribute("data-open") !== "true") {
+    throw new Error("First stacked Escape should leave Research Details open.");
+  }
+  await page.keyboard.press("Escape");
+  if (await drawer.getAttribute("data-open") !== "false") {
+    throw new Error("Second stacked Escape should close Research Details.");
+  }
+  await page.waitForFunction(
+    () => document.activeElement?.getAttribute("data-testid") === "workspace-research-details-toggle",
+    undefined,
+    { timeout: defaultTimeout }
+  );
+  const focusedAfterEscape = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? "");
+  if (focusedAfterEscape !== "workspace-research-details-toggle") {
+    throw new Error(`Research Details Escape close should return focus to its toggle, received ${focusedAfterEscape || "no focus"}.`);
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = "#workflow-report";
+  });
+  await page.locator('[data-testid="workspace-research-details-tab-exports"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  await drawer.locator("#workflow-report").waitFor({ state: "visible", timeout: defaultTimeout });
+
+  await toggle.click({ timeout: defaultTimeout });
+  await page.locator('[data-testid="workspace-research-details-drawer"][data-open="false"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  if (await page.evaluate(() => window.location.hash) !== "") {
+    throw new Error("Closing Research Details should clear its recognized report hash.");
+  }
+  await page.evaluate(() => {
+    window.location.hash = "#workflow-report";
+  });
+  await page.locator('[data-testid="workspace-research-details-tab-exports"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  await drawer.locator("#workflow-report").waitFor({ state: "visible", timeout: defaultTimeout });
+
+  await page.evaluate(() => {
+    window.location.hash = "#sena-stats-deck";
+  });
+  await page.locator('[data-testid="workspace-research-details-tab-analysis"][aria-selected="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  await drawer.locator("#sena-stats-deck").waitFor({ state: "visible", timeout: defaultTimeout });
+
+  await toggle.click({ timeout: defaultTimeout });
+  if (await drawer.getAttribute("data-open") !== "false") {
+    throw new Error("Research Details toggle did not close the drawer.");
+  }
+  await page.waitForFunction(
+    () => document.activeElement?.getAttribute("data-testid") === "workspace-research-details-toggle",
+    undefined,
+    { timeout: defaultTimeout }
+  );
+  const focusedAfterToggle = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? "");
+  if (focusedAfterToggle !== "workspace-research-details-toggle") {
+    throw new Error(`Research Details toggle close should retain focus, received ${focusedAfterToggle || "no focus"}.`);
+  }
+  await page.evaluate(() => window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`));
+}
+
 async function verifyWorkspaceShellAndPlotViews(page) {
   await page.locator('[data-testid="sena-workspace-mode-rail"][data-visual-role="workspace-shell-c3-glass-rail"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-rail-icon-model"][data-icon-name="layer-stack"][data-visual-role="workspace-rail-model-layer-stack-icon"]').waitFor({ state: "visible", timeout: defaultTimeout });
@@ -172,6 +392,7 @@ async function verifyWorkspaceShellAndPlotViews(page) {
   await page.locator('[data-testid="workspace-secondary-plot"][data-visual-role="workspace-secondary-plot"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-secondary-comparison-lens"][data-visual-role="secondary-plot-current-window-comparison"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-secondary-ranking-context"][data-visual-role="secondary-plot-signal-ranking-context"]').waitFor({ state: "visible", timeout: defaultTimeout });
+  await verifyResearchDetailsDrawer(page);
 
   const centralDeck = page.locator('[data-testid="workspace-central-plot-deck"]').first();
   const centralDeckDefaults = await centralDeck.evaluate((element) => ({
@@ -190,10 +411,10 @@ async function verifyWorkspaceShellAndPlotViews(page) {
   if (!priorityPrecedesAnalysisScope) {
     throw new Error("Current-window Fusion plot stack must sit directly above the analysis scope.");
   }
-  const fusionPriorityOrderIsSwapped = await page.locator('[data-testid="central-fusion-priority-plot"]').first().evaluate((priorityPlot) => {
-    const canvasFrame = priorityPlot.querySelector('[data-testid="central-fusion-canvas-frame"]');
-    const activeViewToolbar = priorityPlot.querySelector('[data-testid="central-active-view-toolbar"]');
-    const layerKey = priorityPlot.querySelector('[data-testid="fusion-layer-key"]');
+  const fusionPriorityOrderIsSwapped = await page.locator('[data-testid="workspace-primary-plot"]').first().evaluate((primaryPlot) => {
+    const canvasFrame = primaryPlot.querySelector('[data-testid="central-fusion-canvas-frame"]');
+    const activeViewToolbar = primaryPlot.querySelector('[data-testid="central-active-view-toolbar"]');
+    const layerKey = primaryPlot.querySelector('[data-testid="fusion-layer-key"]');
     if (!canvasFrame || !activeViewToolbar || !layerKey) return false;
     const canvasBeforeToolbar = (canvasFrame.compareDocumentPosition(activeViewToolbar) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     const toolbarBeforeLayerKey = (activeViewToolbar.compareDocumentPosition(layerKey) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -209,8 +430,8 @@ async function verifyWorkspaceShellAndPlotViews(page) {
     throw new Error(`Workspace default plot switcher should not open on Temporal: ${initialPlotSwitcherText}`);
   }
   await waitForVisibleText(page, "Fusion Plot - Current Window");
-  await waitForVisibleText(page, "Current-window Fusion evidence capsule");
-  await waitForVisibleText(page, "Active-window interpretation brief");
+  await waitForVisibleText(page, "Top social tie");
+  await waitForVisibleText(page, "Interpretation guardrail");
   await waitForVisibleText(page, "Current-window comparison lens");
   await page.locator('[data-testid="fusion-layer-key-line-weight-note"][data-visual-role="fusion-layer-key-line-weight-note"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
 
@@ -332,6 +553,7 @@ async function verifyWorkspaceShellAndPlotViews(page) {
     ["temporal", "Temporal"],
     ["fusion", "Fusion"]
   ];
+  await closeWorkspaceTaskDrawer(page);
   for (const [view, label] of viewCases) {
     await selectWorkspacePlotView(page, view, label);
     if (view === "dual") {
@@ -403,7 +625,7 @@ async function verifyActiveWindowFusionScope(page) {
   if (teachScope.checksum === planScope.checksum || teachScope.windowId === planScope.windowId) {
     throw new Error(`Central Fusion scope did not change after selecting Teach: before=${JSON.stringify(planScope)} after=${JSON.stringify(teachScope)}.`);
   }
-  assertTextIncludes(teachScope.text, "Current-window Fusion Plot", "Teach central Fusion analysis scope text");
+  assertTextIncludes(teachScope.text, "Interpretation guardrail", "Teach central Fusion analysis scope text");
 }
 
 async function setRangeValue(page, testId, value) {
@@ -511,7 +733,7 @@ async function verifyPilotAssetLinks(page, url) {
   await page.locator('[data-testid="pilot-asset-integrity"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-visual-role="pilot-asset-integrity"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
   const integritySignal = await page.locator('[data-testid="pilot-asset-integrity"]').first().innerText({ timeout: defaultTimeout });
-  assertTextIncludes(integritySignal, "12 manifest fingerprints", "pilot asset integrity signal");
+  assertTextIncludes(integritySignal, "13 manifest fingerprints", "pilot asset integrity signal");
 
   const links = await page.locator('[data-testid="pilot-asset-link"]').evaluateAll((anchors) => anchors.map((anchor) => ({
     href: anchor.getAttribute("href") ?? "",
@@ -519,8 +741,8 @@ async function verifyPilotAssetLinks(page, url) {
     kind: anchor.getAttribute("data-asset-kind") ?? "",
     label: anchor.textContent?.replace(/\s+/g, " ").trim() ?? ""
   })));
-  if (links.length !== 13) {
-    throw new Error(`Expected 13 pilot asset links, received ${links.length}.`);
+  if (links.length !== 14) {
+    throw new Error(`Expected 14 pilot asset links, received ${links.length}.`);
   }
   for (const link of links) {
     if (link.href !== link.dataHref) {
@@ -534,7 +756,7 @@ async function verifyPilotAssetLinks(page, url) {
   const manifestLinks = links.filter((link) => link.kind === "manifest");
   const sampleLinks = links.filter((link) => link.kind === "sample");
   const templateLinks = links.filter((link) => link.kind === "template");
-  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 6) {
+  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 7) {
     throw new Error(`Unexpected pilot asset counts: manifest=${manifestLinks.length}; sample=${sampleLinks.length}; template=${templateLinks.length}.`);
   }
 
@@ -617,7 +839,7 @@ async function verifyPilotAssetLinks(page, url) {
   if (modelJsonHandoff?.artifact !== "sena-project-snapshot.json") {
     throw new Error("Pilot manifest is missing the model-json-export handoff check.");
   }
-  for (const expected of ["S/W/B/G matrices", "temporal trace windows"]) {
+  for (const expected of ["S/W/B/B_PC/B_CP/G matrices", "temporal trace windows"]) {
     if (!modelJsonHandoff.expectedEvidence?.includes(expected)) {
       throw new Error(`Pilot manifest model-json-export handoff is missing expected evidence ${expected}.`);
     }
@@ -714,6 +936,7 @@ async function withPreparedArtifactDownloadPage(browser, url, callback) {
 }
 
 async function verifyRuntimeMethodArtifactDownloads(page) {
+  await openResearchDetailsTab(page, "exports");
   const { parsed: runtimeBundle } = await downloadJsonByButton(
     page,
     /Export runtime bundle/i,
@@ -787,16 +1010,16 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   const pilotManifestEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json");
   if (pilotManifestEvidence?.status !== "ready" ||
     !pilotManifestEvidence.handoffChecks?.includes("pilot-asset-integrity") ||
-    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=12") ||
-    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=12")) {
+    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=13") ||
+    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=13")) {
     throw new Error("Runtime bundle artifact evidence is missing pilot asset-integrity handoff coverage.");
   }
   const runtimeBundleEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json");
   if (runtimeBundleEvidence?.status !== "ready" || !runtimeBundleEvidence.matrixCoverage?.some((entry) => String(entry).startsWith("A_fusion="))) {
-    throw new Error("Runtime bundle artifact evidence is missing S/W/B/G/A_fusion matrix coverage.");
+    throw new Error("Runtime bundle artifact evidence is missing S/W/B/B_PC/B_CP/G/A_fusion matrix coverage.");
   }
   if (!runtimeBundleEvidence.handoffChecks?.includes("matrix-fingerprints") ||
-    !runtimeBundleEvidence.evidenceCoverage?.includes("matrixFingerprints=5") ||
+    !runtimeBundleEvidence.evidenceCoverage?.includes("matrixFingerprints=7") ||
     !runtimeBundleEvidence.evidenceCoverage?.some((entry) => /^A_fusionChecksum=0x[a-f0-9]{8}$/.test(String(entry)))) {
     throw new Error("Runtime bundle artifact evidence is missing matrix fingerprint handoff coverage.");
   }
@@ -834,6 +1057,9 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("jENA report export is missing concept-pair handoff rows linking jENA totals to SENA W weights.");
   }
 
+  await closeResearchDetailsDrawer(page);
+  await clickByTestId(page, "workspace-rail-stats");
+  await waitForVisibleText(page, "Local runtime snapshot");
   const { parsed: snaReport } = await downloadJsonByButton(
     page,
     /Export SNA report/i,
@@ -851,8 +1077,6 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("jSNA report export is missing social-tie handoff rows linking jSNA matrix weights to SENA S edges.");
   }
 
-  await clickByTestId(page, "workspace-rail-stats");
-  await waitForVisibleText(page, "Local runtime snapshot");
   const { parsed: metricProvenance } = await downloadJsonByTestId(
     page,
     "export-stats-metric-provenance",
@@ -910,7 +1134,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("Method protocol export is missing runtime handoff evidence for jENA, jSNA, or fusion math.");
   }
 
-  await clickByTestId(page, "workspace-rail-sets");
+  await openResearchDetailsTab(page, "exports");
   const { parsed: runtimeAudit } = await downloadJsonByButton(
     page,
     /Export runtime audit/i,
@@ -952,6 +1176,8 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("Runtime consistency audit export is missing jSNA social-tie handoff matrix evidence.");
   }
 
+  await closeResearchDetailsDrawer(page);
+  await expectWorkspaceRailPanel(page, "sets", "Data Import");
   const { parsed: dataAudit } = await downloadJsonByButton(
     page,
     /Export data audit/i,
@@ -971,11 +1197,12 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   }
   const matrixFingerprints = Array.isArray(fusionMathAudit.matrixFingerprints) ? fusionMathAudit.matrixFingerprints : [];
   const matrixFingerprintIds = matrixFingerprints.map((fingerprint) => fingerprint.id).join("|");
-  if (matrixFingerprintIds !== "S|W|B|G|A_fusion" ||
+  if (matrixFingerprintIds !== "S|W|B|B_PC|B_CP|G|A_fusion" ||
     !matrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))) {
-    throw new Error("Fusion math audit export is missing stable S/W/B/G/A_fusion matrix fingerprints.");
+    throw new Error("Fusion math audit export is missing stable S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints.");
   }
 
+  await openResearchDetailsTab(page, "analysis");
   const { parsed: temporalTrace } = await downloadJsonByButton(
     page,
     /Export temporal runtime/i,
@@ -985,7 +1212,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   if (!temporalTrace.windows?.some((entry) => entry.ena?.status === "computed" && entry.sna?.status === "computed")) {
     throw new Error("Temporal runtime trace export is missing computed jENA/jSNA window status.");
   }
-  if (!temporalTrace.windows?.every((entry) => entry.sena?.matrixFingerprints?.length === 5) ||
+  if (!temporalTrace.windows?.every((entry) => entry.sena?.matrixFingerprints?.length === 7) ||
     !temporalTrace.windows?.some((entry) => entry.sena?.matrixFingerprints?.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))) {
     throw new Error("Temporal runtime trace export is missing per-window matrix fingerprints.");
   }
@@ -994,6 +1221,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("Temporal runtime trace export is missing adjacent-window transition delta evidence.");
   }
 
+  await openResearchDetailsTab(page, "evidence");
   const { parsed: evidenceLedger } = await downloadJsonByButton(
     page,
     /Export evidence ledger/i,
@@ -1010,6 +1238,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
 }
 
 async function verifyWorkflowHandoffArtifactDownloads(page) {
+  await openResearchDetailsTab(page, "exports");
   const { parsed: walkthrough } = await downloadJsonByButton(
     page,
     /Export walkthrough JSON/i,
@@ -1048,8 +1277,8 @@ async function verifyWorkflowHandoffArtifactDownloads(page) {
     !sampleImportCheck?.expectedOutcome?.includes("manifest fingerprints")) {
     throw new Error("Demo verification sample-import check is missing asset-integrity manual review wording.");
   }
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=12", "demo verification sample-import evidence");
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=12", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=13", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=13", "demo verification sample-import evidence");
   assertArrayIncludes(sampleImportCheck.observedEvidence, "handoff=pilot-asset-integrity", "demo verification sample-import evidence");
 
   const { parsed: compatibilityAudit } = await downloadJsonByButton(
@@ -1214,6 +1443,7 @@ async function verifyDeclaredResearchArtifactDownloads(browser, url) {
 }
 
 async function verifyArtifactDownloadsAndRestore(page) {
+  await openResearchDetailsTab(page, "exports");
   const { parsed: snapshot, text: snapshotText } = await downloadJsonByButton(
     page,
     /Export project snapshot/i,
@@ -1312,7 +1542,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Report JSON active-window brief is missing S/W/B/G signals, evidence cues, or review checklist.");
   }
   const reportMatrixFingerprints = reportJson.fusionMathAudit?.matrixFingerprints ?? [];
-  if (reportMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|G|A_fusion" ||
+  if (reportMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|B_PC|B_CP|G|A_fusion" ||
     !reportMatrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))) {
     throw new Error("Report JSON is missing stable fusion-math matrix fingerprints.");
   }
@@ -1466,13 +1696,13 @@ async function verifyArtifactDownloadsAndRestore(page) {
   }
   const reportBundleHandoff = reviewPacket.reviewPacketAudit?.items?.find((item) => item.id === "report-bundle-consistency");
   if (reportBundleHandoff?.status !== "pass" ||
-    !String(reportBundleHandoff.actual ?? "").includes("matrixFingerprints=5") ||
-    !reportBundleHandoff.evidence?.includes("matrixFingerprintIds=S|W|B|G|A_fusion")) {
+    !String(reportBundleHandoff.actual ?? "").includes("matrixFingerprints=7") ||
+    !reportBundleHandoff.evidence?.includes("matrixFingerprintIds=S|W|B|B_PC|B_CP|G|A_fusion")) {
     throw new Error("Review packet report-bundle handoff is missing matrix fingerprint consistency evidence.");
   }
   const packetMatrixFingerprints = reviewPacket.contents?.fusionMathAudit?.matrixFingerprints ?? [];
-  if (packetMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|G|A_fusion") {
-    throw new Error("Review packet fusion math audit is missing S/W/B/G/A_fusion matrix fingerprints.");
+  if (packetMatrixFingerprints.map((fingerprint) => fingerprint.id).join("|") !== "S|W|B|B_PC|B_CP|G|A_fusion") {
+    throw new Error("Review packet fusion math audit is missing S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints.");
   }
   if (reviewPacket.contents?.visualGrammarArtifact?.schemaVersion !== "sena-visual-grammar/v1") {
     throw new Error("Review packet is missing embedded visual grammar artifact.");
@@ -1506,7 +1736,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Review packet audit is missing a passing pilot-package manifest handoff item.");
   }
   assertTextIncludes(pilotPackageHandoff.actual ?? "", "assetIntegrityCoverage=true", "review packet pilot package handoff");
-  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=12", "review packet pilot package handoff evidence");
+  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=13", "review packet pilot package handoff evidence");
   assertArrayIncludes(pilotPackageHandoff.evidence, "runtimeArtifact=sena-runtime-bundle.json", "review packet pilot package runtime handoff evidence");
   assertArrayIncludes(
     pilotPackageHandoff.evidence,
@@ -1587,6 +1817,8 @@ async function verifyArtifactDownloadsAndRestore(page) {
     assertTextIncludes(reviewPacketText, marker, "review packet bilingual evidence");
   }
 
+  await closeResearchDetailsDrawer(page);
+  await expectWorkspaceRailPanel(page, "sets", "Data Import");
   await uploadTextPayloadByTestId(page, "sena-upload-input", "sena-review-packet.json", "application/json", reviewPacketText);
   await waitForVisibleText(page, "sena-review-packet.json: review packet restored editable workspace state");
   await expectLessonStudyCounts(page);
@@ -1609,7 +1841,7 @@ async function verifyCanvasSelection(page) {
   const personNodeTestId = await personNode.getAttribute("data-testid", { timeout: defaultTimeout });
   const personNodeId = personNodeTestId?.replace(/^sena-node-/, "");
   await personNode.click({ timeout: defaultTimeout });
-  await inspector.getByText("Bridge score", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
+  await inspector.getByText("Bridge score (exp.)", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
   await inspector.getByText("SNA degree", { exact: true }).waitFor({ state: "visible", timeout: defaultTimeout });
   const centralNodeLabels = page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="fusion-selected-node-label"][data-selected="true"]');
   if (personNodeId) {
@@ -1732,6 +1964,7 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
   });
 
   try {
+    await verifyResponsiveWorkspaceShell(browser, url);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     await page.locator('[data-testid="sena-fusion-canvas"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
     await verifyWorkspaceShellAndPlotViews(page);
@@ -1757,16 +1990,17 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     await waitForVisibleText(page, "Lesson-study sample loaded from the research pilot package.");
     await expectLessonStudyCounts(page);
 
-    await clickByTestId(page, "canvas-layout-ena-space");
-    await waitForVisibleText(page, "ENA Space uses jENA projected unit points");
-    await clickByTestId(page, "canvas-layout-joint");
-    await waitForVisibleText(page, "Joint mode uses the normalized fusion matrix as a deterministic visual embedding");
-    await waitForVisibleText(page, "stability checks before making substantive distance claims");
-    await clickByTestId(page, "canvas-layout-explanatory");
-	    await waitForVisibleText(page, "In explanatory mode, cross-layer distances are arranged for readability");
+    await activateButtonByTestId(page, "workspace-rail-model");
+    await clickByTestId(page, "model-layout-ena-space");
+    await waitForVisibleText(page, "jENA projected points and code positions");
+    await clickByTestId(page, "model-layout-joint");
+    await waitForVisibleText(page, "Selectable A_fusion embedding operators");
+    await waitForVisibleText(page, "Joint embedding provenance");
+    await waitForVisibleText(page, "stress");
+    await clickByTestId(page, "model-layout-explanatory");
+    await waitForVisibleText(page, "Readable non-metric three-layer layout");
 
-	    await activateButtonByTestId(page, "workspace-rail-model");
-	    for (const modelControlId of [
+    for (const modelControlId of [
 	      "model-layout-explanatory",
 	      "model-layout-ena-space",
 	      "model-layout-joint",
@@ -1778,24 +2012,18 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
 	      "gamma-slider",
 	      "edge-threshold-slider",
 	      "normalization-select"
-	    ]) {
-	      await page.locator(`[data-testid="${modelControlId}"]`).first().waitFor({ state: "visible", timeout: defaultTimeout });
-	    }
-	    await setRangeValue(page, "alpha-slider", "0.33");
+    ]) {
+      await page.locator(`[data-testid="${modelControlId}"]`).first().waitFor({ state: "visible", timeout: defaultTimeout });
+    }
+    await setRangeValue(page, "alpha-slider", "0.33");
     await setRangeValue(page, "beta-slider", "0.44");
     await setRangeValue(page, "gamma-slider", "0.55");
     await waitForVisibleText(page, "0.33");
     await waitForVisibleText(page, "0.44");
     await waitForVisibleText(page, "0.55");
+    await clickByTestId(page, "workspace-rail-stats");
     await waitForVisibleText(page, "Metric provenance");
     await waitForVisibleText(page, "sena-metric-provenance/v1");
-    await waitForVisibleText(page, "jena-js");
-    await waitForVisibleText(page, "sna.js closeness()");
-    await waitForVisibleText(page, "sna.js labelPropagation()");
-    await waitForVisibleText(page, "sena-self-implemented");
-    await waitForVisibleText(page, "sena-composite");
-    await waitForVisibleText(page, "R sna::betweenness fixtures");
-    await clickByTestId(page, "workspace-rail-stats");
     await waitForVisibleText(page, "Local runtime snapshot");
     await waitForVisibleText(page, "jENA concept-pair handoff");
     await waitForVisibleText(page, "SENA W coverage audit");
@@ -1862,8 +2090,17 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     ) {
       throw new Error(`Stats method-protocol handoff panel has invalid attributes: ${JSON.stringify(methodProtocolHandoffAttrs)}`);
     }
+    await openResearchDetailsTab(page, "exports");
+    await waitForVisibleText(page, "jena-js");
+    await waitForVisibleText(page, "sna.js closeness()");
+    await waitForVisibleText(page, "sna.js labelPropagation()");
+    await waitForVisibleText(page, "sena-self-implemented");
+    await waitForVisibleText(page, "sena-composite");
+    await waitForVisibleText(page, "R sna::betweenness fixtures");
+    await openResearchDetailsTab(page, "validation");
     await page.locator('[data-testid="metric-provenance-panel"]').waitFor({ state: "visible", timeout: defaultTimeout });
     await page.locator('[data-visual-role="sena-metric-provenance"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+    await openResearchDetailsTab(page, "exports");
     await waitForVisibleText(page, "Claim readiness gate");
     await waitForVisibleText(page, "sena-claim-readiness-gate/v1");
     await waitForVisibleText(page, "sena-claim-readiness-gate.json");
@@ -1879,6 +2116,7 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     await page.locator('[data-audit-id="development-plan-handoff"]').waitFor({ state: "attached", timeout: defaultTimeout });
     await page.locator('[data-audit-id="method-protocol-handoff"]').waitFor({ state: "attached", timeout: defaultTimeout });
 
+    await closeResearchDetailsDrawer(page);
     await clickByTestId(page, "workspace-plot-switcher");
     await clickByTestId(page, "workspace-plot-view-temporal");
     await waitForVisibleText(page, "Temporal Fusion Arc");
@@ -1897,15 +2135,17 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     await waitForVisibleText(page, "Temporal transition evidence");
     await waitForVisibleText(page, "Delta G");
     await waitForVisibleText(page, "Delta A_fusion");
-    await waitForVisibleText(page, "A_fusion checksum");
     await page.locator('[data-testid="temporal-fusion-arc"]').waitFor({ state: "visible", timeout: defaultTimeout });
-    await page.locator('[data-testid="temporal-window-fingerprint"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
-    await page.locator('[data-visual-role="temporal-window-fingerprint"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
     await page.locator('[data-visual-role="temporal-g-pair-metric"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
     await page.locator('[data-visual-role="temporal-trace-g-pair-line"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
     await page.locator('[data-testid="temporal-transition-evidence"]').waitFor({ state: "visible", timeout: defaultTimeout });
+    await openResearchDetailsTab(page, "analysis");
+    await waitForVisibleText(page, "A_fusion checksum");
+    await page.locator('[data-testid="temporal-window-fingerprint"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+    await page.locator('[data-visual-role="temporal-window-fingerprint"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
     await page.locator('[data-testid="temporal-transition-summary"]').waitFor({ state: "visible", timeout: defaultTimeout });
     await page.locator('[data-visual-role="temporal-transition-summary"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+    await closeResearchDetailsDrawer(page);
     await page.locator('[data-testid="temporal-fusion-phase-teach"]').click({ timeout: defaultTimeout });
     await page.locator('[data-testid="temporal-fusion-phase-teach"][aria-pressed="true"]').waitFor({ state: "visible", timeout: defaultTimeout });
     await waitForVisibleText(page, "evidence refs");
@@ -1915,7 +2155,9 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
     await verifyCanvasSelection(page);
 
     await verifyArtifactDownloadsAndRestore(page);
+    await openResearchDetailsTab(page, "exports");
     await downloadJsonByButton(page, /Export ENA report/i, "sena-ena-report.json", "sena-ena-report/v1");
+    await closeResearchDetailsDrawer(page);
     await clickByTestId(page, "workspace-rail-stats");
     await waitForVisibleText(page, "Local runtime snapshot");
     await downloadJsonByTestId(page, "export-stats-sna-report", "sena-sna-report.json", "sena-sna-report/v1");

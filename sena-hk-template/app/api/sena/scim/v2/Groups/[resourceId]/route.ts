@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { jsonError } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import { provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
+
+type ScimResourceRouteContext = { params: Promise<{ resourceId: string }> };
 
 function scimOptions(request: Request): SenaScimProvisioningOptions {
   const url = new URL(request.url);
@@ -24,18 +26,16 @@ async function upsertGroup(request: Request, resourceId: string) {
   return NextResponse.json(bridge.resource);
 }
 
-export async function PUT(request: Request, { params }: { params: { resourceId: string } }) {
-  try {
-    return await upsertGroup(request, params.resourceId);
-  } catch (error) {
-    return jsonError(error);
-  }
+export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+    const { resourceId } = await params;
+    return await upsertGroup(request, resourceId);
+  });
 }
 
-export async function PATCH(request: Request, { params }: { params: { resourceId: string } }) {
-  try {
-    return await upsertGroup(request, params.resourceId);
-  } catch (error) {
-    return jsonError(error);
-  }
+export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+    const { resourceId } = await params;
+    return await upsertGroup(request, resourceId);
+  });
 }

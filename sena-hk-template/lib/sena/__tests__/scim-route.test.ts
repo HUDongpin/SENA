@@ -62,6 +62,8 @@ describe("SENA SCIM route production ownership gate", () => {
       const identityExtension = body[senaScimIdentityProductionExtensionSchema];
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-scim-service-provider-config");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(body.schemaVersion).toBe("sena-scim-service-provider-config/v1");
       expect(body.schemas).toContain(senaScimIdentityProductionExtensionSchema);
       expect(body.supportedSchemas).toContain(senaScimIdentityProductionExtensionSchema);

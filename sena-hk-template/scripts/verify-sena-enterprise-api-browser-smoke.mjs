@@ -141,21 +141,41 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     const transcript = [
       "1",
       "00:00:01,000 --> 00:00:03,000",
-      "Ada: We should ask a better #Question and gather #Evidence.",
+      "P01: We should ask a better #Question and gather #Evidence.",
       "",
       "2",
       "00:00:04,000 --> 00:00:06,000",
-      "Ben: The graph gives #Evidence for the emerging #Claim.",
+      "P02: The graph gives #Evidence for the emerging #Claim.",
       "",
       "3",
       "00:00:07,000 --> 00:00:09,000",
-      "Ada: Let's write an {{Explanation}} and return to #Reflection."
+      "P01: Let's write an {{Explanation}} and return to #Reflection."
     ].join("\n");
 
     const form = new FormData();
     form.set("action", "create-project");
     form.set("title", "Enterprise API Smoke Transcript");
     form.set("includeRuntimeBundle", "true");
+    form.set("codingReliability", JSON.stringify({
+      status: "documented",
+      reviewer: "Enterprise API smoke fixture",
+      reviewedAt: "2026-07-07T00:00:00.000Z",
+      codingScheme: "Synthetic smoke transcript coding fixture v1",
+      unitOfCoding: "utterance",
+      coderCount: 2,
+      agreementMetric: "fixture-consensus",
+      agreementValue: "1.00",
+      adjudicationNotes: "Synthetic smoke fixture uses deterministic consensus coding.",
+      limitations: "Synthetic fixture only; not human-subjects research evidence."
+    }));
+    form.set("dataGovernance", JSON.stringify({
+      irbApprovalId: "SYNTHETIC-SMOKE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic browser-smoke fixture; no participant data.",
+      retentionPolicy: "Retain only generated smoke artifacts for automated verification.",
+      usageConstraints: ["Automated verification only", "Do not use for research claims"],
+      dataSteward: "SENA enterprise smoke verifier",
+      reviewedAt: "2026-07-07T00:00:00.000Z"
+    }));
     form.append("files", new File([transcript], "enterprise-api-smoke-transcript.srt", {
       type: "application/x-subrip"
     }));

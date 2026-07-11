@@ -1,22 +1,30 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import {
-  acceptEnterpriseInvitation,
-  createEnterpriseInvitation,
-  revokeEnterpriseInvitation,
-  sanitizeEnterpriseContext,
-  type SenaEnterpriseInvitation,
-  type SenaEnterpriseMembership
-} from "@/lib/sena/enterprise/identity-auth";
-import { jsonError, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+  sanitizeEnterpriseContext
+} from "@/lib/sena/enterprise/auth-session";
+import {
+  acceptEnterpriseInvitationAsync,
+  createEnterpriseInvitationAsync,
+  revokeEnterpriseInvitationAsync,
+  type SenaEnterpriseInvitation
+} from "@/lib/sena/enterprise/auth-invitations";
+import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
+
+type InvitationMembershipHeaderSource = {
+  id: string;
+  role: string;
+  status: string;
+};
 
 function requestOrigin(request: Request) {
   const url = new URL(request.url);
   return url.origin;
 }
 
-function invitationLifecycleHeaders(invitation: SenaEnterpriseInvitation, membership?: SenaEnterpriseMembership): HeadersInit {
+function invitationLifecycleHeaders(invitation: SenaEnterpriseInvitation, membership?: InvitationMembershipHeaderSource): HeadersInit {
   const headers: Record<string, string> = {
     "x-sena-invitation-id": invitation.id,
     "x-sena-invitation-status": invitation.status,
@@ -32,10 +40,10 @@ function invitationLifecycleHeaders(invitation: SenaEnterpriseInvitation, member
 }
 
 export async function POST(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const invitation = createEnterpriseInvitation(context, {
+    const invitation = await createEnterpriseInvitationAsync(context, {
       teamId: String(body.teamId || context.teams[0]?.id || ""),
       email: String(body.email ?? ""),
       role: body.role === "pi" || body.role === "admin" || body.role === "coder" || body.role === "reviewer" || body.role === "viewer"
@@ -43,38 +51,34 @@ export async function POST(request: Request) {
         : "reviewer",
       baseUrl: requestOrigin(request)
     });
-    return NextResponse.json({ schemaVersion: "sena-team-invitation/v1", invitation }, {
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.teamInvitation, invitation }, {
       status: 201,
       headers: invitationLifecycleHeaders(invitation)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function DELETE(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     const url = new URL(request.url);
     let invitationId = url.searchParams.get("invitationId") || "";
     if (!invitationId) {
       const body = await request.json().catch(() => ({}));
       invitationId = String(body.invitationId ?? "");
     }
-    const invitation = revokeEnterpriseInvitation(context, invitationId);
-    return NextResponse.json({ schemaVersion: "sena-team-invitation/v1", invitation }, {
+    const invitation = await revokeEnterpriseInvitationAsync(context, invitationId);
+    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.teamInvitation, invitation }, {
       headers: invitationLifecycleHeaders(invitation)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
 
 export async function PATCH(request: Request) {
-  try {
-    const context = requireApiSessionForMutation(request);
+  return observeSenaApiRoute(request, { routeId: "sena-team-invitations" }, async () => {
+    const context = await requireApiSessionForMutation(request);
     const body = await request.json();
-    const accepted = acceptEnterpriseInvitation(context, {
+    const accepted = await acceptEnterpriseInvitationAsync(context, {
       invitationId: body.invitationId ? String(body.invitationId) : undefined,
       inviteCode: body.inviteCode ? String(body.inviteCode) : undefined
     });
@@ -86,7 +90,5 @@ export async function PATCH(request: Request) {
     }, {
       headers: invitationLifecycleHeaders(accepted.invitation, accepted.membership)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

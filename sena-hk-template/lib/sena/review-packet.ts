@@ -5,181 +5,20 @@ import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import type { SenaModel, SenaPilotPackageManifest, SenaReviewPacket, SenaReviewPacketArtifact, SenaReviewPacketAudit, SenaReviewPacketAuditItem, SenaTemporalWindow } from "./types";
+import {
+  getSenaReviewPacketContentKey,
+  listSenaReviewPacketArtifacts,
+  listSenaReviewPacketFilenames
+} from "./artifact-catalog";
+import type { SenaModel, SenaPilotPackageManifest, SenaReviewPacket, SenaReviewPacketAudit, SenaReviewPacketAuditItem, SenaTemporalWindow } from "./types";
 
 export type SenaReviewPacketOptions = SenaRuntimeBundleOptions;
 
 const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifest;
 
-const artifactManifest: SenaReviewPacketArtifact[] = [
-  {
-    filename: "sena-review-packet.json",
-    schemaVersion: SENA_SCHEMA_VERSIONS.reviewPacket,
-    description: "Single-file reviewer handoff containing report Markdown, report JSON, runtime bundle, audits, evidence, walkthrough, and verification checklist."
-  },
-  {
-    filename: "sena-analysis-report.json",
-    schemaVersion: "sena-report/v1",
-    description: "Structured SENA report with parameters, matrices, runtime manifests, evidence, validation, guardrails, claim-readiness gate, and human-review fields."
-  },
-  {
-    filename: "sena-analysis-report.md",
-    schemaVersion: "markdown",
-    description: "Researcher-readable Markdown report generated from the same structured report object."
-  },
-  {
-    filename: "sena-runtime-bundle.json",
-    schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,
-    description: "jENA, jSNA, SENA matrix, temporal, validation, audit, and evidence runtime bundle."
-  },
-  {
-    filename: "sena-project-snapshot.json",
-    schemaVersion: "sena-project-snapshot/v1",
-    description: "Restorable local workspace snapshot with source data, active analysis scope, build options, report, and manual-review state."
-  },
-  {
-    filename: "sena-jena-manifest.json",
-    schemaVersion: "sena-ena-manifest/v1",
-    description: "Standalone jENA manifest for ENA projection, connection-count, and line-weight provenance."
-  },
-  {
-    filename: "sena-ena-report.json",
-    schemaVersion: "sena-ena-report/v1",
-    description: "Standalone jENA epistemic report with ENA-space outputs, W-matrix handoff audit, and interpretation guardrails."
-  },
-  {
-    filename: "sena-jsna-manifest.json",
-    schemaVersion: "sena-jsna-manifest/v1",
-    description: "Standalone jSNA/sna.js manifest for social-network runtime provenance."
-  },
-  {
-    filename: "sena-sna-report.json",
-    schemaVersion: "sena-sna-report/v1",
-    description: "Standalone social-network report with SNA metric provenance, manifest, social report, and S matrix."
-  },
-  {
-    filename: "sena-metric-provenance.json",
-    schemaVersion: "sena-metric-provenance/v1",
-    description: "Standalone metric provenance artifact with metric source, parity status, interpretation limits, and social metric snapshot."
-  },
-  {
-    filename: "sena-person-code-pair-g-report.json",
-    schemaVersion: "sena-person-code-pair-g-report/v1",
-    description: "Standalone person-code-pair G contribution report with supporting S/W/B matrices and interpretation guardrails."
-  },
-  {
-    filename: "sena-pilot-package-manifest.json",
-    schemaVersion: "sena-pilot-package-manifest/v1",
-    description: "Machine-readable pilot package manifest with sample assets, templates, asset-integrity fingerprints, runtime roles, and expected export artifacts."
-  },
-  {
-    filename: "sena-evidence-ledger.json",
-    schemaVersion: "sena-evidence-ledger/v1",
-    description: "Traceable utterance and edge/pair/window evidence ledger for human interpretation review."
-  },
-  {
-    filename: "sena-temporal-runtime-trace.json",
-    schemaVersion: "sena-temporal-runtime-trace/v1",
-    description: "Per-window jENA/jSNA/SENA runtime status and temporal settings."
-  },
-  {
-    filename: "sena-data-contract-audit.json",
-    schemaVersion: "sena-data-contract-audit/v1",
-    description: "Five-table SENA data-contract validation and row-count evidence."
-  },
-  {
-    filename: "sena-runtime-consistency-audit.json",
-    schemaVersion: "sena-runtime-consistency/v1",
-    description: "Standalone local jENA/jSNA runtime consistency audit, including jENA concept-pair handoff and jSNA S-matrix checks."
-  },
-  {
-    filename: "sena-fusion-math-audit.json",
-    schemaVersion: "sena-fusion-math-audit/v1",
-    description: "S/W/B/G block construction and A_fusion formula audit."
-  },
-  {
-    filename: "sena-method-protocol.json",
-    schemaVersion: "sena-method-protocol/v1",
-    description: "Structured SENA mathematical and runtime method protocol for researchers."
-  },
-  {
-    filename: "sena-visual-grammar.json",
-    schemaVersion: "sena-visual-grammar/v1",
-    description: "Standalone visual grammar artifact for A1 Fusion Canvas and Temporal Fusion Arc encodings."
-  },
-  {
-    filename: "sena-development-plan.json",
-    schemaVersion: "sena-development-plan/v1",
-    description: "Local research-pilot scope, development phases, deferred production work, and verification gates."
-  },
-  {
-    filename: "sena-pilot-readiness-audit.json",
-    schemaVersion: "sena-pilot-readiness/v1",
-    description: "Local pilot readiness checks across data, formula, runtimes, evidence, validation, and review."
-  },
-  {
-    filename: "sena-coding-reliability-gate.json",
-    schemaVersion: "sena-coding-reliability-gate/v1",
-    description: "Standalone coding-reliability gate documenting coding scheme, coder count, agreement evidence, adjudication, and limitations."
-  },
-  {
-    filename: "sena-claim-readiness-gate.json",
-    schemaVersion: "sena-claim-readiness-gate/v1",
-    description: "Standalone claim-readiness gate showing whether SENA outputs are research-claim-ready or exploratory-only."
-  },
-  {
-    filename: "sena-demo-walkthrough.json",
-    schemaVersion: "sena-demo-walkthrough/v1",
-    description: "Six-step local demo walkthrough aligned to the workspace anchors."
-  },
-  {
-    filename: "sena-demo-verification.json",
-    schemaVersion: "sena-demo-verification/v1",
-    description: "Manual verification checklist with automated evidence for the local research pilot."
-  },
-  {
-    filename: "sena-demo-verification-compatibility-audit.json",
-    schemaVersion: "sena-demo-verification-compatibility/v1",
-    description: "Compatibility gate evidence for reapplying demo verification manual-review records to the active model."
-  },
-  {
-    filename: "sena-production-page-contract.json",
-    schemaVersion: "sena-production-page-contract/v1",
-    description: "Production page smoke-test contract for required local demo affordances and visual grammar guards."
-  }
-];
+const artifactManifest = listSenaReviewPacketArtifacts();
 
 type ReviewPacketAuditInput = Pick<SenaReviewPacket, "analysisWindow" | "artifactManifest" | "contents" | "reviewGuardrails" | "schemaVersion" | "summary">;
-
-const contentKeyByFilename: Record<string, keyof SenaReviewPacket["contents"] | "self"> = {
-  "sena-review-packet.json": "self",
-  "sena-analysis-report.json": "reportJson",
-  "sena-analysis-report.md": "reportMarkdown",
-  "sena-runtime-bundle.json": "runtimeBundle",
-  "sena-project-snapshot.json": "projectSnapshot",
-  "sena-jena-manifest.json": "jenaManifest",
-  "sena-ena-report.json": "enaReportArtifact",
-  "sena-jsna-manifest.json": "jsnaManifest",
-  "sena-sna-report.json": "snaReportArtifact",
-  "sena-metric-provenance.json": "metricProvenanceArtifact",
-  "sena-person-code-pair-g-report.json": "pairContributionReportArtifact",
-  "sena-pilot-package-manifest.json": "pilotPackageManifest",
-  "sena-evidence-ledger.json": "evidenceLedger",
-  "sena-temporal-runtime-trace.json": "temporalRuntimeTrace",
-  "sena-data-contract-audit.json": "dataContractAudit",
-  "sena-runtime-consistency-audit.json": "runtimeConsistencyAudit",
-  "sena-fusion-math-audit.json": "fusionMathAudit",
-  "sena-method-protocol.json": "methodProtocol",
-  "sena-visual-grammar.json": "visualGrammarArtifact",
-  "sena-development-plan.json": "developmentPlan",
-  "sena-pilot-readiness-audit.json": "pilotReadinessAudit",
-  "sena-coding-reliability-gate.json": "codingReliabilityGate",
-  "sena-claim-readiness-gate.json": "claimReadinessGate",
-  "sena-demo-walkthrough.json": "demoWalkthrough",
-  "sena-demo-verification.json": "demoVerification",
-  "sena-demo-verification-compatibility-audit.json": "demoVerificationCompatibilityAudit",
-  "sena-production-page-contract.json": "productionPageContract"
-};
 
 function auditItem(
   id: string,
@@ -224,7 +63,7 @@ function analysisScopeSummary(window: SenaTemporalWindow | null): SenaReviewPack
 }
 
 function contentSchemaVersion(input: ReviewPacketAuditInput, filename: string) {
-  const key = contentKeyByFilename[filename];
+  const key = getSenaReviewPacketContentKey(filename);
   if (key === "self") return input.schemaVersion;
   if (key === "reportMarkdown") {
     return input.contents.reportMarkdown.trim().length > 0 ? "markdown" : "missing";
@@ -239,7 +78,7 @@ function contentSchemaVersion(input: ReviewPacketAuditInput, filename: string) {
 
 function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPacketAudit {
   const manifestFilenames = input.artifactManifest.map((artifact) => artifact.filename);
-  const expectedFilenames = Object.keys(contentKeyByFilename);
+  const expectedFilenames = listSenaReviewPacketFilenames();
   const missingArtifacts = expectedFilenames.filter((filename) => !manifestFilenames.includes(filename));
   const schemaMismatches = input.artifactManifest.filter((artifact) => contentSchemaVersion(input, artifact.filename) !== artifact.schemaVersion);
   const pilotPackage = input.contents.pilotPackageManifest;
@@ -265,7 +104,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
         /^[a-f0-9]{64}$/.test(asset.sha256);
     });
   const packageHandoffChecksReady = modelJsonHandoffCheck?.artifact === "sena-project-snapshot.json" &&
-    modelJsonHandoffCheck.expectedEvidence.includes("S/W/B/G matrices") &&
+    modelJsonHandoffCheck.expectedEvidence.includes("S/W/B/B_PC/B_CP/G matrices") &&
     modelJsonHandoffCheck.expectedEvidence.includes("temporal trace windows") &&
     runtimeHandoffCheck?.artifact === "sena-runtime-bundle.json" &&
     runtimeHandoffCheck.expectedEvidence.includes("sena-jena-manifest.json") &&
@@ -317,7 +156,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const fusionMatrixFingerprint = reportMatrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion");
   const matrixFingerprintsReady = JSON.stringify(reportMatrixFingerprints) === JSON.stringify(bundleMatrixFingerprints) &&
     JSON.stringify(reportMatrixFingerprints) === JSON.stringify(packetMatrixFingerprints) &&
-    JSON.stringify(reportMatrixFingerprints.map((fingerprint) => fingerprint.id)) === JSON.stringify(["S", "W", "B", "G", "A_fusion"]) &&
+    JSON.stringify(reportMatrixFingerprints.map((fingerprint) => fingerprint.id)) === JSON.stringify(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]) &&
     reportMatrixFingerprints.every((fingerprint) => fingerprint.checksumAlgorithm === "sena-stable-fnv1a32/v1" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum));
   const reportBundleConsistent = report.schemaVersion === bundle.report.schemaVersion &&
     report.generatedAt === bundle.report.generatedAt &&
@@ -376,10 +215,10 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     runtimeArtifactEvidence.some((item) => item.filename === "sena-jsna-manifest.json" && item.handoffChecks.includes("jsna-api-surface") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-sna-report.json" && item.handoffChecks.includes("jsna-social-matrix") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-pilot-package-manifest.json" && item.handoffChecks.includes("pilot-asset-integrity") && item.status === "ready") &&
-    runtimeArtifactEvidence.some((item) => item.filename === "sena-runtime-bundle.json" && item.matrixCoverage.some((entry) => entry.startsWith("A_fusion=")) && item.handoffChecks.includes("matrix-fingerprints") && item.evidenceCoverage.includes("matrixFingerprints=5"));
+    runtimeArtifactEvidence.some((item) => item.filename === "sena-runtime-bundle.json" && item.matrixCoverage.some((entry) => entry.startsWith("A_fusion=")) && item.handoffChecks.includes("matrix-fingerprints") && item.evidenceCoverage.includes("matrixFingerprints=7"));
   const standaloneRuntimeArtifactsReady = input.contents.jenaManifest.schemaVersion === report.enaManifest.schemaVersion &&
     input.contents.jenaManifest.status === report.enaManifest.status &&
-    input.contents.enaReportArtifact.schemaVersion === "sena-ena-report/v1" &&
+    input.contents.enaReportArtifact.schemaVersion === SENA_SCHEMA_VERSIONS.enaReport &&
     input.contents.enaReportArtifact.manifest.schemaVersion === report.enaManifest.schemaVersion &&
     input.contents.enaReportArtifact.manifest.status === report.enaManifest.status &&
     input.contents.enaReportArtifact.conceptMatrix.labels.length === bundle.runtimes.sena.matrices.W.labels.length &&
@@ -390,7 +229,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     input.contents.snaReportArtifact.manifest.status === report.snaManifest.status &&
     input.contents.snaReportArtifact.socialReport.graph.tieCount === bundle.runtimes.sna.socialReport.graph.tieCount &&
     input.contents.snaReportArtifact.socialMatrix.labels.length === bundle.runtimes.sna.socialMatrix.labels.length &&
-    input.contents.metricProvenanceArtifact.schemaVersion === "sena-metric-provenance/v1" &&
+    input.contents.metricProvenanceArtifact.schemaVersion === SENA_SCHEMA_VERSIONS.metricProvenance &&
     input.contents.metricProvenanceArtifact.metricProvenance.length === report.validation.metricProvenance.length &&
     input.contents.metricProvenanceArtifact.socialMetricSnapshot.graph.tieCount === bundle.runtimes.sna.socialReport.graph.tieCount &&
     input.contents.metricProvenanceArtifact.epistemicMetricSnapshot.manifest.status === report.enaManifest.status &&
@@ -417,9 +256,9 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     input.summary.localRuntimeDependencies.jena.startsWith("file:vendor/") &&
     input.summary.localRuntimeDependencies.jsna.startsWith("file:vendor/");
   const evidenceReady = input.contents.evidenceLedger.snippets.length > 0 && report.evidenceSnippets.length > 0;
-  const temporalMatrixFingerprintWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 5).length;
+  const temporalMatrixFingerprintWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length;
   const temporalFusionChecksumWindows = input.contents.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum))).length;
-  const bundleTemporalMatrixFingerprintWindows = bundle.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 5).length;
+  const bundleTemporalMatrixFingerprintWindows = bundle.temporalRuntimeTrace.windows.filter((entry) => entry.sena.matrixFingerprints.length === 7).length;
   const temporalFingerprintsMatch = input.contents.temporalRuntimeTrace.windows.every((entry, index) => {
     const bundleWindow = bundle.temporalRuntimeTrace.windows[index];
     return Boolean(bundleWindow) &&
@@ -485,7 +324,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     nextStage.publicInterfacePolicy.some((policy) => policy.includes("/workspace/sena")) &&
     nextStage.publicInterfacePolicy.some((policy) => policy.includes("sena-project-snapshot/v1")) &&
     nextStage.assumptions.some((assumption) => assumption.includes("exploratory-only"));
-  const developmentPlanReady = developmentPlan.schemaVersion === "sena-development-plan/v1" &&
+  const developmentPlanReady = developmentPlan.schemaVersion === SENA_SCHEMA_VERSIONS.developmentPlan &&
     developmentPlan.workspaceRoute === "/workspace/sena" &&
     developmentPlan.milestone === "local-research-pilot" &&
     developmentPlan.runtimeIntegration.jena.dependencySpec === report.runtimeProvenance.enaRuntime.dependencySpec &&
@@ -506,11 +345,11 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     researchValidationPhase?.status === "deferred" &&
     deliveryCandidateReady &&
     Boolean(nextStageReady) &&
-    developmentPlan.scope.inScope.includes("Production SaaS backend readiness with native adapter certification, platform-owner bridge acceptance, release-gate evidence, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.") &&
+    developmentPlan.scope.inScope.includes("Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.") &&
     !developmentPlan.scope.outOfScope.some((item) =>
       item.includes("Native managed database") && item.includes("signed webhook bridge handoffs")
     );
-  const methodProtocolReady = methodProtocol.schemaVersion === "sena-method-protocol/v1" &&
+  const methodProtocolReady = methodProtocol.schemaVersion === SENA_SCHEMA_VERSIONS.methodProtocol &&
     methodProtocol.mathematicalFrame.graphType === "normalized-typed-heterogeneous-adjacency" &&
     methodProtocol.mathematicalFrame.formula === report.runtimeProvenance.senaModel.matrixFormula &&
     methodProtocol.runtimeIntegration.jena.dependencySpec === report.runtimeProvenance.enaRuntime.dependencySpec &&
@@ -533,7 +372,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const visualGrammarReferenceAssets = visualGrammar.referenceAssets ?? [];
   const visualGrammarReferencePaths = visualGrammarReferenceAssets.map((asset) => asset.path);
   const adoptedVisualReferenceIds = visualGrammarReferenceAssets.filter((asset) => asset.role === "adopted-reference").map((asset) => asset.id);
-  const visualGrammarReady = visualGrammar.schemaVersion === "sena-visual-grammar/v1" &&
+  const visualGrammarReady = visualGrammar.schemaVersion === SENA_SCHEMA_VERSIONS.visualGrammar &&
     visualGrammar.workspaceRoute === "/workspace/sena" &&
     visualGrammar.visualGrammar.length >= 2 &&
     visualGrammarIds.includes("fusion-canvas-a1") &&
@@ -655,7 +494,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
       "project-snapshot-handoff",
       "Project snapshot handoff",
       projectSnapshotReady,
-      "Embedded project snapshot preserves the active scope, local runtime requirements, graph nodes, typed edges, S/W/B/G matrices, fusion matrix, temporal trace, and restorable workspace state",
+      "Embedded project snapshot preserves the active scope, local runtime requirements, graph nodes, typed edges, S/W/B/B_PC/B_CP/G matrices, fusion matrix, temporal trace, and restorable workspace state",
       `snapshot=${projectSnapshot.schemaVersion}; window=${projectSnapshot.source.activeTemporalWindow?.id ?? "full-conversation"}; nodes=${projectSnapshotNodes.length}; edges=${projectSnapshotEdges.length}; fusionNodes=${projectSnapshot.analysis.matrices.fusion.labels.length}; modelJsonGate=${modelJsonReadinessItem?.status ?? "missing"}`,
       [
         `sourcePeople=${projectSnapshot.source.sourceDatasetCounts.people}`,
@@ -728,7 +567,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
       "temporal-handoff",
       "Temporal runtime handoff",
       temporalReady,
-      "Temporal runtime trace matches the runtime bundle trace, including per-window S/W/B/G/A_fusion matrix fingerprints",
+      "Temporal runtime trace matches the runtime bundle trace, including per-window S/W/B/B_PC/B_CP/G/A_fusion matrix fingerprints",
       `packetWindows=${input.contents.temporalRuntimeTrace.windows.length}; bundleWindows=${bundle.temporalRuntimeTrace.windows.length}; matrixFingerprintWindows=${temporalMatrixFingerprintWindows}/${input.contents.temporalRuntimeTrace.windows.length}; A_fusionChecksums=${temporalFusionChecksumWindows}; fingerprintsMatch=${temporalFingerprintsMatch}`,
       [
         `temporalMode=${input.contents.temporalRuntimeTrace.temporalSettings.mode}`,
@@ -852,7 +691,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const passed = items.filter((item) => item.status === "pass").length;
 
   return {
-    schemaVersion: "sena-review-packet-audit/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reviewPacketAudit,
     status: passed === items.length ? "complete" : "needs-review",
     passed,
     reviewNeeded: items.length - passed,
@@ -1194,7 +1033,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
   };
   const reviewGuardrails = runtimeBundle.interpretationGuardrails.map((guardrail) => `${guardrail.label}: ${guardrail.statement}`);
   const reviewPacketAudit = buildSenaReviewPacketAudit({
-    schemaVersion: "sena-review-packet/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reviewPacket,
     analysisWindow: options.activeTemporalWindow ?? null,
     artifactManifest,
     contents,
@@ -1203,7 +1042,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
   });
 
   return {
-    schemaVersion: "sena-review-packet/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reviewPacket,
     title: `${baseTitle} Review Packet`,
     generatedAt,
     workspaceRoute: "/workspace/sena",
@@ -1216,7 +1055,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
     notes: [
       "This packet is a single-file local research-pilot handoff for reviewers.",
       "The Markdown and JSON report are generated from the same SENA report object.",
-      "Runtime bundle contents preserve local jENA/jSNA dependency provenance and S/W/B/G fusion evidence.",
+      "Runtime bundle contents preserve local jENA/jSNA dependency provenance and S/W/B/B_PC/B_CP/G fusion evidence.",
       "Metric-provenance contents preserve source, parity, and interpretation-limit evidence for each reported metric.",
       "Coding-reliability contents preserve whether coding scheme, coder count, agreement evidence, adjudication, and limitations are documented.",
       "Claim-readiness contents preserve whether the current report is research-claim-ready or exploratory-only.",

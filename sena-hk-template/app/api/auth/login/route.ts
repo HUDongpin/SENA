@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
 import {
-  loginEnterpriseUser,
+  loginEnterpriseUserAsync
+} from "@/lib/sena/enterprise/auth-login";
+import {
   sanitizeEnterpriseContext,
   senaSessionCookieName
-} from "@/lib/sena/enterprise/identity-auth";
-import { authSessionHeaders, enforceAuthRateLimit, jsonError, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
+} from "@/lib/sena/enterprise/auth-session";
+import { authSessionHeaders, enforceAuthRateLimitAsync, observeSenaApiRoute, sessionCookieMaxAgeSeconds, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  try {
+  return observeSenaApiRoute(request, { routeId: "auth-login" }, async () => {
     const body = await request.json();
-    enforceAuthRateLimit(request, {
+    await enforceAuthRateLimitAsync(request, {
       bucket: "auth.login",
       discriminator: String(body.email ?? body.mfaChallengeToken ?? "")
     });
-    const result = loginEnterpriseUser({
+    const result = await loginEnterpriseUserAsync({
       email: String(body.email ?? ""),
       password: String(body.password ?? ""),
       mfaCode: body.mfaCode ? String(body.mfaCode) : undefined,
@@ -33,7 +35,5 @@ export async function POST(request: Request) {
     });
     response.cookies.set(senaSessionCookieName, result.token, sessionCookieOptions(sessionCookieMaxAgeSeconds(result.context.session.expiresAt)));
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

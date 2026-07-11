@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { importSenaReviewPacket } from "./review-packet";
 import { importSenaProjectSnapshot } from "./snapshot";
 import type { SenaProjectSnapshot } from "./types";
@@ -13,10 +14,10 @@ export function importSenaProjectSnapshotFromHandoff(source: string | unknown): 
   const root = asRecord(value);
   if (!root) return importSenaProjectSnapshot(value);
 
-  if (root.schemaVersion === "sena-project-snapshot/v1") {
+  if (root.schemaVersion === SENA_SCHEMA_VERSIONS.projectSnapshot) {
     return importSenaProjectSnapshot(root);
   }
-  if (root.schemaVersion === "sena-review-packet/v1") {
+  if (root.schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket) {
     return importSenaReviewPacket(root).contents.projectSnapshot;
   }
   if (root.snapshot !== undefined) {

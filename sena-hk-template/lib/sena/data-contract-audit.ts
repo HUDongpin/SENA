@@ -1,9 +1,11 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaDataContractAudit,
   SenaDataContractAuditArtifact,
   SenaDataContractAuditItem,
   SenaDataset,
   SenaModel,
+  SenaResolvedBuildOptions,
   SenaTemporalWindow
 } from "./types";
 
@@ -44,6 +46,61 @@ function duplicateValues(values: string[]) {
   return Array.from(duplicates);
 }
 
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [key, stableValue(nestedValue)])
+    );
+  }
+  return value;
+}
+
+function fnv1a32(text: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `0x${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function buildSenaStableContentHash(value: unknown) {
+  return fnv1a32(JSON.stringify(stableValue(value)));
+}
+
+export function buildSenaDatasetContentHash(dataset: SenaDataset) {
+  const payload = {
+    metadata: dataset.metadata ?? null,
+    people: dataset.people,
+    interactions: dataset.interactions,
+    utterances: dataset.utterances,
+    coded_segments: dataset.coded_segments,
+    codebook: dataset.codebook
+  };
+  return buildSenaStableContentHash(payload);
+}
+
+export function buildSenaAnalysisConfigHash(options: SenaResolvedBuildOptions) {
+  return buildSenaStableContentHash({
+    alpha: options.alpha,
+    beta: options.beta,
+    gamma: options.gamma,
+    normalization: options.normalization,
+    bridgeWeightRule: options.bridgeWeightRule,
+    direction: options.direction,
+    deg_convention: options.deg_convention,
+    delta: options.delta,
+    Phi: options.Phi,
+    d: options.d,
+    seed: options.seed,
+    undirectedSocial: options.undirectedSocial,
+    temporal: options.temporal
+  });
+}
+
 function datasetCounts(dataset: SenaDataset) {
   return {
     people: dataset.people.length,
@@ -82,6 +139,16 @@ export function buildSenaDataContractAudit(
   const utterances = asArray<SenaDataset["utterances"][number]>(root, "utterances");
   const codedSegments = asArray<SenaDataset["coded_segments"][number]>(root, "coded_segments");
   const codebook = asArray<SenaDataset["codebook"][number]>(root, "codebook");
+  const metadata = dataset.metadata;
+  const datasetContentHash = buildSenaDatasetContentHash({
+    people,
+    interactions,
+    utterances,
+    coded_segments: codedSegments,
+    codebook,
+    metadata,
+    warnings: dataset.warnings
+  });
   const counts = datasetCounts({
     people,
     interactions,
@@ -105,6 +172,18 @@ export function buildSenaDataContractAudit(
   const blankCodeIds = codebook.length - codeIds.length;
   const blankCodeLabels = codebook.filter((code) => !nonEmpty(code.label)).length;
   const derivedCodes = codebook.filter((code) => code.family === "Derived" || dataset.warnings?.some((warning) => warning.includes(`"${code.id}"`) && warning.includes("placeholder code"))).length;
+  const governanceBlockers = [
+    nonEmpty(metadata?.datasetVersion) ? null : "datasetVersion",
+    nonEmpty(metadata?.consent?.instrument) ? null : "consent.instrument",
+    nonEmpty(metadata?.consent?.date) ? null : "consent.date",
+    nonEmpty(metadata?.consent?.scope) ? null : "consent.scope",
+    nonEmpty(metadata?.retention?.policy) ? null : "retention.policy",
+    metadata?.pseudonymization?.personIdPolicy === "opaque" ? null : "pseudonymization.personIdPolicy=opaque",
+    metadata?.pseudonymization?.rosterMapping === "external-encrypted-store" || metadata?.pseudonymization?.rosterMapping === "not-stored" ? null : "pseudonymization.rosterMapping",
+    nonEmpty(metadata?.codebook?.id) ? null : "codebook.id",
+    nonEmpty(metadata?.codebook?.version) ? null : "codebook.version",
+    nonEmpty(metadata?.codebook?.contentHash) ? null : "codebook.contentHash"
+  ].filter((blocker): blocker is string => Boolean(blocker));
 
   const utteranceIds = utterances.map((utterance) => utterance.id).filter(nonEmpty);
   const utteranceIdSet = new Set(utteranceIds);
@@ -190,6 +269,25 @@ export function buildSenaDataContractAudit(
       ]
     ),
     item(
+      "dataset-governance-metadata",
+      "Dataset governance metadata",
+      governanceBlockers.length === 0,
+      "Dataset version, consent, retention, pseudonymization, and codebook version/hash are recorded",
+      governanceBlockers.length === 0
+        ? `datasetVersion=${metadata?.datasetVersion}; contentHash=${datasetContentHash}`
+        : `${governanceBlockers.length} governance metadata blocker${governanceBlockers.length === 1 ? "" : "s"}`,
+      [
+        `datasetVersion=${metadata?.datasetVersion ?? "missing"}`,
+        `contentHash=${datasetContentHash}`,
+        `consent=${metadata?.consent?.scope ? "present" : "missing"}`,
+        `retention=${metadata?.retention?.policy ? "present" : "missing"}`,
+        `personIdPolicy=${metadata?.pseudonymization?.personIdPolicy ?? "missing"}`,
+        `rosterMapping=${metadata?.pseudonymization?.rosterMapping ?? "missing"}`,
+        `codebook=${metadata?.codebook?.id ?? "missing"}@${metadata?.codebook?.version ?? "missing"}`,
+        ...governanceBlockers.map((blocker) => `missing=${blocker}`)
+      ]
+    ),
+    item(
       "utterances-table",
       "Utterance references",
       utterances.length > 0 && duplicateUtteranceIds.length === 0 && utteranceMissingPeople.length === 0 && utteranceBadTurns.length === 0,
@@ -259,7 +357,7 @@ export function buildSenaDataContractAudit(
   const reviewNeeded = items.length - passed;
 
   return {
-    schemaVersion: "sena-data-contract-audit/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.dataContractAudit,
     status: reviewNeeded === 0 ? "valid" : "needs-review",
     passed,
     reviewNeeded,
@@ -279,7 +377,7 @@ export function buildSenaDataContractAuditArtifact(
   const warnings = uniqueWarnings([...(model.dataset.warnings ?? []), ...model.summary.warnings, ...(options.modelWarnings ?? [])]);
 
   return {
-    schemaVersion: "sena-data-contract-audit-artifact/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.dataContractAuditArtifact,
     title: options.title?.trim() || "SENA Data Contract Audit",
     generatedAt,
     analysisWindow: options.activeTemporalWindow ?? null,
@@ -291,7 +389,7 @@ export function buildSenaDataContractAuditArtifact(
     dataContractAudit: buildSenaDataContractAudit(model.dataset, { modelWarnings: warnings }),
     notes: [
       "Standalone artifact for checking people, interactions, utterances, coded_segments, and codebook integrity.",
-      "Use this artifact before reporting S/W/B/G matrices, jENA outputs, jSNA metrics, or human-reviewed interpretations."
+      "Use this artifact before reporting S/W/B/B_PC/B_CP/G matrices, jENA outputs, jSNA metrics, or human-reviewed interpretations."
     ]
   };
 }

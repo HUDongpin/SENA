@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { ena, type ENAOptions, type Row } from "jena-js";
 import type { SenaDataset, SenaEnaManifest, SenaManifestRow } from "./types";
 import { jenaRuntimeVersion } from "./runtime-constants";
@@ -60,7 +61,7 @@ function buildRows(dataset: SenaDataset) {
 
 function skippedManifest(dataset: SenaDataset, reason: string, warnings: string[] = []): SenaEnaManifest {
   return {
-    schemaVersion: "sena-ena-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.enaManifest,
     status: "skipped",
     engine: "jena-js",
     engineVersion: jenaRuntimeVersion,
@@ -101,7 +102,7 @@ export function buildSenaEnaManifest(dataset: SenaDataset): SenaEnaManifest {
   try {
     const set = ena(options);
     return {
-      schemaVersion: "sena-ena-manifest/v1",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enaManifest,
       status: "computed",
       engine: "jena-js",
       engineVersion: jenaRuntimeVersion,

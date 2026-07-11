@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { createHash } from "node:crypto";
 import {
   buildSenaReliabilityDashboard,
@@ -9,7 +10,7 @@ import type { SenaCodingReliabilityReview } from "./types";
 import type { SenaImportRow } from "./import";
 
 export type SenaReliabilityJsonRequest = {
-  schemaVersion?: "sena-reliability-json-request/v1";
+  schemaVersion?: typeof SENA_SCHEMA_VERSIONS.reliabilityJsonRequest;
   teamId?: unknown;
   projectId?: unknown;
   reviewer?: unknown;
@@ -21,7 +22,7 @@ export type SenaReliabilityJsonRequest = {
 };
 
 export type SenaPreparedReliabilityRunInput = {
-  schemaVersion: "sena-reliability-prepared-input/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityPreparedInput;
   source: "json-annotations";
   teamId?: string;
   projectId?: string;
@@ -63,7 +64,7 @@ function stableStringify(value: unknown): string {
 
 function sourceSummary(name: string, rows: SenaImportRow[]) {
   const body = stableStringify({
-    schemaVersion: "sena-reliability-json-source/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
     name,
     rows
   });
@@ -105,7 +106,7 @@ export function prepareSenaReliabilityJsonRequest(
   const reviewer = scalar(payload.reviewer) || options.defaultReviewer?.trim() || "SENA reliability API";
 
   return {
-    schemaVersion: "sena-reliability-prepared-input/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityPreparedInput,
     source: "json-annotations",
     teamId: scalar(payload.teamId) || undefined,
     projectId: scalar(payload.projectId) || undefined,

@@ -1,8 +1,7 @@
 import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import * as XLSX from "xlsx";
 import { describe, expect, it } from "vitest";
 import {
   buildSenaAnalysisRun,
@@ -16,6 +15,7 @@ import {
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview
 } from "../index";
+import { buildXlsxWorkbookBuffer, readXlsxWorkbookRows } from "../excel-workbook";
 import { importSenaEnterpriseFiles } from "../import-adapters";
 import { buildSenaPublicationExport } from "../publication-export";
 
@@ -115,6 +115,13 @@ function sampleSnapshot() {
       agreementValue: "kappa=1; alpha=1",
       adjudicationNotes: "No disagreements in fixture.",
       limitations: "Fixture only."
+    },
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic publication export fixture only.",
+      retentionPolicy: "Delete generated fixture state after the test run.",
+      usageConstraints: ["Do not use as real participant evidence."],
+      dataSteward: "Enterprise test"
     }
   });
 }
@@ -158,29 +165,32 @@ describe("SENA enterprise runtime", () => {
   });
 
   it("adapts LMS forum Excel exports into SENA analysis tables", async () => {
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+    const workbookBuffer = await buildXlsxWorkbookBuffer([
       {
-        discussion_id: "thread-b",
-        post_id: "post-a",
-        author_id: "coach-1",
-        author_name: "Coach Lee",
-        posted_at: "2026-06-02T10:00:00Z",
-        message: "What evidence supports the design? #Evidence",
-        tags: "Evidence"
-      },
-      {
-        discussion_id: "thread-b",
-        post_id: "post-b",
-        parent_post_id: "post-a",
-        author_id: "teacher-2",
-        author_name: "Teacher Ng",
-        posted_at: "2026-06-02T10:05:00Z",
-        message: "The student response supports the explanation.",
-        tags: "Explanation"
+        name: "discussion",
+        rows: [
+          {
+            discussion_id: "thread-b",
+            post_id: "post-a",
+            author_id: "coach-1",
+            author_name: "Coach Lee",
+            posted_at: "2026-06-02T10:00:00Z",
+            message: "What evidence supports the design? #Evidence",
+            tags: "Evidence"
+          },
+          {
+            discussion_id: "thread-b",
+            post_id: "post-b",
+            parent_post_id: "post-a",
+            author_id: "teacher-2",
+            author_name: "Teacher Ng",
+            posted_at: "2026-06-02T10:05:00Z",
+            message: "The student response supports the explanation.",
+            tags: "Explanation"
+          }
+        ]
       }
-    ]), "discussion");
-    const workbookBuffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+    ]);
 
     const imported = await importSenaEnterpriseFiles([
       uploadLike("moodle-discussion.xlsx", workbookBuffer)
@@ -1809,6 +1819,12 @@ describe("SENA enterprise runtime", () => {
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/identity-production-evidence");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/go-live-rehearsal");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/platform-decisions");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/jobs/worker-contract");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/jobs/probe");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/postgres");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/observability");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/observability/probe");
+    expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/ops/production-evidence");
     expect(organizationDeployment.serviceEndpoints.map((endpoint: { path: string }) => endpoint.path)).toContain("/api/sena/provisioning");
     expect(organizationDeployment.env.find((entry: { name: string }) => entry.name === "SENA_ALERT_WEBHOOK_SECRET")?.secret).toBe(true);
     expect(organizationDeployment.env.find((entry: { name: string }) => entry.name === "SENA_ALERT_WEBHOOK_SECRET")?.configured).toBe(true);
@@ -2006,8 +2022,20 @@ describe("SENA enterprise runtime", () => {
       "sena-enterprise-native-adapter-certification/v1",
       "sena-enterprise-platform-decision-acceptance/v1",
       "sena-enterprise-release-gate-review/v1",
-      "sena-enterprise-identity-production-evidence/v1"
+      "sena-enterprise-identity-production-evidence/v1",
+      "sena-enterprise-production-evidence-manifest/v1"
     ]));
+    expect((organizationDeployment as typeof organizationDeployment & {
+      productionEvidenceManifest?: {
+        schemaVersion: string;
+        export: { api: string };
+      };
+    }).productionEvidenceManifest).toEqual(expect.objectContaining({
+      schemaVersion: "sena-enterprise-production-evidence-manifest/v1",
+      export: expect.objectContaining({
+        api: "/api/sena/ops/production-evidence"
+      })
+    }));
     const goLiveRehearsal = (enterprise as typeof enterprise & {
       getEnterpriseGoLiveRehearsal: () => {
         schemaVersion: "sena-enterprise-go-live-rehearsal/v1";
@@ -2763,25 +2791,37 @@ describe("SENA enterprise runtime", () => {
     expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
       .toContain("historyApi=GET:/api/sena/analyze");
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { person_id: "p1", label: "Ada", role: "Teacher", group: "A" },
-      { person_id: "p2", label: "Ben", role: "Student", group: "B" }
-    ]), "people");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, text: "Claim with evidence" },
-      { utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, text: "Explanation follows" }
-    ]), "utterances");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { segment_id: "cs1", utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, codes: "Claim|Evidence" },
-      { segment_id: "cs2", utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, codes: "Explanation" }
-    ]), "coded_segments");
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-      { code_id: "Claim", label: "Claim" },
-      { code_id: "Evidence", label: "Evidence" },
-      { code_id: "Explanation", label: "Explanation" }
-    ]), "codebook");
-    const workbookBuffer = Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+    const workbookBuffer = await buildXlsxWorkbookBuffer([
+      {
+        name: "people",
+        rows: [
+          { person_id: "p1", label: "Ada", role: "Teacher", group: "A" },
+          { person_id: "p2", label: "Ben", role: "Student", group: "B" }
+        ]
+      },
+      {
+        name: "utterances",
+        rows: [
+          { utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, text: "Claim with evidence" },
+          { utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, text: "Explanation follows" }
+        ]
+      },
+      {
+        name: "coded_segments",
+        rows: [
+          { segment_id: "cs1", utterance_id: "u1", person_id: "p1", unit_id: "unit", stanza_id: "s1", turn_index: 1, codes: "Claim|Evidence" },
+          { segment_id: "cs2", utterance_id: "u2", person_id: "p2", unit_id: "unit", stanza_id: "s1", turn_index: 2, codes: "Explanation" }
+        ]
+      },
+      {
+        name: "codebook",
+        rows: [
+          { code_id: "Claim", label: "Claim" },
+          { code_id: "Evidence", label: "Evidence" },
+          { code_id: "Explanation", label: "Explanation" }
+        ]
+      }
+    ]);
     const transcriptSrtBytes = Buffer.from([
       "1",
       "00:00:01,000 --> 00:00:03,000",
@@ -2827,9 +2867,22 @@ describe("SENA enterprise runtime", () => {
     expect(uploads[0].sha256).toHaveLength(64);
     expect(uploads[0].importProfile).toBe("excel-workbook");
     expect(uploads[0].scanStatus).toBe("passed");
+    expect(uploads[0].storageEncoding).toBe("sena-upload-aes-256-gcm-envelope/v1");
+    expect(uploads[0].storageKeySource).toBe("pilot-local-derived");
     expect(uploads[1].importProfile).toBe("cleaned-transcript");
     expect(uploads[1].originalName).toBe("transcript.srt");
     expect(uploads[1].scanStatus).toBe("passed");
+    expect(uploads[1].storageEncoding).toBe("sena-upload-aes-256-gcm-envelope/v1");
+    const storedUploadBytes = readFileSync(path.join(enterpriseDbDir, uploads[0].storagePath));
+    expect(storedUploadBytes.equals(workbookBuffer)).toBe(false);
+    expect(JSON.parse(storedUploadBytes.toString("utf8"))).toEqual(expect.objectContaining({
+      schemaVersion: "sena-upload-aes-256-gcm-envelope/v1",
+      algorithm: "aes-256-gcm",
+      keySource: "pilot-local-derived",
+      iv: expect.any(String),
+      authTag: expect.any(String),
+      ciphertextBase64: expect.any(String)
+    }));
     expect(uploads[0].scanEngine).toBe("sena-local-upload-scan/v1");
     expect(enterprise.listEnterpriseUploads(registered.context, registered.context.teams[0].id)[0].id).toBe(uploads[0].id);
     expect(enterprise.listEnterpriseTeamState(registered.context).uploads.map((upload: { id: string }) => upload.id)).toContain(uploads[0].id);
@@ -2841,6 +2894,12 @@ describe("SENA enterprise runtime", () => {
     expect(uploadStorageVerification.summary.missingBlobs).toBe(0);
     expect(uploadStorageVerification.summary.checksumMismatches).toBe(0);
     expect(uploadStorageVerification.summary.orphanBlobs).toBe(0);
+    expect(uploadStorageVerification.storage.encryption).toEqual({
+      atRest: "sena-upload-aes-256-gcm-envelope/v1",
+      keySource: "pilot-local-derived",
+      encryptedBlobs: 2,
+      legacyRawBlobs: 0
+    });
     const objectStorageRequests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
     globalThis.fetch = (async (url, init) => {
       objectStorageRequests.push({
@@ -3275,7 +3334,7 @@ describe("SENA enterprise runtime", () => {
     expect(claimPackage.sourceSnapshotEvidence.revisionId).toMatch(/^rev_/);
     expect(claimPackage.sourceSnapshotEvidence.snapshotSha256).toHaveLength(64);
     expect(claimPackage.sourceSnapshotEvidence.reportSha256).toHaveLength(64);
-    expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.map((fingerprint: { id: string }) => fingerprint.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.map((fingerprint: { id: string }) => fingerprint.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.every((fingerprint: { sha256: string }) => fingerprint.sha256.length === 64)).toBe(true);
     expect(claimPackage.status).toBe("claim-ready-with-limits");
     expect(claimPackage.summary.blockers).toBe(0);
@@ -3313,8 +3372,10 @@ describe("SENA enterprise runtime", () => {
     expect(Buffer.isBuffer(png.body)).toBe(true);
     expect((png.body as Buffer).subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(Buffer.isBuffer(xlsx.body)).toBe(true);
-    const publicationWorkbook = XLSX.read(xlsx.body as Buffer, { type: "buffer" });
-    expect(publicationWorkbook.SheetNames).toEqual(expect.arrayContaining([
+    const publicationWorkbook = await readXlsxWorkbookRows(xlsx.body as Buffer);
+    const publicationSheetNames = publicationWorkbook.map((sheet) => sheet.name);
+    const publicationRows = (sheetName: string) => publicationWorkbook.find((sheet) => sheet.name === sheetName)?.rows ?? [];
+    expect(publicationSheetNames).toEqual(expect.arrayContaining([
       "Summary",
       "Claim readiness",
       "Coding reliability",
@@ -3322,7 +3383,7 @@ describe("SENA enterprise runtime", () => {
       "Matrix fingerprints",
       "Evidence snippets"
     ]));
-    const claimRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Claim readiness"]);
+    const claimRows = publicationRows("Claim readiness");
     expect(claimRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
         gate: "Claim readiness",
@@ -3330,7 +3391,7 @@ describe("SENA enterprise runtime", () => {
         claimUse: snapshot.report.claimReadinessGate.claimUse
       })
     ]));
-    const codingRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Coding reliability"]);
+    const codingRows = publicationRows("Coding reliability");
     expect(codingRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
         schemaVersion: "sena-coding-reliability-gate/v1",
@@ -3338,10 +3399,10 @@ describe("SENA enterprise runtime", () => {
         reviewer: snapshot.report.codingReliabilityGate.review.reviewer
       })
     ]));
-    const matrixRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Matrix fingerprints"]);
-    expect(matrixRows.map((row) => row.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    const matrixRows = publicationRows("Matrix fingerprints");
+    expect(matrixRows.map((row) => row.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(matrixRows.every((row) => String(row.checksum).startsWith("0x"))).toBe(true);
-    const evidenceRows = XLSX.utils.sheet_to_json<Record<string, string | number | boolean>>(publicationWorkbook.Sheets["Evidence snippets"]);
+    const evidenceRows = publicationRows("Evidence snippets");
     expect(evidenceRows.length).toBeGreaterThan(0);
     expect(evidenceRows[0]).toEqual(expect.objectContaining({
       activeWindow: snapshot.report.analysisWindow?.label ?? "Full conversation"
@@ -3437,7 +3498,7 @@ describe("SENA enterprise runtime", () => {
     expect(publicationManifest.sourceSnapshotEvidence.dataGovernance.status).toBe(snapshot.report.dataGovernance.status);
     expect(publicationManifest.sourceSnapshotEvidence.datasetCounts).toEqual(snapshot.source.sourceDatasetCounts);
     expect(publicationManifest.sourceSnapshotEvidence.buildOptions).toEqual(snapshot.reproducibility.buildOptions);
-    expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.map((entry) => entry.id)).toEqual(["S", "W", "B", "G", "A_fusion"]);
+    expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.map((entry) => entry.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(publicationManifest.sourceSnapshotEvidence.matrixFingerprints.every((entry) => entry.sha256.length === 64)).toBe(true);
     expect(publicationManifest.artifactManifest).toEqual(publicationManifest.artifacts.map(({ bodyBase64: _bodyBase64, ...artifact }) => artifact));
     expect(publicationManifest.verificationCertificate.schemaVersion).toBe("sena-publication-verification-certificate/v1");

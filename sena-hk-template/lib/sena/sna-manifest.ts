@@ -1,9 +1,10 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaModel, SenaSnaManifest } from "./types";
 import { snaRuntimeVersion } from "./runtime-constants";
 
 function skippedManifest(model: SenaModel, reason: string): SenaSnaManifest {
   return {
-    schemaVersion: "sena-jsna-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.jsnaManifest,
     status: "skipped",
     engine: "sna.js",
     engineAlias: "jSNA",
@@ -36,7 +37,7 @@ export function buildSenaSnaManifest(model: SenaModel): SenaSnaManifest {
   }
 
   return {
-    schemaVersion: "sena-jsna-manifest/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.jsnaManifest,
     status: "computed",
     engine: "sna.js",
     engineAlias: "jSNA",

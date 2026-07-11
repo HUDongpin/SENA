@@ -1,21 +1,25 @@
 import {
-  listEnterpriseProjectCollaboration
-} from "@/lib/sena/enterprise/team-project";
-import { jsonError, requireApiSession } from "@/lib/sena/api-helpers";
+  listEnterpriseProjectCollaborationWithPostgresEvidenceAsync
+} from "@/lib/sena/enterprise/team-collaboration";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const streamSchemaVersion = "sena-project-collaboration-stream/v1";
 
-export async function GET(request: Request, { params }: { params: { projectId: string } }) {
-  try {
-    const context = requireApiSession();
-    const initialCollaboration = listEnterpriseProjectCollaboration(context, params.projectId);
+type ProjectRouteContext = { params: Promise<{ projectId: string }> };
+
+export async function GET(request: Request, { params }: ProjectRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-project-collaboration-stream" }, async () => {
+    const { projectId } = await params;
+    const context = await requireApiSession();
+    const initialCollaboration = await listEnterpriseProjectCollaborationWithPostgresEvidenceAsync(context, projectId);
     const encoder = new TextEncoder();
     let sequence = 0;
-    let currentCollaboration: ReturnType<typeof listEnterpriseProjectCollaboration> | null = initialCollaboration;
+    let currentCollaboration: Awaited<ReturnType<typeof listEnterpriseProjectCollaborationWithPostgresEvidenceAsync>> | null = initialCollaboration;
     let closed = false;
+    let pushing = false;
     let interval: ReturnType<typeof setInterval> | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
 
@@ -26,10 +30,12 @@ export async function GET(request: Request, { params }: { params: { projectId: s
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         };
 
-        const pushState = () => {
+        const pushState = async () => {
+          if (pushing) return;
+          pushing = true;
           try {
             sequence += 1;
-            const collaboration = currentCollaboration ?? listEnterpriseProjectCollaboration(context, params.projectId);
+            const collaboration = currentCollaboration ?? await listEnterpriseProjectCollaborationWithPostgresEvidenceAsync(context, projectId);
             currentCollaboration = null;
             writeEvent("collaboration", {
               schemaVersion: streamSchemaVersion,
@@ -45,6 +51,8 @@ export async function GET(request: Request, { params }: { params: { projectId: s
               error: error instanceof Error ? error.message : "Collaboration stream failed."
             });
             close();
+          } finally {
+            pushing = false;
           }
         };
 
@@ -60,8 +68,10 @@ export async function GET(request: Request, { params }: { params: { projectId: s
           }
         };
 
-        pushState();
-        interval = setInterval(pushState, 5000);
+        void pushState();
+        interval = setInterval(() => {
+          void pushState();
+        }, 5000);
         heartbeat = setInterval(() => {
           writeEvent("heartbeat", {
             schemaVersion: streamSchemaVersion,
@@ -84,10 +94,15 @@ export async function GET(request: Request, { params }: { params: { projectId: s
         "cache-control": "no-store, no-transform",
         connection: "keep-alive",
         "x-accel-buffering": "no",
-        "x-sena-collaboration-stream-auth": "session-rbac-project-read"
+        "x-sena-collaboration-stream-observation": "setup-only",
+        "x-sena-collaboration-stream-auth": "session-rbac-project-read",
+        "x-sena-collaboration-comment-source": initialCollaboration.evidenceSource.comments,
+        "x-sena-collaboration-presence-source": initialCollaboration.evidenceSource.presence,
+        "x-sena-collaboration-reliability-source": initialCollaboration.evidenceSource.reliabilityRuns,
+        "x-sena-collaboration-validation-source": initialCollaboration.evidenceSource.validationRuns,
+        "x-sena-collaboration-expert-review-source": initialCollaboration.evidenceSource.expertReviews,
+        "x-sena-collaboration-adjudication-source": initialCollaboration.evidenceSource.adjudications
       }
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

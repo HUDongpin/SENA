@@ -100,7 +100,7 @@ describe("SENA research pilot smoke", () => {
 
     expect(imported.warnings).toHaveLength(0);
     expect(model.summary.people).toBe(4);
-    expect(trace.windows.every((entry) => entry.sena.matrixFingerprints.length === 5)).toBe(true);
+    expect(trace.windows.every((entry) => entry.sena.matrixFingerprints.length === 7)).toBe(true);
     expect(trace.windows.every((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))).toBe(true);
     expect(model.summary.concepts).toBe(7);
     expect(model.temporal.windows.map((window) => window.label)).toEqual(["Plan", "Teach", "Reflect"]);
@@ -161,13 +161,13 @@ describe("SENA research pilot smoke", () => {
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-visual-grammar.json");
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-coding-reliability-gate.json");
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-claim-readiness-gate.json");
-    expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=12");
+    expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=13");
     expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("handoff=pilot-asset-integrity");
     expect(bundle.demoVerification.checks.find((check) => check.id === "temporal-runtime")?.observedEvidence).toContain(`matrixFingerprintWindows=${trace.windows.length}/${trace.windows.length}`);
     expect(bundle.demoVerification.checks.find((check) => check.id === "temporal-runtime")?.observedEvidence).toContain(`A_fusionChecksums=${trace.windows.length}`);
     expect(bundle.demoVerificationCompatibilityAudit.status).toBe("compatible");
     expect(bundle.productionPageContract.schemaVersion).toBe("sena-production-page-contract/v1");
-    expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.length === 5)).toBe(true);
+    expect(bundle.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.length === 7)).toBe(true);
     expect(packet.schemaVersion).toBe("sena-review-packet/v1");
     expect(packet.reviewPacketAudit.status).toBe("complete");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.actual).toContain("fingerprintsMatch=true");

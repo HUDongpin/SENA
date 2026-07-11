@@ -18,16 +18,36 @@ const projectRoot = cwd();
 const smokePortStart = parsePortStart(process.env.SENA_VERIFY_SMOKE_PORT ?? "3101");
 const productionPageContract = readJson("lib/sena/production-page-contract.json");
 const provisioningSmokeToken = "sena-pilot-provisioning-token";
-const deferredPlotViewSectionIds = new Set(["temporal-fusion"]);
-const deferredPlotViewVisualCheckPrefixes = ["temporal-"];
-const productionPageRequiredText = [
-  ...productionPageContract.sections
-    .filter((section) => !deferredPlotViewSectionIds.has(section.id))
-    .flatMap((section) => section.requiredText),
-  ...productionPageContract.visualChecks
-    .filter((check) => !deferredPlotViewVisualCheckPrefixes.some((prefix) => check.id.startsWith(prefix)))
-    .map((check) => check.requiredText)
+const browserSmokeCoveredPlotViewVisualCheckIds = new Set([
+  "workspace-mobile-figure-switcher",
+  "workspace-mobile-figure-fusion",
+  "workspace-mobile-figure-dual",
+  "workspace-research-details-toggle",
+  "workspace-research-details-drawer",
+  "workspace-research-details-tabs",
+  "temporal-fusion-arc",
+  "temporal-window-fingerprint",
+  "temporal-window-fingerprint-role",
+  "temporal-fusion-g-pair-metric",
+  "temporal-trace-g-pair-line",
+  "temporal-transition-evidence",
+  "temporal-transition-summary",
+  "temporal-transition-summary-role"
+]);
+const productionShellRequiredText = [
+  'data-testid="sena-workspace-loading"'
 ];
+
+function verifyInteractiveVisualCheckCoverage() {
+  const visualCheckIds = new Set(productionPageContract.visualChecks.map((check) => check.id));
+  const missing = Array.from(browserSmokeCoveredPlotViewVisualCheckIds)
+    .filter((id) => !visualCheckIds.has(id));
+  if (missing.length > 0) {
+    console.error("Browser-smoke-covered visual checks are missing from the production page contract:");
+    missing.forEach((id) => console.error(`  ${id}`));
+    process.exit(1);
+  }
+}
 
 function parsePortStart(value) {
   const port = Number(value);
@@ -91,6 +111,55 @@ function run(label, args, env = {}) {
   }
 }
 
+function projectNextBuildProcesses() {
+  if (process.platform === "win32") return [];
+
+  const result = spawnSync("ps", ["-axo", "pid=,command="], {
+    encoding: "utf8"
+  });
+  if (result.status !== 0 || !result.stdout) return [];
+
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.includes(projectRoot))
+    .filter((line) => /\bnext\s+build\b/.test(line));
+}
+
+async function waitForNextBuildProcessesToSettle() {
+  const startedAt = Date.now();
+  while (projectNextBuildProcesses().length > 0 && Date.now() - startedAt < 10_000) {
+    await sleep(500);
+  }
+}
+
+async function runNextProductionBuild() {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    console.log(`\n> Next production build${attempt > 1 ? ` (retry ${attempt})` : ""}`);
+    const result = spawnSync("npm", ["run", "build"], {
+      env: process.env,
+      encoding: "utf8",
+      maxBuffer: 20 * 1024 * 1024,
+      shell: process.platform === "win32"
+    });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    if (result.status === 0) return;
+
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    const isKnownProxyTraceRace = output.includes("proxy.js.nft.json") && output.includes("ENOENT");
+    if (!isKnownProxyTraceRace || attempt === maxAttempts) {
+      process.exit(result.status ?? 1);
+    }
+
+    console.warn("Next webpack build hit the known transient proxy trace artifact race; retrying once from a clean .next.");
+    await waitForNextBuildProcessesToSettle();
+    cleanNextBuildDirectory();
+  }
+}
+
 function cleanNextBuildDirectory() {
   console.log("\n> Clean .next");
   rmSync(".next", { force: true, recursive: true });
@@ -132,9 +201,8 @@ function verifyNextArtifacts() {
     ".next/server/app-paths-manifest.json",
     ".next/server/middleware-manifest.json",
     ".next/server/pages-manifest.json",
-    ".next/server/pages/_app.js",
-    ".next/server/pages/_document.js",
-    ".next/server/pages/_error.js"
+    ".next/server/pages/404.html",
+    ".next/server/pages/500.html"
   ];
   const missing = requiredFiles.filter((path) => !existsSync(path));
 
@@ -148,8 +216,8 @@ function verifyNextArtifacts() {
   const pages = readJson(".next/server/pages-manifest.json");
   const manifestIssues = [
     appPaths["/workspace/sena/page"] === "app/workspace/sena/page.js" ? null : "app-paths-manifest missing /workspace/sena/page",
-    pages["/_error"] === "pages/_error.js" ? null : "pages-manifest missing /_error",
-    pages["/_document"] === "pages/_document.js" ? null : "pages-manifest missing /_document"
+    pages["/404"] === "pages/404.html" ? null : "pages-manifest missing /404",
+    pages["/500"] === "pages/500.html" ? null : "pages-manifest missing /500"
   ].filter(Boolean);
 
   if (manifestIssues.length > 0) {
@@ -587,6 +655,22 @@ function verifyFusionCanvasVisualGuards(html) {
   console.log("Report Generator exposes the review-packet project-snapshot, development-plan, and method-protocol handoff audits.");
 }
 
+function verifyWorkspaceDynamicShell(html) {
+  console.log("\n> Verify SENA workspace dynamic shell");
+  if (process.env.SENA_VERIFY_SERVER_RENDERED_WORKSPACE === "1") {
+    verifyFusionCanvasVisualGuards(html);
+    return;
+  }
+  const loadingShellTag = extractOpeningTagWithText(html, 'data-testid="sena-workspace-loading"');
+  if (!loadingShellTag?.startsWith("<main")) {
+    throw new Error("SENA workspace dynamic loading shell was not found as an opening <main> tag.");
+  }
+  if (html.includes('data-testid="sena-fusion-canvas"')) {
+    throw new Error("SENA workspace full Fusion Canvas should be deferred to the client bundle, not server-prerendered into the route shell.");
+  }
+  console.log("SENA workspace route serves a lightweight dynamic shell; full workbench DOM is verified by Playwright smoke.");
+}
+
 async function waitForText(url, expectedText, timeoutMs = 30000) {
   const startedAt = Date.now();
   let lastError = "";
@@ -645,14 +729,26 @@ async function verifyProductionServerSmoke() {
   try {
     const url = `http://127.0.0.1:${port}/workspace/sena`;
     await Promise.race([
-      waitForText(url, productionPageRequiredText).then(({ text }) => {
-        verifyFusionCanvasVisualGuards(text);
+      waitForText(url, productionShellRequiredText).then(({ text }) => {
+        verifyWorkspaceDynamicShell(text);
       }),
       serverExit.then(({ code, signal }) => {
         if (stoppingByVerifier) return;
         throw new Error(`Production server exited before smoke completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`);
       })
     ]);
+    run("Verify conference load smoke", ["run", "sena:conference:load-check"], {
+      SENA_LOAD_TARGET_URL: `http://127.0.0.1:${port}`,
+      SENA_LOAD_PATHS: "/workspace/sena,/api/sena/docs?format=openapi",
+      SENA_LOAD_TARGET_USERS: "2",
+      SENA_LOAD_CONCURRENCY: "2",
+      SENA_LOAD_DURATION_SECONDS: "1",
+      SENA_LOAD_THINK_TIME_MS: "0",
+      SENA_LOAD_MAX_REQUESTS: "4",
+      SENA_LOAD_MIN_REQUESTS: "4",
+      SENA_LOAD_MAX_P95_MS: "5000",
+      SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
+    });
     await verifySenaBrowserSmoke(url);
     console.log("\n> Verify auth browser smoke");
     await verifySenaAuthBrowserSmoke(url);
@@ -706,6 +802,8 @@ if ((nextServers.length > 0 || nodeListeners.length > 0) && !allowRunningServer)
   process.exit(1);
 }
 
+verifyInteractiveVisualCheckCoverage();
+
 if (checkOnly) {
   console.log(nextServers.length > 0 || nodeListeners.length > 0
     ? "A local server is running, but the guard is bypassed."
@@ -721,8 +819,9 @@ try {
   rmSync(enterpriseTestDbDir, { force: true, recursive: true });
 }
 cleanNextBuildDirectory();
-run("Next production build", ["run", "build"]);
+await runNextProductionBuild();
 verifyNextArtifacts();
+run("Verify performance budget artifact", ["run", "sena:performance:check"]);
 await verifyProductionServerSmoke();
 
 console.log("\nSENA pilot verification complete.");

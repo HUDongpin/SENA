@@ -66,6 +66,11 @@ export const senaPilotTemplateAssets: SenaPilotAssetLink[] = [
     detail: "Empty SENA contract skeleton"
   },
   {
+    label: "Dataset metadata template",
+    href: "/sena-pilot/templates/sena-dataset-metadata-template.json",
+    detail: "Governance metadata JSON for five-CSV uploads"
+  },
+  {
     label: "People CSV template",
     href: "/sena-pilot/templates/people.csv",
     detail: "Participant table header"

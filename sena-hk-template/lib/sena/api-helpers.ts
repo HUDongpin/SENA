@@ -1,17 +1,27 @@
+import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import {
-  senaCsrfHeaderName,
   enforceEnterpriseApiRateLimit,
-  enterpriseErrorResponse,
-  getEnterpriseIdentityProductionEvidence,
-  requireEnterpriseSession,
+  enforceEnterpriseApiRateLimitAsync as enforceEnterpriseApiRateLimitOnPrimaryState
+} from "./enterprise/auth-security";
+import {
+  senaCsrfHeaderName,
+  requireEnterpriseSessionAsync,
   sanitizeEnterpriseContext,
   senaSessionCookieName,
-  verifyEnterpriseCsrfToken,
-  type SenaEnterpriseIdentityInstitutionActionPlan,
+  verifyEnterpriseCsrfTokenAsync,
   type SenaEnterpriseSessionContext
-} from "./enterprise";
+} from "./enterprise/auth-session";
+import { enterpriseErrorResponse } from "./enterprise/errors";
+import {
+  emitEnterpriseObservedRequest,
+  mirrorEnterpriseObservedRequestToPostgres,
+  recordEnterpriseObservedRequest,
+  type SenaEnterpriseObservedRequest
+} from "./enterprise/ops-observability";
+import { getEnterpriseIdentityProductionEvidence } from "./enterprise/identity-production-evidence";
+import type { SenaEnterpriseIdentityInstitutionActionPlan } from "./enterprise/identity-action-plan";
 
 export function sessionCookieOptions(maxAgeSeconds = 7 * 24 * 60 * 60) {
   return {
@@ -32,21 +42,74 @@ export function jsonError(error: unknown) {
   return NextResponse.json(response.body, { status: response.status });
 }
 
-export function currentSessionToken() {
-  return cookies().get(senaSessionCookieName)?.value;
+function requestIdFromHeaders(request: Request) {
+  return request.headers.get("x-request-id") ||
+    request.headers.get("x-correlation-id") ||
+    randomUUID();
 }
 
-export function requireApiSession(): SenaEnterpriseSessionContext {
-  return requireEnterpriseSession(currentSessionToken());
+function applyObservedRequestHeaders(response: Response, sample: SenaEnterpriseObservedRequest) {
+  response.headers.set("x-sena-request-id-hash", sample.requestIdHash);
+  response.headers.set("x-sena-observed-route", sample.routeId);
+  response.headers.set("x-sena-observed-status-class", sample.statusClass);
+  response.headers.set("x-sena-observed-duration-ms", String(sample.durationMs));
+  response.headers.set("server-timing", `sena;dur=${sample.durationMs}`);
+  return response;
 }
 
-export function requireApiCsrf(request: Request, context: SenaEnterpriseSessionContext) {
-  return verifyEnterpriseCsrfToken(context, request.headers.get(senaCsrfHeaderName));
+export async function observeSenaApiRoute(
+  request: Request,
+  input: { routeId: string },
+  handler: () => Promise<Response> | Response
+) {
+  const startedAt = Date.now();
+  const requestId = requestIdFromHeaders(request);
+  try {
+    const response = await handler();
+    const sample = recordEnterpriseObservedRequest({
+      routeId: input.routeId,
+      method: request.method,
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+      requestId
+    });
+    emitEnterpriseObservedRequest(sample);
+    void mirrorEnterpriseObservedRequestToPostgres(sample);
+    return applyObservedRequestHeaders(response, sample);
+  } catch (error) {
+    const enterpriseError = enterpriseErrorResponse(error);
+    const sample = recordEnterpriseObservedRequest({
+      routeId: input.routeId,
+      method: request.method,
+      statusCode: enterpriseError.status,
+      durationMs: Date.now() - startedAt,
+      requestId,
+      errorCode: enterpriseError.body.code
+    });
+    emitEnterpriseObservedRequest(sample);
+    void mirrorEnterpriseObservedRequestToPostgres(sample);
+    return applyObservedRequestHeaders(
+      NextResponse.json(enterpriseError.body, { status: enterpriseError.status }),
+      sample
+    );
+  }
 }
 
-export function requireApiSessionForMutation(request: Request): SenaEnterpriseSessionContext {
-  const context = requireApiSession();
-  requireApiCsrf(request, context);
+export async function currentSessionToken() {
+  return (await cookies()).get(senaSessionCookieName)?.value;
+}
+
+export async function requireApiSession(): Promise<SenaEnterpriseSessionContext> {
+  return requireEnterpriseSessionAsync(await currentSessionToken());
+}
+
+export async function requireApiCsrf(request: Request, context: SenaEnterpriseSessionContext) {
+  return verifyEnterpriseCsrfTokenAsync(context, request.headers.get(senaCsrfHeaderName));
+}
+
+export async function requireApiSessionForMutation(request: Request): Promise<SenaEnterpriseSessionContext> {
+  const context = await requireApiSession();
+  await requireApiCsrf(request, context);
   return context;
 }
 
@@ -64,6 +127,20 @@ export function enforceAuthRateLimit(request: Request, input: {
   windowSeconds?: number;
 }) {
   return enforceEnterpriseApiRateLimit({
+    bucket: input.bucket,
+    key: requestClientKey(request, input.discriminator),
+    limit: input.limit,
+    windowSeconds: input.windowSeconds
+  });
+}
+
+export async function enforceAuthRateLimitAsync(request: Request, input: {
+  bucket: string;
+  discriminator?: string;
+  limit?: number;
+  windowSeconds?: number;
+}) {
+  return enforceEnterpriseApiRateLimitOnPrimaryState({
     bucket: input.bucket,
     key: requestClientKey(request, input.discriminator),
     limit: input.limit,

@@ -13,11 +13,11 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
+  const [theme, setThemeState] = useState<Theme>("light");
 
   useEffect(() => {
     const stored = window.localStorage.getItem("sena-theme") as Theme | null;
-    const resolved = stored === "light" || stored === "dark" ? stored : "dark";
+    const resolved = stored === "light" || stored === "dark" ? stored : "light";
     setThemeState(resolved);
     document.documentElement.setAttribute("data-theme", resolved);
   }, []);

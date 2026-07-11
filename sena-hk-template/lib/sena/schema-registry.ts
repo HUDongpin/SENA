@@ -1,8 +1,10 @@
 export const SENA_SCHEMA_VERSIONS = {
   activeWindowBrief: "sena-active-window-brief/v1",
+  analysisProvenanceEnvelope: "sena-analysis-provenance-envelope/v1",
   analysisRunList: "sena-analysis-run-list/v1",
   analysisRun: "sena-analysis-run/v1",
   apiDocumentation: "sena-api-documentation/v1",
+  apiSurfaceMoratorium: "sena-api-surface-moratorium/v1",
   claimReadinessGate: "sena-claim-readiness-gate/v1",
   codingReliabilityDashboard: "sena-coding-reliability-dashboard/v1",
   codingReliabilityGate: "sena-coding-reliability-gate/v1",
@@ -19,17 +21,22 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseAuditDelivery: "sena-enterprise-audit-delivery/v1",
   enterpriseAuditIntegrity: "sena-enterprise-audit-integrity/v1",
   enterpriseAuditLog: "sena-enterprise-audit-log/v1",
+  enterpriseAuditStoreRuntime: "sena-enterprise-audit-store-runtime/v1",
   enterpriseAuditWebhook: "sena-enterprise-audit-webhook/v1",
   enterpriseBackupDelivery: "sena-enterprise-backup-delivery/v1",
   enterpriseBackupRestore: "sena-enterprise-backup-restore/v1",
   enterpriseBackupVerification: "sena-enterprise-backup-verification/v1",
   enterpriseBackupWebhook: "sena-enterprise-backup-webhook/v1",
   enterpriseBackup: "sena-enterprise-backup/v1",
+  enterpriseCdnContract: "sena-enterprise-cdn-contract/v1",
+  enterpriseCdnProbe: "sena-enterprise-cdn-probe/v1",
   enterpriseCapabilityAudit: "sena-enterprise-capability-audit/v1",
   enterpriseClaimEvidencePackage: "sena-enterprise-claim-evidence-package/v1",
   enterpriseClaimSourceSnapshot: "sena-enterprise-claim-source-snapshot/v1",
   enterpriseCollaborationPubsubDelivery: "sena-enterprise-collaboration-pubsub-delivery/v1",
   enterpriseCollaborationPubsubWebhook: "sena-enterprise-collaboration-pubsub-webhook/v1",
+  enterpriseConferenceLoadRehearsal: "sena-enterprise-conference-load-rehearsal/v1",
+  enterpriseConferenceRehearsalPlan: "sena-enterprise-conference-rehearsal-plan/v1",
   enterpriseCsrfToken: "sena-enterprise-csrf-token/v1",
   enterpriseDatabaseSync: "sena-enterprise-database-sync/v1",
   enterpriseDatabaseSyncDelivery: "sena-enterprise-database-sync-delivery/v1",
@@ -43,6 +50,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseGoLiveAttestation: "sena-enterprise-go-live-attestation/v1",
   enterpriseGoLiveAttestations: "sena-enterprise-go-live-attestations/v1",
   enterpriseGoLiveChecklist: "sena-enterprise-go-live-checklist/v1",
+  enterpriseGoLiveCloseoutCheck: "sena-go-live-closeout-check/v1",
   enterpriseGoLiveMonitor: "sena-enterprise-go-live-monitor/v1",
   enterpriseGoLiveRehearsal: "sena-enterprise-go-live-rehearsal/v1",
   enterpriseGoLiveRollbackDrill: "sena-enterprise-go-live-rollback-drill/v1",
@@ -68,6 +76,14 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseNotificationWebhook: "sena-enterprise-notification-webhook/v1",
   enterpriseNotification: "sena-enterprise-notification/v1",
   enterpriseNotifications: "sena-enterprise-notifications/v1",
+  enterpriseObjectStorageContract: "sena-enterprise-object-storage-contract/v1",
+  enterpriseObjectStorageNative: "sena-enterprise-object-storage-native/v1",
+  enterpriseObjectStorageProbe: "sena-enterprise-object-storage-probe/v1",
+  enterpriseObservabilityContract: "sena-enterprise-observability-contract/v1",
+  enterpriseObservabilityDelivery: "sena-enterprise-observability-delivery/v1",
+  enterpriseObservabilityProbe: "sena-enterprise-observability-probe/v1",
+  enterpriseObservabilitySli: "sena-enterprise-observability-sli/v1",
+  enterpriseObservedRequest: "sena-enterprise-observed-request/v1",
   enterpriseOpsAlertDelivery: "sena-enterprise-ops-alert-delivery/v1",
   enterpriseOpsAlertWebhook: "sena-enterprise-ops-alert-webhook/v1",
   enterpriseOpsAlerts: "sena-enterprise-ops-alerts/v1",
@@ -82,8 +98,18 @@ export const SENA_SCHEMA_VERSIONS = {
   enterprisePlatformDecisionRegister: "sena-enterprise-platform-decision-register/v1",
   enterprisePostCutoverObservation: "sena-enterprise-post-cutover-observation/v1",
   enterprisePostCutoverObservations: "sena-enterprise-post-cutover-observations/v1",
+  enterprisePostgresProbe: "sena-enterprise-postgres-probe/v1",
+  enterprisePostgresSchemaContract: "sena-enterprise-postgres-schema-contract/v1",
   enterpriseProjectCollaboration: "sena-enterprise-project-collaboration/v1",
   enterpriseProjectList: "sena-enterprise-project-list/v1",
+  enterprisePrimaryStateRuntime: "sena-enterprise-primary-state-runtime/v1",
+  enterpriseProductionRuntimeEnvPacket: "sena-enterprise-production-runtime-env-packet/v1",
+  enterpriseProductionGoLiveGate: "sena-enterprise-production-go-live-gate/v1",
+  enterpriseProductionPerformanceBudget: "sena-enterprise-production-performance-budget/v1",
+  enterpriseProductionPerformancePath: "sena-enterprise-production-performance-path/v1",
+  enterpriseProductionEvidenceManifest: "sena-enterprise-production-evidence-manifest/v1",
+  enterpriseProductionEvidenceArchive: "sena-enterprise-production-evidence-archive/v1",
+  enterprisePerformanceSourceCustody: "sena-performance-source-custody/v1",
   enterpriseProvisioningDirectory: "sena-enterprise-provisioning-directory/v1",
   enterpriseProvisioningStatus: "sena-enterprise-provisioning-status/v1",
   enterpriseProvisioning: "sena-enterprise-provisioning/v1",
@@ -94,6 +120,17 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseReliabilityAdjudication: "sena-enterprise-reliability-adjudication/v1",
   enterpriseSaasOperationsReadiness: "sena-enterprise-saas-operations-readiness/v1",
   enterpriseSecurityPosture: "sena-enterprise-security-posture/v1",
+  enterpriseServerJobQueueContract: "sena-enterprise-server-job-queue-contract/v1",
+  enterpriseServerJobQueueWebhook: "sena-enterprise-server-job-queue-webhook/v1",
+  enterpriseServerJobQueueWebhookReceipt: "sena-enterprise-server-job-queue-webhook-receipt/v1",
+  enterpriseServerJobQueueProbe: "sena-enterprise-server-job-queue-probe/v1",
+  enterpriseServerJobQueue: "sena-enterprise-server-job-queue/v1",
+  enterpriseServerJobList: "sena-enterprise-server-job-list/v1",
+  enterpriseServerJobStoreRuntime: "sena-enterprise-server-job-store-runtime/v1",
+  enterpriseServerJobStatusUpdate: "sena-enterprise-server-job-status-update/v1",
+  enterpriseServerJobWorkerContract: "sena-enterprise-server-job-worker-contract/v1",
+  enterpriseServerJobWorkerHeartbeat: "sena-enterprise-server-job-worker-heartbeat/v1",
+  enterpriseServerJob: "sena-enterprise-server-job/v1",
   enterpriseSessionList: "sena-enterprise-session-list/v1",
   enterpriseSessionRevocation: "sena-enterprise-session-revocation/v1",
   enterpriseSsoFallbackPolicy: "sena-enterprise-sso-fallback-policy/v1",
@@ -101,6 +138,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseUploadObjectStorageDelivery: "sena-enterprise-upload-object-storage-delivery/v1",
   enterpriseUploadObjectStorageWebhook: "sena-enterprise-upload-object-storage-webhook/v1",
   enterpriseUploadStorageVerification: "sena-enterprise-upload-storage-verification/v1",
+  enterpriseVercelProductionPreflight: "sena-enterprise-vercel-production-preflight/v1",
   evidenceLedger: "sena-evidence-ledger/v1",
   expertReviewList: "sena-expert-review-list/v1",
   expertReviewResponse: "sena-expert-review-response/v1",
@@ -118,6 +156,7 @@ export const SENA_SCHEMA_VERSIONS = {
   localValidationRun: "sena-local-validation-run/v1",
   methodProtocol: "sena-method-protocol/v1",
   metricProvenance: "sena-metric-provenance/v1",
+  modelCard: "sena-model-card/v2",
   nullModels: "sena-null-models/v1",
   personCodePairGReport: "sena-person-code-pair-g-report/v1",
   pilotPackageManifest: "sena-pilot-package-manifest/v1",
@@ -187,4 +226,34 @@ export function listSenaSchemaVersions(): SenaSchemaVersion[] {
 
 export function isSenaSchemaVersion(value: unknown): value is SenaSchemaVersion {
   return typeof value === "string" && senaSchemaVersionSet.has(value);
+}
+
+export function createSenaSchemaPayload<Key extends SenaSchemaVersionKey, Payload extends Record<string, unknown>>(
+  key: Key,
+  payload: Payload
+): { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } & Payload {
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS[key],
+    ...payload
+  };
+}
+
+export function hasSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): value is { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { schemaVersion?: unknown }).schemaVersion === SENA_SCHEMA_VERSIONS[key]
+  );
+}
+
+export function assertSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] } {
+  if (hasSenaSchemaVersion(value, key)) return value;
+  throw new Error(`Expected ${SENA_SCHEMA_VERSIONS[key]} schemaVersion.`);
 }

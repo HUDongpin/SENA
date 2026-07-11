@@ -39,7 +39,7 @@ describe("SENA governance security route", () => {
       });
       sessionToken = registered.token;
       const route = await import("../../../app/api/sena/governance/security/route");
-      const response = await route.GET();
+      const response = await route.GET(new Request("https://sena.example.test/api/sena/governance/security"));
       const body = await response.json() as {
         status?: string;
         controls?: Array<{
@@ -58,6 +58,8 @@ describe("SENA governance security route", () => {
       expect(identityControls.every((control) => control.category === "identity")).toBe(true);
       expect(identityControls.every((control) => control.status === "review")).toBe(true);
       expect(identityControls.every((control) => control.source === "readiness")).toBe(true);
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-governance-security");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("2xx");
       expect(response.headers.get("x-sena-security-posture-status")).toBe(body.status);
       expect(response.headers.get("x-sena-security-identity-controls-review")).toBe(String(identityControls.length));
       expect(response.headers.get("x-sena-security-identity-control-blockers")).toBe(identityControls.map((control) => control.id).join("|"));

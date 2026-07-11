@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaRuntimeProvenance } from "./runtime-constants";
 import type {
   SenaDemoVerification,
@@ -23,12 +24,12 @@ export type SenaDevelopmentPlanOptions = {
 const inScope = [
   "Local demo readiness for researchers and education pilot users.",
   "Five-table SENA data contract import, templates, lesson-study sample data, and asset-integrity fingerprints.",
-  "Browser-side S/W/B/G construction with the explicit A_fusion block equation.",
-  "Restorable model JSON snapshot export with graph nodes, typed edges, S/W/B/G, fusion matrix, and temporal trace.",
+  "Browser-side S/W/B/B_PC/B_CP/G construction with the explicit A_fusion block equation.",
+  "Restorable model JSON snapshot export with graph nodes, typed edges, S/W/B/B_PC/B_CP/G, fusion matrix, and temporal trace.",
   "Local jENA and jSNA JavaScript runtime provenance, manifests, parity fixture evidence, and traceable exports.",
   "Evidence inspection, temporal runtime trace, report exports, and human-review handoff.",
   "Local enterprise-runtime vertical slice for auth, RBAC teams, server-side projects, imports, reliability, validation, publication exports, ops readiness, and redacted organization deployment handoff evidence.",
-  "Production SaaS backend readiness with native adapter certification, platform-owner bridge acceptance, release-gate evidence, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning."
+  "Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning."
 ];
 
 const outOfScope = [
@@ -85,16 +86,16 @@ const nextStageDataScenarios = [
 
 const nextStageRegressionRules = [
   "Preserve the six-step /workspace/sena workflow: Data Import, Model Builder, Fusion Canvas, Evidence, Temporal Trace, and Report.",
-  "Preserve A1 Inner Solid Mesh visual grammar, Temporal Fusion Arc, G attribution, and S/W/B/G/A_fusion provenance.",
+  "Preserve A1 Inner Solid Mesh visual grammar, Temporal Fusion Arc, G attribution, and S/W/B/B_PC/B_CP/G/A_fusion provenance.",
   "Preserve v1 artifact schemas with additive metadata only.",
   "Keep native managed database/object-storage/pub-sub/audit-SIEM/backup-restore adapters, institution IdP/SCIM approval, deployment escalation ownership, and SaaS backend requirements covered by machine-readable platform-decision acceptance and release-gate records."
 ];
 
 const nextStagePublicInterfacePolicy = [
-  "Keep /workspace/sena, /workspace/ena, and /api/ena/run as the stable public routes for the current pilot.",
+  "Keep /workspace/sena and /workspace/ena as stable pilot routes, with /api/ena/run retained as a session-protected compatibility endpoint.",
   "Keep sena-project-snapshot/v1, sena-runtime-bundle/v1, sena-review-packet/v1, sena-report/v1, and sena-claim-readiness-gate/v1 export schemas backward compatible.",
   "Do not introduce a live R runtime; local vendor/jena-js and vendor/sna-js remain the website runtimes, with R-derived fixtures used only as validation evidence.",
-  "Do not make an external production-managed database a required pilot dependency; adapter certification and platform-owner acceptance records remain the production SaaS backend handoff path while sena-project-snapshot.json stays portable."
+  "Do not make an external production-managed database a required pilot dependency; adapter certification and platform-owner acceptance records remain the institution cutover handoff path while sena-project-snapshot.json stays portable."
 ];
 
 function uniqueStrings(values: string[]) {
@@ -116,7 +117,7 @@ function buildPhases(model: SenaModel, options: SenaDevelopmentPlanOptions): Sen
       status: "complete",
       scope: "Keep the local SENA model, jENA, and jSNA runtimes deterministic and exportable.",
       deliverables: [
-        "S/W/B/G matrix construction",
+        "S/W/B/B_PC/B_CP/G matrix construction",
         "A_fusion formula audit",
         "restorable model JSON snapshot",
         "jENA manifest",
@@ -129,7 +130,7 @@ function buildPhases(model: SenaModel, options: SenaDevelopmentPlanOptions): Sen
       exitCriteria: [
         "Local runtime dependency specs are recorded as file:vendor packages.",
         "Fusion math audit is verified for the active model.",
-        "Project snapshot export preserves graph nodes, typed edges, S/W/B/G, fusion, and temporal trace.",
+        "Project snapshot export preserves graph nodes, typed edges, S/W/B/B_PC/B_CP/G, fusion, and temporal trace.",
         "jENA and jSNA manifests match the SENA model evidence chain.",
         "Runtime consistency audit records covered jENA/rENA and jSNA/R sna fixture parity."
       ]
@@ -185,9 +186,9 @@ function buildPhases(model: SenaModel, options: SenaDevelopmentPlanOptions): Sen
     },
     {
       id: "production-platform",
-      label: "Production SaaS backend readiness",
+      label: "Institution cutover acceptance evidence",
       status: "active",
-      scope: "Run the enterprise backend readiness loop with native adapter certification, platform-owner acceptance, release-gate review, go-live rehearsal, and redacted handoff evidence.",
+      scope: "Run the enterprise backend readiness loop for native adapter certification, platform-owner acceptance, release-gate review, go-live rehearsal, and redacted handoff evidence without marking production cutover complete.",
       deliverables: [
         "native adapter certification dossier",
         "platform decision acceptance register",
@@ -241,7 +242,7 @@ function buildDeliveryCandidatePlan(
     horizon: "4-week-local-research-pilot",
     priority: "pilot-delivery",
     successCriteria: [
-      "/workspace/sena completes lesson-study import, S/W/B/G/A_fusion analysis, Temporal Trace, evidence inspection, report export, review-packet export, and snapshot re-upload.",
+      "/workspace/sena completes lesson-study import, S/W/B/B_PC/B_CP/G/A_fusion analysis, Temporal Trace, evidence inspection, report export, review-packet export, and snapshot re-upload.",
       "The full local pilot gate passes in a clean environment after stopping dev/start servers.",
       "Researchers receive a fixed handoff package with sample data, templates, restorable model JSON, runtime artifacts, review packet, verification checklist, and walkthrough script."
     ],
@@ -428,6 +429,7 @@ function buildNextStageDevelopmentPlan(
         status: "deferred",
         goal: "Strengthen claims beyond local demo readiness through parity, reliability, uncertainty, and domain review evidence.",
         deliverables: [
+          "real research dataset validation notes",
           "expanded jENA/rENA parity evidence",
           "expanded jSNA/R sna parity evidence",
           "coding reliability evidence",
@@ -438,11 +440,14 @@ function buildNextStageDevelopmentPlan(
         acceptanceCriteria: [
           "Report and review packet are accepted as reproducibility artifacts by the research team.",
           "Coding reliability, human review, evidence ledger, method validation, and runtime alignment gates are ready for any research claim.",
+          "Real research datasets, uncertainty/stability checks, and domain expert review are complete before any stronger-than-exploratory claim is made.",
           "Limitations clearly separate exploratory network evidence from causal, assessment, or publication claims."
         ],
         blockedUntil: [
           "Pilot handoff package is frozen.",
-          "At least one researcher walkthrough has been completed and reviewed."
+          "At least one researcher walkthrough has been completed and reviewed.",
+          "One or two real research datasets have completed import, evidence inspection, and review-packet export.",
+          "Coding reliability, uncertainty/stability, and domain expert review evidence are attached."
         ]
       },
       {
@@ -479,7 +484,7 @@ function buildNextStageDevelopmentPlan(
       "Near-term priority remains research, education, and instructor-facing learning analytics.",
       "Generalized SaaS operations, native managed database/object-storage/pub-sub/audit-SIEM/backup-restore adapters, institution SCIM/IdP approval, production deployment escalation ownership, and institution-owned email-provider operations are represented by acceptance, certification, and release-gate artifacts in the enterprise backend.",
       "The current verified local pilot is the baseline for next-stage work.",
-      "Research claims require human review and coding-reliability evidence; otherwise reports remain exploratory-only."
+      "Research claims require human review, coding-reliability evidence, real-data walkthrough evidence, uncertainty/stability checks, and domain review; otherwise reports remain exploratory-only."
     ]
   };
 }
@@ -506,7 +511,7 @@ export function buildSenaDevelopmentPlan(model: SenaModel, options: SenaDevelopm
   const nextStage = buildNextStageDevelopmentPlan(generatedAt, deliveryCandidate);
 
   return {
-    schemaVersion: "sena-development-plan/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.developmentPlan,
     title: options.title?.trim() || "SENA Development Plan",
     generatedAt,
     workspaceRoute: "/workspace/sena",

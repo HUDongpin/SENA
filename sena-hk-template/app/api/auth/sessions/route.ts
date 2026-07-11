@@ -1,29 +1,27 @@
 import { NextResponse } from "next/server";
 import {
-  listEnterpriseSessions,
-  revokeEnterpriseSessions,
+  listEnterpriseSessionsAsync,
+  revokeEnterpriseSessionsAsync,
   senaSessionCookieName
-} from "@/lib/sena/enterprise/identity-auth";
-import { jsonError, requireApiCsrf, requireApiSession, sessionCookieOptions } from "@/lib/sena/api-helpers";
+} from "@/lib/sena/enterprise/auth-session";
+import { observeSenaApiRoute, requireApiCsrf, requireApiSession, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  try {
-    const context = requireApiSession();
-    return NextResponse.json(listEnterpriseSessions(context));
-  } catch (error) {
-    return jsonError(error);
-  }
+export async function GET(request: Request) {
+  return observeSenaApiRoute(request, { routeId: "auth-sessions" }, async () => {
+    const context = await requireApiSession();
+    return NextResponse.json(await listEnterpriseSessionsAsync(context));
+  });
 }
 
 export async function DELETE(request: Request) {
-  try {
-    const context = requireApiSession();
-    requireApiCsrf(request, context);
+  return observeSenaApiRoute(request, { routeId: "auth-sessions" }, async () => {
+    const context = await requireApiSession();
+    await requireApiCsrf(request, context);
     const body = await request.json().catch(() => ({}));
     const action = String(body.action ?? "");
-    const result = revokeEnterpriseSessions(context, {
+    const result = await revokeEnterpriseSessionsAsync(context, {
       sessionId: body.sessionId ? String(body.sessionId) : undefined,
       revokeOtherSessions: action === "revoke-others",
       revokeAllSessions: action === "revoke-all"
@@ -33,7 +31,5 @@ export async function DELETE(request: Request) {
       response.cookies.set(senaSessionCookieName, "", sessionCookieOptions(0));
     }
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

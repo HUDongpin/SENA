@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
 import {
-  logoutEnterpriseSession,
+  logoutEnterpriseSessionAsync,
   senaSessionCookieName
-} from "@/lib/sena/enterprise/identity-auth";
-import { currentSessionToken, jsonError, requireApiSessionForMutation, sessionCookieOptions } from "@/lib/sena/api-helpers";
+} from "@/lib/sena/enterprise/auth-session";
+import { currentSessionToken, observeSenaApiRoute, requireApiSessionForMutation, sessionCookieOptions } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  try {
-    requireApiSessionForMutation(request);
-    logoutEnterpriseSession(currentSessionToken());
+  return observeSenaApiRoute(request, { routeId: "auth-logout" }, async () => {
+    await requireApiSessionForMutation(request);
+    await logoutEnterpriseSessionAsync(await currentSessionToken());
     const response = NextResponse.json({ ok: true });
     response.cookies.set(senaSessionCookieName, "", sessionCookieOptions(0));
     return response;
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }

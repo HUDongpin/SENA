@@ -3,38 +3,47 @@
 @tailwind utilities;
 
 :root {
-  --background: 238 244 255;
+  --background: 229 240 239;
   --foreground: 13 21 38;
   --card: 255 255 255;
-  --card-border: 198 211 232;
+  --card-border: 179 205 201;
   --glow-cyan: 36 220 238;
   --glow-violet: 123 80 245;
   --glow-magenta: 232 80 210;
-  --muted: 89 103 130;
+  --muted: 67 83 105;
+  --page-glow-soft: 241 249 248;
+  --page-glow: 207 235 232;
+  --page-glow-strong: 178 224 216;
   color-scheme: light;
 }
 
 [data-theme="light"] {
-  --background: 238 244 255;
+  --background: 229 240 239;
   --foreground: 13 21 38;
   --card: 255 255 255;
-  --card-border: 198 211 232;
+  --card-border: 179 205 201;
   --glow-cyan: 36 220 238;
   --glow-violet: 123 80 245;
   --glow-magenta: 232 80 210;
-  --muted: 89 103 130;
+  --muted: 67 83 105;
+  --page-glow-soft: 241 249 248;
+  --page-glow: 207 235 232;
+  --page-glow-strong: 178 224 216;
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --background: 5 13 32;
+  --background: 8 25 23;
   --foreground: 237 246 255;
-  --card: 13 25 50;
-  --card-border: 80 105 144;
+  --card: 14 35 33;
+  --card-border: 73 117 110;
   --glow-cyan: 49 224 245;
   --glow-violet: 137 93 255;
   --glow-magenta: 246 86 220;
-  --muted: 166 184 214;
+  --muted: 166 198 191;
+  --page-glow-soft: 12 44 40;
+  --page-glow: 30 92 82;
+  --page-glow-strong: 52 142 127;
   color-scheme: dark;
 }
 
@@ -44,16 +53,17 @@
 
 html {
   scroll-behavior: smooth;
+  background: rgb(var(--background));
 }
 
 body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(circle at 12% -10%, rgb(var(--glow-cyan) / 0.16), transparent 32rem),
-    radial-gradient(circle at 84% 4%, rgb(var(--glow-violet) / 0.18), transparent 34rem),
-    radial-gradient(circle at 80% 86%, rgb(var(--glow-magenta) / 0.13), transparent 38rem),
-    rgb(var(--background));
+    radial-gradient(circle at 50% 16%, rgb(var(--page-glow) / 0.72), transparent 31rem),
+    radial-gradient(circle at 18% -6%, rgb(var(--page-glow-soft) / 0.92), transparent 34rem),
+    radial-gradient(circle at 84% 0%, rgb(var(--page-glow-strong) / 0.24), transparent 36rem),
+    linear-gradient(180deg, rgb(var(--page-glow-soft) / 0.92) 0%, rgb(var(--background)) 46%, rgb(var(--page-glow-soft) / 0.78) 100%);
   color: rgb(var(--foreground));
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: background 320ms ease, color 320ms ease;
@@ -74,8 +84,8 @@ button, input, select, textarea {
 
 .sena-grid {
   background-image:
-    linear-gradient(rgb(var(--foreground) / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--foreground) / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(var(--foreground) / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--foreground) / 0.035) 1px, transparent 1px);
   background-size: 42px 42px;
 }
 
@@ -83,8 +93,8 @@ button, input, select, textarea {
   transform: perspective(900px) rotateX(64deg) translateY(-24%);
   transform-origin: center top;
   background-image:
-    linear-gradient(rgb(var(--glow-cyan) / 0.20) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--glow-violet) / 0.18) 1px, transparent 1px);
+    linear-gradient(rgb(var(--page-glow-strong) / 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--page-glow) / 0.26) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, transparent 0%, black 24%, black 70%, transparent 100%);
 }
@@ -97,13 +107,13 @@ button, input, select, textarea {
 }
 
 [data-theme="dark"] .glass-panel {
-  background: linear-gradient(135deg, rgb(15 31 61 / 0.72), rgb(12 20 40 / 0.48));
-  box-shadow: 0 24px 80px rgb(0 0 0 / 0.36), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  background: linear-gradient(135deg, rgb(17 44 40 / 0.74), rgb(10 31 29 / 0.54));
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.34), inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 
 [data-theme="light"] .glass-panel {
   background: linear-gradient(135deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.58));
-  box-shadow: 0 18px 50px rgb(15 23 42 / 0.10), inset 0 1px 0 rgb(255 255 255 / 0.24);
+  box-shadow: 0 18px 50px rgb(23 83 74 / 0.10), inset 0 1px 0 rgb(255 255 255 / 0.24);
 }
 
 .gradient-text {

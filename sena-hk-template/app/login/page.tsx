@@ -1,5 +1,6 @@
 "use client";
 
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,6 +9,7 @@ import { NavBar } from "@/components/NavBar";
 import { NetworkVisualization } from "@/components/NetworkVisualization";
 import { Button, Card } from "@/components/Primitives";
 import { useLanguage } from "@/components/LanguageProvider";
+import { SENA_AUTH_PAGE_MANIFEST } from "@/lib/sena/auth-page-manifest";
 
 type SsoProvider = "institution" | "google" | "orcid";
 
@@ -16,7 +18,7 @@ type SsoProviderStatus = {
   configured: boolean;
   mode?: "oauth-oidc" | "local-pilot-fallback";
   fallbackPolicy?: {
-    schemaVersion: "sena-enterprise-sso-fallback-policy/v1";
+    schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy;
     enabled: boolean;
     productionRuntime: boolean;
     explicitOverride: boolean;
@@ -25,7 +27,7 @@ type SsoProviderStatus = {
 };
 
 type SsoPreflightResult = {
-  schemaVersion: "sena-enterprise-sso-preflight/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight;
   summary: {
     checked: number;
     passed: number;
@@ -42,7 +44,7 @@ type SsoPreflightResult = {
 };
 
 type IdentityProductionGateSummary = {
-  schemaVersion: "sena-enterprise-identity-production-gate-summary/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary;
   status: "review" | "ready";
   missingEvidenceIds: string[];
   institutionActionPlan: {
@@ -79,8 +81,8 @@ export default function LoginPage() {
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => {
         if (payload?.providers) setSsoStatuses(payload.providers as SsoProviderStatus[]);
-        if (payload?.preflight?.schemaVersion === "sena-enterprise-sso-preflight/v1") setPreflight(payload.preflight as SsoPreflightResult);
-        if (payload?.identityProductionGate?.schemaVersion === "sena-enterprise-identity-production-gate-summary/v1") {
+        if (payload?.preflight?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseSsoPreflight) setPreflight(payload.preflight as SsoPreflightResult);
+        if (payload?.identityProductionGate?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionGateSummary) {
           setIdentityProductionGate(payload.identityProductionGate as IdentityProductionGateSummary);
         }
       })
@@ -97,7 +99,7 @@ export default function LoginPage() {
 
   function ssoProviderAvailabilityLabel(providerStatus: SsoProviderStatus) {
     if (providerStatus.configured) return "configured";
-    if (providerStatus.fallbackPolicy?.schemaVersion === "sena-enterprise-sso-fallback-policy/v1" && !providerStatus.fallbackPolicy.enabled) {
+    if (providerStatus.fallbackPolicy?.schemaVersion === SENA_SCHEMA_VERSIONS.enterpriseSsoFallbackPolicy && !providerStatus.fallbackPolicy.enabled) {
       return "fallback disabled";
     }
     return "fallback";
@@ -113,7 +115,7 @@ export default function LoginPage() {
         body: JSON.stringify({
           email,
           password,
-          rememberSession,
+          [SENA_AUTH_PAGE_MANIFEST.login.rememberSession.requestBodyField]: rememberSession,
           mfaCode: mfaChallenge ? mfaCode : undefined,
           mfaChallengeToken: mfaChallenge?.challengeToken
         })
@@ -210,7 +212,7 @@ export default function LoginPage() {
               <p className="mt-3 text-base leading-7 text-muted">Secure access for research teams, labs, and institutions.</p>
             </div>
 
-            <form data-testid="login-form" className="grid gap-5" onSubmit={(event) => {
+            <form data-testid={SENA_AUTH_PAGE_MANIFEST.login.selectors.form} className="grid gap-5" onSubmit={(event) => {
               event.preventDefault();
               void submitLogin();
             }}>
@@ -219,7 +221,7 @@ export default function LoginPage() {
                 <span className="relative">
                   <Mail className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
                   <input
-                    data-testid="login-email"
+                    data-testid={SENA_AUTH_PAGE_MANIFEST.login.selectors.email}
                     type="email"
                     required
                     value={email}
@@ -239,7 +241,7 @@ export default function LoginPage() {
                 <span className="relative">
                   <KeyRound className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
                   <input
-                    data-testid="login-password"
+                    data-testid={SENA_AUTH_PAGE_MANIFEST.login.selectors.password}
                     type="password"
                     required
                     value={password}
@@ -277,7 +279,7 @@ export default function LoginPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
                 <label className="flex items-center gap-2 font-semibold text-muted">
                   <input
-                    data-testid="login-remember-session"
+                    data-testid={SENA_AUTH_PAGE_MANIFEST.login.selectors.rememberSession}
                     type="checkbox"
                     checked={rememberSession}
                     onChange={(event) => setRememberSession(event.currentTarget.checked)}
@@ -294,7 +296,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <Button data-testid="login-submit" type="submit" size="lg" className="w-full" disabled={status === "loading"}>
+              <Button data-testid={SENA_AUTH_PAGE_MANIFEST.login.selectors.submit} type="submit" size="lg" className="w-full" disabled={status === "loading"}>
                 {status === "loading" ? "Signing in..." : mfaChallenge ? "Verify code" : copy.nav.login}
               </Button>
             </form>

@@ -5,7 +5,7 @@ import jenaPackage from "../../vendor/jena-js/package.json";
 import snaPackage from "../../vendor/sna-js/package.json";
 import type { SenaRuntimeProvenance } from "./types";
 
-export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormula"] = "A_fusion = [alpha*S gamma*B; gamma*B' beta*W]";
+export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormula"] = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 
 export const jenaRuntimeVersion = jenaPackage.version;
 

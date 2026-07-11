@@ -1,0 +1,10 @@
+import type { WorkspaceReportGeneratorAuditSummaryCompositionPropGroup } from "./workspace-report-generator-audit-summary-composition-prop-group";
+
+export type WorkspaceReportGeneratorAuditSummaryBoundaryCompositionFieldPropGroup =
+  Pick<WorkspaceReportGeneratorAuditSummaryCompositionPropGroup, keyof WorkspaceReportGeneratorAuditSummaryCompositionPropGroup>;
+
+export function buildWorkspaceReportGeneratorAuditSummaryBoundaryCompositionFieldProps(
+  props: WorkspaceReportGeneratorAuditSummaryBoundaryCompositionFieldPropGroup
+): WorkspaceReportGeneratorAuditSummaryBoundaryCompositionFieldPropGroup {
+  return props;
+}

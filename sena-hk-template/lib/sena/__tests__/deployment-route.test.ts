@@ -132,6 +132,8 @@ describe("SENA deployment route", () => {
 
       expect(response.status).toBe(503);
       expect(body.identityProductionHandoff?.status).toBe("review");
+      expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-deployment");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("5xx");
       expectIdentityHandoffHeaders(response, body.identityProductionHandoff);
     } finally {
       delete process.env.SENA_APP_URL;

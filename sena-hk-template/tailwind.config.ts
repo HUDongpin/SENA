@@ -23,7 +23,7 @@ const config: Config = {
         soft: "0 24px 80px rgb(15 23 42 / 0.14)"
       },
       backgroundImage: {
-        "sena-radial": "radial-gradient(circle at 20% 20%, rgb(var(--glow-cyan) / 0.20), transparent 28%), radial-gradient(circle at 80% 10%, rgb(var(--glow-violet) / 0.18), transparent 30%), radial-gradient(circle at 75% 75%, rgb(var(--glow-magenta) / 0.16), transparent 36%)",
+        "sena-radial": "radial-gradient(circle at 50% 16%, rgb(var(--page-glow) / 0.64), transparent 30%), radial-gradient(circle at 16% 0%, rgb(var(--page-glow-soft) / 0.88), transparent 32%), radial-gradient(circle at 84% 4%, rgb(var(--page-glow-strong) / 0.22), transparent 34%)",
         "grid-lines": "linear-gradient(rgb(var(--foreground) / 0.06) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--foreground) / 0.06) 1px, transparent 1px)"
       },
       keyframes: {

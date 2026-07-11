@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaFusionMathAudit } from "./fusion-math";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaRuntimeConsistencyAudit } from "./runtime-consistency";
@@ -45,7 +46,7 @@ function layers(model: SenaModel): SenaMethodProtocolLayer[] {
       id: "W",
       label: "Epistemic layer",
       source: "coded_segments",
-      construction: "Code-code co-occurrence is counted within stanza/window coded segments and aligned with local jENA manifest outputs.",
+      construction: "Code-code co-occurrence is counted within unit-scoped stanza windows (unitId + stanzaId), matching the G/Y attribution windows and the local jENA conversation grouping.",
       matrixShape: matrixShape(model.matrices.W.labels.length, model.matrices.W.labels.length),
       interpretationRole: "Represents epistemic-network links among discourse codes.",
       guardrail: "Code proximity should be interpreted with coding reliability, context, and jENA manifest settings."
@@ -53,26 +54,44 @@ function layers(model: SenaModel): SenaMethodProtocolLayer[] {
     {
       id: "B",
       label: "Bridge layer",
-      source: "coded_segments + people",
-      construction: "Person-code contribution weights connect actors to epistemic moves they produced in coded evidence.",
+      source: "coded_segments + people + Y participation",
+      construction: "B aliases B_PC and records person-to-code association under the declared segment-count or confidence rule.",
       matrixShape: matrixShape(model.matrices.B.rowLabels.length, model.matrices.B.columnLabels.length),
       interpretationRole: "Connects social actors and epistemic codes in the typed heterogeneous graph.",
-      guardrail: "Bridge weights are contribution indicators, not measures of individual learning or causal impact."
+      guardrail: "Bridge weights are participation-weighted association indicators unless person-specific code contribution evidence is declared."
+    },
+    {
+      id: "B_PC",
+      label: "Person-to-code bridge layer",
+      source: "coded_segments.personId + coded_segments.codes",
+      construction: "B_PC records person-to-code evidence from the coding actor toward applied discourse codes.",
+      matrixShape: matrixShape(model.matrices.B_PC.rowLabels.length, model.matrices.B_PC.columnLabels.length),
+      interpretationRole: "Provides the top-right bridge block of A_fusion.",
+      guardrail: "Person-to-code bridge weights are observed coding associations, not proof of individual understanding."
+    },
+    {
+      id: "B_CP",
+      label: "Code-to-person bridge layer",
+      source: "coded_segments.targetPersonIds + coded_segments.codes",
+      construction: "B_CP records independent code-to-person evidence when targetPersonIds are supplied; otherwise it is the declared transpose-compatible fallback.",
+      matrixShape: matrixShape(model.matrices.B_CP.rowLabels.length, model.matrices.B_CP.columnLabels.length),
+      interpretationRole: "Provides the bottom-left bridge block of A_fusion.",
+      guardrail: "Badge whether B_CP is independent or transpose-compatible before interpreting directed bridge flow."
     },
     {
       id: "G",
       label: "Person-code-pair explanation layer",
-      source: "coded_segments",
-      construction: "Person by unordered code-pair contributions explain who supports ENA-style code-code links.",
+      source: "coded_segments + Y participation windows",
+      construction: "G_i = X^T diag(Y_i) X records person-code-pair association over unit/stanza windows; G-hat uses participation-window normalization.",
       matrixShape: matrixShape(model.matrices.G.rowLabels.length, model.matrices.G.columnLabels.length),
       interpretationRole: "Provides evidence-linked explanation for W edges and pair reports; it is not a direct A_fusion block.",
-      guardrail: "G should be reported as interpretive evidence for pair contributions, not as an additional adjacency block inside A_fusion."
+      guardrail: "Report G as association/exposure evidence, not as an additional adjacency block inside A_fusion; stronger contribution wording requires person-specific code-pair evidence."
     },
     {
       id: "A_fusion",
       label: "Weighted SENA fusion matrix",
-      source: "S, W, B",
-      construction: "A_fusion = [alpha*S gamma*B; gamma*B' beta*W], using normalized S, W, and B blocks.",
+      source: "S, W, B_PC, B_CP",
+      construction: "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W], using normalized S, W, B_PC, and B_CP blocks.",
       matrixShape: matrixShape(fusion, fusion),
       interpretationRole: "Combines social, epistemic, and bridge layers for exploratory typed graph inspection and export.",
       guardrail: "A_fusion is a normalized typed adjacency model; it is not a causal model or inferential test by itself."
@@ -119,9 +138,9 @@ function runtimeHandoffs(
     },
     {
       id: "fusion-math",
-      label: "S/W/B to A_fusion math audit",
+      label: "S/W/B_PC/B_CP to A_fusion math audit",
       status: fusionMathAudit.status === "verified" ? "pass" : "review",
-      source: "S, W, B normalized blocks",
+      source: "S, W, B_PC, B_CP normalized blocks",
       target: "A_fusion weighted block matrix",
       summary: `${fusionMathAudit.passed} formula checks passed; ${fusionMathAudit.reviewNeeded} need review; A_fusion=${fusionMatrix?.checksum ?? "missing"}`,
       evidence: [
@@ -146,7 +165,7 @@ export function buildSenaMethodProtocol(model: SenaModel, options: SenaMethodPro
   });
 
   return {
-    schemaVersion: "sena-method-protocol/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.methodProtocol,
     title: options.title?.trim() || "SENA Method Protocol",
     generatedAt,
     analysisWindow: activeTemporalWindow,
@@ -202,7 +221,7 @@ export function buildSenaMethodProtocol(model: SenaModel, options: SenaMethodPro
       "sena-review-packet.json"
     ],
     interpretationGuardrails: [
-      "Report S, W, B, G, and A_fusion with weights, normalization, temporal mode, and runtime provenance.",
+      "Report S, W, B, B_PC, B_CP, G, and A_fusion with weights, normalization, temporal mode, and runtime provenance.",
       "Treat Fusion Canvas and Temporal Fusion Arc encodings as explanatory visual grammars; cite their visual roles alongside matrix and evidence exports.",
       "Treat SENA outputs as observed association patterns in coded collaboration data, not causal or assessment claims.",
       "Inspect original evidence snippets and human-review fields before making substantive interpretations.",

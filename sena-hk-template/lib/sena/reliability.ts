@@ -1,3 +1,4 @@
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { parseSenaCsv, type SenaImportRow } from "./import";
 import type { SenaCodingReliabilityReview } from "./types";
 
@@ -34,7 +35,7 @@ export type SenaCodeReliabilityDiagnostic = {
 };
 
 export type SenaReliabilityDashboard = {
-  schemaVersion: "sena-coding-reliability-dashboard/v1";
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   coderCount: number;
   itemCount: number;
   codeCount: number;
@@ -295,7 +296,7 @@ export function buildSenaReliabilityDashboard(annotations: SenaCoderAnnotation[]
         : "Reliability evidence needs review before SENA graph patterns are treated as research claims.";
 
   return {
-    schemaVersion: "sena-coding-reliability-dashboard/v1",
+    schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
     coderCount: coders.length,
     itemCount: items.length,
     codeCount: codes.length,

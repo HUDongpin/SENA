@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseDeploymentReadiness,
-  getEnterpriseOpsStatus,
-  type SenaEnterpriseDeploymentReadiness,
+  getEnterpriseDeploymentReadinessWithPostgresEvidence,
+  type SenaEnterpriseDeploymentReadiness
+} from "@/lib/sena/enterprise/ops-deployment-readiness";
+import {
+  getEnterpriseOpsStatusWithPostgresEvidence,
   type SenaEnterpriseOpsStatus
-} from "@/lib/sena/enterprise/ops-governance";
-import { jsonError } from "@/lib/sena/api-helpers";
+} from "@/lib/sena/enterprise/ops-status";
+import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
@@ -44,10 +46,10 @@ function opsStatusHeaders(
 }
 
 export async function GET(request: Request) {
-  try {
-    const access = requireOpsAccess(request);
-    const status = getEnterpriseOpsStatus();
-    const readiness = getEnterpriseDeploymentReadiness();
+  return observeSenaApiRoute(request, { routeId: "sena-ops-status" }, async () => {
+    const access = await requireOpsAccess(request);
+    const status = await getEnterpriseOpsStatusWithPostgresEvidence();
+    const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus: status });
     return NextResponse.json({
       ...status,
       access
@@ -55,7 +57,5 @@ export async function GET(request: Request) {
       status: status.status === "degraded" ? 503 : 200,
       headers: opsStatusHeaders(status, readiness)
     });
-  } catch (error) {
-    return jsonError(error);
-  }
+  });
 }
