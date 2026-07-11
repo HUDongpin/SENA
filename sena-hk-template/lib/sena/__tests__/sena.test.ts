@@ -678,7 +678,7 @@ describe("SENA model builder", () => {
     expect(report.runtimeConsistencyAudit.schemaVersion).toBe("sena-runtime-consistency/v1");
     expect(report.runtimeConsistencyAudit.status).toBe("consistent");
     expect(report.runtimeConsistencyAudit.reviewNeeded).toBe(0);
-    expect(report.runtimeConsistencyAudit.items.find((item) => item.id === "jena-local-dependency")?.actual).toContain("0.6.1");
+    expect(report.runtimeConsistencyAudit.items.find((item) => item.id === "jena-local-dependency")?.actual).toContain("0.6.2");
     expect(report.runtimeConsistencyAudit.items.find((item) => item.id === "jena-api-surface")?.actual).toContain("ena()");
     expect(report.runtimeConsistencyAudit.items.find((item) => item.id === "jena-api-surface")?.detail).toContain("source=lib/sena/ena-manifest.ts");
     expect(report.runtimeConsistencyAudit.items.find((item) => item.id === "jena-rena-parity")?.status).toBe("pass");
@@ -966,7 +966,7 @@ describe("SENA model builder", () => {
     expect(protocol.visualGrammar.find((item) => item.id === "temporal-fusion-arc")?.dataMapping).toContain("active person-code-pair counts");
     expect(protocol.visualGrammar.find((item) => item.id === "temporal-fusion-arc")?.dataMapping).toContain("strongest G pair labels");
     expect(protocol.interpretationGuardrails.some((guardrail) => guardrail.includes("visual grammars"))).toBe(true);
-    expect(protocol.runtimeIntegration.jena.dependencySpec).toBe("0.6.1");
+    expect(protocol.runtimeIntegration.jena.dependencySpec).toBe("0.6.2");
     expect(protocol.runtimeIntegration.jena.apiSurface).toContain("ena()");
     expect(protocol.runtimeIntegration.jsna.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(protocol.runtimeIntegration.jsna.apiSurface).toContain("geodist()");
@@ -1168,7 +1168,7 @@ describe("SENA model builder", () => {
     expect(snaRuntimeVersion).toBe(snaPackage.version);
     expect(jenaRuntimeDependencySpec).toBe(appPackage.dependencies["jena-js"]);
     expect(snaRuntimeDependencySpec).toBe(appPackage.dependencies["sna.js"]);
-    expect(jenaRuntimeDependencySpec).toBe("0.6.1");
+    expect(jenaRuntimeDependencySpec).toBe("0.6.2");
     expect(snaRuntimeDependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(senaRuntimeProvenance.enaRuntime.version).toBe(jenaPackage.version);
     expect(senaRuntimeProvenance.snaRuntime.version).toBe(snaPackage.version);
@@ -1219,14 +1219,14 @@ describe("SENA model builder", () => {
     expect(snaManifest.engineVersion).toBe(snaPackage.version);
     expect(report.runtimeProvenance.enaRuntime.version).toBe(enaManifest.engineVersion);
     expect(report.runtimeProvenance.snaRuntime.version).toBe(snaManifest.engineVersion);
-    expect(report.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.1");
+    expect(report.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.2");
     expect(report.runtimeProvenance.snaRuntime.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(report.runtimeProvenance.enaRuntime.apiSurface).toContain("ena()");
     expect(report.runtimeProvenance.snaRuntime.apiSurface).toContain("geodist()");
     expect(report.runtimeProvenance.parityEvidence.map((evidence) => evidence.id)).toEqual(["jena-rena-sample-parity", "jsna-r-sna-social-parity"]);
     expect(trace.runtimeProvenance.enaRuntime.version).toBe(jenaPackage.version);
     expect(trace.runtimeProvenance.snaRuntime.version).toBe(snaPackage.version);
-    expect(trace.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.1");
+    expect(trace.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.2");
     expect(trace.runtimeProvenance.snaRuntime.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
   });
 
@@ -1662,7 +1662,7 @@ describe("SENA model builder", () => {
     expect(plan.title).toBe("SENA Local Development Plan");
     expect(plan.milestone).toBe("local-research-pilot");
     expect(plan.analysisWindow?.label).toBe("Reflection");
-    expect(plan.runtimeIntegration.jena.dependencySpec).toBe("0.6.1");
+    expect(plan.runtimeIntegration.jena.dependencySpec).toBe("0.6.2");
     expect(plan.runtimeIntegration.jsna.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(plan.runtimeParityEvidence.map((evidence) => evidence.id)).toEqual(["jena-rena-sample-parity", "jsna-r-sna-social-parity"]);
     expect(plan.runtimeParityEvidence.find((evidence) => evidence.id === "jena-rena-sample-parity")?.fixturePath).toBe("lib/ena/__fixtures__/r-ena-sample-parity.json");
@@ -1803,7 +1803,7 @@ describe("SENA model builder", () => {
     expect(bundle.report.analysisWindow?.label).toBe("Reflection");
     expect(bundle.parameters.buildOptions).toEqual(model.options);
     expect(bundle.runtimeProvenance.senaModel.engine).toBe("sena-js");
-    expect(bundle.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.1");
+    expect(bundle.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.2");
     expect(bundle.runtimeProvenance.snaRuntime.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(bundle.runtimeProvenance.enaRuntime.apiSurface).toContain("ena()");
     expect(bundle.runtimeProvenance.snaRuntime.apiSurface).toContain("geodist()");
@@ -1817,7 +1817,7 @@ describe("SENA model builder", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-consistency-audit.json")?.handoffChecks).toContain("jsna-r-sna-parity");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-consistency-audit.json")?.handoffChecks).toContain("jsna-api-surface");
     expect(bundle.runtimes.ena.engine).toBe("jena-js");
-    expect(bundle.runtimes.ena.dependencySpec).toBe("0.6.1");
+    expect(bundle.runtimes.ena.dependencySpec).toBe("0.6.2");
     expect(bundle.runtimes.ena.manifest.schemaVersion).toBe("sena-ena-manifest/v1");
     expect(bundle.runtimes.ena.manifest.status).toBe("computed");
     expect(bundle.runtimes.sna.engine).toBe("sna.js");
@@ -3527,7 +3527,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.demoVerificationCompatibilityAudit).toEqual(packet.contents.runtimeBundle.demoVerificationCompatibilityAudit);
     expect(packet.contents.demoVerificationCompatibilityAudit.status).toBe("compatible");
     expect(packet.summary.localRuntimeDependencies).toEqual({
-      jena: "0.6.1",
+      jena: "0.6.2",
       jsna: "npm:@peterhudongpin/sna.js@0.4.0"
     });
     expect(packet.reviewPacketAudit.schemaVersion).toBe("sena-review-packet-audit/v1");
@@ -3566,7 +3566,7 @@ describe("SENA model builder", () => {
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonArtifact=sena-project-snapshot.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonEvidence=graph nodes|typed edge layers|S/W/B/B_PC/B_CP/G matrices|A_fusion matrix|temporal trace windows");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("runtimeArtifact=sena-runtime-bundle.json");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("runtimeEvidence=sena-jena-manifest.json|sena-ena-report.json|sena-jsna-manifest.json|sena-runtime-consistency-audit.json|jena-api-surface|jsna-api-surface|jena-rena-parity|jsna-r-sna-parity|matrix-fingerprints|0.6.1|npm:@peterhudongpin/sna.js@0.4.0");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("runtimeEvidence=sena-jena-manifest.json|sena-ena-report.json|sena-jsna-manifest.json|sena-runtime-consistency-audit.json|jena-api-surface|jsna-api-surface|jena-rena-parity|jsna-r-sna-parity|matrix-fingerprints|0.6.2|npm:@peterhudongpin/sna.js@0.4.0");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-export-artifact-coverage")?.actual).toContain("missing=0");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "project-snapshot-handoff")?.actual).toContain("modelJsonGate=ready");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "project-snapshot-handoff")?.evidence).toContain("edgeLayers=bridge|concept|social");
@@ -3643,7 +3643,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.reportJson).toEqual(packet.contents.runtimeBundle.report);
     expect(packet.contents.projectSnapshot.schemaVersion).toBe("sena-project-snapshot/v1");
     expect(packet.contents.projectSnapshot.source.sourceDatasetCounts.utterances).toBe(exampleSenaContract.utterances.length);
-    expect(packet.contents.projectSnapshot.reproducibility.requiredRuntimes.ena.dependencySpec).toBe("0.6.1");
+    expect(packet.contents.projectSnapshot.reproducibility.requiredRuntimes.ena.dependencySpec).toBe("0.6.2");
     expect(packet.contents.projectSnapshot.reproducibility.requiredRuntimes.sna.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(packet.contents.projectSnapshot.analysis.nodes?.length).toBe(packet.contents.reportJson.figures.fusionGraph.nodes.length);
     expect(packet.contents.projectSnapshot.analysis.edges?.length).toBe(packet.contents.reportJson.figures.fusionGraph.edges.length);
@@ -3767,7 +3767,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.reportMarkdown).toContain("# Lesson Study");
     expect(packet.contents.reportMarkdown).toContain("Analysis window: Full conversation");
     expect(packet.contents.reportMarkdown).toContain("## Temporal Trace");
-    expect(packet.contents.reportMarkdown).toContain("0.6.1");
+    expect(packet.contents.reportMarkdown).toContain("0.6.2");
     expect(packet.reviewGuardrails.some((guardrail) => guardrail.startsWith("Observed structure, not causality:"))).toBe(true);
 
     const importedPacket = importSenaReviewPacket(JSON.stringify(packet));
@@ -3793,7 +3793,7 @@ describe("SENA model builder", () => {
       schemaVersion: "sena-review-packet/v1",
       title: "Bad Review Packet",
       generatedAt: "2026-06-08T10:00:00.000Z",
-      summary: { localRuntimeDependencies: { jena: "0.6.1", jsna: "npm:@peterhudongpin/sna.js@0.4.0" } },
+      summary: { localRuntimeDependencies: { jena: "0.6.2", jsna: "npm:@peterhudongpin/sna.js@0.4.0" } },
       reviewPacketAudit: { schemaVersion: "sena-review-packet-audit/v1" },
       artifactManifest: [],
       reviewGuardrails: [],
@@ -4201,7 +4201,7 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("## Typed Centrality Families");
     expect(markdown).toContain("mixed-type centrality ranking");
     expect(markdown).toContain("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
-    expect(markdown).toContain("- ENA dependency: 0.6.1 (node_modules/jena-js/package.json)");
+    expect(markdown).toContain("- ENA dependency: 0.6.2 (node_modules/jena-js/package.json)");
     expect(markdown).toContain("- ENA API surface: ena()");
     expect(markdown).toContain("- SNA dependency: npm:@peterhudongpin/sna.js@0.4.0 (node_modules/sna.js/package.json)");
     expect(markdown).toContain("- SNA API surface: gden(), nties(), degree(), betweenness(), reachability(), averagePathLength(), labelPropagation(), components(), isConnected(), geodist(), grecip()");
@@ -4366,7 +4366,7 @@ describe("SENA model builder", () => {
     expect(enaArtifact.workspaceRoute).toBe("/workspace/sena");
     expect(enaArtifact.analysisWindow?.id).toBe(activeWindow?.id);
     expect(enaArtifact.runtimeProvenance.engine).toBe("jena-js");
-    expect(enaArtifact.runtimeProvenance.dependencySpec).toBe("0.6.1");
+    expect(enaArtifact.runtimeProvenance.dependencySpec).toBe("0.6.2");
     expect(enaArtifact.runtimeProvenance.apiSurface).toContain("ena()");
     expect(enaArtifact.parameters.normalization).toBe(model.options.normalization);
     expect(enaArtifact.manifest.schemaVersion).toBe("sena-ena-manifest/v1");
@@ -4409,7 +4409,7 @@ describe("SENA model builder", () => {
     expect(gArtifact.workspaceRoute).toBe("/workspace/sena");
     expect(gArtifact.analysisWindow?.id).toBe(activeWindow?.id);
     expect(gArtifact.runtimeProvenance.senaModel.matrixFormula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
-    expect(gArtifact.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.1");
+    expect(gArtifact.runtimeProvenance.enaRuntime.dependencySpec).toBe("0.6.2");
     expect(gArtifact.runtimeProvenance.snaRuntime.dependencySpec).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(gArtifact.parameters).toEqual({
       alpha: model.options.alpha,

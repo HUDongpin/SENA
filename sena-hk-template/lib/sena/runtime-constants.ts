@@ -10,7 +10,7 @@ export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormul
 // as an npm alias of @peterhudongpin/sna.js), and the test suite verifies
 // these constants against the installed node_modules package manifests so
 // the reproducibility record cannot drift from the running code.
-export const jenaRuntimeVersion = "0.6.1";
+export const jenaRuntimeVersion = "0.6.2";
 
 export const snaRuntimeVersion = "0.4.0";
 

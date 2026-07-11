@@ -224,7 +224,7 @@ describe("SENA research pilot smoke", () => {
     expect(packet.contents.claimReadinessGate).toEqual(bundle.claimReadinessGate);
     expect(packet.contents.productionPageContract).toEqual(bundle.productionPageContract);
     expect(packet.contents.temporalRuntimeTrace.windows.every((entry) => entry.sena.matrixFingerprints.some((fingerprint) => fingerprint.id === "A_fusion" && /^0x[a-f0-9]{8}$/.test(fingerprint.checksum)))).toBe(true);
-    expect(packet.summary.localRuntimeDependencies.jena).toBe("0.6.1");
+    expect(packet.summary.localRuntimeDependencies.jena).toBe("0.6.2");
     expect(packet.summary.localRuntimeDependencies.jsna).toBe("npm:@peterhudongpin/sna.js@0.4.0");
     expect(packet.summary.analysisScope.label).toBe("Reflect");
     expect(packet.summary.analysisScope.scope).toBe("temporal-window");
@@ -244,7 +244,7 @@ describe("SENA research pilot smoke", () => {
     expect(markdown).toContain("# SENA Pilot Smoke Report");
     expect(markdown).toContain("## Data Contract Audit");
     expect(markdown).toContain("## Runtime Provenance");
-    expect(markdown).toContain("0.6.1");
+    expect(markdown).toContain("0.6.2");
     expect(markdown).toContain("npm:@peterhudongpin/sna.js@0.4.0");
     expect(markdown).toContain("## Fusion Math Audit");
     expect(markdown).toContain("## Temporal Trace");
