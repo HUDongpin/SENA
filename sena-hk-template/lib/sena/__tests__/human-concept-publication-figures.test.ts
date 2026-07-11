@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -230,6 +241,25 @@ function makeOutputDir() {
   const outputDir = mkdtempSync(path.join(tmpdir(), "sena-human-concept-package-"));
   temporaryOutputDirectories.add(outputDir);
   return outputDir;
+}
+
+function makeOutputPath() {
+  const parent = mkdtempSync(path.join(tmpdir(), "sena-human-concept-parent-"));
+  temporaryOutputDirectories.add(parent);
+  return path.join(parent, "generated");
+}
+
+function backupPathFor(outputDir: string) {
+  return `${outputDir}.sena-publication-backup`;
+}
+
+function stagingPathsFor(outputDir: string) {
+  const parent = path.dirname(outputDir);
+  const prefix = `.${path.basename(outputDir)}.staging-`;
+  return readdirSync(parent)
+    .filter((entry) => entry.startsWith(prefix))
+    .map((entry) => path.join(parent, entry))
+    .sort();
 }
 
 async function imageDimensions(artifactPath: string) {
@@ -826,6 +856,259 @@ describe("SENA human-concept publication figure generator", () => {
     expect(result.stderr).toContain("output directory contains unknown files");
     expect(readFileSync(sentinel, "utf8")).toBe("keep me\n");
     expect(readdirSync(outputDir)).toEqual(["researcher-notes.txt"]);
+  });
+
+  it("fails closed when the output path is a file", () => {
+    const outputPath = makeOutputPath();
+    writeFileSync(outputPath, "researcher-owned output path\n", "utf8");
+
+    const result = runGenerator(["--output-dir", outputPath]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output path must be a real directory");
+    expect(readFileSync(outputPath, "utf8")).toBe("researcher-owned output path\n");
+    expect(lstatSync(outputPath).isFile()).toBe(true);
+  });
+
+  it("fails closed when the output path is a symlink", () => {
+    const externalDirectory = makeOutputDir();
+    const externalManifest = path.join(externalDirectory, "figure-manifest.json");
+    writeFileSync(externalManifest, "external manifest\n", "utf8");
+    const outputPath = makeOutputPath();
+    symlinkSync(externalDirectory, outputPath, "dir");
+
+    const result = runGenerator(["--output-dir", outputPath]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output path must be a real directory");
+    expect(lstatSync(outputPath).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(outputPath)).toBe(externalDirectory);
+    expect(readFileSync(externalManifest, "utf8")).toBe("external manifest\n");
+  });
+
+  it("preserves an allowed-name directory and its nested researcher note", () => {
+    const outputDir = makeOutputDir();
+    const captionsDirectory = path.join(outputDir, "captions.md");
+    const nestedNote = path.join(captionsDirectory, "researcher-note.txt");
+    mkdirSync(captionsDirectory);
+    writeFileSync(nestedNote, "nested note must survive\n", "utf8");
+
+    const result = runGenerator(["--output-dir", outputDir]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output directory entry must be a top-level regular file: captions.md");
+    expect(lstatSync(captionsDirectory).isDirectory()).toBe(true);
+    expect(readFileSync(nestedNote, "utf8")).toBe("nested note must survive\n");
+  });
+
+  it("preserves an allowed-name symlink and its external sentinel", () => {
+    const externalDirectory = makeOutputDir();
+    const externalSentinel = path.join(externalDirectory, "external-sentinel.txt");
+    writeFileSync(externalSentinel, "external sentinel must survive\n", "utf8");
+    const outputDir = makeOutputDir();
+    const captionsLink = path.join(outputDir, "captions.md");
+    symlinkSync(externalSentinel, captionsLink);
+
+    const result = runGenerator(["--output-dir", outputDir]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output directory entry must be a top-level regular file: captions.md");
+    expect(lstatSync(captionsLink).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(captionsLink)).toBe(externalSentinel);
+    expect(readFileSync(externalSentinel, "utf8")).toBe("external sentinel must survive\n");
+  });
+
+  it("revalidates at publish time and preserves a late unknown file", () => {
+    const outputDir = makeOutputDir();
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    const lateNote = path.join(outputDir, "researcher-late-note.txt");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const result = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_LATE_UNKNOWN_FILE: "1" }
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output directory contains unknown files: researcher-late-note.txt");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(readFileSync(lateNote, "utf8")).toBe("late researcher note\n");
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  });
+
+  it("recovers the exact previous output after a hard exit between renames", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_BACKUP: "1" }
+    );
+
+    expect(interrupted.status).toBe(86);
+    expect(existsSync(outputDir)).toBe(false);
+    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
+    expect(readFileSync(path.join(backupPathFor(outputDir), "figure-manifest.json"), "utf8")).toBe(
+      "previous-manifest\n"
+    );
+    expect(stagingPathsFor(outputDir)).toHaveLength(1);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(readdirSync(outputDir)).toEqual(["figure-manifest.json"]);
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  });
+
+  it("recovers an owned marker left in output before the first rename", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_OUTPUT_MARKER: "1" }
+    );
+
+    expect(interrupted.status).toBe(87);
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(readdirSync(outputDir)).toHaveLength(2);
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readdirSync(outputDir)).toEqual(["figure-manifest.json"]);
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  });
+
+  it("preserves an unsafe orphan backup rather than recursively deleting it", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "figure-manifest.json"), "previous-manifest\n", "utf8");
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_BACKUP: "1" }
+    );
+    expect(interrupted.status).toBe(86);
+
+    const backupDir = backupPathFor(outputDir);
+    const researcherNote = path.join(backupDir, "researcher-note.txt");
+    writeFileSync(researcherNote, "do not delete this backup note\n", "utf8");
+    const recovery = runGenerator(["--output-dir", outputDir]);
+
+    expect(recovery.status).toBe(1);
+    expect(recovery.stderr).toContain("backup directory contents do not match its owned marker");
+    expect(existsSync(outputDir)).toBe(false);
+    expect(lstatSync(backupDir).isDirectory()).toBe(true);
+    expect(readFileSync(path.join(backupDir, "figure-manifest.json"), "utf8")).toBe("previous-manifest\n");
+    expect(readFileSync(researcherNote, "utf8")).toBe("do not delete this backup note\n");
+  });
+
+  it("safely cleans a recognized orphan backup when a valid output is present", () => {
+    const completeRun = getCachedGeneratorRun();
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "figure-manifest.json"), "old-manifest\n", "utf8");
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_AFTER_BACKUP: "1" }
+    );
+    expect(interrupted.status).toBe(86);
+
+    mkdirSync(outputDir);
+    for (const artifactName of requiredArtifacts) {
+      writeFileSync(
+        path.join(outputDir, artifactName),
+        readFileSync(path.join(completeRun.outputDir, artifactName))
+      );
+    }
+    const currentManifestBytes = readFileSync(path.join(outputDir, "figure-manifest.json"));
+    const recovery = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovery.status).toBe(1);
+    expect(recovery.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(path.join(outputDir, "figure-manifest.json"))).toEqual(currentManifestBytes);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  });
+
+  it("resumes safe cleanup of a partially unlinked owned backup", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "figure-manifest.json"), "old-manifest\n", "utf8");
+
+    const interrupted = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_CRASH_DURING_BACKUP_CLEANUP: "1" }
+    );
+
+    expect(interrupted.status).toBe(88);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(lstatSync(backupPathFor(outputDir)).isDirectory()).toBe(true);
+
+    const recovered = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(recovered.status).toBe(1);
+    expect(recovered.stderr).toContain("injected PNG rendering failure");
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    expect(existsSync(backupPathFor(outputDir))).toBe(false);
+    expect(stagingPathsFor(outputDir)).toEqual([]);
+  });
+
+  it("revalidates the moved backup before replacement and preserves unsafe content", () => {
+    const outputDir = makeOutputPath();
+    mkdirSync(outputDir);
+    writeFileSync(path.join(outputDir, "figure-manifest.json"), "previous-manifest\n", "utf8");
+
+    const result = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_LATE_BACKUP_UNKNOWN: "1" }
+    );
+
+    const backupDir = backupPathFor(outputDir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("backup directory contents do not match its owned marker");
+    expect(existsSync(outputDir)).toBe(false);
+    expect(lstatSync(backupDir).isDirectory()).toBe(true);
+    expect(readFileSync(path.join(backupDir, "figure-manifest.json"), "utf8")).toBe("previous-manifest\n");
+    expect(readFileSync(path.join(backupDir, "researcher-late-backup-note.txt"), "utf8")).toBe(
+      "late backup note\n"
+    );
+    expect(stagingPathsFor(outputDir)).toEqual([]);
   });
 
   it("rejects --output-dir without a value", () => {
