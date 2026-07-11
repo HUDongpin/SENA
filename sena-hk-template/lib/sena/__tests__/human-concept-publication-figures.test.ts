@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
@@ -20,6 +21,18 @@ const generatorPath = path.join(appRoot, "scripts", "generate-sena-human-concept
 const fixedSourcePath = path.join(appRoot, "public", "sena-pilot", "sample", "lesson-study-sena-contract.json");
 const fixedSourceRelativePath = "public/sena-pilot/sample/lesson-study-sena-contract.json";
 const requiredStages = ["Plan", "Teach", "Reflect"] as const;
+const requiredArtifacts = [
+  "figure-1-human-human-overall.svg",
+  "figure-1-human-human-overall.png",
+  "figure-2-concept-concept-overall.svg",
+  "figure-2-concept-concept-overall.png",
+  "figure-3-temporal-paired-small-multiples.svg",
+  "figure-3-temporal-paired-small-multiples.png",
+  "figure-data.json",
+  "figure-manifest.json",
+  "captions.md"
+] as const;
+const payloadArtifacts = requiredArtifacts.filter((filename) => filename !== "figure-manifest.json");
 type StageName = (typeof requiredStages)[number];
 const buildOptions = {
   normalization: "max",
@@ -86,8 +99,53 @@ type CachedGeneratorRun = {
   figureData: GeneratedFigureData;
 };
 
+type GeneratedArtifactRecord = {
+  filename: string;
+  role: "figure-vector" | "figure-raster" | "figure-data" | "captions";
+  mediaType: "image/svg+xml" | "image/png" | "application/json" | "text/markdown";
+  dimensions: { width: number; height: number } | null;
+  bytes: number;
+  sha256: string;
+};
+
+type GeneratedFigureManifest = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest;
+  generatedAt: string;
+  generationClock: "wall-clock" | "source-date-epoch";
+  dataset: GeneratedFigureData["dataset"];
+  publicationUse: GeneratedFigureData["publicationUse"];
+  dataContractAudit: GeneratedFigureData["dataContractAudit"];
+  configuration: GeneratedFigureData["configuration"];
+  stageOrder: StageName[];
+  runtime: {
+    overall: GeneratedFigureData["runIdentity"];
+    stages: Array<{
+      stage: StageName;
+      windowId: string;
+      runIdentity: GeneratedFigureData["runIdentity"];
+    }>;
+    environment: {
+      node: string;
+      sharp: string;
+      libvips: string;
+      platform: string;
+      arch: string;
+      fontFallback: string[];
+    };
+  };
+  matrices: {
+    overall: GeneratedFigureData["overall"];
+    temporal: Array<Pick<GeneratedFigureData["temporal"][number], "stage" | "windowId" | "S" | "W">>;
+  };
+  artifactCount: number;
+  artifacts: GeneratedArtifactRecord[];
+  interpretationGuardrails: string[];
+  selfHashPolicy: string;
+};
+
 let cachedGeneratorRun: CachedGeneratorRun | undefined;
 let cachedGeneratorTemporaryRoot: string | undefined;
+const temporaryOutputDirectories = new Set<string>();
 
 type MutableDatasetFixture = {
   metadata: Record<string, unknown>;
@@ -168,6 +226,21 @@ function getCachedGeneratorRun(): CachedGeneratorRun {
   return cachedGeneratorRun;
 }
 
+function makeOutputDir() {
+  const outputDir = mkdtempSync(path.join(tmpdir(), "sena-human-concept-package-"));
+  temporaryOutputDirectories.add(outputDir);
+  return outputDir;
+}
+
+async function imageDimensions(artifactPath: string) {
+  const metadata = await sharp(artifactPath).metadata();
+  return { width: metadata.width, height: metadata.height };
+}
+
+function sha256(bytes: Buffer) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 function readArtifact(outputDir: string, artifactName: string) {
   const artifactPath = path.join(outputDir, artifactName);
   expect(existsSync(artifactPath), `missing generated artifact: ${artifactName}`).toBe(true);
@@ -231,6 +304,9 @@ afterAll(() => {
   if (cachedGeneratorTemporaryRoot) {
     rmSync(cachedGeneratorTemporaryRoot, { recursive: true, force: true });
   }
+  for (const outputDir of temporaryOutputDirectories) {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
 });
 
 describe("SENA human-concept publication figure generator", () => {
@@ -265,12 +341,7 @@ describe("SENA human-concept publication figure generator", () => {
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(outputDir)).toBe(true);
-    expect(readdirSync(outputDir)).toEqual([
-      "figure-1-human-human-overall.svg",
-      "figure-2-concept-concept-overall.svg",
-      "figure-3-temporal-paired-small-multiples.svg",
-      "figure-data.json"
-    ]);
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
     expect(figureDataText.length).toBeGreaterThan(0);
     expect(figureDataText.endsWith("\n")).toBe(true);
 
@@ -553,6 +624,207 @@ describe("SENA human-concept publication figure generator", () => {
     const renderedTriangleHeight = markerHeight * (18 / 20);
     expect(renderedTriangleWidth).toBeGreaterThan(27);
     expect(renderedTriangleHeight).toBeGreaterThan(27);
+  });
+
+  it("publishes exactly nine non-empty artifacts", () => {
+    const { outputDir } = getCachedGeneratorRun();
+
+    expect(readdirSync(outputDir).sort()).toEqual([...requiredArtifacts].sort());
+    for (const artifactName of requiredArtifacts) {
+      expect(readFileSync(path.join(outputDir, artifactName)).byteLength, artifactName).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps SVG authoritative and writes exact two-times lossless PNG dimensions", async () => {
+    const { outputDir } = getCachedGeneratorRun();
+
+    expect(await imageDimensions(path.join(outputDir, "figure-1-human-human-overall.svg"))).toEqual({
+      width: 1800,
+      height: 1200
+    });
+    expect(await imageDimensions(path.join(outputDir, "figure-1-human-human-overall.png"))).toEqual({
+      width: 3600,
+      height: 2400
+    });
+    expect(await imageDimensions(path.join(outputDir, "figure-2-concept-concept-overall.svg"))).toEqual({
+      width: 1800,
+      height: 1200
+    });
+    expect(await imageDimensions(path.join(outputDir, "figure-2-concept-concept-overall.png"))).toEqual({
+      width: 3600,
+      height: 2400
+    });
+    expect(await imageDimensions(path.join(outputDir, "figure-3-temporal-paired-small-multiples.svg"))).toEqual({
+      width: 2400,
+      height: 1440
+    });
+    expect(await imageDimensions(path.join(outputDir, "figure-3-temporal-paired-small-multiples.png"))).toEqual({
+      width: 4800,
+      height: 2880
+    });
+  });
+
+  it("records eight disk-derived payload hashes and complete runtime and matrix provenance", () => {
+    const { outputDir, figureData } = getCachedGeneratorRun();
+    const manifestText = readArtifact(outputDir, "figure-manifest.json");
+    const manifest = JSON.parse(manifestText) as GeneratedFigureManifest;
+
+    expect(manifestText.endsWith("\n")).toBe(true);
+    expect(manifest.schemaVersion).toBe(SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest);
+    expect(manifest.generatedAt).toBe(new Date(1783728000 * 1000).toISOString());
+    expect(manifest.generationClock).toBe("source-date-epoch");
+    expect(manifest.dataset).toEqual(figureData.dataset);
+    expect(manifest.publicationUse).toEqual(figureData.publicationUse);
+    expect(manifest.dataContractAudit).toEqual(figureData.dataContractAudit);
+    expect(manifest.configuration).toEqual(figureData.configuration);
+    expect(manifest.stageOrder).toEqual(figureData.stageOrder);
+    expect(manifest.runtime.overall).toEqual(figureData.runIdentity);
+    expect(manifest.runtime.stages).toEqual(
+      figureData.temporal.map(({ stage, windowId, runIdentity }) => ({ stage, windowId, runIdentity }))
+    );
+    expect(manifest.runtime.environment).toEqual({
+      node: process.version,
+      sharp: sharp.versions.sharp,
+      libvips: sharp.versions.vips,
+      platform: process.platform,
+      arch: process.arch,
+      fontFallback: ["Arial", "Helvetica", "sans-serif"]
+    });
+    expect(manifest.matrices.overall).toEqual(figureData.overall);
+    expect(manifest.matrices.temporal).toEqual(
+      figureData.temporal.map(({ stage, windowId, S, W }) => ({ stage, windowId, S, W }))
+    );
+    expect(manifest.artifactCount).toBe(8);
+    expect(manifest.artifacts).toHaveLength(8);
+    expect(manifest.artifacts.map(({ filename }) => filename)).toEqual(payloadArtifacts);
+    expect(manifest.artifacts.some(({ filename }) => filename === "figure-manifest.json")).toBe(false);
+    expect(manifest.interpretationGuardrails).toEqual(figureData.interpretationGuardrails);
+    expect(manifest.selfHashPolicy).toBe(
+      "The manifest hashes eight payload artifacts and does not self-hash."
+    );
+
+    const expectedArtifactMetadata: Record<
+      (typeof payloadArtifacts)[number],
+      Pick<GeneratedArtifactRecord, "role" | "mediaType" | "dimensions">
+    > = {
+      "figure-1-human-human-overall.svg": {
+        role: "figure-vector",
+        mediaType: "image/svg+xml",
+        dimensions: { width: 1800, height: 1200 }
+      },
+      "figure-1-human-human-overall.png": {
+        role: "figure-raster",
+        mediaType: "image/png",
+        dimensions: { width: 3600, height: 2400 }
+      },
+      "figure-2-concept-concept-overall.svg": {
+        role: "figure-vector",
+        mediaType: "image/svg+xml",
+        dimensions: { width: 1800, height: 1200 }
+      },
+      "figure-2-concept-concept-overall.png": {
+        role: "figure-raster",
+        mediaType: "image/png",
+        dimensions: { width: 3600, height: 2400 }
+      },
+      "figure-3-temporal-paired-small-multiples.svg": {
+        role: "figure-vector",
+        mediaType: "image/svg+xml",
+        dimensions: { width: 2400, height: 1440 }
+      },
+      "figure-3-temporal-paired-small-multiples.png": {
+        role: "figure-raster",
+        mediaType: "image/png",
+        dimensions: { width: 4800, height: 2880 }
+      },
+      "figure-data.json": { role: "figure-data", mediaType: "application/json", dimensions: null },
+      "captions.md": { role: "captions", mediaType: "text/markdown", dimensions: null }
+    };
+
+    for (const artifact of manifest.artifacts) {
+      const bytes = readFileSync(path.join(outputDir, artifact.filename));
+      expect(artifact).toMatchObject(expectedArtifactMetadata[artifact.filename as (typeof payloadArtifacts)[number]]);
+      expect(artifact.bytes, artifact.filename).toBe(bytes.byteLength);
+      expect(artifact.sha256, artifact.filename).toBe(sha256(bytes));
+    }
+  });
+
+  it("writes complete manuscript captions and the exact claim boundary", () => {
+    const { outputDir, figureData } = getCachedGeneratorRun();
+    const captions = readArtifact(outputDir, "captions.md");
+
+    expectAllText(captions, [
+      "## Figure 1. Overall Human–Human Network",
+      "directed observed interaction weight",
+      "Arrowheads encode observed source-to-target direction",
+      "line width encodes raw weight",
+      "synthetic",
+      "does not imply causal influence",
+      "## Figure 2. Overall Concept–Concept Network",
+      "undirected code co-occurrence within `unitId × stanzaId`",
+      "line width encodes raw co-occurrence",
+      "neither semantic nor causal direction",
+      "## Figure 3. Plan–Teach–Reflect S and W Networks",
+      "stage-scoped",
+      "fixed node positions",
+      "shared global raw-weight scales",
+      "inactive nodes are muted",
+      "descriptive and non-causal",
+      "## Data and software note",
+      `Source contract: \`${figureData.dataset.source}\``,
+      `Dataset version: \`${figureData.dataset.version}\``,
+      `Source SHA-256: \`${figureData.dataset.sha256}\``,
+      `Runtime configuration: \`${JSON.stringify(figureData.configuration)}\``,
+      `Overall runtime dataset hash: \`${figureData.runIdentity.datasetContentHash}\``,
+      `Overall runtime configuration hash: \`${figureData.runIdentity.configHash}\``
+    ]);
+    expect(captions.endsWith(
+      "These synthetic demonstration figures are layout-ready but are not cleared for empirical claims or population inference.\n"
+    )).toBe(true);
+  });
+
+  it("replays all nine artifacts byte-for-byte with the same SOURCE_DATE_EPOCH", () => {
+    const cachedRun = getCachedGeneratorRun();
+    const replayOutputDir = makeOutputDir();
+    const replayResult = runGenerator(["--output-dir", replayOutputDir]);
+
+    expect(replayResult.error).toBeUndefined();
+    expect(replayResult.status, replayResult.stderr).toBe(0);
+    expect(readdirSync(replayOutputDir).sort()).toEqual([...requiredArtifacts].sort());
+    for (const artifactName of requiredArtifacts) {
+      expect(readFileSync(path.join(replayOutputDir, artifactName)), artifactName).toEqual(
+        readFileSync(path.join(cachedRun.outputDir, artifactName))
+      );
+    }
+  });
+
+  it("leaves the previous output untouched when rasterization fails", () => {
+    const outputDir = makeOutputDir();
+    const previousManifest = path.join(outputDir, "figure-manifest.json");
+    writeFileSync(previousManifest, "previous-manifest\n", "utf8");
+
+    const result = runGenerator(
+      ["--output-dir", outputDir],
+      appRoot,
+      { NODE_ENV: "test", SENA_FIGURE_TEST_FAIL_PNG: "1" }
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("injected PNG rendering failure");
+    expect(readFileSync(previousManifest, "utf8")).toBe("previous-manifest\n");
+    expect(readdirSync(outputDir)).toEqual(["figure-manifest.json"]);
+  });
+
+  it("fails closed rather than deleting unknown output-directory content", () => {
+    const outputDir = makeOutputDir();
+    const sentinel = path.join(outputDir, "researcher-notes.txt");
+    writeFileSync(sentinel, "keep me\n", "utf8");
+    const result = runGenerator(["--output-dir", outputDir]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("output directory contains unknown files");
+    expect(readFileSync(sentinel, "utf8")).toBe("keep me\n");
+    expect(readdirSync(outputDir)).toEqual(["researcher-notes.txt"]);
   });
 
   it("rejects --output-dir without a value", () => {

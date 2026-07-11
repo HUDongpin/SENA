@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type sharpFactory from "sharp";
 import { buildSenaDataContractAudit } from "../lib/sena/data-contract-audit";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "../lib/sena/model";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../lib/sena/schema-registry";
@@ -13,6 +23,17 @@ const DEFAULT_INPUT = path.join(APP_ROOT, SOURCE_RELATIVE_PATH);
 const DEFAULT_OUTPUT_DIR = path.join(APP_ROOT, "output", "sena-publication-figures-human-concept");
 const REQUIRED_STAGES = ["Plan", "Teach", "Reflect"] as const;
 const REQUIRED_TABLES = ["people", "interactions", "utterances", "coded_segments", "codebook"] as const;
+const REQUIRED_ARTIFACTS = [
+  "figure-1-human-human-overall.svg",
+  "figure-1-human-human-overall.png",
+  "figure-2-concept-concept-overall.svg",
+  "figure-2-concept-concept-overall.png",
+  "figure-3-temporal-paired-small-multiples.svg",
+  "figure-3-temporal-paired-small-multiples.png",
+  "figure-data.json",
+  "figure-manifest.json",
+  "captions.md"
+] as const;
 const BUILD_OPTIONS = {
   normalization: "max",
   bridgeWeightRule: "count",
@@ -25,6 +46,9 @@ const BUILD_OPTIONS = {
 type RequiredTable = (typeof REQUIRED_TABLES)[number];
 type StageName = (typeof REQUIRED_STAGES)[number];
 type RunIdentity = SenaModel["operatorDiagnostics"]["runIdentity"];
+type RequiredArtifact = (typeof REQUIRED_ARTIFACTS)[number];
+type PayloadArtifact = Exclude<RequiredArtifact, "figure-manifest.json">;
+type SharpRuntime = typeof sharpFactory;
 type Point = {
   x: number;
   y: number;
@@ -91,6 +115,101 @@ type FigureDataV1 = {
   };
   interpretationGuardrails: string[];
 };
+
+type ArtifactRecord = {
+  filename: string;
+  role: "figure-vector" | "figure-raster" | "figure-data" | "captions";
+  mediaType: "image/svg+xml" | "image/png" | "application/json" | "text/markdown";
+  dimensions: { width: number; height: number } | null;
+  bytes: number;
+  sha256: string;
+};
+
+type FigureManifestV1 = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest;
+  generatedAt: string;
+  generationClock: "wall-clock" | "source-date-epoch";
+  dataset: FigureDataV1["dataset"];
+  publicationUse: FigureDataV1["publicationUse"];
+  dataContractAudit: SenaDataContractAudit;
+  configuration: SenaModel["options"];
+  stageOrder: StageName[];
+  runtime: {
+    overall: RunIdentity;
+    stages: Array<{ stage: StageName; windowId: string; runIdentity: RunIdentity }>;
+    environment: {
+      node: string;
+      sharp: string;
+      libvips: string;
+      platform: string;
+      arch: string;
+      fontFallback: string[];
+    };
+  };
+  matrices: {
+    overall: FigureDataV1["overall"];
+    temporal: Array<Pick<FigureDataV1["temporal"][number], "stage" | "windowId" | "S" | "W">>;
+  };
+  artifactCount: number;
+  artifacts: ArtifactRecord[];
+  interpretationGuardrails: string[];
+  selfHashPolicy: string;
+};
+
+type ArtifactSpec = Pick<ArtifactRecord, "role" | "mediaType" | "dimensions"> & {
+  filename: PayloadArtifact;
+};
+
+const PAYLOAD_ARTIFACT_SPECS: ArtifactSpec[] = [
+  {
+    filename: "figure-1-human-human-overall.svg",
+    role: "figure-vector",
+    mediaType: "image/svg+xml",
+    dimensions: { width: 1800, height: 1200 }
+  },
+  {
+    filename: "figure-1-human-human-overall.png",
+    role: "figure-raster",
+    mediaType: "image/png",
+    dimensions: { width: 3600, height: 2400 }
+  },
+  {
+    filename: "figure-2-concept-concept-overall.svg",
+    role: "figure-vector",
+    mediaType: "image/svg+xml",
+    dimensions: { width: 1800, height: 1200 }
+  },
+  {
+    filename: "figure-2-concept-concept-overall.png",
+    role: "figure-raster",
+    mediaType: "image/png",
+    dimensions: { width: 3600, height: 2400 }
+  },
+  {
+    filename: "figure-3-temporal-paired-small-multiples.svg",
+    role: "figure-vector",
+    mediaType: "image/svg+xml",
+    dimensions: { width: 2400, height: 1440 }
+  },
+  {
+    filename: "figure-3-temporal-paired-small-multiples.png",
+    role: "figure-raster",
+    mediaType: "image/png",
+    dimensions: { width: 4800, height: 2880 }
+  },
+  {
+    filename: "figure-data.json",
+    role: "figure-data",
+    mediaType: "application/json",
+    dimensions: null
+  },
+  {
+    filename: "captions.md",
+    role: "captions",
+    mediaType: "text/markdown",
+    dimensions: null
+  }
+];
 
 function parseArgs(args: string[]) {
   let outputDir = DEFAULT_OUTPUT_DIR;
@@ -1012,18 +1131,315 @@ function renderTemporalPairedFigure(figureData: FigureDataV1) {
   return svg;
 }
 
-function main() {
+function assertOutputDirectoryReplaceable(outputDir: string, allowed: Set<string>) {
+  if (!existsSync(outputDir)) return;
+  const unknown = readdirSync(outputDir).filter((entry) => !allowed.has(entry));
+  if (unknown.length > 0) {
+    throw new Error(`output directory contains unknown files: ${unknown.join(", ")}`);
+  }
+}
+
+function createStagingDirectory(outputDir: string) {
+  const parent = path.dirname(outputDir);
+  mkdirSync(parent, { recursive: true });
+  return mkdtempSync(path.join(parent, `.${path.basename(outputDir)}.staging-`));
+}
+
+function publishStagingDirectory(stagingDir: string, outputDir: string) {
+  const backupDir = `${outputDir}.previous-${process.pid}-${Date.now()}`;
+  let previousMoved = false;
+  try {
+    if (existsSync(outputDir)) {
+      if (existsSync(backupDir)) throw new Error(`backup path already exists: ${backupDir}`);
+      renameSync(outputDir, backupDir);
+      previousMoved = true;
+    }
+    renameSync(stagingDir, outputDir);
+  } catch (error) {
+    if (!existsSync(outputDir) && previousMoved && existsSync(backupDir)) {
+      renameSync(backupDir, outputDir);
+    }
+    throw error;
+  }
+  if (previousMoved) rmSync(backupDir, { recursive: true, force: true });
+}
+
+function resolveGenerationClock() {
+  const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH;
+  if (sourceDateEpoch === undefined) {
+    return { generatedAt: new Date().toISOString(), generationClock: "wall-clock" as const };
+  }
+  const seconds = Number(sourceDateEpoch);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new Error("SOURCE_DATE_EPOCH must be a nonnegative number of seconds");
+  }
+  return {
+    generatedAt: new Date(seconds * 1000).toISOString(),
+    generationClock: "source-date-epoch" as const
+  };
+}
+
+function buildCaptions(figureData: FigureDataV1, sharpRuntime: SharpRuntime) {
+  return [
+    "## Figure 1. Overall Human–Human Network",
+    "",
+    "`S` is directed observed interaction weight across the full lesson-study cycle. Arrowheads encode observed source-to-target direction, and line width encodes raw weight. The bundled source dataset is synthetic, and this descriptive network does not imply causal influence.",
+    "",
+    "## Figure 2. Overall Concept–Concept Network",
+    "",
+    "`W` is undirected code co-occurrence within `unitId × stanzaId` across the full lesson-study cycle, and line width encodes raw co-occurrence. The association has neither semantic nor causal direction.",
+    "",
+    "## Figure 3. Plan–Teach–Reflect S and W Networks",
+    "",
+    "Each column is stage-scoped to Plan, Teach, or Reflect. Human and concept nodes retain fixed node positions, edge widths use shared global raw-weight scales, and inactive nodes are muted. These comparisons are descriptive and non-causal.",
+    "",
+    "## Data and software note",
+    "",
+    `Source contract: \`${figureData.dataset.source}\``,
+    `Dataset version: \`${figureData.dataset.version}\``,
+    `Source SHA-256: \`${figureData.dataset.sha256}\``,
+    `Runtime configuration: \`${JSON.stringify(figureData.configuration)}\``,
+    `Overall runtime dataset hash: \`${figureData.runIdentity.datasetContentHash}\``,
+    `Overall runtime configuration hash: \`${figureData.runIdentity.configHash}\``,
+    `Software: Node \`${process.version}\`, Sharp \`${sharpRuntime.versions.sharp}\`, libvips \`${sharpRuntime.versions.vips}\`. SVG uses the declared font fallback \`Arial, Helvetica, sans-serif\`.`,
+    "",
+    "These synthetic demonstration figures are layout-ready but are not cleared for empirical claims or population inference.",
+    ""
+  ].join("\n");
+}
+
+async function writePng(
+  sharpRuntime: SharpRuntime,
+  svg: string,
+  outputPath: string,
+  width: number,
+  height: number
+) {
+  await sharpRuntime(Buffer.from(svg), { density: 144 })
+    .resize(width, height, { fit: "fill" })
+    .png({ compressionLevel: 9, adaptiveFiltering: true })
+    .toFile(outputPath);
+}
+
+function buildArtifactRecords(stagingDir: string) {
+  return PAYLOAD_ARTIFACT_SPECS.map((spec) => {
+    const bytes = readFileSync(path.join(stagingDir, spec.filename));
+    return {
+      ...spec,
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex")
+    };
+  }) satisfies ArtifactRecord[];
+}
+
+function buildManifest(
+  figureData: FigureDataV1,
+  artifactRecords: ArtifactRecord[],
+  generatedAt: string,
+  generationClock: "wall-clock" | "source-date-epoch",
+  sharpRuntime: SharpRuntime
+) {
+  return createSenaSchemaPayload("humanConceptPublicationFigureManifest", {
+    generatedAt,
+    generationClock,
+    dataset: figureData.dataset,
+    publicationUse: figureData.publicationUse,
+    dataContractAudit: figureData.dataContractAudit,
+    configuration: figureData.configuration,
+    stageOrder: figureData.stageOrder,
+    runtime: {
+      overall: figureData.runIdentity,
+      stages: figureData.temporal.map(({ stage, windowId, runIdentity }) => ({
+        stage,
+        windowId,
+        runIdentity
+      })),
+      environment: {
+        node: process.version,
+        sharp: sharpRuntime.versions.sharp,
+        libvips: sharpRuntime.versions.vips,
+        platform: process.platform,
+        arch: process.arch,
+        fontFallback: ["Arial", "Helvetica", "sans-serif"]
+      }
+    },
+    matrices: {
+      overall: figureData.overall,
+      temporal: figureData.temporal.map(({ stage, windowId, S, W }) => ({
+        stage,
+        windowId,
+        S,
+        W
+      }))
+    },
+    artifactCount: artifactRecords.length,
+    artifacts: artifactRecords,
+    interpretationGuardrails: figureData.interpretationGuardrails,
+    selfHashPolicy: "The manifest hashes eight payload artifacts and does not self-hash."
+  }) satisfies FigureManifestV1;
+}
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function validatePublicationPackage(
+  stagingDir: string,
+  figureData: FigureDataV1,
+  sharpRuntime: SharpRuntime
+) {
+  const expectedEntries = [...REQUIRED_ARTIFACTS].sort();
+  const actualEntries = readdirSync(stagingDir).sort();
+  if (!sameJson(actualEntries, expectedEntries)) {
+    throw new Error(
+      `publication package files must exactly match ${JSON.stringify(expectedEntries)}, received ${JSON.stringify(actualEntries)}`
+    );
+  }
+
+  for (const filename of REQUIRED_ARTIFACTS) {
+    if (readFileSync(path.join(stagingDir, filename)).byteLength === 0) {
+      throw new Error(`publication artifact must be non-empty: ${filename}`);
+    }
+  }
+
+  for (const spec of PAYLOAD_ARTIFACT_SPECS) {
+    if (!spec.dimensions) continue;
+    const metadata = await sharpRuntime(path.join(stagingDir, spec.filename)).metadata();
+    if (metadata.width !== spec.dimensions.width || metadata.height !== spec.dimensions.height) {
+      throw new Error(
+        `${spec.filename} dimensions must be ${spec.dimensions.width}x${spec.dimensions.height}, received ${metadata.width}x${metadata.height}`
+      );
+    }
+    const expectedFormat = spec.mediaType === "image/png" ? "png" : "svg";
+    if (metadata.format !== expectedFormat) {
+      throw new Error(`${spec.filename} must parse as ${expectedFormat}, received ${metadata.format}`);
+    }
+  }
+
+  const storedFigureData = JSON.parse(readFileSync(path.join(stagingDir, "figure-data.json"), "utf8"));
+  if (!sameJson(storedFigureData, figureData)) {
+    throw new Error("stored figure-data.json does not match the validated runtime payload");
+  }
+
+  const captions = readFileSync(path.join(stagingDir, "captions.md"), "utf8");
+  const claimBoundary =
+    "These synthetic demonstration figures are layout-ready but are not cleared for empirical claims or population inference.\n";
+  if (!captions.endsWith(claimBoundary)) {
+    throw new Error("captions.md is missing the required final claim boundary");
+  }
+
+  const manifest = JSON.parse(
+    readFileSync(path.join(stagingDir, "figure-manifest.json"), "utf8")
+  ) as FigureManifestV1;
+  if (manifest.schemaVersion !== SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest) {
+    throw new Error(`unexpected figure manifest schema version: ${manifest.schemaVersion}`);
+  }
+  if (manifest.artifactCount !== PAYLOAD_ARTIFACT_SPECS.length || manifest.artifacts.length !== 8) {
+    throw new Error("figure manifest must list exactly eight payload artifacts");
+  }
+  if (!sameJson(manifest.matrices.overall, figureData.overall)) {
+    throw new Error("figure manifest overall matrices do not match figure-data.json");
+  }
+  const expectedTemporalMatrices = figureData.temporal.map(({ stage, windowId, S, W }) => ({
+    stage,
+    windowId,
+    S,
+    W
+  }));
+  if (!sameJson(manifest.matrices.temporal, expectedTemporalMatrices)) {
+    throw new Error("figure manifest temporal matrices do not match figure-data.json");
+  }
+  if (manifest.artifacts.some(({ filename }) => filename === "figure-manifest.json")) {
+    throw new Error("figure manifest must not self-hash");
+  }
+
+  for (const [index, spec] of PAYLOAD_ARTIFACT_SPECS.entries()) {
+    const record = manifest.artifacts[index];
+    if (
+      !record ||
+      record.filename !== spec.filename ||
+      record.role !== spec.role ||
+      record.mediaType !== spec.mediaType ||
+      !sameJson(record.dimensions, spec.dimensions)
+    ) {
+      throw new Error(`figure manifest artifact record mismatch at index ${index}`);
+    }
+    const bytes = readFileSync(path.join(stagingDir, record.filename));
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (record.bytes !== bytes.byteLength || record.sha256 !== digest) {
+      throw new Error(`figure manifest bytes or SHA-256 mismatch: ${record.filename}`);
+    }
+  }
+}
+
+async function main() {
   const { inputPath, outputDir } = parseArgs(process.argv.slice(2));
+  assertOutputDirectoryReplaceable(outputDir, new Set<string>(REQUIRED_ARTIFACTS));
+  const { generatedAt, generationClock } = resolveGenerationClock();
   const loadedDataset = loadDataset(inputPath);
+  const sharpModule = (await import("sharp")) as unknown as { default: SharpRuntime };
+  const sharpRuntime = sharpModule.default;
   const figureData = buildFigureData(loadedDataset);
   const figure1 = renderOverallHumanHumanFigure(figureData);
   const figure2 = renderOverallConceptConceptFigure(figureData);
   const figure3 = renderTemporalPairedFigure(figureData);
-  mkdirSync(outputDir, { recursive: true });
-  writeFileSync(path.join(outputDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
-  writeFileSync(path.join(outputDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
-  writeFileSync(path.join(outputDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
-  writeFileSync(path.join(outputDir, "figure-3-temporal-paired-small-multiples.svg"), figure3, "utf8");
+  const captions = buildCaptions(figureData, sharpRuntime);
+  const stagingDir = createStagingDirectory(outputDir);
+
+  try {
+    writeFileSync(path.join(stagingDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
+    writeFileSync(path.join(stagingDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
+    writeFileSync(path.join(stagingDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
+    writeFileSync(path.join(stagingDir, "figure-3-temporal-paired-small-multiples.svg"), figure3, "utf8");
+    writeFileSync(path.join(stagingDir, "captions.md"), captions, "utf8");
+
+    if (process.env.NODE_ENV === "test" && process.env.SENA_FIGURE_TEST_FAIL_PNG === "1") {
+      throw new Error("injected PNG rendering failure");
+    }
+
+    await writePng(
+      sharpRuntime,
+      figure1,
+      path.join(stagingDir, "figure-1-human-human-overall.png"),
+      3600,
+      2400
+    );
+    await writePng(
+      sharpRuntime,
+      figure2,
+      path.join(stagingDir, "figure-2-concept-concept-overall.png"),
+      3600,
+      2400
+    );
+    await writePng(
+      sharpRuntime,
+      figure3,
+      path.join(stagingDir, "figure-3-temporal-paired-small-multiples.png"),
+      4800,
+      2880
+    );
+
+    const artifactRecords = buildArtifactRecords(stagingDir);
+    const manifest = buildManifest(
+      figureData,
+      artifactRecords,
+      generatedAt,
+      generationClock,
+      sharpRuntime
+    );
+    writeFileSync(
+      path.join(stagingDir, "figure-manifest.json"),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8"
+    );
+
+    await validatePublicationPackage(stagingDir, figureData, sharpRuntime);
+    publishStagingDirectory(stagingDir, outputDir);
+  } finally {
+    if (existsSync(stagingDir)) {
+      rmSync(stagingDir, { recursive: true, force: true });
+    }
+  }
 }
 
 const isMainModule =
@@ -1032,7 +1448,7 @@ const isMainModule =
 
 if (isMainModule) {
   try {
-    main();
+    await main();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`SENA figure generation failed: ${message}`);
