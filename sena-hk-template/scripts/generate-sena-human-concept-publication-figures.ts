@@ -866,7 +866,7 @@ function renderOverallHumanHumanFigure(figureData: FigureDataV1) {
   });
 
   const body = [
-    '<defs><marker id="s-arrow" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="24" markerHeight="24" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 11 6 L 0 11 Z" fill="#2563eb"/></marker></defs>',
+    '<defs><marker id="s-arrow" viewBox="0 0 20 20" refX="19" refY="10" markerWidth="36" markerHeight="36" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 19 10 L 0 19 Z" fill="#2563eb"/></marker></defs>',
     '<text x="900" y="62" text-anchor="middle" font-size="48" font-weight="700" fill="#0f172a">Figure 1. Overall Human–Human Network</text>',
     `<text x="900" y="112" text-anchor="middle" font-size="36" fill="#334155">${escapeXml(subtitle)}</text>`,
     '<g data-edge-set="S-overall">',

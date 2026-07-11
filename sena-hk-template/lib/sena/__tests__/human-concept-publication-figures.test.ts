@@ -711,6 +711,36 @@ describe("SENA human-concept publication figure generator", () => {
     expect(renderedTriangleHeight).toBeGreaterThan(27);
   });
 
+  it("keeps the overall S arrowhead visibly larger than the strongest edge", () => {
+    const { outputDir } = getCachedGeneratorRun();
+    const svg = readArtifact(outputDir, "figure-1-human-human-overall.svg");
+    const marker = svg.match(
+      /<marker\b(?=[^>]*\bid="s-arrow")[^>]*>[\s\S]*?<\/marker>/
+    )?.[0];
+
+    expect(marker).toBeDefined();
+    if (!marker) throw new Error("Missing overall S arrow marker");
+    expect(svgAttribute(marker, "markerUnits")).toBe("userSpaceOnUse");
+
+    const markerWidth = Number(svgAttribute(marker, "markerWidth"));
+    const markerHeight = Number(svgAttribute(marker, "markerHeight"));
+    expect(markerWidth).toBeGreaterThanOrEqual(32);
+    expect(markerHeight).toBeGreaterThanOrEqual(32);
+
+    const viewBox = svgAttribute(marker, "viewBox")?.split(/\s+/).map(Number);
+    expect(viewBox).toEqual([0, 0, 20, 20]);
+    const trianglePath = marker.match(/<path\b[^>]*\bd="([^"]+)"[^>]*\/?\s*>/)?.[1];
+    expect(trianglePath).toBe("M 0 1 L 19 10 L 0 19 Z");
+
+    const overallEdgeStrokeWidths = [...svg.matchAll(/<path\b[^>]*\bdata-edge-id="S-[^"]+"[^>]*\/?\s*>/g)].map(
+      ([edge]) => Number(svgAttribute(edge, "data-stroke-width"))
+    );
+    const maximumOverallStroke = Math.max(...overallEdgeStrokeWidths);
+    expect(maximumOverallStroke).toBe(18);
+    expect(markerWidth * (19 / 20)).toBeGreaterThan(maximumOverallStroke * 1.5);
+    expect(markerHeight * (18 / 20)).toBeGreaterThan(maximumOverallStroke * 1.5);
+  });
+
   it("publishes exactly nine non-empty artifacts", () => {
     const { outputDir } = getCachedGeneratorRun();
 
