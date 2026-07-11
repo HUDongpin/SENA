@@ -25,6 +25,10 @@ const BUILD_OPTIONS = {
 type RequiredTable = (typeof REQUIRED_TABLES)[number];
 type StageName = (typeof REQUIRED_STAGES)[number];
 type RunIdentity = SenaModel["operatorDiagnostics"]["runIdentity"];
+type Point = {
+  x: number;
+  y: number;
+};
 type FigureDataV1 = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.humanConceptFigureData;
   dataset: {
@@ -501,12 +505,309 @@ function buildFigureData({
   }) satisfies FigureDataV1;
 }
 
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function formatNumber(value: number) {
+  if (!Number.isFinite(value)) {
+    throw new Error(`SVG numeric value must be finite, received ${value}`);
+  }
+  const rounded = Number(value.toFixed(3));
+  return Object.is(rounded, -0) ? "0" : String(rounded);
+}
+
+function widthFor(weight: number, maximumWeight: number, maximumWidth: number) {
+  if (!Number.isFinite(weight) || weight < 0) {
+    throw new Error(`edge weight must be a finite nonnegative number, received ${weight}`);
+  }
+  if (!Number.isFinite(maximumWeight) || maximumWeight <= 0) {
+    throw new Error(`maximum edge weight must be positive, received ${maximumWeight}`);
+  }
+  if (!Number.isFinite(maximumWidth) || maximumWidth <= 0) {
+    throw new Error(`maximum edge width must be positive, received ${maximumWidth}`);
+  }
+  return maximumWidth * (weight / maximumWeight);
+}
+
+function opacityFor(weight: number, maximumWeight: number) {
+  if (weight === 0) return 0;
+  const ratio = Math.min(weight / maximumWeight, 1);
+  return 0.45 + ratio * 0.5;
+}
+
+function circularLayout(count: number, center: Point, radius: number, startAngle = -Math.PI / 2) {
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new Error(`circular layout requires a positive integer count, received ${count}`);
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const angle = startAngle + (index * Math.PI * 2) / count;
+    return {
+      x: center.x + radius * Math.cos(angle),
+      y: center.y + radius * Math.sin(angle)
+    };
+  });
+}
+
+function svgShell({
+  figureId,
+  width,
+  height,
+  title,
+  description,
+  body
+}: {
+  figureId: string;
+  width: number;
+  height: number;
+  title: string;
+  description: string;
+  body: string;
+}) {
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" data-figure-id="${escapeXml(figureId)}" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" font-family="Arial, Helvetica, sans-serif">`,
+    `<title>${escapeXml(title)}</title>`,
+    `<desc>${escapeXml(description)}</desc>`,
+    `<rect data-background="opaque-white" x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>`,
+    body,
+    "</svg>",
+    ""
+  ].join("\n");
+}
+
+function assertSvgContent(figureId: string, svg: string, requiredText: string[]) {
+  if (!svg.startsWith("<svg ") || !svg.endsWith("</svg>\n")) {
+    throw new Error(`${figureId} must be a complete newline-terminated SVG document`);
+  }
+  if (!svg.includes(`data-figure-id="${escapeXml(figureId)}"`)) {
+    throw new Error(`${figureId} SVG root is missing its figure identifier`);
+  }
+  if (!svg.includes('data-background="opaque-white"')) {
+    throw new Error(`${figureId} SVG requires an opaque white background`);
+  }
+  if (!svg.includes('data-legend="')) {
+    throw new Error(`${figureId} SVG requires a semantic legend`);
+  }
+
+  for (const text of requiredText) {
+    const escapedText = escapeXml(text);
+    if (!svg.includes(text) && !svg.includes(escapedText)) {
+      throw new Error(`${figureId} SVG is missing required content: ${text}`);
+    }
+  }
+}
+
+function clipToRectangleBoundary(center: Point, toward: Point, halfWidth: number, halfHeight: number) {
+  const deltaX = toward.x - center.x;
+  const deltaY = toward.y - center.y;
+  if (deltaX === 0 && deltaY === 0) return center;
+
+  const horizontalScale = deltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(deltaX);
+  const verticalScale = deltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(deltaY);
+  const scale = Math.min(horizontalScale, verticalScale);
+  return {
+    x: center.x + deltaX * scale,
+    y: center.y + deltaY * scale
+  };
+}
+
+function quadraticControlPoint(source: Point, target: Point, offset: number) {
+  const deltaX = target.x - source.x;
+  const deltaY = target.y - source.y;
+  const distance = Math.hypot(deltaX, deltaY);
+  if (distance === 0) {
+    throw new Error("directed SVG edge requires distinct source and target positions");
+  }
+  return {
+    x: (source.x + target.x) / 2 + (-deltaY / distance) * offset,
+    y: (source.y + target.y) / 2 + (deltaX / distance) * offset
+  };
+}
+
+function pointOnQuadratic(start: Point, control: Point, end: Point, progress: number) {
+  const remainder = 1 - progress;
+  return {
+    x: remainder * remainder * start.x + 2 * remainder * progress * control.x + progress * progress * end.x,
+    y: remainder * remainder * start.y + 2 * remainder * progress * control.y + progress * progress * end.y
+  };
+}
+
+function renderOverallHumanHumanFigure(figureData: FigureDataV1) {
+  const figureId = "figure-1-human-human-overall";
+  const title = "Figure 1. Overall Human–Human Network";
+  const subtitle = "Directed Human–Human interaction network (S), full lesson-study cycle";
+  const width = 1800;
+  const height = 1200;
+  const center = { x: 900, y: 620 };
+  const positions = circularLayout(figureData.participants.length, center, 410);
+  const nodeWidth = 420;
+  const nodeHeight = 132;
+  const edgeElements: string[] = [];
+
+  for (let sourceIndex = 0; sourceIndex < figureData.overall.S.raw.length; sourceIndex += 1) {
+    for (let targetIndex = 0; targetIndex < figureData.overall.S.raw[sourceIndex].length; targetIndex += 1) {
+      const weight = figureData.overall.S.raw[sourceIndex][targetIndex];
+      if (weight === 0) continue;
+
+      const source = positions[sourceIndex];
+      const target = positions[targetIndex];
+      const reciprocal = figureData.overall.S.raw[targetIndex]?.[sourceIndex] !== 0;
+      const curveOffset = reciprocal ? 104 : (sourceIndex * figureData.participants.length + targetIndex) % 2 === 0 ? 52 : -52;
+      const control = quadraticControlPoint(source, target, curveOffset);
+      const start = clipToRectangleBoundary(source, control, nodeWidth / 2, nodeHeight / 2);
+      const end = clipToRectangleBoundary(target, control, nodeWidth / 2, nodeHeight / 2);
+      const labelPoint = pointOnQuadratic(start, control, end, 0.5);
+      const strokeWidth = formatNumber(widthFor(weight, 7, 18));
+      const sourceId = figureData.participants[sourceIndex].id;
+      const targetId = figureData.participants[targetIndex].id;
+
+      edgeElements.push(
+        `<path data-layer="S" data-edge-id="S-${escapeXml(sourceId)}-${escapeXml(targetId)}" data-weight="${formatNumber(weight)}" data-stroke-width="${strokeWidth}" d="M ${formatNumber(start.x)} ${formatNumber(start.y)} Q ${formatNumber(control.x)} ${formatNumber(control.y)} ${formatNumber(end.x)} ${formatNumber(end.y)}" fill="none" stroke="#2563eb" stroke-width="${strokeWidth}" stroke-opacity="${formatNumber(opacityFor(weight, 7))}" stroke-linecap="round" marker-end="url(#s-arrow)"/>`,
+        `<text x="${formatNumber(labelPoint.x)}" y="${formatNumber(labelPoint.y + 12)}" text-anchor="middle" font-size="34" font-weight="700" fill="#1e3a8a" stroke="#ffffff" stroke-width="8" paint-order="stroke" stroke-linejoin="round">${formatNumber(weight)}</text>`
+      );
+    }
+  }
+
+  const nodeElements = figureData.participants.flatMap((participant, index) => {
+    const position = positions[index];
+    return [
+      `<rect data-node-kind="human" data-node-id="${escapeXml(participant.id)}" x="${formatNumber(position.x - nodeWidth / 2)}" y="${formatNumber(position.y - nodeHeight / 2)}" width="${nodeWidth}" height="${nodeHeight}" rx="28" fill="#eff6ff" stroke="#0f3f83" stroke-width="6"/>`,
+      `<text x="${formatNumber(position.x)}" y="${formatNumber(position.y - 10)}" text-anchor="middle" font-size="40" font-weight="700" fill="#0f172a">${escapeXml(participant.label)}</text>`,
+      `<text x="${formatNumber(position.x)}" y="${formatNumber(position.y + 40)}" text-anchor="middle" font-size="34" fill="#334155">${escapeXml(participant.role)}</text>`
+    ];
+  });
+
+  const body = [
+    '<defs><marker id="s-arrow" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="24" markerHeight="24" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 11 6 L 0 11 Z" fill="#2563eb"/></marker></defs>',
+    '<text x="900" y="62" text-anchor="middle" font-size="48" font-weight="700" fill="#0f172a">Figure 1. Overall Human–Human Network</text>',
+    `<text x="900" y="112" text-anchor="middle" font-size="36" fill="#334155">${escapeXml(subtitle)}</text>`,
+    '<g data-edge-set="S-overall">',
+    ...edgeElements,
+    "</g>",
+    '<g data-node-set="human-overall">',
+    ...nodeElements,
+    "</g>",
+    '<g data-legend="S-encoding">',
+    '<rect x="38" y="900" width="620" height="270" rx="24" fill="#ffffff" stroke="#94a3b8" stroke-width="4"/>',
+    '<text x="72" y="948" font-size="36" font-weight="700" fill="#0f172a">S encoding</text>',
+    '<text x="72" y="990" font-size="34" fill="#334155">arrow = observed direction</text>',
+    '<path data-scale-sample="S-1" stroke-width="2.571" d="M 82 1025 L 250 1025" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>',
+    '<text x="286" y="1037" font-size="34" fill="#0f172a">raw weight 1</text>',
+    '<path data-scale-sample="S-4" stroke-width="10.286" d="M 82 1080 L 250 1080" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>',
+    '<text x="286" y="1092" font-size="34" fill="#0f172a">raw weight 4</text>',
+    '<path data-scale-sample="S-7" stroke-width="18" d="M 82 1135 L 250 1135" fill="none" stroke="#2563eb" marker-end="url(#s-arrow)"/>',
+    '<text x="286" y="1147" font-size="34" fill="#0f172a">raw weight 7</text>',
+    "</g>"
+  ].join("\n");
+  const svg = svgShell({
+    figureId,
+    width,
+    height,
+    title,
+    description: "Overall directed human-to-human interaction weights. Arrowheads show observed source-to-target direction; edge labels show raw weights.",
+    body
+  });
+  assertSvgContent(figureId, svg, [
+    title,
+    subtitle,
+    ...figureData.participants.flatMap(({ label, role }) => [label, role])
+  ]);
+  return svg;
+}
+
+function renderOverallConceptConceptFigure(figureData: FigureDataV1) {
+  const figureId = "figure-2-concept-concept-overall";
+  const title = "Figure 2. Overall Concept–Concept Network";
+  const subtitle = "Concept–Concept co-occurrence network (W), full lesson-study cycle";
+  const width = 1800;
+  const height = 1200;
+  const center = { x: 900, y: 620 };
+  const startAngle = -Math.PI / 2 + Math.PI / 7;
+  const positions = circularLayout(figureData.codes.length, center, 390, startAngle);
+  const leaderStarts = circularLayout(figureData.codes.length, center, 448, startAngle);
+  const leaderEnds = circularLayout(figureData.codes.length, center, 476, startAngle);
+  const labelPositions = circularLayout(figureData.codes.length, center, 500, startAngle);
+  const edgeElements: string[] = [];
+
+  for (let leftIndex = 0; leftIndex < figureData.overall.W.raw.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < figureData.overall.W.raw[leftIndex].length; rightIndex += 1) {
+      const weight = figureData.overall.W.raw[leftIndex][rightIndex];
+      if (weight === 0) continue;
+
+      const leftCodeId = figureData.codes[leftIndex].id;
+      const rightCodeId = figureData.codes[rightIndex].id;
+      const strokeWidth = formatNumber(widthFor(weight, 3, 15));
+      edgeElements.push(
+        `<path data-layer="W" data-edge-id="W-${escapeXml(leftCodeId)}-${escapeXml(rightCodeId)}" data-weight="${formatNumber(weight)}" data-stroke-width="${strokeWidth}" d="M ${formatNumber(positions[leftIndex].x)} ${formatNumber(positions[leftIndex].y)} L ${formatNumber(positions[rightIndex].x)} ${formatNumber(positions[rightIndex].y)}" fill="none" stroke="#7e22ce" stroke-width="${strokeWidth}" stroke-opacity="${formatNumber(opacityFor(weight, 3))}" stroke-dasharray="none" stroke-linecap="round"/>`
+      );
+    }
+  }
+
+  const nodeElements = figureData.codes.flatMap((code, index) => {
+    const position = positions[index];
+    const labelPosition = labelPositions[index];
+    const radialDirection = labelPosition.x - center.x;
+    const textAnchor = Math.abs(radialDirection) < 50 ? "middle" : radialDirection > 0 ? "start" : "end";
+    return [
+      `<line data-leader-for="${escapeXml(code.id)}" x1="${formatNumber(leaderStarts[index].x)}" y1="${formatNumber(leaderStarts[index].y)}" x2="${formatNumber(leaderEnds[index].x)}" y2="${formatNumber(leaderEnds[index].y)}" stroke="#64748b" stroke-width="3"/>`,
+      `<circle data-node-decoration="concept-keyline" cx="${formatNumber(position.x)}" cy="${formatNumber(position.y)}" r="58" fill="${escapeXml(code.color)}" stroke="#0f172a" stroke-width="6"/>`,
+      `<circle data-node-kind="concept" data-node-id="${escapeXml(code.id)}" cx="${formatNumber(position.x)}" cy="${formatNumber(position.y)}" r="52" fill="${escapeXml(code.color)}" stroke="#ffffff" stroke-width="6"/>`,
+      `<text x="${formatNumber(labelPosition.x)}" y="${formatNumber(labelPosition.y + 12)}" text-anchor="${textAnchor}" font-size="36" font-weight="700" fill="#0f172a">${escapeXml(code.label)}</text>`
+    ];
+  });
+
+  const body = [
+    '<text x="900" y="62" text-anchor="middle" font-size="48" font-weight="700" fill="#0f172a">Figure 2. Overall Concept–Concept Network</text>',
+    `<text x="900" y="112" text-anchor="middle" font-size="36" fill="#334155">${escapeXml(subtitle)}</text>`,
+    '<g data-edge-set="W-overall">',
+    ...edgeElements,
+    "</g>",
+    '<g data-node-set="concept-overall">',
+    ...nodeElements,
+    "</g>",
+    '<g data-legend="W-encoding">',
+    '<desc>W encoding defines unit-scoped stanza co-occurrence; undirected; no causal direction.</desc>',
+    '<rect x="20" y="735" width="340" height="425" rx="24" fill="#ffffff" stroke="#94a3b8" stroke-width="4"/>',
+    '<text x="48" y="775" font-size="36" font-weight="700" fill="#0f172a">W encoding</text>',
+    '<text x="48" y="817" font-size="34" fill="#334155">unit-scoped stanza</text>',
+    '<text x="48" y="857" font-size="34" fill="#334155">co-occurrence</text>',
+    '<text x="48" y="897" font-size="34" fill="#334155">undirected; no</text>',
+    '<text x="48" y="937" font-size="34" fill="#334155">causal direction</text>',
+    '<path data-scale-sample="W-1" stroke-width="5" d="M 54 980 L 166 980" fill="none" stroke="#7e22ce" stroke-opacity="0.617" stroke-dasharray="none"/>',
+    '<text x="194" y="992" font-size="34" fill="#0f172a">raw 1</text>',
+    '<path data-scale-sample="W-2" stroke-width="10" d="M 54 1040 L 166 1040" fill="none" stroke="#7e22ce" stroke-opacity="0.783" stroke-dasharray="none"/>',
+    '<text x="194" y="1052" font-size="34" fill="#0f172a">raw 2</text>',
+    '<path data-scale-sample="W-3" stroke-width="15" d="M 54 1100 L 166 1100" fill="none" stroke="#7e22ce" stroke-opacity="0.95" stroke-dasharray="none"/>',
+    '<text x="194" y="1112" font-size="34" fill="#0f172a">raw 3</text>',
+    "</g>"
+  ].join("\n");
+  const svg = svgShell({
+    figureId,
+    width,
+    height,
+    title,
+    description: "Overall undirected code co-occurrence within unit-scoped stanzas. W records association, not causal or semantic direction.",
+    body
+  });
+  assertSvgContent(figureId, svg, [title, subtitle, ...figureData.codes.map(({ label }) => label)]);
+  return svg;
+}
+
 function main() {
   const { inputPath, outputDir } = parseArgs(process.argv.slice(2));
   const loadedDataset = loadDataset(inputPath);
   const figureData = buildFigureData(loadedDataset);
+  const figure1 = renderOverallHumanHumanFigure(figureData);
+  const figure2 = renderOverallConceptConceptFigure(figureData);
   mkdirSync(outputDir, { recursive: true });
   writeFileSync(path.join(outputDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
+  writeFileSync(path.join(outputDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
+  writeFileSync(path.join(outputDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
 }
 
 const isMainModule =

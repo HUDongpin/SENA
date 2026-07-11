@@ -168,6 +168,55 @@ function getCachedGeneratorRun(): CachedGeneratorRun {
   return cachedGeneratorRun;
 }
 
+function readArtifact(outputDir: string, artifactName: string) {
+  const artifactPath = path.join(outputDir, artifactName);
+  expect(existsSync(artifactPath), `missing generated artifact: ${artifactName}`).toBe(true);
+  return readFileSync(artifactPath, "utf8");
+}
+
+function expectAllText(svg: string, expectedText: string[]) {
+  for (const text of expectedText) {
+    expect(svg).toContain(text);
+  }
+}
+
+function expectMinimumFontSize(svg: string, minimumFontSize: number) {
+  const textElements = [...svg.matchAll(/<text\b[^>]*>/g)].map(([element]) => element);
+  expect(textElements.length).toBeGreaterThan(0);
+
+  for (const textElement of textElements) {
+    const fontSize = textElement.match(/\bfont-size="([^"]+)"/);
+    expect(fontSize, `visible SVG text requires an explicit font-size: ${textElement}`).not.toBeNull();
+    expect(Number(fontSize?.[1]), `SVG text font-size is too small: ${textElement}`).toBeGreaterThanOrEqual(
+      minimumFontSize
+    );
+  }
+}
+
+function expectedDirectedEdgeIds(block: SenaMatrixBlock, participantIds: string[]) {
+  return block.raw
+    .flatMap((row, sourceIndex) =>
+      row.flatMap((weight, targetIndex) =>
+        weight === 0 ? [] : [`S-${participantIds[sourceIndex]}-${participantIds[targetIndex]}`]
+      )
+    )
+    .sort();
+}
+
+function expectedUndirectedEdgeIds(block: SenaMatrixBlock, codeIds: string[]) {
+  return block.raw
+    .flatMap((row, leftIndex) =>
+      row.flatMap((weight, rightIndex) =>
+        rightIndex <= leftIndex || weight === 0 ? [] : [`W-${codeIds[leftIndex]}-${codeIds[rightIndex]}`]
+      )
+    )
+    .sort();
+}
+
+function svgEdgeIds(svg: string) {
+  return [...svg.matchAll(/\bdata-edge-id="([^"]+)"/g)].map((match) => match[1]).sort();
+}
+
 afterAll(() => {
   if (cachedGeneratorTemporaryRoot) {
     rmSync(cachedGeneratorTemporaryRoot, { recursive: true, force: true });
@@ -206,7 +255,11 @@ describe("SENA human-concept publication figure generator", () => {
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(outputDir)).toBe(true);
-    expect(readdirSync(outputDir)).toEqual(["figure-data.json"]);
+    expect(readdirSync(outputDir)).toEqual([
+      "figure-1-human-human-overall.svg",
+      "figure-2-concept-concept-overall.svg",
+      "figure-data.json"
+    ]);
     expect(figureDataText.length).toBeGreaterThan(0);
     expect(figureDataText.endsWith("\n")).toBe(true);
 
@@ -287,6 +340,72 @@ describe("SENA human-concept publication figure generator", () => {
       "W encodes code co-occurrence within unit-scoped stanzas; it is not semantic or causal direction.",
       "The bundled lesson-study dataset is synthetic and supports demonstration, not population inference."
     ]);
+  });
+
+  it("renders deterministic overall Human–Human S and Concept–Concept W SVG semantics", () => {
+    const { outputDir, figureData } = getCachedGeneratorRun();
+    const figure1 = readArtifact(outputDir, "figure-1-human-human-overall.svg");
+    const figure2 = readArtifact(outputDir, "figure-2-concept-concept-overall.svg");
+
+    expect(figure1.length).toBeGreaterThan(0);
+    expect(figure1.endsWith("\n")).toBe(true);
+    expect(figure1).toContain('data-figure-id="figure-1-human-human-overall"');
+    expect(figure1).toContain("<title>Figure 1. Overall Human–Human Network</title>");
+    expect(figure1).toContain('data-background="opaque-white"');
+    expect(figure1).toContain('data-legend="S-encoding"');
+    expect(figure1).toContain('<rect data-node-kind="human"');
+    expect(figure1).toContain('<marker id="s-arrow"');
+    expect(figure1).toContain('marker-end="url(#s-arrow)"');
+    expectAllText(figure1, [
+      "Directed Human–Human interaction network (S), full lesson-study cycle",
+      ...figureData.participants.flatMap(({ label, role }) => [label, role])
+    ]);
+    const expectedSEdgeIds = expectedDirectedEdgeIds(
+      figureData.overall.S,
+      figureData.participants.map(({ id }) => id)
+    );
+    expect(expectedSEdgeIds).toHaveLength(8);
+    expect(svgEdgeIds(figure1)).toEqual(expectedSEdgeIds);
+    expect(figure1).toContain('data-scale-sample="S-1" stroke-width="2.571"');
+    expect(figure1).toContain('data-scale-sample="S-4" stroke-width="10.286"');
+    expect(figure1).toContain('data-scale-sample="S-7" stroke-width="18"');
+    expectMinimumFontSize(figure1, 34);
+
+    expect(figure2.length).toBeGreaterThan(0);
+    expect(figure2.endsWith("\n")).toBe(true);
+    expect(figure2).toContain('data-figure-id="figure-2-concept-concept-overall"');
+    expect(figure2).toContain("<title>Figure 2. Overall Concept–Concept Network</title>");
+    expect(figure2).toContain('data-background="opaque-white"');
+    expect(figure2).toContain('data-legend="W-encoding"');
+    expect(figure2).toContain('<circle data-node-kind="concept"');
+    expect(figure2).toContain('data-layer="W"');
+    expect(figure2).toContain('stroke-dasharray="none"');
+    expect(figure2).not.toContain("marker-end");
+    expectAllText(figure2, [
+      "Concept–Concept co-occurrence network (W), full lesson-study cycle",
+      ...figureData.codes.map(({ label }) => label),
+      "undirected; no causal direction"
+    ]);
+    const expectedWEdgeIds = expectedUndirectedEdgeIds(
+      figureData.overall.W,
+      figureData.codes.map(({ id }) => id)
+    );
+    expect(expectedWEdgeIds).toHaveLength(20);
+    expect(svgEdgeIds(figure2)).toEqual(expectedWEdgeIds);
+    expect(figure2).toContain('data-scale-sample="W-1" stroke-width="5"');
+    expect(figure2).toContain('data-scale-sample="W-2" stroke-width="10"');
+    expect(figure2).toContain('data-scale-sample="W-3" stroke-width="15"');
+    expect(figure2).toContain(">unit-scoped stanza</text>");
+    expect(figure2).toContain(">co-occurrence</text>");
+    expect(figure2).toContain(">undirected; no</text>");
+    expect(figure2).toContain(">causal direction</text>");
+    expect(figure2).not.toContain("textLength=");
+    expectMinimumFontSize(figure2, 34);
+
+    for (const svg of [figure1, figure2]) {
+      expect(svg).not.toMatch(/<(?:filter|linearGradient|radialGradient)\b/);
+      expect(svg).not.toMatch(/data-layer="(?:B|G|fusion)"/);
+    }
   });
 
   it("rejects --output-dir without a value", () => {
