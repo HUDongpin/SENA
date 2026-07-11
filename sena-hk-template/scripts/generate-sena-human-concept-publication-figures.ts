@@ -798,16 +798,232 @@ function renderOverallConceptConceptFigure(figureData: FigureDataV1) {
   return svg;
 }
 
+function renderTemporalPairedFigure(figureData: FigureDataV1) {
+  const figureId = "figure-3-temporal-paired-small-multiples";
+  const title = "Figure 3. Plan–Teach–Reflect S and W Networks";
+  const subtitle = "Stage-scoped Human–Human and Concept–Concept networks with fixed positions and shared global scales";
+  const width = 2400;
+  const height = 1440;
+  const outerMargin = 90;
+  const titleBand = 150;
+  const footerBand = 150;
+  const horizontalGap = 36;
+  const verticalGap = 44;
+  const panelWidth = (width - outerMargin * 2 - horizontalGap * 2) / 3;
+  const panelHeight =
+    (height - outerMargin * 2 - titleBand - footerBand - verticalGap) / 2;
+  const panelTop = outerMargin + titleBand;
+  const footerTop = height - outerMargin - footerBand;
+  const participantLayout = circularLayout(figureData.participants.length, { x: 0.5, y: 0.62 }, 0.27).map(
+    ({ x, y }) => ({ x: Number(formatNumber(x)), y: Number(formatNumber(y)) })
+  );
+  const conceptLayout = circularLayout(
+    figureData.codes.length,
+    { x: 0.5, y: 0.55 },
+    0.18,
+    -Math.PI / 2 + Math.PI / figureData.codes.length
+  ).map(({ x, y }) => ({ x: Number(formatNumber(x)), y: Number(formatNumber(y)) }));
+  const conceptLabelSlots = [
+    { name: "right-top", x: 0.98, y: 0.37, textAnchor: "end", leaderX: 0.73, leaderY: 0.37 },
+    { name: "right-middle", x: 0.98, y: 0.55, textAnchor: "end", leaderX: 0.73, leaderY: 0.55 },
+    { name: "right-bottom", x: 0.98, y: 0.73, textAnchor: "end", leaderX: 0.73, leaderY: 0.73 },
+    { name: "bottom-center", x: 0.5, y: 0.91, textAnchor: "middle", leaderX: 0.5, leaderY: 0.82 },
+    { name: "left-bottom", x: 0.02, y: 0.73, textAnchor: "start", leaderX: 0.27, leaderY: 0.73 },
+    { name: "left-middle", x: 0.02, y: 0.55, textAnchor: "start", leaderX: 0.27, leaderY: 0.55 },
+    { name: "left-top", x: 0.02, y: 0.37, textAnchor: "start", leaderX: 0.27, leaderY: 0.37 }
+  ] as const;
+
+  const panelX = (stageIndex: number) => outerMargin + stageIndex * (panelWidth + horizontalGap);
+  const panelPoint = (panelLeft: number, panelY: number, point: Point) => ({
+    x: panelLeft + point.x * panelWidth,
+    y: panelY + point.y * panelHeight
+  });
+  const stageCounts = (stageData: FigureDataV1["temporal"][number]) =>
+    `Interactions ${stageData.counts.interactions} · Utterances ${stageData.counts.utterances} · Coded ${stageData.counts.codedSegments}`;
+
+  const renderSPanel = (stageData: FigureDataV1["temporal"][number], stageIndex: number) => {
+    const left = panelX(stageIndex);
+    const top = panelTop;
+    const positions = participantLayout.map((point) => panelPoint(left, top, point));
+    const activeIndices = new Set<number>();
+    const edgeElements: string[] = [];
+    const nodeWidth = 208;
+    const nodeHeight = 66;
+
+    for (let sourceIndex = 0; sourceIndex < stageData.S.raw.length; sourceIndex += 1) {
+      for (let targetIndex = 0; targetIndex < stageData.S.raw[sourceIndex].length; targetIndex += 1) {
+        const weight = stageData.S.raw[sourceIndex][targetIndex];
+        if (weight === 0) continue;
+
+        activeIndices.add(sourceIndex);
+        activeIndices.add(targetIndex);
+        const source = positions[sourceIndex];
+        const target = positions[targetIndex];
+        const reciprocal = stageData.S.raw[targetIndex]?.[sourceIndex] !== 0;
+        const curveOffset = reciprocal
+          ? 38
+          : (sourceIndex * figureData.participants.length + targetIndex) % 2 === 0
+            ? 20
+            : -20;
+        const control = quadraticControlPoint(source, target, curveOffset);
+        const start = clipToRectangleBoundary(source, control, nodeWidth / 2, nodeHeight / 2);
+        const end = clipToRectangleBoundary(target, control, nodeWidth / 2, nodeHeight / 2);
+        const strokeWidth = formatNumber(widthFor(weight, figureData.scales.S.maximumRaw, 18));
+        const sourceId = figureData.participants[sourceIndex].id;
+        const targetId = figureData.participants[targetIndex].id;
+        const temporalEdgeId = `${stageData.stage}:S:${sourceId}:${targetId}`;
+
+        edgeElements.push(
+          `<path data-layer="S" data-temporal-edge-id="${escapeXml(temporalEdgeId)}" data-weight="${formatNumber(weight)}" data-stroke-width="${strokeWidth}" d="M ${formatNumber(start.x)} ${formatNumber(start.y)} Q ${formatNumber(control.x)} ${formatNumber(control.y)} ${formatNumber(end.x)} ${formatNumber(end.y)}" fill="none" stroke="#2563eb" stroke-width="${strokeWidth}" stroke-opacity="${formatNumber(opacityFor(weight, figureData.scales.S.maximumRaw))}" stroke-linecap="round" marker-end="url(#s-arrow-temporal)"/>`
+        );
+      }
+    }
+
+    const nodeElements = figureData.participants.flatMap((participant, participantIndex) => {
+      const position = positions[participantIndex];
+      const normalizedPosition = participantLayout[participantIndex];
+      const active = activeIndices.has(participantIndex);
+      const opacity = active ? "1" : "0.28";
+      const layoutCoordinate = `human:${participant.id}:${formatNumber(normalizedPosition.x)}:${formatNumber(normalizedPosition.y)}`;
+      return [
+        `<rect data-node-kind="human" data-node-id="${escapeXml(participant.id)}" data-layout-coordinate="${escapeXml(layoutCoordinate)}" data-active="${active}" opacity="${opacity}" x="${formatNumber(position.x - nodeWidth / 2)}" y="${formatNumber(position.y - nodeHeight / 2)}" width="${nodeWidth}" height="${nodeHeight}" rx="18" fill="#eff6ff" stroke="#0f3f83" stroke-width="4"/>`,
+        `<text x="${formatNumber(position.x)}" y="${formatNumber(position.y + 12)}" text-anchor="middle" font-size="34" font-weight="700" fill="#0f172a" opacity="${opacity}">${escapeXml(participant.label)}</text>`
+      ];
+    });
+
+    return [
+      `<g data-panel-id="${escapeXml(stageData.stage)}-S">`,
+      `<rect x="${formatNumber(left)}" y="${formatNumber(top)}" width="${formatNumber(panelWidth)}" height="${formatNumber(panelHeight)}" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="4"/>`,
+      `<text x="${formatNumber(left + panelWidth / 2)}" y="${formatNumber(top + 42)}" text-anchor="middle" font-size="38" font-weight="700" fill="#0f172a">${escapeXml(stageData.stage)} · Human–Human S</text>`,
+      `<text x="${formatNumber(left + panelWidth / 2)}" y="${formatNumber(top + 82)}" text-anchor="middle" font-size="34" fill="#475569">${escapeXml(stageCounts(stageData))}</text>`,
+      '<g data-temporal-edge-set="S">',
+      ...edgeElements,
+      "</g>",
+      '<g data-temporal-node-set="human">',
+      ...nodeElements,
+      "</g>",
+      "</g>"
+    ].join("\n");
+  };
+
+  const renderWPanel = (stageData: FigureDataV1["temporal"][number], stageIndex: number) => {
+    const left = panelX(stageIndex);
+    const top = panelTop + panelHeight + verticalGap;
+    const positions = conceptLayout.map((point) => panelPoint(left, top, point));
+    const labelPositions = conceptLabelSlots.map((slot) => panelPoint(left, top, slot));
+    const leaderPositions = conceptLabelSlots.map((slot) =>
+      panelPoint(left, top, { x: slot.leaderX, y: slot.leaderY })
+    );
+    const activeIndices = new Set<number>();
+    const edgeElements: string[] = [];
+
+    for (let leftIndex = 0; leftIndex < stageData.W.raw.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < stageData.W.raw[leftIndex].length; rightIndex += 1) {
+        const weight = stageData.W.raw[leftIndex][rightIndex];
+        if (weight === 0) continue;
+
+        activeIndices.add(leftIndex);
+        activeIndices.add(rightIndex);
+        const leftCodeId = figureData.codes[leftIndex].id;
+        const rightCodeId = figureData.codes[rightIndex].id;
+        const strokeWidth = formatNumber(widthFor(weight, figureData.scales.W.maximumRaw, 15));
+        const temporalEdgeId = `${stageData.stage}:W:${leftCodeId}:${rightCodeId}`;
+        edgeElements.push(
+          `<path data-layer="W" data-temporal-edge-id="${escapeXml(temporalEdgeId)}" data-weight="${formatNumber(weight)}" data-stroke-width="${strokeWidth}" d="M ${formatNumber(positions[leftIndex].x)} ${formatNumber(positions[leftIndex].y)} L ${formatNumber(positions[rightIndex].x)} ${formatNumber(positions[rightIndex].y)}" fill="none" stroke="#7e22ce" stroke-width="${strokeWidth}" stroke-opacity="${formatNumber(opacityFor(weight, figureData.scales.W.maximumRaw))}" stroke-dasharray="none" stroke-linecap="round"/>`
+        );
+      }
+    }
+
+    const leaderElements = figureData.codes.map((code, codeIndex) => {
+      const position = positions[codeIndex];
+      const leaderPosition = leaderPositions[codeIndex];
+      const active = activeIndices.has(codeIndex);
+      return `<line data-leader-for="${escapeXml(code.id)}" x1="${formatNumber(position.x)}" y1="${formatNumber(position.y)}" x2="${formatNumber(leaderPosition.x)}" y2="${formatNumber(leaderPosition.y)}" stroke="#94a3b8" stroke-width="3" opacity="${active ? "1" : "0.28"}"/>`;
+    });
+
+    const nodeElements = figureData.codes.flatMap((code, codeIndex) => {
+      const position = positions[codeIndex];
+      const labelPosition = labelPositions[codeIndex];
+      const labelSlot = conceptLabelSlots[codeIndex];
+      const normalizedPosition = conceptLayout[codeIndex];
+      const active = activeIndices.has(codeIndex);
+      const opacity = active ? "1" : "0.28";
+      const layoutCoordinate = `concept:${code.id}:${formatNumber(normalizedPosition.x)}:${formatNumber(normalizedPosition.y)}`;
+      return [
+        `<circle data-node-kind="concept" data-node-id="${escapeXml(code.id)}" data-layout-coordinate="${escapeXml(layoutCoordinate)}" data-active="${active}" opacity="${opacity}" cx="${formatNumber(position.x)}" cy="${formatNumber(position.y)}" r="24" fill="${escapeXml(code.color)}" stroke="#0f172a" stroke-width="4"/>`,
+        `<text data-concept-label-slot="${escapeXml(`${code.id}:${labelSlot.name}`)}" x="${formatNumber(labelPosition.x)}" y="${formatNumber(labelPosition.y + 12)}" text-anchor="${labelSlot.textAnchor}" font-size="34" font-weight="700" fill="#0f172a" stroke="#ffffff" stroke-width="6" paint-order="stroke" stroke-linejoin="round" opacity="${opacity}">${escapeXml(code.label)}</text>`
+      ];
+    });
+
+    return [
+      `<g data-panel-id="${escapeXml(stageData.stage)}-W">`,
+      `<rect x="${formatNumber(left)}" y="${formatNumber(top)}" width="${formatNumber(panelWidth)}" height="${formatNumber(panelHeight)}" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="4"/>`,
+      `<text x="${formatNumber(left + panelWidth / 2)}" y="${formatNumber(top + 42)}" text-anchor="middle" font-size="38" font-weight="700" fill="#0f172a">${escapeXml(stageData.stage)} · Concept–Concept W</text>`,
+      `<text x="${formatNumber(left + panelWidth / 2)}" y="${formatNumber(top + 82)}" text-anchor="middle" font-size="34" fill="#475569">${escapeXml(stageCounts(stageData))}</text>`,
+      '<g data-temporal-edge-set="W">',
+      ...edgeElements,
+      "</g>",
+      '<g data-concept-label-leaders="stable-rails">',
+      ...leaderElements,
+      "</g>",
+      '<g data-temporal-node-set="concept">',
+      ...nodeElements,
+      "</g>",
+      "</g>"
+    ].join("\n");
+  };
+
+  const body = [
+    '<defs><marker id="s-arrow-temporal" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="20" markerHeight="20" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 11 6 L 0 11 Z" fill="#2563eb"/></marker></defs>',
+    `<text x="${width / 2}" y="132" text-anchor="middle" font-size="52" font-weight="700" fill="#0f172a">${escapeXml(title)}</text>`,
+    `<text x="${width / 2}" y="184" text-anchor="middle" font-size="36" fill="#334155">${escapeXml(subtitle)}</text>`,
+    ...figureData.temporal.map(renderSPanel),
+    ...figureData.temporal.map(renderWPanel),
+    '<g data-legend="shared-temporal-encoding">',
+    `<text x="${outerMargin}" y="${formatNumber(footerTop + 42)}" font-size="36" font-weight="700" fill="#0f172a">Shared temporal encoding</text>`,
+    `<g data-scale="shared-S-1-7" aria-label="Shared S raw-weight scale" transform="translate(${outerMargin} ${formatNumber(footerTop + 82)})">`,
+    '<line x1="0" y1="0" x2="110" y2="0" stroke="#2563eb" stroke-width="18" stroke-linecap="round" marker-end="url(#s-arrow-temporal)"/>',
+    '<text x="140" y="12" font-size="34" fill="#0f172a">S raw weight 1–7</text>',
+    "</g>",
+    `<g data-scale="shared-W-1-3" aria-label="Shared W raw-weight scale" transform="translate(720 ${formatNumber(footerTop + 82)})">`,
+    '<line x1="0" y1="0" x2="110" y2="0" stroke="#7e22ce" stroke-width="15" stroke-dasharray="none" stroke-linecap="round"/>',
+    '<text x="140" y="12" font-size="34" fill="#0f172a">W raw co-occurrence 1–3</text>',
+    "</g>",
+    `<text x="${outerMargin}" y="${formatNumber(footerTop + 136)}" font-size="34" fill="#334155">Fixed node positions across stages; widths use global raw-weight scales; muted nodes are inactive in that stage.</text>`,
+    "</g>"
+  ].join("\n");
+  const svg = svgShell({
+    figureId,
+    width,
+    height,
+    title,
+    description:
+      "Paired Plan, Teach, and Reflect small multiples compare directed Human–Human S networks with undirected Concept–Concept W networks using fixed layouts and global raw-weight scales.",
+    body
+  });
+  assertSvgContent(figureId, svg, [
+    title,
+    subtitle,
+    ...figureData.participants.map(({ label }) => label),
+    ...figureData.codes.map(({ label }) => label),
+    "shared-temporal-encoding",
+    ...REQUIRED_STAGES
+  ]);
+  return svg;
+}
+
 function main() {
   const { inputPath, outputDir } = parseArgs(process.argv.slice(2));
   const loadedDataset = loadDataset(inputPath);
   const figureData = buildFigureData(loadedDataset);
   const figure1 = renderOverallHumanHumanFigure(figureData);
   const figure2 = renderOverallConceptConceptFigure(figureData);
+  const figure3 = renderTemporalPairedFigure(figureData);
   mkdirSync(outputDir, { recursive: true });
   writeFileSync(path.join(outputDir, "figure-data.json"), `${JSON.stringify(figureData, null, 2)}\n`, "utf8");
   writeFileSync(path.join(outputDir, "figure-1-human-human-overall.svg"), figure1, "utf8");
   writeFileSync(path.join(outputDir, "figure-2-concept-concept-overall.svg"), figure2, "utf8");
+  writeFileSync(path.join(outputDir, "figure-3-temporal-paired-small-multiples.svg"), figure3, "utf8");
 }
 
 const isMainModule =

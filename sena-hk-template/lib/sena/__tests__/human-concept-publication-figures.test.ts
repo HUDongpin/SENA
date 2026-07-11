@@ -217,6 +217,16 @@ function svgEdgeIds(svg: string) {
   return [...svg.matchAll(/\bdata-edge-id="([^"]+)"/g)].map((match) => match[1]).sort();
 }
 
+function temporalEdgeElements(svg: string) {
+  return [...svg.matchAll(/<(?:path|line)\b[^>]*\bdata-temporal-edge-id="[^"]+"[^>]*\/?\s*>/g)].map(
+    ([element]) => element
+  );
+}
+
+function svgAttribute(element: string, attribute: string) {
+  return element.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+}
+
 afterAll(() => {
   if (cachedGeneratorTemporaryRoot) {
     rmSync(cachedGeneratorTemporaryRoot, { recursive: true, force: true });
@@ -258,6 +268,7 @@ describe("SENA human-concept publication figure generator", () => {
     expect(readdirSync(outputDir)).toEqual([
       "figure-1-human-human-overall.svg",
       "figure-2-concept-concept-overall.svg",
+      "figure-3-temporal-paired-small-multiples.svg",
       "figure-data.json"
     ]);
     expect(figureDataText.length).toBeGreaterThan(0);
@@ -406,6 +417,115 @@ describe("SENA human-concept publication figure generator", () => {
       expect(svg).not.toMatch(/<(?:filter|linearGradient|radialGradient)\b/);
       expect(svg).not.toMatch(/data-layer="(?:B|G|fusion)"/);
     }
+  });
+
+  it("renders paired Plan–Teach–Reflect S/W panels with shared scales and stable labels", () => {
+    const { outputDir, figureData } = getCachedGeneratorRun();
+    const svg = readArtifact(outputDir, "figure-3-temporal-paired-small-multiples.svg");
+
+    expect(svg.length).toBeGreaterThan(0);
+    expect(svg.endsWith("\n")).toBe(true);
+    expect(svg).toContain('data-figure-id="figure-3-temporal-paired-small-multiples"');
+    expect(svg).toContain('width="2400" height="1440" viewBox="0 0 2400 1440"');
+    expect(svg).toContain("<title>Figure 3. Plan–Teach–Reflect S and W Networks</title>");
+    expect(svg).toContain('data-background="opaque-white"');
+    expect(svg).toContain('data-legend="shared-temporal-encoding"');
+
+    const panelIds = [...svg.matchAll(/\bdata-panel-id="([^"]+)"/g)].map((match) => match[1]);
+    expect(panelIds).toEqual(["Plan-S", "Teach-S", "Reflect-S", "Plan-W", "Teach-W", "Reflect-W"]);
+    expect(panelIds).toHaveLength(6);
+    expect((svg.match(/\bdata-node-kind="human"/g) ?? [])).toHaveLength(12);
+    expect((svg.match(/\bdata-node-kind="concept"/g) ?? [])).toHaveLength(21);
+    expect(svg).toContain('data-active="false"');
+
+    expect((svg.match(/\bdata-scale="shared-S-1-7"/g) ?? [])).toHaveLength(1);
+    expect((svg.match(/\bdata-scale="shared-W-1-3"/g) ?? [])).toHaveLength(1);
+    expect(svg).not.toContain("data-edge-label=");
+    expect(svg).not.toMatch(/data-layer="(?:B|G|fusion)"/);
+    expect(svg).not.toMatch(/<(?:filter|linearGradient|radialGradient)\b/);
+    expectAllText(svg, figureData.participants.map(({ label }) => label));
+    expectAllText(svg, figureData.codes.map(({ label }) => label));
+    expectMinimumFontSize(svg, 34);
+
+    const participantIds = figureData.participants.map(({ id }) => id);
+    const codeIds = figureData.codes.map(({ id }) => id);
+    const expectedTemporalEdgeIds = figureData.temporal
+      .flatMap(({ stage, S, W }) => [
+        ...S.raw.flatMap((row, sourceIndex) =>
+          row.flatMap((weight, targetIndex) =>
+            weight === 0 ? [] : [`${stage}:S:${participantIds[sourceIndex]}:${participantIds[targetIndex]}`]
+          )
+        ),
+        ...W.raw.flatMap((row, leftIndex) =>
+          row.flatMap((weight, rightIndex) =>
+            rightIndex <= leftIndex || weight === 0
+              ? []
+              : [`${stage}:W:${codeIds[leftIndex]}:${codeIds[rightIndex]}`]
+          )
+        )
+      ])
+      .sort();
+    const edgeElements = temporalEdgeElements(svg);
+    const actualTemporalEdgeIds = edgeElements
+      .map((element) => svgAttribute(element, "data-temporal-edge-id"))
+      .filter((edgeId): edgeId is string => edgeId !== undefined)
+      .sort();
+    expect(actualTemporalEdgeIds).toEqual(expectedTemporalEdgeIds);
+
+    for (const edgeElement of edgeElements) {
+      const temporalEdgeId = svgAttribute(edgeElement, "data-temporal-edge-id");
+      expect(temporalEdgeId).toBeDefined();
+      if (temporalEdgeId?.includes(":S:")) {
+        expect(svgAttribute(edgeElement, "data-layer")).toBe("S");
+        expect(svgAttribute(edgeElement, "marker-end")).toBe("url(#s-arrow-temporal)");
+      } else {
+        expect(temporalEdgeId).toContain(":W:");
+        expect(svgAttribute(edgeElement, "data-layer")).toBe("W");
+        expect(svgAttribute(edgeElement, "stroke-dasharray")).toBe("none");
+        expect(svgAttribute(edgeElement, "marker-end")).toBeUndefined();
+      }
+    }
+
+    const layoutCoordinates = [...svg.matchAll(/\bdata-layout-coordinate="([^"]+)"/g)].map(
+      (match) => match[1]
+    );
+    expect(layoutCoordinates).toHaveLength(33);
+    const coordinateCounts = new Map<string, number>();
+    for (const coordinate of layoutCoordinates) {
+      coordinateCounts.set(coordinate, (coordinateCounts.get(coordinate) ?? 0) + 1);
+      const match = coordinate.match(/^(human|concept):([^:]+):(-?\d+(?:\.\d+)?):(-?\d+(?:\.\d+)?)$/);
+      expect(match, `invalid normalized layout coordinate: ${coordinate}`).not.toBeNull();
+      expect(Number(match?.[3])).toBeGreaterThanOrEqual(0);
+      expect(Number(match?.[3])).toBeLessThanOrEqual(1);
+      expect(Number(match?.[4])).toBeGreaterThanOrEqual(0);
+      expect(Number(match?.[4])).toBeLessThanOrEqual(1);
+    }
+    expect(coordinateCounts.size).toBe(11);
+    expect([...coordinateCounts.values()]).toEqual(Array.from({ length: 11 }, () => 3));
+    expect([...coordinateCounts.keys()].map((coordinate) => coordinate.split(":").slice(0, 2).join(":"))).toEqual([
+      ...participantIds.map((id) => `human:${id}`),
+      ...codeIds.map((id) => `concept:${id}`)
+    ]);
+
+    const conceptLabelSlots = [...svg.matchAll(/\bdata-concept-label-slot="([^"]+)"/g)].map(
+      (match) => match[1]
+    );
+    const expectedConceptLabelSlots = [
+      "question:right-top",
+      "hypothesis:right-middle",
+      "evidence:right-bottom",
+      "explanation:bottom-center",
+      "critique:left-bottom",
+      "reflection:left-middle",
+      "coordination:left-top"
+    ];
+    expect(conceptLabelSlots).toHaveLength(21);
+    const conceptLabelSlotCounts = new Map<string, number>();
+    for (const conceptLabelSlot of conceptLabelSlots) {
+      conceptLabelSlotCounts.set(conceptLabelSlot, (conceptLabelSlotCounts.get(conceptLabelSlot) ?? 0) + 1);
+    }
+    expect([...conceptLabelSlotCounts.keys()]).toEqual(expectedConceptLabelSlots);
+    expect([...conceptLabelSlotCounts.values()]).toEqual(Array.from({ length: 7 }, () => 3));
   });
 
   it("rejects --output-dir without a value", () => {
