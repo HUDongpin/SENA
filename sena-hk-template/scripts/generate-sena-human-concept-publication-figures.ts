@@ -974,7 +974,7 @@ function renderTemporalPairedFigure(figureData: FigureDataV1) {
   };
 
   const body = [
-    '<defs><marker id="s-arrow-temporal" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="20" markerHeight="20" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 11 6 L 0 11 Z" fill="#2563eb"/></marker></defs>',
+    '<defs><marker id="s-arrow-temporal" viewBox="0 0 20 20" refX="19" refY="10" markerWidth="36" markerHeight="36" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 19 10 L 0 19 Z" fill="#2563eb"/></marker></defs>',
     `<text x="${width / 2}" y="132" text-anchor="middle" font-size="52" font-weight="700" fill="#0f172a">${escapeXml(title)}</text>`,
     `<text x="${width / 2}" y="184" text-anchor="middle" font-size="36" fill="#334155">${escapeXml(subtitle)}</text>`,
     ...figureData.temporal.map(renderSPanel),

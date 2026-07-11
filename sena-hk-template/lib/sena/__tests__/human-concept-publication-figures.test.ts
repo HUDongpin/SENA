@@ -528,6 +528,33 @@ describe("SENA human-concept publication figure generator", () => {
     expect([...conceptLabelSlotCounts.values()]).toEqual(Array.from({ length: 7 }, () => 3));
   });
 
+  it("keeps the temporal S arrowhead visibly larger than the strongest edge", () => {
+    const { outputDir } = getCachedGeneratorRun();
+    const svg = readArtifact(outputDir, "figure-3-temporal-paired-small-multiples.svg");
+    const marker = svg.match(
+      /<marker\b(?=[^>]*\bid="s-arrow-temporal")[^>]*>[\s\S]*?<\/marker>/
+    )?.[0];
+
+    expect(marker).toBeDefined();
+    if (!marker) throw new Error("Missing temporal S arrow marker");
+    expect(svgAttribute(marker, "markerUnits")).toBe("userSpaceOnUse");
+
+    const markerWidth = Number(svgAttribute(marker, "markerWidth"));
+    const markerHeight = Number(svgAttribute(marker, "markerHeight"));
+    expect(markerWidth).toBeGreaterThanOrEqual(32);
+    expect(markerHeight).toBeGreaterThanOrEqual(32);
+
+    const viewBox = svgAttribute(marker, "viewBox")?.split(/\s+/).map(Number);
+    expect(viewBox).toEqual([0, 0, 20, 20]);
+    const trianglePath = marker.match(/<path\b[^>]*\bd="([^"]+)"[^>]*\/?\s*>/)?.[1];
+    expect(trianglePath).toBe("M 0 1 L 19 10 L 0 19 Z");
+
+    const renderedTriangleWidth = markerWidth * (19 / 20);
+    const renderedTriangleHeight = markerHeight * (18 / 20);
+    expect(renderedTriangleWidth).toBeGreaterThan(27);
+    expect(renderedTriangleHeight).toBeGreaterThan(27);
+  });
+
   it("rejects --output-dir without a value", () => {
     const result = runGenerator(["--output-dir"]);
 
