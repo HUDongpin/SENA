@@ -33,7 +33,7 @@ type FigureDataV1 = {
     sha256: string;
     synthetic: true;
   };
-  configuration: typeof BUILD_OPTIONS;
+  configuration: SenaModel["options"];
   runIdentity: RunIdentity;
   dataContractAudit: SenaDataContractAudit;
   stageOrder: StageName[];
@@ -445,7 +445,7 @@ function buildFigureData({
       sha256: sourceSha256,
       synthetic: true as const
     },
-    configuration: BUILD_OPTIONS,
+    configuration: overallModel.options,
     runIdentity: overallModel.operatorDiagnostics.runIdentity,
     dataContractAudit,
     stageOrder: [...REQUIRED_STAGES],

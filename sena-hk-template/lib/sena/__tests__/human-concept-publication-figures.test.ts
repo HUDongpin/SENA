@@ -207,7 +207,7 @@ describe("SENA human-concept publication figure generator", () => {
       sha256: sourceSha256,
       synthetic: true
     });
-    expect(figureData.configuration).toEqual(buildOptions);
+    expect(figureData.configuration).toEqual(overallModel.options);
     expect(figureData.runIdentity).toEqual(overallModel.operatorDiagnostics.runIdentity);
     expect(figureData.dataContractAudit.status).toBe("valid");
     expect(figureData.stageOrder).toEqual(requiredStages);
