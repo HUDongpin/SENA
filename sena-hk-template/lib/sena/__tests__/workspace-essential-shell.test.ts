@@ -140,15 +140,33 @@ describe("SENA essential workspace shell", () => {
     expect(cycleContainedFocusIndex({ currentIndex: 0, itemCount: 0, backward: false })).toBe(-1);
   });
 
-  it("keeps only compact dataset-window status plus import and export actions in the header", () => {
+  it("keeps only compact dataset status plus import and export actions in the header", () => {
     const header = workspaceSource("workspace-header-section.tsx");
 
     expect(header).toContain("Dataset");
-    expect(header).toContain("Window");
     expect(header).toContain('data-testid="sena-upload-input"');
     expect(header).toContain("Export report");
+    expect(header).not.toContain("activeWindowLabel");
+    expect(header).not.toContain("activeTurnLabel");
     expect(header).not.toContain("> Home");
     expect(header).not.toContain("> jENA");
+  });
+
+  it("moves the active window and turn context into the top plot view bar", () => {
+    const shellPanels = workspaceSource("workspace-shell-panels.tsx");
+
+    expect(shellPanels).toContain('data-testid="workspace-plot-view-bar"');
+    expect(shellPanels).toContain('data-testid="workspace-plot-view-bar-window-context"');
+    expect(shellPanels).toContain("activeWindowLabel");
+    expect(shellPanels).toContain("activeTurnLabel");
+  });
+
+  it("keeps Plotted Points as an active-view summary that defers switching to the plot view bar", () => {
+    const plotTools = workspaceSource("plot-tools-panel.tsx");
+
+    expect(plotTools).toContain('testId="plot-tools-plotted-points-section"');
+    expect(plotTools).toContain('data-testid="plot-tools-active-view-summary"');
+    expect(plotTools).not.toContain("plot-tool-view-");
   });
 
   it("reduces the active-window context to counts, top signals, and one guardrail", () => {

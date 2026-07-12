@@ -152,7 +152,7 @@ export const workspaceRailPanelCopy: WorkspaceRailPanelCopy = {
   },
   plots: {
     title: "Plot Tools",
-    subtitle: "Switch plots, layers, thresholds, and temporal framing",
+    subtitle: "Tune layers, thresholds, and temporal framing for the active plot",
     badge: "Canvas",
     activeWorkflowId: "workflow-canvas"
   },

@@ -6,7 +6,6 @@ export type WorkspacePlotToolsFieldPropGroup = Pick<WorkspacePlotToolsPropGroup,
   | "onLayoutChange"
   | "plotViewOptions"
   | "activePlotView"
-  | "onActivePlotViewChange"
   | "layers"
   | "layerCopy"
   | "onLayerToggle"

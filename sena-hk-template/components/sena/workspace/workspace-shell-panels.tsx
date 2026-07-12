@@ -173,7 +173,8 @@ function PlotSwitcher({
         data-visual-role="workspace-shell-collapsed-plot-switcher"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="flex h-11 min-w-[16rem] items-center justify-between gap-3 rounded-full border border-slate-300/80 bg-white/90 px-4 text-left shadow-[0_8px_24px_rgb(15_23_42/0.08)] transition hover:border-cyanGlow/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow"
+        aria-label={`All plot views, current ${selected.label}`}
+        className="flex h-10 shrink-0 items-center justify-between gap-3 rounded-full border border-slate-300/80 bg-white/90 px-4 text-left shadow-[0_8px_24px_rgb(15_23_42/0.08)] transition hover:border-cyanGlow/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow"
       >
         <span className="flex items-center gap-3">
           <span className="grid grid-cols-2 gap-1">
@@ -219,29 +220,94 @@ function PlotSwitcher({
 
 export function ActivePlotViewToolbar({
   active,
+  plotViewOptions,
+  className
+}: {
+  active: SenaPlotView;
+  isOpen?: boolean;
+  onToggle?: () => void;
+  onSelect?: (view: SenaPlotView) => void;
+  plotViewOptions: PlotViewOption[];
+  className?: string;
+}) {
+  const selected = plotViewOptions.find((option) => option.id === active) ?? plotViewOptions[0];
+  return (
+    <div
+      data-testid="central-active-view-toolbar"
+      data-visual-role="central-plot-view-toolbar"
+      className={cn("flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm", className)}
+    >
+      <span className="font-black text-slate-950">Active view</span>
+      <span className="font-black text-cyanGlow">{selected.label}</span>
+      <span className="hidden font-bold text-slate-500 md:inline">
+        {selected.detail} - current temporal window, switch views from the Plots bar above
+      </span>
+    </div>
+  );
+}
+
+export function WorkspacePlotViewBar({
+  active,
   isOpen,
   onToggle,
   onSelect,
   plotViewOptions,
-  className
+  activeWindowLabel,
+  activeTurnLabel
 }: {
   active: SenaPlotView;
   isOpen: boolean;
   onToggle: () => void;
   onSelect: (view: SenaPlotView) => void;
   plotViewOptions: PlotViewOption[];
-  className?: string;
+  activeWindowLabel: string;
+  activeTurnLabel: string;
 }) {
+  const selected = plotViewOptions.find((option) => option.id === active) ?? plotViewOptions[0];
   return (
     <div
-      data-testid="central-active-view-toolbar"
-      data-visual-role="central-plot-view-toolbar"
-      className={cn("flex flex-col gap-3 rounded-full border border-slate-200 bg-slate-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between", className)}
+      data-testid="workspace-plot-view-bar"
+      data-visual-role="workspace-top-plot-view-bar"
+      className="flex min-h-14 items-center gap-3 border-b border-slate-200 bg-white px-3 py-2"
     >
-      <div className="min-w-0 text-sm">
-        <span className="font-black text-slate-950">Active view</span>
-        <span className="ml-3 font-black text-cyanGlow">{plotViewOptions.find((option) => option.id === active)?.label}</span>
-        <span className="ml-3 hidden font-bold text-slate-500 md:inline">Current temporal window, synchronized with A1 Fusion and evidence inspection</span>
+      <div
+        role="group"
+        aria-label="Workspace plot views"
+        className="hidden min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex"
+      >
+        {plotViewOptions.map((option) => {
+          const isActive = option.id === active;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              data-testid={`workspace-view-tab-${option.id}`}
+              title={option.detail}
+              aria-pressed={isActive}
+              onClick={() => onSelect(option.id)}
+              className={cn(
+                "h-10 shrink-0 whitespace-nowrap rounded-full border px-4 text-sm font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow",
+                isActive
+                  ? "border-cyanGlow bg-cyanGlow/12 text-slate-950 shadow-[0_6px_16px_rgb(34_211_238/0.18)]"
+                  : "border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="min-w-0 flex-1 truncate text-sm md:hidden">
+        <span className="font-black text-slate-950">{selected.label}</span>
+        <span className="ml-2 font-bold text-slate-500">{selected.detail}</span>
+      </div>
+      <div
+        data-testid="workspace-plot-view-bar-window-context"
+        data-visual-role="workspace-top-bar-window-context"
+        className="hidden h-10 shrink-0 items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-3.5 text-xs font-bold text-slate-500 lg:flex"
+      >
+        <span className="whitespace-nowrap">Window <span className="font-black text-slate-950">{activeWindowLabel}</span></span>
+        <span className="whitespace-nowrap">Turns <span className="font-black text-slate-950">{activeTurnLabel}</span></span>
       </div>
       <PlotSwitcher
         active={active}

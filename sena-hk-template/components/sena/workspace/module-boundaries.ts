@@ -68,6 +68,7 @@ import {
   ActivePlotViewToolbar,
   FusionPlotZoomControls,
   WorkflowRail,
+  WorkspacePlotViewBar,
   WorkspaceRail,
   WorkspaceShellPanel,
   WorkspaceViewportPanel
@@ -2164,9 +2165,10 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-shell-panels",
       path: "./workspace-shell-panels",
-      role: "Workspace navigation rail, plot switcher toolbar, viewport shells, workflow rail, and Fusion plot zoom controls.",
+      role: "Workspace navigation rail, top plot view bar with window context, plot switcher, active view caption, viewport shells, workflow rail, and Fusion plot zoom controls.",
       runtimeExports: {
         WorkflowRail,
+        WorkspacePlotViewBar,
         WorkspaceRail,
         WorkspaceShellPanel,
         WorkspaceViewportPanel,
@@ -2175,6 +2177,8 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       },
       testIds: [
         "sena-workspace-mode-rail",
+        "workspace-plot-view-bar",
+        "workspace-plot-view-bar-window-context",
         "workspace-plot-switcher",
         "workspace-plot-switcher-menu",
         "central-active-view-toolbar",
@@ -2233,7 +2237,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-header-section",
       path: "./workspace-header-section",
-      role: "Top workspace header with brand mark, window summary, upload control, navigation, and report export action.",
+      role: "Top workspace header with brand mark, dataset and report-readiness summary, upload control, navigation, and report export action.",
       runtimeExports: {
         WorkspaceHeaderSection
       },
@@ -2315,7 +2319,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "plot-tools-panel",
       path: "./plot-tools-panel",
-      role: "Plot tools controls for dimensions, active plot view, network layers, temporal framing, and advanced weights.",
+      role: "Plot tools controls for dimensions, active plot view summary, network layers, temporal framing, and advanced weights.",
       runtimeExports: {
         PlotToolsPanel
       },
@@ -4187,7 +4191,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-header-temporal-summary-prop-group",
       path: "./workspace-header-temporal-summary-prop-group",
-      role: "Focused prop-group boundary for header active window, turn, evidence, and report readiness summary values.",
+      role: "Focused prop-group boundary for header evidence and report readiness summary values; window and turn context moved to the top plot view bar.",
       runtimeExports: {
         buildWorkspaceHeaderTemporalSummaryProps
       },

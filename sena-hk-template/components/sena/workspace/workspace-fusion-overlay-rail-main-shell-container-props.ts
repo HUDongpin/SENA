@@ -54,6 +54,7 @@ export type WorkspaceFusionOverlayRailMainShellContainerPropsInput =
     WorkspaceMainShellPropGroup,
     | "isFusionPlotMaximized"
     | "headerProps"
+    | "plotViewBarProps"
     | "leftRailProps"
     | "centralPlotDeckProps"
     | "rightInspectorProps"
@@ -86,6 +87,7 @@ export function buildWorkspaceFusionOverlayRailMainShellContainerProps({
   onZoomIn,
   onZoomOut,
   onZoomReset,
+  plotViewBarProps,
   reportAndStatsDeckProps,
   revealedLabelIds,
   rightInspectorProps,
@@ -216,6 +218,7 @@ export function buildWorkspaceFusionOverlayRailMainShellContainerProps({
     isFusionPlotMaximized,
     fusionPlotMaximizedOverlayProps: workspaceFusionPlotMaximizedOverlayProps,
     headerProps,
+    plotViewBarProps,
     railProps: workspaceRailProps,
     leftRailProps,
     centralPlotDeckProps,

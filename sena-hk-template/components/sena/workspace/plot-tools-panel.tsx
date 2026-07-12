@@ -39,7 +39,6 @@ export type PlotToolsPanelProps = {
   onLayoutChange: (value: ModelBuilderLayoutOption["value"]) => void;
   plotViewOptions: PlotViewOption[];
   activePlotView: SenaPlotView;
-  onActivePlotViewChange: (view: SenaPlotView) => void;
   layers: Record<SenaLayer, boolean>;
   layerCopy: ModelBuilderLayerCopy;
   onLayerToggle: (layer: SenaLayer) => void;
@@ -138,7 +137,6 @@ export function PlotToolsPanel({
   onLayoutChange,
   plotViewOptions,
   activePlotView,
-  onActivePlotViewChange,
   layers,
   layerCopy,
   onLayerToggle,
@@ -158,6 +156,7 @@ export function PlotToolsPanel({
   onGammaChange,
   onNormalizationChange
 }: PlotToolsPanelProps) {
+  const activePlotViewOption = plotViewOptions.find((option) => option.id === activePlotView) ?? plotViewOptions[0];
   return (
     <Panel id="workspace-plot-tools-panel" title="Plot Tools" icon={Activity} className="p-4">
       <div className="grid gap-4">
@@ -191,25 +190,19 @@ export function PlotToolsPanel({
         <WorkspaceToolSection
           testId="plot-tools-plotted-points-section"
           title="Plotted Points"
-          detail="Switch the active central plot without moving away from the workspace."
+          detail="The central plot follows the Plots bar at the top of the workspace."
         >
-          {plotViewOptions.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              data-testid={`plot-tool-view-${option.id}`}
-              onClick={() => onActivePlotViewChange(option.id)}
-              className={cn(
-                "rounded border px-3 py-2 text-left transition",
-                activePlotView === option.id
-                  ? "border-cyanGlow/70 bg-cyanGlow/14 text-slate-950"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-cyanGlow/40 hover:text-slate-950"
-              )}
-            >
-              <span className="block text-sm font-black">{option.label}</span>
-              <span className="mt-0.5 block text-xs font-semibold leading-5">{option.detail}</span>
-            </button>
-          ))}
+          <div
+            data-testid="plot-tools-active-view-summary"
+            className="rounded border border-cyanGlow/60 bg-cyanGlow/12 px-3 py-2"
+          >
+            <span className="block text-[0.62rem] font-black uppercase tracking-[0.08em] text-slate-500">Active view</span>
+            <span className="mt-0.5 block text-sm font-black text-slate-950">{activePlotViewOption.label}</span>
+            <span className="mt-0.5 block text-xs font-semibold leading-5 text-slate-600">{activePlotViewOption.detail}</span>
+          </div>
+          <div className="rounded border border-slate-200 bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-500">
+            Close this panel to switch among the {plotViewOptions.length} plot views from the Plots bar above the canvas.
+          </div>
         </WorkspaceToolSection>
 
         <WorkspaceToolSection

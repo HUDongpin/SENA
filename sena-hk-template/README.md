@@ -214,7 +214,7 @@ Backup restore rehearsal is available through `/api/sena/governance/backup`. `GE
 ## Demo Flow
 
 1. Open `/workspace/sena`.
-2. Use the sticky six-step workflow navigator to move between Data Import, Model Builder, Fusion Canvas, Evidence, Temporal Trace, and Report; each step shows `Ready` or `Review` from the current pilot audits.
+2. Use the sticky six-step workflow navigator to move between Data Import, Model Builder, Fusion Canvas, Evidence, Temporal Trace, and Report; each step shows `Ready` or `Review` from the current pilot audits. Switch the central plot from the top Plots bar directly under the header: seven always-visible view tabs (Fusion, Dual Lens, Temporal, ENA Space, SNA, Evidence, Matrix), the active Window and Turns context chip, and the collapsed `Plots` menu with per-view descriptions; the central deck title follows the active view. The dark header stays focused on dataset scale, report readiness, upload, and export, and the Plot Tools rail panel tunes layers, thresholds, and temporal framing while pointing back to the Plots bar for view switching.
 3. Click `Load lesson-study sample` in the Data Import panel, or download `Lesson-study JSON` and upload it manually.
 4. After signing in, use the Enterprise runtime Team operations panel to create team invitations, accept invitation codes, revoke pending invites, and update member roles or active/suspended status from the workbench.
 5. Check `Data contract audit` in Data Import, then export `sena-data-contract-audit.json` if you need a standalone five-table contract record.

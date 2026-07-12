@@ -14,6 +14,8 @@ import type {
 
 export function WorkspaceCentralPlotDeckRender(props: WorkspaceCentralPlotDeckRenderProps) {
   const {
+    activePlotView,
+    plotViewOptions,
     fusionPlotZoom,
     onZoomIn,
     onZoomOut,
@@ -21,6 +23,10 @@ export function WorkspaceCentralPlotDeckRender(props: WorkspaceCentralPlotDeckRe
     onMaximizeFusionPlot
   } = props;
   const bodyProps = buildCentralPlotDeckBodyProps(props);
+  const activePlotViewLabel = plotViewOptions.find((option) => option.id === activePlotView)?.label ?? "Fusion";
+  const deckTitle = activePlotView === "fusion"
+    ? "Fusion Plot - Current Window"
+    : `${activePlotViewLabel} - Current Window`;
 
   return (
     <WorkspaceShellPanel
@@ -29,7 +35,7 @@ export function WorkspaceCentralPlotDeckRender(props: WorkspaceCentralPlotDeckRe
       visualRole="workspace-central-plot-deck"
       defaultPlotView="fusion"
       plotScope="current-window"
-      title="Fusion Plot - Current Window"
+      title={deckTitle}
       action={
         <CentralPlotDeckShellAction
           fusionPlotZoom={fusionPlotZoom}
