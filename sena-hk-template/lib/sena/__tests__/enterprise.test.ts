@@ -258,6 +258,88 @@ describe("SENA enterprise runtime", () => {
     expect(imported.cleaningManifest.checks.find((check) => check.id === "analysis-table-readiness")?.status).toBe("pass");
   });
 
+  it("splits transcript stages by parsed turns even when noise lines are skipped", async () => {
+    // Two skipped noise lines followed by six speaker turns. Stage thirds must be
+    // taken over the six PARSED turns (Plan/Teach/Reflect = 2 turns each), not the
+    // eight non-empty lines, otherwise every real turn would land in Plan and no
+    // utterance would reach Reflect.
+    const transcript = [
+      "# Lesson study session",
+      "===== segment divider =====",
+      "Ada: What should we investigate first?",
+      "Ben: Let us gather the baseline data.",
+      "Ada: The trend looks clear in the chart.",
+      "Ben: That supports the working explanation.",
+      "Ada: Looking back, our reasoning held up.",
+      "Ben: Next time we should reflect earlier."
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("lesson-study-notes.txt", transcript)
+    ]);
+
+    const stages = imported.dataset.utterances.map((utterance) => utterance.stage);
+    expect(imported.dataset.utterances).toHaveLength(6);
+    expect(stages).toEqual(["Plan", "Plan", "Teach", "Teach", "Reflect", "Reflect"]);
+  });
+
+  it("resolves forum reply targets that reference the author display name", async () => {
+    // Authors are keyed by display name (no id column), while replies reference
+    // the parent author by that same name. The reply tie must survive rather than
+    // being dropped as an "unknown person".
+    const forumCsv = [
+      "thread_id,post_id,parent_post_id,reply_to_author,author_name,message,tags",
+      "thread-a,post-1,,,Ada,\"How can we test the explanation? #Question\",Question",
+      "thread-a,post-2,post-1,Ada,Ben,\"The graph gives evidence for the claim.\",Evidence"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("forum-by-name.csv", forumCsv)
+    ]);
+
+    const benId = imported.dataset.people.find((person) => person.label === "Ben")?.id;
+    const adaId = imported.dataset.people.find((person) => person.label === "Ada")?.id;
+    expect(benId).toBeTruthy();
+    expect(adaId).toBeTruthy();
+    // The reply target is resolved back to Ada's canonical person id instead of
+    // the raw display name, so the tie references a known person and the social
+    // model does not drop it as unknown.
+    expect(imported.dataset.interactions).toEqual([
+      expect.objectContaining({ source: benId, target: adaId, channel: "reply" })
+    ]);
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+    expect(model.summary.socialEdges).toBe(1);
+  });
+
+  it("resolves forum reply ties across an author-id vs display-name scheme mismatch", async () => {
+    // Authors carry an explicit id column (the canonical person id / node id), but
+    // replies reference the parent author by display name — a different identifier
+    // scheme. The reply tie must resolve name -> id and survive instead of being
+    // dropped as an unknown person.
+    const forumCsv = [
+      "thread_id,post_id,parent_post_id,author_id,author_name,reply_to_author,message,tags",
+      "thread-a,post-1,,u1,Ada,,\"How can we test the explanation? #Question\",Question",
+      "thread-a,post-2,post-1,u2,Ben,Ada,\"The graph gives evidence for the claim.\",Evidence"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("forum-id-authors.csv", forumCsv)
+    ]);
+
+    const ada = imported.dataset.people.find((person) => person.label === "Ada");
+    const ben = imported.dataset.people.find((person) => person.label === "Ben");
+    expect(ada?.id).toBe("u1");
+    expect(ben?.id).toBe("u2");
+    // The reply is keyed by the name "Ada" but resolves to the author's id "u1".
+    expect(imported.dataset.interactions).toEqual([
+      expect.objectContaining({ source: "u2", target: "u1", channel: "reply" })
+    ]);
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+    expect(model.summary.socialEdges).toBe(1);
+  });
+
   it("runs auth, RBAC project persistence, imports, reliability, inference, and publication exports", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-test-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;

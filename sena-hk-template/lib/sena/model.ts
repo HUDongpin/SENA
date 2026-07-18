@@ -1367,7 +1367,17 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
       targetPersonIds: segment.targetPersonIds ? [...segment.targetPersonIds] : undefined
     })),
     interactions: dataset.interactions
-      .filter((interaction) => interactionInTurnWindow(interaction, window.startTurn, window.endTurn, stages))
+      // Stage windows are defined by stage membership in buildTemporalWindows, so
+      // scope their interactions the same way. Using the turn range here (as the
+      // turn/moving-window modes require) would disagree with the window's own
+      // interactionCount/rawSocialConnectivity whenever interactions carry a
+      // turnIndex outside their stage's utterance turn span, and would drop the
+      // interactions of a stage that has no utterances/segments (start==end).
+      .filter((interaction) => (
+        window.mode === "stage"
+          ? stages.has(interaction.stage)
+          : interactionInTurnWindow(interaction, window.startTurn, window.endTurn, stages)
+      ))
       .map((interaction) => ({ ...interaction })),
     warnings: dataset.warnings ? [...dataset.warnings] : undefined
   };

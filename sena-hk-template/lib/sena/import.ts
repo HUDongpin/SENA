@@ -222,10 +222,20 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
   }
 
   const rows = nonEmptyRows.slice(1).map<SenaImportRow>((cells, rowIndex) => {
-    if (cells.length !== columns.length) {
+    let normalizedCells = cells;
+    if (normalizedCells.length > columns.length) {
+      // Drop trailing empty cells (a stray trailing delimiter or spreadsheet
+      // padding) before deciding a row is genuinely misaligned.
+      let end = normalizedCells.length;
+      while (end > columns.length && (normalizedCells[end - 1] ?? "").trim().length === 0) end -= 1;
+      normalizedCells = normalizedCells.slice(0, end);
+    }
+    if (normalizedCells.length > columns.length) {
       throw new Error(`CSV row ${rowIndex + 2} has ${cells.length} cells but the header has ${columns.length}.`);
     }
-    return Object.fromEntries(columns.map((column, columnIndex) => [column, cells[columnIndex]?.trim() ?? ""]));
+    // Short rows are padded with empty strings (via the ?? "" below) rather than
+    // failing the whole import, matching the tolerant cleaning-manifest pipeline.
+    return Object.fromEntries(columns.map((column, columnIndex) => [column, normalizedCells[columnIndex]?.trim() ?? ""]));
   });
 
   return { columns, rows };
@@ -390,6 +400,27 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
         });
         peopleById.set(personId, dataset.people[dataset.people.length - 1]);
         warnings.push(`people table did not include "${personId}"; derived a placeholder person from interactions.`);
+      }
+    }
+  }
+
+  // coded_segments also reference people (the contributor personId and any
+  // targetPersonIds for directed bridge evidence). Without this, a segments-only
+  // upload — or segments naming a person absent from the people/utterances/
+  // interactions tables — would leave those people undefined, collapsing the
+  // social/bridge matrices and dropping the segments as "unknown person".
+  for (const segment of dataset.coded_segments) {
+    for (const personId of [segment.personId, ...(segment.targetPersonIds ?? [])]) {
+      if (personId && !peopleById.has(personId)) {
+        dataset.people.push({
+          id: personId,
+          label: personId,
+          role: "Participant",
+          group: "Derived",
+          initials: personId.slice(0, 2).toUpperCase()
+        });
+        peopleById.set(personId, dataset.people[dataset.people.length - 1]);
+        warnings.push(`people table did not include "${personId}"; derived a placeholder person from coded_segments.`);
       }
     }
   }

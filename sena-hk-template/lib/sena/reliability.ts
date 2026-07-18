@@ -135,30 +135,63 @@ function cohenKappa(a: boolean[], b: boolean[]): Omit<SenaPairwiseKappa, "coderA
 }
 
 function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, coders: string[]) {
-  let observedPairs = 0;
-  let observedDisagreements = 0;
-  const categoryCounts = new Map<string, number>();
+  // Canonical Krippendorff nominal alpha via the coincidence matrix. Each unit
+  // with m>=2 codings contributes its m*(m-1) ordered rating pairs weighted by
+  // 1/(m-1); the marginals then drive the sampling-without-replacement expected
+  // disagreement (the n(n-1) correction), rather than a plain population p^2
+  // approximation. With n = total pairable ratings:
+  //   alpha = 1 - (n-1) * sum_{c!=k} o_ck / sum_{c!=k} n_c * n_k
+  const coincidence = new Map<string, Map<string, number>>();
+  const categories = new Set<string>();
+  const addCoincidence = (a: string, b: string, weight: number) => {
+    categories.add(a);
+    categories.add(b);
+    const row = coincidence.get(a) ?? new Map<string, number>();
+    row.set(b, (row.get(b) ?? 0) + weight);
+    coincidence.set(a, row);
+  };
 
   for (const unit of valuesByUnit) {
-    const values = coders.map((coder) => unit[coder]).filter((value): value is boolean => typeof value === "boolean");
-    values.forEach((value) => categoryCounts.set(String(value), (categoryCounts.get(String(value)) ?? 0) + 1));
-    for (let i = 0; i < values.length; i += 1) {
-      for (let j = i + 1; j < values.length; j += 1) {
-        observedPairs += 1;
-        if (values[i] !== values[j]) observedDisagreements += 1;
+    const values = coders
+      .map((coder) => unit[coder])
+      .filter((value): value is boolean => typeof value === "boolean")
+      .map(String);
+    const m = values.length;
+    if (m < 2) continue;
+    const weight = 1 / (m - 1);
+    for (let i = 0; i < m; i += 1) {
+      for (let j = 0; j < m; j += 1) {
+        if (i !== j) addCoincidence(values[i], values[j], weight);
       }
     }
   }
 
-  if (observedPairs === 0) return 0;
-  const observed = observedDisagreements / observedPairs;
-  const total = Array.from(categoryCounts.values()).reduce((sum, count) => sum + count, 0);
-  if (total <= 1) return 1;
-  const expected = 1 - Array.from(categoryCounts.values()).reduce((sum, count) => {
-    const probability = count / total;
-    return sum + probability * probability;
-  }, 0);
-  return expected === 0 ? 1 : 1 - observed / expected;
+  const cats = Array.from(categories);
+  const marginals = new Map<string, number>();
+  let pairableTotal = 0;
+  for (const category of cats) {
+    const rowSum = cats.reduce((sum, other) => sum + (coincidence.get(category)?.get(other) ?? 0), 0);
+    marginals.set(category, rowSum);
+    pairableTotal += rowSum;
+  }
+
+  // No unit had two or more codings: reliability is undefined, report 0 (no
+  // evidence) rather than a spurious perfect score for the claim-readiness gate.
+  if (pairableTotal < 2) return 0;
+
+  let observedDisagreement = 0;
+  let expectedDisagreement = 0;
+  for (const category of cats) {
+    for (const other of cats) {
+      if (category === other) continue;
+      observedDisagreement += coincidence.get(category)?.get(other) ?? 0;
+      expectedDisagreement += (marginals.get(category) ?? 0) * (marginals.get(other) ?? 0);
+    }
+  }
+
+  // Only one category observed: no disagreement is possible, treat as perfect.
+  if (expectedDisagreement === 0) return 1;
+  return 1 - ((pairableTotal - 1) * observedDisagreement) / expectedDisagreement;
 }
 
 function agreementRate(valuesByUnit: Array<Record<string, boolean>>, coders: string[]) {

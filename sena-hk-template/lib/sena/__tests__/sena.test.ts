@@ -456,6 +456,48 @@ describe("SENA model builder", () => {
     expect(scopedModel.matrices.G.raw[eliIndex]?.[pairIndex]).toBeCloseTo(1);
   });
 
+  it("scopes stage-window interactions by stage even when their turnIndex is outside the utterance span", () => {
+    // The Reflect stage's utterances are turns 1-2, but its interaction carries
+    // turnIndex 9. buildTemporalWindows selects that interaction by stage, so
+    // scopeSenaDatasetToWindow must too — a turn-range filter would drop it and
+    // disagree with the window's own interactionCount.
+    const stageTurnDataset: SenaDataset = {
+      people: [
+        { id: "A", label: "Ada", role: "Teacher", group: "Team" },
+        { id: "B", label: "Ben", role: "Student", group: "Team" }
+      ],
+      codebook: [
+        { id: "evidence", label: "Evidence", family: "Epistemic", description: "Evidence move", color: "#2f73ff" },
+        { id: "question", label: "Question", family: "Epistemic", description: "Question move", color: "#a855f7" }
+      ],
+      utterances: [
+        { id: "u1", personId: "A", unitId: "unit-1", stanzaId: "s1", stage: "Reflect", turnIndex: 1, text: "Reflecting on the evidence." },
+        { id: "u2", personId: "B", unitId: "unit-1", stanzaId: "s1", stage: "Reflect", turnIndex: 2, text: "Adding a follow-up question." }
+      ],
+      coded_segments: [
+        { segmentId: "cs1", utteranceId: "u1", personId: "A", unitId: "unit-1", stanzaId: "s1", stage: "Reflect", turnIndex: 1, text: "Reflecting on the evidence.", codes: ["evidence"] },
+        { segmentId: "cs2", utteranceId: "u2", personId: "B", unitId: "unit-1", stanzaId: "s1", stage: "Reflect", turnIndex: 2, text: "Adding a follow-up question.", codes: ["question"] }
+      ],
+      interactions: [
+        { source: "A", target: "B", stage: "Reflect", turnIndex: 9, weight: 1, channel: "reply", evidence: "Late reply that still belongs to the Reflect stage." }
+      ]
+    };
+
+    const model = buildSenaModel(stageTurnDataset);
+    const reflect = model.temporal.windows.find((window) => window.mode === "stage" && window.label === "Reflect");
+    expect(reflect).toBeTruthy();
+    expect(reflect!.interactionCount).toBe(1);
+
+    const scoped = scopeSenaDatasetToWindow(stageTurnDataset, reflect!);
+    expect(scoped.interactions).toHaveLength(1);
+    expect(scoped.interactions[0]?.turnIndex).toBe(9);
+    // The window's own interactionCount must equal the scoped model's social-edge
+    // basis; a turn-range filter would drop the turn-9 interaction and desync them.
+    const scopedModel = buildSenaModel(scoped);
+    expect(scopedModel.summary.socialEdges).toBe(reflect!.interactionCount);
+    expect(scopedModel.summary.socialEdges).toBe(1);
+  });
+
   it("builds a temporal runtime trace with per-window jENA and jSNA provenance", () => {
     const timelineModel = buildSenaModel(exampleSenaContract);
     const trace = buildSenaTemporalRuntimeTrace(exampleSenaContract, {}, {
@@ -4688,6 +4730,54 @@ describe("SENA model builder", () => {
     expect(model.summary.socialAnalysis.reciprocity).toBe(1);
   });
 
+  it("derives placeholder people from coded_segments when the people table is absent", () => {
+    // A coded_segments-only upload references people (contributor person_id and a
+    // directed-bridge target_person_ids) that no other table defines. They must
+    // be recovered as placeholder people, otherwise every segment is dropped as
+    // "unknown person" and the social/bridge matrices collapse to empty.
+    const result = importSenaJsonContract(JSON.stringify({
+      coded_segments: [
+        { segment_id: "s1", utterance_id: "u1", person_id: "P1", codes: "evidence", stanza_id: "st1", unit_id: "unit-a", target_person_ids: "P3" },
+        { segment_id: "s2", utterance_id: "u2", person_id: "P2", codes: "question", stanza_id: "st1", unit_id: "unit-a" }
+      ]
+    }));
+
+    expect(result.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2", "P3"]);
+    expect(result.dataset.people.every((person) => person.group === "Derived")).toBe(true);
+
+    const model = buildSenaModel(result.dataset);
+    expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+    expect(model.matrices.B.raw).toHaveLength(3);
+    expect(model.matrices.B_CP.raw[0]?.length).toBe(3);
+  });
+
+  it("exposes target_person_ids in the blank coded_segments template and maps it through CSV import", () => {
+    // The blank template must offer the directed-bridge / Human-AI target column,
+    // otherwise researchers cannot supply independent B_CP (code -> person) evidence
+    // through the five-CSV path even though the importer and model already support it.
+    const templateHeader = readPilotAsset("templates/coded_segments.csv").split(/\r?\n/)[0];
+    expect(templateHeader.split(",")).toContain("target_person_ids");
+
+    const people = parseSenaCsv("person_id\nA\nB\n");
+    const interactions = parseSenaCsv("from,to\nA,B\n");
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\nu2,B,s1,2,Evidence\n");
+    const segments = parseSenaCsv("segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u1,A,B,question\ns2,u2,B,,evidence\n");
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: people.columns, rows: people.rows, mapping: inferSenaColumnMapping("people", people.columns) },
+      { name: "interactions.csv", table: "interactions", columns: interactions.columns, rows: interactions.rows, mapping: inferSenaColumnMapping("interactions", interactions.columns) },
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    // The exposed column parses into targetPersonIds, which drives independent
+    // B_CP (code -> person) evidence rather than the B_PC transpose fallback.
+    const segment = result.dataset.coded_segments.find((entry) => entry.segmentId === "s1");
+    expect(segment?.targetPersonIds).toEqual(["B"]);
+  });
+
   it("imports minimal required CSV fields with stable defaults, guarded temporal audit, and snapshot export", () => {
     const people = parseSenaCsv("person_id\nA\nB\n");
     const interactions = parseSenaCsv("from,to\nA,B\n");
@@ -5095,5 +5185,18 @@ describe("SENA model builder", () => {
 
   it("rejects malformed CSV before it reaches the SENA model builder", () => {
     expect(() => parseSenaCsv("person_id,label\n\"A,Ana\n")).toThrow(/unterminated quoted value/i);
+  });
+
+  it("pads short CSV rows and tolerates trailing empty cells instead of failing the import", () => {
+    const parsed = parseSenaCsv("person_id,label,role\nA,Ana\nB,Ben,Teacher,\n");
+    expect(parsed.columns).toEqual(["person_id", "label", "role"]);
+    expect(parsed.rows).toEqual([
+      { person_id: "A", label: "Ana", role: "" },
+      { person_id: "B", label: "Ben", role: "Teacher" }
+    ]);
+  });
+
+  it("still rejects CSV rows with more non-empty cells than the header", () => {
+    expect(() => parseSenaCsv("person_id,label\nA,Ana,extra\n")).toThrow(/has 3 cells but the header has 2/);
   });
 });
