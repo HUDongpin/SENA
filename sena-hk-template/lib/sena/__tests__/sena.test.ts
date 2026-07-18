@@ -4751,6 +4751,33 @@ describe("SENA model builder", () => {
     expect(model.matrices.B_CP.raw[0]?.length).toBe(3);
   });
 
+  it("exposes target_person_ids in the blank coded_segments template and maps it through CSV import", () => {
+    // The blank template must offer the directed-bridge / Human-AI target column,
+    // otherwise researchers cannot supply independent B_CP (code -> person) evidence
+    // through the five-CSV path even though the importer and model already support it.
+    const templateHeader = readPilotAsset("templates/coded_segments.csv").split(/\r?\n/)[0];
+    expect(templateHeader.split(",")).toContain("target_person_ids");
+
+    const people = parseSenaCsv("person_id\nA\nB\n");
+    const interactions = parseSenaCsv("from,to\nA,B\n");
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\nu2,B,s1,2,Evidence\n");
+    const segments = parseSenaCsv("segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u1,A,B,question\ns2,u2,B,,evidence\n");
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: people.columns, rows: people.rows, mapping: inferSenaColumnMapping("people", people.columns) },
+      { name: "interactions.csv", table: "interactions", columns: interactions.columns, rows: interactions.rows, mapping: inferSenaColumnMapping("interactions", interactions.columns) },
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    // The exposed column parses into targetPersonIds, which drives independent
+    // B_CP (code -> person) evidence rather than the B_PC transpose fallback.
+    const segment = result.dataset.coded_segments.find((entry) => entry.segmentId === "s1");
+    expect(segment?.targetPersonIds).toEqual(["B"]);
+  });
+
   it("imports minimal required CSV fields with stable defaults, guarded temporal audit, and snapshot export", () => {
     const people = parseSenaCsv("person_id\nA\nB\n");
     const interactions = parseSenaCsv("from,to\nA,B\n");
