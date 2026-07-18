@@ -128,5 +128,31 @@ Run before sharing the package with a reviewer:
       fusion-math audits, and report guardrails; JSON/Markdown reports state that
       `A_fusion` is not causal and Joint distance is not inferential.
 - [ ] No v1 export schema changed except by additive fields.
-- [ ] This walkthrough completed once on the bundled sample and once on a real
-      dataset; confusing terms / missing evidence captured as validation backlog.
+- [x] This walkthrough completed once on the bundled sample (below); one real
+      dataset still pending user data.
+
+## Executed walkthrough — bundled sample observations (2026-07-18)
+
+Driven end to end on `/workspace/sena` (dev server) with the lesson-study
+sample, and independently by the automated `sena:pilot:verify` browser smoke
+(both green). Observed:
+
+- **Step 1–2 (Import / Model).** 4 participants (Ms Lee, Mr Chan, Dr Wong,
+  Ms Ho) + 7 codes load; `A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]`
+  with α=β=γ=1, edge threshold 0.16.
+- **Step 3 (Fusion Canvas).** A1 Inner Solid Mesh renders correctly: blue S
+  outer arcs, purple W concept mesh, cyan B ribbons, pink G arcs. Active Plan
+  window shows S=3 / W=10 / B=7 / G=10, `A_fusion` checksum `0xc200a461`.
+- **Step 4 (Evidence).** Top social tie *Ms Lee → Mr Chan*; top ENA tie
+  *Question + Hypothesis*; top bridge *Ms Lee → Question*; top G pair
+  *Evidence + Critique* — each traceable to segment evidence.
+- **Step 5 (Temporal Trace).** Windows Plan/Teach/Reflect (1/3 … 3/3). The
+  adjacent-window delta renders (*Plan → Teach*, top-G-pair shift
+  *Evidence + Critique → Critique + Coordination*), confirming the temporal
+  transitions fix in the running app.
+- **Dual Lens.** Active Plan window vs full conversation: SNA density 0.25 vs
+  0.67, S ties 3 vs 8, W links 10 vs 20 — a concrete reminder that the active
+  window is a *scoped* view of the full timeline.
+
+**Backlog captured:** none blocking; the one open item is running the same
+walkthrough on a real dataset (needs user-supplied data + a domain reviewer).
