@@ -23,16 +23,16 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 ### SENA-A03 jENA Runtime Parity Agent
 
-- Owns local ENA runtime parity for `vendor/jena-js`, `lib/ena/*`, `app/api/ena/run/route.ts`, `app/workspace/ena/*`, `lib/sena/jena-handoff.ts`, and `ena-manifest.ts`.
-- Remember that the website depends on local `jena-js`; it does not directly run the official R `rENA` package in the browser.
+- Owns ENA runtime parity for the published `jena-js` package, `lib/ena/*`, `app/api/ena/run/route.ts`, `app/workspace/ena/*`, `lib/sena/jena-handoff.ts`, and `ena-manifest.ts`.
+- Remember that the website depends on the published `jena-js` npm package (exactly pinned); it does not directly run the official R `rENA` package in the browser.
 - Expand and protect parity evidence against rENA fixtures without overstating equivalence beyond tested jENA APIs, parameters, and metrics.
 - Keep jENA outputs visible in exports, including projected unit points, code node positions, connection counts, line weights, variance, runtime provenance, and `W`-matrix handoff evidence.
 - Coordinate with SENA-A04 and SENA-A13 when ENA connection-vector semantics, code-code co-occurrence, or projection claims affect SENA Fusion interpretation.
 
 ### SENA-A04 jSNA Runtime Parity Agent
 
-- Owns local social-network runtime parity for `vendor/sna-js`, `lib/sena/jsna-handoff.ts`, `sna-manifest.ts`, and SENA social-layer metric integration.
-- Remember that the website depends on local `sna.js`; it does not directly run the official R `sna` package in the browser.
+- Owns social-network runtime parity for the published `@peterhudongpin/sna.js` package (aliased as `sna.js`), `lib/sena/jsna-handoff.ts`, `sna-manifest.ts`, and SENA social-layer metric integration.
+- Remember that the website depends on the published `@peterhudongpin/sna.js` npm package (exactly pinned, aliased as `sna.js`); it does not directly run the official R `sna` package in the browser.
 - Expand and protect parity evidence against R `sna` and igraph-style fixtures without overstating equivalence beyond tested APIs and metrics.
 - Current jSNA social-layer metrics include density, tie count, weak components, shortest-path average path length, person-level degree, weighted social strength, closeness, reachable nodes, and component labels.
 - Keep runtime provenance visible in exports so reviewers can separate direct jSNA outputs, SENA-derived metrics, and SENA self-implemented helper metrics.
@@ -140,15 +140,15 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 ## Local ENA Runtime
 
-- The SENA website depends on the local `jena-js` package via `sena-hk-template/package.json` as `file:vendor/jena-js`.
-- `jena-js` is the browser/Node TypeScript/JavaScript ENA engine ported from rENA.
+- The SENA website depends on the published `jena-js` package via `sena-hk-template/package.json` as the exact pin `"jena-js": "0.6.2"` (resolved from the npm registry; the `file:vendor/jena-js` copy was removed in the 2026-07-12 migration).
+- `jena-js` is the browser/Node TypeScript/JavaScript ENA engine ported from rENA (source repo `~/Desktop/jena-js`, github.com/HUDongpin/jENA).
 - Do not assume `/workspace/sena` directly runs the official rENA R package. The current SENA Fusion page uses the local SENA model code for S/W/B/fusion construction.
 - `rENA-main.zip` is the downloaded official rENA R package source kept beside the project for reference, not the current website runtime.
 
 ## Local SNA Runtime
 
-- The SENA website depends on local `sna.js` via `sena-hk-template/package.json` as `file:vendor/sna-js`.
-- `sna.js` was imported from `SNA.js-template.zip`, built to `vendor/sna-js/dist`, and is now wired into `/workspace/sena` social-network analysis.
+- The SENA website depends on the published `@peterhudongpin/sna.js` package via `sena-hk-template/package.json` as the exact pin `"sna.js": "npm:@peterhudongpin/sna.js@0.4.0"` (npm alias keeps `from "sna.js"` imports working; the `file:vendor/sna-js` copy was removed in the 2026-07-12 migration).
+- `@peterhudongpin/sna.js` is the R-faithful SNA engine (source repo `~/Desktop/sna.js`, github.com/HUDongpin/sna.js); `averagePathLength()` and `labelPropagation()` were upstreamed into 0.4.0 as extensions beyond R `sna`, and it is wired into `/workspace/sena` social-network analysis.
 - Current SENA social-layer metrics computed through SNA.js include density, tie count, weak components, shortest-path average path length, person-level degree, weighted social strength, closeness, reachable nodes, and component labels.
 - `SNA.js-template.zip` remains the original source artifact kept beside the project for reference.
 

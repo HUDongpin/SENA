@@ -105,23 +105,23 @@ function brotliSize(buffer: Buffer) {
   }).length;
 }
 
-function budgetEnv(env: NodeJS.ProcessEnv, key: string, defaultValue: number) {
+function budgetEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string, defaultValue: number) {
   const parsed = Number(env[key]);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : defaultValue;
 }
 
-function booleanEnv(env: NodeJS.ProcessEnv, key: string) {
+function booleanEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string) {
   const value = env[key];
   return value === "1" || value === "true" || value === "yes";
 }
 
-function boundedIntegerEnv(env: NodeJS.ProcessEnv, key: string, defaultValue: number, min: number, max: number) {
+function boundedIntegerEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string, defaultValue: number, min: number, max: number) {
   const parsed = Number(env[key]);
   if (!Number.isFinite(parsed)) return defaultValue;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
-function performanceBudgetStrictBindingRequired(env: NodeJS.ProcessEnv) {
+function performanceBudgetStrictBindingRequired(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
   return env.NODE_ENV === "production" ||
     booleanEnv(env, "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
     booleanEnv(env, "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
@@ -224,7 +224,7 @@ function validSourceCustodyHash(value: string | undefined) {
 }
 
 function sourceCustodyFromEnv(
-  env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
   gitIdentity: ReturnType<typeof gitBuildIdentity>
 ): SenaEnterpriseProductionPerformanceBudgetArtifact["sourceCustody"] {
   const mode = env.SENA_PERFORMANCE_SOURCE_CUSTODY_MODE;
@@ -375,7 +375,7 @@ function buildSizeCheck(input: {
 
 export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
   root?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: NodeJS.ProcessEnv | Record<string, string | undefined>;
   readFile?: FileReader;
 } = {}): SenaEnterpriseProductionPerformanceBudgetArtifact {
   const root = input.root ?? process.cwd();

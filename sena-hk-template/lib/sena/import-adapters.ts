@@ -147,6 +147,13 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
     .map((line) => line.trim())
     .filter(Boolean);
 
+  // Stage thirds must divide by the number of PARSED speaker turns, not the raw
+  // non-empty line count: unparseable lines (headers, lone timestamps, dividers)
+  // are skipped, and dividing by all lines would push every real turn into
+  // "Plan" and leave "Reflect" empty whenever a transcript carries noise lines.
+  const speakerLinePattern = /^(?:\[([^\]]+)\]\s*)?([^:：]{1,80})[:：]\s*(.+)$/;
+  const parsedTurnCount = lines.filter((line) => speakerLinePattern.test(line)).length;
+
   const speakerIds = new Map<string, string>();
   const utterances: SenaDataset["utterances"] = [];
   const coded_segments: SenaDataset["coded_segments"] = [];
@@ -155,7 +162,7 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
   let previousSpeaker: string | null = null;
 
   lines.forEach((line, index) => {
-    const match = line.match(/^(?:\[([^\]]+)\]\s*)?([^:：]{1,80})[:：]\s*(.+)$/);
+    const match = line.match(speakerLinePattern);
     if (!match) {
       warnings.push(`Transcript line ${index + 1} did not match "Speaker: text" and was skipped.`);
       return;
@@ -167,9 +174,9 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
     const utteranceId = `u-${turnIndex}`;
     const rawText = match[3].trim();
     const lineCodes = extractCodes(rawText);
-    const stage = turnIndex <= Math.ceil(lines.length / 3)
+    const stage = turnIndex <= Math.ceil(parsedTurnCount / 3)
       ? "Plan"
-      : turnIndex <= Math.ceil((lines.length * 2) / 3)
+      : turnIndex <= Math.ceil((parsedTurnCount * 2) / 3)
         ? "Teach"
         : "Reflect";
 
@@ -393,6 +400,23 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   });
   if (posts.length === 0) throw new Error("Forum/LMS export did not contain importable posts or messages.");
   const authorByPost = new Map(posts.map((post) => [scalar(post.post_id), scalar(post.person_id)]));
+  // Reply-to fields can reference an author by a different representation than
+  // the one that became the canonical person_id (e.g. author display name vs.
+  // author id). Map both the id form (post.person_id) and the name form
+  // (post.label) back to the canonical id so reply ties are not silently
+  // dropped as "unknown person" by the social-matrix builder. Ids are indexed
+  // first so they win over any colliding label.
+  const personIdentityIndex = new Map<string, string>();
+  for (const post of posts) {
+    const personId = scalar(post.person_id);
+    if (personId) personIdentityIndex.set(personId, personId);
+  }
+  for (const post of posts) {
+    const personId = scalar(post.person_id);
+    const label = scalar(post.label);
+    if (personId && label && !personIdentityIndex.has(label)) personIdentityIndex.set(label, personId);
+  }
+  const resolvePersonIdentity = (value: string) => (value ? personIdentityIndex.get(value) ?? value : "");
   const utteranceTable = rowsToTable(`${name}-utterances`, posts);
   utteranceTable.table = "utterances";
   utteranceTable.mapping = inferSenaColumnMapping("utterances", utteranceTable.columns);
@@ -406,7 +430,9 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   peopleTable.mapping = inferSenaColumnMapping("people", peopleTable.columns);
 
   const interactionRows = posts.flatMap<SenaImportRow>((post, index) => {
-    const target = scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || "";
+    const target = resolvePersonIdentity(
+      scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || ""
+    );
     if (!target) return [];
     return [{
       source: scalar(post.person_id),
@@ -424,18 +450,32 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
 
   const segmentRows = posts
     .filter((post) => scalar(post.codes))
-    .map((post, index) => ({
-      segment_id: `cs-${post.post_id || index + 1}`,
-      utterance_id: post.post_id,
-      person_id: post.person_id,
-      unit_id: post.thread_id,
-      stanza_id: post.thread_id,
-      stage: post.stage || "Forum",
-      turn_index: post.turn_index,
-      text: post.text,
-      codes: post.codes,
-      confidence: 1
-    })) as SenaImportRow[];
+    .map((post, index) => {
+      // ADR-0006 D1: a reply's coded contribution is *addressed to* the parent
+      // author, so record it as directed B_CP (code -> person) evidence rather
+      // than leaving forum imports on the B_PC transpose fallback. Resolve the
+      // target through the same identity index as the S-layer reply interaction.
+      // Leave it empty (transpose fallback preserved) when it does not resolve or
+      // would target the contribution's own author. This is addressed-to, not
+      // uptake — reports must not read it as adoption of the parent's ideas.
+      const replyTarget = resolvePersonIdentity(
+        scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || ""
+      );
+      const directedTarget = replyTarget && replyTarget !== scalar(post.person_id) ? replyTarget : "";
+      return {
+        segment_id: `cs-${post.post_id || index + 1}`,
+        utterance_id: post.post_id,
+        person_id: post.person_id,
+        target_person_ids: directedTarget,
+        unit_id: post.thread_id,
+        stanza_id: post.thread_id,
+        stage: post.stage || "Forum",
+        turn_index: post.turn_index,
+        text: post.text,
+        codes: post.codes,
+        confidence: 1
+      };
+    }) as SenaImportRow[];
   const segmentTable = rowsToTable(`${name}-coded_segments`, segmentRows);
   segmentTable.table = "coded_segments";
   segmentTable.mapping = inferSenaColumnMapping("coded_segments", segmentTable.columns);
@@ -521,6 +561,7 @@ function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) 
       "post/message normalization",
       "author identity mapping",
       "reply-to interaction derivation",
+      "reply-target directed B_CP evidence",
       "tag/hashtag code extraction"
     ];
   }
@@ -529,6 +570,7 @@ function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) 
       "thread/post table normalization",
       "author identity mapping",
       "parent-post reply derivation",
+      "reply-target directed B_CP evidence",
       "tag/hashtag code extraction"
     ];
   }

@@ -186,8 +186,8 @@
       "href": "/sena-pilot/templates/coded_segments.csv",
       "kind": "template",
       "format": "csv",
-      "bytes": 91,
-      "sha256": "c2cce8a673063612279a5f6ae6788c41c9f6c252e5af5ed7f0d83e2f64c69698"
+      "bytes": 109,
+      "sha256": "3f8cfa52abf0cda98aa5c13e220f444f3280b6a9870e32817a69e92a071c9f26"
     },
     {
       "href": "/sena-pilot/templates/codebook.csv",

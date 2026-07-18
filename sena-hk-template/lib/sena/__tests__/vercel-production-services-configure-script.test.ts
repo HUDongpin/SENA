@@ -53,7 +53,7 @@ const fakeObservabilityAliasEnv = {
   ALERT_WEBHOOK_SECRET: "secret-alert-alias-key"
 };
 
-function cleanEnv(overrides: NodeJS.ProcessEnv = {}) {
+function cleanEnv(overrides: Partial<NodeJS.ProcessEnv> = {}) {
   const env = { ...process.env };
   for (const name of [
     ...Object.keys(fakeEnv),

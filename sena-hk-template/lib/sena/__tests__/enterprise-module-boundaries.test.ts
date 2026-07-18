@@ -89,6 +89,7 @@ function emptyEnterpriseDb(): SenaEnterpriseDb {
     goLiveAttestations: [],
     notifications: [],
     emailDeliveries: [],
+    serverJobs: [],
     auditLog: []
   };
 }

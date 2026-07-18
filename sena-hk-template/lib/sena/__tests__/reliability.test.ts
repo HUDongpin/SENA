@@ -66,7 +66,7 @@ describe("SENA coding reliability diagnostics", () => {
       reviewer: "Local reviewer",
       codingScheme: "Uploaded multi-coder annotation file",
       agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal",
-      agreementValue: "kappa=0; alpha=-0.3333"
+      agreementValue: "kappa=0; alpha=0"
     }));
   });
 
@@ -111,5 +111,34 @@ describe("SENA coding reliability diagnostics", () => {
       reviewer: "JSON reviewer",
       agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal"
     }));
+  });
+
+  it("computes canonical Krippendorff nominal alpha with the n(n-1) correction", () => {
+    // Four item-code units, two coders: three agree (T/T, T/T, F/F) and one
+    // disagrees (T/F). Coincidence matrix marginals n_T=5, n_F=3, n=8, so the
+    // canonical alpha = 1 - (n-1)*D_o / D_e = 1 - 7*2 / 30 = 0.5333. The old
+    // population-proportion approximation (1 - D_o / (1 - sum p_c^2)) would report
+    // a different value, so this pins the corrected estimator.
+    const dashboard = buildSenaReliabilityDashboard(parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "i1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "i1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "i2", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "i2", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "i3", code_id: "Evidence", value: "0" },
+      { coder_id: "c2", item_id: "i3", code_id: "Evidence", value: "0" },
+      { coder_id: "c1", item_id: "i4", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "i4", code_id: "Evidence", value: "0" }
+    ]).annotations);
+
+    expect(dashboard.krippendorffAlphaNominal).toBe(0.5333);
+
+    const perfectAgreement = buildSenaReliabilityDashboard(parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "i1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "i1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "i2", code_id: "Evidence", value: "0" },
+      { coder_id: "c2", item_id: "i2", code_id: "Evidence", value: "0" }
+    ]).annotations);
+
+    expect(perfectAgreement.krippendorffAlphaNominal).toBe(1);
   });
 });

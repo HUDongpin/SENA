@@ -155,14 +155,13 @@ describe("SENA Vercel production preflight", () => {
       const artifact = JSON.parse(artifactText) as {
         schemaVersion?: string;
         status?: string;
-        summary?: { blockers?: string[] };
+        summary?: { blockers?: string[]; advisoryChecks?: number; advisoryPass?: number; advisoryReview?: number };
         env?: {
           presentNames?: string[];
           requirements?: Array<{ id?: string; keys?: string[] }>;
           advisoryRequirements?: Array<{ id?: string; present?: boolean; keys?: string[]; missing?: string[]; evidence?: string[] }>;
         };
         http?: { runtimeStatus?: string; expectedRuntimeValues?: string[]; evidence?: string[] };
-        summary?: { advisoryChecks?: number; advisoryPass?: number; advisoryReview?: number };
         deployment?: { deploymentUrlHash?: string };
       };
       const expectedSha = createHash("sha256").update(artifactText).digest("hex");

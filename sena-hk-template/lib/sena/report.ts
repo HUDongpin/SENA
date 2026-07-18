@@ -1596,8 +1596,17 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
     dataGovernance,
     validation
   });
-  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(model.dataset, model.options, { timelineModel: model });
-  const temporalRuntimeNarrative = buildTemporalRuntimeNarrative(model, temporalRuntimeTrace);
+  // The temporal runtime trace (and its adjacent-window transitions) describes the
+  // full conversation timeline, so it must be computed from the full source dataset
+  // when one is provided — not from `model.dataset`, which the workspace scopes to the
+  // active window (a single window would yield zero adjacent-window transitions). When
+  // no sourceDataset is supplied (library/tests), model.dataset is already the full
+  // timeline, so behaviour is unchanged. Mirrors the sourceDataset baseline at
+  // buildActiveWindowComparison.
+  const timelineDataset = options.sourceDataset ?? model.dataset;
+  const timelineModel = options.sourceDataset ? buildSenaModel(options.sourceDataset, model.options) : model;
+  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(timelineDataset, model.options, { timelineModel });
+  const temporalRuntimeNarrative = buildTemporalRuntimeNarrative(timelineModel, temporalRuntimeTrace);
   const activeWindowComparison = buildActiveWindowComparison(model, options.sourceDataset, options.activeTemporalWindow ?? null);
   const pilotReadinessAudit = buildSenaPilotReadinessAudit({
     model,
