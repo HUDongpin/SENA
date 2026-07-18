@@ -58,7 +58,7 @@ function manifestFixture(status: "ready" | "review"): SenaEnterpriseProductionEv
       endpointValuesHashed: true,
       rawProbePayloadValuesExcluded: true
     }
-  } as SenaEnterpriseProductionEvidenceManifest;
+  } as unknown as SenaEnterpriseProductionEvidenceManifest;
 }
 
 function runtimeEnvPacketFixture(status: "ready" | "blocked"): SenaEnterpriseProductionRuntimeEnvPacket {

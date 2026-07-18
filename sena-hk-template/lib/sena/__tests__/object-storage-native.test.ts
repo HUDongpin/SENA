@@ -461,6 +461,8 @@ describe("SENA native object storage adapter", () => {
         failed: 0,
         skipped: 0,
         pendingReview: 0,
+        eligibleForDelivery: 0,
+        eligibleDelivered: 0,
         eligibleUndelivered: 0,
         ready: true,
         evidence: ["uploadCustodySource=postgres-table"]
@@ -650,6 +652,8 @@ describe("SENA native object storage adapter", () => {
         failed: 0,
         skipped: 0,
         pendingReview: 0,
+        eligibleForDelivery: 0,
+        eligibleDelivered: 0,
         eligibleUndelivered: 0,
         ready: true,
         evidence: ["uploadCustodySource=postgres-table"]

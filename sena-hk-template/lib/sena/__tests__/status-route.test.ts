@@ -194,7 +194,7 @@ describe("SENA ops status route", () => {
             deliveredAt: nowIso,
             detail: {},
             webhookDelivery: {
-              provider: "local",
+              provider: "local-sink",
               status: "pending",
               endpointHash: "local-sink",
               queuedAt: nowIso,
@@ -206,7 +206,7 @@ describe("SENA ops status route", () => {
             id: "email_status_pg",
             kind: "team.invite",
             status: "pending",
-            provider: "local",
+            provider: "local-sink",
             endpointHash: "local-sink",
             teamId: "team_status_pg",
             userId: context.user.id,
@@ -231,6 +231,7 @@ describe("SENA ops status route", () => {
         }
       }));
       const body = await response.json() as {
+        status?: string;
         queues?: {
           serverJobsQueued?: number;
           serverJobsRunning?: number;

@@ -136,7 +136,7 @@ const providerEvidenceItemIds = [
   "observability-live-probe"
 ];
 
-function cleanSpawnEnv(overrides: NodeJS.ProcessEnv = {}) {
+function cleanSpawnEnv(overrides: Partial<NodeJS.ProcessEnv> = {}) {
   const env = { ...process.env };
   for (const name of envNames) delete env[name];
   Object.assign(env, overrides);
@@ -579,7 +579,7 @@ describe("SENA production evidence manifest", () => {
   });
 
   it("requires external live probes, performance budget, and conference rehearsal for production runtime even before manifest-required mode", async () => {
-    process.env.NODE_ENV = "production";
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
 
     const { buildEnterpriseProductionEvidenceManifest } = await import("../enterprise/ops-production-evidence");
     const manifest = buildEnterpriseProductionEvidenceManifest();

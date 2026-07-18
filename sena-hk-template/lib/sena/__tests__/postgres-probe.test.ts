@@ -285,6 +285,8 @@ describe("SENA enterprise Postgres live probe", () => {
         failed: 0,
         skipped: 0,
         pendingReview: 0,
+        eligibleForDelivery: 0,
+        eligibleDelivered: 0,
         eligibleUndelivered: 0,
         ready: true,
         evidence: ["uploadCustodySource=postgres-table"]
