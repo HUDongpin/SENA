@@ -4707,6 +4707,30 @@ describe("SENA model builder", () => {
     expect(model.summary.people).toBe(exampleSenaContract.people.length);
   });
 
+  it("computes report temporal transitions from the full source dataset even when the model is window-scoped", () => {
+    // Regression for the pilot:verify browser-smoke failure: the workspace builds its
+    // analysis model from a dataset scoped to the active temporal window
+    // (scopeSenaDatasetToWindow), then exports the report passing the full dataset as
+    // sourceDataset. The report's temporalRuntimeTransitions must reflect the full
+    // timeline's adjacent-window deltas, not the single scoped window (which has none).
+    // Library-only tests missed this because they never scope the model.
+    const fullModel = buildSenaModel(lessonStudySenaContract);
+    const activeWindow = fullModel.temporal.windows[0];
+    const scopedModel = buildSenaModel(scopeSenaDatasetToWindow(lessonStudySenaContract, activeWindow));
+
+    const scopedOnly = buildSenaReport(scopedModel);
+    const withSource = buildSenaReport(scopedModel, {
+      sourceDataset: lessonStudySenaContract,
+      activeTemporalWindow: activeWindow
+    });
+
+    const transitions = withSource.figures.temporalRuntimeTransitions;
+    expect(transitions.length).toBeGreaterThan(0);
+    expect(transitions.some((transition) => Number.isFinite(transition.delta?.G))).toBe(true);
+    // The scoped-only report (no sourceDataset) is the degenerate single-window case.
+    expect(scopedOnly.figures.temporalRuntimeTransitions.length).toBeLessThan(transitions.length);
+  });
+
   it("imports mapped CSV tables into the SENA contract", () => {
     const people = parseSenaCsv("person_id,name\nA,Ava\nB,Ben\n");
     const interactions = parseSenaCsv("from,to,weight,turn_index\nA,B,2,1\nB,A,1,2\n");
