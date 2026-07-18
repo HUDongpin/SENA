@@ -1557,8 +1557,6 @@ export function useSenaFusionWorkspaceMainShellProps() {
   } = buildWorkspaceHeaderLeftRailContainerProps({
     activePlotView,
     activeRailPanel,
-    activeTurnLabel,
-    activeWindowLabel,
     alpha,
     audit: sourceDataContractAudit,
     beta,
@@ -1580,7 +1578,6 @@ export function useSenaFusionWorkspaceMainShellProps() {
     methodValidation,
     model,
     normalization,
-    onActivePlotViewChange: setActivePlotView,
     onAdvancedToggle: () => setIsPlotToolsAdvancedOpen((current) => !current),
     onAlphaChange: setAlpha,
     onBetaChange: setBeta,
@@ -1825,6 +1822,18 @@ export function useSenaFusionWorkspaceMainShellProps() {
     items: workspaceRailItems,
     isFusionPlotMaximized,
     headerProps: workspaceHeaderProps,
+    plotViewBarProps: {
+      active: activePlotView,
+      isOpen: isPlotSwitcherOpen,
+      onToggle: () => setIsPlotSwitcherOpen((current) => !current),
+      onSelect: (view) => {
+        setActivePlotView(view);
+        setIsPlotSwitcherOpen(false);
+      },
+      plotViewOptions,
+      activeWindowLabel,
+      activeTurnLabel
+    },
     leftRailProps: workspaceLeftRailProps,
     centralPlotDeckProps: workspaceCentralPlotDeckProps,
     rightInspectorProps: workspaceRightInspectorProps,

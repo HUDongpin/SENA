@@ -21,7 +21,10 @@ import {
   nextWorkspaceMobileFigure,
   type WorkspaceMobileFigure
 } from "./workspace-mobile-figure-navigation";
-import { WorkspaceRail } from "./workspace-shell-panels";
+import {
+  WorkspacePlotViewBar,
+  WorkspaceRail
+} from "./workspace-shell-panels";
 
 const workspaceDialogFocusableSelector = [
   'a[href]',
@@ -36,6 +39,7 @@ export type WorkspaceMainShellSectionProps = {
   isFusionPlotMaximized: boolean;
   fusionPlotMaximizedOverlayProps: ComponentProps<typeof FusionPlotMaximizedOverlay>;
   headerProps: ComponentProps<typeof WorkspaceHeaderSection>;
+  plotViewBarProps: ComponentProps<typeof WorkspacePlotViewBar>;
   railProps: ComponentProps<typeof WorkspaceRail>;
   leftRailProps: ComponentProps<typeof WorkspaceLeftRailPanelSection>;
   centralPlotDeckProps: ComponentProps<typeof WorkspaceCentralPlotDeck>;
@@ -47,6 +51,7 @@ export function WorkspaceMainShellSection({
   isFusionPlotMaximized,
   fusionPlotMaximizedOverlayProps,
   headerProps,
+  plotViewBarProps,
   railProps,
   leftRailProps,
   centralPlotDeckProps,
@@ -136,6 +141,7 @@ export function WorkspaceMainShellSection({
       <div className="mx-auto flex min-h-dvh flex-col overflow-x-hidden border border-cardBorder/70 bg-background/80 shadow-soft xl:h-dvh xl:overflow-hidden 2xl:max-w-[118rem]">
         <div ref={headerSurfaceRef} aria-hidden={isTaskPanelOpen || undefined}>
           <WorkspaceHeaderSection {...headerProps} />
+          <WorkspacePlotViewBar {...plotViewBarProps} />
         </div>
 
         <div className="grid min-h-0 flex-1 xl:grid-cols-[4rem_minmax(0,1fr)]">

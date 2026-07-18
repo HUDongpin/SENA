@@ -8,8 +8,6 @@ import {
 import { buttonStyles } from "@/components/Primitives";
 
 export type WorkspaceHeaderSectionProps = {
-  activeWindowLabel: string;
-  activeTurnLabel: string;
   totalEvidenceRefs: number;
   reportReadyPercent: number;
   fileAccept: string;
@@ -18,8 +16,6 @@ export type WorkspaceHeaderSectionProps = {
 };
 
 export function WorkspaceHeaderSection({
-  activeWindowLabel,
-  activeTurnLabel,
   totalEvidenceRefs,
   reportReadyPercent,
   fileAccept,
@@ -40,8 +36,6 @@ export function WorkspaceHeaderSection({
 
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-bold text-slate-300">
         <div className="whitespace-nowrap"><span className="text-white">Dataset</span> {totalEvidenceRefs} evidence refs</div>
-        <div className="min-w-0 truncate"><span className="text-white">Window</span> {activeWindowLabel}</div>
-        <div className="whitespace-nowrap"><span className="text-white">Turns</span> {activeTurnLabel}</div>
         <div className="whitespace-nowrap text-cyanGlow">{reportReadyPercent}% report ready</div>
       </div>
 

@@ -81,14 +81,22 @@ export function JointEmbeddingProvenanceStrip({
       ? laplacian.dimensions
       : mds.dimensions;
 
+  const provenanceTokens: Array<{ label: string; value: string | number }> = [
+    { label: "Operator", value: isCommute ? "commute-time" : isLaplacian ? "laplacian-eigenmaps" : "classical-mds" },
+    { label: "Delta", value: isCommute ? "commute-time" : isLaplacian ? "L combinatorial" : mds.delta },
+    { label: "d", value: dimension },
+    { label: "Seed", value: "deterministic" },
+    { label: exact ? "metric exact" : "stress", value: available ? exactnessValue : "unavailable" }
+  ];
+
   return (
-    <div data-testid="joint-embedding-provenance-strip" className="mb-3 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-xs font-black uppercase text-slate-500">Joint embedding provenance</div>
-          <div className="mt-1 text-sm font-black text-slate-950">{operatorLabel}</div>
+    <div data-testid="joint-embedding-provenance-strip" className="mb-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <span className="text-[0.68rem] font-black uppercase tracking-[0.06em] text-slate-500">Joint embedding provenance</span>
+          <span className="text-sm font-black text-slate-950">{operatorLabel}</span>
         </div>
-        <div className="grid rounded-lg border border-slate-200 bg-white p-1 sm:grid-cols-3">
+        <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
           {jointEmbeddingOperatorOptions.map((item) => (
             <button
               key={item.value}
@@ -96,7 +104,7 @@ export function JointEmbeddingProvenanceStrip({
               data-testid={item.value === "laplacian-eigenmaps" ? "joint-embedding-operator-laplacian-eigenmaps" : `joint-embedding-operator-${item.value}`}
               onClick={() => onOperatorChange(item.value)}
               className={cn(
-                "rounded-md px-3 py-2 text-xs font-black transition",
+                "rounded-md px-2.5 py-1.5 text-xs font-black transition",
                 operator === item.value ? "bg-slate-950 text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950"
               )}
             >
@@ -105,12 +113,16 @@ export function JointEmbeddingProvenanceStrip({
           ))}
         </div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-5">
-        <MetricCell label="Operator" value={isCommute ? "commute-time" : isLaplacian ? "laplacian-eigenmaps" : "classical-mds"} />
-        <MetricCell label="Delta" value={isCommute ? "commute-time" : isLaplacian ? "L combinatorial" : mds.delta} />
-        <MetricCell label="d" value={dimension} />
-        <MetricCell label="Seed" value="deterministic" />
-        <MetricCell label={exact ? "metric exact" : "stress"} value={available ? exactnessValue : "unavailable"} />
+      <div className="flex flex-wrap gap-1.5">
+        {provenanceTokens.map((token) => (
+          <span
+            key={token.label}
+            className="inline-flex items-baseline gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[0.68rem] font-bold text-slate-500"
+          >
+            {token.label}
+            <span className="font-black text-slate-950">{token.value}</span>
+          </span>
+        ))}
       </div>
     </div>
   );

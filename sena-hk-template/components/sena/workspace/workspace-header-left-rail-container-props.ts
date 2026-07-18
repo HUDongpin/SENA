@@ -177,8 +177,6 @@ export type WorkspaceHeaderLeftRailContainerProps = Pick<
 export function buildWorkspaceHeaderLeftRailContainerProps({
   activePlotView,
   activeRailPanel,
-  activeTurnLabel,
-  activeWindowLabel,
   alpha,
   audit,
   beta,
@@ -200,7 +198,6 @@ export function buildWorkspaceHeaderLeftRailContainerProps({
   methodValidation,
   model,
   normalization,
-  onActivePlotViewChange,
   onAdvancedToggle,
   onAlphaChange,
   onBetaChange,
@@ -285,7 +282,6 @@ export function buildWorkspaceHeaderLeftRailContainerProps({
     onLayoutChange,
     plotViewOptions,
     activePlotView,
-    onActivePlotViewChange,
     layers,
     layerCopy,
     onLayerToggle,
@@ -440,8 +436,6 @@ export function buildWorkspaceHeaderLeftRailContainerProps({
   } satisfies WorkspaceHeaderExportPropGroup);
 
   const workspaceHeaderTemporalSummaryFieldProps = buildWorkspaceHeaderTemporalSummaryFieldProps({
-    activeWindowLabel,
-    activeTurnLabel,
     totalEvidenceRefs,
     reportReadyPercent
   } satisfies WorkspaceHeaderTemporalSummaryFieldPropGroup);
