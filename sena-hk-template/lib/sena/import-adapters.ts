@@ -450,18 +450,32 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
 
   const segmentRows = posts
     .filter((post) => scalar(post.codes))
-    .map((post, index) => ({
-      segment_id: `cs-${post.post_id || index + 1}`,
-      utterance_id: post.post_id,
-      person_id: post.person_id,
-      unit_id: post.thread_id,
-      stanza_id: post.thread_id,
-      stage: post.stage || "Forum",
-      turn_index: post.turn_index,
-      text: post.text,
-      codes: post.codes,
-      confidence: 1
-    })) as SenaImportRow[];
+    .map((post, index) => {
+      // ADR-0006 D1: a reply's coded contribution is *addressed to* the parent
+      // author, so record it as directed B_CP (code -> person) evidence rather
+      // than leaving forum imports on the B_PC transpose fallback. Resolve the
+      // target through the same identity index as the S-layer reply interaction.
+      // Leave it empty (transpose fallback preserved) when it does not resolve or
+      // would target the contribution's own author. This is addressed-to, not
+      // uptake — reports must not read it as adoption of the parent's ideas.
+      const replyTarget = resolvePersonIdentity(
+        scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || ""
+      );
+      const directedTarget = replyTarget && replyTarget !== scalar(post.person_id) ? replyTarget : "";
+      return {
+        segment_id: `cs-${post.post_id || index + 1}`,
+        utterance_id: post.post_id,
+        person_id: post.person_id,
+        target_person_ids: directedTarget,
+        unit_id: post.thread_id,
+        stanza_id: post.thread_id,
+        stage: post.stage || "Forum",
+        turn_index: post.turn_index,
+        text: post.text,
+        codes: post.codes,
+        confidence: 1
+      };
+    }) as SenaImportRow[];
   const segmentTable = rowsToTable(`${name}-coded_segments`, segmentRows);
   segmentTable.table = "coded_segments";
   segmentTable.mapping = inferSenaColumnMapping("coded_segments", segmentTable.columns);
@@ -547,6 +561,7 @@ function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) 
       "post/message normalization",
       "author identity mapping",
       "reply-to interaction derivation",
+      "reply-target directed B_CP evidence",
       "tag/hashtag code extraction"
     ];
   }
@@ -555,6 +570,7 @@ function transformationsForProfile(profile: SenaImportAdapterSource["profile"]) 
       "thread/post table normalization",
       "author identity mapping",
       "parent-post reply derivation",
+      "reply-target directed B_CP evidence",
       "tag/hashtag code extraction"
     ];
   }

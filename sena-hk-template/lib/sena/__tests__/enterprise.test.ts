@@ -164,6 +164,40 @@ describe("SENA enterprise runtime", () => {
     expect(imported.cleaningManifest.checks.find((check) => check.id === "analysis-table-readiness")?.status).toBe("pass");
   });
 
+  it("derives independent B_CP evidence from forum reply targets (ADR-0006 D1)", async () => {
+    // A reply's coded contribution is addressed to the parent author, so forum
+    // imports now emit directed B_CP (code -> person) evidence instead of the
+    // B_PC transpose fallback. The target resolves through the same identity index
+    // as the S-layer reply interaction; the root post keeps no target.
+    const forumCsv = [
+      "discussion_id,post_id,parent_post_id,parent_author_id,author_id,author_name,posted_at,message,tags",
+      "thread-a,post-1,, ,teacher-1,Ada,2026-06-01T09:00:00Z,\"How can we test the explanation? #Question\",Question",
+      "thread-a,post-2,post-1,teacher-1,student-1,Ben,2026-06-01T09:04:00Z,\"The graph gives evidence for the claim.\",Evidence|Claim",
+      "thread-a,post-3,post-2,student-1,teacher-1,Ada,2026-06-01T09:07:00Z,\"Let's reflect on the evidence. #Reflection\",Reflection"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("canvas-discussion-export.csv", forumCsv)
+    ]);
+
+    const segmentByUtterance = (id: string) =>
+      imported.dataset.coded_segments.find((segment) => segment.utteranceId === id);
+    // The reply segments carry the resolved parent author as directed target evidence.
+    expect(segmentByUtterance("post-2")?.targetPersonIds).toEqual(["teacher-1"]);
+    expect(segmentByUtterance("post-3")?.targetPersonIds).toEqual(["student-1"]);
+    // The root post (no reply target) stays undirected — transpose fallback preserved.
+    expect(segmentByUtterance("post-1")?.targetPersonIds).toBeUndefined();
+
+    // The fused model is now directed with independently estimated B_CP.
+    const model = buildSenaModel(imported.dataset);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-cp-independent");
+    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(true);
+
+    // The change is disclosed in the cleaning manifest.
+    expect(imported.cleaningManifest.sources.find((source) => source.profile === "lms-forum-export")?.transformations)
+      .toContain("reply-target directed B_CP evidence");
+  });
+
   it("adapts LMS forum Excel exports into SENA analysis tables", async () => {
     const workbookBuffer = await buildXlsxWorkbookBuffer([
       {
