@@ -22,8 +22,8 @@ SENA is a research-pilot workbench for evidence-traceable fusion of social netwo
 
 ## Runtime Boundaries
 
-- The app runs local `jena-js` from `sena-hk-template/vendor/jena-js`; it does not directly run the official R `rENA` package in the browser.
-- The app runs local `sna.js` from `sena-hk-template/vendor/sna-js`; it does not directly run the official R `sna` package in the browser.
+- The app runs `jena-js` as an exactly pinned published npm package (`"jena-js": "0.6.2"`); it does not directly run the official R `rENA` package in the browser. The former `vendor/jena-js` copy was deleted in the 2026-07-12 registry migration.
+- The app runs `sna.js` as an exactly pinned published npm package (`"sna.js": "npm:@peterhudongpin/sna.js@0.4.0"`, an npm alias that keeps `from "sna.js"` imports working); it does not directly run the official R `sna` package in the browser. The former `vendor/sna-js` copy was deleted in the same migration.
 - The default enterprise persistence store is `.sena-enterprise/enterprise-db.json`. This file-backed store is a local readiness adapter, not production managed infrastructure.
 - Managed database, identity provider, object storage, pub/sub, SIEM, backup, email, alerting, and staffed operations remain platform-owner decisions until accepted through native-ready evidence.
 - Self-managed closeout evidence is generated with `npm run sena:self-managed:workflow`, `npm run sena:post-cutover:observe -- --watch --attest`, and `npm run sena:go-live:check`; a fresh go-live check supersedes any older closeout note, and the flow never reclassifies the default file-backed adapter as institution-managed SaaS infrastructure.
