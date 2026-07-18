@@ -16,7 +16,7 @@ const postgresEnvNames = [
 ];
 const fakePostgresUrl = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
 
-function cleanEnv(overrides: NodeJS.ProcessEnv = {}) {
+function cleanEnv(overrides: Partial<NodeJS.ProcessEnv> = {}) {
   const env = { ...process.env };
   for (const name of postgresEnvNames) delete env[name];
   Object.assign(env, overrides);

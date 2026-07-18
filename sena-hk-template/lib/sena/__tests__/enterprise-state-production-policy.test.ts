@@ -22,7 +22,7 @@ describe("SENA enterprise file state production policy", () => {
 
   it("keeps file-backed state read-only when the production performance path is required", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-file-policy-"));
-    process.env.NODE_ENV = "production";
+    (process.env as Record<string, string | undefined>).NODE_ENV = "production";
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH = "1";
     vi.resetModules();

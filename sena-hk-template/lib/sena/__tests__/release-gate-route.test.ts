@@ -170,6 +170,7 @@ describe("SENA release gate route", () => {
       }));
       const body = await response.json() as {
         review?: {
+          id?: string;
           platformDecisionSnapshot?: {
             productionBlockingDecisionIds?: string[];
           };
@@ -262,8 +263,9 @@ describe("SENA release gate route", () => {
         .toBe(String(snapshot?.institutionActionPlan?.ownerRunbooks?.summary?.submissionSteps));
       expect(response.headers.get("x-sena-identity-owner-runbook-receipt-archive-steps"))
         .toBe(String(snapshot?.institutionActionPlan?.ownerRunbooks?.summary?.receiptArchiveSteps));
-      expect(postgresState?.payload.releaseGateReviews.map((review) => review.id)).toContain(body.review?.id);
-      expect(postgresState?.payload.auditLog.some((entry) => entry.event === "ops.release_gate.review")).toBe(true);
+      const finalPostgresState = postgresState as unknown as { revision: number; payload: SenaEnterpriseDb };
+      expect(finalPostgresState.payload.releaseGateReviews.map((review) => review.id)).toContain(body.review?.id);
+      expect(finalPostgresState.payload.auditLog.some((entry) => entry.event === "ops.release_gate.review")).toBe(true);
 
       const listResponse = await route.GET(new Request(`https://sena.example.test/api/sena/ops/release-gate?teamId=${encodeURIComponent(teamId)}`));
       const listBody = await listResponse.json() as {

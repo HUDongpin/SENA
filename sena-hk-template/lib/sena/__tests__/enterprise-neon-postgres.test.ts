@@ -395,6 +395,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       dataset: lessonStudySenaContract,
       cleaningManifest: {
         schemaVersion: SENA_SCHEMA_VERSIONS.importCleaningManifest,
+        recommendedNextActions: [],
         summary: {
           fileCount: 1,
           totalSourceRows: lessonStudySenaContract.utterances.length,
@@ -417,7 +418,8 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           id: "contract-shape",
           label: "Contract shape",
           status: "pass",
-          evidence: ["profile=sena-contract"]
+          evidence: ["profile=sena-contract"],
+          nextAction: "No action required."
         }]
       }
     });
