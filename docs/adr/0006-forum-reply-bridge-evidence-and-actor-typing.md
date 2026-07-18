@@ -2,9 +2,11 @@
 
 ## Status
 
-**Proposed** (2026-07-18). Requires SENA-A02/A05/A07/A13/A15 acceptance before any
-runtime change. This ADR exists to make a deferred decision reviewable; it does
-**not** itself change runtime behavior.
+**Accepted** (2026-07-18). **D1 implemented** — `adaptForumRows` writes reply
+targets onto coded segments so forum imports emit independent `B_CP`
+(`feat: forum reply targets drive independent B_CP evidence`, with regression
+test). **D2** (person→actor generalization) remains a proposed future increment,
+not yet implemented.
 
 ## Context
 
