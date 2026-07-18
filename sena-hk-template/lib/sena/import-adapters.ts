@@ -147,6 +147,13 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
     .map((line) => line.trim())
     .filter(Boolean);
 
+  // Stage thirds must divide by the number of PARSED speaker turns, not the raw
+  // non-empty line count: unparseable lines (headers, lone timestamps, dividers)
+  // are skipped, and dividing by all lines would push every real turn into
+  // "Plan" and leave "Reflect" empty whenever a transcript carries noise lines.
+  const speakerLinePattern = /^(?:\[([^\]]+)\]\s*)?([^:：]{1,80})[:：]\s*(.+)$/;
+  const parsedTurnCount = lines.filter((line) => speakerLinePattern.test(line)).length;
+
   const speakerIds = new Map<string, string>();
   const utterances: SenaDataset["utterances"] = [];
   const coded_segments: SenaDataset["coded_segments"] = [];
@@ -155,7 +162,7 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
   let previousSpeaker: string | null = null;
 
   lines.forEach((line, index) => {
-    const match = line.match(/^(?:\[([^\]]+)\]\s*)?([^:：]{1,80})[:：]\s*(.+)$/);
+    const match = line.match(speakerLinePattern);
     if (!match) {
       warnings.push(`Transcript line ${index + 1} did not match "Speaker: text" and was skipped.`);
       return;
@@ -167,9 +174,9 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
     const utteranceId = `u-${turnIndex}`;
     const rawText = match[3].trim();
     const lineCodes = extractCodes(rawText);
-    const stage = turnIndex <= Math.ceil(lines.length / 3)
+    const stage = turnIndex <= Math.ceil(parsedTurnCount / 3)
       ? "Plan"
-      : turnIndex <= Math.ceil((lines.length * 2) / 3)
+      : turnIndex <= Math.ceil((parsedTurnCount * 2) / 3)
         ? "Teach"
         : "Reflect";
 
@@ -393,6 +400,23 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   });
   if (posts.length === 0) throw new Error("Forum/LMS export did not contain importable posts or messages.");
   const authorByPost = new Map(posts.map((post) => [scalar(post.post_id), scalar(post.person_id)]));
+  // Reply-to fields can reference an author by a different representation than
+  // the one that became the canonical person_id (e.g. author display name vs.
+  // author id). Map both the id form (post.person_id) and the name form
+  // (post.label) back to the canonical id so reply ties are not silently
+  // dropped as "unknown person" by the social-matrix builder. Ids are indexed
+  // first so they win over any colliding label.
+  const personIdentityIndex = new Map<string, string>();
+  for (const post of posts) {
+    const personId = scalar(post.person_id);
+    if (personId) personIdentityIndex.set(personId, personId);
+  }
+  for (const post of posts) {
+    const personId = scalar(post.person_id);
+    const label = scalar(post.label);
+    if (personId && label && !personIdentityIndex.has(label)) personIdentityIndex.set(label, personId);
+  }
+  const resolvePersonIdentity = (value: string) => (value ? personIdentityIndex.get(value) ?? value : "");
   const utteranceTable = rowsToTable(`${name}-utterances`, posts);
   utteranceTable.table = "utterances";
   utteranceTable.mapping = inferSenaColumnMapping("utterances", utteranceTable.columns);
@@ -406,7 +430,9 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   peopleTable.mapping = inferSenaColumnMapping("people", peopleTable.columns);
 
   const interactionRows = posts.flatMap<SenaImportRow>((post, index) => {
-    const target = scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || "";
+    const target = resolvePersonIdentity(
+      scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || ""
+    );
     if (!target) return [];
     return [{
       source: scalar(post.person_id),
