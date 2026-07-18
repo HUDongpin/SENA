@@ -1,7 +1,16 @@
 # Known issue: `sena:pilot:verify` browser smoke fails on temporal transitions
 
-**Status:** Open · **Found:** 2026-07-18 · **Severity:** blocks the release gate
-· **Owner lane:** SENA-A02 / A06 / A07 / A11
+**Status:** ✅ Resolved 2026-07-18 · **Found:** 2026-07-18 · **Owner lane:** SENA-A07
+
+> **Resolution.** Fixed in `fix: report temporal transitions use the full source
+> dataset, not the scoped model`. `buildSenaReport` now computes the temporal
+> runtime trace from `options.sourceDataset` when provided (the full dataset the
+> workspace already passes), instead of the window-scoped `model.dataset`. Root
+> cause and diagnosis below were correct: the workspace scopes `analysisDataset`
+> to the active window, and the report recomputed the trace from that single
+> window → zero transitions. `npm run sena:pilot:verify` now passes end-to-end;
+> a regression test scopes the model and asserts finite adjacent-window
+> `delta.G`. The analysis retained below is the diagnostic record.
 
 ## Symptom
 
