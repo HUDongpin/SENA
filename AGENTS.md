@@ -150,7 +150,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 - The SENA website depends on the published `@peterhudongpin/sna.js` package via `sena-hk-template/package.json` as the exact pin `"sna.js": "npm:@peterhudongpin/sna.js@0.4.0"` (npm alias keeps `from "sna.js"` imports working; the `file:vendor/sna-js` copy was removed in the 2026-07-12 migration).
 - `@peterhudongpin/sna.js` is the R-faithful SNA engine (source repo `~/Desktop/sna.js`, github.com/HUDongpin/sna.js); `averagePathLength()` and `labelPropagation()` were upstreamed into 0.4.0 as extensions beyond R `sna`, and it is wired into `/workspace/sena` social-network analysis.
 - Current SENA social-layer metrics computed through SNA.js include density, tie count, weak components, shortest-path average path length, person-level degree, weighted social strength, closeness, reachable nodes, and component labels.
-- `SNA.js-template.zip` remains the original source artifact kept beside the project for reference.
+- The original `sna.js` source artifact (`SNA.js-template.zip`) is no longer kept beside the project; it has been moved to the maintainer's external backup. The live SNA engine is the published `@peterhudongpin/sna.js` pinned above.
 
 ## Temporal Fusion Design Direction
 
