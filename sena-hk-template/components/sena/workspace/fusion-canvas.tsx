@@ -60,6 +60,19 @@ function readableConceptGlyph(label: string) {
   return initials || label.slice(0, 2).toUpperCase();
 }
 
+// The Fusion Canvas draws SENA's explanatory grammar: hexagonal person nodes,
+// the solid purple W mesh, cyan bridge ribbons, and outer-orbit social arcs.
+// It is the right grammar for the explanatory and joint layouts, where a node's
+// position is a layout choice rather than a measurement.
+//
+// The ENA-space layout no longer renders here. It used to, and carrying jena-js's
+// `max(1, |w| * 4)` edge law onto a 900px canvas with r28 code discs meant
+// multiplying it by 5.6 just to clear the discs — a node-size decision leaking
+// into an edge encoding, on top of sizing those discs by SENA's weightedDegree
+// while the geometry underneath was jENA's. ENA space now renders through
+// components/sena/workspace/ena-space-plot.tsx, which uses the same <EnaPlot>
+// renderer as /workspace/ena (ADR 0008).
+
 function edgeStroke(edge: SenaEdge) {
   if (edge.layer === "social") return "#2f73ff";
   if (edge.layer === "concept") return "url(#concept-link-gradient)";
@@ -112,6 +125,9 @@ function edgePath(edge: SenaEdge, positions: Map<string, PositionedNode>) {
   const source = positions.get(edge.source);
   const target = positions.get(edge.target);
   if (!source || !target) return "";
+  // The social arc and bridge ribbon curve away from the straight line to keep
+  // the ring layout legible, which is sound precisely because a node's position
+  // here carries no quantity.
   if (edge.layer === "social") return socialArcPath(source, target);
   if (edge.layer === "bridge") return bridgeRibbonPath(source, target);
   return straightEdgePath(source, target);
@@ -147,6 +163,7 @@ export function Canvas({
   const revealedLabelSet = useMemo(() => new Set(revealedLabelIds), [revealedLabelIds]);
   const edges = model.edges.filter((edge) => layers[edge.layer] && edge.normalizedWeight >= threshold);
   const conceptPairContributions = useMemo(() => buildConceptPairContributionMap(model), [model]);
+
   const conceptEdges = edges.filter((edge) => edge.layer === "concept");
   const socialEdges = edges.filter((edge) => edge.layer === "social");
   const bridgeEdges = edges.filter((edge) => edge.layer === "bridge");

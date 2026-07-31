@@ -1,6 +1,7 @@
 export { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
 export { buildSenaEnaSpaceCoordinateMap, type SenaEnaSpaceCoordinate, type SenaEnaSpaceCoordinateMap } from "./layout";
 export { buildSenaEnaManifest } from "./ena-manifest";
+export { buildSenaEnaNetwork, type SenaEnaNetwork, type SenaEnaNetworkEdge } from "./ena-network";
 export { buildSenaSnaManifest } from "./sna-manifest";
 export {
   buildSenaActiveWindowBrief,

@@ -9,5 +9,5 @@ export function runEnaRequest(request: EnaRunRequest, runtime: EnaRuntime = "api
   const set = ena(prepared.options);
   const elapsedMs = Math.round(performance.now() - startedAt);
 
-  return buildEnaRunResult(set, request.rows.length, runtime, elapsedMs, prepared.warnings);
+  return buildEnaRunResult(set, request.rows.length, runtime, elapsedMs, prepared.warnings, request.composition);
 }

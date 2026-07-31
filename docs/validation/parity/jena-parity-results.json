@@ -1,0 +1,146 @@
+[
+  {
+    "maxAbsVarianceDelta": 1.3877787807814457e-16,
+    "maxAbsPearsonDelta": 2.5068835896036035e-13,
+    "maxAbsSpearmanDelta": 1.1102230246251565e-16,
+    "pearson": [
+      0.987588743,
+      0.878245384
+    ],
+    "spearman": [
+      0.986726788,
+      0.879432656
+    ],
+    "tp": "tp1",
+    "elapsedMs": 5,
+    "units": 24,
+    "codes": 6,
+    "edges": 15,
+    "rotationColumns": [
+      "SVD1",
+      "SVD2",
+      "SVD3"
+    ],
+    "signFlips": [
+      1,
+      -1,
+      1
+    ],
+    "variance": [
+      0.509501,
+      0.223534,
+      0.096801
+    ],
+    "unmatchedUnits": 0,
+    "missingEdgeColumns": [],
+    "maxAbsNodeDelta": 2.2368017438267884e-9,
+    "maxAbsPointDelta": 6.106226635438361e-16,
+    "maxAbsLineWeightDelta": 4.718447854656915e-16,
+    "maxAbsNetworkDelta": 4.440892098500626e-16,
+    "pointCorrelations": [
+      1,
+      1,
+      1
+    ],
+    "comparedNodeCells": 18,
+    "comparedPointCells": 72,
+    "comparedWeightCells": 360,
+    "comparedNetworkCells": 30
+  },
+  {
+    "maxAbsVarianceDelta": 1.6653345369377348e-16,
+    "maxAbsPearsonDelta": 2.6707525080382766e-12,
+    "maxAbsSpearmanDelta": 0.000028887122124898745,
+    "pearson": [
+      0.977193152,
+      0.968087339
+    ],
+    "spearman": [
+      0.980583942,
+      0.966429098
+    ],
+    "tp": "tp2",
+    "elapsedMs": 2,
+    "units": 23,
+    "codes": 6,
+    "edges": 15,
+    "rotationColumns": [
+      "SVD1",
+      "SVD2",
+      "SVD3"
+    ],
+    "signFlips": [
+      1,
+      -1,
+      -1
+    ],
+    "variance": [
+      0.413298,
+      0.281457,
+      0.168452
+    ],
+    "unmatchedUnits": 0,
+    "missingEdgeColumns": [],
+    "maxAbsNodeDelta": 1.0980007347782816e-8,
+    "maxAbsPointDelta": 1.1657341758564144e-15,
+    "maxAbsLineWeightDelta": 5.551115123125783e-16,
+    "maxAbsNetworkDelta": 4.440892098500626e-16,
+    "pointCorrelations": [
+      1,
+      1,
+      1
+    ],
+    "comparedNodeCells": 18,
+    "comparedPointCells": 69,
+    "comparedWeightCells": 345,
+    "comparedNetworkCells": 30
+  },
+  {
+    "maxAbsVarianceDelta": 3.3306690738754696e-16,
+    "maxAbsPearsonDelta": 4.802269693016115e-12,
+    "maxAbsSpearmanDelta": 0.000020889204548013574,
+    "pearson": [
+      0.962479904,
+      0.985936654
+    ],
+    "spearman": [
+      0.961358972,
+      0.987674036
+    ],
+    "tp": "tp3",
+    "elapsedMs": 1.6,
+    "units": 25,
+    "codes": 6,
+    "edges": 15,
+    "rotationColumns": [
+      "SVD1",
+      "SVD2",
+      "SVD3"
+    ],
+    "signFlips": [
+      -1,
+      -1,
+      1
+    ],
+    "variance": [
+      0.321455,
+      0.288239,
+      0.14673
+    ],
+    "unmatchedUnits": 0,
+    "missingEdgeColumns": [],
+    "maxAbsNodeDelta": 2.3422799255712334e-9,
+    "maxAbsPointDelta": 3.6637359812630166e-15,
+    "maxAbsLineWeightDelta": 5.551115123125783e-16,
+    "maxAbsNetworkDelta": 4.440892098500626e-16,
+    "pointCorrelations": [
+      1,
+      1,
+      1
+    ],
+    "comparedNodeCells": 18,
+    "comparedPointCells": 75,
+    "comparedWeightCells": 375,
+    "comparedNetworkCells": 30
+  }
+]
