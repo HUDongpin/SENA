@@ -417,6 +417,27 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
     if (personId && label && !personIdentityIndex.has(label)) personIdentityIndex.set(label, personId);
   }
   const resolvePersonIdentity = (value: string) => (value ? personIdentityIndex.get(value) ?? value : "");
+  // Stricter resolver for directed B_CP evidence (ADR-0006 D1): only a target that
+  // resolves to a *known* author may be declared, and it must survive the
+  // multi-value coded_segments field, which is split on "|", ";" and ",". An id
+  // carrying one of those separators (e.g. a display-name roster keyed "Last, First",
+  // the standard LMS export form) would be shredded into fragments downstream, so it
+  // is reported and left empty rather than emitted. Empty preserves the B_PC
+  // transpose fallback; it never invents a target.
+  const segmentTargetDelimiter = /[|;,]/;
+  const resolveDeclaredTarget = (value: string, postId: string) => {
+    if (!value) return "";
+    const resolved = personIdentityIndex.get(value);
+    if (!resolved) {
+      warnings.push(`Forum post ${postId} replies to "${value}", which does not match any author in this export; no directed code-to-person evidence was recorded for it.`);
+      return "";
+    }
+    if (segmentTargetDelimiter.test(resolved)) {
+      warnings.push(`Forum post ${postId} replies to author id "${resolved}", which contains a "|", ";" or "," separator and cannot be recorded as directed code-to-person evidence; the reply still contributes to the social layer.`);
+      return "";
+    }
+    return resolved;
+  };
   const utteranceTable = rowsToTable(`${name}-utterances`, posts);
   utteranceTable.table = "utterances";
   utteranceTable.mapping = inferSenaColumnMapping("utterances", utteranceTable.columns);
@@ -454,12 +475,14 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
       // ADR-0006 D1: a reply's coded contribution is *addressed to* the parent
       // author, so record it as directed B_CP (code -> person) evidence rather
       // than leaving forum imports on the B_PC transpose fallback. Resolve the
-      // target through the same identity index as the S-layer reply interaction.
-      // Leave it empty (transpose fallback preserved) when it does not resolve or
-      // would target the contribution's own author. This is addressed-to, not
-      // uptake — reports must not read it as adoption of the parent's ideas.
-      const replyTarget = resolvePersonIdentity(
-        scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || ""
+      // target through the same identity index as the S-layer reply interaction,
+      // but strictly: an unresolved or separator-bearing id is reported and left
+      // empty (transpose fallback preserved) rather than passed through, which
+      // would fabricate people downstream. This is addressed-to, not uptake —
+      // reports must not read it as adoption of the parent's ideas.
+      const replyTarget = resolveDeclaredTarget(
+        scalar(post.reply_to_person_id) || authorByPost.get(scalar(post.parent_post_id)) || "",
+        scalar(post.post_id) || `#${index + 1}`
       );
       const directedTarget = replyTarget && replyTarget !== scalar(post.person_id) ? replyTarget : "";
       return {
@@ -734,11 +757,15 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
     }
 
     const parsed = parseSenaCsv(text);
+    // Ragged-row repairs are recorded per file so a truncated export shows up in the
+    // cleaning manifest instead of silently becoming empty fields.
+    const csvWarnings = parsed.warnings.map((warning) => `${file.name}: ${warning}`);
     if (looksLikeForumExport(parsed.columns)) {
       const adapted = adaptForumRows(parsed.rows, file.name);
+      const forumWarnings = [...csvWarnings, ...adapted.warnings];
       tables.push(...datasetToTables(adapted.dataset, file.name));
-      sources.push({ name: file.name, profile: "lms-forum-export", rows: adapted.dataset.utterances.length, warnings: adapted.warnings });
-      warnings.push(...adapted.warnings);
+      sources.push({ name: file.name, profile: "lms-forum-export", rows: adapted.dataset.utterances.length, warnings: forumWarnings });
+      warnings.push(...forumWarnings);
       continue;
     }
 
@@ -746,7 +773,8 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
     table.columns = parsed.columns;
     table.mapping = inferSenaColumnMapping(table.table, parsed.columns);
     tables.push(table);
-    sources.push({ name: file.name, profile: "csv-table", rows: parsed.rows.length, warnings: [] });
+    sources.push({ name: file.name, profile: "csv-table", rows: parsed.rows.length, warnings: csvWarnings });
+    warnings.push(...csvWarnings);
   }
 
   if (tables.length === 0) throw new Error("No supported SENA import tables were found.");
