@@ -1,0 +1,102 @@
+import type { DimensionComparison } from "./comparison";
+import type { EnaMapping, EnaRunOptions, EnaRunResult } from "./types";
+
+/**
+ * webENA's Stats > Theory & Methods: a methods paragraph generated from the
+ * model that is loaded.
+ *
+ * Every number comes from the run — parameters, counts, variance shares, and
+ * any comparison the researcher has on screen. Nothing is filled in from a
+ * template, because a methods section that says something the run did not do is
+ * worse than no methods section.
+ */
+
+export type MethodsWriteUpInput = {
+  result: EnaRunResult | null;
+  mapping: EnaMapping;
+  options: Required<EnaRunOptions>;
+  groupBy: string;
+  minWeight: number;
+  comparisons: DimensionComparison[];
+};
+
+function list(values: string[]) {
+  if (values.length === 0) return "none";
+  if (values.length === 1) return values[0];
+  return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
+}
+
+function windowSentence(options: Required<EnaRunOptions>) {
+  if (options.window === "Conversation") {
+    return "Connections were accumulated across whole conversations (an infinite stanza window).";
+  }
+  const forward = options.windowSizeForward > 0 ? ` and ${options.windowSizeForward} forward` : "";
+  return `Connections were accumulated in a moving stanza window of ${options.windowSizeBack} line${options.windowSizeBack === 1 ? "" : "s"} back${forward}.`;
+}
+
+function formatP(value: number) {
+  if (!Number.isFinite(value)) return "p not available";
+  return value < 0.001 ? "p < .001" : `p = ${value.toFixed(3)}`;
+}
+
+export function buildEnaMethodsWriteUp({
+  result,
+  mapping,
+  options,
+  groupBy,
+  minWeight,
+  comparisons
+}: MethodsWriteUpInput) {
+  if (!result) {
+    return "Run the model to generate a methods write-up describing this analysis.";
+  }
+
+  const { summary, set } = result;
+  const dimensions = summary.dimensions;
+  const shares = dimensions
+    .map((dimension) => `${dimension} ${((set.variance[dimension] ?? 0) * 100).toFixed(1)}%`)
+    .join(", ");
+
+  const paragraphs: string[] = [];
+
+  paragraphs.push(
+    `Epistemic Network Analysis was applied to ${summary.rows} coded line${summary.rows === 1 ? "" : "s"} using jena-js, a JavaScript implementation of the rENA model. Units of analysis were defined by ${list(mapping.units)}; conversations were bounded by ${list(mapping.conversation)}; and ${mapping.codes.length} code${mapping.codes.length === 1 ? "" : "s"} were included (${list(mapping.codes)}). This yielded ${summary.units} unit${summary.units === 1 ? "" : "s"} of analysis.`
+  );
+
+  paragraphs.push(
+    `${windowSentence(options)} Connection strengths were ${options.weightBy === "binary" ? "binarized, so a connection counts once per window regardless of how often it recurs" : "summed, so repeated co-occurrences within a window accumulate"}. The ${options.model} model was used, and node positions were fitted with the ${options.nodePositionMethod} method. The resulting space was rotated with a singular value decomposition and ${options.dimensions} dimension${options.dimensions === 1 ? "" : "s"} retained; the displayed dimensions explain ${shares} of the variance in the space.`
+  );
+
+  const fitSentence =
+    minWeight > 0
+      ? ` Connections with a mean weight at or below ${minWeight.toFixed(3)} were suppressed from the network graph; this affects the drawn network only, not the projection or node positions.`
+      : "";
+  const groupSentence = groupBy
+    ? ` Units were grouped by ${groupBy}, and a mean network and mean point were plotted for each group.`
+    : "";
+  if (fitSentence || groupSentence) paragraphs.push(`${groupSentence}${fitSentence}`.trim());
+
+  if (comparisons.length > 0) {
+    const [first] = comparisons;
+    const perDimension = comparisons
+      .map((row) => {
+        if (row.parametric.degenerate) {
+          return `${row.dimension} could not be tested (${row.left.n} and ${row.right.n} observations)`;
+        }
+        const exactness =
+          row.nonParametric.method === "exact" ? "exact" : "normal-approximation";
+        return `on ${row.dimension}, ${row.left.group} (M = ${row.left.mean.toFixed(2)}, SD = ${row.left.sd.toFixed(2)}) against ${row.right.group} (M = ${row.right.mean.toFixed(2)}, SD = ${row.right.sd.toFixed(2)}) gave t(${row.parametric.df.toFixed(1)}) = ${row.parametric.t.toFixed(2)}, ${formatP(row.parametric.p)}, d = ${row.parametric.cohensD.toFixed(2)}, with a Mann-Whitney U of ${row.nonParametric.u.toFixed(1)}, ${formatP(row.nonParametric.p)} (${exactness})`;
+      })
+      .join("; ");
+
+    paragraphs.push(
+      `Groups were compared on the projected coordinates, one observation per unit, with two-sided tests: ${perDimension}. Both a parametric (Welch) and a rank-based test are reported because ${first.left.n} and ${first.right.n} observations are too few to rely on normality.`
+    );
+  }
+
+  paragraphs.push(
+    `The analysis ran through the ${summary.runtime === "worker" ? "in-browser worker" : "server API"} in ${summary.elapsedMs}ms.`
+  );
+
+  return paragraphs.join("\n\n");
+}

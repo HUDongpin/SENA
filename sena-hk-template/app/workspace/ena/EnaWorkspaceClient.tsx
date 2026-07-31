@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createENAWorkerClient, type ENAWorkerClient, type ENAWorkerProgress, type ENAWorkerRunHandle } from "jena-js/browser";
 import {
   AlertCircle,
@@ -9,6 +9,7 @@ import {
   Boxes,
   CheckCircle2,
   ChevronDown,
+  Copy,
   Download,
   FileUp,
   Loader2,
@@ -24,12 +25,30 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
+import { enaCorrelations } from "jena-js";
 import { EnaPlot, clampPlotZoom } from "@/components/ena/EnaPlot";
 import { cn } from "@/lib/utils";
 import { parseCsv, rowsToCsv, type ParsedCsv } from "@/lib/ena/csv";
-import { buildEnaRunResult } from "@/lib/ena/results";
+import { compareGroups, comparisonGroups } from "@/lib/ena/comparison";
+import { buildEnaMethodsWriteUp } from "@/lib/ena/methods-write-up";
+import {
+  applyEnaPlotModelDisplay,
+  defaultEnaPlotDisplay,
+  enaPlotDisplayVariance,
+  enaPlotInkDisplay,
+  enaPlotScaleRange,
+  type EnaPlotDisplay
+} from "@/lib/ena/plot-display";
+import { buildEnaPlotModel, buildEnaRunResult } from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
-import type { EnaMapping, EnaRunOptions, EnaRunRequest, EnaRunResult, EnaRuntime } from "@/lib/ena/types";
+import type {
+  EnaMapping,
+  EnaPlotComposition,
+  EnaRunOptions,
+  EnaRunRequest,
+  EnaRunResult,
+  EnaRuntime
+} from "@/lib/ena/types";
 import {
   defaultEnaOptions,
   inferEnaMapping,
@@ -49,6 +68,16 @@ type ColumnRole = keyof EnaMapping;
 // Tools), and results (Stats) — the shell pattern captured in
 // ena-official-website-design.skill.md.
 type WorkspaceMode = "sets" | "model" | "plot" | "stats";
+
+// webENA's Stats sub-navigation.
+type StatsTab = "comparison" | "fit" | "variance" | "methods";
+
+const statsTabs: Array<{ id: StatsTab; label: string }> = [
+  { id: "comparison", label: "Compare" },
+  { id: "fit", label: "Fit" },
+  { id: "variance", label: "Variance" },
+  { id: "methods", label: "Methods" }
+];
 
 const workspaceModes: Array<{ id: WorkspaceMode; label: string; icon: React.ElementType }> = [
   { id: "sets", label: "Sets", icon: Boxes },
@@ -91,6 +120,26 @@ function displayValue(value: unknown) {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return Number.isInteger(value) ? value.toString() : value.toFixed(4);
   return String(value);
+}
+
+/** A statistic, or an em dash where it is undefined — never a stray NaN. */
+function formatStat(value: number, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits) : "—";
+}
+
+/** p-values below the third decimal read as a bound, the way papers report them. */
+function formatP(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  return value < 0.001 ? "< .001" : `= ${value.toFixed(3)}`;
+}
+
+function StatLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-baseline justify-between gap-2">
+      <dt className="shrink-0 font-semibold text-muted">{label}</dt>
+      <dd className="min-w-0 truncate text-right font-bold tabular-nums text-foreground/85">{value}</dd>
+    </div>
+  );
 }
 
 function downloadText(filename: string, text: string, mimeType: string) {
@@ -203,6 +252,149 @@ function NativeSelect({
   );
 }
 
+// Compact row switch — webENA's Plot Tools are switches and sliders in a
+// 325px column, not cards with explanatory copy.
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex min-w-0 cursor-pointer items-center justify-between gap-3 py-1.5",
+        disabled && "cursor-not-allowed opacity-45"
+      )}
+      title={hint}
+    >
+      <span className="min-w-0 truncate text-xs font-bold text-foreground/85">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        className="h-4 w-4 shrink-0 cursor-pointer accent-[#56b09d]"
+      />
+    </label>
+  );
+}
+
+// Compact slider with its value shown — "scale units", "scale for edge
+// weights", "minimum edge weight".
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  disabled,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format?: (value: number) => string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className={cn("grid min-w-0 gap-1 py-1.5", disabled && "opacity-45")}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="min-w-0 truncate text-xs font-bold text-foreground/85">{label}</span>
+        <span className="shrink-0 text-[11px] font-black tabular-nums text-muted">
+          {(format ?? ((next: number) => next.toFixed(2)))(value)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+        className="h-1.5 w-full min-w-0 cursor-pointer accent-[#56b09d]"
+      />
+    </div>
+  );
+}
+
+// Free-text axis rename. Empty falls back to the rotation's own dimension name.
+function TextInput({
+  label,
+  value,
+  placeholder,
+  onChange
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <FieldLabel>{label}</FieldLabel>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        className="h-9 w-full min-w-0 rounded border border-cardBorder/55 bg-background/55 px-2.5 text-xs font-semibold text-foreground outline-none placeholder:text-muted/70 focus:border-cyanGlow"
+      />
+    </div>
+  );
+}
+
+// Secondary tabs inside the panel — webENA's Model and Stats sub-navigation.
+function PanelTabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+  testId
+}: {
+  tabs: Array<{ id: T; label: string }>;
+  active: T;
+  onChange: (id: T) => void;
+  testId?: string;
+}) {
+  return (
+    <div className="flex min-w-0 gap-0.5 rounded border border-cardBorder/50 bg-background/40 p-0.5" data-testid={testId}>
+      {tabs.map((tab) => {
+        const isActive = tab.id === active;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onChange(tab.id)}
+            aria-pressed={isActive}
+            data-panel-tab={tab.id}
+            data-active={isActive ? "true" : "false"}
+            className={cn(
+              // Not uppercase: four labels in a 325px panel only fit at their
+              // natural width, and truncated tabs are worse than plain ones.
+              "min-w-0 flex-1 truncate rounded px-1.5 py-1.5 text-[11px] font-black transition",
+              isActive ? "text-white" : "text-muted hover:text-foreground"
+            )}
+            style={isActive ? { backgroundColor: TEAL } : undefined}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function NumberInput({
   label,
   value,
@@ -308,6 +500,46 @@ function ColumnChips({
   );
 }
 
+// Width of the element itself, not the viewport: the Data View drawer is a
+// column inside the workbench, so a media query says nothing useful about how
+// much room a table actually has.
+function useElementWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    const measure = () => setWidth(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    measure();
+
+    // A ResizeObserver only delivers through the rendering loop, which a
+    // backgrounded tab does not run: resize a hidden window and the table
+    // stays in whichever layout it was last measured for. Re-measuring on
+    // resize and when the tab comes back catches exactly that case.
+    window.addEventListener("resize", measure);
+    document.addEventListener("visibilitychange", measure);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+      document.removeEventListener("visibilitychange", measure);
+    };
+  }, []);
+
+  return [ref, width] as const;
+}
+
+// Narrowest a column can be and still read: below this the grid is swapped for
+// stacked records rather than left to scroll sideways.
+const minimumReadableColumnWidth = 88;
+
 function DataTable({
   rows,
   maxRows = 7,
@@ -317,6 +549,8 @@ function DataTable({
   maxRows?: number;
   maxColumns?: number;
 }) {
+  const [wrapperRef, wrapperWidth] = useElementWidth<HTMLDivElement>();
+
   const headers = useMemo(() => {
     const all = Array.from(rows.reduce((set, row) => {
       Object.keys(row).forEach((key) => set.add(key));
@@ -325,46 +559,70 @@ function DataTable({
     return all.slice(0, maxColumns);
   }, [rows, maxColumns]);
 
+  // A 9-column grid cannot fit a phone or a half-width drawer column. Rather
+  // than hand the reader a sideways scrollbar, each row becomes a stacked
+  // field/value record — same data, read downward.
+  const stacked = wrapperWidth > 0 && wrapperWidth < headers.length * minimumReadableColumnWidth;
+  const visibleRows = rows.slice(0, maxRows);
+
   if (rows.length === 0) {
     return <div className="rounded-lg border border-cardBorder/45 bg-background/35 p-4 text-sm text-muted">No rows.</div>;
   }
 
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-lg border border-cardBorder/45">
-      {/*
-        The scroll region owns its own horizontal scrolling: `w-full` on the
-        wrapper keeps a wide table from widening its parent, so the panel (or
-        drawer) around it never grows a second, page-length scrollbar. It is
-        focusable so the columns can also be reached with the arrow keys
-        instead of only by dragging the bar.
-      */}
-      <div
-        className="min-w-0 overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyanGlow/60"
-        tabIndex={0}
-        role="region"
-        aria-label="Data table — scroll sideways for more columns"
-      >
-        <table className="min-w-full border-collapse text-left text-xs">
-          <thead className="bg-background/65 text-muted">
-            <tr>
-              {headers.map((header) => (
-                <th key={header} className="whitespace-nowrap border-b border-cardBorder/35 px-3 py-2 font-black">{header}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, maxRows).map((row, rowIndex) => (
-              <tr key={rowIndex} className="odd:bg-card/20">
+    <div ref={wrapperRef} className="w-full min-w-0 overflow-hidden rounded-lg border border-cardBorder/45">
+      {stacked ? (
+        <ul className="divide-y divide-cardBorder/25">
+          {visibleRows.map((row, rowIndex) => (
+            <li key={rowIndex} className="min-w-0 px-3 py-2.5 odd:bg-card/20">
+              <p className="mb-1 text-[10px] font-black uppercase tracking-[0.12em] text-muted/75">Row {rowIndex + 1}</p>
+              <dl className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
                 {headers.map((header) => (
-                  <td key={header} className="max-w-36 truncate border-b border-cardBorder/20 px-3 py-2 text-foreground/78">
-                    {displayValue(row[header])}
-                  </td>
+                  <Fragment key={header}>
+                    <dt className="truncate font-bold text-muted">{header}</dt>
+                    <dd className="truncate font-semibold text-foreground/78">{displayValue(row[header]) || "—"}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        /*
+          The scroll region owns its own horizontal scrolling: `w-full` on the
+          wrapper keeps a wide table from widening its parent, so the panel (or
+          drawer) around it never grows a second, page-length scrollbar. It is
+          focusable so the columns can also be reached with the arrow keys
+          instead of only by dragging the bar.
+        */
+        <div
+          className="min-w-0 overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyanGlow/60"
+          tabIndex={0}
+          role="region"
+          aria-label="Data table — scroll sideways for more columns"
+        >
+          <table className="min-w-full border-collapse text-left text-xs">
+            <thead className="bg-background/65 text-muted">
+              <tr>
+                {headers.map((header) => (
+                  <th key={header} className="whitespace-nowrap border-b border-cardBorder/35 px-3 py-2 font-black">{header}</th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {visibleRows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="odd:bg-card/20">
+                  {headers.map((header) => (
+                    <td key={header} className="max-w-36 truncate border-b border-cardBorder/20 px-3 py-2 text-foreground/78">
+                      {displayValue(row[header])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {(rows.length > maxRows || headers.length < Object.keys(rows[0] ?? {}).length) && (
         <div className="bg-background/45 px-3 py-2 text-xs font-semibold text-muted">
           Showing {Math.min(rows.length, maxRows)} of {rows.length} rows.
@@ -444,7 +702,12 @@ export function EnaWorkspaceClient() {
   const [options, setOptions] = useState<Required<EnaRunOptions>>(defaultEnaOptions);
   const [runtime, setRuntime] = useState<EnaRuntime>("worker");
   const [groupBy, setGroupBy] = useState<string>("");
+  const [minWeight, setMinWeight] = useState(0);
   const [mode, setMode] = useState<WorkspaceMode>("model");
+  const [display, setDisplay] = useState<EnaPlotDisplay>(defaultEnaPlotDisplay);
+  const [statsTab, setStatsTab] = useState<StatsTab>("comparison");
+  const [comparison, setComparison] = useState<{ left: string; right: string }>({ left: "", right: "" });
+  const [methodsCopied, setMethodsCopied] = useState(false);
   const [dataViewOpen, setDataViewOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [result, setResult] = useState<EnaRunResult | null>(null);
@@ -473,17 +736,114 @@ export function EnaWorkspaceClient() {
     };
   }, []);
 
+  function updateDisplay(next: Partial<EnaPlotDisplay>) {
+    setDisplay((current) => ({ ...current, ...next }));
+  }
+
   // Group-by only draws traces, so it must stay out of the mapping and options
   // that define the ENA model: changing it must never change the projection.
   const groupByOptions = useMemo(() => mapping.metadata ?? [], [mapping.metadata]);
   const activeGroupBy = groupByOptions.includes(groupBy) ? groupBy : "";
 
+  // --- Plot Tools: the model the renderer actually gets -----------------------
+  //
+  // Composition (group traces, minimum edge weight) is rebuilt from the set
+  // that has already been computed, not by re-running the analysis: it only
+  // selects which traces are added, so it costs nothing and can follow the
+  // controls immediately. Before this, changing Group By or the minimum edge
+  // weight did nothing at all until the next Run.
+  const composedPlotModel = useMemo(() => {
+    if (!result) return null;
+    const composition: EnaPlotComposition = {
+      ...(activeGroupBy ? { groupBy: activeGroupBy } : {}),
+      ...(minWeight > 0 ? { minWeight } : {})
+    };
+    return buildEnaPlotModel(result.set, composition);
+  }, [result, activeGroupBy, minWeight]);
+
+  const displayedPlotModel = useMemo(
+    () => (composedPlotModel ? applyEnaPlotModelDisplay(composedPlotModel, display) : null),
+    [composedPlotModel, display]
+  );
+  const displayedVariance = useMemo(
+    () => (composedPlotModel ? enaPlotDisplayVariance(composedPlotModel, result?.set.variance, display) : undefined),
+    [composedPlotModel, result, display]
+  );
+  const displayedInk = useMemo(() => enaPlotInkDisplay(display), [display]);
+
+  // --- Stats -----------------------------------------------------------------
+  const comparisonGroupOptions = useMemo(
+    () => (result && activeGroupBy ? comparisonGroups(result.set, activeGroupBy) : []),
+    [result, activeGroupBy]
+  );
+
+  // Selections survive as long as they name groups that still exist; otherwise
+  // fall back to the first two, so switching datasets cannot leave the panel
+  // comparing something that is no longer there.
+  const activeComparison = useMemo(() => {
+    const has = (value: string) => comparisonGroupOptions.includes(value);
+    return {
+      left: has(comparison.left) ? comparison.left : comparisonGroupOptions[0] ?? "",
+      right: has(comparison.right) ? comparison.right : comparisonGroupOptions[1] ?? ""
+    };
+  }, [comparison, comparisonGroupOptions]);
+
+  const comparisonResults = useMemo(() => {
+    if (!result || !activeGroupBy) return [];
+    if (!activeComparison.left || !activeComparison.right) return [];
+    if (activeComparison.left === activeComparison.right) return [];
+    return compareGroups(
+      result.set,
+      activeGroupBy,
+      result.summary.dimensions,
+      activeComparison.left,
+      activeComparison.right
+    );
+  }, [result, activeGroupBy, activeComparison]);
+
+  const goodnessOfFit = useMemo(() => {
+    if (!result) return [];
+    try {
+      return enaCorrelations(result.set, result.summary.dimensions);
+    } catch {
+      // A degenerate set (one unit, or a dimension with no spread) has no
+      // correlation to report; an empty table says that better than a crash.
+      return [];
+    }
+  }, [result]);
+
+  const methodsWriteUp = useMemo(
+    () =>
+      buildEnaMethodsWriteUp({
+        result,
+        mapping,
+        options,
+        groupBy: activeGroupBy,
+        minWeight,
+        comparisons: comparisonResults
+      }),
+    [result, mapping, options, activeGroupBy, minWeight, comparisonResults]
+  );
+
+  async function copyMethodsWriteUp() {
+    try {
+      await navigator.clipboard.writeText(methodsWriteUp);
+      setMethodsCopied(true);
+      window.setTimeout(() => setMethodsCopied(false), 2000);
+    } catch {
+      setError("Could not copy to the clipboard. Select the text and copy it manually.");
+    }
+  }
+
   const request = useMemo<EnaRunRequest>(() => ({
     rows: parsed.rows,
     mapping,
     options,
-    composition: activeGroupBy ? { groupBy: activeGroupBy } : undefined
-  }), [activeGroupBy, mapping, options, parsed.rows]);
+    composition:
+      activeGroupBy || minWeight > 0
+        ? { ...(activeGroupBy ? { groupBy: activeGroupBy } : {}), ...(minWeight > 0 ? { minWeight } : {}) }
+        : undefined
+  }), [activeGroupBy, mapping, minWeight, options, parsed.rows]);
 
   const validationMessage = useMemo(() => {
     try {
@@ -771,9 +1131,64 @@ export function EnaWorkspaceClient() {
             </div>
           )}
 
+          {/*
+            Plot Tools, in webENA's three groups: Dimensions, Plotted Points,
+            Network Graph. Everything here is presentation — it transforms the
+            plot model or the ink, never the ENA model — except the minimum edge
+            weight, which is part of how the network is composed and so re-runs
+            through the plot composition.
+          */}
           {mode === "plot" && (
             <div className="grid min-w-0 gap-4">
-              <div>
+              <div className="min-w-0">
+                <SectionHeading>Dimensions</SectionHeading>
+                <div className="grid min-w-0 gap-2">
+                  <TextInput
+                    label="X axis label"
+                    value={display.axisTitleX}
+                    placeholder={result?.plotModel.dimensions[0] ?? "SVD1"}
+                    onChange={(axisTitleX) => updateDisplay({ axisTitleX })}
+                  />
+                  <TextInput
+                    label="Y axis label"
+                    value={display.axisTitleY}
+                    placeholder={result?.plotModel.dimensions[1] ?? "SVD2"}
+                    onChange={(axisTitleY) => updateDisplay({ axisTitleY })}
+                  />
+                </div>
+                <div className="mt-2 divide-y divide-cardBorder/25">
+                  <ToggleRow
+                    label="Dimension labels"
+                    hint="Print the axis titles"
+                    checked={display.showAxisTitles}
+                    onChange={(showAxisTitles) => updateDisplay({ showAxisTitles })}
+                  />
+                  <ToggleRow
+                    label="Variance explained"
+                    hint="Append each dimension's share to its axis title"
+                    checked={display.showVariance}
+                    disabled={!display.showAxisTitles}
+                    onChange={(showVariance) => updateDisplay({ showVariance })}
+                  />
+                  <ToggleRow
+                    label="Flip X"
+                    hint="Mirror the X axis about the origin"
+                    checked={display.flipX}
+                    onChange={(flipX) => updateDisplay({ flipX })}
+                  />
+                  <ToggleRow
+                    label="Flip Y"
+                    hint="Mirror the Y axis about the origin"
+                    checked={display.flipY}
+                    onChange={(flipY) => updateDisplay({ flipY })}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] font-semibold leading-5 text-muted">
+                  Flipping mirrors the space about the origin — a rotation&apos;s sign is arbitrary, so this only changes how the plot reads.
+                </p>
+              </div>
+
+              <div className="min-w-0 border-t border-cardBorder/40 pt-4">
                 <SectionHeading>Plotted Points</SectionHeading>
                 <NativeSelect label="Group By" value={activeGroupBy} onChange={setGroupBy}>
                   <option value="">None</option>
@@ -783,50 +1198,262 @@ export function EnaWorkspaceClient() {
                   Adds a mean point per value and colours trajectories. Draws traces only — the projection is unchanged.
                   {groupByOptions.length === 0 && " Map a metadata column (Model tab) to enable it."}
                 </p>
+                <div className="mt-2 divide-y divide-cardBorder/25">
+                  <SliderRow
+                    label="Scale units"
+                    value={display.unitScale}
+                    min={enaPlotScaleRange.min}
+                    max={enaPlotScaleRange.max}
+                    step={0.1}
+                    format={(value) => `${value.toFixed(1)}x`}
+                    onChange={(unitScale) => updateDisplay({ unitScale })}
+                  />
+                  <ToggleRow
+                    label="Unit labels"
+                    hint="Label unit points — suppressed anyway on a crowded plot"
+                    checked={display.showUnitLabels}
+                    onChange={(showUnitLabels) => updateDisplay({ showUnitLabels })}
+                  />
+                  <ToggleRow
+                    label="Group labels"
+                    hint="Label the group mean points"
+                    checked={display.showGroupLabels}
+                    disabled={!activeGroupBy}
+                    onChange={(showGroupLabels) => updateDisplay({ showGroupLabels })}
+                  />
+                </div>
               </div>
-              <div className="border-t border-cardBorder/40 pt-4">
+
+              <div className="min-w-0 border-t border-cardBorder/40 pt-4">
                 <SectionHeading>Network Graph</SectionHeading>
                 <p className="text-[11px] font-semibold leading-5 text-muted">
-                  Nodes are sized by connectivity and edges by mean connection weight, following rENA&apos;s <code className="rounded bg-background/60 px-1">ena.plot.network</code> grammar. Axis titles carry variance explained.
+                  Nodes are sized by connectivity and edges by mean connection weight, following rENA&apos;s <code className="rounded bg-background/60 px-1">ena.plot.network</code> grammar.
                 </p>
+                <div className="mt-2 divide-y divide-cardBorder/25">
+                  <ToggleRow
+                    label="Code labels"
+                    hint="Label the network nodes"
+                    checked={display.showCodeLabels}
+                    onChange={(showCodeLabels) => updateDisplay({ showCodeLabels })}
+                  />
+                  <ToggleRow
+                    label="Show unconnected codes"
+                    hint="Keep codes that have no connection left above the minimum weight"
+                    checked={display.showUnconnectedCodes}
+                    onChange={(showUnconnectedCodes) => updateDisplay({ showUnconnectedCodes })}
+                  />
+                  <ToggleRow
+                    label="Connection weights"
+                    hint="Print each drawn edge's mean weight beside it"
+                    checked={display.showEdgeWeights}
+                    onChange={(showEdgeWeights) => updateDisplay({ showEdgeWeights })}
+                  />
+                  <SliderRow
+                    label="Scale edge weights"
+                    value={display.edgeWeightScale}
+                    min={enaPlotScaleRange.min}
+                    max={enaPlotScaleRange.max}
+                    step={0.1}
+                    format={(value) => `${value.toFixed(1)}x`}
+                    onChange={(edgeWeightScale) => updateDisplay({ edgeWeightScale })}
+                  />
+                </div>
+                {/*
+                  webENA's "minimum edge weight". SENA's workspace has always
+                  had this as a threshold slider; the ENA route was the side
+                  missing it. It filters which connections are drawn — the
+                  projection and node positions are unchanged.
+                */}
+                <label className="mt-3 grid gap-1.5" data-visual-role="ena-min-edge-weight">
+                  <span className="flex items-center justify-between text-[11px] font-bold text-muted">
+                    <span>Minimum edge weight</span>
+                    <span className="tabular-nums text-foreground">{minWeight.toFixed(3)}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.2}
+                    step={0.005}
+                    value={minWeight}
+                    onChange={(event) => setMinWeight(Number(event.currentTarget.value))}
+                    data-testid="ena-min-edge-weight-slider"
+                    className="w-full accent-[#56b09d]"
+                  />
+                  <span className="text-[11px] font-semibold leading-5 text-muted">
+                    Hides connections at or below this mean weight. Filters the drawn network only — node positions and the projection are unchanged.
+                  </span>
+                </label>
+              </div>
+
+              <div className="min-w-0 border-t border-cardBorder/40 pt-4">
+                <GhostButton
+                  onClick={() => setDisplay(defaultEnaPlotDisplay)}
+                  className="w-full justify-center px-2 py-1.5 text-xs"
+                  title="Return every plot tool to its default"
+                  data-visual-role="ena-plot-tools-reset"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Reset plot tools
+                </GhostButton>
               </div>
             </div>
           )}
 
+          {/*
+            Stats, in webENA's four tabs: Comparison, Goodness of Fit,
+            Variance, Theory & Methods. Every number here is computed from the
+            set that is on screen — jena-js's own correlations and descriptives,
+            plus the pairwise tests it does not carry.
+          */}
           {mode === "stats" && (
             <div className="grid min-w-0 gap-4">
-              {result ? (
-                <>
-                  <div>
-                    <SectionHeading>Variance</SectionHeading>
-                    {/*
-                      Read from set.variance, the same source the plot axes use.
-                      summary.variance renormalizes across the displayed
-                      dimensions only, so driving this panel from it put two
-                      different percentages for one dimension on screen at once
-                      — 62.6% here against 44.1% on the axis. summary.variance
-                      keeps its own convention and its fixture; the UI just stops
-                      mixing the two.
-                    */}
-                    <div className="grid gap-2">
-                      {result.summary.dimensions.map((dimension) => {
-                        const value = result.set.variance[dimension] ?? 0;
-                        return (
-                          <div key={dimension} className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-xs">
-                            <span className="font-black text-foreground">{dimension}</span>
-                            <span className="h-1.5 rounded-full bg-background/70">
-                              <span className="block h-1.5 rounded-full" style={{ width: `${Math.max(2, value * 100)}%`, backgroundColor: TEAL }} />
-                            </span>
-                            <span className="text-right font-bold text-muted">{(value * 100).toFixed(1)}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-[11px] font-semibold leading-5 text-muted">
-                      Share across all rotated dimensions, matching rENA and the plot axes.
+              <PanelTabs
+                tabs={statsTabs}
+                active={statsTab}
+                onChange={setStatsTab}
+                testId="ena-stats-tabs"
+              />
+
+              {!result ? (
+                <p className="text-xs font-semibold leading-6 text-muted">
+                  Run the model to see comparisons, goodness of fit, variance explained, and the methods write-up.
+                </p>
+              ) : statsTab === "comparison" ? (
+                <div className="grid min-w-0 gap-3">
+                  <SectionHeading className="mb-0">Comparison</SectionHeading>
+                  {comparisonGroupOptions.length < 2 ? (
+                    <p className="text-[11px] font-semibold leading-5 text-muted">
+                      {activeGroupBy
+                        ? `“${activeGroupBy}” has fewer than two groups in this model.`
+                        : "Choose a grouping column under Plot Tools > Group By, then compare two of its groups here."}
                     </p>
+                  ) : (
+                    <>
+                      <div className="grid min-w-0 grid-cols-2 gap-2">
+                        <NativeSelect
+                          label="Group A"
+                          value={activeComparison.left}
+                          onChange={(left) => setComparison((current) => ({ ...current, left }))}
+                        >
+                          {comparisonGroupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+                        </NativeSelect>
+                        <NativeSelect
+                          label="Group B"
+                          value={activeComparison.right}
+                          onChange={(right) => setComparison((current) => ({ ...current, right }))}
+                        >
+                          {comparisonGroupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+                        </NativeSelect>
+                      </div>
+
+                      {activeComparison.left === activeComparison.right ? (
+                        <p className="text-[11px] font-semibold leading-5 text-muted">Pick two different groups.</p>
+                      ) : (
+                        <div className="grid min-w-0 gap-3" data-visual-role="ena-stats-comparison">
+                          {comparisonResults.map((row) => (
+                            <div key={row.dimension} className="min-w-0 rounded-lg border border-cardBorder/45">
+                              <div className="flex items-baseline justify-between gap-2 border-b border-cardBorder/35 bg-background/45 px-3 py-2">
+                                <span className="truncate text-xs font-black text-foreground">{row.dimension}</span>
+                                <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.1em] text-muted">
+                                  n {row.left.n} v {row.right.n}
+                                </span>
+                              </div>
+                              <dl className="grid gap-1.5 px-3 py-2 text-[11px]">
+                                <StatLine
+                                  label={`${row.left.group} mean`}
+                                  value={`${formatStat(row.left.mean)} ± ${formatStat(row.left.sd)}`}
+                                />
+                                <StatLine
+                                  label={`${row.right.group} mean`}
+                                  value={`${formatStat(row.right.mean)} ± ${formatStat(row.right.sd)}`}
+                                />
+                                <StatLine
+                                  label="Welch t"
+                                  value={
+                                    row.parametric.degenerate
+                                      ? "—"
+                                      : `t(${row.parametric.df.toFixed(1)}) = ${formatStat(row.parametric.t)}, p ${formatP(row.parametric.p)}`
+                                  }
+                                />
+                                <StatLine
+                                  label="Cohen's d"
+                                  value={row.parametric.degenerate ? "—" : formatStat(row.parametric.cohensD)}
+                                />
+                                <StatLine
+                                  label="Mann-Whitney"
+                                  value={
+                                    row.nonParametric.degenerate
+                                      ? "—"
+                                      : `U = ${formatStat(row.nonParametric.u, 1)}, p ${formatP(row.nonParametric.p)}`
+                                  }
+                                />
+                                <StatLine
+                                  label="p from"
+                                  value={row.nonParametric.degenerate ? "—" : row.nonParametric.method === "exact" ? "exact distribution" : "normal approximation"}
+                                />
+                              </dl>
+                            </div>
+                          ))}
+                          <p className="text-[11px] font-semibold leading-5 text-muted">
+                            One observation per unit, taken from the plotted coordinates. Two-sided tests; the rank test uses the exact distribution when the samples are small and untied.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : statsTab === "fit" ? (
+                <div className="grid min-w-0 gap-3" data-visual-role="ena-stats-goodness-of-fit">
+                  <SectionHeading className="mb-0">Goodness of Fit</SectionHeading>
+                  <div className="min-w-0 divide-y divide-cardBorder/25 rounded-lg border border-cardBorder/45">
+                    {goodnessOfFit.map((row) => (
+                      <div key={row.dimension} className="min-w-0 px-3 py-2">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-xs font-black text-foreground">{row.dimension}</span>
+                          <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.1em] text-muted/75">
+                            {row.pearson >= 0.9 ? "strong" : row.pearson >= 0.7 ? "adequate" : "weak"}
+                          </span>
+                        </div>
+                        <dl className="mt-1 grid gap-1 text-[11px]">
+                          <StatLine label="Pearson" value={`${formatStat(row.pearson, 3)} [${formatStat(row.pearsonLower, 3)}, ${formatStat(row.pearsonUpper, 3)}]`} />
+                          <StatLine label="Spearman" value={formatStat(row.spearman, 3)} />
+                        </dl>
+                      </div>
+                    ))}
                   </div>
-                  <div className="border-t border-cardBorder/40 pt-4">
+                  <p className="text-[11px] font-semibold leading-5 text-muted">
+                    Correlation between each unit&apos;s position in the high-dimensional space and its plotted position. Above 0.9 is the conventional bar for reporting a projection as a faithful summary.
+                  </p>
+                </div>
+              ) : statsTab === "variance" ? (
+                <div className="grid min-w-0 gap-3">
+                  <SectionHeading className="mb-0">Variance</SectionHeading>
+                  {/*
+                    Read from set.variance, the same source the plot axes use.
+                    summary.variance renormalizes across the displayed
+                    dimensions only, so driving this panel from it put two
+                    different percentages for one dimension on screen at once
+                    — 62.6% here against 44.1% on the axis. summary.variance
+                    keeps its own convention and its fixture; the UI just stops
+                    mixing the two.
+                  */}
+                  <div className="grid gap-2">
+                    {result.summary.dimensions.map((dimension) => {
+                      const value = result.set.variance[dimension] ?? 0;
+                      return (
+                        <div key={dimension} className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-xs">
+                          <span className="truncate font-black text-foreground">{dimension}</span>
+                          <span className="h-1.5 rounded-full bg-background/70">
+                            <span className="block h-1.5 rounded-full" style={{ width: `${Math.max(2, value * 100)}%`, backgroundColor: TEAL }} />
+                          </span>
+                          <span className="text-right font-bold text-muted">{(value * 100).toFixed(1)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] font-semibold leading-5 text-muted">
+                    Share across all rotated dimensions, matching rENA and the plot axes.
+                  </p>
+                  <div className="border-t border-cardBorder/40 pt-3">
                     <SectionHeading>Model</SectionHeading>
                     <dl className="grid grid-cols-2 gap-2 text-xs">
                       {[
@@ -836,16 +1463,35 @@ export function EnaWorkspaceClient() {
                         ["Runtime", `${result.summary.elapsedMs}ms`],
                         ["Path", result.summary.runtime]
                       ].map(([label, value]) => (
-                        <Card key={String(label)} className="flex items-center justify-between px-3 py-2">
-                          <dt className="font-semibold text-muted">{label}</dt>
-                          <dd className="font-black text-foreground">{value}</dd>
+                        <Card key={String(label)} className="flex min-w-0 items-center justify-between px-3 py-2">
+                          <dt className="truncate font-semibold text-muted">{label}</dt>
+                          <dd className="truncate font-black text-foreground">{value}</dd>
                         </Card>
                       ))}
                     </dl>
                   </div>
-                </>
+                </div>
               ) : (
-                <p className="text-xs font-semibold leading-6 text-muted">Run the model to see variance explained and goodness-of-fit statistics.</p>
+                <div className="grid min-w-0 gap-3" data-visual-role="ena-stats-methods">
+                  <div className="flex items-center justify-between gap-2">
+                    <SectionHeading className="mb-0">Theory &amp; Methods</SectionHeading>
+                    <GhostButton
+                      onClick={copyMethodsWriteUp}
+                      className="px-2 py-1 text-[11px]"
+                      title="Copy the write-up to the clipboard"
+                      data-visual-role="ena-copy-methods"
+                    >
+                      {methodsCopied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {methodsCopied ? "Copied" : "Copy"}
+                    </GhostButton>
+                  </div>
+                  <p className="whitespace-pre-line rounded-lg border border-cardBorder/45 bg-background/35 px-3 py-2.5 text-[11px] font-semibold leading-5 text-foreground/80">
+                    {methodsWriteUp}
+                  </p>
+                  <p className="text-[11px] font-semibold leading-5 text-muted">
+                    Generated from the model that is loaded, not a template — the parameters, counts, and shares are this run&apos;s.
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -973,8 +1619,14 @@ export function EnaWorkspaceClient() {
             main-area width. Zoom magnifies within this fixed panel. */}
         <div className="relative min-h-[24rem] flex-1 p-4">
           <div className="mx-auto flex h-full max-h-[34rem] min-h-[22rem] w-full max-w-2xl items-center justify-center overflow-hidden rounded-lg border border-cardBorder/50 bg-card p-2">
-            {result ? (
-              <EnaPlot model={result.plotModel} variance={result.set.variance} zoom={zoom} className="h-full w-full" />
+            {result && displayedPlotModel ? (
+              <EnaPlot
+                model={displayedPlotModel}
+                variance={displayedVariance}
+                ink={displayedInk}
+                zoom={zoom}
+                className="h-full w-full"
+              />
             ) : (
               <div className="max-w-sm px-6 py-10 text-center">
                 <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full border border-cardBorder/60 text-muted">
