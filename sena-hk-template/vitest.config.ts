@@ -9,6 +9,11 @@ export default defineConfig({
     }
   },
   test: {
+    // Agent worktrees are checked out inside the repo, and their copies of the
+    // source-contract suites read files through process.cwd() — so running them
+    // from here asserts another branch's expectations against this tree's
+    // sources. Keep a run scoped to the tree it was started in.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**", "**/.worktrees/**"],
     // Several enterprise suites (e.g. enterprise-capability-audit) reload the
     // full enterprise module graph per test under vi.resetModules(). That work
     // occasionally exceeds Vitest's 5s default on a loaded machine, producing a
