@@ -74,6 +74,33 @@ in |weight|"), which is now stated as monotonicity only. Anyone producing a figu
 pair for publication must read `data-edge-weight`, not stroke width. A "comparable
 scale" toggle was considered and deferred.
 
+#### Exception: degenerate weight spans use the absolute law
+
+A plot-relative scale needs two different weights to be relative *to*. When every
+drawn edge carries the same weight — one edge, or several that tie exactly — the
+min-max map has no ordering to encode and sends all of them to the **top** of the
+range. A lone connection of |w| = 0.001 would render as thick as one of |w| = 5:
+an eightfold overstatement, in the direction of claiming more than the data
+supports.
+
+That case is reachable from the shipped UI. `temporal-window-builder.tsx` allows
+turn radius from **0** and moving-window size from **1**, and on the bundled
+lesson-study sample a turn radius of 0 makes **10 of 10** turn windows degenerate,
+several drawing a single edge. Stepping turn by turn through a lesson is exactly
+what turn windows are for. At default settings (size 3, radius 1) none of the 22
+windows is degenerate — the smallest weight span is 1.92e-1, nine orders of
+magnitude above the threshold — so this is a corner of the rule, not its normal
+operation.
+
+So when `max|w| - min|w| <= 1e-12`, edge width falls back to jena-js's absolute
+law, `max(1, |w| * 4)`, clamped into [1, 8]px, with opacity and saturation derived
+from the resulting width. This is the grammar the plot-relative rule deviates
+from, it encodes magnitude honestly, and cross-plot comparability is not weakened:
+a degenerate plot was never comparable to anything. Pinned by
+"degenerate edge weights fall back to jena-js's absolute law" in
+`lib/ena/__tests__/plot-parity.test.ts`, whose last case asserts the guard does
+**not** leak into plots that do have a spread.
+
 ### Consequences for node colour
 
 rENA fills nodes neutrally (`nodes$color = "black"`; SENA maps that to the theme

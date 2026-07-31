@@ -235,6 +235,40 @@ function rescale(value: number, from: readonly [number, number], to: readonly [n
   return to[0] + clamped * (to[1] - to[0]);
 }
 
+/** A weight span this small carries no within-plot ordering to encode. */
+const DEGENERATE_WEIGHT_SPAN = 1e-12;
+
+function clampToRange(value: number, range: readonly [number, number]) {
+  return Math.min(range[1], Math.max(range[0], value));
+}
+
+/**
+ * Stroke width when every drawn edge has the same weight — one edge, or several
+ * that tie exactly.
+ *
+ * The plot-relative rule (ADR 0008) maps the weakest edge to the bottom of
+ * RENA_EDGE_WIDTH_RANGE and the strongest to the top. With no spread there is no
+ * ordering to encode, and `rescale`'s degenerate guard returns fraction = 1, so
+ * every edge would be drawn at the *maximum* width regardless of magnitude: a
+ * lone connection of |w| = 0.001 rendered as thick as one of |w| = 5. That reads
+ * as the strongest possible link and is wrong in the overclaiming direction.
+ *
+ * This is not hypothetical. The temporal window builder exposes turn radius from
+ * 0 and moving-window size from 1, and on the bundled lesson-study sample a turn
+ * radius of 0 makes 10 of 10 turn windows degenerate — several drawing a single
+ * edge. Stepping turn by turn through a lesson is exactly what turn windows are
+ * for.
+ *
+ * So fall back to jena-js's absolute law, `max(1, |w| * 4)`, clamped into the
+ * same range. It is the grammar the plot-relative rule deviates from, it encodes
+ * magnitude honestly, and it is what /workspace/ena would have drawn before the
+ * relative scale existed. Cross-plot comparability is unaffected: a degenerate
+ * plot was never comparable to anything anyway.
+ */
+function degenerateEdgeWidth(weight: number) {
+  return clampToRange(networkEdgeStrokeWidth(Math.abs(weight)), RENA_EDGE_WIDTH_RANGE);
+}
+
 function hexToRgb(hex: string) {
   const clean = hex.replace("#", "");
   const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
@@ -311,13 +345,24 @@ export function styleRenaNetwork(
   }
   const maxConnectivity = Math.max(0, ...connectivityRaw.values());
 
+  // No spread between the weakest and strongest drawn edge — see
+  // degenerateEdgeWidth for why the relative scale cannot be used here.
+  const degenerateSpan = maxWeight - minWeight <= DEGENERATE_WEIGHT_SPAN;
+
   const edges: RenaStyledEdge[] = resolvedEdges.map((edge) => {
-    const intensity = rescale(Math.abs(edge.weight), [minWeight, maxWeight], [0, 1]);
+    // Width leads, and intensity follows it, so opacity and saturation stay
+    // consistent with the stroke in both branches.
+    const strokeWidth = degenerateSpan
+      ? degenerateEdgeWidth(edge.weight)
+      : rescale(Math.abs(edge.weight), [minWeight, maxWeight], RENA_EDGE_WIDTH_RANGE);
+    const intensity = degenerateSpan
+      ? rescale(strokeWidth, RENA_EDGE_WIDTH_RANGE, [0, 1])
+      : rescale(Math.abs(edge.weight), [minWeight, maxWeight], [0, 1]);
     return {
       ...edge,
       intensity,
-      strokeWidth: rescale(Math.abs(edge.weight), [minWeight, maxWeight], RENA_EDGE_WIDTH_RANGE),
-      opacity: rescale(Math.abs(edge.weight), [minWeight, maxWeight], RENA_EDGE_OPACITY_RANGE),
+      strokeWidth,
+      opacity: rescale(intensity, [0, 1], RENA_EDGE_OPACITY_RANGE),
       // rENA desaturates weak edges; keep a floor so hue stays legible.
       color: desaturate(baseColor, 0.35 + 0.65 * intensity)
     };

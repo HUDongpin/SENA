@@ -58,9 +58,13 @@ describe("SENA ENA network derived from the jENA manifest", () => {
     const network = buildSenaEnaNetwork(enaManifest);
     const sorted = [...network.edges].sort((left, right) => Math.abs(left.weight) - Math.abs(right.weight));
 
-    // SENA's layer-relative min-max scale rescaled every plot to its own
-    // extremes, so a weak network looked identical to a strong one. jena-js's
-    // law is absolute, which makes two ENA plots comparable.
+    // This pins `jenaStrokeWidth` — the absolute law carried on the network
+    // model, which SENA's old layer-relative scale had replaced outright.
+    // It is NOT the width that ships: the renderer uses styleRenaNetwork's
+    // plot-relative `strokeWidth`, and ADR 0008 states that two ENA plots are
+    // therefore not width-comparable (read `data-edge-weight` for that). The
+    // absolute law still governs the degenerate-span case — see "degenerate
+    // edge weights fall back to jena-js's absolute law" in plot-parity.test.ts.
     for (let index = 1; index < sorted.length; index += 1) {
       expect(sorted[index].jenaStrokeWidth).toBeGreaterThanOrEqual(sorted[index - 1].jenaStrokeWidth - 1e-12);
     }

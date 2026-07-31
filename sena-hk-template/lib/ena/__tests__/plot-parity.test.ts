@@ -292,6 +292,78 @@ describe("rENA network styling (ena.plot.network grammar)", () => {
   });
 });
 
+// A plot-relative scale needs two different weights to be relative *to*. With
+// one drawn edge — or several that tie exactly — there is no ordering, and the
+// min-max map would send every edge to the top of the range: a lone connection
+// of |w| = 0.001 drawn as thick as one of |w| = 5, which overstates it eightfold
+// in the direction of claiming more than the data supports.
+//
+// This is reachable from the shipped UI, not a synthetic corner. The temporal
+// window builder allows turn radius 0 and moving-window size 1, and at turn
+// radius 0 the bundled lesson-study sample makes all ten turn windows
+// degenerate, several of them drawing a single edge.
+describe("degenerate edge weights fall back to jena-js's absolute law", () => {
+  function degenerateNetwork(weights: number[]) {
+    const model = buildEnaPlotModel(sampleSet());
+    const network = model.traces.find((trace) => trace.type === "network")!.network!;
+    const edges = network.edges.slice(0, weights.length).map((edge, index) => ({
+      ...edge,
+      weight: weights[index]
+    }));
+    return styleRenaNetwork(model, { nodes: network.nodes, edges }, "#386CB0");
+  }
+
+  it("draws a lone weak edge thin, not at the maximum width", () => {
+    const styled = degenerateNetwork([0.001]);
+
+    expect(styled.edges).toHaveLength(1);
+    // jena-js: max(1, 0.001 * 4) = 1 — the floor, not the ceiling.
+    expect(styled.edges[0].strokeWidth).toBeCloseTo(RENA_EDGE_WIDTH_RANGE[0], 12);
+    expect(styled.edges[0].strokeWidth).toBeLessThan(RENA_EDGE_WIDTH_RANGE[1]);
+  });
+
+  it("scales a lone edge by its own magnitude", () => {
+    // jena-js's law is max(1, |w| * 4), clamped into [1, 8].
+    expect(degenerateNetwork([1]).edges[0].strokeWidth).toBeCloseTo(4, 12);
+    expect(degenerateNetwork([0.5774]).edges[0].strokeWidth).toBeCloseTo(2.3096, 4);
+    // Above the range the clamp holds, so the plot still fits its own scale.
+    expect(degenerateNetwork([5]).edges[0].strokeWidth).toBeCloseTo(RENA_EDGE_WIDTH_RANGE[1], 12);
+  });
+
+  it("treats exactly-tied weights the same as a single edge", () => {
+    const styled = degenerateNetwork([0.2887, 0.2887, 0.2887]);
+
+    expect(styled.edges).toHaveLength(3);
+    for (const edge of styled.edges) {
+      // jena-js: max(1, 0.2887 * 4) = 1.1548 — its own magnitude, not the
+      // ceiling the min-max map would have given all three.
+      expect(edge.strokeWidth).toBeCloseTo(1.1548, 4);
+      expect(edge.strokeWidth).toBeLessThan(RENA_EDGE_WIDTH_RANGE[1]);
+    }
+  });
+
+  it("keeps opacity and saturation consistent with the fallback width", () => {
+    const weak = degenerateNetwork([0.001]).edges[0];
+    const strong = degenerateNetwork([5]).edges[0];
+
+    expect(weak.opacity).toBeCloseTo(RENA_EDGE_OPACITY_RANGE[0], 12);
+    expect(strong.opacity).toBeCloseTo(RENA_EDGE_OPACITY_RANGE[1], 12);
+    expect(weak.opacity).toBeLessThan(strong.opacity);
+    expect(weak.intensity).toBeLessThan(strong.intensity);
+  });
+
+  it("leaves a plot with real spread on the plot-relative scale", () => {
+    // The guard must not leak into the normal path: with a spread present the
+    // weakest edge still maps to the bottom of the range and the strongest to
+    // the top, which is the ADR-0008 rule.
+    const styled = degenerateNetwork([0.1, 0.5, 2]);
+    const widths = styled.edges.map((edge) => edge.strokeWidth);
+
+    expect(Math.min(...widths)).toBeCloseTo(RENA_EDGE_WIDTH_RANGE[0], 12);
+    expect(Math.max(...widths)).toBeCloseTo(RENA_EDGE_WIDTH_RANGE[1], 12);
+  });
+});
+
 describe("SENA presentation extensions", () => {
   it("appends variance shares to axis titles without renaming the dimension", () => {
     expect(axisTitleWithVariance("SVD1", { SVD1: 0.509500694 })).toBe("SVD1 · 51.0%");
