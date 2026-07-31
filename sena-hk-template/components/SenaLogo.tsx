@@ -2,8 +2,8 @@ import { cn } from "@/lib/utils";
 
 export function SenaLogo({ compact = false, className }: { compact?: boolean; className?: string }) {
   return (
-    <div className={cn("flex items-center gap-3", className)} aria-label="SENA brand">
-      <div className="relative grid h-12 w-12 place-items-center rounded-full border border-cyanGlow/40 bg-card/70 shadow-glow backdrop-blur-xl">
+    <div className={cn("flex min-w-0 items-center gap-3", className)} aria-label="SENA brand">
+      <div className="relative grid h-12 w-12 shrink-0 place-items-center rounded-full border border-cyanGlow/40 bg-card/70 shadow-glow backdrop-blur-xl">
         <svg viewBox="0 0 64 64" className="h-10 w-10" aria-hidden="true">
           <defs>
             <linearGradient id="sena-logo-gradient" x1="6" x2="58" y1="10" y2="56" gradientUnits="userSpaceOnUse">
@@ -33,7 +33,7 @@ export function SenaLogo({ compact = false, className }: { compact?: boolean; cl
         </svg>
       </div>
       {!compact && (
-        <div className="leading-tight">
+        <div className="min-w-0 leading-tight">
           <div className="text-2xl font-black tracking-tight text-foreground">SENA</div>
           <div className="max-w-[17rem] text-xs font-semibold text-muted sm:text-sm">Social-Epistemic Nexus Analytics</div>
         </div>

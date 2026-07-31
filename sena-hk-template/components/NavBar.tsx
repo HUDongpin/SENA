@@ -184,7 +184,7 @@ export function NavBar() {
         className="mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-[2.25rem] border border-cardBorder/55 bg-card/58 px-4 py-3 shadow-soft backdrop-blur-2xl"
         aria-label="Primary navigation"
       >
-        <Link href="/" className="shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow">
+        <Link href="/" className="min-w-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow lg:shrink-0">
           <SenaLogo />
         </Link>
 
@@ -222,7 +222,7 @@ export function NavBar() {
 
         <button
           onClick={() => setOpen(true)}
-          className="grid h-12 w-12 place-items-center rounded-full border border-cardBorder/60 bg-card/70 text-foreground lg:hidden"
+          className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-cardBorder/60 bg-card/70 text-foreground lg:hidden"
           aria-label="Open navigation menu"
           aria-expanded={open}
         >
