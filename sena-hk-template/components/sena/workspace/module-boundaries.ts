@@ -43,6 +43,7 @@ import { EnterpriseTeamOperationsPanel } from "./enterprise-team-operations-pane
 import { EnterpriseUploadStoragePanel } from "./enterprise-upload-storage-panel";
 import { DualLensDashboard } from "./dual-lens-dashboard";
 import { EvidenceLedgerPanel, EvidenceLineageBadges } from "./evidence-ledger-panel";
+import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
 import { FusionLayerKey, RankedList } from "./fusion-layer-key";
 import {
@@ -599,6 +600,7 @@ export type SenaWorkspaceBoundaryModuleId =
   | "workspace-right-inspector-boundary-composition-prop-group"
   | "evidence-ledger-panel"
   | "dual-lens-dashboard"
+  | "ena-space-plot"
   | "fusion-canvas"
   | "fusion-plot-overlay"
   | "fusion-layer-key"
@@ -969,6 +971,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       "workspace-right-inspector-boundary-composition-prop-group",
       "evidence-ledger-panel",
       "dual-lens-dashboard",
+      "ena-space-plot",
       "fusion-canvas",
       "fusion-plot-overlay",
       "fusion-layer-key",
@@ -2560,13 +2563,13 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
     {
       id: "workspace-central-plot-deck-ena-space-panel",
       path: "./workspace-central-plot-deck-ena-space-panel",
-      role: "Focused render module for the central ENA Space plot view panel.",
+      role: "Focused render module for the central ENA Space plot view panel: canonical ENA surface, zoom, and the active plot-view toolbar.",
       runtimeExports: {
         CentralEnaSpaceViewPanel
       },
       containerResponsibilities: [
         "render the central ENA Space branch through CentralEnaSpaceViewPanel",
-        "keep ENA-space canvas and jENA runtime explanatory copy outside the shared central view-panels module"
+        "keep ENA-space plot composition and jENA runtime explanatory copy outside the shared central view-panels module"
       ]
     },
     {
@@ -3518,9 +3521,26 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       ]
     },
     {
+      id: "ena-space-plot",
+      path: "./ena-space-plot",
+      role: "Canonical ENA Space surface: jENA manifest to ENAPlotModel, the shared <EnaPlot> renderer, and SENA's additive overlay with its toggles.",
+      runtimeExports: {
+        SenaEnaSpacePlot
+      },
+      testIds: [
+        "sena-ena-space-plot",
+        "sena-ena-space-overlay-controls",
+        "sena-ena-space-plot-empty"
+      ],
+      containerResponsibilities: [
+        "render SenaEnaSpacePlot wherever node positions are jENA projected coordinates — the ENA Space view and the ENA-space layout of the Fusion view",
+        "keep the ENA plot model adapter, overlay construction, and overlay toggle state out of the Fusion Canvas and the main workspace container"
+      ]
+    },
+    {
       id: "fusion-canvas",
       path: "./fusion-canvas",
-      role: "Fusion Canvas SVG rendering, node glyphs, edge paths, visual stroke encoding, and zoomable viewbox.",
+      role: "Fusion Canvas SVG rendering for the explanatory and joint layouts: node glyphs, edge paths, visual stroke encoding, and zoomable viewbox. ENA space renders through ena-space-plot instead (ADR 0008).",
       runtimeExports: {
         Canvas
       },

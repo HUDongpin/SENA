@@ -630,7 +630,7 @@ describe("SENA model builder", () => {
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestBridgeTie)).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestGPair?.totalContribution && entry.strongestGPair.totalContribution > 0)).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.find((entry) => entry.strongestGPair)?.strongestGPair?.topContributors.length).toBeGreaterThan(0);
-    expect(report.figures.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "workspace-shell-c3-collapsed-switcher"]);
+    expect(report.figures.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
     expect(report.figures.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.guardrail).toContain("Visual distance");
     expect(report.enaManifest.status).toBe("computed");
     expect(report.enaManifest.outputs?.connectionCounts.length).toBe(exampleSenaContract.people.length);
@@ -990,7 +990,7 @@ describe("SENA model builder", () => {
     expect(protocol.mathematicalFrame.formula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(protocol.mathematicalFrame.layers.map((layer) => layer.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(protocol.mathematicalFrame.layers.find((layer) => layer.id === "G")?.guardrail).toContain("not as an additional adjacency block");
-    expect(protocol.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "workspace-shell-c3-collapsed-switcher"]);
+    expect(protocol.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("solid purple links");
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("outer-orbit social arcs");
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("hexagonal person nodes");
@@ -1046,7 +1046,7 @@ describe("SENA model builder", () => {
     expect(artifact.title).toBe("Lesson Study Visual Grammar");
     expect(artifact.workspaceRoute).toBe("/workspace/sena");
     expect(artifact.analysisWindow?.id).toBe(model.temporal.windows[0].id);
-    expect(artifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "workspace-shell-c3-collapsed-switcher"]);
+    expect(artifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("solid purple links");
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("outer-orbit social arcs");
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("hexagonal person nodes");

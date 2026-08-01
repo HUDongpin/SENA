@@ -208,7 +208,7 @@ describe("SENA research pilot smoke", () => {
     expect(packet.contents.methodProtocol.requiredCompanionArtifacts).toContain("sena-metric-provenance.json");
     expect(packet.contents.methodProtocol.runtimeParityEvidence.map((evidence) => evidence.id)).toEqual(["jena-rena-sample-parity", "jsna-r-sna-social-parity"]);
     expect(packet.contents.visualGrammarArtifact.schemaVersion).toBe("sena-visual-grammar/v1");
-    expect(packet.contents.visualGrammarArtifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "workspace-shell-c3-collapsed-switcher"]);
+    expect(packet.contents.visualGrammarArtifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "a1-inner-solid-mesh-mockup")?.role).toBe("adopted-reference");
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "a1-inner-solid-mesh-mockup")?.sha256).toBe("fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399");
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "temporal-fusion-arc-mockup")?.path).toBe("output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png");
