@@ -372,6 +372,7 @@ describe("SENA workspace module boundaries", () => {
       "workspace-right-inspector-boundary-composition-prop-group",
       "evidence-ledger-panel",
       "dual-lens-dashboard",
+      "ena-space-plot",
       "fusion-canvas",
       "fusion-plot-overlay",
       "fusion-layer-key",

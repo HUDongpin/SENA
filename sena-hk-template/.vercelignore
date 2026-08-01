@@ -1,5 +1,10 @@
 node_modules
-vendor/*/node_modules
+# Stale pre-migration vendored packages: SENA runs on the published jena-js /
+# @peterhudongpin/sna.js registry packages, not file:vendor. Excluding the whole
+# dir keeps its source (e.g. vendor/sna-js/tsup.config.ts) out of the Vercel
+# build, which would otherwise fail typecheck because vendor node_modules is not
+# uploaded.
+vendor
 .next
 out
 .env

@@ -1,4 +1,6 @@
-import type { SenaCode, SenaEnaManifest, SenaManifestRow, SenaPerson } from "./types";
+import { projectPoint, type PlotGeometry } from "../ena/plot-encoding";
+import { buildSenaEnaPlotComposition } from "./ena-plot-model";
+import type { SenaCode, SenaEnaManifest, SenaPerson } from "./types";
 
 export type SenaEnaSpaceCoordinate = {
   id: string;
@@ -31,26 +33,29 @@ const defaultBounds: CanvasBounds = {
   marginY: 72
 };
 
-function numericCell(row: SenaManifestRow, column: string) {
-  const value = row[column];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function personIdFromRow(row: SenaManifestRow, knownPeople: Set<string>) {
-  const candidates = ["personId", "person", "unit", "unitId", "id"];
-  for (const candidate of candidates) {
-    const value = row[candidate];
-    if (typeof value === "string" && knownPeople.has(value)) return value;
-  }
-  return null;
-}
-
-function averageDuplicateCoordinates(items: SenaEnaSpaceCoordinate[]) {
+/**
+ * Average coordinates that share an id.
+ *
+ * SENA's ENA unit is `personId` (lib/sena/ena-manifest.ts), so today each
+ * person contributes exactly one point row and this collapses nothing. It stops
+ * being a no-op the moment units become multi-column — `person x window`, which
+ * the temporal work wants — and at that point averaging would quietly plot one
+ * mean point per person while /workspace/ena plots one point per person-window.
+ * So it records a warning when it actually merges rows, rather than collapsing
+ * them in silence. lib/sena/__tests__/ena-space-plot-parity.test.ts pins the
+ * one-point-per-unit contract.
+ */
+function averageDuplicateCoordinates(items: SenaEnaSpaceCoordinate[], warnings: string[]) {
   const byId = new Map<string, SenaEnaSpaceCoordinate[]>();
   for (const item of items) byId.set(item.id, [...(byId.get(item.id) ?? []), item]);
 
   return Array.from(byId.entries()).map(([id, values]) => {
     const first = values[0];
+    if (values.length > 1) {
+      warnings.push(
+        `ENA coordinate layout averaged ${values.length} projected rows for unit "${id}"; ENA plots one point per unit.`
+      );
+    }
     const rawX = values.reduce((total, value) => total + value.rawX, 0) / values.length;
     const rawY = values.reduce((total, value) => total + value.rawY, 0) / values.length;
     return {
@@ -64,26 +69,35 @@ function averageDuplicateCoordinates(items: SenaEnaSpaceCoordinate[]) {
   });
 }
 
-function scaleCoordinates(items: SenaEnaSpaceCoordinate[], bounds: CanvasBounds) {
-  if (items.length === 0) return [];
+/**
+ * Project raw ENA coordinates onto a canvas.
+ *
+ * The projection itself belongs to lib/ena/plot-encoding — the same
+ * `projectPoint` <EnaPlot> uses — so this map and the rendered plot cannot
+ * disagree. It previously reimplemented the projection with a single isotropic
+ * scale, which put the same code at a different relative position than
+ * /workspace/ena drew it: SVD1 usually explains far more variance than SVD2, so
+ * scaling both axes by `min(...)` compresses the plot along its informative
+ * axis. jena-js instead gives each axis its own symmetric range, and ADR 0008
+ * settles that both renderers follow jena-js.
+ */
+function projectCoordinates(
+  items: SenaEnaSpaceCoordinate[],
+  model: Parameters<typeof projectPoint>[0],
+  bounds: CanvasBounds
+) {
+  const geometry: PlotGeometry = {
+    width: bounds.width,
+    height: bounds.height,
+    margin: bounds.marginX,
+    marginX: bounds.marginX,
+    marginY: bounds.marginY
+  };
 
-  const minX = Math.min(...items.map((item) => item.rawX));
-  const maxX = Math.max(...items.map((item) => item.rawX));
-  const minY = Math.min(...items.map((item) => item.rawY));
-  const maxY = Math.max(...items.map((item) => item.rawY));
-  const spanX = Math.max(1e-9, maxX - minX);
-  const spanY = Math.max(1e-9, maxY - minY);
-  const scale = Math.min((bounds.width - bounds.marginX * 2) / spanX, (bounds.height - bounds.marginY * 2) / spanY);
-  const midX = (minX + maxX) / 2;
-  const midY = (minY + maxY) / 2;
-  const centerX = bounds.width / 2;
-  const centerY = bounds.height / 2;
-
-  return items.map((item) => ({
-    ...item,
-    x: Math.max(bounds.marginX, Math.min(bounds.width - bounds.marginX, centerX + (item.rawX - midX) * scale)),
-    y: Math.max(bounds.marginY, Math.min(bounds.height - bounds.marginY, centerY - (item.rawY - midY) * scale))
-  }));
+  return items.map((item) => {
+    const [x, y] = projectPoint(model, { x: item.rawX, y: item.rawY }, geometry);
+    return { ...item, x, y };
+  });
 }
 
 export function buildSenaEnaSpaceCoordinateMap(
@@ -93,47 +107,53 @@ export function buildSenaEnaSpaceCoordinateMap(
   bounds: Partial<CanvasBounds> = {}
 ): SenaEnaSpaceCoordinateMap {
   const resolvedBounds = { ...defaultBounds, ...bounds };
-  const dimensions = manifest.outputs?.dimensions.slice(0, 2);
-  if (manifest.status !== "computed" || !manifest.outputs || !dimensions || dimensions.length < 2) {
+  const composition = buildSenaEnaPlotComposition(manifest, people, codes);
+
+  if (composition.status !== "computed" || !composition.model) {
     return {
       status: "skipped",
       source: "jena-js",
       dimensions: null,
       coordinates: {},
-      warnings: ["jENA coordinate layout requires a computed two-dimensional manifest.", ...manifest.warnings]
+      warnings: ["jENA coordinate layout requires a computed two-dimensional manifest.", ...composition.warnings]
     };
   }
 
-  const [xDimension, yDimension] = dimensions as [string, string];
-  const peopleIds = new Set(people.map((person) => person.id));
-  const codeIds = new Set(codes.map((code) => code.id));
-  const rawCoordinates: SenaEnaSpaceCoordinate[] = [];
-
-  for (const row of manifest.outputs.points) {
-    const id = personIdFromRow(row, peopleIds);
-    const rawX = numericCell(row, xDimension);
-    const rawY = numericCell(row, yDimension);
-    if (!id || rawX === null || rawY === null) continue;
-    rawCoordinates.push({ id, kind: "person", rawX, rawY, x: rawX, y: rawY });
-  }
-
-  for (const row of manifest.outputs.nodePositions) {
-    const code = row.code;
-    const rawX = numericCell(row, xDimension);
-    const rawY = numericCell(row, yDimension);
-    if (typeof code !== "string" || !codeIds.has(code) || rawX === null || rawY === null) continue;
-    rawCoordinates.push({ id: code, kind: "concept", rawX, rawY, x: rawX, y: rawY });
-  }
+  const warnings = [...composition.warnings];
+  const rawCoordinates: SenaEnaSpaceCoordinate[] = [
+    ...composition.units.map((unit) => ({
+      id: unit.id,
+      kind: "person" as const,
+      rawX: unit.x,
+      rawY: unit.y,
+      x: unit.x,
+      y: unit.y
+    })),
+    ...Object.entries(composition.codePositions).map(([id, position]) => ({
+      id,
+      kind: "concept" as const,
+      rawX: position.x,
+      rawY: position.y,
+      x: position.x,
+      y: position.y
+    }))
+  ];
 
   const coordinates = Object.fromEntries(
-    scaleCoordinates(averageDuplicateCoordinates(rawCoordinates), resolvedBounds).map((coordinate) => [coordinate.id, coordinate])
+    projectCoordinates(
+      averageDuplicateCoordinates(rawCoordinates, warnings),
+      composition.model,
+      resolvedBounds
+    ).map((coordinate) => [coordinate.id, coordinate])
   );
 
   return {
     status: Object.keys(coordinates).length > 0 ? "computed" : "skipped",
     source: "jena-js",
-    dimensions: [xDimension, yDimension],
+    dimensions: composition.model.dimensions,
     coordinates,
-    warnings: Object.keys(coordinates).length > 0 ? manifest.warnings : ["jENA manifest did not expose usable ENA coordinates.", ...manifest.warnings]
+    warnings: Object.keys(coordinates).length > 0
+      ? warnings
+      : ["jENA manifest did not expose usable ENA coordinates.", ...warnings]
   };
 }

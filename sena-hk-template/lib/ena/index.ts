@@ -1,9 +1,10 @@
 export { parseCsv, rowsToCsv, type ParsedCsv } from "./csv";
-export { buildEnaPlotModel, buildEnaRunResult } from "./results";
+export { buildEnaPlotModel, buildEnaRunResult, distinctUnitCount, isTrajectoryModel } from "./results";
 export { sampleEnaCsv } from "./sample-data";
 export { runEnaRequest } from "./server";
 export type {
   EnaMapping,
+  EnaPlotComposition,
   EnaPreparedRun,
   EnaRow,
   EnaRunOptions,

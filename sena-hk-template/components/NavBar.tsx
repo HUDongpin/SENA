@@ -9,10 +9,10 @@ import { useTheme } from "./ThemeProvider";
 import { SenaLogo } from "./SenaLogo";
 import { cn } from "@/lib/utils";
 
-const languageOptions: { value: Lang; label: string }[] = [
-  { value: "en", label: "English" },
-  { value: "zhHant", label: "繁體中文" },
-  { value: "zhHans", label: "简体中文" }
+const languageOptions: { value: Lang; label: string; shortLabel: string }[] = [
+  { value: "en", label: "English", shortLabel: "EN" },
+  { value: "zhHant", label: "繁體中文", shortLabel: "繁" },
+  { value: "zhHans", label: "简体中文", shortLabel: "简" }
 ];
 
 function LanguageDropdown({
@@ -67,15 +67,19 @@ function LanguageDropdown({
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         className={cn(
-          "flex h-12 min-w-0 items-center justify-center gap-3 rounded-full border border-cyanGlow/80 bg-white px-5 text-base font-black text-[#1259a5] shadow-[0_14px_34px_rgb(8_47_73/0.16),inset_0_1px_0_rgb(255_255_255/0.96)] transition hover:-translate-y-0.5 hover:border-cyanGlow hover:shadow-glow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow",
-          stretch && "w-full justify-between px-5"
+          "flex min-w-0 items-center justify-center gap-3 rounded-full border border-cyanGlow/80 bg-white text-[#1259a5] shadow-[0_14px_34px_rgb(8_47_73/0.16),inset_0_1px_0_rgb(255_255_255/0.96)] transition hover:-translate-y-0.5 hover:border-cyanGlow hover:shadow-glow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow",
+          // Below xl the pill shows just the language code, so the row fits a
+          // 1024-1279px window without a page-level horizontal scrollbar.
+          "h-10 px-3.5 text-sm font-black xl:h-12 xl:px-5 xl:text-base xl:font-black",
+          stretch && "h-12 w-full justify-between px-5 text-base"
         )}
         aria-controls={listboxId}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={`Language selector, current language ${activeLanguage.label}`}
       >
-        <span>{activeLanguage.label}</span>
+        <span className={cn(stretch ? "" : "xl:hidden")}>{stretch ? activeLanguage.label : activeLanguage.shortLabel}</span>
+        {!stretch && <span className="hidden xl:inline">{activeLanguage.label}</span>}
         <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} strokeWidth={2.5} aria-hidden="true" />
       </button>
 
@@ -136,16 +140,16 @@ function AuthLinks({
     <div
       data-testid="nav-auth-links"
       className={cn(
-        "flex h-12 items-center gap-1 rounded-full border border-cardBorder/60 bg-white/80 p-1 shadow-[0_10px_28px_rgb(15_23_42/0.12),inset_0_1px_0_rgb(255_255_255/0.96)] backdrop-blur-xl",
-        stretch && "w-full"
+        "flex items-center gap-1 rounded-full border border-cardBorder/60 bg-white/80 p-1 shadow-[0_10px_28px_rgb(15_23_42/0.12),inset_0_1px_0_rgb(255_255_255/0.96)] backdrop-blur-xl",
+        stretch ? "h-12 w-full" : "h-10 xl:h-12"
       )}
     >
       <Link
         href="/login"
         onClick={onNavigate}
         className={cn(
-          "flex h-10 items-center justify-center rounded-full bg-cyanGlow text-slate-950 px-4 text-base font-black capitalize whitespace-nowrap shadow-[0_14px_28px_rgb(26_199_220/0.28)] transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyanGlow",
-          stretch && "flex-1 px-4"
+          "flex items-center justify-center rounded-full bg-cyanGlow text-slate-950 capitalize whitespace-nowrap shadow-[0_14px_28px_rgb(26_199_220/0.28)] transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyanGlow",
+          stretch ? "h-10 flex-1 px-4 text-base font-black" : "h-8 px-3 text-sm font-black xl:h-10 xl:px-4 xl:text-base xl:font-black"
         )}
       >
         {loginLabel}
@@ -154,8 +158,8 @@ function AuthLinks({
         href="/register"
         onClick={onNavigate}
         className={cn(
-          "flex h-10 items-center justify-center rounded-full bg-white text-slate-950 px-4 text-base font-black whitespace-nowrap shadow-[0_10px_24px_rgb(15_23_42/0.08)] transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyanGlow",
-          stretch && "flex-1 px-4"
+          "flex items-center justify-center rounded-full bg-white text-slate-950 whitespace-nowrap shadow-[0_10px_24px_rgb(15_23_42/0.08)] transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyanGlow",
+          stretch ? "h-10 flex-1 px-4 text-base font-black" : "h-8 px-3 text-sm font-black xl:h-10 xl:px-4 xl:text-base xl:font-black"
         )}
       >
         {registerLabel}
@@ -184,37 +188,40 @@ export function NavBar() {
         className="mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-[2.25rem] border border-cardBorder/55 bg-card/58 px-4 py-3 shadow-soft backdrop-blur-2xl"
         aria-label="Primary navigation"
       >
-        <Link href="/" className="min-w-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow lg:shrink-0">
-          <SenaLogo />
+        <Link href="/" className="shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow">
+          {/* The wordmark appears at xl and the tagline at 2xl. Between lg and
+              xl the desktop row only fits with the mark alone — showing all
+              three there is what pushed the page into a horizontal scrollbar. */}
+          <SenaLogo wordmarkClassName="hidden xl:block" taglineClassName="hidden 2xl:block" />
         </Link>
 
-        <div className="hidden items-center gap-1 rounded-full px-2 py-1 lg:flex">
+        <div className="hidden min-w-0 items-center gap-1 rounded-full px-2 py-1 lg:flex">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-full px-2 py-3 text-base font-black text-foreground/78 transition hover:bg-cyanGlow/12 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow"
+              className="rounded-full px-2 py-2.5 text-sm font-black text-foreground/78 transition hover:bg-cyanGlow/12 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow xl:px-2 xl:py-3 xl:text-base xl:font-black"
             >
               {item.label}
             </Link>
           ))}
         </div>
 
-        <div className="hidden items-center gap-2 lg:flex">
+        <div className="hidden shrink-0 items-center gap-2 lg:flex">
           <LanguageDropdown lang={lang} setLang={setLang} />
 
           <button
             data-testid="nav-theme-toggle"
             onClick={toggleTheme}
             className={cn(
-              "grid h-12 w-12 place-items-center rounded-full border transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow",
+              "grid h-10 w-10 place-items-center rounded-full border transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyanGlow xl:h-12 xl:w-12",
               theme === "dark"
                 ? "border-white/20 bg-[#1f2937] text-amber-300 shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_14px_30px_rgb(0_0_0/0.25)] hover:bg-[#263241]"
                 : "border-slate-200/85 bg-white text-amber-300 shadow-[0_10px_24px_rgb(15_23_42/0.12),inset_0_1px_0_rgb(255_255_255/0.95)] hover:border-slate-300"
             )}
             aria-label={theme === "dark" ? "Switch to day mode" : "Switch to night mode"}
           >
-            {theme === "dark" ? <Sun className="h-6 w-6 fill-current" strokeWidth={2.2} /> : <Moon className="h-6 w-6 fill-current" strokeWidth={2.2} />}
+            {theme === "dark" ? <Sun className="h-5 w-5 fill-current xl:h-6 xl:w-6" strokeWidth={2.2} /> : <Moon className="h-5 w-5 fill-current xl:h-6 xl:w-6" strokeWidth={2.2} />}
           </button>
 
           <AuthLinks loginLabel={copy.nav.login} registerLabel={copy.nav.register} />
@@ -222,7 +229,7 @@ export function NavBar() {
 
         <button
           onClick={() => setOpen(true)}
-          className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-cardBorder/60 bg-card/70 text-foreground lg:hidden"
+          className="grid h-12 w-12 place-items-center rounded-full border border-cardBorder/60 bg-card/70 text-foreground lg:hidden"
           aria-label="Open navigation menu"
           aria-expanded={open}
         >

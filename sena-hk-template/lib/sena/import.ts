@@ -162,7 +162,8 @@ export function missingRequiredSenaFields(table: SenaImportTable, mapping: SenaC
   return senaImportFields[table].filter((definition) => definition.required && !mapping[definition.field]);
 }
 
-export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImportRow[] } {
+export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImportRow[]; warnings: string[] } {
+  const warnings: string[] = [];
   const source = text.replace(/^\uFEFF/, "");
   const parsedRows: string[][] = [];
   let row: string[] = [];
@@ -228,6 +229,9 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
       // padding) before deciding a row is genuinely misaligned.
       let end = normalizedCells.length;
       while (end > columns.length && (normalizedCells[end - 1] ?? "").trim().length === 0) end -= 1;
+      if (end < normalizedCells.length) {
+        warnings.push(`CSV row ${rowIndex + 2} had ${normalizedCells.length - end} trailing empty cell(s) beyond the ${columns.length} header columns; they were dropped.`);
+      }
       normalizedCells = normalizedCells.slice(0, end);
     }
     if (normalizedCells.length > columns.length) {
@@ -235,10 +239,17 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
     }
     // Short rows are padded with empty strings (via the ?? "" below) rather than
     // failing the whole import, matching the tolerant cleaning-manifest pipeline.
+    // The padding is recorded so a truncated export cannot silently become empty
+    // fields — required fields fail later with a confusing "missing X" message and
+    // optional ones would otherwise take defaults with no trace at all.
+    if (normalizedCells.length < columns.length) {
+      const padded = columns.slice(normalizedCells.length);
+      warnings.push(`CSV row ${rowIndex + 2} has ${normalizedCells.length} cells but the header has ${columns.length}; padded empty values for: ${padded.join(", ")}.`);
+    }
     return Object.fromEntries(columns.map((column, columnIndex) => [column, normalizedCells[columnIndex]?.trim() ?? ""]));
   });
 
-  return { columns, rows };
+  return { columns, rows, warnings };
 }
 
 function normalizePeople(rows: SenaImportRow[], mapping: SenaColumnMapping, warnings: string[]) {
@@ -374,6 +385,11 @@ function uniqueById<T extends { id: string }>(items: T[], label: string, warning
 
 function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
   const peopleById = new Map(dataset.people.map((person) => [person.id, person]));
+  // Whether the upload declared a people roster at all. A declared roster is
+  // authoritative: an unmatched target is then a dangling reference, not a new
+  // actor. Without one, the coded_segments table *is* the roster, so a declared
+  // target legitimately introduces the person it names.
+  const hasDeclaredRoster = dataset.people.length > 0;
   for (const utterance of dataset.utterances) {
     if (!peopleById.has(utterance.personId)) {
       dataset.people.push({
@@ -404,13 +420,24 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
     }
   }
 
-  // coded_segments also reference people (the contributor personId and any
-  // targetPersonIds for directed bridge evidence). Without this, a segments-only
-  // upload — or segments naming a person absent from the people/utterances/
-  // interactions tables — would leave those people undefined, collapsing the
-  // social/bridge matrices and dropping the segments as "unknown person".
+  // coded_segments also reference the contributing person, so a segments-only
+  // upload — or a segment naming a person absent from the people/utterances/
+  // interactions tables — would otherwise leave that person undefined, collapsing
+  // the social/bridge matrices and dropping the segment as "unknown person".
+  //
+  // targetPersonIds are only derived from when no people roster was declared.
+  // A target is a *claim about* an actor, not a declaration of one, so once a
+  // roster exists an unmatched target must stay dangling: deriving from it lets an
+  // unresolvable or mis-split target (targetPersonIds is multi-valued, so an id
+  // containing "|", ";" or "," is split into fragments) fabricate participants,
+  // and — because those fabricated ids then resolve in personIndex — flip
+  // buildBridgeMatrix into independent-B_CP mode on evidence that does not exist.
+  // ADR-0006 D1 requires the opposite: an unresolved target leaves the segment
+  // target empty, preserving the B_PC transpose fallback, and never invents a
+  // target. Unknown targets are reported by buildBridgeMatrix instead.
   for (const segment of dataset.coded_segments) {
-    for (const personId of [segment.personId, ...(segment.targetPersonIds ?? [])]) {
+    const declared = hasDeclaredRoster ? [segment.personId] : [segment.personId, ...(segment.targetPersonIds ?? [])];
+    for (const personId of declared) {
       if (personId && !peopleById.has(personId)) {
         dataset.people.push({
           id: personId,

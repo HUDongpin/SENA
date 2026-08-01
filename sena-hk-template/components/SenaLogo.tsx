@@ -1,9 +1,22 @@
 import { cn } from "@/lib/utils";
 
-export function SenaLogo({ compact = false, className }: { compact?: boolean; className?: string }) {
+// `wordmarkClassName` and `taglineClassName` let a caller reveal the brand text
+// by breakpoint — the nav bar drops the tagline, then the wordmark, as the
+// viewport narrows, so the row never has to overflow to stay legible.
+export function SenaLogo({
+  compact = false,
+  className,
+  wordmarkClassName,
+  taglineClassName
+}: {
+  compact?: boolean;
+  className?: string;
+  wordmarkClassName?: string;
+  taglineClassName?: string;
+}) {
   return (
-    <div className={cn("flex min-w-0 items-center gap-3", className)} aria-label="SENA brand">
-      <div className="relative grid h-12 w-12 shrink-0 place-items-center rounded-full border border-cyanGlow/40 bg-card/70 shadow-glow backdrop-blur-xl">
+    <div className={cn("flex items-center gap-3", className)} aria-label="SENA brand">
+      <div className="relative grid h-12 w-12 place-items-center rounded-full border border-cyanGlow/40 bg-card/70 shadow-glow backdrop-blur-xl">
         <svg viewBox="0 0 64 64" className="h-10 w-10" aria-hidden="true">
           <defs>
             <linearGradient id="sena-logo-gradient" x1="6" x2="58" y1="10" y2="56" gradientUnits="userSpaceOnUse">
@@ -33,9 +46,11 @@ export function SenaLogo({ compact = false, className }: { compact?: boolean; cl
         </svg>
       </div>
       {!compact && (
-        <div className="min-w-0 leading-tight">
+        <div className={cn("leading-tight", wordmarkClassName)}>
           <div className="text-2xl font-black tracking-tight text-foreground">SENA</div>
-          <div className="max-w-[17rem] text-xs font-semibold text-muted sm:text-sm">Social-Epistemic Nexus Analytics</div>
+          <div className={cn("max-w-[17rem] text-xs font-semibold text-muted sm:text-sm", taglineClassName)}>
+            Social-Epistemic Nexus Analytics
+          </div>
         </div>
       )}
     </div>

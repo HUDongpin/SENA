@@ -59,13 +59,19 @@ export type CentralDualLensViewPanelProps = Pick<
 export type CentralEnaSpaceViewPanelProps = Pick<
   WorkspaceCentralPlotDeckRenderProps,
   | "model"
-  | "jointEmbeddingOperator"
   | "enaManifest"
   | "layers"
   | "threshold"
   | "selectedId"
-  | "revealedLabelIds"
   | "onCanvasSelect"
+  // ENA Space was the one central view pinned at 100%: the panel never passed
+  // the zoom the surface already supported.
+  | "fusionPlotZoom"
+  | "activePlotView"
+  | "isPlotSwitcherOpen"
+  | "onPlotSwitcherToggle"
+  | "onPlotViewSelect"
+  | "plotViewOptions"
 >;
 
 export type CentralSnaMetricsViewPanelProps = Pick<WorkspaceCentralPlotDeckRenderProps, "model">;

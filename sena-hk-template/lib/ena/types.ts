@@ -30,10 +30,30 @@ export type EnaRunOptions = {
   nodePositionMethod?: NodePositionMethod;
 };
 
+/**
+ * How the plot model is composed from a computed set. Purely presentational —
+ * it selects which jena-js plot traces to add and never changes the ENA model.
+ */
+export type EnaPlotComposition = {
+  /**
+   * Metadata column whose distinct values become group-mean traces, and which
+   * colours per-unit trajectories. Typically a condition or cohort column.
+   */
+  groupBy?: string;
+  /**
+   * Minimum |mean connection weight| an edge needs to be drawn, passed straight
+   * to jena-js's `addNetwork({ minWeight })`. webENA exposes this as "minimum
+   * edge weight" and SENA's workspace has always had a threshold slider; this
+   * is the same control on the ENA route. Undefined keeps the default floor.
+   */
+  minWeight?: number;
+};
+
 export type EnaRunRequest = {
   rows: EnaRow[];
   mapping: EnaMapping;
   options?: EnaRunOptions;
+  composition?: EnaPlotComposition;
 };
 
 export type EnaRunSummary = {

@@ -15,10 +15,6 @@ out/
 dist/
 build/
 tsconfig.tsbuildinfo
-!sena-hk-template/vendor/jena-js/dist/
-!sena-hk-template/vendor/jena-js/dist/**
-!sena-hk-template/vendor/sna-js/dist/
-!sena-hk-template/vendor/sna-js/dist/**
 
 # Local SENA runtime state and temporary artifacts
 .worktrees/
@@ -33,6 +29,10 @@ sena-hk-template/output/production-evidence/
 .cache/
 coverage/
 playwright-report/
+
+# Local agent/brainstorm tool state (machine-specific, ephemeral)
+.claude/
+.superpowers/
 
 # Package manager and runtime logs
 npm-debug.log*

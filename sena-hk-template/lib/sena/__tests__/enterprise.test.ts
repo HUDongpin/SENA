@@ -13,6 +13,7 @@ import {
   importSenaJsonContract,
   lessonStudySenaContract,
   parseCoderAnnotationsFromRows,
+  parseSenaCsv,
   reliabilityDashboardToReview
 } from "../index";
 import { buildXlsxWorkbookBuffer, readXlsxWorkbookRows } from "../excel-workbook";
@@ -196,6 +197,184 @@ describe("SENA enterprise runtime", () => {
     // The change is disclosed in the cleaning manifest.
     expect(imported.cleaningManifest.sources.find((source) => source.profile === "lms-forum-export")?.transformations)
       .toContain("reply-target directed B_CP evidence");
+  });
+
+  it("never fabricates people from a separator-bearing forum reply target (G1)", async () => {
+    // Authors are keyed by display name in the standard LMS "Last, First" form, so
+    // the canonical person id itself contains a comma. coded_segments.target_person_ids
+    // is a multi-value field split on "|", ";" and ",", so declaring such an id would
+    // shred it into fragments, and deriving people from those fragments would invent
+    // participants and flip the bridge into independent-B_CP mode on evidence that
+    // does not exist. The target must be reported and left empty instead.
+    const forumCsv = [
+      "thread_id,post_id,parent_post_id,reply_to_author,display_name,message,tags",
+      "thread-a,post-1,,,\"Wong, Ka Yee\",\"How can we test the explanation? #Question\",Question",
+      "thread-a,post-2,post-1,\"Wong, Ka Yee\",\"Chan, Tai Man\",\"The graph gives evidence for the claim.\",Evidence"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("forum-lastname-firstname.csv", forumCsv)
+    ]);
+
+    // Exactly the two real authors — no "Wong" / "Ka Yee" fragments.
+    expect(imported.dataset.people.map((person) => person.id).sort())
+      .toEqual(["Chan, Tai Man", "Wong, Ka Yee"]);
+    expect(imported.dataset.people.some((person) => person.group === "Derived")).toBe(false);
+
+    // No directed evidence was declared, so the transpose fallback is preserved.
+    const replySegment = imported.dataset.coded_segments.find((segment) => segment.utteranceId === "post-2");
+    expect(replySegment?.targetPersonIds).toBeUndefined();
+    const model = buildSenaModel(imported.dataset);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-transpose-fallback");
+    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(false);
+
+    // The social layer is unaffected: the reply tie still resolves to a known person.
+    expect(imported.dataset.interactions).toEqual([
+      expect.objectContaining({ source: "Chan, Tai Man", target: "Wong, Ka Yee", channel: "reply" })
+    ]);
+    expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+    expect(model.summary.socialEdges).toBe(1);
+
+    // The skipped evidence is disclosed rather than silently dropped.
+    expect(imported.warnings.some((warning) => /cannot be recorded as directed code-to-person evidence/i.test(warning)))
+      .toBe(true);
+  });
+
+  it("reports an unresolvable forum reply target instead of passing it through (G1)", async () => {
+    // reply_to_author names somebody who never posted in this export. ADR-0006 D1
+    // requires the segment target to stay empty (transpose fallback preserved) with
+    // a manifest warning, never to invent the actor.
+    const forumCsv = [
+      "thread_id,post_id,parent_post_id,reply_to_author,author_id,author_name,message,tags",
+      "thread-a,post-1,,,u1,Ada,\"How can we test the explanation? #Question\",Question",
+      "thread-a,post-2,,Ghost,u2,Ben,\"The graph gives evidence for the claim.\",Evidence"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("forum-missing-target.csv", forumCsv)
+    ]);
+
+    // No directed evidence is declared for the unresolvable target.
+    const replySegment = imported.dataset.coded_segments.find((segment) => segment.utteranceId === "post-2");
+    expect(replySegment?.targetPersonIds).toBeUndefined();
+
+    const model = buildSenaModel(imported.dataset);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-transpose-fallback");
+    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(false);
+    expect(imported.warnings.some((warning) => /does not match any author in this export/i.test(warning)))
+      .toBe(true);
+
+    // "Ghost" may still enter the roster through the *social* layer — an unresolved
+    // reply-to is a pre-existing S-layer behaviour and out of scope here. What must
+    // not happen is a bridge-derived placeholder: nothing is derived from
+    // coded_segments, so the code-to-person layer stays on the transpose fallback.
+    expect(imported.warnings.some((warning) => /derived a placeholder person from coded_segments/i.test(warning)))
+      .toBe(false);
+  });
+
+  it("does not derive placeholder people from coded_segments target_person_ids (G1)", async () => {
+    // A declared target is a claim about an existing actor, not a declaration of one.
+    // An unknown target must be reported by the bridge builder and ignored — not
+    // turned into a roster member, which would also flip B_CP to independent mode.
+    const contract = {
+      people: [
+        { person_id: "P1", label: "Ada" },
+        { person_id: "P2", label: "Ben" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" },
+        { utterance_id: "u2", person_id: "P2", unit_id: "unit-1", stanza_id: "st-1", turn_index: 2, text: "Reply" }
+      ],
+      coded_segments: [
+        {
+          segment_id: "cs-2",
+          utterance_id: "u2",
+          person_id: "P2",
+          unit_id: "unit-1",
+          stanza_id: "st-1",
+          target_person_ids: "P9",
+          codes: "Evidence"
+        }
+      ]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+
+    // P9 is not invented into the roster.
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2"]);
+    expect(imported.warnings.some((warning) => /derived a placeholder person from coded_segments/i.test(warning)))
+      .toBe(false);
+    // The declared target is preserved on the segment; the model is what rejects it.
+    expect(imported.dataset.coded_segments[0]?.targetPersonIds).toEqual(["P9"]);
+
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.warnings.some((warning) => /unknown target person "P9"/i.test(warning))).toBe(true);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-transpose-fallback");
+    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(false);
+  });
+
+  it("still derives placeholder people from the coded_segments contributor (F6 regression)", async () => {
+    // The F6 safety net must survive the G1 fix: a segments-only upload still
+    // recovers its contributing people, it just no longer invents targets.
+    const contract = {
+      coded_segments: [
+        {
+          segment_id: "cs-1",
+          utterance_id: "u1",
+          person_id: "P1",
+          unit_id: "unit-1",
+          stanza_id: "st-1",
+          codes: "Evidence"
+        }
+      ]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+    expect(imported.dataset.people.map((person) => person.id)).toEqual(["P1"]);
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+  });
+
+  it("reports ragged CSV rows through parseSenaCsv warnings (G2)", () => {
+    // Short rows are still padded rather than aborting a multi-file upload, but the
+    // repair is now recorded instead of silently becoming empty fields.
+    const short = parseSenaCsv([
+      "segment_id,utterance_id,person_id,unit_id,stanza_id,codes",
+      "cs1,u1,P1,unit1,st1,Evidence|Claim",
+      "cs2,u2,P1,unit1,st1"
+    ].join("\n"));
+    expect(short.rows[1].codes).toBe("");
+    expect(short.warnings).toEqual([
+      expect.stringContaining("CSV row 3 has 5 cells but the header has 6; padded empty values for: codes.")
+    ]);
+
+    // A stray trailing delimiter is still tolerated, and also recorded.
+    const trailing = parseSenaCsv([
+      "person_id,label",
+      "P1,Ada,"
+    ].join("\n"));
+    expect(trailing.rows).toEqual([{ person_id: "P1", label: "Ada" }]);
+    expect(trailing.warnings).toEqual([
+      expect.stringContaining("CSV row 2 had 1 trailing empty cell(s)")
+    ]);
+
+    // A well-formed CSV reports nothing.
+    expect(parseSenaCsv("person_id,label\nP1,Ada").warnings).toEqual([]);
+
+    // Genuinely over-long rows still fail loudly.
+    expect(() => parseSenaCsv("person_id,label\nP1,Ada,extra")).toThrow(/has 3 cells but the header has 2/);
+  });
+
+  it("surfaces ragged CSV repairs in the cleaning manifest (G2)", async () => {
+    const csv = [
+      "person_id,label,role",
+      "P1,Ada,Teacher",
+      "P2,Ben"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([uploadLike("people.csv", csv)]);
+    expect(imported.warnings.some((warning) => /people\.csv: CSV row 3 .* padded empty values for: role\./.test(warning)))
+      .toBe(true);
   });
 
   it("adapts LMS forum Excel exports into SENA analysis tables", async () => {
