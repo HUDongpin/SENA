@@ -1,0 +1,40 @@
+#!/bin/sh
+# Gate pushes of main: tsc --noEmit + next build.
+#
+# Why: the vitest suite never type-checks and no test imports /workspace/ena,
+# so a green `npm test` does not prove main builds — it shipped a non-building
+# main twice (see .github/workflows/build-gate.yml). CI runs the same gate on
+# the pushed ref; this hook catches it before the push leaves this machine,
+# which matters here because two agents share this clone.
+#
+# Scope: only pushes that update refs/heads/main. Feature-branch pushes are
+# CI's job — a multi-minute build on every docs push would just get bypassed.
+#
+# Limitation: this builds the WORKING TREE, not the pushed ref. Pushing main
+# while the tree has another branch checked out can pass on the wrong content;
+# CI on the ref is the authority. Bypass (emergencies only): git push --no-verify
+
+gating=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main) gating=1 ;;
+  esac
+done
+
+[ "$gating" -eq 1 ] || exit 0
+
+echo "pre-push: gating main with tsc --noEmit + next build (bypass: --no-verify)" >&2
+cd "$(git rev-parse --show-toplevel)/sena-hk-template" || exit 1
+
+if ! npx tsc --noEmit; then
+  echo "pre-push: tsc --noEmit failed — push of main refused." >&2
+  exit 1
+fi
+
+if ! npm run build; then
+  echo "pre-push: next build failed — push of main refused." >&2
+  exit 1
+fi
+
+echo "pre-push: gate passed." >&2
+exit 0

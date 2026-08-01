@@ -1,0 +1,45 @@
+# Build gate — the check the test suite cannot provide.
+#
+# SENA's vitest suite does not type-check, and no test imports /workspace/ena,
+# so `main` has gone non-building twice with a 100% green suite (2026-07-18
+# pilot:verify miss; 2026-07-31 half-committed EnaPlot change, caught only at
+# deploy). This workflow closes that gap at the PR/push boundary: `tsc --noEmit`
+# catches missing exports and type breaks, `next build` catches missing modules
+# and everything else the app boundary needs.
+#
+# Deliberately NOT here: the vitest suite (a local habit with its own
+# enterprise-temp-DB harness, and its flakier suites would erode trust in this
+# gate) and the browser smokes (need a production server; that is
+# `npm run sena:pilot:verify`, the pre-deploy gate). This job is meant to be
+# fast, boring, and always believed.
+name: build-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: build-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sena-hk-template
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sena-hk-template/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check (vitest never does)
+        run: npx tsc --noEmit
+      - name: Production build (catches missing modules the suite cannot see)
+        run: npm run build
