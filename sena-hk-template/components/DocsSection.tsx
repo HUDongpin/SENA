@@ -92,7 +92,7 @@ export function DocsSection() {
         </div>
         <div className="mt-5 grid gap-4 border-t border-cardBorder/45 pt-4 md:grid-cols-2 lg:grid-cols-3">
           {apiGroups.map((group) => (
-            <div key={group.id} data-testid={SENA_API_DOCS_SECTION_MANIFEST.testIds.group} data-api-group={group.id} className="border-l border-cardBorder/60 pl-3">
+            <div key={group.id} data-testid={SENA_API_DOCS_SECTION_MANIFEST.testIds.group} data-api-group={group.id} className="min-w-0 border-l border-cardBorder/60 pl-3">
               <div className="text-xs font-black uppercase tracking-[0.18em] text-cyanGlow">{group.title}</div>
               <div className="mt-1 text-sm font-semibold text-foreground">{group.endpointCount} resources · {group.methodCount} methods</div>
               <div className="mt-2 space-y-1">
