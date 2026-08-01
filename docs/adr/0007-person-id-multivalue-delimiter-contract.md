@@ -2,7 +2,40 @@
 
 ## Status
 
-Proposed (2026-07-31)
+Accepted (2026-08-01) — approved by Peter via the 2026-08-01 "fix these issues" directive;
+D1 and D2 implemented the same day. Implementation notes:
+
+- Multi-value cells (`codes`, `target_person_ids`) split on `|` only; a cell with no `|`
+  is one value, verbatim (`parseMultiValue`, `lib/sena/import.ts`). JSON-contract arrays
+  join on `|` in `scalar()`, so the array form round-trips element-by-element.
+- D1 charset warnings run over the finished dataset (`warnDelimiterBearingIds`): a
+  `|`-bearing id is reported per id as inexpressible in multi-value fields; `,`/`;`-bearing
+  ids are legal, so they are aggregated into one tolerated-but-discouraged warning per
+  table/field carrying a count and up to three examples — a name-keyed roster carries
+  hundreds of them, and one warning each drowned the cleaning manifest. Values the
+  deprecation warning below already flagged are left out of that aggregate, count included,
+  so no single id is called ambiguous and "legal, kept verbatim" in the same manifest.
+- The deprecation window is a per-value warning judged against the **finished** dataset,
+  not the declared tables. A `,`/`;`-bearing value that is itself an id the import
+  accepts — declared *or* derived — is what the upload meant, so it is not flagged; this is
+  what keeps a roster-less upload from flagging the very ids it derives moments later.
+  The legacy-list rule takes precedence in the other direction: when every `,`/`;` fragment
+  of the value is itself a known id (`P2,P3` where both `P2` and `P3` exist), the old
+  splitter would have produced real values, so it is flagged as "read as one value, not
+  split" even though the whole value also resolves. Each `|`-separated value of a
+  half-migrated cell (`question|evidence,claim`) is judged on its own, only rows the import
+  keeps are considered, and each distinct value is reported once per import, naming the
+  source table it came from.
+- `codes` and `target_person_ids` migrated together, as recommended below. Source-format
+  tolerance (any-delimiter tag lists) moved to the adapter boundary: the forum/LMS
+  adapter still splits tag lists on `|`/`;`/`,` and emits `|`-joined contract cells.
+  The forum adapter now declares `,`/`;`-bearing reply targets verbatim (the G1 loss
+  path is closed); only `|`-bearing ids remain undeclarable.
+- The bundled pilot contract has no `target_person_ids` and no `,`/`;` multi-value
+  cells, so no fixtures or fingerprints changed. The G1 regression test was updated in
+  place to pin the corrected (declared, directed) behaviour.
+
+Previously: Proposed (2026-07-31)
 
 ## Context
 

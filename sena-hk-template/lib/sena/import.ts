@@ -1,4 +1,4 @@
-import type { SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
+import type { SenaActorType, SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
 
 export type SenaImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
 
@@ -41,7 +41,8 @@ export const senaImportFields: Record<SenaImportTable, FieldDefinition[]> = {
     { field: "label", label: "Label", aliases: ["label", "name", "person_label", "display_name", "participant_name", "actor_name", "student_name"] },
     { field: "role", label: "Role", aliases: ["role", "position", "participant_role"] },
     { field: "group", label: "Group", aliases: ["group", "team", "class", "unit", "cohort"] },
-    { field: "initials", label: "Initials", aliases: ["initials", "abbr", "short_label"] }
+    { field: "initials", label: "Initials", aliases: ["initials", "abbr", "short_label"] },
+    { field: "actorType", label: "Actor type", aliases: ["actor_type", "agent_type", "actor_kind"] }
   ],
   interactions: [
     { field: "source", label: "Source person", required: true, aliases: ["source", "source_id", "from", "from_id", "sender", "sender_id", "ego"] },
@@ -72,7 +73,7 @@ export const senaImportFields: Record<SenaImportTable, FieldDefinition[]> = {
     { field: "turnIndex", label: "Turn index", aliases: ["turn_index", "turn", "turn_no", "order", "sequence", "line"] },
     { field: "text", label: "Text", aliases: ["text", "utterance", "message", "content", "transcript"] },
     { field: "codes", label: "Codes", required: true, aliases: ["codes", "code", "code_id", "code_ids", "code_label", "coding", "codes_applied"] },
-    { field: "targetPersonIds", label: "Target person IDs", aliases: ["target_person_ids", "target_people", "target_persons", "target_person_id", "uptake_person_ids", "addressed_to", "receiver_ids", "to_person_ids"] },
+    { field: "targetPersonIds", label: "Target person IDs", aliases: ["target_person_ids", "target_actor_ids", "target_actor_id", "target_actors", "target_people", "target_persons", "target_person_id", "uptake_person_ids", "addressed_to", "receiver_ids", "to_person_ids"] },
     { field: "confidence", label: "Confidence", aliases: ["confidence", "score", "agreement", "probability"] }
   ],
   codebook: [
@@ -107,6 +108,9 @@ function displayTable(table: SenaImportTable) {
 
 function scalar(value: unknown) {
   if (value === null || value === undefined) return "";
+  // "|" is the one multi-value separator (ADR-0007 D2), so a JSON-contract
+  // array round-trips through this join and the pipe-only split below — the
+  // array form is how a delimiter-bearing id like "Wong, Ka Yee" is carried.
   if (Array.isArray(value)) return value.join("|");
   return String(value).trim();
 }
@@ -124,10 +128,18 @@ function parseNumber(value: string, fallback: number, warnings: string[], contex
   return fallback;
 }
 
-function parseCodes(value: string) {
+/**
+ * Multi-value cells (`codes`, `target_person_ids`) split on "|" only
+ * (ADR-0007 D2). A value with no "|" is one value, taken verbatim — this is
+ * what lets a person id like "Wong, Ka Yee" (the standard LMS "Last, First"
+ * form, bug G1) survive the contract instead of shredding into fragments.
+ * ","/";" inside a value are content, tolerated but warned about
+ * (`warnDelimiterBearingIds`); "|" inside an id remains inexpressible.
+ */
+function parseMultiValue(value: string) {
   return value
-    .split(/[|;,]/)
-    .map((code) => code.trim())
+    .split("|")
+    .map((part) => part.trim())
     .filter(Boolean);
 }
 
@@ -252,22 +264,47 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
   return { columns, rows, warnings };
 }
 
+/**
+ * ADR-0006 D2: an empty cell means "human" and stores nothing, so untyped
+ * rosters keep their exact current shape. An unrecognized value is disclosed
+ * and read as human rather than inventing an actor type.
+ */
+function parseActorType(value: string, rowNumber: number, warnings: string[]): SenaActorType | undefined {
+  if (!value) return undefined;
+  const normalized = normalizeKey(value);
+  if (normalized === "human") return "human";
+  if (normalized === "aiagent" || normalized === "ai") return "ai_agent";
+  warnings.push(`people row ${rowNumber} actor_type "${value}" is not "human" or "ai_agent"; the row is read as human.`);
+  return undefined;
+}
+
 function normalizePeople(rows: SenaImportRow[], mapping: SenaColumnMapping, warnings: string[]) {
-  return rows.flatMap<SenaPerson>((row, index) => {
+  const people = rows.flatMap<SenaPerson>((row, index) => {
     const id = readField(row, mapping, "id");
     if (!id) {
       warnings.push(`people row ${index + 1} is missing Person ID and was skipped.`);
       return [];
     }
     const label = readField(row, mapping, "label") || id;
+    const actorType = parseActorType(readField(row, mapping, "actorType"), index + 1, warnings);
     return [{
       id,
       label,
       role: readField(row, mapping, "role") || "Participant",
       group: readField(row, mapping, "group") || "Ungrouped",
-      initials: readField(row, mapping, "initials") || label.slice(0, 2).toUpperCase()
+      initials: readField(row, mapping, "initials") || label.slice(0, 2).toUpperCase(),
+      ...(actorType ? { actorType } : {})
     }];
   });
+  // Guardrail (Human-AI brief §8): typing a roster row ai_agent does not make
+  // the dataset research-grade Human-AI SENA — no run provenance exists yet.
+  const aiActorIds = people.filter((person) => person.actorType === "ai_agent").map((person) => person.id);
+  if (aiActorIds.length > 0) {
+    warnings.push(
+      `people declares ${aiActorIds.length === 1 ? "an AI actor" : `${aiActorIds.length} AI actors`} (${aiActorIds.join(", ")}). Actor typing is roster semantics only (ADR-0006 D2): model/version/run provenance is not captured yet, so Human-AI findings remain exploratory.`
+    );
+  }
+  return people;
 }
 
 function normalizeInteractions(rows: SenaImportRow[], mapping: SenaColumnMapping, warnings: string[]) {
@@ -329,21 +366,52 @@ function normalizeCodebook(rows: SenaImportRow[], mapping: SenaColumnMapping, wa
   });
 }
 
+/**
+ * One value of a multi-value cell that carries a legacy ","/";" separator.
+ * Whether it is ambiguous cannot be decided while the tables are being read —
+ * it depends on the ids the finished dataset accepts — so candidates are
+ * collected here and judged by `warnLegacyMultiValueCells` after derivation.
+ */
+type LegacyMultiValueCell = { field: "codes" | "target_person_ids"; value: string; rowNumber: number; source: string };
+
 function normalizeSegments(
   rows: SenaImportRow[],
   mapping: SenaColumnMapping,
   utterancesById: Map<string, SenaUtterance>,
-  warnings: string[]
+  warnings: string[],
+  legacyCells: LegacyMultiValueCell[],
+  source: string
 ) {
+  // ADR-0007 D2 deprecation window: before pipe-only splitting, ","/";" also
+  // separated multi-value cells, so a cell like "question,evidence" changed
+  // meaning. A half-migrated cell ("question|evidence,claim") carries both
+  // separators, so each pipe-separated value is judged on its own — the cell
+  // having *a* "|" says nothing about the value that still has a ",". Candidates
+  // are collected here; the finished dataset decides which are genuinely
+  // ambiguous, and deduplicates them across the whole import.
+  const legacySeparators = /[;,]/;
+  const noteLegacyValues = (field: LegacyMultiValueCell["field"], values: string[], rowNumber: number) => {
+    for (const value of values) {
+      if (!legacySeparators.test(value)) continue;
+      legacyCells.push({ field, value, rowNumber, source });
+    }
+  };
+
   return rows.flatMap<SenaCodedSegment>((row, index) => {
     const segmentId = readField(row, mapping, "segmentId");
     const utteranceId = readField(row, mapping, "utteranceId");
-    const codes = parseCodes(readField(row, mapping, "codes"));
-    const targetPersonIds = parseCodes(readField(row, mapping, "targetPersonIds"));
+    const codesCell = readField(row, mapping, "codes");
+    const targetsCell = readField(row, mapping, "targetPersonIds");
+    const codes = parseMultiValue(codesCell);
+    const targetPersonIds = parseMultiValue(targetsCell);
     if (!segmentId || !utteranceId || codes.length === 0) {
       warnings.push(`coded_segments row ${index + 1} is missing segment ID, utterance ID, or codes and was skipped.`);
       return [];
     }
+    // Only rows that survive: advice about re-separating a cell in a row the
+    // import just dropped is noise next to the "was skipped" warning.
+    noteLegacyValues("codes", codes, index + 1);
+    noteLegacyValues("target_person_ids", targetPersonIds, index + 1);
 
     const utterance = utterancesById.get(utteranceId);
     if (!utterance) warnings.push(`coded_segments row ${index + 1} references unknown utterance "${utteranceId}".`);
@@ -428,13 +496,16 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
   // targetPersonIds are only derived from when no people roster was declared.
   // A target is a *claim about* an actor, not a declaration of one, so once a
   // roster exists an unmatched target must stay dangling: deriving from it lets an
-  // unresolvable or mis-split target (targetPersonIds is multi-valued, so an id
-  // containing "|", ";" or "," is split into fragments) fabricate participants,
-  // and — because those fabricated ids then resolve in personIndex — flip
-  // buildBridgeMatrix into independent-B_CP mode on evidence that does not exist.
+  // unresolvable or mis-split target (targetPersonIds is multi-valued, split on
+  // "|" since ADR-0007 D2, so an id containing "|" is split into fragments)
+  // fabricate participants, and — because those fabricated ids then resolve in
+  // personIndex — flip buildBridgeMatrix into independent-B_CP mode on evidence
+  // that does not exist.
   // ADR-0006 D1 requires the opposite: an unresolved target leaves the segment
   // target empty, preserving the B_PC transpose fallback, and never invents a
   // target. Unknown targets are reported by buildBridgeMatrix instead.
+  const segmentAuthorIds = new Set(dataset.coded_segments.map((segment) => segment.personId));
+  const derivedTargetOnlyIds: string[] = [];
   for (const segment of dataset.coded_segments) {
     const declared = hasDeclaredRoster ? [segment.personId] : [segment.personId, ...(segment.targetPersonIds ?? [])];
     for (const personId of declared) {
@@ -448,8 +519,25 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
         });
         peopleById.set(personId, dataset.people[dataset.people.length - 1]);
         warnings.push(`people table did not include "${personId}"; derived a placeholder person from coded_segments.`);
+        // Derived here and never an author of a segment (nor of an utterance or
+        // an interaction — those loops ran first), so the only thing that put
+        // this person on the roster is a target_person_ids claim. Because the
+        // claim rides a coded segment, it is also directed B_CP evidence, which
+        // is what can flip buildBridgeMatrix into independent mode.
+        if (!segmentAuthorIds.has(personId)) derivedTargetOnlyIds.push(personId);
       }
     }
+  }
+
+  // Disclosure only (the derivation above is the F6 rule: with no declared
+  // roster the coded_segments table IS the roster). What the researcher cannot
+  // otherwise see is that directed code-to-person evidence may rest entirely on
+  // people the import invented from a claim rather than from a contribution.
+  if (derivedTargetOnlyIds.length > 0) {
+    const examples = derivedTargetOnlyIds.slice(0, 3).map((id) => `"${id}"`).join(", ");
+    warnings.push(
+      `people table was not uploaded, so coded_segments is the roster: ${derivedTargetOnlyIds.length} person id(s) (${examples}${derivedTargetOnlyIds.length > 3 ? ", …" : ""}) ${derivedTargetOnlyIds.length === 1 ? "was" : "were"} derived solely from target_person_ids and never author a segment. Directed B_CP evidence includes these derived people, so verify they are real participants. This is reported whenever such a person is derived; it does not check the final bridge mode.`
+    );
   }
 
   const codeById = new Map(dataset.codebook.map((code) => [code.id, code]));
@@ -479,6 +567,87 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
       text: segment.text
     })), "utterance", warnings);
     warnings.push("utterances table was missing; derived utterances from coded_segments.");
+  }
+}
+
+/**
+ * ADR-0007 D2 deprecation window, decided over the finished dataset rather than
+ * the declared tables. A cell that IS an id the import accepts — declared or
+ * derived — is not ambiguous: reading it as one value is exactly what the
+ * upload meant, so a roster-less upload no longer flags the very ids it derives
+ * moments later. What still warns is a cell that looks like a legacy list:
+ * every ","/";" fragment is itself a known id, so the old splitter would have
+ * produced real values and the meaning change is real.
+ */
+function warnLegacyMultiValueCells(dataset: SenaDataset, cells: LegacyMultiValueCell[], warnings: string[]) {
+  const flagged = new Set<string>();
+  if (cells.length === 0) return flagged;
+  const knownIds = {
+    codes: new Set(dataset.codebook.map((code) => code.id)),
+    target_person_ids: new Set(dataset.people.map((person) => person.id))
+  };
+  // Once per distinct value across the whole import, not per uploaded table:
+  // two coded_segments files carrying the same legacy cell describe one fact,
+  // and the first occurrence carries the source name to open.
+  const reported = new Set<string>();
+  for (const cell of cells) {
+    const key = `${cell.field}::${cell.value}`;
+    if (reported.has(key)) continue;
+    const known = knownIds[cell.field];
+    const fragments = cell.value.split(/[;,]/).map((part) => part.trim()).filter(Boolean);
+    const looksLikeLegacyList = fragments.length > 1 && fragments.every((fragment) => known.has(fragment));
+    if (!looksLikeLegacyList && known.has(cell.value)) continue;
+    reported.add(key);
+    flagged.add(cell.value);
+    warnings.push(
+      `${cell.source} row ${cell.rowNumber} ${cell.field} value "${cell.value}" contains "," or ";" and is read as one value, not split (ADR-0007). Separate multiple values with "|".`
+    );
+  }
+  return flagged;
+}
+
+/**
+ * ADR-0007 D1: person and code ids must avoid the multi-value delimiters
+ * "|", ";" and ",". Runs once over the finished dataset (after placeholder
+ * derivation, so derived ids are covered too). A "|"-bearing id is actionable —
+ * it cannot be referenced from a multi-value field at all — so it is reported
+ * per id. A ","/";"-bearing id is legal and merely discouraged, and a
+ * name-keyed roster carries hundreds of them, so those are aggregated into one
+ * warning per table/field with a count and examples. Warn-and-continue, like
+ * the rest of the cleaning pipeline: the id is always kept verbatim.
+ *
+ * Values `warnLegacyMultiValueCells` already flagged are left out entirely
+ * (count included): that warning says the old splitter would have split the
+ * value, and calling the same value "legal and kept verbatim" a few lines later
+ * is contradictory advice about one id. The deprecation warning owns it.
+ */
+function warnDelimiterBearingIds(dataset: SenaDataset, warnings: string[], flaggedLegacyValues: Set<string>) {
+  const reservedDelimiters = /[|;,]/;
+  const seen = new Set<string>();
+  const tolerated = new Map<string, string[]>();
+  const record = (context: string, id: string) => {
+    if (!reservedDelimiters.test(id) || flaggedLegacyValues.has(id)) return;
+    const key = `${context}::${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (id.includes("|")) {
+      warnings.push(`${context} id "${id}" contains "|", the multi-value separator; it cannot be referenced inside a multi-value field such as target_person_ids (ADR-0007).`);
+      return;
+    }
+    const bucket = tolerated.get(context);
+    if (bucket) bucket.push(id);
+    else tolerated.set(context, [id]);
+  };
+  for (const person of dataset.people) record("people", person.id);
+  for (const code of dataset.codebook) record("codebook", code.id);
+  for (const segment of dataset.coded_segments) {
+    for (const target of segment.targetPersonIds ?? []) record("coded_segments target_person_ids", target);
+  }
+  for (const [context, ids] of tolerated) {
+    const examples = ids.slice(0, 3).map((id) => `"${id}"`).join(", ");
+    warnings.push(
+      `${context}: ${ids.length} id(s) contain "," or ";" (e.g. ${examples}${ids.length > 3 ? ", …" : ""}); they are legal and kept verbatim (multi-value cells split on "|" only), but delimiter-free ids are safer (ADR-0007).`
+    );
   }
 }
 
@@ -515,8 +684,9 @@ export function buildSenaDatasetFromTables(tables: SenaMappedTable[]): SenaImpor
     "code",
     warnings
   );
+  const legacyCells: LegacyMultiValueCell[] = [];
   const coded_segments = uniqueBy(
-    (byTable.get("coded_segments") ?? []).flatMap((table) => normalizeSegments(table.rows, table.mapping, utterancesById, warnings)),
+    (byTable.get("coded_segments") ?? []).flatMap((table) => normalizeSegments(table.rows, table.mapping, utterancesById, warnings, legacyCells, table.name || "coded_segments")),
     "segment",
     warnings,
     (segment) => segment.segmentId
@@ -524,6 +694,8 @@ export function buildSenaDatasetFromTables(tables: SenaMappedTable[]): SenaImpor
 
   const dataset = { people, interactions, utterances, coded_segments, codebook, warnings };
   addDerivedContractRows(dataset, warnings);
+  const flaggedLegacyValues = warnLegacyMultiValueCells(dataset, legacyCells, warnings);
+  warnDelimiterBearingIds(dataset, warnings, flaggedLegacyValues);
   return { dataset, warnings };
 }
 

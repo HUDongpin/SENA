@@ -138,6 +138,79 @@ describe("SENA reliability route", () => {
     }
   }, reliabilityRouteTestTimeoutMs);
 
+  it("discloses ragged coder CSV rows in the reliability run dashboard warnings", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-ragged-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+    vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Ragged Reliability Reviewer",
+        email: "ragged-reliability-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Ragged Reliability Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Ragged Reliability Project",
+        snapshot: reliabilityRouteSnapshot()
+      });
+      const form = new FormData();
+      form.set("teamId", project.teamId);
+      form.set("projectId", project.id);
+      form.set("reviewer", "Ragged Reliability Reviewer");
+      // The last row is truncated before its value cell, which parseSenaCsv pads
+      // and reliability.ts then reads as an applied code.
+      form.append("files", new File([
+        [
+          "coder_id,item_id,code_id,value",
+          "c1,u1,Evidence,1",
+          "c2,u1,Evidence,1",
+          "c1,u2,Evidence,1",
+          "c2,u2,Evidence"
+        ].join("\n")
+      ], "ragged-ratings.csv", { type: "text/csv" }));
+
+      const route = await import("../../../app/api/sena/reliability/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "POST",
+        headers: { "x-sena-csrf-token": csrf.token },
+        body: form
+      }));
+      const body = await response.json() as {
+        dashboard?: { warnings?: string[]; coderCount?: number; binaryUnitCount?: number };
+        reliabilityRun?: { id?: string; dashboard?: { warnings?: string[] } };
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.dashboard?.warnings).toContain(
+        "ragged-ratings.csv: CSV row 5 has 3 cells but the header has 4; padded empty values for: value."
+      );
+      expect(body.reliabilityRun?.dashboard?.warnings).toEqual(body.dashboard?.warnings);
+      expect(body.dashboard?.coderCount).toBe(2);
+      expect(body.dashboard?.binaryUnitCount).toBe(2);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, reliabilityRouteTestTimeoutMs);
+
   it("queues reliability file uploads as upload-pointer server jobs", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-queue-route-"));
     let sessionToken = "";

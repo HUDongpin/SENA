@@ -39,12 +39,18 @@ export type SenaTemporalOptions = {
   turnWindowRadius: number;
 };
 
+export type SenaActorType = "human" | "ai_agent";
+
 export type SenaPerson = {
   id: string;
   label: string;
   role: string;
   group: string;
   initials?: string;
+  // ADR-0006 D2: additive actor typing. Absent means "human"; the field is
+  // only stored when the source declares it, so untyped rosters, exports, and
+  // fingerprints stay byte-identical. No matrix semantics read this field.
+  actorType?: SenaActorType;
 };
 
 export type SenaUtterance = {
@@ -353,6 +359,16 @@ export type SenaEnaManifest = {
     }>;
     dimensions: string[];
     variance: Record<string, number>;
+    /**
+     * Shares over every rotated dimension — jena-js's `set.variance` verbatim,
+     * and the basis webENA titles axes with. `variance` above is the same
+     * quantity renormalized over the two displayed dimensions, which is what
+     * SENA's published summaries, the rENA parity fixture, and the low-rank
+     * rule are defined on; the pilot's second axis reads 28.5% here and 34.6%
+     * there. Both are true, so both are carried rather than reconciled.
+     * Optional, so a manifest emitted before this field stays readable.
+     */
+    rotationVariance?: Record<string, number>;
     connectionCounts: SenaManifestRow[];
     lineWeights: SenaManifestRow[];
     pointsForProjection: SenaManifestRow[];

@@ -5,8 +5,16 @@
 **Accepted** (2026-07-18). **D1 implemented** — `adaptForumRows` writes reply
 targets onto coded segments so forum imports emit independent `B_CP`
 (`feat: forum reply targets drive independent B_CP evidence`, with regression
-test). **D2** (person→actor generalization) remains a proposed future increment,
-not yet implemented.
+test). **D2 implemented** (2026-08-01, Track C-P0): the roster carries an
+additive `actorType = human | ai_agent` (`SenaPerson.actorType`; absent means
+human, unknown values disclosed and read as human, the field is only stored
+when declared so untyped rosters stay byte-identical); `target_actor_ids` /
+`targetActorIds` import as aliases of the stored `targetPersonIds`; the blank
+`people.csv` template exposes `actor_type` (pilot-package manifest refreshed,
+bytes 36→47); and an `ai_agent` roster row raises the cleaning-manifest
+disclosure that typing is roster semantics only — per the brief's §8 guardrail,
+no Human–AI claim follows from an AI row. No matrix behavior reads `actorType`.
+`ai_agent_runs` provenance and the event ledger (C-P1/P2) remain future ADRs.
 
 ## Context
 

@@ -55,7 +55,10 @@ async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise
     }
   }
 
-  return { rows: parseSenaCsv(text).rows, warnings: [] };
+  const parsed = parseSenaCsv(text);
+  // Ragged-row repairs are recorded per file: a coder row truncated before its
+  // value cell otherwise reads as an applied code and silently moves kappa/alpha.
+  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }
 
 export async function importSenaReliabilityFiles(

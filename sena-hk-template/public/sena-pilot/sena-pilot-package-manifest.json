@@ -1,7 +1,7 @@
 {
   "schemaVersion": "sena-pilot-package-manifest/v1",
   "packageName": "SENA Research Pilot Package",
-  "updatedOn": "2026-06-14",
+  "updatedOn": "2026-08-01",
   "workspaceRoute": "/workspace/sena",
   "runtimeRoles": {
     "sena": "Browser-side TypeScript model builder for S/W/B/G and A_fusion.",
@@ -165,8 +165,8 @@
       "href": "/sena-pilot/templates/people.csv",
       "kind": "template",
       "format": "csv",
-      "bytes": 36,
-      "sha256": "0065df6f04b33c8fc157a6f4042da7de7629d08076d31ab1db1226c4addd2ea1"
+      "bytes": 47,
+      "sha256": "15178d6e2c46311d0cbcd5fb25b855868eb90b739dd726af563271b08d812fb8"
     },
     {
       "href": "/sena-pilot/templates/interactions.csv",

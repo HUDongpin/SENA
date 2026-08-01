@@ -69,7 +69,12 @@ export function useDataImportMappedTableActions({
 }: DataImportMappedTableActionsOptions) {
   const applyMappedTables = useCallback((tables: UploadedSenaTable[]) => {
     const result = buildSenaDatasetFromTables(tables);
-    setDataset(result.dataset);
+    // Source-level cleaning notes ride on the tables, so remapping a column keeps
+    // disclosing them: this rebuild is the only thing that feeds dataset.warnings.
+    const sourceWarnings = tables.flatMap((table) => table.warnings ?? []);
+    setDataset(sourceWarnings.length > 0
+      ? { ...result.dataset, warnings: [...sourceWarnings, ...(result.dataset.warnings ?? [])] }
+      : result.dataset);
     setLocalEnterpriseImportResult(null);
     setLocalEnterpriseReliabilityResult(null);
     setLocalEnterpriseValidationResult(null);

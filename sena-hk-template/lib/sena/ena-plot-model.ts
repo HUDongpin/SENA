@@ -1,4 +1,5 @@
 import type { ENAPlotModel, NetworkGraph } from "jena-js/plot";
+import { assessEnaLowRank, type EnaLowRankAssessment } from "../ena/low-rank";
 import { enaAxisRange } from "../ena/plot-encoding";
 import { buildSenaEnaNetwork, type SenaEnaNetwork } from "./ena-network";
 import type { SenaCode, SenaEnaManifest, SenaManifestRow, SenaPerson } from "./types";
@@ -44,7 +45,22 @@ export type SenaEnaPlotComposition = {
   units: SenaEnaPlotUnit[];
   /** Raw ENA coordinates per code id, for placing overlay endpoints. */
   codePositions: Record<string, { x: number; y: number }>;
+  /**
+   * The shares the axes are titled with: the rotation-column basis, which is
+   * what /workspace/ena titles from (webENA's convention), so one axis reads
+   * the same percentage on both routes. This is exactly what <EnaPlot>'s
+   * `variance` prop means, which is why it carries the plain name.
+   */
   variance: Record<string, number>;
+  /**
+   * The same shares renormalized over the two drawn axes — the basis the
+   * low-rank rule, SENA's published summaries, and the rENA parity fixture are
+   * defined on. The pilot's second axis is 28.5% above and 34.6% here; both are
+   * true, so both are carried and each is named.
+   */
+  displayedVariance: Record<string, number>;
+  /** Non-null when the displayed space is effectively 1-D (rank audit rule). */
+  lowRank: EnaLowRankAssessment | null;
   warnings: string[];
 };
 
@@ -76,6 +92,8 @@ function skipped(reason: string, network: SenaEnaNetwork, warnings: string[]): S
     units: [],
     codePositions: {},
     variance: {},
+    displayedVariance: {},
+    lowRank: null,
     warnings: [reason, ...warnings]
   };
 }
@@ -195,7 +213,25 @@ export function buildSenaEnaPlotComposition(
     network,
     units,
     codePositions,
-    variance: manifest.outputs.variance,
+    // A manifest emitted before `rotationVariance` existed carries only the
+    // renormalized shares; titling from those is the bug this fixes, but a
+    // rotation basis cannot be invented from them (the missing normalizer is
+    // the variance mass outside the drawn axes), so an old manifest keeps its
+    // old titles rather than a fabricated correction.
+    variance: manifest.outputs.rotationVariance ?? manifest.outputs.variance,
+    displayedVariance: manifest.outputs.variance,
+    // The audit's unit count is the projection's, not the plot's: a point row
+    // whose person id or coordinates are unusable is dropped above, and counting
+    // the survivors would report a rank the space does not have — three dropped
+    // rows in a healthy 5-unit window would read as a degenerate 2-unit one.
+    // `datasetCounts.units` is the jENA set's own unitLabels count, which is
+    // what /workspace/ena assesses from (`result.summary.units`), so the two
+    // routes keep reading one number.
+    lowRank: assessEnaLowRank({
+      units: manifest.datasetCounts.units,
+      variance: manifest.outputs.variance,
+      dimensions
+    }),
     warnings
   };
 }

@@ -21,6 +21,33 @@ import type { WorkspaceRailMode } from "./workspace-shell-panels";
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
 type DemoManualReviewState = Record<string, SenaDemoVerificationCheck["manualReview"]>;
 
+// Import warnings belong in the durable warnings panel, not the rose error plate.
+// The cleaning manifest carries only counts, so dataset.warnings is the one channel
+// that keeps the warning text after the next workspace interaction.
+//
+// Merge as a multiset, not a set: repeated warning lines are individually meaningful
+// (uniqueBy in lib/sena/import.ts emits one identical `Duplicate person id "P1" was
+// ignored.` per extra occurrence), so deduplicating would under-report against the
+// warning count shown elsewhere. Appending only the surplus occurrences keeps this
+// idempotent, so re-applying it — or applying it after the adapter already folded the
+// same list into dataset.warnings — cannot grow the array.
+function withImportWarnings(dataset: SenaDataset, warnings: string[] | undefined): SenaDataset {
+  if (!warnings?.length) return dataset;
+  const existing = dataset.warnings ?? [];
+  const unclaimed = new Map<string, number>();
+  for (const warning of existing) unclaimed.set(warning, (unclaimed.get(warning) ?? 0) + 1);
+
+  const additions = warnings.filter((warning) => {
+    const available = unclaimed.get(warning) ?? 0;
+    if (available === 0) return true;
+    unclaimed.set(warning, available - 1);
+    return false;
+  });
+
+  if (additions.length === 0) return dataset;
+  return { ...dataset, warnings: [...existing, ...additions] };
+}
+
 export type EnterpriseImportActionsOptions = {
   enterpriseUserPresent: boolean;
   activeEnterpriseTeamId: string;
@@ -78,7 +105,7 @@ export function useEnterpriseImportActions({
     try {
       const { importSenaEnterpriseFiles } = await import("@/lib/sena/import-adapters");
       const result = await importSenaEnterpriseFiles(files);
-      setDataset(result.dataset);
+      setDataset(withImportWarnings(result.dataset, result.warnings));
       setUploadedTables([]);
       setDemoManualReviews({});
       setSelectedId("");
@@ -88,7 +115,7 @@ export function useEnterpriseImportActions({
       const profiles = result.sources.map((source) => `${source.profile}:${source.rows}`).join(", ") || "adapter";
       const reviewChecks = result.cleaningManifest.checks.filter((check) => check.status === "review").length;
       setImportMessage(`Local enterprise import loaded ${files.length} file${files.length === 1 ? "" : "s"}: ${profiles}; cleaning manifest ${reviewChecks} review checks.`);
-      setImportError(result.warnings.length ? result.warnings.slice(0, 3).join(" ") : null);
+      setImportError(null);
       setEnterpriseMessage(`Local import completed without sign-in: ${result.dataset.people.length} people, ${result.dataset.utterances.length} utterances, ${result.warnings.length} warnings. Sign in to persist uploads, import runs, and saved projects.`);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "Local enterprise import failed.");
@@ -141,8 +168,11 @@ export function useEnterpriseImportActions({
         setDemoManualReviews({});
         setSelectedId("");
       }
+      // restoreProjectSnapshot sets the dataset itself, so fold the run warnings in
+      // afterwards to cover both branches with one durable disclosure.
+      setDataset((current) => withImportWarnings(current, payload.warnings));
       setImportMessage(`Enterprise import loaded ${files.length} file${files.length === 1 ? "" : "s"}: ${payload.sources?.map((source: { profile: string }) => source.profile).join(", ") || "adapter"}.`);
-      setImportError(payload.warnings?.length ? payload.warnings.slice(0, 3).join(" ") : null);
+      setImportError(null);
       const importRun = payload.importRun;
       if (importRun) setEnterpriseImportRuns((runs) => [importRun, ...runs.filter((run) => run.id !== importRun.id)]);
       const persistedProject = payload.persistedProject;

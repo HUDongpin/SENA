@@ -126,6 +126,11 @@ export function buildSenaEnaManifest(dataset: SenaDataset): SenaEnaManifest {
         adjacencyKey: set.adjacencyKey,
         dimensions: displayedRotationColumns(set),
         variance: displayedVariance(set),
+        // Carried beside the displayed shares, not instead of them: axis titles
+        // quote the rotation-column basis (webENA's convention, and what
+        // /workspace/ena titles from), while `variance` above stays the
+        // renormalized basis the summaries and the low-rank rule are defined on.
+        rotationVariance: { ...set.variance },
         connectionCounts: serializableRows(set.connectionCounts),
         lineWeights: serializableRows(set.lineWeights),
         pointsForProjection: serializableRows(set.pointsForProjection),

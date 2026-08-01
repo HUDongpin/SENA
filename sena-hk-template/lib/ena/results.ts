@@ -5,6 +5,21 @@ import type { EnaPlotComposition, EnaRunResult, EnaRuntime } from "./types";
 
 const plotPalette = ["#18b7c9", "#7b50f5", "#e850d2", "#16a34a", "#f59e0b", "#ef4444"];
 
+/**
+ * The floor that keeps hairline noise out of the drawn mean network; a
+ * researcher-set minimum edge weight (webENA's "minimum edge weight", the Plot
+ * Tools slider) raises it but cannot go below it. Every surface that states
+ * the drawn network's threshold — the slider readout, the methods write-up —
+ * derives it from here, so an edge can never be dropped without the UI saying
+ * at what weight.
+ */
+export const ENA_NETWORK_MIN_WEIGHT_FLOOR = 0.001;
+
+/** The threshold the drawn network actually uses for a researcher setting. */
+export function effectiveEnaMinWeight(minWeight: number) {
+  return Math.max(ENA_NETWORK_MIN_WEIGHT_FLOOR, minWeight);
+}
+
 /** Palette slots 0–2 are reserved for the network, code, and unit traces. */
 const groupPalette = plotPalette.slice(3);
 
@@ -102,10 +117,7 @@ export function buildEnaPlotModel(set: ENASet, composition: EnaPlotComposition =
     palette: plotPalette
   });
 
-  // 0.001 is the floor that keeps hairline noise out of the mean network; a
-  // researcher-set minimum edge weight raises it (webENA's "minimum edge
-  // weight", SENA's threshold slider).
-  const minWeight = Math.max(0.001, composition.minWeight ?? 0);
+  const minWeight = effectiveEnaMinWeight(composition.minWeight ?? 0);
   addNetwork(model, set, averageConnectionRow(set), { name: "Mean network", color: plotPalette[0], minWeight });
   addNodes(model, set, { name: "Codes", color: plotPalette[1] });
 

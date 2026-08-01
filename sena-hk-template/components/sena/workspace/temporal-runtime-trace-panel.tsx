@@ -127,7 +127,11 @@ export function TemporalRuntimeTracePanel({
                         Rows {entry.ena.datasetCounts.rows}; dims {entry.ena.dimensions.length > 0 ? entry.ena.dimensions.join(", ") : "NA"}
                       </div>
                       <div className="mt-1 font-semibold text-muted">
-                        {variance || `${entry.ena.pointCount} points; ${entry.ena.nodePositionCount} nodes`}
+                        {/* Named basis: these shares are renormalized over the
+                            drawn dimensions, unlike the plot's axis titles. */}
+                        {variance
+                          ? `Displayed variance ${variance}`
+                          : `${entry.ena.pointCount} points; ${entry.ena.nodePositionCount} nodes`}
                       </div>
                     </td>
                     <td className="px-3 py-3">

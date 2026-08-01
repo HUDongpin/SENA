@@ -139,7 +139,10 @@ export function useContractUploadAction({
           table,
           columns: parsed.columns,
           rows: parsed.rows,
-          mapping: inferSenaColumnMapping(table, parsed.columns)
+          mapping: inferSenaColumnMapping(table, parsed.columns),
+          // Ragged-row repairs travel with the table so a truncated export keeps
+          // disclosing itself through every later remap, not just this upload.
+          warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`)
         });
       }
 

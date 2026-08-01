@@ -2500,7 +2500,23 @@ export function buildSenaMarkdownReport(report: SenaReport) {
     `- Engine: ${report.enaManifest.engine} ${report.enaManifest.engineVersion}`,
     `- Rows/units/conversations/codes: ${report.enaManifest.datasetCounts.rows}/${report.enaManifest.datasetCounts.units}/${report.enaManifest.datasetCounts.conversations}/${report.enaManifest.datasetCounts.codes}`,
     `- Dimensions: ${report.enaManifest.outputs?.dimensions.join(", ") || "NA"}`,
-    `- Variance: ${report.enaManifest.outputs ? Object.entries(report.enaManifest.outputs.variance).map(([dimension, value]) => `${dimension} ${formatReportNumber(value)}`).join("; ") : "NA"}`,
+    // The basis is named because the plot quotes the other one: these shares
+    // are renormalized over the drawn dimensions, while the axis titles carry
+    // each dimension's share of the whole rotated space. The `- Variance: ` key
+    // is unchanged, so anything reading this line by its prefix still matches.
+    `- Variance: ${report.enaManifest.outputs ? `${Object.entries(report.enaManifest.outputs.variance).map(([dimension, value]) => `${dimension} ${formatReportNumber(value)}`).join("; ")} (displayed variance)` : "NA"}`,
+    // Only when there is a drawn pair to describe. A skipped manifest reports
+    // "Variance: NA", and a one-dimension projection (a two-code dataset has a
+    // single adjacency column) reports "SVD1 0" — renormalizing a set of one
+    // "to 100%" describes neither. The inline "(displayed variance)" label
+    // above still names the basis in both cases; only the sentence that
+    // asserts renormalization is withheld. "Can differ" rather than "differ" —
+    // the two bases coincide when the drawn axes carry the whole space.
+    ...((report.enaManifest.outputs?.dimensions.length ?? 0) > 1
+      ? [
+          "- Variance basis: displayed variance renormalizes the drawn dimensions to 100%; plot axes are titled with each dimension's share of the whole rotated space, so the two percentages can differ."
+        ]
+      : []),
     "",
     "## jSNA Manifest",
     "",

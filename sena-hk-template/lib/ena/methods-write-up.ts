@@ -1,4 +1,5 @@
 import type { DimensionComparison } from "./comparison";
+import { effectiveEnaMinWeight } from "./results";
 import type { EnaMapping, EnaRunOptions, EnaRunResult } from "./types";
 
 /**
@@ -67,14 +68,19 @@ export function buildEnaMethodsWriteUp({
     `${windowSentence(options)} Connection strengths were ${options.weightBy === "binary" ? "binarized, so a connection counts once per window regardless of how often it recurs" : "summed, so repeated co-occurrences within a window accumulate"}. The ${options.model} model was used, and node positions were fitted with the ${options.nodePositionMethod} method. The resulting space was rotated with a singular value decomposition and ${options.dimensions} dimension${options.dimensions === 1 ? "" : "s"} retained; the displayed dimensions explain ${shares} of the variance in the space.`
   );
 
+  // The renderer always suppresses below its floor, so this sentence is always
+  // true and therefore always written — a dropped edge must never be
+  // undisclosed. The parenthetical marks the threshold as a default rather
+  // than a researcher choice when the slider did not raise it.
+  const effectiveMinWeight = effectiveEnaMinWeight(minWeight);
   const fitSentence =
-    minWeight > 0
-      ? ` Connections with a mean weight at or below ${minWeight.toFixed(3)} were suppressed from the network graph; this affects the drawn network only, not the projection or node positions.`
-      : "";
+    ` Connections with a mean weight at or below ${effectiveMinWeight.toFixed(3)} were suppressed from the network graph${
+      minWeight > 0 ? "" : " (the renderer's default noise floor)"
+    }; this affects the drawn network only, not the projection or node positions.`;
   const groupSentence = groupBy
     ? ` Units were grouped by ${groupBy}, and a mean network and mean point were plotted for each group.`
     : "";
-  if (fitSentence || groupSentence) paragraphs.push(`${groupSentence}${fitSentence}`.trim());
+  paragraphs.push(`${groupSentence}${fitSentence}`.trim());
 
   if (comparisons.length > 0) {
     const [first] = comparisons;

@@ -4802,6 +4802,290 @@ describe("SENA model builder", () => {
     expect(segment?.targetPersonIds).toEqual(["B"]);
   });
 
+  it("exposes actor_type in the blank people template and types actors through import (ADR-0006 D2)", () => {
+    // Track C-P0: the roster gains additive actor typing. An empty cell means
+    // human and stores nothing (untyped rosters stay byte-identical); an AI
+    // row is disclosed as roster semantics only, never as achieved Human-AI
+    // SENA; an unrecognized value is disclosed and read as human.
+    const templateHeader = readPilotAsset("templates/people.csv").split(/\r?\n/)[0];
+    expect(templateHeader.split(",")).toContain("actor_type");
+
+    const people = parseSenaCsv("person_id,actor_type\nA,human\nT1,ai_agent\nB,\nX,robot\n");
+    const result = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: people.columns, rows: people.rows, mapping: inferSenaColumnMapping("people", people.columns) }
+    ]);
+
+    const byId = new Map(result.dataset.people.map((person) => [person.id, person]));
+    expect(byId.get("A")?.actorType).toBe("human");
+    expect(byId.get("T1")?.actorType).toBe("ai_agent");
+    // Undeclared and unrecognized rows store no actorType key at all, so
+    // existing snapshots, exports, and fingerprints cannot shift.
+    expect(Object.keys(byId.get("B") ?? {})).not.toContain("actorType");
+    expect(Object.keys(byId.get("X") ?? {})).not.toContain("actorType");
+    expect(result.warnings.some((warning) => warning.includes('actor_type "robot"'))).toBe(true);
+    expect(result.warnings.filter((warning) => warning.includes("roster semantics only"))).toHaveLength(1);
+    expect(result.warnings.some((warning) => warning.includes("(T1)"))).toBe(true);
+  });
+
+  it("maps target_actor_ids and JSON actor typing onto the stored contract fields (ADR-0006 D2)", () => {
+    // The stored field names stay targetPersonIds/actorType until a versioned
+    // migration; target_actor_ids is an importer alias, in CSV and JSON form.
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\nu2,B,s1,2,Evidence\n");
+    const segments = parseSenaCsv("segment_id,utterance_id,person_id,target_actor_ids,codes\ns1,u1,A,B,question\n");
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+    const csvResult = buildSenaDatasetFromTables([
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+    expect(csvResult.dataset.coded_segments[0]?.targetPersonIds).toEqual(["B"]);
+
+    const jsonResult = importSenaJsonContract(JSON.stringify({
+      people: [
+        { person_id: "Ada", actor_type: "human" },
+        { person_id: "Tutor", actor_type: "ai_agent" },
+        { person_id: "Ben" }
+      ],
+      utterances: [{ utterance_id: "u1", person_id: "Tutor", stanza_id: "s1", turn_index: 1, text: "Hint" }],
+      coded_segments: [
+        { segment_id: "s1", utterance_id: "u1", person_id: "Tutor", targetActorIds: ["Ada"], codes: "question" }
+      ],
+      codebook: [{ code_id: "question" }]
+    }));
+    const tutor = jsonResult.dataset.people.find((person) => person.id === "Tutor");
+    expect(tutor?.actorType).toBe("ai_agent");
+    expect(jsonResult.dataset.people.find((person) => person.id === "Ada")?.actorType).toBe("human");
+    expect(jsonResult.dataset.coded_segments[0]?.targetPersonIds).toEqual(["Ada"]);
+    // Typed targets still drive the independent B_CP path, unchanged.
+    const model = buildSenaModel(jsonResult.dataset);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-cp-independent");
+  });
+
+  it("round-trips a comma-bearing person id through the five-CSV path (ADR-0007 D2)", () => {
+    // The G1 failure class: a roster keyed "Last, First" could not express its
+    // ids through the multi-value target_person_ids cell — the old splitter
+    // shredded them on ",". Multi-value cells now split on "|" only, so the
+    // quoted CSV cell arrives verbatim and the declared roster resolves it.
+    const people = parseSenaCsv('person_id\n"Wong, Ka Yee"\n"Chan, Tai Man"\n');
+    const utterances = parseSenaCsv('utterance_id,person_id,stanza_id,turn_index,text\nu1,"Wong, Ka Yee",s1,1,Question\nu2,"Chan, Tai Man",s1,2,Evidence\n');
+    const segments = parseSenaCsv('segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u2,"Chan, Tai Man","Wong, Ka Yee",evidence\n');
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: people.columns, rows: people.rows, mapping: inferSenaColumnMapping("people", people.columns) },
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    const segment = result.dataset.coded_segments.find((entry) => entry.segmentId === "s1");
+    expect(segment?.targetPersonIds).toEqual(["Wong, Ka Yee"]);
+    // No fragments were invented and no placeholder was derived (G1 stays fixed).
+    expect(result.dataset.people.map((person) => person.id).sort()).toEqual(["Chan, Tai Man", "Wong, Ka Yee"]);
+    // A cell that IS a declared id verbatim is not ambiguous — no split warning.
+    expect(result.warnings.some((warning) => /read as one value/i.test(warning))).toBe(false);
+    // ADR-0007 D1: the delimiter-bearing ids are still disclosed, now as one
+    // aggregate per table (a name-keyed roster carries hundreds of them).
+    const charsetWarnings = result.warnings.filter((warning) => /^people: \d+ id\(s\) contain/.test(warning));
+    expect(charsetWarnings).toHaveLength(1);
+    expect(charsetWarnings[0]).toContain('"Wong, Ka Yee"');
+  });
+
+  it("accepts JSON arrays for multi-value fields (ADR-0007 D2)", () => {
+    // The JSON contract's array form is the canonical escape for ids that
+    // contain delimiters: elements join on "|" and split on "|", so each
+    // element round-trips verbatim — commas included.
+    const result = importSenaJsonContract(JSON.stringify({
+      people: [{ person_id: "Wong, Ka Yee" }, { person_id: "Ben" }, { person_id: "Ada" }],
+      utterances: [
+        { utterance_id: "u1", person_id: "Ada", stanza_id: "s1", turn_index: 1, text: "Question" }
+      ],
+      coded_segments: [
+        {
+          segment_id: "s1",
+          utterance_id: "u1",
+          person_id: "Ada",
+          target_person_ids: ["Wong, Ka Yee", "Ben"],
+          codes: ["question", "evidence"]
+        }
+      ],
+      codebook: [{ code_id: "question" }, { code_id: "evidence" }]
+    }));
+
+    const segment = result.dataset.coded_segments[0];
+    expect(segment?.codes).toEqual(["question", "evidence"]);
+    expect(segment?.targetPersonIds).toEqual(["Wong, Ka Yee", "Ben"]);
+    expect(result.dataset.people.map((person) => person.id).sort()).toEqual(["Ada", "Ben", "Wong, Ka Yee"]);
+  });
+
+  it("warns on a legacy comma-joined multi-value cell instead of silently re-reading it (ADR-0007 D2 deprecation)", () => {
+    // Before ADR-0007 the cell "question,evidence" meant two codes. It now
+    // means one value; the meaning change must be disclosed, not silent.
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\n");
+    const segments = parseSenaCsv('segment_id,utterance_id,person_id,codes\ns1,u1,A,"question,evidence"\n');
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    // One value, taken verbatim — never split, never dropped.
+    expect(result.dataset.coded_segments[0]?.codes).toEqual(["question,evidence"]);
+    // The deprecation warning names the source table, the row, the field, and the fix.
+    expect(result.warnings.some((warning) =>
+      warning.includes('coded_segments.csv row 1 codes value "question,evidence"') && warning.includes('Separate multiple values with "|"')
+    )).toBe(true);
+    // The derived delimiter-bearing code id is not *also* reported as a legal
+    // verbatim id: the deprecation warning above owns this value.
+    expect(result.warnings.some((warning) =>
+      /^codebook: \d+ id\(s\) contain/.test(warning) && warning.includes('"question,evidence"')
+    )).toBe(false);
+  });
+
+  it("does not flag a delimiter-bearing id the import itself derives (ADR-0007 D2 deprecation scope)", () => {
+    // Roster-less upload: the coded_segments table IS the roster, so the author
+    // "Wong, Ka Yee" and the target "Chan, Tai Man" become real people. Judging
+    // the deprecation warning against the *declared* tables flagged both as
+    // "read as one value, not split" moments before deriving them — advice the
+    // researcher cannot act on, about ids the import already accepts.
+    const segments = parseSenaCsv(
+      'segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u1,"Wong, Ka Yee","Chan, Tai Man",evidence\n'
+    );
+
+    const result = buildSenaDatasetFromTables([
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) }
+    ]);
+
+    expect(result.dataset.people.map((person) => person.id).sort()).toEqual(["Chan, Tai Man", "Wong, Ka Yee"]);
+    expect(result.warnings.some((warning) => /read as one value/i.test(warning))).toBe(false);
+  });
+
+  it("still flags a legacy multi-value list whose fragments are known ids (ADR-0007 D2 deprecation)", () => {
+    // "P2,P3" is the case the deprecation window exists for: both fragments are
+    // real people, so under the old splitter this cell meant two targets and
+    // now means one. Deriving "P2,P3" as a person must not silence that.
+    const segments = parseSenaCsv(
+      'segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u1,P1,"P2,P3",evidence\ns2,u2,P2,,question\ns3,u3,P3,,question\n'
+    );
+
+    const result = buildSenaDatasetFromTables([
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) }
+    ]);
+
+    expect(result.dataset.coded_segments[0]?.targetPersonIds).toEqual(["P2,P3"]);
+    expect(result.warnings.some((warning) =>
+      warning.includes('coded_segments.csv row 1 target_person_ids value "P2,P3"') && warning.includes('Separate multiple values with "|"')
+    )).toBe(true);
+  });
+
+  it("aggregates the ADR-0007 D1 charset disclosure instead of warning per id", () => {
+    // A 'Last, First' LMS roster is exactly what ADR-0007 D2 exists to support,
+    // so one warning per id turned a supported upload into hundreds of
+    // unresolvable cleaning warnings.
+    const rosterSize = 40;
+    const ids = Array.from({ length: rosterSize }, (_, index) => `Wong, Ka Yee ${index + 1}`);
+    const people = parseSenaCsv(`person_id\n${ids.map((id) => `"${id}"`).join("\n")}\n`);
+
+    const result = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: people.columns, rows: people.rows, mapping: inferSenaColumnMapping("people", people.columns) }
+    ]);
+
+    const charsetWarnings = result.warnings.filter((warning) => /id\(s\) contain "," or ";"/.test(warning));
+    expect(charsetWarnings).toHaveLength(1);
+    expect(charsetWarnings[0]).toContain(`people: ${rosterSize} id(s) contain`);
+    expect(charsetWarnings[0]).toContain('"Wong, Ka Yee 1"');
+    expect(charsetWarnings[0]).toContain("…");
+    // A "|"-bearing id is a different, actionable problem and stays per id.
+    const piped = parseSenaCsv('person_id\n"Wong|Ka Yee"\n"Chan|Tai Man"\n');
+    const pipedResult = buildSenaDatasetFromTables([
+      { name: "people.csv", table: "people", columns: piped.columns, rows: piped.rows, mapping: inferSenaColumnMapping("people", piped.columns) }
+    ]);
+    expect(pipedResult.warnings.filter((warning) => /contains "\|", the multi-value separator/.test(warning))).toHaveLength(2);
+  });
+
+  it("judges each pipe fragment of a half-migrated multi-value cell (ADR-0007 D2 deprecation)", () => {
+    // Mid-migration a cell carries both separators. "question|evidence,claim"
+    // is two values to the pipe splitter, and the second is a legacy list that
+    // silently becomes a fabricated code id — a spurious ENA node. Skipping the
+    // whole cell because it contains a "|" hid exactly the case that still hurts.
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\n");
+    const segments = parseSenaCsv('segment_id,utterance_id,person_id,codes\ns1,u1,A,"question|evidence,claim"\n');
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\nclaim\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    // Splitting is unchanged — the fragment really is one code id.
+    expect(result.dataset.coded_segments[0]?.codes).toEqual(["question", "evidence,claim"]);
+    expect(result.dataset.codebook.map((code) => code.id)).toContain("evidence,claim");
+    // The offending fragment is named, not the whole cell.
+    expect(result.warnings.some((warning) =>
+      warning.includes('codes value "evidence,claim"') && warning.includes('Separate multiple values with "|"')
+    )).toBe(true);
+    // The already-migrated fragment is not implicated.
+    expect(result.warnings.some((warning) => warning.includes('codes value "question|evidence,claim"'))).toBe(false);
+  });
+
+  it("reports a legacy multi-value cell once per import, naming its source table (ADR-0007 D2 deprecation)", () => {
+    // Two uploaded coded_segments files carrying the same legacy cell used to
+    // produce two identical warnings, both labelled "row 1", with nothing to
+    // say which file to open.
+    const utterances = parseSenaCsv("utterance_id,person_id,stanza_id,turn_index,text\nu1,A,s1,1,Question\nu2,A,s1,2,Evidence\n");
+    const first = parseSenaCsv('segment_id,utterance_id,person_id,codes\ns1,u1,A,"question,evidence"\n');
+    const second = parseSenaCsv('segment_id,utterance_id,person_id,codes\ns2,u2,A,"question,evidence"\n');
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "utterances.csv", table: "utterances", columns: utterances.columns, rows: utterances.rows, mapping: inferSenaColumnMapping("utterances", utterances.columns) },
+      { name: "segments-a.csv", table: "coded_segments", columns: first.columns, rows: first.rows, mapping: inferSenaColumnMapping("coded_segments", first.columns) },
+      { name: "segments-b.csv", table: "coded_segments", columns: second.columns, rows: second.rows, mapping: inferSenaColumnMapping("coded_segments", second.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    const deprecation = result.warnings.filter((warning) => /read as one value/i.test(warning));
+    expect(deprecation).toHaveLength(1);
+    expect(deprecation[0]).toContain("segments-a.csv row 1 codes");
+  });
+
+  it("does not advise on a multi-value cell in a row it skipped (ADR-0007 D2 deprecation)", () => {
+    // The row is dropped for having no utterance id, so re-separating its codes
+    // cell is advice about a row that is no longer in the dataset.
+    const segments = parseSenaCsv('segment_id,utterance_id,person_id,codes\ns1,,A,"question,evidence"\n');
+    const codebook = parseSenaCsv("code_id\nquestion\nevidence\n");
+
+    const result = buildSenaDatasetFromTables([
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) },
+      { name: "codebook.csv", table: "codebook", columns: codebook.columns, rows: codebook.rows, mapping: inferSenaColumnMapping("codebook", codebook.columns) }
+    ]);
+
+    expect(result.dataset.coded_segments).toHaveLength(0);
+    expect(result.warnings.some((warning) => /row 1 is missing segment ID, utterance ID, or codes and was skipped/.test(warning))).toBe(true);
+    expect(result.warnings.some((warning) => /read as one value/i.test(warning))).toBe(false);
+  });
+
+  it("keeps a flagged legacy cell out of the D1 charset aggregate (ADR-0007 D1/D2)", () => {
+    // Reporting that the old splitter would have split "P2,P3" and then, three
+    // lines later, that "P2,P3" is legal and kept verbatim is contradictory
+    // advice about one id. The deprecation warning owns it; the aggregate's
+    // count must stay honest about what it left out.
+    const segments = parseSenaCsv(
+      'segment_id,utterance_id,person_id,target_person_ids,codes\ns1,u1,P1,"P2,P3",evidence\ns2,u2,P2,,question\ns3,u3,P3,,question\n'
+    );
+
+    const result = buildSenaDatasetFromTables([
+      { name: "coded_segments.csv", table: "coded_segments", columns: segments.columns, rows: segments.rows, mapping: inferSenaColumnMapping("coded_segments", segments.columns) }
+    ]);
+
+    expect(result.warnings.some((warning) => /read as one value/i.test(warning))).toBe(true);
+    // "P2,P3" was the only delimiter-bearing id, so no aggregate is left to emit.
+    expect(result.warnings.filter((warning) => /id\(s\) contain "," or ";"/.test(warning))).toEqual([]);
+  });
+
   it("imports minimal required CSV fields with stable defaults, guarded temporal audit, and snapshot export", () => {
     const people = parseSenaCsv("person_id\nA\nB\n");
     const interactions = parseSenaCsv("from,to\nA,B\n");

@@ -27,6 +27,7 @@ import {
   enaPlotTraceLabelsVisible,
   type EnaPlotInkDisplay
 } from "@/lib/ena/plot-display";
+import type { EnaLowRankAssessment } from "@/lib/ena/low-rank";
 
 // SENA renders the ENA projection in React rather than calling jena-js's
 // DOM-mutating renderENAPlot. The geometry — positions, axis origin, edge
@@ -187,6 +188,7 @@ export function clampPlotZoom(zoom: number) {
 export function EnaPlot({
   model,
   variance,
+  lowRank,
   className,
   zoom = 1,
   ink,
@@ -196,6 +198,13 @@ export function EnaPlot({
 }: {
   model: ENAPlotModel;
   variance?: Record<string, number>;
+  /**
+   * Low-rank assessment from `assessEnaLowRank` (docs/validation/
+   * ena-window-rank-audit.md). When set, a badge names the degenerate axis so
+   * the plot cannot silently present machine-epsilon noise as vertical
+   * structure. Additive SENA chrome — marked, and absent when omitted.
+   */
+  lowRank?: EnaLowRankAssessment | null;
   className?: string;
   /** >1 magnifies about the plot centre; the viewBox stays centred on (0,0). */
   zoom?: number;
@@ -221,6 +230,18 @@ export function EnaPlot({
   const viewBoxHeight = height / safeZoom;
   const viewBoxX = width / 2 - viewBoxWidth / 2;
   const viewBoxY = height / 2 - viewBoxHeight / 2;
+  // The low-rank badge is a disclosure, not a datum, so it is placed against the
+  // *visible* box rather than the fixed canvas. Anchored to the canvas it left
+  // the frame from about 1.05x up — and in ENA Space, where the badge is the
+  // only on-plot disclosure, zooming in silently removed the caveat. It
+  // counter-scales so it reads at one size whatever the zoom, the way plot
+  // chrome should, and the anchor is clamped to the canvas so zooming out past
+  // 1x (which widens the box beyond the paper) keeps it on the plate.
+  const lowRankBadgeScale = 1 / safeZoom;
+  const lowRankBadgeWidth = lowRank ? lowRank.badge.length * 6.4 + 36 : 0;
+  const lowRankBadgeX =
+    Math.min(width, viewBoxX + viewBoxWidth) - (margin + lowRankBadgeWidth) * lowRankBadgeScale;
+  const lowRankBadgeY = Math.max(0, viewBoxY) + 10 * lowRankBadgeScale;
   const origin = axisOrigin(model);
   const networkTraces = model.traces.filter((trace) => trace.type === "network");
   const hasNetwork = networkTraces.length > 0;
@@ -271,6 +292,16 @@ export function EnaPlot({
   const legendRows = legend.length + overlayLegend.length;
   /** The separator rule between ENA rows and SENA rows costs one row of padding. */
   const legendExtraHeight = overlayLegend.length > 0 ? 8 : 0;
+  const legendHeight = legendRows * 20 + legendExtraHeight + 12;
+  // Same anchoring as the low-rank badge, for the same reason: the legend is
+  // chrome read against the *visible* box, and pinned to the canvas its left
+  // edge left the frame from about 1.14x up — a zoomed plot lost the key to its
+  // own ink. webENA's placement (lower-left of the plotting area) is what is
+  // preserved here; it is the coordinate space that changes, not the grammar.
+  const legendScale = 1 / safeZoom;
+  const legendX = Math.max(0, viewBoxX) + margin * legendScale;
+  const legendY =
+    Math.min(height, viewBoxY + viewBoxHeight) - (margin + legendHeight + 6) * legendScale;
   const unitPointCount = model.traces
     .filter(isUnitTrace)
     .reduce((total, trace) => total + (trace.points?.length ?? 0), 0);
@@ -653,6 +684,40 @@ export function EnaPlot({
       </text>
 
       {/*
+        Low-rank badge (ena-window-rank-audit.md): when the second axis carries
+        no structure the plot says so on the figure itself, where the claim is
+        made — top-right, clear of the y-axis title, legend, and plot title.
+        Scoped temporal windows trip this often, so it is a quiet plate with the
+        full explanation in its tooltip, not an alarm.
+      */}
+      {lowRank && (
+        <g
+          data-sena-layer="low-rank-warning"
+          data-low-rank-reason={lowRank.reason}
+          data-low-rank-units={lowRank.units}
+          data-low-rank-svd2-share={lowRank.svd2Share.toExponential(2)}
+          transform={`translate(${lowRankBadgeX.toFixed(2)} ${lowRankBadgeY.toFixed(2)}) scale(${lowRankBadgeScale.toFixed(4)})`}
+        >
+          <title>{lowRank.message}</title>
+          <rect
+            x="0"
+            y="0"
+            width={lowRankBadgeWidth}
+            height="24"
+            rx="9"
+            fill="rgb(var(--card) / 0.9)"
+            stroke="#f59e0b"
+            strokeOpacity="0.55"
+            strokeWidth="1"
+          />
+          <path d="M 15 6 L 22.5 19 L 7.5 19 Z" fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinejoin="round" />
+          <text x="28" y="16" fill="rgb(var(--foreground) / 0.86)" fontSize="11" fontWeight="700">
+            {lowRank.badge}
+          </text>
+        </g>
+      )}
+
+      {/*
         webENA anchors the plot legend near the lower-left of the plotting area
         (ena-official-website-design skill: "Show plot legends close to the
         plotting area, usually near the lower-left of the main plot"). Sits above
@@ -660,13 +725,13 @@ export function EnaPlot({
       */}
       <g
         data-sena-layer="legend"
-        transform={`translate(${margin} ${height - margin - (legendRows * 20 + legendExtraHeight + 12) - 6})`}
+        transform={`translate(${legendX.toFixed(2)} ${legendY.toFixed(2)}) scale(${legendScale.toFixed(4)})`}
       >
         <rect
           x="0"
           y="0"
           width="168"
-          height={legendRows * 20 + legendExtraHeight + 12}
+          height={legendHeight}
           rx="9"
           fill="rgb(var(--card) / 0.9)"
           stroke="rgb(var(--foreground) / 0.12)"

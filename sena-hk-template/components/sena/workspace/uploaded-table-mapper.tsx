@@ -13,7 +13,10 @@ import {
 } from "./analysis-runtime";
 import { MappingSelect } from "./workspace-primitives";
 
-export type UploadedSenaTable = SenaMappedTable & { id: string };
+// warnings carries source-level cleaning notes (e.g. ragged CSV rows repaired at
+// parse time) on the table itself, so they survive every remap: applyMappedTables
+// rebuilds the dataset from the tables alone.
+export type UploadedSenaTable = SenaMappedTable & { id: string; warnings?: string[] };
 
 export type UploadedTableMapperProps = {
   table: UploadedSenaTable;

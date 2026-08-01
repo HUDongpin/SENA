@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
-import { buildSenaReliabilityDashboard, parseCoderAnnotationsFromRows } from "../reliability";
+import { buildSenaReliabilityDashboard, parseCoderAnnotationsCsv, parseCoderAnnotationsFromRows } from "../reliability";
 
 describe("SENA coding reliability diagnostics", () => {
   it("summarizes code-level agreement and coder positive-rate drift", () => {
@@ -68,6 +68,71 @@ describe("SENA coding reliability diagnostics", () => {
       agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal",
       agreementValue: "kappa=0; alpha=0"
     }));
+  });
+
+  it("discloses ragged coder rows from the local reliability import", async () => {
+    // The last row is truncated before its value cell. parseSenaCsv pads it, and
+    // reliability.ts reads an empty value as "applied", so without the warning the
+    // dashboard would report agreement that the coder file never recorded.
+    const csv = [
+      "coder_id,item_id,code_id,value",
+      "c1,u1,Evidence,1",
+      "c2,u1,Evidence,1",
+      "c1,u2,Evidence,1",
+      "c2,u2,Evidence"
+    ].join("\n");
+
+    const result = await importSenaReliabilityFiles([
+      {
+        name: "coder-ratings.csv",
+        size: csv.length,
+        text: async () => csv,
+        arrayBuffer: async () => new TextEncoder().encode(csv).buffer
+      }
+    ], "Local reviewer");
+
+    expect(result.warnings).toContain(
+      "coder-ratings.csv: CSV row 5 has 3 cells but the header has 4; padded empty values for: value."
+    );
+    expect(result.dashboard.warnings).toEqual(result.warnings);
+    expect(result.annotationCount).toBe(4);
+    expect(result.dashboard.coderCount).toBe(2);
+    expect(result.dashboard.binaryUnitCount).toBe(2);
+    expect(result.reviewPatch.status).toBe("documented");
+  });
+
+  it("leaves reliability warnings empty for a well-formed coder file", async () => {
+    const csv = [
+      "coder_id,item_id,code_id,value",
+      "c1,u1,Evidence,1",
+      "c2,u1,Evidence,0"
+    ].join("\n");
+
+    const result = await importSenaReliabilityFiles([
+      {
+        name: "clean-ratings.csv",
+        size: csv.length,
+        text: async () => csv,
+        arrayBuffer: async () => new TextEncoder().encode(csv).buffer
+      }
+    ], "Local reviewer");
+
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("carries ragged-row warnings through the exported parseCoderAnnotationsCsv helper", () => {
+    const parsed = parseCoderAnnotationsCsv([
+      "coder_id,item_id,code_id,value",
+      "c1,u1,Evidence,1",
+      "c2,u1,Evidence"
+    ].join("\n"));
+
+    expect(parsed.warnings).toContain(
+      "CSV row 3 has 3 cells but the header has 4; padded empty values for: value."
+    );
+    // The return shape stays destructurable for existing callers.
+    expect(parsed.annotations).toHaveLength(2);
+    expect(parseCoderAnnotationsCsv("coder_id,item_id,code_id,value\nc1,u1,Evidence,1").warnings).toEqual([]);
   });
 
   it("prepares JSON API annotation batches with audit-ready source fingerprints", () => {

@@ -56,20 +56,26 @@ async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilit
   }));
 }
 
-async function rowsFromFile(file: BufferedReliabilityFile): Promise<SenaImportRow[]> {
+async function rowsFromFile(file: BufferedReliabilityFile): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".xlsx")) {
     const workbook = await readXlsxWorkbookRows(file.bytes);
-    return workbook.flatMap((sheet) => sheet.rows);
+    return { rows: workbook.flatMap((sheet) => sheet.rows), warnings: [] };
   }
   if (lower.endsWith(".xls")) {
     throw new Error(`${file.name}: legacy .xls reliability uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before uploading.`);
   }
   if (lower.endsWith(".json")) {
     const parsed = JSON.parse(file.bytes.toString("utf8"));
-    return Array.isArray(parsed) ? parsed.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)) : [];
+    return {
+      rows: Array.isArray(parsed) ? parsed.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)) : [],
+      warnings: []
+    };
   }
-  return parseSenaCsv(file.bytes.toString("utf8")).rows;
+  const parsed = parseSenaCsv(file.bytes.toString("utf8"));
+  // Ragged-row repairs are recorded per file: a coder row truncated before its
+  // value cell otherwise reads as an applied code and silently moves kappa/alpha.
+  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }
 
 function fileSummary(file: BufferedReliabilityFile) {
@@ -232,12 +238,14 @@ export async function POST(request: Request) {
         headers: serverJobHeaders(job)
       });
     }
-    const rows = (await Promise.all(bufferedFiles.map(rowsFromFile))).flat();
+    const parsedFiles = await Promise.all(bufferedFiles.map(rowsFromFile));
+    const rows = parsedFiles.flatMap((file) => file.rows);
+    const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
     const parsed = parseCoderAnnotationsFromRows(rows);
     const dashboard = buildSenaReliabilityDashboard(parsed.annotations);
     const dashboardWithWarnings = {
       ...dashboard,
-      warnings: [...parsed.warnings, ...dashboard.warnings]
+      warnings: [...fileWarnings, ...parsed.warnings, ...dashboard.warnings]
     };
     const reviewer = String(form.get("reviewer") || context.user.name);
     const reviewPatch = reliabilityDashboardToReview(dashboardWithWarnings, reviewer);

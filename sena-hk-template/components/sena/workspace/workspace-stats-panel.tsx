@@ -26,6 +26,21 @@ function formatStatsPanelPercent(value: number | undefined, digits = 1) {
   return Number.isFinite(value) ? `${formatStatsPanelNumber((value ?? 0) * 100, digits)}%` : "NA";
 }
 
+/**
+ * The card has room for one variance number, so that number has to say which
+ * axis it belongs to. A bare "65.4%" sitting above a note about renormalizing
+ * to 100% reads as "65.4% of the space is displayed" — the opposite of its
+ * meaning, which is the first axis's share *within* the drawn pair. The other
+ * two surfaces that publish these shares (the exported report and the temporal
+ * trace) already name their dimensions; this matches them.
+ */
+export function displayedVarianceCell(outputs: SenaEnaManifest["outputs"]) {
+  const [dimension] = outputs?.dimensions ?? [];
+  const share = Object.values(outputs?.variance ?? {})[0];
+  if (!dimension || !Number.isFinite(share)) return formatStatsPanelPercent(share);
+  return `${dimension} ${formatStatsPanelPercent(share)}`;
+}
+
 function pairReportSelectionTarget(model: SenaModel, pair: SenaModel["pairReport"][number]) {
   const conceptEdge = model.edges.find((edge) => (
     edge.layer === "concept" &&
@@ -127,10 +142,29 @@ export function WorkspaceStatsPanel({
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <MetricCell label="Dims" value={enaManifest.outputs?.dimensions.slice(0, 2).join(" / ") || "NA"} />
-                <MetricCell label="Variance" value={formatStatsPanelPercent(Object.values(enaManifest.outputs?.variance ?? {})[0])} />
+                <MetricCell label="Share of displayed variance" value={displayedVarianceCell(enaManifest.outputs)} />
                 <MetricCell label="Unit points" value={enaManifest.outputs?.points.length ?? 0} />
                 <MetricCell label="Line weights" value={enaManifest.outputs?.lineWeights.length ?? 0} />
               </div>
+              {/* The plot and this cell quote the same axis on two bases, the
+                  way /workspace/ena's Variance tab does. Gated on a drawn
+                  *pair* because that is what the copy describes: a two-code
+                  dataset yields one adjacency column and so one rotation
+                  column, and "renormalizes the drawn dimensions to 100%" over
+                  a set of one describes nothing (that manifest reports
+                  SVD1 0%, since every unit collapses to the origin). A skipped
+                  manifest has no shares at all. Both cases keep the cell —
+                  which names its axis — and drop the pairing sentence. */}
+              {(enaManifest.outputs?.dimensions.length ?? 0) > 1 && (
+                <p
+                  data-visual-role="jena-variance-basis-note"
+                  className="mt-2 text-[0.62rem] font-bold leading-4 text-violet-700/80"
+                >
+                  Displayed variance renormalizes the drawn dimensions to 100%, so the cell above is that axis&apos;s
+                  share within the drawn pair — not the share of the space the plot displays. Axis titles quote each
+                  dimension&apos;s share of the whole rotated space, so the two percentages can differ.
+                </p>
+              )}
             </div>
 
             <JenaConceptHandoffPanel audit={runtimeConsistencyAudit} />

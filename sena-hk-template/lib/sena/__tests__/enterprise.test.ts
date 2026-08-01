@@ -5,12 +5,16 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildSenaAnalysisRun,
+  buildSenaDataContractAudit,
+  buildSenaDatasetFromTables,
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,
   buildSenaModel,
   buildSenaProjectSnapshot,
   buildSenaReliabilityDashboard,
   importSenaJsonContract,
+  inferSenaColumnMapping,
+  inferSenaTableFromName,
   lessonStudySenaContract,
   parseCoderAnnotationsFromRows,
   parseSenaCsv,
@@ -19,6 +23,7 @@ import {
 import { buildXlsxWorkbookBuffer, readXlsxWorkbookRows } from "../excel-workbook";
 import { importSenaEnterpriseFiles } from "../import-adapters";
 import { buildSenaPublicationExport } from "../publication-export";
+import type { SenaDataset } from "../types";
 
 function uploadLike(name: string, bytes: Buffer | string) {
   const buffer = typeof bytes === "string" ? Buffer.from(bytes, "utf8") : bytes;
@@ -199,13 +204,15 @@ describe("SENA enterprise runtime", () => {
       .toContain("reply-target directed B_CP evidence");
   });
 
-  it("never fabricates people from a separator-bearing forum reply target (G1)", async () => {
+  it("declares a comma-bearing forum reply target verbatim, without fabrication (G1 → ADR-0007 D2)", async () => {
     // Authors are keyed by display name in the standard LMS "Last, First" form, so
-    // the canonical person id itself contains a comma. coded_segments.target_person_ids
-    // is a multi-value field split on "|", ";" and ",", so declaring such an id would
-    // shred it into fragments, and deriving people from those fragments would invent
-    // participants and flip the bridge into independent-B_CP mode on evidence that
-    // does not exist. The target must be reported and left empty instead.
+    // the canonical person id itself contains a comma. Under the pre-ADR-0007
+    // splitter this id could not be declared (it would shred into fragments and
+    // fabricate people — bug G1), so the evidence was dropped with a warning:
+    // loss instead of invention. Since ADR-0007 D2 multi-value cells split on
+    // "|" only, so the id round-trips verbatim and the reply IS recorded as
+    // directed B_CP evidence — the disclosed, deliberate correction the ADR's
+    // consequences section describes.
     const forumCsv = [
       "thread_id,post_id,parent_post_id,reply_to_author,display_name,message,tags",
       "thread-a,post-1,,,\"Wong, Ka Yee\",\"How can we test the explanation? #Question\",Question",
@@ -221,12 +228,13 @@ describe("SENA enterprise runtime", () => {
       .toEqual(["Chan, Tai Man", "Wong, Ka Yee"]);
     expect(imported.dataset.people.some((person) => person.group === "Derived")).toBe(false);
 
-    // No directed evidence was declared, so the transpose fallback is preserved.
+    // The comma-bearing target now survives the multi-value field verbatim, so
+    // the reply's coded contribution is directed evidence, not lost evidence.
     const replySegment = imported.dataset.coded_segments.find((segment) => segment.utteranceId === "post-2");
-    expect(replySegment?.targetPersonIds).toBeUndefined();
+    expect(replySegment?.targetPersonIds).toEqual(["Wong, Ka Yee"]);
     const model = buildSenaModel(imported.dataset);
-    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-transpose-fallback");
-    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(false);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-cp-independent");
+    expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(true);
 
     // The social layer is unaffected: the reply tie still resolves to a known person.
     expect(imported.dataset.interactions).toEqual([
@@ -235,9 +243,13 @@ describe("SENA enterprise runtime", () => {
     expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
     expect(model.summary.socialEdges).toBe(1);
 
-    // The skipped evidence is disclosed rather than silently dropped.
+    // ADR-0007 D1: the delimiter-bearing ids are disclosed, once per table.
+    expect(imported.warnings.some((warning) =>
+      /^people: \d+ id\(s\) contain/.test(warning) && warning.includes('"Wong, Ka Yee"')
+    )).toBe(true);
+    // And no evidence was suppressed — the old loss warning is gone.
     expect(imported.warnings.some((warning) => /cannot be recorded as directed code-to-person evidence/i.test(warning)))
-      .toBe(true);
+      .toBe(false);
   });
 
   it("reports an unresolvable forum reply target instead of passing it through (G1)", async () => {
@@ -333,6 +345,51 @@ describe("SENA enterprise runtime", () => {
     expect(imported.dataset.people.map((person) => person.id)).toEqual(["P1"]);
     const model = buildSenaModel(imported.dataset);
     expect(model.summary.warnings.some((warning) => /unknown person/i.test(warning))).toBe(false);
+    // Nobody was derived from a target here, so the target-only disclosure stays quiet.
+    expect(imported.warnings.some((warning) => /derived solely from target_person_ids/i.test(warning))).toBe(false);
+  });
+
+  it("discloses people derived only from target_person_ids in a roster-less upload", () => {
+    // The F6 rule is intentional: with no people table, coded_segments IS the
+    // roster, so a target legitimately introduces the person it names. But that
+    // person never contributed anything, and once on the roster it resolves in
+    // personIndex and can carry directed B_CP evidence — flipping the bridge to
+    // pc-cp-independent on people the import invented from a claim. The
+    // derivation is by design; the silence about it was the defect.
+    const contract = {
+      coded_segments: [
+        {
+          segment_id: "cs-1",
+          utterance_id: "u1",
+          person_id: "P1",
+          unit_id: "unit-1",
+          stanza_id: "st-1",
+          target_person_ids: "P9",
+          codes: "Evidence"
+        }
+      ]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P9"]);
+
+    const disclosure = imported.warnings.filter((warning) => /derived solely from target_person_ids/i.test(warning));
+    expect(disclosure).toHaveLength(1);
+    expect(disclosure[0]).toContain('"P9"');
+    expect(disclosure[0]).not.toContain('"P1"');
+    expect(disclosure[0]).toMatch(/directed B_CP evidence/i);
+
+    // The disclosure describes a real consequence: B_CP is independent here.
+    const model = buildSenaModel(imported.dataset);
+    expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-cp-independent");
+
+    // A declared roster suppresses both the derivation (G1) and the disclosure.
+    const declared = importSenaJsonContract(JSON.stringify({
+      people: [{ person_id: "P1" }],
+      coded_segments: contract.coded_segments
+    }));
+    expect(declared.dataset.people.map((person) => person.id)).toEqual(["P1"]);
+    expect(declared.warnings.some((warning) => /derived solely from target_person_ids/i.test(warning))).toBe(false);
   });
 
   it("reports ragged CSV rows through parseSenaCsv warnings (G2)", () => {
@@ -375,6 +432,68 @@ describe("SENA enterprise runtime", () => {
     const imported = await importSenaEnterpriseFiles([uploadLike("people.csv", csv)]);
     expect(imported.warnings.some((warning) => /people\.csv: CSV row 3 .* padded empty values for: role\./.test(warning)))
       .toBe(true);
+  });
+
+  it("gates the data-contract audit identically on the enterprise and browser import routes (F13)", async () => {
+    // buildSenaDataContractAudit reads dataset.warnings (plus model warnings) and
+    // nothing else, so where a cleaning disclosure is *stored* decides the audit.
+    // The browser route folds each file's parse warnings into dataset.warnings;
+    // the enterprise route used to keep the identical strings in its own warnings
+    // list and the cleaning manifest only, so the same five CSVs audited "review"
+    // through one route and "pass" through the other.
+    const files = [
+      // The ragged row: three header columns, two cells.
+      ["people.csv", "person_id,label,role\nP1,Ada,Teacher\nP2,Ben"],
+      ["interactions.csv", "from,to\nP1,P2"],
+      ["utterances.csv", "utterance_id,person_id,stanza_id,turn_index,text\nu1,P1,st1,1,Question\nu2,P2,st1,2,Evidence"],
+      ["coded_segments.csv", "segment_id,utterance_id,person_id,codes\ncs1,u1,P1,Question\ncs2,u2,P2,Evidence"],
+      ["codebook.csv", "code_id\nQuestion\nEvidence"]
+    ] as const;
+    const raggedWarning = "people.csv: CSV row 3 has 2 cells but the header has 3; padded empty values for: role.";
+
+    const enterprise = await importSenaEnterpriseFiles(files.map(([name, text]) => uploadLike(name, text)));
+
+    // The browser route: uploaded tables carry their own parse warnings, and
+    // applyMappedTables prepends them to the rebuilt dataset's warnings. That
+    // fold is pinned by the workspace suite; it is mirrored here so the two
+    // routes can be compared on one input.
+    const browserTables = files.map(([name, text]) => {
+      const parsed = parseSenaCsv(text);
+      const table = inferSenaTableFromName(name);
+      return {
+        name,
+        table,
+        columns: parsed.columns,
+        rows: parsed.rows,
+        mapping: inferSenaColumnMapping(table, parsed.columns),
+        warnings: parsed.warnings.map((warning) => `${name}: ${warning}`)
+      };
+    });
+    const browserResult = buildSenaDatasetFromTables(browserTables);
+    const browserSourceWarnings = browserTables.flatMap((table) => table.warnings ?? []);
+    const browserDataset = {
+      ...browserResult.dataset,
+      warnings: [...browserSourceWarnings, ...(browserResult.dataset.warnings ?? [])]
+    };
+
+    const warningsItem = (dataset: SenaDataset) => {
+      const model = buildSenaModel(dataset);
+      const audit = buildSenaDataContractAudit(dataset, { modelWarnings: model.summary.warnings });
+      return audit.items.find((entry) => entry.id === "import-and-model-warnings");
+    };
+
+    // Both routes see the repair, so both send the researcher to review it.
+    expect(enterprise.dataset.warnings).toContain(raggedWarning);
+    expect(browserDataset.warnings).toContain(raggedWarning);
+    expect(warningsItem(enterprise.dataset)?.status).toBe("review");
+    expect(warningsItem(enterprise.dataset)?.status).toBe(warningsItem(browserDataset)?.status);
+
+    // Source warnings lead, matching applyMappedTables' ordering.
+    expect(enterprise.dataset.warnings?.[0]).toBe(raggedWarning);
+    // The adapter-level list and the cleaning manifest still report the same set.
+    expect(enterprise.warnings).toEqual(enterprise.dataset.warnings);
+    expect(enterprise.cleaningManifest.checks.find((check) => check.id === "cleaning-warning-review")?.status)
+      .toBe("review");
   });
 
   it("adapts LMS forum Excel exports into SENA analysis tables", async () => {

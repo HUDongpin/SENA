@@ -73,7 +73,7 @@ export const senaPilotTemplateAssets: SenaPilotAssetLink[] = [
   {
     label: "People CSV template",
     href: "/sena-pilot/templates/people.csv",
-    detail: "Participant table header"
+    detail: "Participant table header. Optional actor_type marks a row human (default when empty) or ai_agent (ADR-0006 D2); typing an AI row is roster semantics only — model/run provenance is not captured yet"
   },
   {
     label: "Interactions CSV template",
@@ -88,7 +88,7 @@ export const senaPilotTemplateAssets: SenaPilotAssetLink[] = [
   {
     label: "Coded Segments CSV template",
     href: "/sena-pilot/templates/coded_segments.csv",
-    detail: "ENA coding table header"
+    detail: "ENA coding table header. Multi-value cells (codes, target_person_ids) separate values with \"|\" — a value with no \"|\" is one id, verbatim, so names like \"Wong, Ka Yee\" are safe (ADR-0007)"
   },
   {
     label: "Codebook CSV template",

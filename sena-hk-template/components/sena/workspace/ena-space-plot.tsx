@@ -176,13 +176,29 @@ export function SenaEnaSpacePlot({
       </div>
       <EnaPlot
         model={composition.model}
+        // The rotation-column basis, the same one /workspace/ena titles from;
+        // the badge's renormalized share names its own basis in its text, so
+        // the two numbers on this figure cannot be read as one.
         variance={composition.variance}
+        lowRank={composition.lowRank}
         zoom={zoom}
         overlay={overlay}
         selectedId={selectedId}
         onSelect={onSelect}
         className={cn("h-full w-full", className)}
       />
+      {/* /workspace/ena states the low-rank caveat twice — the badge on the
+          figure and the full sentence in its alerts strip. ENA Space had only
+          the badge, whose sentence lives in an SVG tooltip a touch device
+          cannot open, so the caveat is written out here as well. */}
+      {composition.lowRank && (
+        <p
+          data-visual-role="ena-space-low-rank-note"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"
+        >
+          {composition.lowRank.message}
+        </p>
+      )}
     </div>
   );
 }

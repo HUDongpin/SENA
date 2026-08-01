@@ -71,6 +71,11 @@ function parseBoolean(value: string) {
   return !["0", "false", "no", "n", "absent", "none"].includes(normalized);
 }
 
+// Coder-annotation files are external exports, so any-delimiter tolerance is
+// the right call here, at the adapter boundary. The five-table contract itself
+// splits multi-value cells on "|" only (ADR-0007 D2) — do not "align" this
+// splitter with lib/sena/import.ts without deciding how comma-bearing code ids
+// in coder files should then be expressed.
 function parseCodes(value: string) {
   return value.split(/[|;,]/).map((code) => code.trim()).filter(Boolean);
 }
@@ -95,7 +100,11 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotati
 }
 
 export function parseCoderAnnotationsCsv(text: string) {
-  return parseCoderAnnotationsFromRows(parseSenaCsv(text).rows);
+  const parsed = parseSenaCsv(text);
+  const annotations = parseCoderAnnotationsFromRows(parsed.rows);
+  // Ragged-row repairs are additive on the existing shape: a row truncated before
+  // its value cell otherwise reads as an applied code with no trace.
+  return { ...annotations, warnings: [...parsed.warnings, ...annotations.warnings] };
 }
 
 function mean(values: number[]) {

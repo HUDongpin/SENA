@@ -65,6 +65,16 @@ type UploadLike = {
 
 const transcriptCodeColors = ["#2563eb", "#14b8a6", "#a855f7", "#f97316", "#ec4899", "#22c55e"];
 
+/**
+ * Forum/LMS tag lists split on any of "|", ";", ",". Source-format tolerance
+ * like this lives in the adapters; the five-table contract itself splits
+ * multi-value cells on "|" only (ADR-0007 D2), so adapters emit "|"-joined
+ * cells.
+ */
+function legacyCodeList(value: string) {
+  return value.split(/[|;,]/).map((code) => code.trim()).filter(Boolean);
+}
+
 function scalar(value: unknown) {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) return value.join("|");
@@ -419,12 +429,13 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   const resolvePersonIdentity = (value: string) => (value ? personIdentityIndex.get(value) ?? value : "");
   // Stricter resolver for directed B_CP evidence (ADR-0006 D1): only a target that
   // resolves to a *known* author may be declared, and it must survive the
-  // multi-value coded_segments field, which is split on "|", ";" and ",". An id
-  // carrying one of those separators (e.g. a display-name roster keyed "Last, First",
-  // the standard LMS export form) would be shredded into fragments downstream, so it
-  // is reported and left empty rather than emitted. Empty preserves the B_PC
-  // transpose fallback; it never invents a target.
-  const segmentTargetDelimiter = /[|;,]/;
+  // multi-value coded_segments field, which since ADR-0007 D2 splits on "|"
+  // only. A display-name roster keyed "Last, First" (the standard LMS export
+  // form, bug G1) therefore round-trips verbatim and IS declared — the loss
+  // path is closed. Only an id carrying "|" itself remains inexpressible; it is
+  // reported and left empty, which preserves the B_PC transpose fallback and
+  // never invents a target.
+  const segmentTargetDelimiter = /[|]/;
   const resolveDeclaredTarget = (value: string, postId: string) => {
     if (!value) return "";
     const resolved = personIdentityIndex.get(value);
@@ -433,7 +444,7 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
       return "";
     }
     if (segmentTargetDelimiter.test(resolved)) {
-      warnings.push(`Forum post ${postId} replies to author id "${resolved}", which contains a "|", ";" or "," separator and cannot be recorded as directed code-to-person evidence; the reply still contributes to the social layer.`);
+      warnings.push(`Forum post ${postId} replies to author id "${resolved}", which contains "|" — the multi-value separator — and cannot be recorded as directed code-to-person evidence; the reply still contributes to the social layer.`);
       return "";
     }
     return resolved;
@@ -495,7 +506,12 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
         stage: post.stage || "Forum",
         turn_index: post.turn_index,
         text: post.text,
-        codes: post.codes,
+        // Forum tag columns are researcher-authored lists where ","/";" are
+        // common separators. That tolerance belongs here, at the adapter
+        // boundary: normalize to the contract's canonical "|" join so the
+        // pipe-only splitter (ADR-0007 D2) reads the same code list the old
+        // any-delimiter splitter did.
+        codes: legacyCodeList(scalar(post.codes)).join("|"),
         confidence: 1
       };
     }) as SenaImportRow[];
@@ -503,7 +519,7 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
   segmentTable.table = "coded_segments";
   segmentTable.mapping = inferSenaColumnMapping("coded_segments", segmentTable.columns);
 
-  const codeRows = Array.from(new Set(segmentRows.flatMap((row) => scalar(row.codes).split(/[|;,]/).map((code) => code.trim()).filter(Boolean))))
+  const codeRows = Array.from(new Set(segmentRows.flatMap((row) => legacyCodeList(scalar(row.codes)))))
     .map((code, index) => ({
       id: code,
       label: code,
@@ -780,7 +796,15 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   if (tables.length === 0) throw new Error("No supported SENA import tables were found.");
   const result = buildSenaDatasetFromTables(tables);
   if (datasetMetadata) result.dataset.metadata = datasetMetadata;
+  // Adapter-level cleaning notes (ragged-row repairs, transcript/forum cleaning)
+  // first, then the contract-level ones — the order applyMappedTables uses on the
+  // browser route. They have to ride on the dataset, not just on this result:
+  // buildSenaDataContractAudit reads dataset.warnings, so leaving them here alone
+  // audited the same files "pass" through this route and "review" through the
+  // browser one. Warnings are excluded from buildSenaDatasetContentHash, so
+  // fingerprints are unaffected.
   const allWarnings = [...warnings, ...result.warnings];
+  result.dataset.warnings = allWarnings;
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseImport,
     dataset: result.dataset,

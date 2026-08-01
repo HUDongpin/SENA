@@ -30,6 +30,7 @@ import { EnaPlot, clampPlotZoom } from "@/components/ena/EnaPlot";
 import { cn } from "@/lib/utils";
 import { parseCsv, rowsToCsv, type ParsedCsv } from "@/lib/ena/csv";
 import { compareGroups, comparisonGroups } from "@/lib/ena/comparison";
+import { assessEnaLowRank } from "@/lib/ena/low-rank";
 import { buildEnaMethodsWriteUp } from "@/lib/ena/methods-write-up";
 import {
   applyEnaPlotModelDisplay,
@@ -39,7 +40,7 @@ import {
   enaPlotScaleRange,
   type EnaPlotDisplay
 } from "@/lib/ena/plot-display";
-import { buildEnaPlotModel, buildEnaRunResult } from "@/lib/ena/results";
+import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight } from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
 import type {
   EnaMapping,
@@ -771,6 +772,21 @@ export function EnaWorkspaceClient() {
   );
   const displayedInk = useMemo(() => enaPlotInkDisplay(display), [display]);
 
+  // Low-rank badge (docs/validation/ena-window-rank-audit.md). Assessed from
+  // the run summary — distinct units and displayed-dimension variance shares —
+  // through the same module ENA Space uses, so the two routes cannot disagree.
+  const lowRank = useMemo(
+    () =>
+      result
+        ? assessEnaLowRank({
+            units: result.summary.units,
+            variance: result.summary.variance,
+            dimensions: result.summary.dimensions
+          })
+        : null,
+    [result]
+  );
+
   // --- Stats -----------------------------------------------------------------
   const comparisonGroupOptions = useMemo(
     () => (result && activeGroupBy ? comparisonGroups(result.set, activeGroupBy) : []),
@@ -1267,7 +1283,13 @@ export function EnaWorkspaceClient() {
                 <label className="mt-3 grid gap-1.5" data-visual-role="ena-min-edge-weight">
                   <span className="flex items-center justify-between text-[11px] font-bold text-muted">
                     <span>Minimum edge weight</span>
-                    <span className="tabular-nums text-foreground">{minWeight.toFixed(3)}</span>
+                    {/* The readout states the threshold the drawn network
+                        actually uses, so the renderer's 0.001 noise floor is
+                        visible instead of silently applied when the slider
+                        sits at zero. */}
+                    <span className="tabular-nums text-foreground" data-testid="ena-min-edge-weight-effective">
+                      {effectiveEnaMinWeight(minWeight).toFixed(3)}
+                    </span>
                   </span>
                   <input
                     type="range"
@@ -1280,7 +1302,7 @@ export function EnaWorkspaceClient() {
                     className="w-full accent-[#56b09d]"
                   />
                   <span className="text-[11px] font-semibold leading-5 text-muted">
-                    Hides connections at or below this mean weight. Filters the drawn network only — node positions and the projection are unchanged.
+                    Hides connections at or below this mean weight; a 0.001 floor always applies to keep hairline noise out of the drawn network. Filters the drawn network only — node positions and the projection are unchanged.
                   </span>
                 </label>
               </div>
@@ -1586,7 +1608,7 @@ export function EnaWorkspaceClient() {
         </div>
 
         {/* Alerts strip. */}
-        {(isRunning || validationMessage || error || (result?.warnings.length ?? 0) > 0) && (
+        {(isRunning || validationMessage || error || lowRank || (result?.warnings.length ?? 0) > 0) && (
           <div className="grid gap-2 px-4 pt-3">
             {isRunning && (
               <div className="flex items-center gap-3 rounded border border-cardBorder/50 bg-background/40 px-3 py-2 text-sm font-bold text-foreground">
@@ -1610,6 +1632,14 @@ export function EnaWorkspaceClient() {
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {warning}
               </div>
             ))}
+            {lowRank && (
+              <div
+                data-visual-role="ena-low-rank-warning"
+                className="flex gap-3 rounded border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-600 dark:text-amber-200"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {lowRank.message}
+              </div>
+            )}
           </div>
         )}
 
@@ -1623,6 +1653,7 @@ export function EnaWorkspaceClient() {
               <EnaPlot
                 model={displayedPlotModel}
                 variance={displayedVariance}
+                lowRank={lowRank}
                 ink={displayedInk}
                 zoom={zoom}
                 className="h-full w-full"
