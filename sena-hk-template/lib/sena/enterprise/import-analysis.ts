@@ -593,6 +593,40 @@ export async function createEnterpriseUploadsWithPostgresMirrorAsync(
   return uploads;
 }
 
+export type SenaEnterpriseUploadWarningReport = {
+  uploadId: string;
+  warningCount: number;
+};
+
+// Worker-reported parse warnings arriving through the server-job status
+// callback: performs the "until a parser reports" transition of the H10
+// warningCount semantics for uploads the external worker actually parsed.
+// System-level (ops-token callers); the job layer validates entries against
+// the job's own uploadIds before calling this, and the teamId filter here is
+// the tenant boundary — a queued uploadIds list that smuggled a foreign
+// upload id (client-supplied ids are not existence-checked at enqueue) still
+// cannot write another team's registry.
+export async function recordEnterpriseUploadWarningCountsAsync(
+  entries: SenaEnterpriseUploadWarningReport[],
+  teamId: string
+): Promise<SenaEnterpriseUpload[]> {
+  if (entries.length === 0) return [];
+  const state = await readEnterpriseState();
+  const countByUploadId = new Map(entries.map((entry) => [entry.uploadId, entry.warningCount]));
+  const updated: SenaEnterpriseUpload[] = [];
+  for (const upload of state.db.uploads) {
+    if (upload.teamId !== teamId) continue;
+    const warningCount = countByUploadId.get(upload.id);
+    if (warningCount === undefined) continue;
+    upload.warningCount = warningCount;
+    updated.push(upload);
+  }
+  if (updated.length === 0) return [];
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(updated);
+  return updated;
+}
+
 export function listEnterpriseUploads(context: SenaEnterpriseSessionContext, teamId?: string) {
   const db = readEnterpriseDb();
   return listEnterpriseUploadsFromDb(context, db, teamId);

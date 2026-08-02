@@ -201,6 +201,123 @@ describe("SENA server job ops route", () => {
     expect(JSON.stringify(audit)).not.toContain(errorMessage);
   });
 
+  it("applies worker-reported uploadWarnings to the queued upload registry", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-upload-warnings-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
+
+    const enterprise = await import("../enterprise");
+    const registered = enterprise.registerEnterpriseUser({
+      name: "Upload Warnings Owner",
+      email: "upload-warnings-owner@example.edu",
+      password: "sena-secure-123",
+      organization: "Upload Warnings Lab",
+      plan: "lab"
+    });
+    const teamId = registered.context.teams[0].id;
+    const [upload] = enterprise.createEnterpriseUploads(registered.context, {
+      teamId,
+      files: [{
+        name: "queued-ratings.csv",
+        contentType: "text/csv",
+        bytes: Buffer.from("coder_id,item_id,code_id,value\nc1,u1,Evidence,1\nc2,u1,Evidence", "utf8"),
+        importProfile: "reliability"
+        // No warningCount: nothing has parsed the queued file yet (H10).
+      }]
+    });
+    expect(upload.warningCount).toBeUndefined();
+
+    const job = await enterprise.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId,
+      actorUserId: registered.context.user.id,
+      payload: { action: "run-reliability", teamId, uploadIds: [upload.id] },
+      payloadSummary: {
+        source: "upload",
+        uploadIds: [upload.id],
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const route = await import("../../../app/api/sena/ops/jobs/route");
+    const authHeaders = {
+      authorization: "Bearer sena-test-ops-token",
+      "content-type": "application/json"
+    };
+
+    // Entries naming uploads outside the job are rejected before any state
+    // transition, so the job stays queued for the valid report below.
+    const unknownResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-succeeded",
+        jobId: job.id,
+        uploadWarnings: [{ uploadId: "upload_not_in_job", warningCount: 1 }]
+      })
+    }));
+    expect(unknownResponse.status).toBe(400);
+    const unknownBody = await unknownResponse.json() as { code?: string };
+    expect(unknownBody.code).toBe("server_job_upload_warnings_unknown_upload");
+    expect(enterprise.listEnterpriseUploads(registered.context, teamId)
+      .find((candidate) => candidate.id === upload.id)?.warningCount).toBeUndefined();
+
+    // A malformed (non-array) report fails loud instead of being silently
+    // ignored, and a report cannot carry more entries than queued uploads.
+    const nonArrayResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-succeeded",
+        jobId: job.id,
+        uploadWarnings: { uploadId: upload.id, warningCount: 1 }
+      })
+    }));
+    expect(nonArrayResponse.status).toBe(400);
+    expect((await nonArrayResponse.json() as { code?: string }).code).toBe("server_job_upload_warnings_invalid");
+
+    const tooManyResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-succeeded",
+        jobId: job.id,
+        uploadWarnings: [
+          { uploadId: upload.id, warningCount: 1 },
+          { uploadId: upload.id, warningCount: 2 }
+        ]
+      })
+    }));
+    expect(tooManyResponse.status).toBe(400);
+    expect((await tooManyResponse.json() as { code?: string }).code).toBe("server_job_upload_warnings_too_many");
+
+    const succeededResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-succeeded",
+        jobId: job.id,
+        workerRunId: "worker_run_warnings",
+        uploadWarnings: [{ uploadId: upload.id, warningCount: 2 }]
+      })
+    }));
+    const succeededBody = await succeededResponse.json() as {
+      job?: { status?: string };
+      uploadWarnings?: Array<{ uploadId?: string; warningCount?: number }>;
+    };
+    expect(succeededResponse.status).toBe(200);
+    expect(succeededBody.job?.status).toBe("succeeded");
+    expect(succeededBody.uploadWarnings).toEqual([{ uploadId: upload.id, warningCount: 2 }]);
+
+    // The registry performed the H10 "until a parser reports" transition.
+    expect(enterprise.listEnterpriseUploads(registered.context, teamId)
+      .find((candidate) => candidate.id === upload.id)?.warningCount).toBe(2);
+  });
+
   it("filters every heavy server job kind from the ops route", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-ops-kinds-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;

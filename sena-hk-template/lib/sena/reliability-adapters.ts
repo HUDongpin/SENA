@@ -70,7 +70,7 @@ export async function importSenaReliabilityFiles(
   const rows = parsedFiles.flatMap((file) => file.rows);
   const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
   const parsed = parseCoderAnnotationsFromRows(rows);
-  const dashboard = buildSenaReliabilityDashboard(parsed.annotations);
+  const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
   const dashboardWithWarnings = {
     ...dashboard,
     warnings: [...fileWarnings, ...parsed.warnings, ...dashboard.warnings]

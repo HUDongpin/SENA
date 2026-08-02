@@ -1,7 +1,7 @@
 # SENA — Next Development Plan (2026-07-18)
 
 **Author:** Claude (Opus 4.8), for Peter (Dongpin HU)
-**Repo:** `/Users/dongpinhu/Desktop/SENA` · app in `sena-hk-template/`
+**Repo:** `/Volumes/Starship/SENA` (moved from `~/Desktop/SENA` on 2026-08-02) · app in `sena-hk-template/`
 **Branch reviewed:** `feat/workspace-top-plots-bar` @ `fa7b954`
 **Live site:** www.sena.hk (Vercel project `sena-hk`, CLI-deployed, no Git auto-deploy)
 
@@ -217,6 +217,26 @@ built on turns-as-samples.
    until they actually block a release?
 5. **Paper timing** — write the Human–AI actor-model extension into the manuscript before or after
    C-P0 lands in code?
+
+### Addendum 2026-08-01 — decision status
+
+1. **Track C timing — resolved: started.** Peter's 2026-08-01 "fix these two issues" directive
+   (Track C unstarted being issue #1) resolved the timing question in favour of starting now.
+   ADR-0006 D2 is implemented: additive `actorType = human | ai_agent` on the roster,
+   `target_actor_ids`/`targetActorIds` import aliases, `actor_type` exposed in the blank
+   `people.csv` template (manifest refreshed), and the §8-guardrail disclosure when a roster
+   declares an AI actor. Next Track C increments: an `ai_agent_runs` provenance ADR, then the
+   C-P1 event ledger (after Track B defines valid units).
+2. **First real datasets (A3) — open, Peter's call.** Depends on data access; no default exists.
+3. **PR #3 — resolved 2026-07-18.** Closed; the Human–AI brief lives in-tree at
+   `docs/research/human-ai/` as the Track C design-of-record, actioned by ADR-0006.
+4. **Test-infra debt — resolved 2026-07-18.** The 58 test-file `tsc` errors were cleared and the
+   flaky enterprise-capability-audit timeout de-flaked; `tsc --noEmit` is a usable gate (0 errors
+   as of 2026-08-01).
+5. **Paper timing — open, Peter's call.** Note the sequencing question has softened: C-P0 actor
+   typing is now *implemented*, so the manuscript can describe landed behaviour rather than
+   planned work, and `actorType` does not touch `A_fusion`, so §5's lockstep concern is not yet
+   triggered.
 
 ---
 

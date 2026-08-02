@@ -159,6 +159,14 @@ export function useEnterpriseImportActions({
         },
         { csrfHeaders: enterpriseCsrfHeaders }
       );
+      if (!payload.dataset) {
+        // A queued 202 returns a server-job receipt, not an import result;
+        // leave the current workspace dataset untouched instead of clobbering
+        // it to undefined (§4.4). Results arrive via the external worker.
+        setImportError(null);
+        setEnterpriseMessage(`Enterprise import was queued as server job ${payload.id ?? "(unknown)"}; the external worker will complete it and the current workspace dataset is unchanged.`);
+        return;
+      }
       if (payload.persistedProject?.snapshot) {
         restoreProjectSnapshot(payload.persistedProject.snapshot, payload.persistedProject.title);
         setActiveEnterpriseProjectId(payload.persistedProject.id);

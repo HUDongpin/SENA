@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
-import { buildSenaReliabilityDashboard, parseCoderAnnotationsCsv, parseCoderAnnotationsFromRows } from "../reliability";
+import { buildSenaReliabilityDashboard, parseCoderAnnotationsCsv, parseCoderAnnotationsFromRows, reliabilityDashboardToReview } from "../reliability";
 
 describe("SENA coding reliability diagnostics", () => {
   it("summarizes code-level agreement and coder positive-rate drift", () => {
@@ -70,12 +70,12 @@ describe("SENA coding reliability diagnostics", () => {
     }));
   });
 
-  it("discloses ragged coder rows and skips their padded empty value cells", async () => {
+  it("discloses ragged coder rows and excludes their padded empty value cells as missing data", async () => {
     // The last row is truncated before its value cell. parseSenaCsv pads it and
-    // reliability.ts then skips the annotation (2026-08-01 report §4.1): an
-    // empty value cell must never read as "applied". In the binary-unit model
-    // the skipped row behaves like an absent row — the coder scores not-applied
-    // on the unit — so agreement can only deflate (conservative), not inflate.
+    // reliability.ts treats the cell as missing data (2026-08-01 §4.1, decided
+    // 2026-08-02): never "applied" (pre-fix inflation) and never "not applied"
+    // (fabricated disagreement) — the unit is excluded from pairable units for
+    // that coder, Krippendorff-style.
     const csv = [
       "coder_id,item_id,code_id,value",
       "c1,u1,Evidence,1",
@@ -97,18 +97,27 @@ describe("SENA coding reliability diagnostics", () => {
       "coder-ratings.csv: CSV row 5 has 3 cells but the header has 4; padded empty values for: value."
     );
     expect(result.warnings).toContain(
-      "coder annotation row 4 has an empty value cell and was skipped rather than read as applied."
+      "coder annotation row 4 has an empty value cell; it is treated as missing data and excluded from pairable reliability units."
+    );
+    expect(result.warnings).toContain(
+      "1 distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units."
+    );
+    expect(result.warnings).toContain(
+      "1 coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them."
     );
     expect(result.dashboard.warnings).toEqual(result.warnings);
     expect(result.annotationCount).toBe(3);
     expect(result.dashboard.coderCount).toBe(2);
     expect(result.dashboard.binaryUnitCount).toBe(2);
-    // Pin the estimator consequence: the skipped c2/u2 cell reads as
-    // not-applied, so u2 becomes a fabricated DISAGREEMENT (kappa deflates to
-    // 0), never the pre-fix fabricated agreement (kappa 1). True missing-data
-    // exclusion of the unit is an open estimator decision (§4 addendum).
+    // Pin the estimator consequence: u2::Evidence is unpairable for c1-c2 (c2's
+    // cell is missing), leaving 1 pairable unit — below the no-evidence floor,
+    // so kappa/alpha report 0 with disclosure. No fabricated disagreement
+    // (pre-fix empty=applied minted agreement; empty=not-applied would mint a
+    // disagreement; a degenerate 1-unit kappa would mint a perfect score).
+    expect(result.dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
     expect(result.dashboard.meanPairwiseKappa).toBe(0);
-    expect(result.dashboard.disagreementCount).toBe(1);
+    expect(result.dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(result.dashboard.disagreementCount).toBe(0);
     expect(result.reviewPatch.status).toBe("documented");
   });
 
@@ -116,7 +125,9 @@ describe("SENA coding reliability diagnostics", () => {
     const csv = [
       "coder_id,item_id,code_id,value",
       "c1,u1,Evidence,1",
-      "c2,u1,Evidence,0"
+      "c2,u1,Evidence,0",
+      "c1,u2,Evidence,1",
+      "c2,u2,Evidence,1"
     ].join("\n");
 
     const result = await importSenaReliabilityFiles([
@@ -142,15 +153,16 @@ describe("SENA coding reliability diagnostics", () => {
       "CSV row 3 has 3 cells but the header has 4; padded empty values for: value."
     );
     expect(parsed.warnings).toContain(
-      "coder annotation row 2 has an empty value cell and was skipped rather than read as applied."
+      "coder annotation row 2 has an empty value cell; it is treated as missing data and excluded from pairable reliability units."
     );
     // The return shape stays destructurable for existing callers; the padded
     // row is disclosed twice but only the recorded annotation survives.
     expect(parsed.annotations).toHaveLength(1);
+    expect(parsed.skippedCells).toEqual([{ coderId: "c2", itemId: "u1", codeIds: ["Evidence"] }]);
     expect(parseCoderAnnotationsCsv("coder_id,item_id,code_id,value\nc1,u1,Evidence,1").warnings).toEqual([]);
   });
 
-  it("skips an explicitly empty value cell instead of reading it as applied", () => {
+  it("records explicitly empty value cells as skipped missing-data cells, never applied", () => {
     const parsed = parseCoderAnnotationsFromRows([
       { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
       { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "" },
@@ -160,10 +172,122 @@ describe("SENA coding reliability diagnostics", () => {
     expect(parsed.annotations).toEqual([
       { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true }
     ]);
-    expect(parsed.warnings).toEqual([
-      "coder annotation row 2 has an empty value cell and was skipped rather than read as applied.",
-      "coder annotation row 3 has an empty value cell and was skipped rather than read as applied."
+    expect(parsed.skippedCells).toEqual([
+      { coderId: "c2", itemId: "u1", codeIds: ["Evidence"] },
+      { coderId: "c2", itemId: "u1", codeIds: ["Evidence"] }
     ]);
+    expect(parsed.warnings).toEqual([
+      "coder annotation row 2 has an empty value cell; it is treated as missing data and excluded from pairable reliability units.",
+      "coder annotation row 3 has an empty value cell; it is treated as missing data and excluded from pairable reliability units."
+    ]);
+  });
+
+  it("distinguishes missing cells from explicit not-applied decisions in kappa and alpha", () => {
+    // Same fixture twice, differing only in c2's u2 cell: an explicit "0" is a
+    // recorded disagreement; an empty cell is missing data and excludes the
+    // unit from the pair universe. A recorded decision always beats a skip.
+    const explicitNo = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
+    ]);
+    const explicitDashboard = buildSenaReliabilityDashboard(explicitNo.annotations, { skippedCells: explicitNo.skippedCells });
+    expect(explicitDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 2, kappa: 0 }));
+    expect(explicitDashboard.disagreementCount).toBe(1);
+
+    const missing = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "" }
+    ]);
+    const missingDashboard = buildSenaReliabilityDashboard(missing.annotations, { skippedCells: missing.skippedCells });
+    // One pairable unit is below the no-evidence floor: kappa/alpha report 0
+    // with disclosure rather than a degenerate perfect score, and — unlike the
+    // explicit "0" fixture above — no disagreement is fabricated.
+    expect(missingDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
+    expect(missingDashboard.krippendorffAlphaNominal).toBe(0);
+    expect(missingDashboard.disagreementCount).toBe(0);
+    expect(missingDashboard.binaryUnitCount).toBe(2);
+    expect(missingDashboard.warnings).toContain(
+      "1 coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them."
+    );
+
+    // A recorded decision beats a skipped cell for the same coder/item/code —
+    // in both directions: a recorded "1" restores the agreement, a recorded
+    // "0" is a genuine adjudicable disagreement, never a missing cell.
+    const recordedWins = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" }
+    ]);
+    const recordedDashboard = buildSenaReliabilityDashboard(recordedWins.annotations, { skippedCells: recordedWins.skippedCells });
+    expect(recordedDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1 }));
+    expect(recordedDashboard.disagreementCount).toBe(0);
+
+    const recordedNo = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "0" }
+    ]);
+    const recordedNoDashboard = buildSenaReliabilityDashboard(recordedNo.annotations, { skippedCells: recordedNo.skippedCells });
+    expect(recordedNoDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1 }));
+    expect(recordedNoDashboard.disagreementCount).toBe(1);
+    expect(recordedNoDashboard.adjudicationQueue).toEqual([
+      { itemId: "u1", codeId: "Evidence", values: { c1: true, c2: false } }
+    ]);
+  });
+
+  it("reports no evidence, not perfect agreement, for a sparse pairable universe", () => {
+    // 10 items where c2 left 9 of 10 value cells empty: only one pairable unit
+    // survives. A degenerate kappa/alpha convention would report 1 and clear
+    // the claim-readiness gate from a single overlapping decision; the
+    // no-evidence floor reports 0 and demotes the interpretation instead.
+    const rows = Array.from({ length: 10 }, (_, index) => ({
+      coder_id: "c1",
+      item_id: `u${index + 1}`,
+      code_id: "Evidence",
+      value: "1"
+    }));
+    const c2Rows = Array.from({ length: 10 }, (_, index) => ({
+      coder_id: "c2",
+      item_id: `u${index + 1}`,
+      code_id: "Evidence",
+      value: index === 0 ? "1" : ""
+    }));
+    const parsed = parseCoderAnnotationsFromRows([...rows, ...c2Rows]);
+    const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
+
+    expect(dashboard.binaryUnitCount).toBe(10);
+    expect(dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
+    expect(dashboard.meanPairwiseKappa).toBe(0);
+    expect(dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(dashboard.disagreementCount).toBe(0);
+    expect(dashboard.interpretation).toBe(
+      "Reliability evidence needs review before SENA graph patterns are treated as research claims."
+    );
+    expect(dashboard.warnings).toContain(
+      "9 distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units."
+    );
+  });
+
+  it("degrades fail-safe when one coder's every value cell is empty", () => {
+    const parsed = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "" },
+      { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "" }
+    ]);
+    const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
+
+    // The wholly-empty coder contributes no annotations, so the dashboard
+    // degrades to the single-coder no-evidence path rather than minting stats.
+    expect(dashboard.coderCount).toBe(1);
+    expect(dashboard.warnings).toContain("At least two coders are required for reliability statistics.");
+    expect(dashboard.meanPairwiseKappa).toBe(0);
+    expect(dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(reliabilityDashboardToReview(dashboard).status).toBe("not-documented");
   });
 
   it("keeps presence-style files without a value column reading as applied", () => {

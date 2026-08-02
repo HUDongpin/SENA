@@ -196,7 +196,9 @@ export function buildSenaPilotReadinessAudit({
     codedSegments: model.dataset.coded_segments.length,
     codes: model.dataset.codebook.length
   };
-  const warningCount = model.summary.warnings.length + (model.dataset.warnings?.length ?? 0);
+  // summary.warnings already folds in dataset.warnings (model.ts), so counting
+  // dataset.warnings again double-counted every import warning (§4.4).
+  const warningCount = model.summary.warnings.length;
   const sourceTypesWithEvidence = Object.values(evidenceLedger.sourceCounts).filter((count) => count > 0).length;
   const hasFusionGraph = model.nodes.length > 0 && model.edges.length > 0 && model.matrices.fusion.values.length === model.nodes.length;
   const edgeLayers = Array.from(new Set(model.edges.map((edge) => edge.layer))).sort();

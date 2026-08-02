@@ -140,36 +140,50 @@ Campaign exit condition met.**
 
 ### §4 resolution addendum (2026-08-02, "solve these issues" directive)
 
-1. **Resolved (with one open estimator question).** An empty value cell is now a skipped
-   annotation, never "applied". The fix distinguishes a *missing value column*
-   (presence-style export — every row still reads as applied) from an *empty cell in an
-   existing value column* (records nothing — skipped with a per-row warning). Ragged rows
-   padded by `parseSenaCsv` fall into the second case. Precise consequence: in the
-   dashboard's binary-unit model a skipped row behaves like an absent row — the coder
-   scores not-applied on units other coders created — so a ragged row can now only
-   *deflate* agreement (fabricated disagreement, conservative for the gate), never inflate
-   it as pre-fix "applied" did. **Open for Peter:** whether an explicit empty cell should
-   instead be missing-data-excluded from pairable units (Krippendorff-style; the alpha
-   coincidence code already tolerates missing) — that is an estimator-semantics change to
-   kappa's unit universe and is reserved per SENA-A08. Regression tests in
-   `reliability.test.ts` pin both the skip and the deflate-only consequence.
-   Known cosmetic caveat: the skip warning's row index counts the rows flattened across
-   all uploaded files (same convention as the pre-existing missing-field warning), so in
-   multi-file imports it is not a per-file CSV row number.
-2. **Resolved.** `SenaEnterpriseUpload.warningCount` is now optional — unset means "no
-   parser has reported", 0 means "parsed, clean" — and the queued reliability **and
-   queued import** routes no longer assert `warningCount: 0` (the import route had the
-   identical H10 defect). The worker contract artifact gained
-   `parseWarningDisclosurePolicy` and `uploadWarningCountSemantics` fields requiring
-   run-import/run-reliability workers to disclose parse-repair warnings in their run
-   outputs. Two documented limits: the status-update schema does not yet carry a warnings
-   field (so for queued files warningCount stays unset until that additive extension
-   lands), and the Postgres mirror column stays NOT NULL DEFAULT 0 (the primary document
-   store preserves unset).
-3. **Open.** The stray `AGENTS.md` heading ("Imported Claude Cowork project instructions")
-   is still in the uncommitted working tree; left for Peter with the other root-doc edits.
-4. **Open** (pre-existing, out of campaign scope): import-route persist-branch divergence,
-   202-queue undefined dataset, pilot-readiness double-count.
+1. **Resolved (decision delegated to Claude 2026-08-02, second pass).** An empty value
+   cell is **missing data**: never "applied" (the pre-fix inflation bug) and never
+   "not applied" (a fabricated disagreement). The parser distinguishes a *missing value
+   column* (presence-style export — every row still reads as applied) from an *empty cell
+   in an existing value column* (records no decision), including ragged rows padded by
+   `parseSenaCsv`. Skipped cells are excluded from pairable units Krippendorff-style:
+   `cohenKappa` pairs only units where both coders recorded a decision, alpha's m>=2
+   coincidence filter drops them naturally, agreement rates and coder positive rates
+   count recorded cells only, and a recorded decision always beats a skip. Because
+   exclusions can shrink the pairable universe far below `binaryUnitCount`, a
+   **no-evidence floor** guards the degenerate conventions: a coder pair with fewer
+   than 2 pairable units reports kappa 0 (never the denominator-0 "perfect" 1), and
+   alpha with fewer than 2 pairable units reports 0 — mirroring the existing alpha
+   guard's "no spurious perfect scores" standard. Every exclusion and every floored
+   pair is disclosed (per-row warnings plus aggregate counts of cells actually
+   excluded after recorded-beats-skip).
+   Regression tests pin the three-way distinction: empty=missing (kappa computed over the
+   remaining pairable units), explicit 0=recorded disagreement, absent-row=presence
+   semantics. Known cosmetic caveat: the skip warning's row index counts rows flattened
+   across all uploaded files (same convention as the pre-existing missing-field warning).
+2. **Resolved (channel completed 2026-08-02, second pass).** `SenaEnterpriseUpload.warningCount`
+   is optional — unset means "no parser has reported", 0 means "parsed, clean" — and the
+   queued reliability **and queued import** routes no longer assert `warningCount: 0`
+   (the import route had the identical H10 defect). The status-update contract now carries
+   the disclosure channel: an additive optional `uploadWarnings` field (counts only)
+   through which run-import/run-reliability workers perform the "until-a-parser-reports"
+   transition; the worker contract publishes `parseWarningDisclosurePolicy`,
+   `uploadWarningCountSemantics`, and `uploadWarningsCallbackField`. Hardened per the
+   pre-merge adversarial review: every entry is validated before the job transition (a
+   non-array report, an entry outside the job's uploadIds, a duplicate, or more entries
+   than queued uploads all 400 — nothing is silently truncated or ignored), applies are
+   scoped to the job's own team (a foreign upload id smuggled into a queued uploadIds
+   list cannot write another tenant's registry), and an apply failure after the committed
+   transition returns a distinct 503 telling the idempotent worker to re-send. Remaining
+   documented limit: the Postgres mirror column stays NOT NULL DEFAULT 0 (the primary
+   document store preserves unset).
+3. **Resolved.** The stray `AGENTS.md` heading ("Imported Claude Cowork project
+   instructions") was removed on 2026-08-02 and the root project docs committed.
+4. **Resolved (2026-08-02, second pass).** The three pre-existing sweep findings: the
+   import route's persist branch now returns the same governance-enriched dataset the
+   snapshot was built from; the workspace client detects a queued 202 job receipt and
+   leaves the current dataset untouched instead of clobbering it to undefined; and
+   `pilot-readiness` no longer double-counts dataset warnings in its evidence string
+   (summary.warnings already folds them in).
 5. **Open.** `withSourceWarnings()` helper and module-boundaries completeness remain
    suggested hardening.
 6. **Done.** Visual check on 2026-08-02 (dev server, Chromium): `/workspace/ena` Variance

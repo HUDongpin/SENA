@@ -80,7 +80,13 @@ export type EnterpriseProjectRevisionRestoreResponse = EnterpriseProjectActionRe
   restoredFrom: { version: number };
 };
 export type EnterpriseImportFilesActionResponse = {
-  dataset: SenaDataset;
+  // Absent when the server queued the import as a server job (202 receipt
+  // instead of an import result) — callers must guard before using it.
+  dataset?: SenaDataset;
+  // Server-job receipt fields present only on the queued 202 response.
+  id?: string;
+  kind?: string;
+  status?: string;
   sources?: Array<{ profile: string }>;
   warnings?: string[];
   persistedProject?: EnterpriseProjectSummary & { snapshot?: SenaProjectSnapshot };
@@ -114,11 +120,16 @@ export type EnterpriseRunListResponse = {
 };
 export type EnterpriseReliabilityFilesActionResponse = {
   reviewPatch?: Partial<SenaCodingReliabilityReview>;
-  dashboard: {
+  // Absent when the server queued the run as a server job (202 receipt
+  // instead of a computed dashboard) — callers must guard before using it.
+  dashboard?: {
     meanPairwiseKappa: number;
     krippendorffAlphaNominal: number;
     disagreementCount: number;
   };
+  // Server-job receipt fields present only on the queued 202 response.
+  id?: string;
+  status?: string;
   reliabilityRun?: EnterpriseCollaborationState["reliabilityRuns"][number];
 };
 export type EnterpriseReliabilityReviewActionResponse = {

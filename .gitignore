@@ -40,3 +40,12 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 *.log
+
+# Personal paper drafts and working documents (Peter's 2026-08-02 decision:
+# keep local-only, out of git history; back up separately)
+/20260705_SENA_Development_Plan.docx
+/20260705_SENA_clean version.docx
+/20260712_SENA_bug detection_dialogue turns_Claude and Peter.docx
+/20260712_SENA_merge jENA and sna-js in SENA_dialogue turns_Claude and Peter.md
+/SENA Paper/
+/SENA'S ENA UI Design.md

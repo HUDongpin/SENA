@@ -6,7 +6,7 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 
 ### SENA-A01 Coordination and Handoff Agent
 
-- Owns cross-session coordination, project memory, scope control, and handoff hygiene for `/Users/dongpinhu/Desktop/SENA` and the runnable app in `sena-hk-template`.
+- Owns cross-session coordination, project memory, scope control, and handoff hygiene for `/Volumes/Starship/SENA` (moved from `~/Desktop/SENA` on 2026-08-02 to leave iCloud-synced folders) and the runnable app in `sena-hk-template`.
 - Keep `AGENTS.md`, `CONTEXT.md`, `sena-hk-template/README.md`, session logs, and handoff notes aligned with the real project state after major changes.
 - Coordinate `docs/adr/*` updates for cross-agent architecture decisions, while leaving API contracts to SENA-A14 and schema/artifact/module-boundary ownership to SENA-A15.
 - Preserve the current direction: SENA is a research-pilot delivery candidate, not a generic analytics dashboard or production SaaS claim without gate evidence.
@@ -142,14 +142,14 @@ Use these entries as standing briefs for future Codex agents/sessions. They are 
 ## Local ENA Runtime
 
 - The SENA website depends on the published `jena-js` package via `sena-hk-template/package.json` as the exact pin `"jena-js": "0.6.2"` (resolved from the npm registry; the `file:vendor/jena-js` copy was removed in the 2026-07-12 migration).
-- `jena-js` is the browser/Node TypeScript/JavaScript ENA engine ported from rENA (source repo `~/Desktop/jena-js`, github.com/HUDongpin/jENA).
+- `jena-js` is the browser/Node TypeScript/JavaScript ENA engine ported from rENA (source repo github.com/HUDongpin/jENA; the former local copy at `~/Desktop/jena-js` was not found after the 2026-08-02 Starship-disk migration).
 - Do not assume `/workspace/sena` directly runs the official rENA R package. The current SENA Fusion page uses the local SENA model code for S/W/B/fusion construction.
 - `rENA-main.zip` is the downloaded official rENA R package source kept beside the project for reference, not the current website runtime.
 
 ## Local SNA Runtime
 
 - The SENA website depends on the published `@peterhudongpin/sna.js` package via `sena-hk-template/package.json` as the exact pin `"sna.js": "npm:@peterhudongpin/sna.js@0.4.0"` (npm alias keeps `from "sna.js"` imports working; the `file:vendor/sna-js` copy was removed in the 2026-07-12 migration).
-- `@peterhudongpin/sna.js` is the R-faithful SNA engine (source repo `~/Desktop/sna.js`, github.com/HUDongpin/sna.js); `averagePathLength()` and `labelPropagation()` were upstreamed into 0.4.0 as extensions beyond R `sna`, and it is wired into `/workspace/sena` social-network analysis.
+- `@peterhudongpin/sna.js` is the R-faithful SNA engine (source repo github.com/HUDongpin/sna.js; the former local copy at `~/Desktop/sna.js` was not found after the 2026-08-02 Starship-disk migration); `averagePathLength()` and `labelPropagation()` were upstreamed into 0.4.0 as extensions beyond R `sna`, and it is wired into `/workspace/sena` social-network analysis.
 - Current SENA social-layer metrics computed through SNA.js include density, tie count, weak components, shortest-path average path length, person-level degree, weighted social strength, closeness, reachable nodes, and component labels.
 - The original `sna.js` source artifact (`SNA.js-template.zip`) is no longer kept beside the project; it has been moved to the maintainer's external backup. The live SNA engine is the published `@peterhudongpin/sna.js` pinned above.
 

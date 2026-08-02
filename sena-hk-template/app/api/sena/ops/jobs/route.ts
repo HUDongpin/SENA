@@ -98,6 +98,7 @@ export async function POST(request: Request) {
       errorMessage?: unknown;
       reason?: unknown;
       force?: unknown;
+      uploadWarnings?: unknown;
     };
     const action = typeof body.action === "string" && statusActions.has(body.action as SenaEnterpriseServerJobStatusAction)
       ? body.action as SenaEnterpriseServerJobStatusAction
@@ -116,7 +117,13 @@ export async function POST(request: Request) {
       errorCode: typeof body.errorCode === "string" ? body.errorCode : undefined,
       errorHash: redactedErrorHash(body),
       reason: typeof body.reason === "string" ? body.reason : undefined,
-      force: body.force === true
+      force: body.force === true,
+      // Worker-reported parse-repair warning counts (H10 disclosure channel);
+      // validated in the job layer, which 400s on non-array or invalid entries
+      // — a malformed report must fail loud, not be silently ignored.
+      uploadWarnings: body.uploadWarnings === undefined || body.uploadWarnings === null
+        ? undefined
+        : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>
     });
     await recordEnterpriseAuditAsync({
       event: "ops.server_job.status",
@@ -131,7 +138,8 @@ export async function POST(request: Request) {
         maxAttempts: update.job.lifecycle.maxAttempts,
         retryable: update.job.lifecycle.retryable,
         errorCode: update.job.lifecycle.lastErrorCode ?? null,
-        errorHash: update.job.lifecycle.lastErrorHash ?? null
+        errorHash: update.job.lifecycle.lastErrorHash ?? null,
+        uploadWarningsApplied: update.uploadWarnings?.length ?? 0
       }
     });
     return NextResponse.json({

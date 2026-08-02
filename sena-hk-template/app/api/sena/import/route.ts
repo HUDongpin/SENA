@@ -290,6 +290,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ...result,
+      // The persist branch must return the same governance-enriched dataset the
+      // snapshot was built from, not result.dataset (pre-2026-08-02 §4.4 bug:
+      // response and persisted project diverged when metadata was derived).
+      dataset,
       uploads,
       importRun,
       analysisRun,

@@ -185,6 +185,12 @@ export function useEnterpriseReliabilityActions({
         },
         { csrfHeaders: enterpriseCsrfHeaders }
       );
+      if (!payload.dashboard) {
+        // A queued 202 returns a server-job receipt, not a computed dashboard;
+        // report the queue instead of crashing into the catch (§4.4 class).
+        setEnterpriseMessage(`Reliability run was queued as server job ${payload.id ?? "(unknown)"}; the external worker will complete it.`);
+        return;
+      }
       const review = payload.reviewPatch ?? {};
       applyReliabilityReviewPatch(review);
       setLocalEnterpriseReliabilityResult(null);

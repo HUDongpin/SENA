@@ -83,8 +83,23 @@ function parseCodes(value: string) {
   return value.split(/[|;,]/).map((code) => code.trim()).filter(Boolean);
 }
 
-export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotations: SenaCoderAnnotation[]; warnings: string[] } {
+// An explicitly skipped cell: the coder's row existed but its value cell was
+// empty, so the coder recorded no decision for these item-code units. The
+// dashboard treats these cells as missing data (excluded from pairable units),
+// per Peter's 2026-08-02 delegation of the §4.1 estimator decision.
+export type SenaSkippedCoderCell = {
+  coderId: string;
+  itemId: string;
+  codeIds: string[];
+};
+
+export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
+  annotations: SenaCoderAnnotation[];
+  warnings: string[];
+  skippedCells: SenaSkippedCoderCell[];
+} {
   const warnings: string[] = [];
+  const skippedCells: SenaSkippedCoderCell[] = [];
   const annotations = rows.flatMap<SenaCoderAnnotation>((row, index) => {
     const coderId = readAlias(row, ["coder_id", "coder", "rater", "reviewer"]);
     const itemId = readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]);
@@ -96,17 +111,15 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotati
       return [];
     }
 
-    // A file with no value column is a presence-style export: each row means the
-    // coder applied the code. An empty cell in an existing value column records
-    // nothing — including a ragged row padded by parseSenaCsv — so it becomes a
-    // skipped annotation (2026-08-01 report §4.1), never an applied code. In the
-    // dashboard's binary-unit model a skipped row then reads exactly like an
-    // absent row: the coder scores not-applied on units other coders created,
-    // which can only deflate agreement (conservative), not inflate it. Whether
-    // an explicit empty cell should instead be missing-data-excluded from
-    // pairable units is an estimator-semantics decision reserved for Peter.
+    // A file with no value column is a presence-style export: each row means
+    // the coder applied the code. An empty cell in an existing value column —
+    // including a ragged row padded by parseSenaCsv — records no decision at
+    // all, so it is missing data: never "applied" (the pre-2026-08-01 bug) and
+    // never "not applied" (which would fabricate a disagreement). The dashboard
+    // excludes these cells from pairable kappa/alpha units.
     if (valueEntry.present && valueEntry.value === "") {
-      warnings.push(`coder annotation row ${index + 1} has an empty value cell and was skipped rather than read as applied.`);
+      skippedCells.push({ coderId, itemId, codeIds: codes });
+      warnings.push(`coder annotation row ${index + 1} has an empty value cell; it is treated as missing data and excluded from pairable reliability units.`);
       return [];
     }
     const value = valueEntry.present ? parseBoolean(valueEntry.value) : true;
@@ -114,7 +127,7 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotati
     return codes.map((codeId) => ({ coderId, itemId, codeId, value }));
   });
 
-  return { annotations, warnings };
+  return { annotations, warnings, skippedCells };
 }
 
 export function parseCoderAnnotationsCsv(text: string) {
@@ -136,24 +149,37 @@ function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
 }
 
-function cohenKappa(a: boolean[], b: boolean[]): Omit<SenaPairwiseKappa, "coderA" | "coderB"> {
-  const units = Math.min(a.length, b.length);
-  if (units === 0) return { units: 0, observedAgreement: 0, expectedAgreement: 0, kappa: 0 };
+function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>): Omit<SenaPairwiseKappa, "coderA" | "coderB"> {
+  const length = Math.min(a.length, b.length);
+  let units = 0;
   let agree = 0;
   let aYes = 0;
   let bYes = 0;
 
-  for (let index = 0; index < units; index += 1) {
-    if (a[index] === b[index]) agree += 1;
-    if (a[index]) aYes += 1;
-    if (b[index]) bYes += 1;
+  for (let index = 0; index < length; index += 1) {
+    const valueA = a[index];
+    const valueB = b[index];
+    // Missing cells (explicit empty-value skips) are not pairable: the unit is
+    // excluded for this pair rather than scored as a fabricated (dis)agreement.
+    if (typeof valueA !== "boolean" || typeof valueB !== "boolean") continue;
+    units += 1;
+    if (valueA === valueB) agree += 1;
+    if (valueA) aYes += 1;
+    if (valueB) bYes += 1;
   }
 
+  if (units === 0) return { units: 0, observedAgreement: 0, expectedAgreement: 0, kappa: 0 };
   const observedAgreement = agree / units;
   const aNo = units - aYes;
   const bNo = units - bYes;
   const expectedAgreement = ((aYes / units) * (bYes / units)) + ((aNo / units) * (bNo / units));
   const denominator = 1 - expectedAgreement;
+  // Fewer than 2 pairable units cannot support a chance-corrected estimate:
+  // report 0 (no evidence), mirroring the alpha guard's standard, rather than
+  // letting the degenerate denominator===0 convention mint a spurious perfect
+  // score — especially now that missing-cell exclusions can shrink the pair
+  // universe far below binaryUnitCount.
+  if (units < 2) return { units, observedAgreement, expectedAgreement, kappa: 0 };
   return {
     units,
     observedAgreement,
@@ -179,6 +205,7 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
     coincidence.set(a, row);
   };
 
+  let pairableUnits = 0;
   for (const unit of valuesByUnit) {
     const values = coders
       .map((coder) => unit[coder])
@@ -186,6 +213,7 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
       .map(String);
     const m = values.length;
     if (m < 2) continue;
+    pairableUnits += 1;
     const weight = 1 / (m - 1);
     for (let i = 0; i < m; i += 1) {
       for (let j = 0; j < m; j += 1) {
@@ -193,6 +221,11 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
       }
     }
   }
+
+  // A single pairable unit cannot support a chance-corrected estimate: report
+  // 0 (no evidence) rather than the single-category convention's perfect 1 —
+  // missing-cell exclusions can shrink a large unit universe down to one.
+  if (pairableUnits < 2) return 0;
 
   const cats = Array.from(categories);
   const marginals = new Map<string, number>();
@@ -228,40 +261,77 @@ function agreementRate(valuesByUnit: Array<Record<string, boolean>>, coders: str
   for (const unit of valuesByUnit) {
     for (let i = 0; i < coders.length; i += 1) {
       for (let j = i + 1; j < coders.length; j += 1) {
+        const valueA = unit[coders[i]];
+        const valueB = unit[coders[j]];
+        // Missing cells are excluded from the pair universe, mirroring kappa.
+        if (typeof valueA !== "boolean" || typeof valueB !== "boolean") continue;
         pairs += 1;
-        if (unit[coders[i]] === unit[coders[j]]) agreements += 1;
+        if (valueA === valueB) agreements += 1;
       }
     }
   }
   return pairs === 0 ? 0 : agreements / pairs;
 }
 
+// One row per item-code unit; a coder's key is OMITTED (not false) when their
+// only evidence for the unit is an explicitly skipped empty-value cell. A
+// recorded decision always beats a skip; an absent row keeps the historical
+// not-applied reading (presence semantics for the unit universe).
+function buildUnitRows(
+  unitKeys: string[],
+  coders: string[],
+  annotations: SenaCoderAnnotation[],
+  missingCells: ReadonlySet<string>
+): Array<Record<string, boolean>> {
+  return unitKeys.map((key) => {
+    const [itemId, codeId] = key.split("::");
+    const row: Record<string, boolean> = {};
+    for (const coder of coders) {
+      let recorded = false;
+      let positive = false;
+      for (const annotation of annotations) {
+        if (annotation.coderId !== coder || annotation.itemId !== itemId || annotation.codeId !== codeId) continue;
+        recorded = true;
+        if (annotation.value) {
+          positive = true;
+          break;
+        }
+      }
+      if (!recorded && missingCells.has(`${coder}::${itemId}::${codeId}`)) continue;
+      row[coder] = positive;
+    }
+    return row;
+  });
+}
+
+function buildMissingCellLookup(skippedCells: SenaSkippedCoderCell[]): Set<string> {
+  const lookup = new Set<string>();
+  for (const cell of skippedCells) {
+    for (const codeId of cell.codeIds) {
+      lookup.add(`${cell.coderId}::${cell.itemId}::${codeId}`);
+    }
+  }
+  return lookup;
+}
+
 function buildCodeDiagnostics(
   items: string[],
   codes: string[],
   coders: string[],
-  annotations: SenaCoderAnnotation[]
+  annotations: SenaCoderAnnotation[],
+  missingCells: ReadonlySet<string>
 ): SenaCodeReliabilityDiagnostic[] {
   return codes.map((codeId) => {
-    const codeUnits = items.map((itemId) => {
-      const row: Record<string, boolean> = {};
-      for (const coder of coders) {
-        row[coder] = annotations.some((annotation) => (
-          annotation.coderId === coder &&
-          annotation.itemId === itemId &&
-          annotation.codeId === codeId &&
-          annotation.value
-        ));
-      }
-      return row;
-    });
+    const codeUnits = buildUnitRows(items.map((itemId) => `${itemId}::${codeId}`), coders, annotations, missingCells);
     const disagreementCount = codeUnits.filter((unit) => new Set(Object.values(unit)).size > 1).length;
     const positiveAssignments = codeUnits.reduce((total, unit) => (
       total + Object.values(unit).filter(Boolean).length
     ), 0);
     const coderPositiveRates = Object.fromEntries(coders.map((coder) => [
       coder,
-      round(mean(codeUnits.map((unit) => unit[coder] ? 1 : 0)))
+      // Positive rate over the coder's recorded cells only; missing cells drop
+      // out via mean()'s finite filter instead of deflating the rate as 0s.
+      round(mean(codeUnits.map((unit) => typeof unit[coder] === "boolean" ? (unit[coder] ? 1 : 0) : Number.NaN)))
     ]));
     const pairwiseCohenKappa: SenaPairwiseKappa[] = [];
     for (let i = 0; i < coders.length; i += 1) {
@@ -295,8 +365,13 @@ function buildCodeDiagnostics(
   ));
 }
 
-export function buildSenaReliabilityDashboard(annotations: SenaCoderAnnotation[]): SenaReliabilityDashboard {
+export function buildSenaReliabilityDashboard(
+  annotations: SenaCoderAnnotation[],
+  options: { skippedCells?: SenaSkippedCoderCell[] } = {}
+): SenaReliabilityDashboard {
   const warnings: string[] = [];
+  const skippedCells = options.skippedCells ?? [];
+  const missingCells = buildMissingCellLookup(skippedCells);
   const coders = Array.from(new Set(annotations.map((annotation) => annotation.coderId))).sort();
   const items = Array.from(new Set(annotations.map((annotation) => annotation.itemId))).sort();
   const codes = Array.from(new Set(annotations.map((annotation) => annotation.codeId))).sort();
@@ -304,20 +379,21 @@ export function buildSenaReliabilityDashboard(annotations: SenaCoderAnnotation[]
 
   if (coders.length < 2) warnings.push("At least two coders are required for reliability statistics.");
   if (items.length === 0 || codes.length === 0) warnings.push("No codable item-code units were available.");
+  // Count only cells actually excluded: a recorded decision beats a skip, and
+  // a skipped cell whose item or code never entered the unit universe excludes
+  // nothing. Distinct cells; the per-row warnings disclose each skipped row.
+  const recordedCellKeys = new Set(annotations.map((annotation) => `${annotation.coderId}::${annotation.itemId}::${annotation.codeId}`));
+  const itemSet = new Set(items);
+  const codeSet = new Set(codes);
+  const excludedCellCount = Array.from(missingCells).filter((key) => {
+    const [, itemId, codeId] = key.split("::");
+    return !recordedCellKeys.has(key) && itemSet.has(itemId) && codeSet.has(codeId);
+  }).length;
+  if (excludedCellCount > 0) {
+    warnings.push(`${excludedCellCount} distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units.`);
+  }
 
-  const valuesByUnit = unitKeys.map((key) => {
-    const [itemId, codeId] = key.split("::");
-    const row: Record<string, boolean> = {};
-    for (const coder of coders) {
-      row[coder] = annotations.some((annotation) => (
-        annotation.coderId === coder &&
-        annotation.itemId === itemId &&
-        annotation.codeId === codeId &&
-        annotation.value
-      ));
-    }
-    return row;
-  });
+  const valuesByUnit = buildUnitRows(unitKeys, coders, annotations, missingCells);
 
   const pairwiseCohenKappa: SenaPairwiseKappa[] = [];
   for (let i = 0; i < coders.length; i += 1) {
@@ -345,9 +421,16 @@ export function buildSenaReliabilityDashboard(annotations: SenaCoderAnnotation[]
     adjudicationQueue.push({ itemId, codeId, values });
   });
 
+  // No-evidence floor disclosure: pairs with fewer than 2 pairable units carry
+  // kappa 0 by convention (see cohenKappa), never a degenerate perfect score.
+  const flooredPairCount = pairwiseCohenKappa.filter((entry) => entry.units < 2).length;
+  if (flooredPairCount > 0) {
+    warnings.push(`${flooredPairCount} coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them.`);
+  }
+
   const meanPairwiseKappa = round(mean(pairwiseCohenKappa.map((entry) => entry.kappa)));
   const alpha = round(krippendorffAlphaNominal(valuesByUnit, coders));
-  const codeDiagnostics = buildCodeDiagnostics(items, codes, coders, annotations);
+  const codeDiagnostics = buildCodeDiagnostics(items, codes, coders, annotations, missingCells);
   const interpretation = coders.length < 2
     ? "Reliability cannot be interpreted until at least two coders are uploaded."
     : meanPairwiseKappa >= 0.8 && alpha >= 0.8

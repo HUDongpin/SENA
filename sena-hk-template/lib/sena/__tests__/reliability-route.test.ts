@@ -175,7 +175,8 @@ describe("SENA reliability route", () => {
       form.set("projectId", project.id);
       form.set("reviewer", "Ragged Reliability Reviewer");
       // The last row is truncated before its value cell, which parseSenaCsv pads
-      // and reliability.ts then reads as an applied code.
+      // and reliability.ts then treats as a missing-data cell (excluded from
+      // pairable units), with both repairs disclosed in the dashboard warnings.
       form.append("files", new File([
         [
           "coder_id,item_id,code_id,value",

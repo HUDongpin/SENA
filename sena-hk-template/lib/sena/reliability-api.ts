@@ -98,7 +98,7 @@ export function prepareSenaReliabilityJsonRequest(
   const warnings = sources.length === 0 ? ["JSON reliability request did not include annotation rows."] : [];
   const rows = sources.flatMap((source) => source.rows);
   const parsed = parseCoderAnnotationsFromRows(rows);
-  const dashboard = buildSenaReliabilityDashboard(parsed.annotations);
+  const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
   const dashboardWithWarnings = {
     ...dashboard,
     warnings: [...warnings, ...parsed.warnings, ...dashboard.warnings]

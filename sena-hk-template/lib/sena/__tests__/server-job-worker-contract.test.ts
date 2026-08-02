@@ -92,8 +92,10 @@ describe("SENA server job worker contract", () => {
     expect(contract.contract.payloadPolicy).toBe("project-or-upload-pointer-default");
     expect(contract.contract.parseWarningDisclosurePolicy).toBe("run-import-and-run-reliability-must-report-parse-repair-warnings");
     expect(contract.contract.uploadWarningCountSemantics).toBe("unset-until-a-parser-reports");
+    expect(contract.contract.uploadWarningsCallbackField).toBe("uploadWarnings");
     expect(contract.evidence).toContain("parseWarningDisclosurePolicy=run-import-and-run-reliability-must-report-parse-repair-warnings");
     expect(contract.evidence).toContain("uploadWarningCountSemantics=unset-until-a-parser-reports");
+    expect(contract.evidence).toContain("uploadWarningsCallbackField=uploadWarnings");
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena.example.test/api/sena/ops/jobs");
     expect(serialized).not.toContain("ops.example.test");

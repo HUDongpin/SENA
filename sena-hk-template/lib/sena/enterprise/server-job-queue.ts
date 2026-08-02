@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { recordEnterpriseUploadWarningCountsAsync } from "./import-analysis";
 import { SenaEnterpriseError } from "./errors";
 import {
   envValue,
@@ -356,6 +357,9 @@ export type SenaEnterpriseServerJobStatusUpdate = {
   generatedAt: string;
   action: SenaEnterpriseServerJobStatusAction;
   job: SenaEnterpriseServerJob;
+  // Additive optional field: worker-reported parse-repair warning counts that
+  // were applied to the upload registry (H10 "until a parser reports").
+  uploadWarnings?: Array<{ uploadId: string; warningCount: number }>;
   redaction: {
     payloadValuesExcluded: true;
     secretValuesExcluded: true;
@@ -1399,6 +1403,58 @@ function statusForAction(job: SenaEnterpriseServerJob, action: SenaEnterpriseSer
   return job.status;
 }
 
+// Counts only (no warning text): parse-repair disclosure that is safe to carry
+// through the redacted status callback. Entries must reference uploads queued
+// with this job — anything else is rejected rather than silently dropped.
+function sanitizedUploadWarnings(
+  entries: Array<{ uploadId?: unknown; warningCount?: unknown }> | undefined,
+  job: SenaEnterpriseServerJob
+): Array<{ uploadId: string; warningCount: number }> {
+  if (entries === undefined) return [];
+  if (!Array.isArray(entries)) {
+    throw new SenaEnterpriseError(
+      "uploadWarnings must be an array of { uploadId, warningCount } entries.",
+      400,
+      "server_job_upload_warnings_invalid"
+    );
+  }
+  const allowed = new Set(job.payloadSummary.uploadIds ?? []);
+  // Every entry is validated — no silent truncation: a report can never carry
+  // more entries than the job queued uploads, so over-length arrays and
+  // duplicates are rejected instead of dropped past an arbitrary cap.
+  if (entries.length > allowed.size) {
+    throw new SenaEnterpriseError(
+      "uploadWarnings may not contain more entries than the job's queued uploads.",
+      400,
+      "server_job_upload_warnings_too_many"
+    );
+  }
+  const seen = new Set<string>();
+  return entries.map((entry) => {
+    const uploadId = typeof entry?.uploadId === "string" ? entry.uploadId.trim() : "";
+    const rawCount = entry?.warningCount;
+    const warningCount = typeof rawCount === "number" && Number.isFinite(rawCount) && rawCount >= 0
+      ? Math.trunc(rawCount)
+      : undefined;
+    if (!uploadId || warningCount === undefined) {
+      throw new SenaEnterpriseError(
+        "uploadWarnings entries require a non-empty uploadId and a non-negative warningCount.",
+        400,
+        "server_job_upload_warnings_invalid"
+      );
+    }
+    if (!allowed.has(uploadId) || seen.has(uploadId)) {
+      throw new SenaEnterpriseError(
+        "uploadWarnings may only reference uploads queued with this job, once each.",
+        400,
+        "server_job_upload_warnings_unknown_upload"
+      );
+    }
+    seen.add(uploadId);
+    return { uploadId, warningCount };
+  });
+}
+
 export async function updateEnterpriseServerJobStatus(input: {
   jobId: string;
   action: SenaEnterpriseServerJobStatusAction;
@@ -1407,6 +1463,7 @@ export async function updateEnterpriseServerJobStatus(input: {
   errorHash?: string;
   reason?: string;
   force?: boolean;
+  uploadWarnings?: Array<{ uploadId?: unknown; warningCount?: unknown }>;
 }): Promise<SenaEnterpriseServerJobStatusUpdate> {
   const current = await getEnterpriseServerJob(input.jobId);
   if (input.action === "retry" && current.status !== "failed" && current.status !== "dead-lettered") {
@@ -1415,6 +1472,7 @@ export async function updateEnterpriseServerJobStatus(input: {
   if (input.action === "retry" && current.lifecycle.attempts >= current.lifecycle.maxAttempts && !input.force) {
     throw new SenaEnterpriseError("SENA server job has reached max attempts; pass force=true to move it out of dead letter review.", 409, "server_job_retry_requires_force");
   }
+  const uploadWarnings = sanitizedUploadWarnings(input.uploadWarnings, current);
   const timestamp = now();
   const lifecycle = updatedLifecycle({
     job: current,
@@ -1432,11 +1490,33 @@ export async function updateEnterpriseServerJobStatus(input: {
     lifecycle
   };
   await writeServerJob(nextJob);
+  let appliedUploadWarnings: Array<{ uploadId: string; warningCount: number }> | undefined;
+  if (uploadWarnings.length > 0) {
+    try {
+      // Team-scoped: counts only land on uploads owned by the job's team, so a
+      // payloadSummary carrying a foreign upload id can never write across
+      // tenants.
+      appliedUploadWarnings = (await recordEnterpriseUploadWarningCountsAsync(uploadWarnings, current.teamId)).map((upload) => ({
+        uploadId: upload.id,
+        warningCount: upload.warningCount ?? 0
+      }));
+    } catch {
+      // The job transition above is already committed. mark-* updates are
+      // idempotent, so the worker can re-send the same status update to
+      // re-apply the warnings.
+      throw new SenaEnterpriseError(
+        "The job status was updated, but applying uploadWarnings to the upload registry failed; re-send the same status update to re-apply them.",
+        503,
+        "server_job_upload_warnings_apply_failed"
+      );
+    }
+  }
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate,
     generatedAt: timestamp,
     action: input.action,
     job: nextJob,
+    ...(appliedUploadWarnings ? { uploadWarnings: appliedUploadWarnings } : {}),
     redaction: {
       payloadValuesExcluded: true,
       secretValuesExcluded: true
