@@ -136,23 +136,33 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   package.json/fixtures and a source guard rejects non-type JSON imports in that file.
   Lesson: grep chunks for *content* signatures, never package names alone.
 
+- **P5 (open, knowledge — no action).** The existing
+  `await import("@/lib/sena/inference")` in `use-enterprise-validation-actions.ts:173`
+  defers nothing today: `inference.ts` statically imports `model.ts`, and `model.ts` is
+  already in the eager workspace chunk via `analysis-runtime.ts`, so webpack just
+  references the shared module. The dynamic boundary only becomes a real deferral if the
+  eager graph ever drops model.ts (see T7). Conversely, `analysis-runtime.ts:60-64`
+  re-exporting inference as `export type` only is the escape hatch that keeps inference
+  itself out of the eager graph — the house pattern for future de-eager work.
+
 (Negative results — rejected hypotheses — get logged here too, so later iterations don't
-retry them.)
+retry them. **Iteration 3 negative result:** "defer sna.js via `await import()` at
+buildSenaModel call sites" is refuted at design stage — see T7 BLOCKED-PETER below. The
+only client caller of `buildSenaModel`/`scopeSenaDatasetToWindow` is
+`use-sena-fusion-workspace-main-shell-props.ts` (:347, :354, :356), all render-body
+`useMemo` executed on first mount against the bundled lesson-study sample; the fusion
+canvas paints a real plot on the first frame with no empty state, and
+`timelineModel.temporal.windows` is a synchronous dependency of the same render pass.
+Six of analysis-runtime's value re-export groups pull model.ts (model, report,
+temporal-runtime, snapshot, runtime-bundle, review-packet); jena-js is entangled one line
+downstream (`buildSenaEnaManifest` at :357). Deferring compute without a UX change is not
+possible; do not re-try a pure code-splitting approach.)
 
 ---
 
 ## Ranked target backlog
 
-1. **T7 — Defer sna.js out of the eager workspace chunk.** The ~924 KiB compute chunk
-   downloads on /workspace/sena open (1,823 KiB total on open); sna.js dominates it
-   (2.9 MB shipped source vs 144 KB jena-js; 22 eigenvalue/Jacobi/svd markers). Both
-   compute libs join the graph at `components/sena/workspace/analysis-runtime.ts` (a
-   ~30-module value-re-export barrel). Lever: put `buildSenaModel` (sole sna.js importer:
-   `lib/sena/model.ts`) behind `await import()` at its call sites, matching the existing
-   `use-enterprise-validation-actions.ts:173` pattern (which already re-pulls model.ts
-   dynamically). Metric: bytes-on-open trace + compute-chunk size. Care: model must build
-   on user action, not on mount, for this to be behavior-preserving (lazification note).
-2. **T4 — buildSenaModel scaling (P2).** Extend bench with a 100x/250x point; profile which
+1. **T4 — buildSenaModel scaling (P2).** Extend bench with a 100x/250x point; profile which
    section grows fastest. Optimize only if superlinear or absolute cost becomes user-visible.
 3. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
    pulled into the app shell (layout-level imports). Metric: rootMainFiles bytes.
@@ -162,6 +172,15 @@ retry them.)
 5. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
+
+**T7 — BLOCKED-PETER 2026-08-03 (iteration 3): defer sna.js out of the eager workspace
+chunk.** Refuted as a pure code-splitting change (see iteration-3 negative result in the
+P-series section): `/workspace/sena` deliberately paints a real sample-data plot on the
+first frame, and `buildSenaModel` (sole sna.js consumer) runs synchronously on mount, so
+sna.js + jena-js legitimately ship in the eager chunk (~924 KiB of the 1,823 KiB open
+payload). Deferral requires a UX decision (see Peter decisions). If declined, close as
+REJECTED (UX-constrained) — the open payload is then within ~50 KiB of its floor for the
+current design.
 
 Closed: **T1 — DONE 2026-08-03 (iteration 2).** Premise was the P4 artifact; export libs
 were already split (docx/pdf-lib server-only, exceljs behind the import-adapters dynamic
@@ -178,6 +197,16 @@ strict-evidence flags.
   Provisional value applied in `performance-budget-artifact.ts` (actual 811,589 B + 5%
   headroom, never looser than before). Confirm or adjust; env override
   `SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES` remains available.
+- **PENDING (2026-08-03, iteration 3): T7 UX decision — may /workspace/sena show a brief
+  loading state on open to defer the compute libraries?** Today the workspace paints a
+  real lesson-study plot on the first frame; that requires sna.js (+jena-js) in the eager
+  chunk (~924 KiB of the 1,823 KiB raw JS downloaded on open; sna.js ships ~450-520 KB of
+  ESM source, the dominant share). Options: (a) async model with a visible loading/empty
+  state on the default path — saves most of the compute chunk on open, changes first-paint
+  behavior and the essential-shell contract; (b) move model building into a web worker
+  like /workspace/ena's jena worker — bigger refactor, same first-paint question;
+  (c) decline — T7 closes as REJECTED (UX-constrained) and the open payload stays as
+  designed. No code was changed pending this decision.
 - (Reserved for: dependency replacements — e.g. exceljs alternatives; budget
   ratchet values after first wins; any accuracy/performance trade-off in ENA math.)
 
@@ -210,3 +239,15 @@ strict-evidence flags.
   ratchet 900,000 → 852,000 B (PENDING Peter). Gates green: full suite (1,207 tests),
   tsc, fresh build, perf-check. T1, T2 closed; backlog re-ranked — next: T7 (defer
   sna.js/buildSenaModel out of the eager workspace chunk).
+- **Iteration 3 (2026-08-03, T7 → BLOCKED-PETER).** Context: M4 Pro, Node v24.15.0,
+  commit 36f7b3d; quiesce showed foreign next-dev (MAIS-MVP) and a read-only Codex
+  process outside this tree — acceptable for byte metrics. Fresh baseline matched the
+  ledger (total-static-js-br 811,589 B; compute chunk 923.9 KiB; /workspace/sena
+  bytes-on-open 1,823.3 KiB, canvas mounted). Full client call-graph recon of model.ts
+  (sole sna.js importer) refuted the deferral hypothesis at design stage: every client
+  call site is a render-body useMemo on mount painting the first frame; no event-handler
+  call sites exist; six analysis-runtime re-export groups pull model.ts; jena-js is
+  entangled at :357. Recorded P5 (inference dynamic import defers nothing today) and the
+  export-type-only escape-hatch pattern. No code changed; no gates required. T7 marked
+  BLOCKED-PETER with a three-option UX question (loading state / worker / decline).
+  Next open target: T4 (bench 100x/250x scale points, profile buildSenaModel growth).
