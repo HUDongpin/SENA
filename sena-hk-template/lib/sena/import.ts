@@ -751,6 +751,15 @@ export function senaDatasetMetadataFromJson(source: string | unknown): SenaDatas
   return undefined;
 }
 
+// Shares the metadata detector's predicate (any contract table key holding an
+// array) so adapters can route contract-shaped JSON to importSenaJsonContract
+// and let its real error surface instead of a misleading forum-adapter one.
+export function looksLikeSenaContractJson(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const root = value as Record<string, unknown>;
+  return contractTableKeys.some((key) => Array.isArray(root[key]));
+}
+
 export function importSenaJsonContract(source: string | unknown): SenaImportResult {
   const value = typeof source === "string" ? JSON.parse(source) : source;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {

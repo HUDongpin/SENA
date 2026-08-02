@@ -59,6 +59,8 @@ export type SenaEnterpriseServerJobWorkerContract = {
     inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1";
     rawPayloadPersistedInJobStore: false;
     retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry";
+    parseWarningDisclosurePolicy: "run-import-and-run-reliability-must-report-parse-repair-warnings";
+    uploadWarningCountSemantics: "unset-until-a-parser-reports";
   };
   evidence: string[];
   missing: string[];
@@ -225,7 +227,16 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       payloadPolicy: "project-or-upload-pointer-default",
       inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
       rawPayloadPersistedInJobStore: false,
-      retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry"
+      retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry",
+      // H10: an external worker that parses queued files (run-import,
+      // run-reliability) must disclose parse-repair warnings — ragged-row
+      // disclosure included — in its run outputs/artifacts. The status-update
+      // contract does not yet carry a warnings field, so the registry's
+      // warningCount stays unset for queued files (unset asserts nothing;
+      // 0 asserts "parsed, clean"); wiring a callback field is a future
+      // additive extension of the status-update schema.
+      parseWarningDisclosurePolicy: "run-import-and-run-reliability-must-report-parse-repair-warnings",
+      uploadWarningCountSemantics: "unset-until-a-parser-reports"
     },
     evidence: [
       ...queue.evidence,
@@ -243,7 +254,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       "statusCallback=/api/sena/ops/jobs",
       "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation",
-      "rawPayloadPersistedInJobStore=false"
+      "rawPayloadPersistedInJobStore=false",
+      "parseWarningDisclosurePolicy=run-import-and-run-reliability-must-report-parse-repair-warnings",
+      "uploadWarningCountSemantics=unset-until-a-parser-reports"
     ],
     missing
   };

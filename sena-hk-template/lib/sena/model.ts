@@ -1717,6 +1717,7 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
         S: normalizationDiagnostic(normalizedSResult),
         W: normalizationDiagnostic(normalizedWResult),
         B: normalizationDiagnostic(normalizedBResult),
+        B_CP: normalizationDiagnostic(normalizedBcpResult),
         G: normalizationDiagnostic(normalizedGResult)
       },
       bridgeWeighting: bridgeWeightingDiagnostics,

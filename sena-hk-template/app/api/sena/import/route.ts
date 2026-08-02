@@ -173,8 +173,10 @@ export async function POST(request: Request) {
         files: bufferedFiles.map((file) => ({
           name: file.name,
           contentType: file.contentType,
-          bytes: file.bytes,
-          warningCount: 0
+          bytes: file.bytes
+          // No warningCount: the external run-import worker is the parser, so
+          // the registry must not assert a clean parse it never performed
+          // (2026-08-01 report H10; same rule as the queued reliability route).
         }))
       });
       const queue = serverJobQueueStatus();

@@ -448,7 +448,7 @@ earlier per-trace limit passed each 3-point trajectory individually and let all
 
 | # | Divergence | Layer | Severity | Owner |
 | --- | --- | --- | --- | --- |
-| 1 | Spearman goodness-of-fit differs from rENA by ≤ 2.9e-5 on tied data | L1 | Low — below reported precision, but real | jena-js (tie handling in the rank transform) |
+| 1 | Spearman goodness-of-fit differs from rENA by ≤ 2.9e-5 on tied data | L1 | Low — below reported precision, but real | jena-js (tie handling in the rank transform); filed upstream 2026-08-02 as [jENA#1](https://github.com/HUDongpin/jENA/issues/1) |
 | 2 | Code node positions differ by ≤ 1.1e-8 (solver tolerance) | L1 | None — sub-pixel | Accepted |
 | 3 | SVD sign is arbitrary per dimension | L1 | None — orientation only | Accepted; diffs align signs |
 | 4 | `minWeight: 0.001` edge threshold is invisible to the user | L2 | Medium — a hidden filter on the primary visual | SENA |

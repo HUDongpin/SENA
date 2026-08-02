@@ -481,6 +481,33 @@ describe("SENA production performance budget artifact", () => {
     });
   });
 
+  it("fails a zero-byte actual instead of trivially passing a stale build (P1)", () => {
+    withTempRoot((root) => {
+      writeProductionBuildFixture(root, {});
+      // A stale .next can predate the workspace route: no page-*.js chunk
+      // matches, the measured set is empty, and the pre-guard check passed at
+      // actual=0 bytes as if the route were free.
+      rmSync(path.join(root, ".next", "static", "chunks", "app"), { recursive: true, force: true });
+
+      const artifact = buildEnterpriseProductionPerformanceBudgetArtifact({
+        root,
+        env: {
+          SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES: "10000",
+          SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES: "10000",
+          SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES: "10000"
+        }
+      });
+      const routeCheck = artifact.checks.find((check) => check.id === "workspace-route-js-br");
+
+      expect(artifact.status).toBe("fail");
+      expect(routeCheck?.status).toBe("fail");
+      expect(routeCheck?.actualBrotliBytes).toBe(0);
+      expect(routeCheck?.evidence).toContain("zeroByteActual=true");
+      expect(routeCheck?.nextAction).toContain("stale or incomplete");
+      expect(artifact.checks.find((check) => check.id === "total-static-js-br")?.evidence).toContain("zeroByteActual=false");
+    });
+  });
+
   it("retries transient build artifact reads before failing the performance budget", () => {
     withTempRoot((root) => {
       const fixture = writeProductionBuildFixture(root, {});

@@ -73,7 +73,10 @@ export type SenaEnterpriseUpload = {
   size: number;
   sha256: string;
   importProfile?: string;
-  warningCount: number;
+  // Unset until a parser has actually reported for this file: 0 asserts
+  // "parsed, clean", absence asserts nothing (2026-08-01 report H10). Queued
+  // uploads stay unset until the external worker reports.
+  warningCount?: number;
   scanStatus: SenaEnterpriseUploadScanStatus;
   scanEngine: "sena-local-upload-scan/v1";
   scanFindings: string[];
@@ -519,7 +522,7 @@ function createEnterpriseUploadsInDb(
       size: bytes.byteLength,
       sha256: createHash("sha256").update(bytes).digest("hex"),
       importProfile: file.importProfile,
-      warningCount: file.warningCount ?? 0,
+      warningCount: file.warningCount,
       scanStatus: scan.scanStatus,
       scanEngine: uploadScanEngine,
       scanFindings: scan.scanFindings,

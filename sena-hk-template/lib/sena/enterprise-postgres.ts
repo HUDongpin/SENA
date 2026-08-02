@@ -1320,7 +1320,9 @@ export function createEnterprisePostgresUploadAdapter(input: {
         upload.size,
         upload.sha256,
         upload.importProfile ?? null,
-        upload.warningCount,
+        // Mirror column is NOT NULL DEFAULT 0, so the unset ("not yet parsed")
+        // state flattens to 0 here; the primary document store preserves it.
+        upload.warningCount ?? 0,
         upload.scanStatus,
         upload.scanEngine,
         roundTripJson(upload.scanFindings),

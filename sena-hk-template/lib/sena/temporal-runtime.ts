@@ -33,7 +33,11 @@ function datasetCounts(dataset: SenaDataset): SenaTemporalRuntimeDatasetCounts {
 }
 
 function matrixTotal(values: number[][]) {
-  return values.reduce((total, row) => total + row.reduce((rowTotal, value) => rowTotal + value, 0), 0);
+  // Non-finite cells are excluded, matching fusion-math.ts matrixTotal: one NaN
+  // cell must not poison every per-window total and transition delta downstream.
+  return values.reduce((total, row) => (
+    total + row.reduce((rowTotal, value) => rowTotal + (Number.isFinite(value) ? value : 0), 0)
+  ), 0);
 }
 
 function edgeHighlight(edge?: SenaEdge): SenaTemporalRuntimeEdgeHighlight | undefined {

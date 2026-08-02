@@ -1776,7 +1776,7 @@ function modelCardToMarkdown(report: SenaReport) {
     `- Dataset: ${card.dataset.version.declared} (${card.dataset.version.contentHash})`,
     `- Formula S: ${card.formulas.social.formula}; direction=${card.formulas.social.direction}`,
     `- Formula B: ${card.formulas.bridge.formula}; weightRule=${card.formulas.bridge.weightRule}`,
-    `- Normalization: ${card.normalization.rule}; divisors S/W/B/G=${card.normalization.divisors.S}/${card.normalization.divisors.W}/${card.normalization.divisors.B}/${card.normalization.divisors.G}`,
+    `- Normalization: ${card.normalization.rule}; divisors S/W/B/B_CP/G=${card.normalization.divisors.S}/${card.normalization.divisors.W}/${card.normalization.divisors.B}/${card.normalization.divisors.B_CP}/${card.normalization.divisors.G}`,
     `- Weights: alpha=${formatReportNumber(card.weights.alpha)}, beta=${formatReportNumber(card.weights.beta)}, gamma=${formatReportNumber(card.weights.gamma)}; configHash=${card.weights.configHash}`,
     `- Embedding badge: ${card.embedding.layoutBadge}`,
     `- Attribution badge: ${card.attribution.badge}`,

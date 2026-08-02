@@ -252,6 +252,12 @@ describe("SENA advisory model defaults", () => {
     expect(model.operatorDiagnostics.normalization.S.divisor).toBe(2);
     expect(model.operatorDiagnostics.normalization.S.rule).toBe("max");
     expect(model.operatorDiagnostics.normalization.S.admissible).toBe(true);
+    // ADR-0005: B_CP is normalized independently of B (= B_PC), so its divisor
+    // and admissibility must be disclosed alongside the other layers. In
+    // transpose-fallback mode the max divisor equals B's.
+    expect(model.operatorDiagnostics.normalization.B_CP.rule).toBe("max");
+    expect(model.operatorDiagnostics.normalization.B_CP.admissible).toBe(true);
+    expect(model.operatorDiagnostics.normalization.B_CP.divisor).toBe(model.operatorDiagnostics.normalization.B.divisor);
   });
 
   it("records formal embedding diagnostics separately from exploratory layout provenance", () => {
@@ -605,6 +611,7 @@ describe("SENA advisory model defaults", () => {
       S: model.operatorDiagnostics.normalization.S.divisor,
       W: model.operatorDiagnostics.normalization.W.divisor,
       B: model.operatorDiagnostics.normalization.B.divisor,
+      B_CP: model.operatorDiagnostics.normalization.B_CP.divisor,
       G: model.operatorDiagnostics.normalization.G.divisor
     });
     expect(card.weights.configHash).toBe(model.operatorDiagnostics.runIdentity.configHash);
@@ -645,6 +652,7 @@ describe("SENA advisory model defaults", () => {
       S: model.operatorDiagnostics.normalization.S.divisor,
       W: model.operatorDiagnostics.normalization.W.divisor,
       B: model.operatorDiagnostics.normalization.B.divisor,
+      B_CP: model.operatorDiagnostics.normalization.B_CP.divisor,
       G: model.operatorDiagnostics.normalization.G.divisor
     });
     expect(run.provenanceEnvelope.isolated).toEqual(model.operatorDiagnostics.isolatedVertices);

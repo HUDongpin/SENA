@@ -55,19 +55,22 @@ function scalar(value: unknown) {
   return String(value).trim();
 }
 
-function readAlias(row: SenaImportRow, aliases: string[]) {
+function readAliasEntry(row: SenaImportRow, aliases: string[]): { present: boolean; value: string } {
   const entries = Object.entries(row);
   for (const alias of aliases) {
     const normalizedAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, "");
     const found = entries.find(([key]) => key.toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedAlias);
-    if (found) return scalar(found[1]);
+    if (found) return { present: true, value: scalar(found[1]) };
   }
-  return "";
+  return { present: false, value: "" };
+}
+
+function readAlias(row: SenaImportRow, aliases: string[]) {
+  return readAliasEntry(row, aliases).value;
 }
 
 function parseBoolean(value: string) {
   const normalized = value.trim().toLowerCase();
-  if (!normalized) return true;
   return !["0", "false", "no", "n", "absent", "none"].includes(normalized);
 }
 
@@ -86,12 +89,27 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotati
     const coderId = readAlias(row, ["coder_id", "coder", "rater", "reviewer"]);
     const itemId = readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]);
     const codes = parseCodes(readAlias(row, ["code_id", "code", "codes", "label", "coding"]));
-    const value = parseBoolean(readAlias(row, ["value", "applied", "present", "decision", "score"]));
+    const valueEntry = readAliasEntry(row, ["value", "applied", "present", "decision", "score"]);
 
     if (!coderId || !itemId || codes.length === 0) {
       warnings.push(`coder annotation row ${index + 1} is missing coder, item, or code and was skipped.`);
       return [];
     }
+
+    // A file with no value column is a presence-style export: each row means the
+    // coder applied the code. An empty cell in an existing value column records
+    // nothing — including a ragged row padded by parseSenaCsv — so it becomes a
+    // skipped annotation (2026-08-01 report §4.1), never an applied code. In the
+    // dashboard's binary-unit model a skipped row then reads exactly like an
+    // absent row: the coder scores not-applied on units other coders created,
+    // which can only deflate agreement (conservative), not inflate it. Whether
+    // an explicit empty cell should instead be missing-data-excluded from
+    // pairable units is an estimator-semantics decision reserved for Peter.
+    if (valueEntry.present && valueEntry.value === "") {
+      warnings.push(`coder annotation row ${index + 1} has an empty value cell and was skipped rather than read as applied.`);
+      return [];
+    }
+    const value = valueEntry.present ? parseBoolean(valueEntry.value) : true;
 
     return codes.map((codeId) => ({ coderId, itemId, codeId, value }));
   });
@@ -102,8 +120,9 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): { annotati
 export function parseCoderAnnotationsCsv(text: string) {
   const parsed = parseSenaCsv(text);
   const annotations = parseCoderAnnotationsFromRows(parsed.rows);
-  // Ragged-row repairs are additive on the existing shape: a row truncated before
-  // its value cell otherwise reads as an applied code with no trace.
+  // Ragged-row repairs are additive on the existing shape: a row truncated
+  // before its value cell is padded here, then skipped (with disclosure) by the
+  // empty-value guard above instead of being read as an applied code.
   return { ...annotations, warnings: [...parsed.warnings, ...annotations.warnings] };
 }
 

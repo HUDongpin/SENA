@@ -1966,6 +1966,9 @@ export type SenaOperatorDiagnostics = {
     S: SenaNormalizationDiagnostic;
     W: SenaNormalizationDiagnostic;
     B: SenaNormalizationDiagnostic;
+    // B_CP is normalized independently of B (= B_PC); ADR-0005 requires each
+    // bridge block's divisor/admissibility to be disclosed, not just B's.
+    B_CP: SenaNormalizationDiagnostic;
     G: SenaNormalizationDiagnostic;
   };
   bridgeWeighting: {
@@ -2173,6 +2176,7 @@ export type SenaModelCard = {
       S: number;
       W: number;
       B: number;
+      B_CP: number;
       G: number;
     };
     scaleInvariant: boolean;
@@ -2242,6 +2246,7 @@ export type SenaAnalysisProvenanceEnvelope = {
     S: number;
     W: number;
     B: number;
+    B_CP: number;
     G: number;
   };
   alpha: number;

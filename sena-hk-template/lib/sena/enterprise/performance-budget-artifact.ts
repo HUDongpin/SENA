@@ -345,7 +345,11 @@ function buildSizeCheck(input: {
   nextAction: string;
 }): SenaEnterpriseProductionPerformanceBudgetCheck {
   const readComplete = (input.missingArtifactFiles ?? 0) === 0;
-  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && input.actualBrotliBytes <= input.budgetBytes
+  // P1 guard: a zero-byte actual can only mean the measured artifact set is
+  // empty (stale or dev-polluted .next with no matching chunks), never a
+  // legitimately weightless build output — fail instead of trivially passing.
+  const zeroByteActual = input.actualBrotliBytes === 0;
+  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && !zeroByteActual && input.actualBrotliBytes <= input.budgetBytes
     ? "pass"
     : "fail";
   return {
@@ -359,6 +363,7 @@ function buildSizeCheck(input: {
       `actualBrotliBytes=${input.actualBrotliBytes ?? "missing"}`,
       `budgetBytes=${input.budgetBytes}`,
       `missingProductionBuild=${input.missingBuild}`,
+      `zeroByteActual=${zeroByteActual}`,
       `artifactReadComplete=${readComplete}`,
       `missingArtifactFiles=${input.missingArtifactFiles ?? 0}`,
       `readErrorHashes=${input.readErrorHashes?.slice(0, 3).join("|") || "none"}`,
@@ -367,9 +372,11 @@ function buildSizeCheck(input: {
     ],
     nextAction: status === "pass"
       ? "Keep this budget check attached to the release evidence."
-      : readComplete
-        ? input.nextAction
-        : "Run npm run build after any in-progress build finishes, then rerun npm run sena:performance:check."
+      : zeroByteActual
+        ? "Run npm run build to refresh the stale or incomplete .next output, then rerun npm run sena:performance:check."
+        : readComplete
+          ? input.nextAction
+          : "Run npm run build after any in-progress build finishes, then rerun npm run sena:performance:check."
   };
 }
 

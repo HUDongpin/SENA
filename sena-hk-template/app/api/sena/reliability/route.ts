@@ -73,8 +73,9 @@ async function rowsFromFile(file: BufferedReliabilityFile): Promise<{ rows: Sena
     };
   }
   const parsed = parseSenaCsv(file.bytes.toString("utf8"));
-  // Ragged-row repairs are recorded per file: a coder row truncated before its
-  // value cell otherwise reads as an applied code and silently moves kappa/alpha.
+  // Ragged-row repairs are recorded per file; the padded empty value cell is
+  // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
+  // instead of being read as an applied code that moves kappa/alpha.
   return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }
 
@@ -186,8 +187,10 @@ export async function POST(request: Request) {
           name: file.name,
           contentType: "application/octet-stream",
           bytes: file.bytes,
-          importProfile: "reliability",
-          warningCount: 0
+          // No warningCount: nothing in-repo parses queued reliability files
+          // (the external worker does), so the registry must not assert a
+          // clean parse it never performed (2026-08-01 report H10).
+          importProfile: "reliability"
         }))
       });
       const queue = serverJobQueueStatus();

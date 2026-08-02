@@ -78,6 +78,7 @@ function buildSections(input: {
       `S=${diagnostics.normalization.S.divisor}`,
       `W=${diagnostics.normalization.W.divisor}`,
       `B=${diagnostics.normalization.B.divisor}`,
+      `B_CP=${diagnostics.normalization.B_CP.divisor}`,
       `G=${diagnostics.normalization.G.divisor}`
     ],
     "layer-weights": [
@@ -208,6 +209,7 @@ export function buildSenaModelCard(model: SenaModel, options: SenaModelCardOptio
         S: diagnostics.normalization.S.divisor,
         W: diagnostics.normalization.W.divisor,
         B: diagnostics.normalization.B.divisor,
+        B_CP: diagnostics.normalization.B_CP.divisor,
         G: diagnostics.normalization.G.divisor
       },
       scaleInvariant: normalizations.every((normalization) => normalization.scaleInvariant),

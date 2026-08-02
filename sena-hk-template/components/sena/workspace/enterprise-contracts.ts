@@ -34,7 +34,9 @@ export type EnterpriseUploadRecord = {
   size: number;
   sha256: string;
   importProfile?: string;
-  warningCount: number;
+  // Absent until a parser has reported for this file (H10): queued uploads are
+  // parsed by the external worker, so the server omits the field for them.
+  warningCount?: number;
   scanStatus: "passed" | "review" | "blocked";
   scanEngine: string;
   scanFindings: string[];

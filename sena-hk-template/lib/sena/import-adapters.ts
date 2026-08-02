@@ -3,6 +3,7 @@ import { readXlsxWorkbookRows } from "./excel-workbook";
 import {
   buildSenaDatasetFromTables,
   importSenaJsonContract,
+  looksLikeSenaContractJson,
   inferSenaColumnMapping,
   inferSenaTableFromName,
   parseSenaCsv,
@@ -741,14 +742,36 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
         sources.push({ name: file.name, profile: "dataset-metadata", rows: 0, warnings: [] });
         continue;
       }
+      let parsedJson: unknown;
       try {
-        const contract = importSenaJsonContract(text);
+        parsedJson = JSON.parse(text);
+      } catch (error) {
+        throw new Error(`${file.name}: JSON could not be parsed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      // Route by shape instead of try-contract-catch-forum: a contract-shaped
+      // payload that fails to import must surface the contract error, not the
+      // forum adapter's unrelated "did not contain posts" message.
+      if (looksLikeSenaContractJson(parsedJson)) {
+        let contract: ReturnType<typeof importSenaJsonContract>;
+        try {
+          contract = importSenaJsonContract(parsedJson);
+        } catch (error) {
+          throw new Error(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
         if (contract.dataset.metadata) datasetMetadata = contract.dataset.metadata;
         tables.push(...datasetToTables(contract.dataset, file.name));
         sources.push({ name: file.name, profile: "sena-contract", rows: contract.dataset.utterances.length, warnings: contract.warnings });
         warnings.push(...contract.warnings);
-      } catch {
-        const adapted = adaptForumJson(JSON.parse(text), file.name);
+      } else {
+        let adapted: ReturnType<typeof adaptForumJson>;
+        try {
+          adapted = adaptForumJson(parsedJson, file.name);
+        } catch (error) {
+          throw new Error(
+            `${file.name}: ${error instanceof Error ? error.message : String(error)} ` +
+            "If this file was meant to be a SENA JSON contract, its tables (people, interactions, utterances, coded_segments, codebook) must be top-level arrays."
+          );
+        }
         tables.push(...datasetToTables(adapted.dataset, file.name));
         sources.push({ name: file.name, profile: "lms-forum-json", rows: adapted.dataset.utterances.length, warnings: adapted.warnings });
         warnings.push(...adapted.warnings);

@@ -56,8 +56,9 @@ async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise
   }
 
   const parsed = parseSenaCsv(text);
-  // Ragged-row repairs are recorded per file: a coder row truncated before its
-  // value cell otherwise reads as an applied code and silently moves kappa/alpha.
+  // Ragged-row repairs are recorded per file; the padded empty value cell is
+  // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
+  // instead of being read as an applied code that moves kappa/alpha.
   return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }
 

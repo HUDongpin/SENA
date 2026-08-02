@@ -329,6 +329,14 @@ describe("SENA reliability route", () => {
       }));
       expect(queueRequests[0].body).not.toContain("coder_id,item_id");
 
+      // H10: nothing in-repo parses a queued reliability file (the external
+      // worker does), so the registry must leave warningCount unset — 0 would
+      // assert a clean parse that never happened.
+      const uploadsAfterQueue = enterprise.listEnterpriseUploads(registered.context, registered.context.teams[0].id);
+      const queuedUpload = uploadsAfterQueue.find((upload) => upload.id === body.payloadSummary?.uploadIds?.[0]);
+      expect(queuedUpload).toBeDefined();
+      expect(queuedUpload?.warningCount).toBeUndefined();
+
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
         event: "reliability.queue",
         projectId: project.id,

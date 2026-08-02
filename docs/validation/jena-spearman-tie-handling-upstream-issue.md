@@ -1,7 +1,7 @@
 # Draft upstream issue — jena-js Spearman GOF tie handling
 
 **Target tracker:** https://github.com/HUDongpin/jENA/issues
-**Status:** draft, not yet filed (filing needs Peter's go-ahead)
+**Status:** filed 2026-08-02 as https://github.com/HUDongpin/jENA/issues/1 (go-ahead given via the 2026-08-02 "solve these issues" directive)
 **Source of measurements:** `docs/validation/jena-js-sena-ena-parity.md` §"Spearman
 goodness-of-fit" and divergence table row 1; goldens in `docs/validation/parity/`.
 

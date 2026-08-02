@@ -105,6 +105,7 @@ export function buildSenaAnalysisProvenanceEnvelope(
       S: diagnostics.normalization.S.divisor,
       W: diagnostics.normalization.W.divisor,
       B: diagnostics.normalization.B.divisor,
+      B_CP: diagnostics.normalization.B_CP.divisor,
       G: diagnostics.normalization.G.divisor
     },
     alpha: model.options.alpha,

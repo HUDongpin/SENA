@@ -138,6 +138,52 @@ Campaign exit condition met.**
 7. **Committing:** all fixes are uncommitted working-tree changes, alongside the pre-existing
    closeout work and a concurrent agent's edits. Stage selectively.
 
+### §4 resolution addendum (2026-08-02, "solve these issues" directive)
+
+1. **Resolved (with one open estimator question).** An empty value cell is now a skipped
+   annotation, never "applied". The fix distinguishes a *missing value column*
+   (presence-style export — every row still reads as applied) from an *empty cell in an
+   existing value column* (records nothing — skipped with a per-row warning). Ragged rows
+   padded by `parseSenaCsv` fall into the second case. Precise consequence: in the
+   dashboard's binary-unit model a skipped row behaves like an absent row — the coder
+   scores not-applied on units other coders created — so a ragged row can now only
+   *deflate* agreement (fabricated disagreement, conservative for the gate), never inflate
+   it as pre-fix "applied" did. **Open for Peter:** whether an explicit empty cell should
+   instead be missing-data-excluded from pairable units (Krippendorff-style; the alpha
+   coincidence code already tolerates missing) — that is an estimator-semantics change to
+   kappa's unit universe and is reserved per SENA-A08. Regression tests in
+   `reliability.test.ts` pin both the skip and the deflate-only consequence.
+   Known cosmetic caveat: the skip warning's row index counts the rows flattened across
+   all uploaded files (same convention as the pre-existing missing-field warning), so in
+   multi-file imports it is not a per-file CSV row number.
+2. **Resolved.** `SenaEnterpriseUpload.warningCount` is now optional — unset means "no
+   parser has reported", 0 means "parsed, clean" — and the queued reliability **and
+   queued import** routes no longer assert `warningCount: 0` (the import route had the
+   identical H10 defect). The worker contract artifact gained
+   `parseWarningDisclosurePolicy` and `uploadWarningCountSemantics` fields requiring
+   run-import/run-reliability workers to disclose parse-repair warnings in their run
+   outputs. Two documented limits: the status-update schema does not yet carry a warnings
+   field (so for queued files warningCount stays unset until that additive extension
+   lands), and the Postgres mirror column stays NOT NULL DEFAULT 0 (the primary document
+   store preserves unset).
+3. **Open.** The stray `AGENTS.md` heading ("Imported Claude Cowork project instructions")
+   is still in the uncommitted working tree; left for Peter with the other root-doc edits.
+4. **Open** (pre-existing, out of campaign scope): import-route persist-branch divergence,
+   202-queue undefined dataset, pilot-readiness double-count.
+5. **Open.** `withSourceWarnings()` helper and module-boundaries completeness remain
+   suggested hardening.
+6. **Done.** Visual check on 2026-08-02 (dev server, Chromium): `/workspace/ena` Variance
+   and Fit panels render without truncation at 1280/768/375 widths; plot axis titles use
+   the raw rotation basis (`SVD1 · 44.1%` / `SVD2 · 26.4%` on the sample) consistently with
+   the stats rail; `/workspace/sena` ENA Space shows the same basis (`SVD1 · 72.3%`) with
+   bridges on / social off, and the Stats panel's "SVD1 72.3% — Share of displayed
+   variance" cell plus basis note render fully. One cosmetic observation for later: the
+   "Active view — ENA Space" caption strip can appear twice stacked (primary deck +
+   inspector viewport both captioning the same view).
+7. **Done.** The H1–H28 campaign was merged to `main` as `434f279` on 2026-08-02 and the
+   §4.1/§4.2 fixes landed in the follow-up closeout branch with the P-series iteration 1
+   guard (see `sena-hk-template/20260802_SENA_Perf Report.md`).
+
 ## 5. Evidence trail
 
 Session artifacts (scratchpad, not committed): `detection-sweep-2026-08-01.md`,

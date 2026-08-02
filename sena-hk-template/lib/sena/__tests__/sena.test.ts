@@ -530,6 +530,31 @@ describe("SENA model builder", () => {
     expect(trace.transitions[0]?.interpretationGuardrail).toContain("not causal evidence");
   });
 
+  it("keeps temporal trace matrix totals finite when an interaction weight is not finite", () => {
+    // Guard parity with fusion-math matrixTotal: one NaN interaction weight
+    // must not poison every per-window total and transition delta.
+    const dataset = {
+      ...exampleSenaContract,
+      interactions: exampleSenaContract.interactions.map((interaction, index) => (
+        index === 0 ? { ...interaction, weight: Number.NaN } : interaction
+      ))
+    };
+
+    const trace = buildSenaTemporalRuntimeTrace(dataset, {}, {
+      generatedAt: "2026-08-02T00:00:00.000Z"
+    });
+
+    expect(trace.windows.length).toBeGreaterThan(0);
+    for (const entry of trace.windows) {
+      expect(Number.isFinite(entry.sena.matrixTotals.S)).toBe(true);
+      expect(Number.isFinite(entry.sena.matrixTotals.fusion)).toBe(true);
+    }
+    for (const transition of trace.transitions) {
+      expect(Number.isFinite(transition.delta.S)).toBe(true);
+      expect(Number.isFinite(transition.delta.fusion)).toBe(true);
+    }
+  });
+
   it("returns an empty temporal runtime trace for an empty dataset", () => {
     const trace = buildSenaTemporalRuntimeTrace(createEmptySenaDataset(), {}, {
       generatedAt: "2026-06-08T00:00:00.000Z"
@@ -3055,6 +3080,46 @@ describe("SENA model builder", () => {
     expect(result.cleaningManifest.summary.adapterProfiles).toContain("cleaned-transcript");
     expect(result.dataset.people.length).toBeGreaterThan(0);
     expect(result.dataset.coded_segments.length).toBeGreaterThan(0);
+  });
+
+  it("routes contract-shaped JSON to the contract importer and keeps its real error", async () => {
+    // A contract-shaped payload must never fall back to the forum adapter: the
+    // old try/catch surfaced "Forum/LMS JSON did not contain posts" for a
+    // malformed SENA contract, hiding the real failure.
+    const contractResult = await importSenaEnterpriseFiles([
+      uploadLike("contract.json", JSON.stringify({
+        people: [{ person_id: "p1", name: "Ada" }],
+        utterances: [{ utterance_id: "u1", person_id: "p1", text: "We ask a question." }],
+        coded_segments: [{ segment_id: "seg1", utterance_id: "u1", person_id: "p1", codes: "Question" }],
+        codebook: [{ code_id: "Question", label: "Question" }]
+      }))
+    ]);
+    expect(contractResult.sources.map((source) => source.profile)).toContain("sena-contract");
+
+    await expect(importSenaEnterpriseFiles([
+      uploadLike("not-json.json", "{ this is not json")
+    ])).rejects.toThrow(/^not-json\.json: JSON could not be parsed/);
+
+    // A wrapped contract is not contract-shaped (no top-level table arrays), so
+    // the forum adapter runs — but the error now names the file and explains
+    // the contract shape instead of only "did not contain posts".
+    await expect(importSenaEnterpriseFiles([
+      uploadLike("wrapped-contract.json", JSON.stringify({ dataset: { people: [{ person_id: "p1" }] } }))
+    ])).rejects.toThrow(/^wrapped-contract\.json: Forum\/LMS JSON did not contain posts.*must be top-level arrays\.$/);
+  });
+
+  it("still adapts non-contract forum JSON exports", async () => {
+    const result = await importSenaEnterpriseFiles([
+      uploadLike("forum.json", JSON.stringify({
+        posts: [
+          { id: "post-1", thread_id: "t1", author: "Ada", message: "We should gather #Evidence." },
+          { id: "post-2", thread_id: "t1", author: "Ben", message: "Here is a #Claim.", parent_id: "post-1" }
+        ]
+      }))
+    ]);
+
+    expect(result.sources.map((source) => source.profile)).toContain("lms-forum-json");
+    expect(result.dataset.utterances.length).toBeGreaterThan(0);
   });
 
   it("attaches standalone dataset governance metadata to five-CSV enterprise imports", async () => {

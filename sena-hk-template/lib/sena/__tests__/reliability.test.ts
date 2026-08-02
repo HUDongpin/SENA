@@ -70,10 +70,12 @@ describe("SENA coding reliability diagnostics", () => {
     }));
   });
 
-  it("discloses ragged coder rows from the local reliability import", async () => {
-    // The last row is truncated before its value cell. parseSenaCsv pads it, and
-    // reliability.ts reads an empty value as "applied", so without the warning the
-    // dashboard would report agreement that the coder file never recorded.
+  it("discloses ragged coder rows and skips their padded empty value cells", async () => {
+    // The last row is truncated before its value cell. parseSenaCsv pads it and
+    // reliability.ts then skips the annotation (2026-08-01 report §4.1): an
+    // empty value cell must never read as "applied". In the binary-unit model
+    // the skipped row behaves like an absent row — the coder scores not-applied
+    // on the unit — so agreement can only deflate (conservative), not inflate.
     const csv = [
       "coder_id,item_id,code_id,value",
       "c1,u1,Evidence,1",
@@ -94,10 +96,19 @@ describe("SENA coding reliability diagnostics", () => {
     expect(result.warnings).toContain(
       "coder-ratings.csv: CSV row 5 has 3 cells but the header has 4; padded empty values for: value."
     );
+    expect(result.warnings).toContain(
+      "coder annotation row 4 has an empty value cell and was skipped rather than read as applied."
+    );
     expect(result.dashboard.warnings).toEqual(result.warnings);
-    expect(result.annotationCount).toBe(4);
+    expect(result.annotationCount).toBe(3);
     expect(result.dashboard.coderCount).toBe(2);
     expect(result.dashboard.binaryUnitCount).toBe(2);
+    // Pin the estimator consequence: the skipped c2/u2 cell reads as
+    // not-applied, so u2 becomes a fabricated DISAGREEMENT (kappa deflates to
+    // 0), never the pre-fix fabricated agreement (kappa 1). True missing-data
+    // exclusion of the unit is an open estimator decision (§4 addendum).
+    expect(result.dashboard.meanPairwiseKappa).toBe(0);
+    expect(result.dashboard.disagreementCount).toBe(1);
     expect(result.reviewPatch.status).toBe("documented");
   });
 
@@ -130,9 +141,42 @@ describe("SENA coding reliability diagnostics", () => {
     expect(parsed.warnings).toContain(
       "CSV row 3 has 3 cells but the header has 4; padded empty values for: value."
     );
-    // The return shape stays destructurable for existing callers.
-    expect(parsed.annotations).toHaveLength(2);
+    expect(parsed.warnings).toContain(
+      "coder annotation row 2 has an empty value cell and was skipped rather than read as applied."
+    );
+    // The return shape stays destructurable for existing callers; the padded
+    // row is disclosed twice but only the recorded annotation survives.
+    expect(parsed.annotations).toHaveLength(1);
     expect(parseCoderAnnotationsCsv("coder_id,item_id,code_id,value\nc1,u1,Evidence,1").warnings).toEqual([]);
+  });
+
+  it("skips an explicitly empty value cell instead of reading it as applied", () => {
+    const parsed = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "   " }
+    ]);
+
+    expect(parsed.annotations).toEqual([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true }
+    ]);
+    expect(parsed.warnings).toEqual([
+      "coder annotation row 2 has an empty value cell and was skipped rather than read as applied.",
+      "coder annotation row 3 has an empty value cell and was skipped rather than read as applied."
+    ]);
+  });
+
+  it("keeps presence-style files without a value column reading as applied", () => {
+    const parsed = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence" }
+    ]);
+
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.annotations).toEqual([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true }
+    ]);
   });
 
   it("prepares JSON API annotation batches with audit-ready source fingerprints", () => {
