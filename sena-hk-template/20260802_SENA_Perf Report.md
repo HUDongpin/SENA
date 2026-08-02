@@ -32,7 +32,10 @@ to the Peter-decisions list.
 **Measurement commands.**
 
 - Compute hot paths: `npm run sena:bench:hot-paths` (wired iteration 1; 2 warmup + 7 measured
-  runs, medians; lesson-study sample at 1x plus deterministic 25x synthetic scale-up).
+  runs, median/min/max since iteration 4; lesson-study sample at 1x plus deterministic
+  synthetic scale-ups at 25x/100x/250x — 1x/25x retained for continuity with iterations
+  0–3. All scale points hold people at 5x sample and cycle units at 5 by design, so the
+  sweep isolates row growth from actor-count growth).
 - Bundle budgets: `npm run sena:performance:check` — **only valid against a fresh
   `npm run build`** (see P1).
 - Route/chunk sizes: walk `.next/static/chunks` + `.next/build-manifest.json`
@@ -145,6 +148,21 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   re-exporting inference as `export type` only is the escape hatch that keeps inference
   itself out of the eager graph — the house pattern for future de-eager work.
 
+- **P6 (closed 2026-08-03, iteration 4 — measurement note, no action).** Cross-day timing
+  drift: iteration-4 fresh baselines ran 9–31% faster than iteration-0's stored numbers
+  (buildSenaModel 1x 1.817 → 1.247 ms, 25x 13.404 → 11.711 ms) on the same machine, Node,
+  and protocol. Confirms ledger timing numbers are date-stamps, not baselines; the
+  same-session fresh-baseline rule is mandatory for timing verdicts.
+- **P7 (open, compute — supersedes P2's "not worth optimizing").** `buildSenaModel` is
+  superlinear in rows and approaching quadratic, with people held constant (20) across the
+  sweep: 12.232 ms @ 250 rows → 86.116 ms @ 1,000 (rows ×4, time ×7.0, exponent ~1.41) →
+  **451.263 ms @ 2,500** (rows ×2.5, time ×5.2, exponent ~1.81; range 439.8–468.5, no
+  overlap between points). All other stages ~linear or flat (ena-manifest 1.9 → 5.8 →
+  11.5 ms). Impact multiplier from T7 recon: the function runs synchronously on the UI
+  thread in render-body `useMemo` TWICE (:347 timelineModel, :356 windowed model, plus
+  inside buildSenaTemporalRuntimeTrace), so a realistic 2,500-utterance corpus implies
+  roughly a second of main-thread jank per dataset/window change. → T9, ranked #1.
+
 (Negative results — rejected hypotheses — get logged here too, so later iterations don't
 retry them. **Iteration 3 negative result:** "defer sna.js via `await import()` at
 buildSenaModel call sites" is refuted at design stage — see T7 BLOCKED-PETER below. The
@@ -162,14 +180,20 @@ possible; do not re-try a pure code-splitting approach.)
 
 ## Ranked target backlog
 
-1. **T4 — buildSenaModel scaling (P2).** Extend bench with a 100x/250x point; profile which
-   section grows fastest. Optimize only if superlinear or absolute cost becomes user-visible.
-3. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
+1. **T9 — Find & fix the superlinear section of buildSenaModel (P7).** Profile inside the
+   function at 100x/250x (node --cpu-prof via vite-node, or temporary stage timers) to
+   locate the ~O(n^1.8) section; candidates unverified. Constraint: outputs must be
+   BIT-IDENTICAL (math frozen) — algorithmic/data-structure changes only; anything
+   approximate → Peter. Metric: buildSenaModel median at 100x/250x, non-overlapping
+   ranges, 1x/25x as guardrails. Secondary lever (separate iteration if pursued): the
+   workspace builds the model twice on mount (:347/:356) — dedupe only with T7-adjacent
+   care since it touches the hook.
+2. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
    pulled into the app shell (layout-level imports). Metric: rootMainFiles bytes.
-4. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
+3. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
    plot-switch latency. Bytes-on-open harness from iteration 2 is the seed (see Measurement
    commands); extend with timing + N≥15 runs + IQR per the loop's timing rules.
-5. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
+4. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
 
@@ -182,7 +206,9 @@ payload). Deferral requires a UX decision (see Peter decisions). If declined, cl
 REJECTED (UX-constrained) — the open payload is then within ~50 KiB of its floor for the
 current design.
 
-Closed: **T1 — DONE 2026-08-03 (iteration 2).** Premise was the P4 artifact; export libs
+Closed: **T4 — DONE 2026-08-03 (iteration 4).** Bench parameterized to 25x/100x/250x with
+max_ms column; growth curve recorded (P7); superlinear confirmed → spawned T9.
+**T1 — DONE 2026-08-03 (iteration 2).** Premise was the P4 artifact; export libs
 were already split (docx/pdf-lib server-only, exceljs behind the import-adapters dynamic
 boundary). Residual cleanup (package.json + fixture inlining) landed: total-static-js-br
 813,233 → 811,589 B. **T2 — DONE 2026-08-03 (iteration 2)** by evidence:
@@ -251,3 +277,14 @@ strict-evidence flags.
   export-type-only escape-hatch pattern. No code changed; no gates required. T7 marked
   BLOCKED-PETER with a three-option UX question (loading state / worker / decline).
   Next open target: T4 (bench 100x/250x scale points, profile buildSenaModel growth).
+- **Iteration 4 (2026-08-03, T4 → DONE, spawned T9).** Context: M4 Pro, Node v24.15.0,
+  commit f50f18f; quiesce clean (foreign MAIS-MVP dev server only). Fresh 1x/25x baseline
+  ran 9–31% faster than iteration-0 numbers → P6 (cross-day drift note). Smallest change:
+  parameterized `buildScaledContractText(sampleText, scale)`, SCALES=[25,100,250], added
+  max_ms column; 1x/25x labels retained for continuity. Profile result (P7):
+  buildSenaModel 12.232 / 86.116 / 451.263 ms at 250/1,000/2,500 rows — exponent rising
+  1.41 → 1.81, approaching quadratic with people constant; all other stages ~linear.
+  Profiling iteration: no optimization landed, acceptance rules N/A; the extended bench
+  itself is the lock (growth-ratio vitest deliberately NOT added — wall-time asserts flake
+  in CI; manual re-measurement via the wired npm script is the tripwire). Gates green:
+  full suite (1,207, exit 0 verified), tsc, fresh build, perf-check 5/5. Next: T9.

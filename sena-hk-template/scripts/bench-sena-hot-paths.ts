@@ -13,15 +13,18 @@ import { buildSenaModel } from "../lib/sena/model";
  *
  *   npx vite-node scripts/bench-sena-hot-paths.ts
  *
- * Two datasets: the bundled lesson-study sample (1x) and a deterministic
- * synthetic scale-up (25x rows, same 7-code codebook) that exposes
- * superlinear behaviour the tiny sample cannot. Timings are median of
- * MEASURED_RUNS after WARMUP_RUNS, in milliseconds.
+ * Datasets: the bundled lesson-study sample (1x) and deterministic synthetic
+ * scale-ups (SCALES x rows, same 7-code codebook) that expose superlinear
+ * behaviour the tiny sample cannot. Note the generator scales utterances,
+ * segments, and interactions by the scale factor but holds people at 5x the
+ * sample and cycle units at 5 for EVERY scale point — deliberate, so the
+ * sweep isolates row growth from actor-count growth. Timings are
+ * median/min/max of MEASURED_RUNS after WARMUP_RUNS, in milliseconds.
  */
 
 const WARMUP_RUNS = 2;
 const MEASURED_RUNS = 7;
-const SCALE = 25;
+const SCALES = [25, 100, 250];
 
 const STAGES = ["Plan", "Enact", "Reflect"] as const;
 
@@ -41,7 +44,7 @@ function loadSampleContractText(): string {
   );
 }
 
-function buildScaledContractText(sampleText: string): string {
+function buildScaledContractText(sampleText: string, scale: number): string {
   const sample = JSON.parse(sampleText) as Contract;
   const codeIds = sample.codebook.map((code) => String(code.id));
   const peopleCount = sample.people.length * 5;
@@ -55,7 +58,7 @@ function buildScaledContractText(sampleText: string): string {
     initials: `S${i + 1}`
   }));
 
-  const utteranceCount = sample.utterances.length * SCALE;
+  const utteranceCount = sample.utterances.length * scale;
   const utterances: Record<string, unknown>[] = [];
   const codedSegments: Record<string, unknown>[] = [];
   for (let i = 0; i < utteranceCount; i += 1) {
@@ -88,7 +91,7 @@ function buildScaledContractText(sampleText: string): string {
     });
   }
 
-  const interactionCount = sample.interactions.length * SCALE;
+  const interactionCount = sample.interactions.length * scale;
   const interactions = Array.from({ length: interactionCount }, (_, i) => ({
     source: people[i % peopleCount].id,
     target: people[(i + 1 + (i % 7)) % peopleCount].id,
@@ -166,17 +169,24 @@ function benchDataset(name: string, contractText: string): void {
   const timings: StageTimings = {};
   for (let i = 0; i < MEASURED_RUNS; i += 1) runPipelineOnce(contractText, timings);
 
-  console.log(`  ${"stage".padEnd(30)}${"median_ms".padStart(12)}${"min_ms".padStart(12)}`);
+  console.log(`  ${"stage".padEnd(30)}${"median_ms".padStart(12)}${"min_ms".padStart(12)}${"max_ms".padStart(12)}`);
   let total = 0;
   for (const [stage, samples] of Object.entries(timings)) {
     const med = median(samples);
     total += med;
-    console.log(`  ${stage.padEnd(30)}${med.toFixed(3).padStart(12)}${Math.min(...samples).toFixed(3).padStart(12)}`);
+    console.log(
+      `  ${stage.padEnd(30)}${med.toFixed(3).padStart(12)}${Math.min(...samples).toFixed(3).padStart(12)}${Math.max(...samples).toFixed(3).padStart(12)}`
+    );
   }
   console.log(`  ${"TOTAL (sum of medians)".padEnd(30)}${total.toFixed(3).padStart(12)}`);
 }
 
 const sampleText = loadSampleContractText();
 benchDataset("lesson-study sample (1x)", sampleText);
-benchDataset(`synthetic scale-up (${SCALE}x)`, buildScaledContractText(sampleText));
-console.log(`\nProtocol: ${WARMUP_RUNS} warmup + ${MEASURED_RUNS} measured runs per dataset; medians reported.`);
+for (const scale of SCALES) {
+  benchDataset(`synthetic scale-up (${scale}x)`, buildScaledContractText(sampleText, scale));
+}
+console.log(
+  `\nProtocol: ${WARMUP_RUNS} warmup + ${MEASURED_RUNS} measured runs per dataset; medians reported. ` +
+    `Scale points hold people at 5x sample and cycle units at 5 by design.`
+);
