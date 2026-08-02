@@ -399,7 +399,9 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
   const budgets = {
     workspaceHtmlBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES", 80_000),
     workspaceRouteJsBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES", 180_000),
-    totalStaticJsBrotliBytes: budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 900_000)
+    // 900_000 → 852_000: provisional ratchet after the 2026-08-03 runtime-constants
+    // win (actual 811,509 B); final value pending Peter (see Perf Report ledger).
+    totalStaticJsBrotliBytes: budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 852_000)
   };
   const productionBuildPresent = existsSync(nextDir) && existsSync(staticChunksDir);
   const jsFiles = productionBuildPresent

@@ -147,6 +147,16 @@ const rSnaSocialParity = JSON.parse(
   readFileSync(new URL("../__fixtures__/r-sna-social-parity.json", import.meta.url), "utf8")
 ) as Record<string, RSocialFixtureGraph>;
 
+const rEnaSampleParity = JSON.parse(
+  readFileSync(new URL("../../ena/__fixtures__/r-ena-sample-parity.json", import.meta.url), "utf8")
+) as {
+  points: unknown[];
+  nodes: unknown[];
+  variance: Record<string, number>;
+  lineWeights: Record<string, unknown>[];
+  connectionCounts: Record<string, unknown>[];
+};
+
 const jenaPackage = JSON.parse(
   readFileSync(new URL("../../../node_modules/jena-js/package.json", import.meta.url), "utf8")
 ) as { version: string };
@@ -1282,6 +1292,26 @@ describe("SENA model builder", () => {
       "communities"
     ]);
     expect(senaRuntimeProvenance.parityEvidence.find((evidence) => evidence.id === "jsna-r-sna-social-parity")?.sample.graphFamilies).toBe(5);
+    // runtime-constants.ts keeps these as literals (importing the fixtures there
+    // would inline them into the client workspace chunk); re-derive each value
+    // from the fixture files so the published record cannot drift silently.
+    expect(senaRuntimeProvenance.parityEvidence.find((evidence) => evidence.id === "jena-rena-sample-parity")?.sample).toEqual({
+      units: rEnaSampleParity.points.length,
+      codes: rEnaSampleParity.nodes.length,
+      dimensions: Object.keys(rEnaSampleParity.variance).length,
+      lineWeightRows: rEnaSampleParity.lineWeights.length,
+      lineWeightColumns: Object.keys(rEnaSampleParity.lineWeights[0] ?? {}).filter((column) => column !== "participant").length,
+      connectionCountRows: rEnaSampleParity.connectionCounts.length,
+      connectionCountColumns: Object.keys(rEnaSampleParity.connectionCounts[0] ?? {}).filter((column) => column !== "participant").length
+    });
+    expect(senaRuntimeProvenance.parityEvidence.find((evidence) => evidence.id === "jsna-r-sna-social-parity")?.sample.graphFamilies).toBe(Object.keys(rSnaSocialParity).length);
+    // Source guard: re-importing package.json or the parity fixtures in
+    // runtime-constants.ts would inline them into the client workspace chunk
+    // (~6 KiB raw, and it makes chunk greps for export-library names match
+    // dependency spec strings — see Perf Report P4).
+    const runtimeConstantsSource = readFileSync(new URL("../runtime-constants.ts", import.meta.url), "utf8");
+    expect(runtimeConstantsSource).not.toMatch(/import\s+(?!type\s)[^;]*from\s+"[^"]*package\.json"/);
+    expect(runtimeConstantsSource).not.toMatch(/import\s+(?!type\s)[^;]*from\s+"[^"]*__fixtures__[^"]*"/);
     expect(enaManifest.engineVersion).toBe(jenaPackage.version);
     expect(snaManifest.engineVersion).toBe(snaPackage.version);
     expect(report.runtimeProvenance.enaRuntime.version).toBe(enaManifest.engineVersion);

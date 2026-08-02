@@ -11,6 +11,18 @@ regresses >2%; otherwise revert and log the negative result. Gates before record
 or the change is reverted. After a landed bundle win, ratchet the corresponding budget in
 `lib/sena/enterprise/performance-budget-artifact.ts`.
 
+**Protocol refinement (2026-08-03, loop-command review).** Acceptance is two-tier. Byte
+metrics (deterministic): any measurable improvement above the build-noise floor may land
+when behavior-preserving (calibrate the floor once — build the same commit twice
+back-to-back, record the delta here); ≥10% stays the prioritization bar, not the landing
+bar. Timing metrics: ≥10% median improvement AND non-overlapping baseline/after sample
+ranges; a timing regression counts only if >2% worse AND outside the baseline's range AND
+≥0.5 ms absolute; near-threshold results repeat the full baseline+after pair. Budget
+ratchets applied by the loop are provisional (new-actual + 5–10% headroom, never looser);
+final values are Peter's (list as PENDING under Peter decisions). Backlog row states:
+open / IN-PROGRESS / DONE / REJECTED (negative result logged) / BLOCKED-PETER. Full
+iteration protocol: `.claude/commands/performance-loop.md` (`/performance-loop`).
+
 **Environment caveats** (this tree): run gates unsandboxed (iCloud-dataless node_modules);
 `pgrep -f vitest` must be empty before any vitest run (concurrent agent shares the tree);
 Bash cwd resets on unsandboxed calls — use absolute paths. Never bump/unpin `jena-js` /
@@ -19,13 +31,21 @@ to the Peter-decisions list.
 
 **Measurement commands.**
 
-- Compute hot paths: `npx vite-node scripts/bench-sena-hot-paths.ts` (2 warmup + 7 measured
+- Compute hot paths: `npm run sena:bench:hot-paths` (wired iteration 1; 2 warmup + 7 measured
   runs, medians; lesson-study sample at 1x plus deterministic 25x synthetic scale-up).
 - Bundle budgets: `npm run sena:performance:check` — **only valid against a fresh
   `npm run build`** (see P1).
 - Route/chunk sizes: walk `.next/static/chunks` + `.next/build-manifest.json`
   (`rootMainFiles` + polyfills = shared first-load; `static/chunks/app/<route>/page-*.js` =
   per-route chunk). Next 16 no longer prints per-route First Load JS in build output.
+- Build-noise floor (measured 2026-08-03, iteration 2): **0 B** for JS byte metrics —
+  same-source back-to-back builds produce identical chunk hashes; workspace-html varies
+  ~4 B (embedded build id). Cross-source rebuilds add ~tens of B of module-id churn.
+- Bytes-on-open (network trace): production `next start` on a CLI-chosen port, headless
+  Playwright, fresh context, wait for `sena-fusion-canvas` mount; count `/_next/static/*.js`
+  responses (raw decompressed bytes; `next start` sends no content-length on chunked gzip).
+  Trace includes `<Link>` prefetch chunks (e.g. /docs page chunk on /workspace/ena) — note
+  them when reading totals.
 
 ---
 
@@ -102,6 +122,20 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   narrower than raw size suggests — but chunk 2482 mixing compute with exports means
   opening analysis likely also downloads export code. → backlog T1/T2.
 
+- **P4 (closed 2026-08-03, iteration 2).** Iteration 0's "chunk 2482 mixes compute with
+  docx/pdf-lib/exceljs" was a **measurement artifact**: `lib/sena/runtime-constants.ts`
+  imported the entire `package.json` (plus both R parity fixtures, ~16 KB pretty-printed)
+  into the client workspace chunk, so grepping chunks for export-library *names* matched
+  dependency-spec strings like `"docx":"^9.7.1"`. Content markers (`word/document.xml`,
+  `endobj`, `xl/workbook.xml`) prove the split was already correct: docx/pdf-lib exist
+  only in the server exports route bundle; exceljs lives alone in its own ~910 KiB async
+  chunk behind the existing `await import("@/lib/sena/import-adapters")` boundary
+  (react-loadable-manifest lists it only under `use-enterprise-import-actions.ts`; network
+  trace confirms it is NOT requested on workspace open). **Fix landed:** runtime-constants
+  values are now literals; the provenance test re-derives every value from the real
+  package.json/fixtures and a source guard rejects non-type JSON imports in that file.
+  Lesson: grep chunks for *content* signatures, never package names alone.
+
 (Negative results — rejected hypotheses — get logged here too, so later iterations don't
 retry them.)
 
@@ -109,25 +143,42 @@ retry them.)
 
 ## Ranked target backlog
 
-1. **T1 — Split export libs out of vendor chunk 2482.** If docx/pdf-lib/exceljs are
-   reachable from the same import graph as jena-js/sna.js, dynamic-import the export entry
-   points so analysis views don't download export code. Metric: chunk composition + bytes
-   downloaded on /workspace/ena open (network trace), total-static-js-br.
-2. **T2 — exceljs chunk (6edf0643, 910 KiB raw).** Verify it loads only on actual Excel
-   export; if it leaks into any eager path, fence it. Replacing exceljs outright is a
-   dependency change → Peter decision.
-3. **T3 — Budget-check validity guard (P1). DONE 2026-08-02 (iteration 1).** Zero-byte
-   actuals now fail; staleness binding stays behind the existing strict-evidence flags.
-4. **T4 — buildSenaModel scaling (P2).** Extend bench with a 100x/250x point; profile which
+1. **T7 — Defer sna.js out of the eager workspace chunk.** The ~924 KiB compute chunk
+   downloads on /workspace/sena open (1,823 KiB total on open); sna.js dominates it
+   (2.9 MB shipped source vs 144 KB jena-js; 22 eigenvalue/Jacobi/svd markers). Both
+   compute libs join the graph at `components/sena/workspace/analysis-runtime.ts` (a
+   ~30-module value-re-export barrel). Lever: put `buildSenaModel` (sole sna.js importer:
+   `lib/sena/model.ts`) behind `await import()` at its call sites, matching the existing
+   `use-enterprise-validation-actions.ts:173` pattern (which already re-pulls model.ts
+   dynamically). Metric: bytes-on-open trace + compute-chunk size. Care: model must build
+   on user action, not on mount, for this to be behavior-preserving (lazification note).
+2. **T4 — buildSenaModel scaling (P2).** Extend bench with a 100x/250x point; profile which
    section grows fastest. Optimize only if superlinear or absolute cost becomes user-visible.
-5. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
+3. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
    pulled into the app shell (layout-level imports). Metric: rootMainFiles bytes.
-6. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
-   plot-switch latency. Establish only after T1/T2 settle bundle composition.
+4. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
+   plot-switch latency. Bytes-on-open harness from iteration 2 is the seed (see Measurement
+   commands); extend with timing + N≥15 runs + IQR per the loop's timing rules.
+5. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
+   chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
+   prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
+
+Closed: **T1 — DONE 2026-08-03 (iteration 2).** Premise was the P4 artifact; export libs
+were already split (docx/pdf-lib server-only, exceljs behind the import-adapters dynamic
+boundary). Residual cleanup (package.json + fixture inlining) landed: total-static-js-br
+813,233 → 811,589 B. **T2 — DONE 2026-08-03 (iteration 2)** by evidence:
+react-loadable-manifest lists the exceljs chunk only under `use-enterprise-import-actions`,
+and the network trace shows it is not requested on workspace open. **T3 — DONE 2026-08-02
+(iteration 1).** Zero-byte actuals now fail; staleness binding stays behind the existing
+strict-evidence flags.
 
 ## Peter decisions
 
-- None pending. (Reserved for: dependency replacements — e.g. exceljs alternatives; budget
+- **PENDING (2026-08-03, iteration 2): confirm total-static-js-br ratchet 900,000 → 852,000 B.**
+  Provisional value applied in `performance-budget-artifact.ts` (actual 811,589 B + 5%
+  headroom, never looser than before). Confirm or adjust; env override
+  `SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES` remains available.
+- (Reserved for: dependency replacements — e.g. exceljs alternatives; budget
   ratchet values after first wins; any accuracy/performance trade-off in ENA math.)
 
 ---
@@ -144,3 +195,18 @@ retry them.)
   gates green (tsc, targeted vitest, full suite + build at commit time). The bench script
   is now wired as `npm run sena:bench:hot-paths` and the ledger + script are committed.
   Next iteration: T1 (split export libs out of mixed vendor chunk 2482).
+- **Iteration 2 (2026-08-03, T1+T2 → P4).** Context: M4 Pro, Node v24.15.0, commit 28b47f2;
+  quiesce check showed only foreign next-dev servers (MAIS-MVP, UAIS) — acceptable for
+  byte-class metrics. Calibrated build-noise floor: 0 B JS (identical hashes across
+  same-source builds). Import-graph recon + content-marker greps + network trace overturned
+  T1's premise (P4): export libs already split; exceljs chunk not requested on workspace
+  open (traced: /workspace/sena 1,829.5 KiB raw on open incl. 930.1 KiB compute chunk;
+  /workspace/ena 825.9 KiB, no compute vendor chunk). Landed the real residual:
+  runtime-constants.ts no longer inlines package.json + parity fixtures (values now
+  literals, pinned by recompute assertions + a source guard in sena.test.ts).
+  total-static-js-br 813,233 → 811,589 B (−1,644 B, −0.20%, floor 0 → minor win, byte
+  lane); compute chunk 930.1 → 923.9 KiB; on-open 1,829.5 → 1,823.3 KiB; mixed-chunk grep
+  now clean; no guardrail regressed (shared first-load 526.4 KiB unchanged). Provisional
+  ratchet 900,000 → 852,000 B (PENDING Peter). Gates green: full suite (1,207 tests),
+  tsc, fresh build, perf-check. T1, T2 closed; backlog re-ranked — next: T7 (defer
+  sna.js/buildSenaModel out of the eager workspace chunk).
