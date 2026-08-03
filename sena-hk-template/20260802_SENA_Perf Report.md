@@ -195,12 +195,10 @@ possible; do not re-try a pure code-splitting approach.)
 
 ## Ranked target backlog
 
-1. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
-   pulled into the app shell (layout-level imports). Metric: rootMainFiles bytes.
-2. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
+1. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
    plot-switch latency. Bytes-on-open harness from iteration 2 is the seed (see Measurement
    commands); extend with timing + N≥15 runs + IQR per the loop's timing rules.
-3. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
+2. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
 
@@ -213,12 +211,22 @@ payload). Deferral requires a UX decision (see Peter decisions). If declined, cl
 REJECTED (UX-constrained) — the open payload is then within ~50 KiB of its floor for the
 current design.
 
-4. **T10 — Workspace builds the model twice on mount (low, post-P7).** :347 timelineModel
+3. **T10 — Workspace builds the model twice on mount (low, post-P7).** :347 timelineModel
    + :356 windowed model in `use-sena-fusion-workspace-main-shell-props.ts`; post-fix cost
    is 2×~32 ms even at 250x, so only worth an iteration if T6 measurements show it;
    touches the hook → T7-adjacent care.
 
-Closed: **T9 — DONE 2026-08-03 (iteration 5).** conceptEdgeEvidence quadratic fixed
+Closed: **T5 — REJECTED 2026-08-03 (iteration 6): shared first-load is the framework
+floor.** Attribution of all five rootMainFiles+polyfills chunks (526.4 KiB raw):
+`4bd1b696` 195.2 KiB = react-dom client (hydration/DOM event system markers);
+`3794` 217.0 KiB = Next App Router client core (layout router, server actions);
+polyfills 110.0 KiB = Next's standard legacy bundle; webpack runtime 3.7 + main-app 0.5.
+Zero house code, zero non-framework libraries — nothing deferrable without framework
+surgery. The layout's own chunk graph (~88 KiB more, loads everywhere but outside the
+rootMainFiles metric) is the app shell itself: providers, NavBar, footer, @vercel/analytics;
+largest single chunk 21 KiB — below any sensible fencing threshold (an async boundary for
+single-digit-KiB returns fails the no-added-complexity rule). Do not reopen without a
+framework-level lever. **T9 — DONE 2026-08-03 (iteration 5).** conceptEdgeEvidence quadratic fixed
 bit-identically (P7 closed); 250x median 538.8 → 31.5 ms (17x); growth-ratio tripwire
 landed. **T4 — DONE 2026-08-03 (iteration 4).** Bench parameterized to 25x/100x/250x with
 max_ms column; growth curve recorded (P7); superlinear confirmed → spawned T9.
@@ -314,3 +322,12 @@ strict-evidence flags.
   Tripwire test verified to FAIL on pre-fix code (ratio 31.6 > 30) and PASS on fix
   (~4–5). Gates: tsc green, full suite 1,208 passed exit 0 (incl. new test), fresh
   build, perf-check 5/5. Spawned T10 (double model build, low). Next: T5.
+- **Iteration 6 (2026-08-03, T5 → REJECTED — audit complete, framework floor).** Context:
+  M4 Pro, Node v24.15.0, commit 4b9e66f; quiesce clean (foreign UAIS dev server only).
+  Fresh build: budgets pass, total-static-js-br 811,644 B, shared first-load 526.4 KiB
+  (55 B build noise vs iteration 5 — within expectations for the HTML metric only; JS
+  identical). Signature attribution closed T5 without a code change (details in the
+  backlog's Closed entry): both large shared chunks are react-dom and Next App Router
+  internals; layout graph is the shell itself. No gates needed (ledger-only). Audit
+  method that worked: literal-string frequency dump (`grep -oE '"[A-Za-z@/. -]{12,50}"'`)
+  beats guessing minified identifiers. Next: T6 (build the interaction-latency harness).
