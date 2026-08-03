@@ -153,7 +153,22 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   (buildSenaModel 1x 1.817 → 1.247 ms, 25x 13.404 → 11.711 ms) on the same machine, Node,
   and protocol. Confirms ledger timing numbers are date-stamps, not baselines; the
   same-session fresh-baseline rule is mandatory for timing verdicts.
-- **P7 (open, compute — supersedes P2's "not worth optimizing").** `buildSenaModel` is
+- **P7 (CLOSED 2026-08-03, iteration 5 — fix landed).** Root cause found by cpuprofile at
+  250x: `conceptEdgeEvidence` (model.ts) was ~87% of buildSenaModel self-time — for every
+  code pair it filtered all segments, then for EACH survivor rescanned all segments to
+  rebuild that stanza's code set before `slice(0,6)` → O(pairs · segments²). Fix
+  (bit-identical, verified by sha256 of JSON.stringify(model) at 1x/25x/100x/250x —
+  hashes unchanged): per-dataset stanza→code-set cache (WeakMap on the coded_segments
+  array) + same-order early-exit collection with identical predicates and cap.
+  buildSenaModel medians (this-session baseline → after, ranges in parens):
+  25x 12.264 (10.98–17.56) → 7.444 (6.90–8.78), −39%;
+  100x 87.830 (84.41–90.38) → 15.868 (14.52–26.28), −82%;
+  250x 538.822 (516.64–610.47) → 31.545 (30.46–33.43), −94% (17x).
+  Growth exponent now ~0.55–0.99 (linear-to-sublinear); 1x unchanged within range.
+  B-A-B stationarity: baseline #2 at 250x 509.203 ms (446.5–521.3) ≈ baseline #1.
+  Lock: `lib/sena/__tests__/model-scaling.test.ts` growth-ratio tripwire (10x rows must
+  stay <30x time; pre-fix code measured 31.6 and fails, fix measures ~4–5, ~7x headroom).
+  Original finding (iteration 4): `buildSenaModel` is
   superlinear in rows and approaching quadratic, with people held constant (20) across the
   sweep: 12.232 ms @ 250 rows → 86.116 ms @ 1,000 (rows ×4, time ×7.0, exponent ~1.41) →
   **451.263 ms @ 2,500** (rows ×2.5, time ×5.2, exponent ~1.81; range 439.8–468.5, no
@@ -180,20 +195,12 @@ possible; do not re-try a pure code-splitting approach.)
 
 ## Ranked target backlog
 
-1. **T9 — Find & fix the superlinear section of buildSenaModel (P7).** Profile inside the
-   function at 100x/250x (node --cpu-prof via vite-node, or temporary stage timers) to
-   locate the ~O(n^1.8) section; candidates unverified. Constraint: outputs must be
-   BIT-IDENTICAL (math frozen) — algorithmic/data-structure changes only; anything
-   approximate → Peter. Metric: buildSenaModel median at 100x/250x, non-overlapping
-   ranges, 1x/25x as guardrails. Secondary lever (separate iteration if pursued): the
-   workspace builds the model twice on mount (:347/:356) — dedupe only with T7-adjacent
-   care since it touches the hook.
-2. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
+1. **T5 — Shared first-load 526 KiB raw.** Audit rootMainFiles for heavyweight imports
    pulled into the app shell (layout-level imports). Metric: rootMainFiles bytes.
-3. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
+2. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
    plot-switch latency. Bytes-on-open harness from iteration 2 is the seed (see Measurement
    commands); extend with timing + N≥15 runs + IQR per the loop's timing rules.
-4. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
+3. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
 
@@ -206,7 +213,14 @@ payload). Deferral requires a UX decision (see Peter decisions). If declined, cl
 REJECTED (UX-constrained) — the open payload is then within ~50 KiB of its floor for the
 current design.
 
-Closed: **T4 — DONE 2026-08-03 (iteration 4).** Bench parameterized to 25x/100x/250x with
+4. **T10 — Workspace builds the model twice on mount (low, post-P7).** :347 timelineModel
+   + :356 windowed model in `use-sena-fusion-workspace-main-shell-props.ts`; post-fix cost
+   is 2×~32 ms even at 250x, so only worth an iteration if T6 measurements show it;
+   touches the hook → T7-adjacent care.
+
+Closed: **T9 — DONE 2026-08-03 (iteration 5).** conceptEdgeEvidence quadratic fixed
+bit-identically (P7 closed); 250x median 538.8 → 31.5 ms (17x); growth-ratio tripwire
+landed. **T4 — DONE 2026-08-03 (iteration 4).** Bench parameterized to 25x/100x/250x with
 max_ms column; growth curve recorded (P7); superlinear confirmed → spawned T9.
 **T1 — DONE 2026-08-03 (iteration 2).** Premise was the P4 artifact; export libs
 were already split (docx/pdf-lib server-only, exceljs behind the import-adapters dynamic
@@ -288,3 +302,15 @@ strict-evidence flags.
   itself is the lock (growth-ratio vitest deliberately NOT added — wall-time asserts flake
   in CI; manual re-measurement via the wired npm script is the tripwire). Gates green:
   full suite (1,207, exit 0 verified), tsc, fresh build, perf-check 5/5. Next: T9.
+- **Iteration 5 (2026-08-03, T9 → DONE — first accepted timing win).** Context: M4 Pro,
+  Node v24.15.0, commit fa204df; quiesce clean (foreign MAIS-MVP only; new foreign
+  untracked Test Suite Ledger noted, untouched). Fresh baseline: buildSenaModel 250x
+  538.822 ms (516.6–610.5) — another ~19% cross-day drift vs iteration 4, P6 pattern
+  holds. cpuprofile (10 runs @ 250x via NODE_OPTIONS=--cpu-prof + vite-node) attributed
+  ~87% of self-time to conceptEdgeEvidence + inner callbacks; fix and numbers in P7
+  (closed). Identity: sha256(JSON.stringify(model)) equal before/after at all four
+  scales. Acceptance: 25x/100x/250x all ≥39% better with disjoint ranges; 1x within
+  baseline range (guardrail clean); B-A-B baseline #2 509.203 ms confirms stationarity.
+  Tripwire test verified to FAIL on pre-fix code (ratio 31.6 > 30) and PASS on fix
+  (~4–5). Gates: tsc green, full suite 1,208 passed exit 0 (incl. new test), fresh
+  build, perf-check 5/5. Spawned T10 (double model build, low). Next: T5.

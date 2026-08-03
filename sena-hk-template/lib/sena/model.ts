@@ -868,18 +868,44 @@ function socialEdgeEvidence(dataset: SenaDataset, source: string, target: string
     }));
 }
 
+// Cache stanza -> code-set per coded_segments array: conceptEdgeEvidence runs once
+// per code pair, and rebuilding the stanza sets inside it made evidence collection
+// O(pairs * segments^2) (P7). Keyed on the array identity so every dataset
+// (including per-window scoped copies) gets its own entry.
+const stanzaCodeSetsCache = new WeakMap<object, Map<string, Set<string>>>();
+
+function stanzaCodeSets(dataset: SenaDataset): Map<string, Set<string>> {
+  let byStanza = stanzaCodeSetsCache.get(dataset.coded_segments);
+  if (!byStanza) {
+    byStanza = new Map();
+    for (const segment of dataset.coded_segments) {
+      const key = `${segment.unitId}::${segment.stanzaId}`;
+      let codes = byStanza.get(key);
+      if (!codes) {
+        codes = new Set<string>();
+        byStanza.set(key, codes);
+      }
+      for (const code of segment.codes) codes.add(code);
+    }
+    stanzaCodeSetsCache.set(dataset.coded_segments, byStanza);
+  }
+  return byStanza;
+}
+
 function conceptEdgeEvidence(dataset: SenaDataset, codeA: string, codeB: string, peopleById: Map<string, SenaPerson>) {
-  return dataset.coded_segments
-    .filter((segment) => segment.codes.includes(codeA) || segment.codes.includes(codeB))
-    .filter((segment) => {
-      const stanzaSegments = dataset.coded_segments.filter((candidate) => (
-        candidate.unitId === segment.unitId && candidate.stanzaId === segment.stanzaId
-      ));
-      const stanzaCodes = new Set(stanzaSegments.flatMap((candidate) => candidate.codes));
-      return stanzaCodes.has(codeA) && stanzaCodes.has(codeB);
-    })
-    .slice(0, 6)
-    .map((segment) => segmentEvidence(segment, peopleById));
+  // Identical selection to the original filter/filter/slice(0,6)/map chain:
+  // same segment order, same predicates, same cap — only the stanza code-set
+  // lookup is precomputed instead of rescanned per segment.
+  const byStanza = stanzaCodeSets(dataset);
+  const evidence: ReturnType<typeof segmentEvidence>[] = [];
+  for (const segment of dataset.coded_segments) {
+    if (!segment.codes.includes(codeA) && !segment.codes.includes(codeB)) continue;
+    const stanzaCodes = byStanza.get(`${segment.unitId}::${segment.stanzaId}`);
+    if (!stanzaCodes?.has(codeA) || !stanzaCodes.has(codeB)) continue;
+    evidence.push(segmentEvidence(segment, peopleById));
+    if (evidence.length === 6) break;
+  }
+  return evidence;
 }
 
 function bridgeEvidence(dataset: SenaDataset, personId: string, codeId: string, peopleById: Map<string, SenaPerson>) {
