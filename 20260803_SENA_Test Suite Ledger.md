@@ -43,7 +43,7 @@ as denominator drift. Numbers move the right way or the exception gets a Q-findi
 | R3 | non-sanctioned O0-only test files | 5 (see TL-D5 for the full 13-file audit) | 0 | list in TL-D5; classification maintained there |
 | R4 | bare `toBeTruthy()` in sena.test.ts | 19 | 0 | `grep -c 'toBeTruthy()' lib/sena/__tests__/sena.test.ts` |
 | R5 | EC classes with a proven, gated kill | 0 / 13 | 13 / 13 | count of EC rows marked DONE below |
-| R6 | full `npm test` wall time (quiet box) | not yet measured — record at first quiet-box full run | no silent growth; regressions get a Q-finding | time a full `npm test`; record machine + commit |
+| R6 | full `npm test` wall time (quiet box) | **80.9 s** (1208 passed / 1 skipped; Apple M4 Pro 12-core, 48 GB, node v24.15.0, commit 2627972, quiesce-checked clear) | no silent growth; regressions get a Q-finding | time a full `npm test`; record machine + commit |
 
 R1 baseline list (untested handlers): `app/api/ena/run`, `app/api/sena/governance/audit`,
 `app/api/sena/provisioning`, `app/api/sena/scim/v2/Users`, `…/Users/[resourceId]`,
@@ -170,7 +170,32 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 - TL-G2 Extend machine-checked visualChecks beyond the current 14 of 243 in
   production-page-contract.json — drive assertions from the JSON, not hand lists. — open
 - TL-G3 Run `npm run lint`; triage findings (fixing is sanctioned; *gating* lint is a Peter
-  decision). — open
+  decision). — **DONE 2026-08-03** (triage row, no check landed, so no oracle tier / no
+  kill applies; gate: none — lint remains ungated, Peter decision 6, unchanged). Baseline
+  was **exit 1, 704 problems (627 errors, 77 warnings)**. Triage: 703 of 704 were generated
+  code, not first-party — `eslint.config.mjs` ignored `.next/**` only at the app root, so
+  `eslint .` descended into `.claude/worktrees/{awesome-albattani,gifted-meitner}` (2.4 GB
+  of full checkouts) and linted their compiled `.next` chunks: 626 errors
+  (react-hooks/rules-of-hooks 378, @next/next/no-assign-module-variable 140, unused-vars
+  78) and all 77 warnings (unused eslint-disable directives inside bundled vendor code).
+  Fixed by ignoring `**/.claude/worktrees/**` + `**/.worktrees/**`, mirroring
+  `vitest.config.ts`'s exclusions for the same reason (see Q6). Exactly **one** first-party
+  error: `react-hooks/preserve-manual-memoization` at
+  `components/sena/workspace/ena-space-plot.tsx:69` — the overlay `useMemo` declared
+  `layers.bridge` / `layers.social` but the rule's compiler analysis inferred the whole
+  `layers` object, a broader dependency than declared. Fixed by reading both booleans into
+  scalars before the memo so inferred and declared dependencies match; behaviour is
+  unchanged and `ena-space-plot-parity` + `ena-low-rank` stay green. Widening the memo to
+  `layers` would also have silenced the rule but changed behaviour — `layers` is a
+  pass-through prop with no identity guarantee, so the overlay would rebuild every render.
+  **Scope note (no perf claim):** `experimental.reactCompiler` is NOT enabled in
+  `next.config.mjs`, so React Compiler does not run in the build; the rule ships with
+  eslint-plugin-react-hooks 7.1.1 and performs its compiler analysis at lint time only.
+  This fix therefore buys a green gate and a correct dependency list, **not** a runtime
+  optimization — no P-series cross-reference is owed. (The commit body of 2627972 says the
+  compiler "skipped optimizing the component entirely"; that is true of the lint-time
+  analysis only, and this row is the precise statement.) Now `npm run lint` exits 0.
+  Commits: 2627972. — DONE
 - TL-G4 Browser-smoke granularity: per-step pass/fail reporting inside the hand-rolled
   scripts (no dependency change). — open
 - TL-G5 Page-inventory tripwire: every `app/**/page.tsx` is smoke-covered or explicitly
@@ -191,6 +216,24 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   2026-08-02. → TL-A1.
 - Q5 (2026-08-03) The vitest suite runs in no CI by documented design (build-gate.yml
   header); suite regressions surface only on manual runs. → Peter list (vitest-in-CI).
+- Q6 (2026-08-03) `npm run lint` was structurally unusable, not merely ungated: the flat
+  config's ignores were app-root-relative (`.next/**`), so `eslint .` linted the compiled
+  `.next` chunks inside the two `.claude/worktrees` checkouts and buried the single real
+  first-party error under 703 generated-code problems. A gate nobody can read the output of
+  is worse than one that does not run — the signal existed the whole time and was
+  undiscoverable. Fixed in 2627972 (TL-G3). Generalized lesson for this campaign: *ignore
+  lists are per-tool and drift independently* — `vitest.config.ts` already excluded the
+  worktrees, `eslint.config.mjs` did not. Any future tool pointed at the repo root (a
+  formatter, a type-coverage tool, a dead-code scanner) inherits the same hazard.
+  → no TL-row owed; noted for TL-D5's audit and as a standing caveat.
+- Q7 (2026-08-03) `npm audit` reported 4 high-severity advisories on a tree whose gates
+  were all green — no gate in this project looks at dependency advisories at all.
+  `npm audit fix` (lockfile-only; package.json unchanged) cleared next 16.2.10 → 16.2.12
+  and postcss → 8.5.25, including GHSA-6gpp-xcg3-4w24 (middleware/proxy bypass), which
+  matters here because `proxy.ts` is the sole source of every security header the app
+  sends. 2 high remain (sharp <0.35.0 libvips CVEs, and next's dependency on vulnerable
+  sharp); clearing them needs `npm audit fix --force` (sharp@0.35.3, breaking major) =
+  a dependency decision reserved for Peter. Commit 194e773. → Peter list (item 10).
 
 ## Peter decisions (standing list)
 
@@ -205,6 +248,12 @@ PENDING — none decided:
 7. Nightly scheduled runs (suite, fuzz at scale, live-Postgres cadence).
 8. Cross-browser smokes (firefox/webkit) and visual-regression tooling.
 9. Fuzz suite default N and env-scaled knob values (TL-A1 lands with a modest default).
+10. `sharp` 0.34.x → 0.35.3 to clear the libvips CVEs (breaking major; `npm audit fix
+    --force`). Also decides next's transitive "depends on vulnerable sharp" advisory.
+    sharp is a devDependency (figure/screenshot generation), so blast radius is the
+    scripts, not the app bundle. → Q7.
+11. Whether *any* gate should read dependency advisories (`npm audit` in build-gate.yml or
+    a nightly), given that 4 high-severity advisories sat on an all-green tree. → Q7.
 
 ## Iteration log
 
@@ -215,3 +264,22 @@ PENDING — none decided:
   (mutation-record schema + hash-dispatch recovery, kill-quality rules, deletion
   traceability, ratchet num/denom form). Ledger seeded: 13 EC classes, 44 TL-rows,
   ratchet baselines R1–R6. No code changed; no tests run; no mutation applied.
+- **Iteration 1 — 2026-08-03.** Slice: TL-G3 (lane G, gate integrity). Entered from a
+  whole-project audit (9-dimension agent sweep + adversarial verification) rather than
+  lane order, because the audit found the lint gate red and 4 high-severity dependency
+  advisories — both gate-integrity facts this lane owns. Kills proven: none owed (triage
+  row, no check landed; the ena-space-plot change is behaviour-preserving and covered by
+  the existing ena-space-plot-parity / ena-low-rank suites). Gate: unchanged — lint is
+  still gated nowhere (Peter decision 6). Ratchet deltas: **R6 0 → measured (80.9 s
+  baseline recorded, Apple M4 Pro / node 24.15.0 / commit 2627972)**; R1–R5 unchanged
+  (no test files added this iteration). New findings: Q6 (lint config's ignores were
+  app-root-relative, so the gate's output was 703/704 generated-code noise and its one
+  real signal was undiscoverable), Q7 (4 high-severity advisories on an all-green tree;
+  no gate reads advisories at all). Peter list grew by items 10 and 11. Also landed
+  outside the lane, from the same audit: the campaign ledgers and six evidence
+  screenshots are now tracked in git (ed05ceb) — they had been untracked single-copy
+  files in a clone shared with a concurrent agent, i.e. one `git clean -fd` from total
+  loss of both campaigns' memory; and the branch's 7 unpushed commits were pushed to
+  origin. Closeout gates: lint 0 (was 1), `tsc --noEmit` 0, `next build` 0 (74/74 pages),
+  full suite 1208 passed / 1 skipped, `sena:performance:check` pass (total-static-js-br
+  811,676 B vs 852,000 budget). Commits: ed05ceb, 194e773, 2627972.
