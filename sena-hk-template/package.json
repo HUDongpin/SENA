@@ -17,6 +17,7 @@
     "sena:performance:check": "vite-node scripts/verify-sena-performance-path.ts",
     "sena:performance:source-custody": "vite-node scripts/prepare-sena-performance-source-custody.ts",
     "sena:bench:hot-paths": "vite-node scripts/bench-sena-hot-paths.ts",
+    "sena:bench:workspace-latency": "node scripts/bench-sena-workspace-latency.mjs",
     "sena:validation:sensitivity": "vite-node scripts/analyze-sena-parameter-sensitivity.ts",
     "sena:conference:prepare": "vite-node scripts/prepare-sena-conference-rehearsal.ts",
     "sena:conference:load-check": "vite-node scripts/verify-sena-conference-load.ts",

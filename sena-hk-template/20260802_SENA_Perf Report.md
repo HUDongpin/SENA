@@ -44,6 +44,14 @@ to the Peter-decisions list.
 - Build-noise floor (measured 2026-08-03, iteration 2): **0 B** for JS byte metrics —
   same-source back-to-back builds produce identical chunk hashes; workspace-html varies
   ~4 B (embedded build id). Cross-source rebuilds add ~tens of B of module-id churn.
+- Workspace latency: `npm run sena:bench:workspace-latency [url]` (added iteration 7;
+  `SENA_LATENCY_RUNS`, default 15; default URL `http://127.0.0.1:3123/workspace/sena`).
+  **Requires a warmed production `next start`** — dev-server numbers are meaningless
+  (on-demand compilation). Viewport pinned 1440x900 because the desktop/mobile branch
+  swap (P9) is width-dependent. Reports median/p25/p75/min/max for cold load (fresh
+  context per run) and per-view plot switch (warm context). Timing is in-page
+  (`performance.now()` + MutationObserver), never Node-side polling: a poll adds
+  round-trip error of the same order as a plot switch (tens of ms).
 - Bytes-on-open (network trace): production `next start` on a CLI-chosen port, headless
   Playwright, fresh context, wait for `sena-fusion-canvas` mount; count `/_next/static/*.js`
   responses (raw decompressed bytes; `next start` sends no content-length on chunked gzip).
@@ -139,6 +147,54 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   package.json/fixtures and a source guard rejects non-type JSON imports in that file.
   Lesson: grep chunks for *content* signatures, never package names alone.
 
+- **P8 (open, runtime — T6 baseline, corrects the T7 premise).** Measured on the new
+  latency harness (production `next start`, warmed; 15 cold runs, fresh context each,
+  viewport pinned 1440x900). `/workspace/sena` reaches its **surviving** populated fusion
+  canvas at **325.8 ms** median (p25 325.2 / p75 326.4 / min 321.6 / max 327.1). The
+  first canvas appears at 302.8 ms but is discarded (see P9) — quote canvasSettled, not
+  canvasFirst. Navigation timing: responseEnd 2.3, DCL 31.3, load 53.1 ms. So ~273 ms
+  elapse between page load and an interactive workspace. Attribution (5 runs):
+  **download is not the bottleneck** — the 924 KiB compute chunk transfers in 14.2 ms
+  (206 KiB gzip wire, localhost) and ALL critical-path JS is finished by ~70 ms; the
+  `8419` chunk seen at ~333 ms is post-render `<Link>` prefetch, not critical path.
+  Plot-switch latency is healthy: **29.6 ms** median across all seven view tabs
+  (p25 24.4 / p75 36.6 / min 14.3 / max 56.6), warm context — no view is an outlier.
+  Main-thread long tasks before canvas total only **71 ms** (a single 71 ms task at
+  84.5 ms). The remaining ~180 ms is therefore neither download nor long-task blocking:
+  it is many sub-50 ms tasks plus module-evaluation/React scheduling. Exact split needs a
+  browser CPU profile — **open question, deliberately not answered this iteration** (T6's
+  scope was the instrument).
+  **Correction to the iteration-3 T7 write-up:** the workspace is NOT a
+  "previously-synchronous surface". `SenaFusionWorkspaceLoader` already ships a
+  `next/dynamic` skeleton (`data-testid="sena-workspace-loading"`, visible ~65 → ~301 ms),
+  so a loading state on the default path already exists today. That weakens — but does not
+  by itself settle — the lazification objection in T7; deferring compute would lengthen an
+  existing skeleton rather than introduce a new one. Bounding the T7 upside: locally,
+  deferring the 924 KiB chunk could save at most its 14.2 ms download plus an unmeasured
+  share of parse/execute. On a real network the 206 KiB wire cost is far larger, so the
+  T7 case rests on network-constrained users — and network-throttled measurement remains
+  out of scope pending Peter's tooling call.
+- **P9 (open, runtime — the whole workspace renders twice on every desktop load).**
+  `components/sena/workspace/use-workspace-desktop-mode.ts:6` starts at
+  `useState(false)` and only flips to desktop in a post-paint effect
+  (`window.matchMedia("(min-width: 1280px)")`). At >=1280 px the first client commit
+  therefore renders the MOBILE branch (`workspace-mobile-figure-composition`), and
+  because the mobile and desktop branches have different child element types at each
+  index, React tears the subtree down and rebuilds it as
+  `workspace-desktop-figure-composition`. Two distinct `sena-fusion-canvas` elements are
+  created; the first ends up `isConnected === false`. Measured cost: **22.8 ms** median
+  (p25 22.3 / p75 23.2 / min 19.3 / max 24.4) — i.e. ~7% of load-to-interactive spent
+  rendering a workspace that is immediately thrown away, plus a transient mobile-layout
+  flash. At 390x844 only one canvas is ever created, so this is desktop-only.
+  Candidate fix (→ T11): the component is `ssr: false`, so `window` exists at first
+  render and the state could be seeded from `matchMedia` in a lazy `useState` initializer.
+  NOT attempted this iteration (one variable per iteration; T6's scope was the
+  instrument). Care: this changes what is painted during the first ~23 ms and touches the
+  workspace shell, so the essential-shell suite and the browser smoke must be re-gated
+  deliberately.
+  **Harness lesson:** any Playwright check that resolves on the FIRST
+  `sena-fusion-canvas` at desktop width is holding a detached element ~23 ms later. The
+  bench waits for DOM settle and reports the connected canvas.
 - **P5 (open, knowledge — no action).** The existing
   `await import("@/lib/sena/inference")` in `use-enterprise-validation-actions.ts:173`
   defers nothing today: `inference.ts` statically imports `model.ts`, and `model.ts` is
@@ -195,9 +251,16 @@ possible; do not re-try a pure code-splitting approach.)
 
 ## Ranked target backlog
 
-1. **T6 — Workspace interaction latency.** Playwright: workspace load-to-interactive and
-   plot-switch latency. Bytes-on-open harness from iteration 2 is the seed (see Measurement
-   commands); extend with timing + N≥15 runs + IQR per the loop's timing rules.
+1. **T11 — Kill the desktop double-render (P9).** Seed `use-workspace-desktop-mode.ts`
+   from `matchMedia` in a lazy `useState` initializer (safe: the workspace is
+   `ssr: false`, so `window` exists at first render) so the desktop branch renders
+   directly instead of mobile-then-desktop. Metric: `canvasRemountMs` → 0 and
+   `canvasSettled` (325.8 ms median, 321.6–327.1) improving by ~23 ms — ~7%, so this is
+   a byte-style "measurable improvement, no added complexity" case rather than a ≥10%
+   timing win; require non-overlapping ranges. Care: changes first-~23 ms paint (removes
+   a mobile-layout flash) and touches the workspace shell — re-gate the essential-shell
+   suite and browser smoke deliberately; if the flash removal is judged a UX change,
+   escalate rather than decide.
 2. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
@@ -216,7 +279,9 @@ current design.
    is 2×~32 ms even at 250x, so only worth an iteration if T6 measurements show it;
    touches the hook → T7-adjacent care.
 
-Closed: **T5 — REJECTED 2026-08-03 (iteration 6): shared first-load is the framework
+Closed: **T6 — DONE 2026-08-03 (iteration 7).** Harness landed
+(`npm run sena:bench:workspace-latency`); baseline recorded in P8, plot switches healthy
+at 29.6 ms median; spawned T11 from P9. **T5 — REJECTED 2026-08-03 (iteration 6): shared first-load is the framework
 floor.** Attribution of all five rootMainFiles+polyfills chunks (526.4 KiB raw):
 `4bd1b696` 195.2 KiB = react-dom client (hydration/DOM event system markers);
 `3794` 217.0 KiB = Next App Router client core (layout router, server actions);
@@ -331,3 +396,20 @@ strict-evidence flags.
   internals; layout graph is the shell itself. No gates needed (ledger-only). Audit
   method that worked: literal-string frequency dump (`grep -oE '"[A-Za-z@/. -]{12,50}"'`)
   beats guessing minified identifiers. Next: T6 (build the interaction-latency harness).
+- **Iteration 7 (2026-08-03, T6 → DONE; instrument-building iteration).** Context: M4 Pro,
+  Node v24.15.0, commit 94886fb; quiesce clean in-tree (foreign MAIS-MVP/UAIS dev servers
+  only, other repos). Built `scripts/bench-sena-workspace-latency.mjs` (Playwright as a
+  library, house `import { chromium } from "playwright"` convention, no @playwright/test)
+  + npm script. Baseline in P8; plot switches 29.6 ms median across seven views.
+  **The instrument was wrong on its first run and was fixed before any number was
+  recorded:** v1 resolved on the first `sena-fusion-canvas` and reported 301.4 ms, but at
+  desktop width that element is discarded ~23 ms later (P9). v2 pins the viewport, waits
+  for DOM settle, and reports the connected canvas: 325.8 ms. Lesson worth keeping — a
+  browser harness must prove WHICH element it measured, not just that a selector matched.
+  Attribution work showed download is not the bottleneck (924 KiB chunk = 14.2 ms
+  locally) and corrected the T7 premise (a `next/dynamic` skeleton already exists on the
+  default path). No optimization attempted, so acceptance rules N/A; the harness is the
+  deliverable and manual re-measurement is its own tripwire. Gates: tsc green, eslint
+  clean on the new script, full suite 1,208 passed exit 0 (the new script trips no
+  manifest test — `browser-smoke-manifest.test.ts` only reads the explicit manifest and
+  `verify-sena-pilot.mjs`), fresh build, perf-check 5/5. Next: T11.
