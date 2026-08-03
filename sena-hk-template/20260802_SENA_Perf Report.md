@@ -174,7 +174,29 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
   share of parse/execute. On a real network the 206 KiB wire cost is far larger, so the
   T7 case rests on network-constrained users — and network-throttled measurement remains
   out of scope pending Peter's tooling call.
-- **P9 (open, runtime — the whole workspace renders twice on every desktop load).**
+- **P9 (CLOSED 2026-08-03, iteration 8 — fix landed).** Fix: seed
+  `useWorkspaceDesktopMode` from `window.matchMedia("(min-width: 1280px)").matches` in a
+  lazy `useState` initializer (guarded by `typeof window`), keeping the existing effect
+  for later viewport changes. Safe because the hook's only consumer,
+  `workspace-main-shell-section.tsx`, is reachable exclusively through the `ssr: false`
+  loader, so `window` exists at first render. Results (15 cold runs each):
+  `canvasRemountMs` 21.2 (20.4–22.3) → **0.0 in every run** — only one
+  `sena-fusion-canvas` element is now created; `canvasSettled` 323.1 (322.0–324.4) →
+  **301.9 (301.0–302.8)**, ranges fully disjoint. B-A-B: baseline #2 323.5 (320.7–324.5)
+  ≈ baseline #1, so the box was stationary.
+  **Acceptance note (rule application, stated explicitly):** −6.6% on `canvasSettled` is
+  BELOW the ≥10% timing bar. This was accepted on the *structural* metric instead:
+  `canvasRemountMs` → 0 is deterministic, not statistical (a render pass either happens
+  or it does not; machine drift cannot yield exactly 0.0 across 15 runs), and the change
+  removes code rather than adding complexity — the byte-metric "any measurable
+  improvement may land" criterion. Ranges were required to be disjoint and are.
+  Gates re-run deliberately because this touches the workspace shell: essential-shell
+  suite 12/12 (its assertions on the hook's `matchMedia`/`addEventListener`/
+  `removeEventListener` source strings were preserved on purpose — an earlier draft
+  extracted the query to a constant and would have broken them), browser smoke passed,
+  full suite 1,208 exit 0, tsc, fresh build, perf-check 5/5.
+  Side effect, intended: desktop visitors no longer see a ~21 ms transient mobile layout.
+  Original finding:
   `components/sena/workspace/use-workspace-desktop-mode.ts:6` starts at
   `useState(false)` and only flips to desktop in a post-paint effect
   (`window.matchMedia("(min-width: 1280px)")`). At >=1280 px the first client commit
@@ -251,17 +273,7 @@ possible; do not re-try a pure code-splitting approach.)
 
 ## Ranked target backlog
 
-1. **T11 — Kill the desktop double-render (P9).** Seed `use-workspace-desktop-mode.ts`
-   from `matchMedia` in a lazy `useState` initializer (safe: the workspace is
-   `ssr: false`, so `window` exists at first render) so the desktop branch renders
-   directly instead of mobile-then-desktop. Metric: `canvasRemountMs` → 0 and
-   `canvasSettled` (325.8 ms median, 321.6–327.1) improving by ~23 ms — ~7%, so this is
-   a byte-style "measurable improvement, no added complexity" case rather than a ≥10%
-   timing win; require non-overlapping ranges. Care: changes first-~23 ms paint (removes
-   a mobile-layout flash) and touches the workspace shell — re-gate the essential-shell
-   suite and browser smoke deliberately; if the flash removal is judged a UX change,
-   escalate rather than decide.
-2. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
+1. **T8 — Prefetch pollution (low).** /workspace/ena open also fetches the /docs page
    chunk (53.6 KiB) and /workspace/sena open fetches the home page chunk via `<Link>`
    prefetch. Likely WAI; assess only if route-open bytes become a tracked budget.
 
@@ -274,12 +286,14 @@ payload). Deferral requires a UX decision (see Peter decisions). If declined, cl
 REJECTED (UX-constrained) — the open payload is then within ~50 KiB of its floor for the
 current design.
 
-3. **T10 — Workspace builds the model twice on mount (low, post-P7).** :347 timelineModel
+2. **T10 — Workspace builds the model twice on mount (low, post-P7).** :347 timelineModel
    + :356 windowed model in `use-sena-fusion-workspace-main-shell-props.ts`; post-fix cost
    is 2×~32 ms even at 250x, so only worth an iteration if T6 measurements show it;
    touches the hook → T7-adjacent care.
 
-Closed: **T6 — DONE 2026-08-03 (iteration 7).** Harness landed
+Closed: **T11 — DONE 2026-08-03 (iteration 8).** Desktop double-render eliminated
+(P9 closed); canvasRemountMs 21.2 → 0, canvasSettled 323.1 → 301.9 ms.
+**T6 — DONE 2026-08-03 (iteration 7).** Harness landed
 (`npm run sena:bench:workspace-latency`); baseline recorded in P8, plot switches healthy
 at 29.6 ms median; spawned T11 from P9. **T5 — REJECTED 2026-08-03 (iteration 6): shared first-load is the framework
 floor.** Attribution of all five rootMainFiles+polyfills chunks (526.4 KiB raw):
@@ -413,3 +427,16 @@ strict-evidence flags.
   clean on the new script, full suite 1,208 passed exit 0 (the new script trips no
   manifest test — `browser-smoke-manifest.test.ts` only reads the explicit manifest and
   `verify-sena-pilot.mjs`), fresh build, perf-check 5/5. Next: T11.
+- **Iteration 8 (2026-08-03, T11 → DONE — second accepted win).** Context: M4 Pro, Node
+  v24.15.0, commit 048d259; quiesce clean in-tree. Baseline canvasSettled 323.1 ms
+  (322.0–324.4), canvasRemountMs 21.2 ms — consistent with iteration 7's 325.8. One-line
+  fix + comment in `use-workspace-desktop-mode.ts` (details and acceptance reasoning in
+  P9, closed). After: canvasSettled 301.9 (301.0–302.8), canvasRemountMs 0.0 in all 15
+  runs. B-A-B baseline #2 323.5 confirms stationarity. Near-miss avoided: an initial
+  draft extracted the media query to a constant, which would have broken the
+  essential-shell suite's source-string assertions — caught by reading the test before
+  running it, reverted to the inline literal. Gates: essential-shell 12/12, browser
+  smoke passed, full suite 1,208 exit 0, tsc, fresh build, perf-check 5/5.
+  Load-to-interactive is now 301.9 ms vs the 325.8 ms recorded one iteration earlier.
+  Next: T10 (low) or T8 (low); the substantive queue is empty pending Peter's T7 and
+  ratchet decisions.
