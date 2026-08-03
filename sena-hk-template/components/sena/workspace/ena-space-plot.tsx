@@ -66,6 +66,14 @@ export function SenaEnaSpacePlot({
     [enaManifest, model.codes, model.people]
   );
 
+  // Read as scalars before the memo: depending on `layers.bridge` directly makes
+  // the React Compiler infer the whole `layers` object as the dependency, which
+  // is broader than the declared list and disables optimization for the whole
+  // component. `layers` is a pass-through prop with no identity guarantee, so
+  // widening the memo to it instead would rebuild the overlay every render.
+  const bridgeLayerEnabled = layers.bridge;
+  const socialLayerEnabled = layers.social;
+
   const overlay = useMemo<EnaPlotOverlay>(() => {
     if (composition.status !== "computed") return {};
 
@@ -80,8 +88,8 @@ export function SenaEnaSpacePlot({
 
     const overlayEdges: EnaPlotOverlayEdge[] = [];
     const kinds: Array<{ layer: SenaLayer; kind: EnaPlotOverlayEdge["kind"]; enabled: boolean }> = [
-      { layer: "bridge", kind: "bridge", enabled: toggles.bridge && layers.bridge },
-      { layer: "social", kind: "social", enabled: toggles.social && layers.social }
+      { layer: "bridge", kind: "bridge", enabled: toggles.bridge && bridgeLayerEnabled },
+      { layer: "social", kind: "social", enabled: toggles.social && socialLayerEnabled }
     ];
 
     for (const { layer, kind, enabled } of kinds) {
@@ -109,8 +117,8 @@ export function SenaEnaSpacePlot({
     }
 
     const legend: EnaPlotOverlay["legend"] = [];
-    if (toggles.bridge && layers.bridge) legend.push({ name: "Person–code bridges", color: "#24dcee", kind: "line" });
-    if (toggles.social && layers.social) legend.push({ name: "Social ties", color: "#2f73ff", kind: "line" });
+    if (toggles.bridge && bridgeLayerEnabled) legend.push({ name: "Person–code bridges", color: "#24dcee", kind: "line" });
+    if (toggles.social && socialLayerEnabled) legend.push({ name: "Social ties", color: "#2f73ff", kind: "line" });
     if (toggles.identity) legend.push({ name: "Unit identity", color: "#24dcee", kind: "dot" });
 
     return {
@@ -118,7 +126,7 @@ export function SenaEnaSpacePlot({
       markers: toggles.identity ? composition.units : [],
       legend
     };
-  }, [composition, layers.bridge, layers.social, model.edges, threshold, toggles]);
+  }, [composition, bridgeLayerEnabled, socialLayerEnabled, model.edges, threshold, toggles]);
 
   if (composition.status !== "computed" || !composition.model) {
     return (
