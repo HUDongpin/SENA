@@ -7,6 +7,12 @@ Q1, Q2, … (Q-series), mirroring the H-series (bug) and P-series (perf) convent
 Backlog rows are TL-<lane><n>; historical escape classes are EC-<n>.
 
 **ACTIVE MUTATION: none**
+(Last probe block: 2026-08-03 TL-B1 K1–K6. `lib/sena/api-route-facts.ts` restored to its
+pre-mutation `git hash-object` `865eb4c44e2cb32e259f2e4d8bdbddd0d36d8190` and verified by
+`git diff --quiet`; `api-route-coverage.ts` and `api-route-reconciliation.test.ts` restored
+from scratchpad copies and verified by `cmp -s`; the two probe route files
+`app/api/sena/ops/probe-kill{,-tsx}/` deleted and their absence asserted. Each probe opened
+and closed inside a single shell invocation — no mutation ever spanned a tool call.)
 (Mutation-probe slot. Before applying any probe: file path, pre-mutation
 `git hash-object`, the mutation's unified diff, expected post-mutation hash, status
 PLANNED/APPLIED. Restore → set back to `none`. Step 0 of every iteration checks this
@@ -74,7 +80,7 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 | EC-8 | vacuous-pass tests/gates (H13, H28, H10, perf-T3 zero-byte) | fixed instances carry vacuity guards | open — systematic audit of gate-like tests (TL-A4) |
 | EC-9 | missing-data semantics (empty cell counted as applied) | three-way-semantics regression tests (55d3894/28b47f2) | open — kill audit (TL-A5) |
 | EC-10 | geometry/visual escapes invisible to node/jsdom (H5, H9, three overflow bugs) | zoom tests for the two fixed elements | open — owned by smokes (TL-F5) + explicit manual list; never weak vitest proxies |
-| EC-11 | page-import holes (/workspace/ena; broke main twice) | none | open — TL-F1 smoke, TL-G5 page-inventory tripwire, TL-B1 route reconciliation |
+| EC-11 | page-import holes (/workspace/ena; broke main twice) | **route half covered**: api-route-reconciliation.test.ts (TL-B1, 6 kills, `npm test`) | open — page half still uncovered: TL-F1 smoke, TL-G5 page-inventory tripwire |
 | EC-12 | queued/202-path state bugs (dataset clobber; cross-tenant write) | server-job-ops + worker-contract tests (28b47f2) | open — kill audit + full worker round-trip (TL-A8) |
 | EC-13 | error masking (misleading import/parse messages; G2, 55d3894) | message-shape fixes landed | open — message-specificity tests + kill audit (TL-A7) |
 
@@ -91,7 +97,19 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   withSourceWarnings() helper. Kills: re-drop the fold at each call site. — open
 - TL-A3 Executable ADR invariants: ADR-0006 never-invent-a-target (roster members trace to
   a declared row or disclosed derivation); ADR-0005 B_CP transpose fallback; S/B_CP
-  identity-resolution parity. Kill: replay G1's fabricated-actor repro. — open
+  identity-resolution parity. Kill: replay G1's fabricated-actor repro.
+  — **BLOCKED-PETER 2026-08-03 (question: Peter decision 13 — is the interactions-target
+  derivation an ADR-0006 D1 violation to fix, or intended behaviour to disclose?)**
+  Recon + an executed repro found that **the honest invariant is RED against current code**
+  (Q9). Do not write this row's test until 13 is answered: the ADR-0006 clause can be
+  phrased two ways, and the tempting phrasing — "traces to a declared row **or a disclosed
+  derivation**" — is satisfied by the current behaviour, because a warning *is* emitted.
+  That phrasing yields a green test certifying the exact behaviour ADR-0006 forbids: a
+  textbook EC-8 vacuous pass, inside the row whose whole purpose is closing EC-5. Write the
+  honest clause, take the red, and let the fix be a decided semantics change — not a test
+  weakened to fit the code. Fixing it is an S-layer semantics change (roster membership, a
+  social edge, person counts, S dimensions, matrix fingerprints), which rule 4 reserves and
+  which ADR-0005:48 says needs coordinated SENA-A02/A07/A13/A15 review. — BLOCKED-PETER
 - TL-A4 Vacuity-guard audit of gate-like tests (H13/H28/H10/perf-T3 pattern): sweep for
   precondition-less asserts; add guards. — open
 - TL-A5 Missing-data semantics kill audit (EC-9): probe empty-cell→applied remap; tests
@@ -108,7 +126,43 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 
 ### Lane B — route auth/negative matrix
 - TL-B1 Manifest-vs-filesystem reconciliation test: walk `app/api/**/route.ts` vs
-  SENA_IMPLEMENTED_API_ROUTES, both directions (kills Q1's self-fulfilling check). — open
+  SENA_IMPLEMENTED_API_ROUTES, both directions (kills Q1's self-fulfilling check).
+  — **DONE 2026-08-03 (O1** two-way wiring cross-check — one side is `readdirSync`, which is
+  the whole point; **kills: 6/6 proven red**, see below; **gate:** `npm test`, itself run by
+  `sena:pilot:verify`'s "Full test suite" step — confirmed collected, file appears in the
+  full run at 113 files / 1,216 tests**)**.
+  Landed `lib/sena/__tests__/api-route-reconciliation.test.ts` (8 tests, **89 ms** solo) plus
+  a new declaration module `lib/sena/api-route-coverage.ts`.
+  **It found a live escape on first run — see Q8:** `app/api/sena/ops/jobs/worker/route.ts`
+  ships undeclared, exactly the hole Q1 predicted, while `api-docs.test.ts` stays green.
+  Kills proven (each red for the predicted reason, each restored byte-exact, hashes in the
+  ACTIVE MUTATION block):
+  - **K1** new undeclared `app/api/sena/ops/probe-kill/route.ts` → `declares or explicitly
+    excludes every route file on disk` red: `"app/api/sena/ops/probe-kill/route.ts:
+    /api/sena/ops/probe-kill is in neither the facts manifest nor
+    SENA_UNDOCUMENTED_API_ROUTES"`. This is EC-11's exact escape replayed.
+  - **K2** rename `path: "/api/sena/ops/cdn"` → `"/api/sena/ops/cdn-v2"` in
+    api-route-facts.ts → **fires in BOTH directions from one mutation** (the strongest kill
+    here): direction 1 `"app/api/sena/ops/cdn/route.ts: … is in neither …"` and direction 2
+    `"sena-ops-cdn: declared sourceFile app/api/sena/ops/cdn-v2/route.ts does not exist"`.
+  - **K3a** point an exclusion entry at an already-documented route → `"/api/sena/ops/cdn:
+    now documented — remove it from SENA_UNDOCUMENTED_API_ROUTES"`.
+  - **K3b** point an exclusion entry at a path not on disk → `"/api/sena/ops/deleted-route:
+    excluded but no longer on disk"`. K3a+K3b together are what stop the exclusion list
+    becoming a second self-fulfilling artifact — the failure mode Q1 is about.
+  - **K4** declare `methods: ["GET"]` for `/api/sena/ops/jobs` (disk exports GET+POST) →
+    `"/api/sena/ops/jobs: manifest=[GET] disk=[GET,POST]"`.
+  - **K5 (vacuity probe)** sabotage the walker's extension set so it collects nothing → the
+    guard fires FIRST as designed: `AssertionError: expected 0 to be greater than or equal
+    to 60`. Without that guard every other assertion in the file would have passed on an
+    empty set — the H13/H28/perf-T3 pattern.
+  - **K6** author a route as `route.tsx` instead of `route.ts` → still caught. The recon
+    flagged that a walker matching only `entry === "route.ts"` would let a `.tsx` route hide
+    completely; the collector matches `route.{ts,tsx,js,jsx,mjs}` for that reason.
+  Deliberately NOT done: adding the worker route to SENA_API_ENDPOINT_FACTS. That publishes
+  an internal queue callback in the documented surface and needs an auth mode that does not
+  exist in the `SenaApiAuthMode` union — a product decision, not a test fix (Peter 12 / Q8).
+  — DONE
 - TL-B2 Parameterized negative matrix over the route manifest: 401 no session; CSRF 4xx on
   mutating methods; 400 malformed body; one 429 HTTP-status test (none exists). ≥1 kill
   per property class. — open
@@ -152,6 +206,18 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   collection-failure class (2026-07-31 §0 incident). — open
 - TL-E5 Pin that tsconfig keeps test files inside `tsc --noEmit`'s scope (the EC-1 gate
   silently dies if tests get excluded). — open
+  **(recon done 2026-08-03, not yet implemented):** confirmed empirically that all 112 test
+  files are currently in scope, via a wide `include: ["**/*.ts","**/*.tsx"]` + narrow
+  `exclude: ["node_modules"]`. **Nothing pins this.** The only test that reads tsconfig.json
+  at all is `sena-kernel-boundary.test.ts:21-23,44`, and it asserts one key
+  (`compilerOptions.paths["@sena/kernel"]`) — so adding an `exclude` entry for tests would
+  pass every existing check and leave `tsc --noEmit` green-but-blind, which is exactly the
+  EC-1 failure mode. Land it as a **behavioral** pin, not a JSON string-compare: `typescript`
+  is already a direct dependency (5.9.3), and its compiler API resolves the real gate's root
+  file set in ~16 ms, so assert the on-disk test files are inside the resolved set in both
+  directions. No test imports `typescript` today — that import is the one novel move. Kill:
+  add `"**/__tests__/**"` to `exclude` in an in-memory clone of the parsed config and watch
+  the resolved set lose all 112 files.
 
 ### Lane F — smoke-only surfaces (coordinate with Functional Ledger FA-rows)
 - TL-F1 /workspace/ena browser smoke script (FA-13's 20 rows; register in
@@ -200,6 +266,25 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   scripts (no dependency change). — open
 - TL-G5 Page-inventory tripwire: every `app/**/page.tsx` is smoke-covered or explicitly
   listed as uncovered (EC-11's "new page repeats the escape silently" hole). — open
+  **(recon done 2026-08-03, not yet implemented — start here, no re-exploration needed):**
+  15 `page.tsx` on disk under `app/`; no route groups, no dynamic segments, no parallel
+  routes. Exactly 3 are browser-smoke-covered (`/workspace/sena`, `/register`, `/login`);
+  12 are uncovered. **No test imports any page component**; the only page-adjacent test is
+  `home-routing.test.ts`, which `readFileSync`s `app/page.tsx` as text (O0).
+  `app/workspace/ena/page.tsx` — the file that broke main twice — is imported by nothing.
+  Design it as a THREE-way cross-check or it lands as Q1's dead check again: side A =
+  `readdirSync` walk (filesystem truth), side B = a new `lib/sena/page-inventory.ts`
+  declaration, side C = `readFileSync` of the actual smoke scripts + `verify-sena-pilot.mjs`
+  to prove each claimed coverage is real. Derive the 3 covered routes from
+  `SENA_BROWSER_SMOKE_MANIFEST` rather than restating literals (a second copy is a future
+  drift bug). **Trap the recon hit:** `/workspace/sena` does NOT appear in
+  `verify-sena-browser-smoke.mjs` — the literal lives in `verify-sena-pilot.mjs`'s
+  `verifyProductionServerSmoke()`, so a naive "grep the smoke script for the route"
+  false-negatives on the best-covered page. Kills available: new undeclared page; delete a
+  declared page; delete a `page.goto` line from a smoke (proves non-self-fulfilling); flip a
+  row to `coverage: "browser-smoke"` while writing no smoke (the lie kill); sabotage the
+  walker predicate (vacuity). Root the walk at `path.join(process.cwd(), "app")` and skip
+  `.claude`/`.worktrees` defensively.
 
 ## Q-series findings
 
@@ -235,6 +320,51 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   sharp); clearing them needs `npm audit fix --force` (sharp@0.35.3, breaking major) =
   a dependency decision reserved for Peter. Commit 194e773. → Peter list (item 10).
 
+- Q8 (2026-08-03) **Live escape, found by TL-B1's check on its first run.**
+  `app/api/sena/ops/jobs/worker/route.ts` exists and ships — it exports POST, sets
+  `runtime = "nodejs"`, verifies an HMAC over the request body against
+  `SENA_JOB_QUEUE_SECRET`, and has its own suite at `server-job-worker-route.test.ts` — but
+  it has no entry in `SENA_API_ENDPOINT_FACTS`, and therefore none in
+  `SENA_IMPLEMENTED_API_ROUTES`, none in the generated OpenAPI document, and none in
+  `/api/sena/docs`. Its three cluster siblings (`ops/jobs`, `ops/jobs/worker-contract`,
+  `ops/jobs/worker-heartbeat`) and `ops/jobs/probe` are all declared, so this reads as an
+  oversight, not a policy. Disk holds 61 route files; the facts manifest declares 60; the
+  difference is exactly this one route, in one direction. `api-docs.test.ts` was and is
+  green — precisely Q1's prediction, now demonstrated rather than argued.
+  Not fixed here on purpose: declaring it would publish an internal queue callback in the
+  documented API surface, and its HMAC scheme matches none of the five `SenaApiAuthMode`
+  values, so declaring it also means widening that union — a wider blast radius than a test
+  row should take unilaterally. Recorded instead as an explicit, anti-rot exclusion in
+  `lib/sena/api-route-coverage.ts`, which the reconciliation test forbids from rotting
+  (K3a/K3b). → Peter decision 12.
+
+- Q9 (2026-08-03) **A third fabricated-actor chain survived the G1 fix — proven by an
+  executed repro, not inference.** `addDerivedContractRows` (lib/sena/import.ts:475-489)
+  iterates `[interaction.source, interaction.target]` and mints a `group:"Derived"` roster
+  member for any unknown id, with **no `hasDeclaredRoster` gate** — while the
+  `coded_segments` loop 20 lines below (import.ts:509-511) *does* gate exactly that, and its
+  own comment (import.ts:496-506) states the rule it is applying: *"A target is a claim
+  about an actor, not a declaration of one, so once a roster exists an unmatched target must
+  stay dangling"*, citing ADR-0006 D1. An interaction's `target` is the same kind of claim —
+  who someone replied to — and gets no such treatment.
+  Repro (run against HEAD via `importSenaJsonContract`): declared roster `people:[P1,P2]`
+  plus `interactions:[{source:P1,target:"Ghost"}]` →
+  `roster after import : P1, P2, Ghost`, with the fabricated row
+  `{"id":"Ghost","label":"Ghost","role":"Participant","group":"Derived","initials":"GH"}`
+  and the single warning `people table did not include "Ghost"; derived a placeholder person
+  from interactions.` That is a person count of 3 where the researcher declared 2, from a
+  claim rather than a contribution.
+  This is the same class as G1 (2026-07-31), which was fixed on two of its three chains —
+  import.ts:510 (segments) and import-adapters.ts:440-452 (`resolveDeclaredTarget`) — while
+  the S-layer chain was deliberately left open and documented as such (Bug Report lines
+  78-81; enterprise.test.ts:279-282). The interactions-loop chain above appears not to have
+  been enumerated at all. Related and still present: `resolvePersonIdentity`
+  (import-adapters.ts:430) keeps its `?? value` pass-through, so an unresolvable
+  `reply_to_author` reaches the same loop through the forum adapter.
+  Not fixed here: rule 4 (math/semantics guardrail) reserves S-layer changes, and the fix
+  removes a roster member *and* a social edge from affected datasets. → Peter decision 13,
+  TL-A3 BLOCKED-PETER.
+
 ## Peter decisions (standing list)
 
 PENDING — none decided:
@@ -254,6 +384,21 @@ PENDING — none decided:
     scripts, not the app bundle. → Q7.
 11. Whether *any* gate should read dependency advisories (`npm audit` in build-gate.yml or
     a nightly), given that 4 high-severity advisories sat on an all-green tree. → Q7.
+12. `/api/sena/ops/jobs/worker`: document it in `SENA_API_ENDPOINT_FACTS` (which publishes an
+    internal HMAC-signed queue callback in `/api/sena/docs` + the OpenAPI document, and
+    requires widening the `SenaApiAuthMode` union with an hmac-signed mode), or affirm it as
+    permanently internal and leave the `SENA_UNDOCUMENTED_API_ROUTES` entry standing? Either
+    answer is cheap now; the point is that the choice is currently implicit. → Q8.
+13. **ADR-0006 D1 vs the interactions-target derivation** (Q9). Should
+    `addDerivedContractRows` gate `interaction.target` on `hasDeclaredRoster` the way the
+    coded_segments loop already gates `targetPersonIds` — i.e. is the current behaviour a
+    bug to fix, or intended behaviour to disclose? Fixing it drops a roster member and a
+    social edge for any dataset with an unresolvable reply target, changing person counts, S
+    dimensions, and matrix fingerprints; ADR-0005:48 asks for coordinated
+    SENA-A02/A07/A13/A15 review for exactly that. Answering this unblocks TL-A3, which
+    cannot be written honestly until the invariant's wording is settled. Also decides the
+    sibling `resolvePersonIdentity` pass-through at import-adapters.ts:430, which the
+    2026-07-31 report deferred and the 2026-08-01 report dropped without resolution.
 
 ## Iteration log
 
@@ -283,3 +428,30 @@ PENDING — none decided:
   origin. Closeout gates: lint 0 (was 1), `tsc --noEmit` 0, `next build` 0 (74/74 pages),
   full suite 1208 passed / 1 skipped, `sena:performance:check` pass (total-static-js-br
   811,676 B vs 852,000 budget). Commits: ed05ceb, 194e773, 2627972.
+- **Iteration 2 — 2026-08-03.** Slice: TL-B1 (lane B, route reconciliation) — selected
+  ahead of lane A because it is the row that kills Q1, and Q1 is the finding that says one
+  of this suite's own gate-like checks cannot fail. Kills proven: **6/6** (K1 undeclared
+  route file; K2 renamed manifest path, red in both directions from one mutation; K3a/K3b
+  exclusion-list anti-rot in both senses; K4 method-level lie; K5 vacuity probe, whose guard
+  fired first as designed; K6 `.tsx` route must not hide). Every probe opened and closed
+  inside a single shell invocation and was verified restored (`git hash-object` for the
+  tracked file, `cmp -s` for the untracked ones). Gate: `npm test`, run by
+  `sena:pilot:verify`'s "Full test suite" step — confirmed by the file appearing in the full
+  run. New findings: **Q8, a live escape the new check caught on its first run** —
+  `/api/sena/ops/jobs/worker` ships undeclared while `api-docs.test.ts` is green. Peter list
+  grew by item 12 (document that route, or affirm it internal). Ratchet deltas: **EC-11's
+  route half is now covered** (its page half — TL-F1, TL-G5 — is still open, so **R5 stays
+  0/13**: the EC row is not DONE until both halves are); R1/R2/R3/R4 unchanged (this row
+  added no handler imports and touched no O0 file); **R6 re-measured 78.5 s** against the
+  80.9 s baseline with +8 tests (113 files / 1,216 tests) — no silent growth. Closeout
+  gates: `tsc --noEmit` 0, `next build` 0 (74/74 pages, required because
+  `api-route-coverage.ts` is non-test source), lint 0, full suite 1,216 passed / 1 skipped.
+  Next: TL-G5 (page-inventory tripwire) closes EC-11's remaining half — recon is already
+  done and is summarized in the row.
+  Also this iteration, from the same 4-row recon sweep (read-only, no code changed): TL-G5,
+  TL-E5 and TL-A3 now carry their recon in-row so a fresh session starts from the ledger
+  without re-exploring. TL-A3 moved **open → BLOCKED-PETER** on the strength of **Q9**, a
+  third fabricated-actor chain that survived the G1 fix, proven by an executed repro against
+  HEAD rather than by reading. That is the second live product finding this campaign has
+  produced (Q8 being the first) — both from checks or invariants that did not exist
+  yesterday, which is the loop's thesis working: the suite was green through both.
