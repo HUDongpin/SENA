@@ -1,5 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { ena, type ENAOptions, type Row } from "jena-js";
+import { ena, enaCorrelations, type ENAOptions, type ENASet, type Row } from "jena-js";
 import { displayedRotationColumns, displayedVariance } from "../ena/display-dimensions";
 import type { SenaDataset, SenaEnaManifest, SenaManifestRow } from "./types";
 import { jenaRuntimeVersion } from "./runtime-constants";
@@ -60,6 +60,48 @@ function buildRows(dataset: SenaDataset) {
   return { rows, codeIds, warnings };
 }
 
+/**
+ * Co-registration goodness of fit — jena-js's `enaCorrelations`, which measures
+ * per dimension how well the projected unit positions agree with their network
+ * centroids. It is the figure rENA prints beside an ENA model definition, it
+ * needs the live `ENASet` (and throws outright when the set carries no
+ * centroids), and nothing downstream of this function has one — so it is
+ * serialized here or it does not exist. A failure costs the field and gains a
+ * warning; it never costs the projection.
+ *
+ * Rows carrying a non-finite correlation are dropped rather than serialized:
+ * the manifest is a JSON contract, `JSON.stringify(NaN)` is `null`, and a
+ * degenerate temporal window would otherwise put a `null` where the type
+ * promises a number.
+ */
+function manifestGoodnessOfFit(set: ENASet, warnings: string[]) {
+  try {
+    const rows = enaCorrelations(set)
+      .filter((row) =>
+        [row.pearson, row.spearman, row.pearsonLower, row.pearsonUpper].every((value) =>
+          Number.isFinite(value)
+        )
+      )
+      .map((row) => ({
+        dimension: row.dimension,
+        pearson: row.pearson,
+        spearman: row.spearman,
+        pearsonLower: row.pearsonLower,
+        pearsonUpper: row.pearsonUpper
+      }));
+    if (rows.length === 0) {
+      warnings.push("jENA goodness-of-fit correlations were not estimable for this projection.");
+      return undefined;
+    }
+    return rows;
+  } catch (error) {
+    warnings.push(
+      `jENA goodness-of-fit correlations failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return undefined;
+  }
+}
+
 function skippedManifest(dataset: SenaDataset, reason: string, warnings: string[] = []): SenaEnaManifest {
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enaManifest,
@@ -102,6 +144,7 @@ export function buildSenaEnaManifest(dataset: SenaDataset): SenaEnaManifest {
 
   try {
     const set = ena(options);
+    const goodnessOfFit = manifestGoodnessOfFit(set, warnings);
     return {
       schemaVersion: SENA_SCHEMA_VERSIONS.enaManifest,
       status: "computed",
@@ -131,6 +174,9 @@ export function buildSenaEnaManifest(dataset: SenaDataset): SenaEnaManifest {
         // /workspace/ena titles from), while `variance` above stays the
         // renormalized basis the summaries and the low-rank rule are defined on.
         rotationVariance: { ...set.variance },
+        // Additive and optional, so the schema version does not move: a reader
+        // written against the previous shape sees exactly what it saw before.
+        ...(goodnessOfFit ? { goodnessOfFit } : {}),
         connectionCounts: serializableRows(set.connectionCounts),
         lineWeights: serializableRows(set.lineWeights),
         pointsForProjection: serializableRows(set.pointsForProjection),

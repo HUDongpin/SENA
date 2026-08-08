@@ -369,6 +369,25 @@ export type SenaEnaManifest = {
      * Optional, so a manifest emitted before this field stays readable.
      */
     rotationVariance?: Record<string, number>;
+    /**
+     * jena-js `enaCorrelations(set)` — per dimension, how well the projected
+     * unit positions agree with their network centroids (Pearson and Spearman
+     * over all pairwise differences, with a 95% interval on the Pearson). This
+     * is the co-registration goodness of fit rENA reports beside an ENA model
+     * definition. Serialized here because the correlation needs the live
+     * `ENASet`, and the manifest is what survives to the client.
+     *
+     * Optional twice over: a manifest emitted before this field stays readable,
+     * and a run whose correlation pass fails or is not estimable keeps its
+     * projection, recording the reason as a warning instead.
+     */
+    goodnessOfFit?: Array<{
+      dimension: string;
+      pearson: number;
+      spearman: number;
+      pearsonLower: number;
+      pearsonUpper: number;
+    }>;
     connectionCounts: SenaManifestRow[];
     lineWeights: SenaManifestRow[];
     pointsForProjection: SenaManifestRow[];

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { EnaPlot, type EnaPlotOverlay, type EnaPlotOverlayEdge } from "@/components/ena/EnaPlot";
+import { EnaPlot, type EnaPlotOverlay } from "@/components/ena/EnaPlot";
+import { buildSenaEnaOverlayEdges, type SenaEnaOverlayKind } from "@/lib/sena/ena-overlay";
 import { buildSenaEnaPlotComposition } from "@/lib/sena/ena-plot-model";
 import { cn } from "@/lib/utils";
 import type { SenaEnaManifest, SenaLayer, SenaModel } from "./analysis-runtime";
@@ -31,14 +32,6 @@ type OverlayToggles = {
 // endpoints are a unit and a code and therefore do connect two things the
 // projection actually places.
 const defaultToggles: OverlayToggles = { bridge: true, social: false, identity: true };
-
-function normalizeWeights<T extends { weight: number }>(edges: T[]) {
-  const peak = Math.max(...edges.map((edge) => Math.abs(edge.weight)), 0);
-  return edges.map((edge) => ({
-    ...edge,
-    normalizedWeight: peak > 0 ? Math.abs(edge.weight) / peak : 0
-  }));
-}
 
 export function SenaEnaSpacePlot({
   model,
@@ -77,44 +70,19 @@ export function SenaEnaSpacePlot({
   const overlay = useMemo<EnaPlotOverlay>(() => {
     if (composition.status !== "computed") return {};
 
-    const unitPositions = new Map(composition.units.map((unit) => [unit.id, unit]));
-    const codePositions = composition.codePositions;
-
-    function resolve(id: string) {
-      const unit = unitPositions.get(id);
-      if (unit) return { x: unit.x, y: unit.y };
-      return codePositions[id] ?? null;
-    }
-
-    const overlayEdges: EnaPlotOverlayEdge[] = [];
-    const kinds: Array<{ layer: SenaLayer; kind: EnaPlotOverlayEdge["kind"]; enabled: boolean }> = [
+    // Assembly is shared with the Fusion plane (lib/sena/ena-overlay.ts) so the
+    // two surfaces that render through <EnaPlot> cannot disagree about how a
+    // bridge is normalized or where its endpoints are (ADR 0009).
+    const kinds: SenaEnaOverlayKind[] = [
       { layer: "bridge", kind: "bridge", enabled: toggles.bridge && bridgeLayerEnabled },
       { layer: "social", kind: "social", enabled: toggles.social && socialLayerEnabled }
     ];
-
-    for (const { layer, kind, enabled } of kinds) {
-      if (!enabled) continue;
-      const candidates = model.edges.filter(
-        (edge) => edge.layer === layer && edge.normalizedWeight >= threshold
-      );
-      // Normalized within its own layer: a bridge weight and a social weight are
-      // different quantities, so one shared scale would make the larger layer
-      // look uniformly stronger.
-      for (const edge of normalizeWeights(candidates)) {
-        const source = resolve(edge.source);
-        const target = resolve(edge.target);
-        if (!source || !target) continue;
-        overlayEdges.push({
-          id: edge.id,
-          label: edge.label,
-          kind,
-          source,
-          target,
-          weight: edge.weight,
-          normalizedWeight: edge.normalizedWeight
-        });
-      }
-    }
+    const overlayEdges = buildSenaEnaOverlayEdges({
+      edges: model.edges,
+      composition,
+      threshold,
+      kinds
+    });
 
     const legend: EnaPlotOverlay["legend"] = [];
     if (toggles.bridge && bridgeLayerEnabled) legend.push({ name: "Person–code bridges", color: "#24dcee", kind: "line" });

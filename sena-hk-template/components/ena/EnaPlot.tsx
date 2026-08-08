@@ -194,7 +194,11 @@ export function EnaPlot({
   ink,
   overlay,
   selectedId,
-  onSelect
+  onSelect,
+  x: viewportX,
+  y: viewportY,
+  width: viewportWidth,
+  height: viewportHeight
 }: {
   model: ENAPlotModel;
   variance?: Record<string, number>;
@@ -219,6 +223,21 @@ export function EnaPlot({
   overlay?: EnaPlotOverlay;
   selectedId?: string;
   onSelect?: (id: string) => void;
+  /**
+   * Nested-viewport placement, for embedding this plot inside a larger SVG
+   * (the Fusion plane, ADR 0009). A nested `<svg>` with no x/y/width/height
+   * fills 100% of its parent viewport, so the host needs a way to say where
+   * the plane sits — and it has to be said here rather than by a wrapper
+   * `<g transform>`, which cannot size an inner viewport at all.
+   *
+   * Omitted is the only shape /workspace/ena and ENA Space ever use, and an
+   * omitted attribute is never emitted, so the standalone DOM is byte-for-byte
+   * what it was before the props existed (pinned by the parity suites).
+   */
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
 }) {
   const inkDisplay: EnaPlotInkDisplay = { ...defaultEnaPlotInk, ...ink };
   const unitScale = clampEnaPlotScale(inkDisplay.unitScale);
@@ -309,9 +328,19 @@ export function EnaPlot({
   const xTitle = axisTitleWithVariance(model.axes.x.title, variance);
   const yTitle = axisTitleWithVariance(model.axes.y.title, variance);
   const description = `${model.title}. ${model.traces.length} traces on ${xTitle} by ${yTitle}.`;
+  // Spread rather than passed straight through: an `undefined` attribute is
+  // omitted by React anyway, but building the object keeps the embedded and
+  // standalone renders one code path with one attribute order.
+  const viewport = {
+    ...(viewportX === undefined ? {} : { x: viewportX }),
+    ...(viewportY === undefined ? {} : { y: viewportY }),
+    ...(viewportWidth === undefined ? {} : { width: viewportWidth }),
+    ...(viewportHeight === undefined ? {} : { height: viewportHeight })
+  };
 
   return (
     <svg
+      {...viewport}
       viewBox={`${viewBoxX} ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`}
       preserveAspectRatio="xMidYMid meet"
       className={className ?? "h-full min-h-[22rem] w-full"}
