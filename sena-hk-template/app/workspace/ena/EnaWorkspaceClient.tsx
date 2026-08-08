@@ -58,6 +58,7 @@ import {
 } from "@/lib/ena/plot-display";
 import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight, unitGroupValues } from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
+import { cancelEnaAnalysis, runEnaAnalysis } from "./run-lifecycle";
 import type {
   EnaMapping,
   EnaPlotComposition,
@@ -779,6 +780,7 @@ export function EnaWorkspaceClient() {
   const [progress, setProgress] = useState<number | null>(null);
   const workerBundleRef = useRef<WorkerBundle | null>(null);
   const runHandleRef = useRef<ENAWorkerRunHandle | null>(null);
+  const cancelRequestedRef = useRef(false);
   const dataViewRef = useRef<HTMLDivElement | null>(null);
 
   // The full row x column grid lives under the plot, where the width is. Opening
@@ -1122,31 +1124,31 @@ export function EnaWorkspaceClient() {
   }
 
   async function runAnalysis() {
-    setIsRunning(true);
-    setProgress(runtime === "worker" ? 0 : null);
-    setError(null);
-    setResult(null);
-
-    try {
-      const nextResult = runtime === "worker" ? await runWithWorker() : await runWithApi();
-      setResult(nextResult);
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "ENA analysis failed.");
-    } finally {
-      runHandleRef.current = null;
-      setIsRunning(false);
-      setProgress(null);
-    }
+    await runEnaAnalysis(cancelRequestedRef, {
+      initialProgress: runtime === "worker" ? 0 : null,
+      execute: () => (runtime === "worker" ? runWithWorker() : runWithApi()),
+      onSettled: () => {
+        runHandleRef.current = null;
+      },
+      setIsRunning,
+      setProgress,
+      setError,
+      setResult
+    });
   }
 
   function cancelAnalysis() {
-    runHandleRef.current?.cancel();
-    workerBundleRef.current?.client.terminate();
-    workerBundleRef.current = null;
-    runHandleRef.current = null;
-    setIsRunning(false);
-    setProgress(null);
-    setError("Analysis cancelled.");
+    cancelEnaAnalysis(cancelRequestedRef, {
+      teardown: () => {
+        runHandleRef.current?.cancel();
+        workerBundleRef.current?.client.terminate();
+        workerBundleRef.current = null;
+        runHandleRef.current = null;
+      },
+      setIsRunning,
+      setProgress,
+      setError
+    });
   }
 
   function exportResultJson() {
