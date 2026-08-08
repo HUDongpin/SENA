@@ -36,7 +36,8 @@ const migratedPlotSurfaces = [
   "components/sena/workspace/ena-space-plot.tsx",
   "components/sena/workspace/temporal-fusion-arc.tsx",
   "components/sena/workspace/timeline-trace.tsx",
-  "components/sena/workspace/fusion-orbit-layer.tsx"
+  "components/sena/workspace/fusion-orbit-layer.tsx",
+  "components/sena/workspace/fusion-plane-orbit.tsx"
 ] as const;
 
 describe("SENA layer palette", () => {
@@ -113,6 +114,20 @@ describe("SENA plot stroke migration", () => {
     expect(arcSource).toContain('<linearGradient id="temporal-bridge-gradient"');
     expect(arcSource).toContain('<linearGradient id="temporal-concept-gradient"');
     expect(arcSource).toContain('<linearGradient id="temporal-g-gradient"');
+  });
+
+  it("keeps EnaPlot's overlay constants equal to the palette without importing it", () => {
+    // components/ena stays import-free of lib/sena (layering direction), so
+    // EnaPlot carries the stroke values as literals. This is the pin that makes
+    // the ena-space and fusion-plane legend swatches — which DO read the
+    // palette — describe exactly the colours the plot draws. Change the palette
+    // and this fails until EnaPlot moves in step.
+    const enaPlotSource = readProjectFile("components/ena/EnaPlot.tsx");
+
+    expect(enaPlotSource).toContain(`const OVERLAY_BRIDGE_COLOR = "${senaLayerStrokes.bridge}"`);
+    expect(enaPlotSource).toContain(`const OVERLAY_SOCIAL_COLOR = "${senaLayerStrokes.social}"`);
+    expect(enaPlotSource).toContain(`const UNIT_IDENTITY_ACCENT = "${senaPlotAccentStroke}"`);
+    expect(enaPlotSource).not.toContain('from "@/lib/sena');
   });
 
   it("re-exports the palette from the lib/sena barrel", () => {

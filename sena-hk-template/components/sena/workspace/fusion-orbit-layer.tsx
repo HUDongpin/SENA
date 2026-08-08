@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { hexPoints } from "@/lib/sena/hex";
-import { senaLayerChips, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
+import { senaLayerStrokes, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
 import {
   buildSenaOrbitLayout,
   type SenaOrbitGeometry,
@@ -20,13 +20,8 @@ import {
 // strip it: everything drawn here is SENA's explanatory grammar, not a
 // measurement.
 
-// Sourced from lib/sena/layer-palette at their P2 values, not re-stepped. The
-// lane still carries S's *chip* rather than S's stroke: the orbit is the one
-// surface P3 is still composing, and a colour change landing under an
-// in-flight mount is how two correct changes make one wrong figure. Pointing
-// this at `senaLayerStrokes.social` is the one-line follow-up once the plane
-// and the orbit are drawn together and can be judged as a single image.
-const ORBIT_LANE_COLOR = senaLayerChips.social;
+// Lanes carry S's re-stepped stroke (Q4): the orbit is drawn ink, not a chip.
+const ORBIT_LANE_COLOR = senaLayerStrokes.social;
 const ORBIT_HEX_STROKE = senaPlotAccentStroke;
 const ORBIT_HEX_FILL = "#f8fbff";
 

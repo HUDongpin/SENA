@@ -5,6 +5,7 @@ import { EnaPlot, clampPlotZoom, type EnaPlotOverlay } from "@/components/ena/En
 import { projectPoint } from "@/lib/ena/plot-encoding";
 import { buildSenaEnaOverlayEdges, type SenaEnaOverlayKind } from "@/lib/sena/ena-overlay";
 import { buildSenaEnaPlotComposition } from "@/lib/sena/ena-plot-model";
+import { senaLayerStrokes, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
 import { buildSenaOrbitLayout, type SenaOrbitGeometry } from "@/lib/sena/orbit-layout";
 import { cn } from "@/lib/utils";
 import type { SenaEnaManifest, SenaLayer, SenaModel } from "./analysis-runtime";
@@ -84,8 +85,8 @@ const FOOTER_DEFINITION_Y = 1012;
 const FOOTER_FIT_Y = 1032;
 const DEFINITION_FILL = "rgb(var(--muted))";
 const FIT_FILL = "rgb(var(--foreground) / 0.78)";
-const OVERLAY_BRIDGE_COLOR = "#24dcee";
-const UNIT_LINK_COLOR = "#24dcee";
+const OVERLAY_BRIDGE_COLOR = senaLayerStrokes.bridge;
+const UNIT_LINK_COLOR = senaPlotAccentStroke;
 
 /**
  * Outer-surface position of a point given in the nested plane's own pixel

@@ -169,8 +169,12 @@ export type EnaPlotSignedNetwork = {
   multiplier?: number;
 };
 
-const OVERLAY_BRIDGE_COLOR = "#24dcee";
-const OVERLAY_SOCIAL_COLOR = "#2f73ff";
+// Values mirror lib/sena/layer-palette's senaLayerStrokes (bridge/social) and
+// senaPlotAccentStroke; components/ena stays import-free of lib/sena, so the
+// equality is pinned by layer-palette-stroke-migration.test.ts instead.
+const OVERLAY_BRIDGE_COLOR = "#0891B2";
+const OVERLAY_SOCIAL_COLOR = "#2451CC";
+const UNIT_IDENTITY_ACCENT = "#24dcee";
 /** Overlay ink never outranks the network: opacity ceiling and a width cap. */
 const OVERLAY_MAX_OPACITY = 0.5;
 const OVERLAY_MIN_OPACITY = 0.18;
@@ -818,7 +822,7 @@ export function EnaPlot({
                     <polygon
                       points={hexPoints(x, y, 11)}
                       fill="none"
-                      stroke={OVERLAY_BRIDGE_COLOR}
+                      stroke={UNIT_IDENTITY_ACCENT}
                       strokeWidth={2}
                     />
                     <text
