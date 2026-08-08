@@ -47,13 +47,13 @@ Prior coverage: **NONE behavioral** (build-gate.yml notes no test imports this p
 
 ### FA-14 SENA fusion workspace shell — /workspace/sena
 Prior coverage: verify-sena-browser-smoke.mjs (viewport shell, view switching, drawer, uploads, canvas selection, download/restore round-trips) — rerun for fresh proof.
-- FA14-01 Page loads signed-out (local-adapter mode); logo link → / — UNVERIFIED
+- FA14-01 Page loads signed-out (local-adapter mode); logo link → / — PASS 2026-08-08 (evidence: T3 — verify-sena-browser-smoke.mjs full pass via `sena:pilot:verify`, commit b1abee7: signed-out goto + shell waits at 375/768/1024/1440px; default figure is the plane-orbit surface per ADR-0009)
 - FA14-02 Header Upload accepts .csv/.json/.xlsx/.txt/.md/.srt/.vtt through the import pipeline — UNVERIFIED
 - FA14-03 Header Export report downloads sena-analysis-report.md — UNVERIFIED
-- FA14-04 Plot view bar: all 7 tabs (Fusion/Dual Lens/Temporal/ENA Space/SNA/Evidence/Matrix) switch the deck; dropdown mirrors them — UNVERIFIED
+- FA14-04 Plot view bar: all 7 tabs (Fusion/Dual Lens/Temporal/ENA Space/SNA/Evidence/Matrix) switch the deck; dropdown mirrors them — PASS 2026-08-08 (evidence: T3 — smoke `verifyWorkspaceShellAndPlotViews` drives every view tab incl. the SNA orbit sociogram panel; commit b1abee7)
 - FA14-05 Left rail Sets/Model/Plot Tools/Stats open focus-trapped modal drawer; Escape/backdrop/X close; background inert — UNVERIFIED
 - FA14-06 Research workflow rail anchors (Data Import…Report) navigate with step state — UNVERIFIED
-- FA14-07 Mobile figure switcher (Fusion/Dual Lens) with arrow keys at mobile viewport — UNVERIFIED
+- FA14-07 Mobile figure switcher (Fusion/Dual Lens) with arrow keys at mobile viewport — PASS 2026-08-08 (evidence: T3 — smoke `verifyResponsiveWorkspaceShell` mobile figure tabs at 375px; commit b1abee7)
 
 ### FA-15 SENA Sets / Data Import panel
 - FA15-01 Load lesson-study sample populates dataset metrics (People/Codes/Utterances/…): exact counts vs sample contract — UNVERIFIED
@@ -66,9 +66,9 @@ Prior coverage: verify-sena-browser-smoke.mjs (viewport shell, view switching, d
 - FA15-08 Data contract audit Export downloads sena-data-contract-audit.json — UNVERIFIED
 
 ### FA-16 SENA Model Builder panel
-- FA16-01 Layout buttons (Exploratory/ENA Space/Joint) switch coordinate frame — UNVERIFIED
-- FA16-02 S/W/B layer visibility toggles hide/show layers — UNVERIFIED
-- FA16-03 alpha/beta/gamma sliders + edge-threshold slider + normalization select change the fusion render (semantics per ADR-0005 — verify effect, never alter math) — UNVERIFIED
+- FA16-01 Layout buttons (Exploratory/ENA Space/Joint) switch coordinate frame — PASS 2026-08-08 (evidence: T3 — now four layouts incl. the `plane-orbit` default (ADR-0009): smoke `verifyFusionLayoutRoundTrip` proves each button renders its own surface in the panel AND the maximized overlay with the matching grammar caption, and `verifyDiagnosticFusionCanvasLayouts` proves the preserved A1 Canvas grammar behind Exploratory/Joint; commit b1abee7. Item wording predates the fourth layout — rewording pending Peter)
+- FA16-02 S/W/B layer visibility toggles hide/show layers — UNVERIFIED (owed: smoke asserts toggle presence only; hide/show effect — e.g. S toggle → orbit `showLanes` — not yet asserted in live DOM)
+- FA16-03 alpha/beta/gamma sliders + edge-threshold slider + normalization select change the fusion render (semantics per ADR-0005 — verify effect, never alter math) — PASS 2026-08-08 (evidence: T3 — smoke drives alpha/beta/gamma to 0.33/0.44/0.55, asserts readouts, and the inspector's A_fusion fingerprint provenance shows `gamma 0.55` after an edge selection — the slider state observably reaches the render provenance; commit b1abee7)
 
 ### FA-17 SENA Plot Tools panel
 - FA17-01 Layout buttons, S/W/B toggles, edge-threshold slider mirror Model Builder state — UNVERIFIED
@@ -80,10 +80,10 @@ Prior coverage: verify-sena-browser-smoke.mjs (viewport shell, view switching, d
 - FA18-02 Five export buttons download parseable JSON (SNA report, jENA manifest, jSNA manifest, G report, metric provenance) — UNVERIFIED
 
 ### FA-19 Central plot deck + inspector
-- FA19-01 Fusion canvas node/edge click selects; inspector shows provenance/fingerprint/G attribution (data-testid sena-fusion-canvas preserved) — UNVERIFIED
-- FA19-02 Maximize overlay + Restore/Close + zoom controls in both modes — UNVERIFIED
+- FA19-01 Fusion canvas node/edge click selects; inspector shows provenance/fingerprint/G attribution (data-testid sena-fusion-canvas preserved) — PASS 2026-08-08 (evidence: T3 — smoke `verifyCanvasSelection` on the plane-orbit default: person hex → actor metrics, bridge → line-weight provenance (inspector width === drawn overlay width since 26ca5b7), social lane → jSNA tie handoff, matrix/A_fusion fingerprints asserted; `sena-fusion-canvas` testid preserved and proven reachable via Diagnostic layouts in `verifyDiagnosticFusionCanvasLayouts`; commit b1abee7; screenshot output/playwright/sena-20260808-fusion-plane-orbit-selection-unit-link.png)
+- FA19-02 Maximize overlay + Restore/Close + zoom controls in both modes — PASS 2026-08-08 (evidence: T3 — smoke round-trip maximizes/restores plane-orbit and ena-space; overlay renders the SAME surface as the panel (the pre-P3 routing bug is pinned in live DOM: zero stranded Canvas mounts); zoom controls exercised in the shell flow; commit b1abee7; screenshot output/playwright/sena-20260808-fusion-plane-orbit-maximized.png)
 - FA19-03 Temporal window builder: mode buttons, Prev/Next, Play/Pause animation, range slider, transition evidence — UNVERIFIED
-- FA19-04 Temporal fusion arc: phase groups + window ticks jump active window (data-testid temporal-fusion-arc preserved) — UNVERIFIED
+- FA19-04 Temporal fusion arc: phase groups + window ticks jump active window (data-testid temporal-fusion-arc preserved) — PASS 2026-08-08 (evidence: T3 — smoke `verifyActiveWindowFusionScope`: Teach phase click via `temporal-fusion-phase-teach` changes the active window + A_fusion checksum; `temporal-fusion-arc` testid untouched this campaign; window ticks not separately asserted — noted; commit b1abee7)
 - FA19-05 Per-view panels render with data: Dual Lens, ENA Space, SNA, Evidence (source filter + Export JSON + per-item buttons), Matrix previews — UNVERIFIED
 - FA19-06 Selecting an element flips mobile view to Dual Lens — UNVERIFIED
 
@@ -166,6 +166,16 @@ Route-test gaps flagged by inventory: governance/audit, provisioning, SCIM Users
 - FA08-01 /workspace preview: Launch SENA POC + jENA Workspace buttons; mock sidebar N-A (visual only) — UNVERIFIED
 - FA04..06/12-01 /platform /method /demo + 4 legal pages render fully (display-only: verify render + back-link, then N-A the rest) — UNVERIFIED
 
+### FA-24 Fusion plane + orbit (ADR-0009, 2026-08-08 redesign)
+All statuses provisional — claim wording pending Peter. Evidence run: `sena:pilot:verify` green end-to-end at commit b1abee7 (branch feat/fusion-plane-orbit); screenshots under output/playwright/sena-20260808-*.png.
+- FA24-01 Default Fusion figure is the canonical plane + orbit: nested `ena-plot` inside `sena-fusion-plane-orbit`, model-definition + goodness-of-fit footer present — PASS 2026-08-08 (evidence: T3 smoke default waits + footer; parity gate lib/sena/__tests__/fusion-plane-parity.test.tsx pins byte-identity to the /workspace/ena renderer; screenshot …-fusion-plane-orbit-default.png)
+- FA24-02 Orbit lanes: port-docked directed lanes with paper-cased arrowheads drawn above all lanes; every lane carries data-edge-weight/-normalized-weight/-scaled-weight/-visual-salience/-visual-width; ≥2 distinct widths when signals differ — PASS 2026-08-08 (evidence: T3 smoke `verifyOrbitLaneProvenance` on the plane surface; short-way travel + hexagon clearance invariants unit-gated after the 2026-08-08 seam fix 291f042)
+- FA24-03 Cross-layer unit link: selecting an orbit hexagon draws the dashed leader to that person's unit point; deselecting removes it — PASS 2026-08-08 (evidence: T3 smoke `verifyFusionUnitLink`; screenshot …-fusion-plane-orbit-selection-unit-link.png)
+- FA24-04 Four-mode routing: panel AND maximized overlay render the matching surface for plane-orbit/ena-space/explanatory/joint with the matching grammar caption; maximizing never falls back to the Canvas (pre-P3 overlay bug) — PASS 2026-08-08 (evidence: T3 smoke `verifyFusionLayoutRoundTrip`; jsdom pin lib/sena/__tests__/fusion-overlay-routing.test.tsx)
+- FA24-05 Standalone SNA orbit sociogram in the SNA view with full lane provenance — PASS 2026-08-08 (evidence: T3 smoke SNA-view leg + `verifyOrbitLaneProvenance` scoped to `sena-sna-orbit-sociogram`; screenshot …-sna-orbit-sociogram.png)
+- FA24-06 Diagnostic layouts preserve the A1 grammar (`sena-fusion-canvas` testid, concept guide, outer-social-arc, solid links, halos, Q glyph, weighted widths) — PASS 2026-08-08 (evidence: T3 smoke `verifyDiagnosticFusionCanvasLayouts`; screenshot …-fusion-diagnostic-a1-canvas.png)
+- FA24-07 /workspace/ena comparison controls (group means + 95% t-CI overlay, signed subtraction default-off, palette presets, Δ× multiplier) — PASS 2026-08-08 at T1 only (evidence: lib/ena/__tests__/comparison-geometry.test.tsx (23) + statistics goldens + |Δ|-threshold wiring pins from 26ca5b7; T3 browser leg OWED — no gate visits /workspace/ena yet, see Escalations)
+
 ### FA-23 Cross-cutting
 - FA23-01 Responsive: workspace + marketing at mobile/tablet/desktop viewports, no overflow (footer screenshots in output/playwright are prior evidence) — UNVERIFIED
 - FA23-02 Bilingual content markers in workspace evidence (per browser-smoke bilingual assertions) — UNVERIFIED
@@ -176,6 +186,10 @@ Route-test gaps flagged by inventory: governance/audit, provisioning, SCIM Users
 
 ## Escalations for Peter
 (append `- <date> <ledger-id>: <one-line question>`; these are the BLOCKED-PETER queue)
+- 2026-08-08 FA24/FA16/FA19: ratify ADR-0009 + the fusion-redesign claim wording (rows marked provisional); FA16-01 item text still names three layouts.
+- 2026-08-08 FA24-07: /workspace/ena has no browser-smoke coverage at all (P4c comparison UI is unit-tested only) — approve adding a smoke leg, or accept T1 evidence for the comparison surface.
+- 2026-08-08 UI wording: the "Active view" note still reads "Current window A1 canvas" while the default is the plane-orbit figure — changing it touches plot-switcher copy, which the Perf Report guardrail freezes ("no plot-switcher DOM/label changes"); your call.
 
 ## Iteration log
 (append-only; one line per loop iteration: `- <date> <iteration#> target=<ids> verdict=<...> evidence=<pointer> commit=<sha|none>`)
+- 2026-08-08 fusion-redesign P6 target=FA14-01,04,07;FA16-01,03;FA19-01,02,04;FA24-01…07 verdict=PASS (provisional wording) evidence=sena:pilot:verify green @ b1abee7 + output/playwright/sena-20260808-*.png commit=b1abee7

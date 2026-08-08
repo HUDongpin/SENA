@@ -286,6 +286,26 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   walker predicate (vacuity). Root the walk at `path.join(process.cwd(), "app")` and skip
   `.claude`/`.worktrees` defensively.
 
+### Lane H — fusion plane-orbit redesign (ADR-0009, 2026-08-08; wording provisional pending Peter)
+- TL-H1 Orbit lane geometry invariants (lib/sena/orbit-layout.ts): every lane travels the
+  short way round (sign + magnitude vs shortDelta minus port offsets) and clears every
+  hexagon's radius along its interior; dock-port separation ≥ 12px and reciprocal plateau
+  ≥ 8px; deterministic; widths filter-stable. — DONE 2026-08-08 (O2, kills: reverting
+  291f042's endAngle unwrap → the 5 "every lane takes the short way round" tests red for the
+  predicted reason (long-way travel + hexagon crossing on the committed fixture AND the live
+  pilot model — the exact escape the 2026-08-08 adversarial review caught as C1); un-pairing
+  reciprocal lanes → dock-separation invariant red at 6.9px (P2 acceptance); gate: npm test
+  → lib/sena/__tests__/orbit-layout.test.ts. Review dossier: 2026-08-08 session scratchpad
+  review-findings.md)
+- TL-H2 Fusion plane byte-parity + baseline honesty
+  (lib/sena/__tests__/fusion-plane-parity.test.tsx): stripping every data-sena-layer subtree
+  from the nested plane yields byte-identity with the /workspace/ena renderer across
+  default/selected/all-bridges/zoom states; the slotted baseline itself differs from a plain
+  render ONLY in the four x/y/width/height viewport attributes (anti-cancellation assertion
+  from review finding J); bridge-focus keeps a clicked bridge drawn (review D). — DONE
+  2026-08-08 (O2, kills: un-marked ink in the plane breaks byte-equality by construction;
+  reverting 26ca5b7's focus predicate → "keeps a clicked bridge" red; gate: npm test)
+
 ## Q-series findings
 
 - Q1 (2026-08-03) api-docs.test.ts's "documents every route" check is self-fulfilling:
@@ -455,3 +475,13 @@ PENDING — none decided:
   HEAD rather than by reading. That is the second live product finding this campaign has
   produced (Q8 being the first) — both from checks or invariants that did not exist
   yesterday, which is the loop's thesis working: the suite was green through both.
+- **Fusion redesign closeout — 2026-08-08.** Out-of-loop entry (fusion plane-orbit
+  campaign, feat/fusion-plane-orbit): Lane H seeded with TL-H1/TL-H2, both DONE with
+  executed kills recorded above. Context: a 30-agent adversarial review of the P0–P5
+  branch caught a critical seam-crossing lane bug (drawn arcs contradicting their
+  booked sweep — through hexagons, on the live pilot) that the shipped orbit suite was
+  green through: its invariants checked ports and plateaus but never interior path
+  clearance or travel direction. The fix landed with the missing invariants
+  (291f042 + 26ca5b7); the escape pattern (invariants asserting the *edges* of a
+  geometry but not its *body*) is worth a Lane A sweep of other geometry suites.
+  Suite at this entry: 1349 passed / 1 skipped; sena:pilot:verify green @ b1abee7.
