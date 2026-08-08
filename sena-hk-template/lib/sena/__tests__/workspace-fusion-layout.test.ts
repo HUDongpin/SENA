@@ -15,6 +15,10 @@ describe("SENA workspace fusion layout", () => {
   it("keeps Fusion Canvas node layout in a pure workspace module", () => {
     const model = buildSenaModel(lessonStudySenaContract);
     const enaManifest = buildSenaEnaManifest(lessonStudySenaContract);
+    // Every mode this module is responsible for — and only those. "plane-orbit"
+    // is deliberately absent: the plane owns measured coordinates and the orbit
+    // owns its ring math, so it never enters computeFusionLayout at all
+    // (ADR 0009; pinned negatively by the next test).
     const modes: SenaLayoutMode[] = ["explanatory", "ena-space", "joint"];
 
     for (const mode of modes) {
@@ -55,19 +59,59 @@ describe("SENA workspace fusion layout", () => {
     expect(source).not.toContain("Exploratory force layout over A_fusion weights");
   });
 
-  it("defaults the workspace to the declared Joint embedding with a provenance strip", () => {
+  it("keeps the plane-orbit layout out of computeFusionLayout entirely", () => {
+    // The negative half of the mode enumeration above. If a later change gives
+    // fusion-layout.ts a "plane-orbit" branch, the Fusion default silently gains
+    // a second set of node positions — explanatory coordinates competing with
+    // the plane's measured ones — which is exactly what ADR 0009 forbids.
+    const source = readFileSync(join(process.cwd(), "components/sena/workspace/fusion-layout.ts"), "utf8");
+
+    expect(source).not.toContain("plane-orbit");
+    expect(source).not.toContain("orbit-layout");
+    expect(source).toContain('if (layout === "ena-space")');
+  });
+
+  it("defaults the workspace to the canonical plane with its social orbit", () => {
     const source = readFileSync(join(process.cwd(), "components/sena/workspace/use-sena-fusion-workspace-main-shell-props.ts"), "utf8");
     const staticConfigSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-static-config.tsx"), "utf8");
     const centralFusionSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx"), "utf8");
+
+    // ADR 0009 D5. The default is the one layout whose node positions are
+    // measurements; the A1 layouts stay one click away, labeled diagnostic.
+    expect(source).toContain('useState<SenaLayoutMode>("plane-orbit")');
+    expect(source).not.toContain('useState<SenaLayoutMode>("joint")');
+    expect(centralFusionSource).toContain('layout === "plane-orbit"');
+    expect(centralFusionSource).toContain("<FusionPlaneOrbitPlot");
+
+    // Button order leads with the default, and the demotion is stated in the
+    // control itself rather than only in the ADR.
+    expect(staticConfigSource).toContain('{ value: "plane-orbit", label: "Fusion plane + orbit"');
+    expect(staticConfigSource.indexOf('value: "plane-orbit"')).toBeLessThan(
+      staticConfigSource.indexOf('value: "explanatory"')
+    );
+    expect(staticConfigSource).toContain("Canonical ENA plane with social orbit");
+    expect(staticConfigSource).toContain("Diagnostic — readable non-metric three-layer layout");
+    expect(staticConfigSource).toContain("Diagnostic — selectable A_fusion embedding operators");
+    expect(staticConfigSource).toContain("Exploratory overlay");
+    // ENA Space is not a diagnostic layout; its note stays as it was.
+    expect(staticConfigSource).toContain("jENA projected points and code positions");
+  });
+
+  it("keeps the declared Joint embedding and its provenance strip for the joint layout", () => {
+    const centralFusionSource = readFileSync(join(process.cwd(), "components/sena/workspace/workspace-central-plot-deck-fusion-panel.tsx"), "utf8");
+    const overlaySource = readFileSync(join(process.cwd(), "components/sena/workspace/fusion-plot-overlay.tsx"), "utf8");
     const provenanceSource = readFileSync(join(process.cwd(), "components/sena/workspace/runtime-provenance-panels.tsx"), "utf8");
 
-    expect(source).toContain('useState<SenaLayoutMode>("joint")');
+    // The strip is joint's, and the default flip must not have widened it: both
+    // surfaces still gate on the layout rather than on "not the new default".
+    expect(centralFusionSource).toContain('layout === "joint" && (');
     expect(centralFusionSource).toContain("<JointEmbeddingProvenanceStrip");
+    expect(overlaySource).toContain('layout === "joint" && (');
+    expect(overlaySource).toContain("<JointEmbeddingProvenanceStrip");
     expect(provenanceSource).toContain('data-testid="joint-embedding-provenance-strip"');
     expect(provenanceSource).toContain("MDS + Schoenberg");
     expect(provenanceSource).toContain("Laplacian eigenmaps");
     expect(provenanceSource).toContain("joint-embedding-operator-laplacian-eigenmaps");
     expect(provenanceSource).toContain("metric exact");
-    expect(staticConfigSource).toContain("Exploratory overlay");
   });
 });

@@ -46,6 +46,7 @@ import { EvidenceLedgerPanel, EvidenceLineageBadges } from "./evidence-ledger-pa
 import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
 import { FusionOrbitLayer } from "./fusion-orbit-layer";
+import { FusionPlaneOrbitPlot } from "./fusion-plane-orbit";
 import { FusionLayerKey, RankedList } from "./fusion-layer-key";
 import {
   FusionPlotCompactKey,
@@ -604,6 +605,7 @@ export type SenaWorkspaceBoundaryModuleId =
   | "ena-space-plot"
   | "fusion-canvas"
   | "fusion-orbit-layer"
+  | "fusion-plane-orbit"
   | "fusion-plot-overlay"
   | "fusion-layer-key"
   | "inspector-panel"
@@ -976,6 +978,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       "ena-space-plot",
       "fusion-canvas",
       "fusion-orbit-layer",
+      "fusion-plane-orbit",
       "fusion-plot-overlay",
       "fusion-layer-key",
       "inspector-panel",
@@ -3570,6 +3573,22 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       containerResponsibilities: [
         "render FusionOrbitLayer inside a host svg with prepared model, threshold, and selection state",
         "keep orbit ring math, lane assignment, and port docking geometry in lib/sena/orbit-layout"
+      ]
+    },
+    {
+      id: "fusion-plane-orbit",
+      path: "./fusion-plane-orbit",
+      role: "Fusion default surface (ADR 0009): the canonical ENA plane nested as <EnaPlot> inside a larger SVG, ringed by the social orbit layer, with a dashed unit leader from the selected person's hexagon to their unit point and the model-definition caption.",
+      runtimeExports: {
+        FusionPlaneOrbitPlot
+      },
+      testIds: [
+        "sena-fusion-plane-orbit",
+        "sena-fusion-unit-link"
+      ],
+      containerResponsibilities: [
+        "render FusionPlaneOrbitPlot for the plane-orbit layout with prepared model, ENA manifest, layer visibility, threshold, selection, and zoom state",
+        "keep the nested-plane placement, orbit ring geometry, and the plane-to-surface point transform out of the main workspace container"
       ]
     },
     {

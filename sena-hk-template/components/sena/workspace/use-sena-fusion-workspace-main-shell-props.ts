@@ -8,8 +8,10 @@ import type { SenaEnterpriseImportResult } from "@/lib/sena/import-adapters";
 import type { SenaLocalReliabilityImportResult } from "@/lib/sena/reliability-adapters";
 import type { SenaReliabilityDashboard } from "@/lib/sena/reliability";
 import {
+  buildAbsoluteEdgeStrokeScale,
   buildConceptPairContributionMap,
-  buildEdgeStrokeScale
+  buildEdgeStrokeScale,
+  senaOrbitSocialStrokeRange
 } from "@/lib/sena/visual-encoding";
 import {
   buildSenaActiveWindowBrief,
@@ -184,7 +186,9 @@ export function useSenaFusionWorkspaceMainShellProps() {
   const [uploadedTables, setUploadedTables] = useState<UploadedSenaTable[]>([]);
   const [importMessage, setImportMessage] = useState("Lesson-study sample loaded from the bundled SENA pilot package.");
   const [importError, setImportError] = useState<string | null>(null);
-  const [layout, setLayout] = useState<SenaLayoutMode>("joint");
+  // ADR 0009 D5: Fusion opens on the canonical plane with its social orbit.
+  // joint and explanatory remain one click away, relabeled "Diagnostic".
+  const [layout, setLayout] = useState<SenaLayoutMode>("plane-orbit");
   const [jointEmbeddingOperator, setJointEmbeddingOperator] = useState<SenaJointEmbeddingOperator>("mds-schoenberg");
   const [normalization, setNormalization] = useState<SenaNormalization>("max");
   const [alpha, setAlpha] = useState(1);
@@ -517,9 +521,19 @@ export function useSenaFusionWorkspaceMainShellProps() {
     [layers, model.edges, threshold]
   );
   const visibleConceptPairContributions = useMemo(() => buildConceptPairContributionMap(model), [model]);
+  // The inspector's line-weight provenance has to describe the surface the
+  // reader is looking at. A1's canvas scales each layer relative to whatever
+  // survived the current filter; the orbit anchors every lane on the corpus and
+  // draws in its own narrower band, so in plane-orbit the same scale the orbit
+  // draws with is what the inspector reads back — otherwise the panel reports a
+  // width no line on screen has.
   const visibleEdgeStrokeScale = useMemo(
-    () => buildEdgeStrokeScale(visibleFusionEdges, visibleConceptPairContributions),
-    [visibleConceptPairContributions, visibleFusionEdges]
+    () => (layout === "plane-orbit"
+      ? buildAbsoluteEdgeStrokeScale(visibleFusionEdges, visibleConceptPairContributions, {
+        social: senaOrbitSocialStrokeRange
+      })
+      : buildEdgeStrokeScale(visibleFusionEdges, visibleConceptPairContributions)),
+    [layout, visibleConceptPairContributions, visibleFusionEdges]
   );
   const selectedLayout = layoutOptions.find((item) => item.value === layout) ?? layoutOptions[0];
   const activeWindowLabel = activeTemporalWindow ? activeTemporalWindow.label : "Full conversation";

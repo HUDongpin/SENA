@@ -37,6 +37,12 @@ export type FusionOrbitLayerProps = {
   geometry?: Partial<SenaOrbitGeometry> & { center?: Partial<SenaOrbitGeometry["center"]> };
   /** The dashed ellipse that says "this ring is a layout, not a measurement". */
   showRingGuide?: boolean;
+  /**
+   * The S layer toggle. Off leaves the persons and the ring standing — the
+   * orbit is still the figure's cast of characters — and drops only the ties,
+   * which is what the toggle means everywhere else in the workspace.
+   */
+  showLanes?: boolean;
 };
 
 export function FusionOrbitLayer({
@@ -45,7 +51,8 @@ export function FusionOrbitLayer({
   selectedId,
   onSelect,
   geometry,
-  showRingGuide = true
+  showRingGuide = true,
+  showLanes = true
 }: FusionOrbitLayerProps) {
   const layout = useMemo(
     () => buildSenaOrbitLayout(model, { geometry, threshold }),
@@ -71,59 +78,63 @@ export function FusionOrbitLayer({
       )}
 
       {/* Every lane first… */}
-      <g data-orbit-paint="lanes">
-        {layout.lanes.map((lane) => (
-          <path
-            key={lane.edgeId}
-            data-testid={`sena-edge-${lane.edgeId}`}
-            data-layer="social"
-            data-visual-role="orbit-social-lane"
-            data-orbit-lane={lane.lane}
-            data-orbit-lane-offset={lane.offset}
-            data-edge-weight={formatOrbitNumber(lane.weight)}
-            data-edge-normalized-weight={formatOrbitNumber(lane.normalizedWeight, 4)}
-            data-edge-scaled-weight={formatOrbitNumber(lane.scaledWeight, 4)}
-            data-edge-visual-salience={formatOrbitNumber(lane.salience, 4)}
-            data-edge-visual-width={formatOrbitNumber(lane.strokeWidth, 2)}
-            d={lane.path}
-            fill="none"
-            stroke={ORBIT_LANE_COLOR}
-            strokeWidth={lane.strokeWidth}
-            strokeLinecap="round"
-            opacity={selectedId === lane.edgeId ? 1 : lane.opacity}
-            onClick={() => onSelect(lane.edgeId)}
-            className="cursor-pointer"
-          >
-            <title>
-              {`${lane.label}; weight ${formatOrbitNumber(lane.weight)}, normalized ${formatOrbitNumber(lane.normalizedWeight, 3)}, visual width ${formatOrbitNumber(lane.strokeWidth, 1)}`}
-            </title>
-          </path>
-        ))}
-      </g>
+      {showLanes && (
+        <g data-orbit-paint="lanes">
+          {layout.lanes.map((lane) => (
+            <path
+              key={lane.edgeId}
+              data-testid={`sena-edge-${lane.edgeId}`}
+              data-layer="social"
+              data-visual-role="orbit-social-lane"
+              data-orbit-lane={lane.lane}
+              data-orbit-lane-offset={lane.offset}
+              data-edge-weight={formatOrbitNumber(lane.weight)}
+              data-edge-normalized-weight={formatOrbitNumber(lane.normalizedWeight, 4)}
+              data-edge-scaled-weight={formatOrbitNumber(lane.scaledWeight, 4)}
+              data-edge-visual-salience={formatOrbitNumber(lane.salience, 4)}
+              data-edge-visual-width={formatOrbitNumber(lane.strokeWidth, 2)}
+              d={lane.path}
+              fill="none"
+              stroke={ORBIT_LANE_COLOR}
+              strokeWidth={lane.strokeWidth}
+              strokeLinecap="round"
+              opacity={selectedId === lane.edgeId ? 1 : lane.opacity}
+              onClick={() => onSelect(lane.edgeId)}
+              className="cursor-pointer"
+            >
+              <title>
+                {`${lane.label}; weight ${formatOrbitNumber(lane.weight)}, normalized ${formatOrbitNumber(lane.normalizedWeight, 3)}, visual width ${formatOrbitNumber(lane.strokeWidth, 1)}`}
+              </title>
+            </path>
+          ))}
+        </g>
+      )}
 
       {/* …then every arrowhead, each on its own paper casing. Painting the
           heads last is what keeps a direction readable where lanes cross. */}
-      <g data-orbit-paint="arrowheads" pointerEvents="none">
-        {layout.lanes.map((lane) => (
-          <g key={lane.edgeId}>
-            <polygon
-              points={lane.arrowhead.points}
-              fill="none"
-              stroke="rgb(var(--background))"
-              strokeWidth="5"
-              strokeLinejoin="round"
-              data-orbit-arrowhead-casing="true"
-            />
-            <polygon
-              points={lane.arrowhead.points}
-              fill={ORBIT_LANE_COLOR}
-              opacity={Math.min(1, lane.opacity + 0.15)}
-              data-visual-role="orbit-social-arrowhead"
-              data-edge-id={lane.edgeId}
-            />
-          </g>
-        ))}
-      </g>
+      {showLanes && (
+        <g data-orbit-paint="arrowheads" pointerEvents="none">
+          {layout.lanes.map((lane) => (
+            <g key={lane.edgeId}>
+              <polygon
+                points={lane.arrowhead.points}
+                fill="none"
+                stroke="rgb(var(--background))"
+                strokeWidth="5"
+                strokeLinejoin="round"
+                data-orbit-arrowhead-casing="true"
+              />
+              <polygon
+                points={lane.arrowhead.points}
+                fill={ORBIT_LANE_COLOR}
+                opacity={Math.min(1, lane.opacity + 0.15)}
+                data-visual-role="orbit-social-arrowhead"
+                data-edge-id={lane.edgeId}
+              />
+            </g>
+          ))}
+        </g>
+      )}
 
       <g data-orbit-paint="persons">
         {layout.persons.map((person) => {

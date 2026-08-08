@@ -6,14 +6,28 @@ import type {
   SenaLayoutMode,
   SenaModel
 } from "./analysis-runtime";
+import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
 import type { SenaJointEmbeddingOperator } from "./fusion-layout";
+import { FusionPlaneOrbitPlot } from "./fusion-plane-orbit";
 import { JointEmbeddingProvenanceStrip } from "./runtime-provenance-panels";
 import { FusionPlotZoomControls } from "./workspace-shell-panels";
 
 function formatPlotNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value) ? value.toString() : value.toFixed(digits);
+}
+
+/**
+ * The grammar chip names the coordinate frame on screen. It was hardcoded to
+ * A1 back when there was only one, which meant maximizing an ENA-space plot
+ * captioned a canonical ENA projection as an explanatory mesh — the same class
+ * of error as the routing bug below, in text.
+ */
+function fusionGrammarLabel(layout: SenaLayoutMode) {
+  if (layout === "plane-orbit") return "Fusion Plane + Orbit";
+  if (layout === "ena-space") return "ENA Space";
+  return "A1 Inner Solid Mesh";
 }
 
 export function FusionPlotCompactKey({
@@ -156,7 +170,7 @@ export function FusionPlotMaximizedOverlay({
           <div className="min-w-0">
             <div className="text-sm font-black uppercase tracking-[0.01em] text-slate-500">Fusion Plot - Current Window</div>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-slate-600">
-              <span>A1 Inner Solid Mesh</span>
+              <span data-testid="fusion-maximized-grammar-chip">{fusionGrammarLabel(layout)}</span>
               <span>{activeWindowLabel}</span>
               <span>Turns {activeTurnLabel}</span>
               <span>Threshold {formatPlotNumber(threshold)}</span>
@@ -200,20 +214,54 @@ export function FusionPlotMaximizedOverlay({
               onOperatorChange={onJointEmbeddingOperatorChange}
             />
           )}
+          {/*
+            The same routing switch as the inline panel
+            (workspace-central-plot-deck-fusion-panel.tsx). This body used to
+            hand `layout` straight to Canvas, so maximizing an ENA-space plot
+            silently swapped the canonical projection for the deprecated
+            fusion-canvas fallback ADR 0008 retired — a figure that changed its
+            grammar when the reader made it bigger. Every branch takes the same
+            threshold/layers/selection/zoom props and the same overlay height.
+          */}
           <div className="min-h-0 overflow-hidden rounded-lg border border-slate-300/80 bg-slate-50 shadow-[0_16px_38px_rgb(15_23_42/0.12)]">
-            <Canvas
-              model={model}
-              layout={layout}
-              jointEmbeddingOperator={jointEmbeddingOperator}
-              enaManifest={enaManifest}
-              layers={layers}
-              threshold={threshold}
-              selectedId={selectedId}
-              revealedLabelIds={revealedLabelIds}
-              onSelect={onSelect}
-              zoom={zoom}
-              className="h-[calc(100vh-14rem)] min-h-[34rem]"
-            />
+            {layout === "plane-orbit" ? (
+              <FusionPlaneOrbitPlot
+                model={model}
+                enaManifest={enaManifest}
+                layers={layers}
+                threshold={threshold}
+                selectedId={selectedId}
+                revealedLabelIds={revealedLabelIds}
+                onSelect={onSelect}
+                zoom={zoom}
+                className="h-[calc(100vh-14rem)] min-h-[34rem]"
+              />
+            ) : layout === "ena-space" ? (
+              <SenaEnaSpacePlot
+                model={model}
+                enaManifest={enaManifest}
+                layers={layers}
+                threshold={threshold}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                zoom={zoom}
+                className="h-[calc(100vh-14rem)] min-h-[34rem]"
+              />
+            ) : (
+              <Canvas
+                model={model}
+                layout={layout}
+                jointEmbeddingOperator={jointEmbeddingOperator}
+                enaManifest={enaManifest}
+                layers={layers}
+                threshold={threshold}
+                selectedId={selectedId}
+                revealedLabelIds={revealedLabelIds}
+                onSelect={onSelect}
+                zoom={zoom}
+                className="h-[calc(100vh-14rem)] min-h-[34rem]"
+              />
+            )}
           </div>
         </div>
       </div>

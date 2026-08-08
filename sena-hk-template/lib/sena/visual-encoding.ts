@@ -3,6 +3,14 @@ import type { SenaEdge, SenaLayer, SenaModel } from "./types";
 export type SenaEdgeStrokeScale = {
   layers: Record<SenaLayer, { min: number; max: number; span: number }>;
   signals: Map<string, number>;
+  /**
+   * The drawn width band, when the surface this scale describes does not use
+   * the A1 canvas bands. Carried on the scale rather than passed beside it so
+   * that a *reader* of the scale — the inspector's line-weight provenance —
+   * reports the width its surface actually drew. A scale built for the A1
+   * canvas omits it and every existing caller is unchanged.
+   */
+  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>;
 };
 
 export const senaEdgeStrokeRanges: Record<SenaLayer, { min: number; max: number }> = {
@@ -86,7 +94,8 @@ export function absoluteEdgeStrokeSignal(
  */
 export function buildAbsoluteEdgeStrokeScale(
   edges: SenaEdge[],
-  conceptPairContributions?: Map<string, number>
+  conceptPairContributions?: Map<string, number>,
+  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>
 ): SenaEdgeStrokeScale {
   const signals = new Map(edges.map((edge) => [
     edge.id,
@@ -97,7 +106,9 @@ export function buildAbsoluteEdgeStrokeScale(
     return scale;
   }, {} as Record<SenaLayer, { min: number; max: number; span: number }>);
 
-  return { layers, signals };
+  // Spread rather than assigned: a caller that names no bands gets exactly the
+  // object shape it got before this parameter existed.
+  return { layers, signals, ...(ranges ? { ranges } : {}) };
 }
 
 /**
@@ -111,7 +122,7 @@ export function buildAbsoluteEdgeStrokeScale(
 export function readableAbsoluteEdgeStrokeWidth(
   edge: SenaEdge,
   scale: SenaEdgeStrokeScale,
-  range: { min: number; max: number } = senaEdgeStrokeRanges[edge.layer]
+  range: { min: number; max: number } = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer]
 ) {
   const signal = scale.signals.get(edge.id) ?? edge.normalizedWeight;
   const layerScale = scale.layers[edge.layer];
@@ -123,7 +134,7 @@ export function readableAbsoluteEdgeStrokeWidth(
 }
 
 export function readableEdgeStrokeWidth(edge: SenaEdge, scale: SenaEdgeStrokeScale) {
-  const range = senaEdgeStrokeRanges[edge.layer];
+  const range = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer];
   const layerScale = scale.layers[edge.layer];
   const signal = scale.signals.get(edge.id) ?? edge.scaledWeight;
   const rawIntensity = layerScale.span > 1e-6

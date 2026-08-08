@@ -4,7 +4,7 @@ export type SenaLayer = "social" | "concept" | "bridge";
 
 export type SenaEdgeType = "PP" | "CC" | "PC" | "CP";
 
-export type SenaLayoutMode = "explanatory" | "ena-space" | "joint";
+export type SenaLayoutMode = "plane-orbit" | "explanatory" | "ena-space" | "joint";
 
 export type SenaNormalization = "max" | "frobenius" | "log1p-max" | "log-max" | "none";
 

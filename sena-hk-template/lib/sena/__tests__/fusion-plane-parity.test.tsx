@@ -272,6 +272,75 @@ describe("Fusion renders the canonical ENA plot as its plane", () => {
     for (const opacity of opacities) expect(opacity).toBeLessThanOrEqual(0.5);
   });
 
+  it("mounts the orbit outside the plane, under it, and the unit leader over it", () => {
+    // ADR 0009's z-order argument in one assertion. The orbit is explanatory
+    // and paints first; the plane is measured and paints over it; the leader
+    // that joins a hexagon to its unit point paints last, in the outer space,
+    // because a nested viewport would clip a line that crosses its edge.
+    const markup = renderFusionPlane({ selectedId: selectedPersonId });
+    const plane = nestedPlaneOnly(markup);
+
+    const orbitAt = markup.indexOf('data-testid="sena-fusion-orbit-layer"');
+    const planeAt = markup.indexOf('data-testid="ena-plot"');
+    const linkAt = markup.indexOf('data-testid="sena-fusion-unit-link"');
+
+    expect(orbitAt).toBeGreaterThan(-1);
+    expect(orbitAt).toBeLessThan(planeAt);
+    expect(planeAt).toBeLessThan(linkAt);
+
+    // And none of the orbit's ink is inside the plot it rings.
+    expect(plane).not.toContain("sena-fusion-orbit-layer");
+    expect(plane).not.toContain('data-visual-role="orbit-social-lane"');
+    expect(plane).not.toContain("unit-link");
+  });
+
+  it("draws the unit leader only when it has a person and a visible unit point", () => {
+    expect(renderFusionPlane()).not.toContain('data-testid="sena-fusion-unit-link"');
+    expect(renderFusionPlane({ selectedId: selectedPersonId })).toContain(
+      'data-testid="sena-fusion-unit-link"'
+    );
+    // Selecting an edge is not selecting a person.
+    expect(renderFusionPlane({ selectedId: model.edges[0].id })).not.toContain(
+      'data-testid="sena-fusion-unit-link"'
+    );
+    // Under zoom the leader tracks the plot rather than the slot: the pilot's
+    // units all stay inside the zoom window, so the leader stays drawn — and
+    // its far end stays on the plane, which is the claim that matters. (The
+    // clipped case is a pure-function law, pinned in
+    // fusion-plane-orbit-geometry.test.ts where a point can be placed by hand.)
+    const leaderEnd = (markup: string) => {
+      const leader = markup.slice(markup.indexOf('data-testid="sena-fusion-unit-link"'));
+      return {
+        x: Number(/x2="([-\d.]+)"/.exec(leader)?.[1]),
+        y: Number(/y2="([-\d.]+)"/.exec(leader)?.[1])
+      };
+    };
+    const idle = leaderEnd(renderFusionPlane({ selectedId: selectedPersonId }));
+    const zoomed = leaderEnd(renderFusionPlane({ selectedId: selectedPersonId, zoom: 4 }));
+
+    expect(zoomed.x).toBeGreaterThanOrEqual(FUSION_PLANE_SLOT.x);
+    expect(zoomed.x).toBeLessThanOrEqual(FUSION_PLANE_SLOT.x + FUSION_PLANE_SLOT.width);
+    expect(zoomed.y).toBeGreaterThanOrEqual(FUSION_PLANE_SLOT.y);
+    expect(zoomed.y).toBeLessThanOrEqual(FUSION_PLANE_SLOT.y + FUSION_PLANE_SLOT.height);
+    // …and it moved, because the point it names moved.
+    expect(zoomed.x).not.toBeCloseTo(idle.x, 3);
+  });
+
+  it("lets the S toggle drop the orbit's ties without dropping its people", () => {
+    const withTies = renderFusionPlane({ selectedId: selectedPersonId });
+    const withoutTies = renderFusionPlane({
+      selectedId: selectedPersonId,
+      layers: { social: false, concept: true, bridge: false }
+    });
+
+    expect(withTies).toContain('data-visual-role="orbit-social-lane"');
+    expect(withoutTies).not.toContain('data-visual-role="orbit-social-lane"');
+    expect(withoutTies).not.toContain('data-visual-role="orbit-social-arrowhead"');
+    expect(withoutTies).toContain('data-visual-role="sna-person-hex-node"');
+    // Turning a layer off must not disturb the measured plot underneath it.
+    expect(stripSenaLayers(nestedPlaneOnly(withoutTies))).toBe(stripSenaLayers(renderBasePlane()));
+  });
+
   it("states the model definition and its goodness of fit on the figure", () => {
     const markup = renderFusionPlane();
     const plane = nestedPlaneOnly(markup);

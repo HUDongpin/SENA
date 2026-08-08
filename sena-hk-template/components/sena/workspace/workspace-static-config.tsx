@@ -1,5 +1,5 @@
 import type { ElementType, SVGProps } from "react";
-import { Activity, Database, GitMerge, Orbit, Sigma } from "lucide-react";
+import { Activity, Database, GitMerge, Orbit, Radar, Sigma } from "lucide-react";
 import {
   buildSenaProductionPageContract,
   type SenaLayer,
@@ -44,10 +44,17 @@ export const layerCopy: Record<SenaLayer, { label: string; detail: string; class
   }
 };
 
+/**
+ * Order is the argument. plane-orbit leads because it is the default and
+ * because it is the only Fusion layout whose node positions are measurements;
+ * the two A1 layouts follow, labeled "Diagnostic" so a reader cannot mistake an
+ * explanatory arrangement for a projection (ADR 0009, D5).
+ */
 export const layoutOptions: Array<{ value: SenaLayoutMode; label: string; icon: ElementType; note: string }> = [
-  { value: "explanatory", label: "Exploratory overlay", icon: Orbit, note: "Readable non-metric three-layer layout" },
+  { value: "plane-orbit", label: "Fusion plane + orbit", icon: Radar, note: "Canonical ENA plane with social orbit" },
+  { value: "explanatory", label: "Exploratory overlay", icon: Orbit, note: "Diagnostic — readable non-metric three-layer layout" },
   { value: "ena-space", label: "ENA Space", icon: Sigma, note: "jENA projected points and code positions" },
-  { value: "joint", label: "Joint", icon: GitMerge, note: "Selectable A_fusion embedding operators" }
+  { value: "joint", label: "Joint", icon: GitMerge, note: "Diagnostic — selectable A_fusion embedding operators" }
 ];
 
 export const temporalModeOptions: Array<{ value: SenaTemporalMode; label: string }> = [
