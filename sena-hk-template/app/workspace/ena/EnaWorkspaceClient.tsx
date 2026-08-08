@@ -26,10 +26,26 @@ import {
   ZoomOut
 } from "lucide-react";
 import { enaCorrelations } from "jena-js";
-import { EnaPlot, clampPlotZoom } from "@/components/ena/EnaPlot";
+import {
+  EnaPlot,
+  clampPlotZoom,
+  type EnaPlotOverlay,
+  type EnaPlotOverlayGroup
+} from "@/components/ena/EnaPlot";
 import { cn } from "@/lib/utils";
 import { parseCsv, rowsToCsv, type ParsedCsv } from "@/lib/ena/csv";
-import { compareGroups, comparisonGroups } from "@/lib/ena/comparison";
+import {
+  ENA_COMPARISON_PALETTES,
+  ENA_COMPARISON_PALETTE_IDS,
+  compareGroups,
+  comparisonGroups,
+  enaGroupIntervals,
+  enaSubtractionNetwork,
+  withEnaSubtractionNetwork,
+  type EnaComparisonPaletteId,
+  type EnaGroupInterval
+} from "@/lib/ena/comparison";
+import { RENA_SIGNED_WIDTH_MULTIPLIER_RANGE } from "@/lib/ena/plot-encoding";
 import { assessEnaLowRank } from "@/lib/ena/low-rank";
 import { buildEnaMethodsWriteUp } from "@/lib/ena/methods-write-up";
 import {
@@ -40,7 +56,7 @@ import {
   enaPlotScaleRange,
   type EnaPlotDisplay
 } from "@/lib/ena/plot-display";
-import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight } from "@/lib/ena/results";
+import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight, unitGroupValues } from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
 import type {
   EnaMapping,
@@ -126,6 +142,36 @@ function displayValue(value: unknown) {
 /** A statistic, or an em dash where it is undefined — never a stray NaN. */
 function formatStat(value: number, digits = 2) {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
+}
+
+/**
+ * Comparison intervals in the coordinates the plot is currently drawn in.
+ *
+ * `applyEnaPlotModelDisplay` implements Flip X / Flip Y by negating the model's
+ * coordinates, not by reversing an axis range. An overlay is handed to the
+ * renderer in the same data coordinates, so it has to be flipped in step or the
+ * means would stay put while the points they summarize mirror away from them.
+ * Negating an interval also reverses it, so the bounds are re-ordered — the
+ * renderer takes min/max anyway, but the interval printed in the DOM should
+ * still read low to high.
+ */
+function flippedOverlayGroup(
+  group: EnaGroupInterval,
+  flipX: boolean,
+  flipY: boolean
+): EnaPlotOverlayGroup {
+  const signX = flipX ? -1 : 1;
+  const signY = flipY ? -1 : 1;
+  const flip = (bounds: [number, number], sign: number): [number, number] =>
+    sign < 0 ? [bounds[1] * sign, bounds[0] * sign] : bounds;
+
+  return {
+    name: group.name,
+    color: group.color,
+    n: group.n,
+    mean: { x: group.mean.x * signX, y: group.mean.y * signY },
+    ci: group.ci ? { x: flip(group.ci.x, signX), y: flip(group.ci.y, signY) } : null
+  };
 }
 
 /** p-values below the third decimal read as a bound, the way papers report them. */
@@ -232,12 +278,14 @@ function NativeSelect({
   label,
   value,
   children,
-  onChange
+  onChange,
+  testId
 }: {
   label: string;
   value: string;
   children: React.ReactNode;
   onChange: (value: string) => void;
+  testId?: string;
 }) {
   return (
     <div className="grid min-w-0 gap-2">
@@ -245,6 +293,7 @@ function NativeSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
+        data-testid={testId}
         className="h-11 w-full min-w-0 rounded-lg border border-cardBorder/55 bg-background/55 px-3 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
       >
         {children}
@@ -260,13 +309,15 @@ function ToggleRow({
   hint,
   checked,
   disabled,
-  onChange
+  onChange,
+  testId
 }: {
   label: string;
   hint?: string;
   checked: boolean;
   disabled?: boolean;
   onChange: (checked: boolean) => void;
+  testId?: string;
 }) {
   return (
     <label
@@ -282,6 +333,7 @@ function ToggleRow({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.checked)}
+        data-testid={testId}
         className="h-4 w-4 shrink-0 cursor-pointer accent-[#56b09d]"
       />
     </label>
@@ -298,7 +350,8 @@ function SliderRow({
   step,
   format,
   disabled,
-  onChange
+  onChange,
+  testId
 }: {
   label: string;
   value: number;
@@ -308,6 +361,7 @@ function SliderRow({
   format?: (value: number) => string;
   disabled?: boolean;
   onChange: (value: number) => void;
+  testId?: string;
 }) {
   return (
     <div className={cn("grid min-w-0 gap-1 py-1.5", disabled && "opacity-45")}>
@@ -325,6 +379,7 @@ function SliderRow({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
+        data-testid={testId}
         className="h-1.5 w-full min-w-0 cursor-pointer accent-[#56b09d]"
       />
     </div>
@@ -708,6 +763,12 @@ export function EnaWorkspaceClient() {
   const [display, setDisplay] = useState<EnaPlotDisplay>(defaultEnaPlotDisplay);
   const [statsTab, setStatsTab] = useState<StatsTab>("comparison");
   const [comparison, setComparison] = useState<{ left: string; right: string }>({ left: "", right: "" });
+  const [comparisonPalette, setComparisonPalette] = useState<EnaComparisonPaletteId>("blue-orange");
+  const [showComparisonIntervals, setShowComparisonIntervals] = useState(true);
+  // Default off, so an ordinary plot is the mean network it has always been and
+  // the parity suites keep seeing the DOM they pin.
+  const [subtractionOn, setSubtractionOn] = useState(false);
+  const [deltaMultiplier, setDeltaMultiplier] = useState(1);
   const [methodsCopied, setMethodsCopied] = useState(false);
   const [dataViewOpen, setDataViewOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -746,6 +807,64 @@ export function EnaWorkspaceClient() {
   const groupByOptions = useMemo(() => mapping.metadata ?? [], [mapping.metadata]);
   const activeGroupBy = groupByOptions.includes(groupBy) ? groupBy : "";
 
+  // --- Comparison -------------------------------------------------------------
+  //
+  // One pair of groups feeds three surfaces: the means-and-intervals overlay,
+  // the subtracted network, and the Stats > Compare tables. They are selected
+  // once, here, above the plot model that reads them — a second selection would
+  // let the picture and the tests disagree about which two groups are being
+  // compared, which is the one thing a comparison must never do.
+  const comparisonGroupOptions = useMemo(
+    () => (result && activeGroupBy ? comparisonGroups(result.set, activeGroupBy) : []),
+    [result, activeGroupBy]
+  );
+
+  // Selections survive as long as they name groups that still exist; otherwise
+  // fall back to the first two, so switching datasets cannot leave the panel
+  // comparing something that is no longer there.
+  const activeComparison = useMemo(() => {
+    const has = (value: string) => comparisonGroupOptions.includes(value);
+    return {
+      left: has(comparison.left) ? comparison.left : comparisonGroupOptions[0] ?? "",
+      right: has(comparison.right) ? comparison.right : comparisonGroupOptions[1] ?? ""
+    };
+  }, [comparison, comparisonGroupOptions]);
+
+  const comparisonColors = ENA_COMPARISON_PALETTES[comparisonPalette];
+
+  /** The ordered pair, or null when there is nothing to compare. */
+  const comparisonPair = useMemo<[string, string] | null>(() => {
+    const { left, right } = activeComparison;
+    if (!activeGroupBy || !left || !right || left === right) return null;
+    return [left, right];
+  }, [activeGroupBy, activeComparison]);
+
+  const comparisonIntervals = useMemo(() => {
+    if (!result || !comparisonPair) return [];
+    const [xDimension, yDimension] = result.summary.dimensions;
+    if (!xDimension || !yDimension) return [];
+    return enaGroupIntervals({
+      points: result.set.points,
+      xDimension,
+      yDimension,
+      groupOf: unitGroupValues(result.set, activeGroupBy),
+      groups: comparisonPair,
+      palette: comparisonColors
+    });
+  }, [result, comparisonPair, activeGroupBy, comparisonColors]);
+
+  const subtraction = useMemo(() => {
+    if (!result || !comparisonPair) return null;
+    return enaSubtractionNetwork({
+      adjacencyKey: result.set.adjacencyKey,
+      lineWeights: result.set.lineWeights,
+      groupOf: unitGroupValues(result.set, activeGroupBy),
+      groups: comparisonPair
+    });
+  }, [result, comparisonPair, activeGroupBy]);
+
+  const subtractionDrawn = subtractionOn && subtraction?.status === "computed";
+
   // --- Plot Tools: the model the renderer actually gets -----------------------
   //
   // Composition (group traces, minimum edge weight) is rebuilt from the set
@@ -759,8 +878,14 @@ export function EnaWorkspaceClient() {
       ...(activeGroupBy ? { groupBy: activeGroupBy } : {}),
       ...(minWeight > 0 ? { minWeight } : {})
     };
-    return buildEnaPlotModel(result.set, composition);
-  }, [result, activeGroupBy, minWeight]);
+    const composed = buildEnaPlotModel(result.set, composition);
+    // rENA draws a comparison as ONE subtracted network, not two overlaid ones,
+    // so the drawn network is replaced rather than added to. Off by default,
+    // and off is the model this line never touches.
+    return subtractionDrawn && subtraction
+      ? withEnaSubtractionNetwork(composed, subtraction)
+      : composed;
+  }, [result, activeGroupBy, minWeight, subtractionDrawn, subtraction]);
 
   const displayedPlotModel = useMemo(
     () => (composedPlotModel ? applyEnaPlotModelDisplay(composedPlotModel, display) : null),
@@ -771,6 +896,37 @@ export function EnaWorkspaceClient() {
     [composedPlotModel, result, display]
   );
   const displayedInk = useMemo(() => enaPlotInkDisplay(display), [display]);
+
+  // The additive channel: means + intervals as marked layers, and a two-entry
+  // key for the subtracted network's two signs. Undefined when there is nothing
+  // to add, which is the shape every non-comparison plot passes.
+  const plotOverlay = useMemo<EnaPlotOverlay | undefined>(() => {
+    const groups =
+      showComparisonIntervals && comparisonIntervals.length > 0
+        ? comparisonIntervals.map((group) => flippedOverlayGroup(group, display.flipX, display.flipY))
+        : [];
+    const legend =
+      subtractionDrawn && comparisonPair
+        ? [
+            { name: `More in ${comparisonPair[0]}`, color: comparisonColors[0], kind: "line" as const },
+            { name: `More in ${comparisonPair[1]}`, color: comparisonColors[1], kind: "line" as const }
+          ]
+        : [];
+    if (groups.length === 0 && legend.length === 0) return undefined;
+    return { ...(groups.length > 0 ? { groups } : {}), ...(legend.length > 0 ? { legend } : {}) };
+  }, [
+    showComparisonIntervals,
+    comparisonIntervals,
+    display.flipX,
+    display.flipY,
+    subtractionDrawn,
+    comparisonPair,
+    comparisonColors
+  ]);
+
+  const signedNetwork = subtractionDrawn
+    ? { positive: comparisonColors[0], negative: comparisonColors[1], multiplier: deltaMultiplier }
+    : undefined;
 
   // Low-rank badge (docs/validation/ena-window-rank-audit.md). Assessed from
   // the run summary — distinct units and displayed-dimension variance shares —
@@ -788,34 +944,16 @@ export function EnaWorkspaceClient() {
   );
 
   // --- Stats -----------------------------------------------------------------
-  const comparisonGroupOptions = useMemo(
-    () => (result && activeGroupBy ? comparisonGroups(result.set, activeGroupBy) : []),
-    [result, activeGroupBy]
-  );
-
-  // Selections survive as long as they name groups that still exist; otherwise
-  // fall back to the first two, so switching datasets cannot leave the panel
-  // comparing something that is no longer there.
-  const activeComparison = useMemo(() => {
-    const has = (value: string) => comparisonGroupOptions.includes(value);
-    return {
-      left: has(comparison.left) ? comparison.left : comparisonGroupOptions[0] ?? "",
-      right: has(comparison.right) ? comparison.right : comparisonGroupOptions[1] ?? ""
-    };
-  }, [comparison, comparisonGroupOptions]);
-
   const comparisonResults = useMemo(() => {
-    if (!result || !activeGroupBy) return [];
-    if (!activeComparison.left || !activeComparison.right) return [];
-    if (activeComparison.left === activeComparison.right) return [];
+    if (!result || !activeGroupBy || !comparisonPair) return [];
     return compareGroups(
       result.set,
       activeGroupBy,
       result.summary.dimensions,
-      activeComparison.left,
-      activeComparison.right
+      comparisonPair[0],
+      comparisonPair[1]
     );
-  }, [result, activeGroupBy, activeComparison]);
+  }, [result, activeGroupBy, comparisonPair]);
 
   const goodnessOfFit = useMemo(() => {
     if (!result) return [];
@@ -1206,7 +1344,15 @@ export function EnaWorkspaceClient() {
 
               <div className="min-w-0 border-t border-cardBorder/40 pt-4">
                 <SectionHeading>Plotted Points</SectionHeading>
-                <NativeSelect label="Group By" value={activeGroupBy} onChange={setGroupBy}>
+                {/* One column choice drives three things — group traces, the
+                    comparison overlay below, and Stats > Compare — so there is
+                    one control for it rather than three that can disagree. */}
+                <NativeSelect
+                  label="Group By"
+                  value={activeGroupBy}
+                  onChange={setGroupBy}
+                  testId="ena-comparison-column"
+                >
                   <option value="">None</option>
                   {groupByOptions.map((column) => <option key={column} value={column}>{column}</option>)}
                 </NativeSelect>
@@ -1238,6 +1384,124 @@ export function EnaWorkspaceClient() {
                     onChange={(showGroupLabels) => updateDisplay({ showGroupLabels })}
                   />
                 </div>
+              </div>
+
+              {/*
+                Comparison (ADR 0009, Q3 + D6). Two groups of the Group By
+                column, drawn the way rENA draws a comparison: means with 95%
+                confidence intervals over the projection, and — on request — one
+                *subtracted* network rather than two overlaid ones. Both ride
+                the additive channel or replace the drawn network outright, so
+                nothing here is a second ENA grammar.
+              */}
+              <div className="min-w-0 border-t border-cardBorder/40 pt-4" data-visual-role="ena-comparison">
+                <SectionHeading>Comparison</SectionHeading>
+                {comparisonGroupOptions.length < 2 ? (
+                  <p className="text-[11px] font-semibold leading-5 text-muted">
+                    {activeGroupBy
+                      ? `“${activeGroupBy}” has fewer than two groups in this model.`
+                      : "Choose a Group By column above, then compare two of its groups here."}
+                  </p>
+                ) : (
+                  <div className="grid min-w-0 gap-3">
+                    <div className="grid min-w-0 grid-cols-2 gap-2">
+                      <NativeSelect
+                        label="Group A"
+                        value={activeComparison.left}
+                        onChange={(left) => setComparison((current) => ({ ...current, left }))}
+                        testId="ena-comparison-group-a"
+                      >
+                        {comparisonGroupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+                      </NativeSelect>
+                      <NativeSelect
+                        label="Group B"
+                        value={activeComparison.right}
+                        onChange={(right) => setComparison((current) => ({ ...current, right }))}
+                        testId="ena-comparison-group-b"
+                      >
+                        {comparisonGroupOptions.map((group) => <option key={group} value={group}>{group}</option>)}
+                      </NativeSelect>
+                    </div>
+
+                    {comparisonPair === null ? (
+                      <p className="text-[11px] font-semibold leading-5 text-muted">Pick two different groups.</p>
+                    ) : null}
+
+                    <div className="grid min-w-0 gap-1.5">
+                      <FieldLabel>Palette</FieldLabel>
+                      {/* webENA's blue/orange by default; rENA's red/blue is one
+                          click away for readers trained on rENA figures (Q3). */}
+                      <div
+                        className="flex min-w-0 gap-0.5 rounded border border-cardBorder/50 bg-background/40 p-0.5"
+                        data-testid="ena-comparison-palette"
+                      >
+                        {ENA_COMPARISON_PALETTE_IDS.map((id) => {
+                          const isActive = id === comparisonPalette;
+                          const [positive, negative] = ENA_COMPARISON_PALETTES[id];
+                          return (
+                            <button
+                              key={id}
+                              onClick={() => setComparisonPalette(id)}
+                              aria-pressed={isActive}
+                              data-comparison-palette={id}
+                              data-active={isActive ? "true" : "false"}
+                              className={cn(
+                                "flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded px-1.5 py-1.5 text-[11px] font-black transition",
+                                isActive ? "text-white" : "text-muted hover:text-foreground"
+                              )}
+                              style={isActive ? { backgroundColor: TEAL } : undefined}
+                            >
+                              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: positive }} />
+                              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: negative }} />
+                              <span className="truncate">{id === "blue-orange" ? "webENA" : "rENA"}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="divide-y divide-cardBorder/25">
+                      <ToggleRow
+                        label="Group means + 95% CI"
+                        hint="Square marker at each group mean, with a dashed t interval per axis"
+                        checked={showComparisonIntervals}
+                        disabled={comparisonPair === null}
+                        onChange={setShowComparisonIntervals}
+                        testId="ena-comparison-intervals"
+                      />
+                      <ToggleRow
+                        label="Subtracted network"
+                        hint="Draw one signed network of the difference between the two groups' mean connections"
+                        checked={subtractionOn}
+                        disabled={comparisonPair === null}
+                        onChange={setSubtractionOn}
+                        testId="ena-comparison-subtraction"
+                      />
+                      <SliderRow
+                        label="Δ ×"
+                        value={deltaMultiplier}
+                        min={RENA_SIGNED_WIDTH_MULTIPLIER_RANGE[0]}
+                        max={RENA_SIGNED_WIDTH_MULTIPLIER_RANGE[1]}
+                        step={0.5}
+                        format={(value) => `${value.toFixed(1)}x`}
+                        disabled={!subtractionDrawn}
+                        onChange={setDeltaMultiplier}
+                        testId="ena-comparison-multiplier"
+                      />
+                    </div>
+
+                    <p className="text-[11px] font-semibold leading-5 text-muted">
+                      {subtractionDrawn && comparisonPair
+                        ? `Edges are mean connection weight in ${comparisonPair[0]} minus ${comparisonPair[1]}; ${comparisonColors[0] === "#218EBF" ? "blue" : "red"} is more in ${comparisonPair[0]}. Node positions are the shared projection's — only the edges are subtracted. Δ × amplifies the drawn width, not the difference.`
+                        : "One observation per unit; the interval is mean ± t.975(n−1) · sd/√n. A group with one unit gets a mean and no interval."}
+                    </p>
+                    {subtractionOn && subtraction?.status === "skipped" ? (
+                      <p className="text-[11px] font-semibold leading-5 text-muted" data-testid="ena-comparison-subtraction-note">
+                        {subtraction.warnings[0]}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </div>
 
               <div className="min-w-0 border-t border-cardBorder/40 pt-4">
@@ -1655,6 +1919,8 @@ export function EnaWorkspaceClient() {
                 variance={displayedVariance}
                 lowRank={lowRank}
                 ink={displayedInk}
+                overlay={plotOverlay}
+                signedNetwork={signedNetwork}
                 zoom={zoom}
                 className="h-full w-full"
               />

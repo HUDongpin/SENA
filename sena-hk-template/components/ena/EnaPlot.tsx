@@ -19,7 +19,8 @@ import {
   plotLegendEntries,
   pointTraceRadius,
   projectPoint,
-  styleRenaNetwork
+  styleRenaNetwork,
+  type RenaNetworkInk
 } from "@/lib/ena/plot-encoding";
 import {
   clampEnaPlotScale,
@@ -127,11 +128,45 @@ export type EnaPlotOverlayLegendEntry = {
   kind: "line" | "dot";
 };
 
+/**
+ * A group mean and its 95% confidence interval, in data coordinates.
+ *
+ * jena-js's own `group` trace carries a mean point and nothing else —
+ * `ENAPlotTrace` has `points` and `network` and no interval geometry at all — so
+ * an interval cannot be expressed as a trace and has to ride the additive
+ * channel instead. That is not a workaround: the mean is jena-js's quantity and
+ * the interval is SENA's addition to the figure, so the marked layer is where it
+ * belongs.
+ */
+export type EnaPlotOverlayGroup = {
+  name: string;
+  color: string;
+  mean: { x: number; y: number };
+  /** Null when the group has fewer than two units — mean only, no box. */
+  ci: { x: [number, number]; y: [number, number] } | null;
+  /** Units behind the mean; printed in the tooltip so n is never implied. */
+  n?: number;
+};
+
 export type EnaPlotOverlay = {
   edges?: EnaPlotOverlayEdge[];
   /** Units eligible for the identity glyph when selected or hovered. */
   markers?: EnaPlotOverlayMarker[];
   legend?: EnaPlotOverlayLegendEntry[];
+  /** Comparison means + intervals (ADR 0009 Q3 / D6). */
+  groups?: EnaPlotOverlayGroup[];
+};
+
+/**
+ * rENA's signed-network ink, forwarded to `styleRenaNetwork`. Present only when
+ * the caller has replaced the drawn network with a subtraction; absent, the
+ * network is styled exactly as before and the DOM is unchanged.
+ */
+export type EnaPlotSignedNetwork = {
+  positive: string;
+  negative: string;
+  /** "Δ ×" — amplifies the drawn width of a small difference. */
+  multiplier?: number;
 };
 
 const OVERLAY_BRIDGE_COLOR = "#24dcee";
@@ -193,6 +228,7 @@ export function EnaPlot({
   zoom = 1,
   ink,
   overlay,
+  signedNetwork,
   selectedId,
   onSelect,
   x: viewportX,
@@ -221,6 +257,13 @@ export function EnaPlot({
   ink?: Partial<EnaPlotInkDisplay>;
   /** SENA's additive layers. Omit for a plain ENA plot. */
   overlay?: EnaPlotOverlay;
+  /**
+   * rENA's `colors = c(pos, neg)` for a subtracted network. Only meaningful
+   * when `model`'s network trace already carries signed differences (see
+   * `withEnaSubtractionNetwork`); omitted, the network is the mean network and
+   * is inked exactly as it always was.
+   */
+  signedNetwork?: EnaPlotSignedNetwork;
   selectedId?: string;
   onSelect?: (id: string) => void;
   /**
@@ -282,13 +325,21 @@ export function EnaPlot({
   // Styled once and reused: the label-suppression pass, the render, and the
   // overlay width cap all need the same numbers, and styling twice with two
   // different base colours was already a latent source of disagreement.
+  const networkInk: RenaNetworkInk = signedNetwork
+    ? {
+        signedColors: { positive: signedNetwork.positive, negative: signedNetwork.negative },
+        widthMultiplier: signedNetwork.multiplier ?? 1
+      }
+    : {};
   const styledNetworks = networkTraces.map((trace) => ({
     trace,
     styled: trace.network
       ? styleRenaNetwork(
           model,
           trace.network,
-          networkTraces.length > 1 ? trace.color : RENA_EDGE_BASE
+          networkTraces.length > 1 ? trace.color : RENA_EDGE_BASE,
+          jenaPlotGeometry,
+          networkInk
         )
       : null
   }));
@@ -308,6 +359,7 @@ export function EnaPlot({
   const overlayEdges = overlay?.edges ?? [];
   const overlayMarkers = overlay?.markers ?? [];
   const overlayLegend = overlay?.legend ?? [];
+  const overlayGroups = overlay?.groups ?? [];
   const legendRows = legend.length + overlayLegend.length;
   /** The separator rule between ENA rows and SENA rows costs one row of padding. */
   const legendExtraHeight = overlayLegend.length > 0 ? 8 : 0;
@@ -470,6 +522,7 @@ export function EnaPlot({
                 data-edge-weight={formatWeight(edge.weight)}
                 data-edge-intensity={edge.intensity.toFixed(3)}
                 data-edge-visual-width={strokeWidth.toFixed(2)}
+                {...(edge.sign ? { "data-edge-sign": edge.sign } : {})}
                 x1={edge.x1}
                 y1={edge.y1}
                 x2={edge.x2}
@@ -625,6 +678,91 @@ export function EnaPlot({
           </g>
         );
       })}
+
+      {/*
+        Comparison means and their 95% t intervals (ADR 0009, D6). The interval
+        is drawn first and the mean on top of it, so a wide box never hides the
+        point it is an interval *for*. Both are data-coordinate inputs that this
+        renderer projects, like every other overlay — a comparison surface never
+        computes a pixel.
+      */}
+      {overlayGroups.length > 0 && (
+        <g data-sena-layer="group-ci">
+          {overlayGroups.map((group) => {
+            if (!group.ci) return null;
+            const [x1, y1] = projectPoint(model, { x: group.ci.x[0], y: group.ci.y[0] });
+            const [x2, y2] = projectPoint(model, { x: group.ci.x[1], y: group.ci.y[1] });
+            return (
+              <rect
+                key={group.name}
+                data-sena-group-ci={group.name}
+                // The interval in the coordinates it was computed in. A reader
+                // (or a gate) checking the arithmetic should not have to invert
+                // the projection to do it.
+                data-sena-ci-x={`${group.ci.x[0].toFixed(6)},${group.ci.x[1].toFixed(6)}`}
+                data-sena-ci-y={`${group.ci.y[0].toFixed(6)},${group.ci.y[1].toFixed(6)}`}
+                x={Math.min(x1, x2)}
+                y={Math.min(y1, y2)}
+                width={Math.abs(x2 - x1)}
+                height={Math.abs(y2 - y1)}
+                fill="none"
+                stroke={group.color}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                opacity={0.9}
+              >
+                <title>{`${group.name} — 95% confidence interval`}</title>
+              </rect>
+            );
+          })}
+        </g>
+      )}
+
+      {overlayGroups.length > 0 && (
+        <g data-sena-layer="group-mean">
+          {overlayGroups.map((group) => {
+            const [x, y] = projectPoint(model, group.mean);
+            // jena-js sizes a group marker at 6 to a unit point's 4; the square
+            // is SENA's, so a mean can never be mistaken for a participant.
+            const side = pointTraceRadius("group") * unitScale * 2;
+            return (
+              <g
+                key={group.name}
+                data-sena-group-mean={group.name}
+                {...(group.n === undefined ? {} : { "data-sena-group-n": group.n })}
+                data-sena-group-interval={group.ci ? "true" : "false"}
+              >
+                <rect
+                  x={x - side / 2}
+                  y={y - side / 2}
+                  width={side}
+                  height={side}
+                  fill={group.color}
+                  stroke={PAPER}
+                  strokeWidth={JENA_POINT_STROKE_WIDTH}
+                >
+                  <title>
+                    {group.n === undefined
+                      ? `${group.name} mean`
+                      : `${group.name} mean — ${group.n} unit${group.n === 1 ? "" : "s"}`}
+                  </title>
+                </rect>
+                {inkDisplay.showGroupLabels && (
+                  <text
+                    x={x + side / 2 + 4}
+                    y={y + 4}
+                    fill={NODE_LABEL_FILL}
+                    fontSize={JENA_POINT_LABEL_FONT_SIZE}
+                    fontWeight="700"
+                  >
+                    {group.name}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      )}
 
       {/*
         Click targets live in their own marked layer rather than on the node

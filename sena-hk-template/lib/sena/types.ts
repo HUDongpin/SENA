@@ -342,6 +342,17 @@ export type SenaEnaManifest = {
     windowSizeForward: number;
     dimensions: number;
     nodePositionMethod: "undirected" | "directed" | "directed-ground-response";
+    /**
+     * jena-js's rotation method. Absent means SVD, which is both the jena-js
+     * default and every manifest emitted before comparison mode existed — so a
+     * default run records exactly the options it always recorded, and only a
+     * deliberately rotated one says so.
+     */
+    rotation?: "svd" | "mean";
+    /** The metadata column whose two values define a means rotation. */
+    groupColumn?: string;
+    /** Set when the space was reused from a prior manifest's rotation. */
+    projectedIn?: boolean;
   };
   datasetCounts: {
     rows: number;
@@ -388,6 +399,30 @@ export type SenaEnaManifest = {
       pearsonLower: number;
       pearsonUpper: number;
     }>;
+    /**
+     * The rotation itself, in the form jena-js's `projectIn` needs to place a
+     * second window in this window's space — the fix the rank audit anticipates
+     * for windows whose own SVDs are not comparable.
+     *
+     * Only the parts not already serialized are stored: the adjacency key and
+     * the code list are read back off `outputs.adjacencyKey` and
+     * `source.codeColumns` by `senaEnaRotationReference`, and the rotated node
+     * positions are `outputs.nodePositions`.
+     *
+     * Emitted only when a caller asked for a rotation worth sharing (a means
+     * rotation, a projected-in space, or an explicit request), so a default run
+     * carries exactly the bytes it carried before this field existed.
+     */
+    rotation?: {
+      method: "svd" | "mean";
+      /** Names for every column of `matrix` — MR1 first under a means rotation. */
+      columns: string[];
+      /** The full rotation matrix, not the two displayed columns. */
+      matrix: number[][];
+      eigenvalues: number[];
+      /** The centre `projectIn` re-centres a new window's line weights on. */
+      centerVector: number[];
+    };
     connectionCounts: SenaManifestRow[];
     lineWeights: SenaManifestRow[];
     pointsForProjection: SenaManifestRow[];
