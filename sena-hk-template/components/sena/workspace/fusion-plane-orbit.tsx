@@ -88,6 +88,9 @@ const FIT_FILL = "rgb(var(--foreground) / 0.78)";
 const OVERLAY_BRIDGE_COLOR = senaLayerStrokes.bridge;
 const UNIT_LINK_COLOR = senaPlotAccentStroke;
 
+/** What this surface says when its plane has no projection to draw. */
+export const PLANE_UNAVAILABLE_MESSAGE = "The Fusion plane needs a computed jENA projection.";
+
 /**
  * Outer-surface position of a point given in the nested plane's own pixel
  * space (the 720x520 space `projectPoint` returns).
@@ -209,6 +212,25 @@ export function FusionPlaneOrbitPlot({
     // contribute" — and the B toggle, explicitly on, still shows every bridge.
     // The filter runs after normalization (lib/sena/ena-overlay.ts), so a
     // bridge's width means the same thing whoever is selected.
+    //
+    // The focus anchor is a *person*, and it has to be resolved rather than
+    // read off `selectedId` directly. Overlay lines are clickable and report the
+    // EDGE id (`bridge:<person>:<code>`), which is never one of its own
+    // endpoints — so matching selectedId against source/target emptied the
+    // filter the instant a reader clicked a bridge to inspect it, taking the
+    // clicked line and every sibling with it while the Inspector opened for it.
+    // An edge selection therefore focuses on that edge's person end, and the
+    // selected edge is drawn unconditionally so the highlight branch in
+    // EnaPlot has something to highlight.
+    const selectedEdge = model.edges.find((edge) => edge.id === selectedId);
+    const focusIds = new Set<string>();
+    if (selectedEdge) {
+      if (selectedEdge.sourceKind === "person") focusIds.add(selectedEdge.source);
+      if (selectedEdge.targetKind === "person") focusIds.add(selectedEdge.target);
+    } else if (selectedId) {
+      focusIds.add(selectedId);
+    }
+
     const kinds: SenaEnaOverlayKind[] = [
       {
         layer: "bridge",
@@ -216,7 +238,7 @@ export function FusionPlaneOrbitPlot({
         enabled: true,
         include: bridgeLayerEnabled
           ? undefined
-          : (edge) => edge.source === selectedId || edge.target === selectedId
+          : (edge) => edge.id === selectedId || focusIds.has(edge.source) || focusIds.has(edge.target)
       }
     ];
     const edges = buildSenaEnaOverlayEdges({ edges: model.edges, composition, threshold, kinds });
@@ -280,6 +302,9 @@ export function FusionPlaneOrbitPlot({
 
   const safeZoom = clampPlotZoom(zoom);
   const description = `SENA Fusion plane and social orbit. ${FUSION_PLANE_TITLE}.`;
+  const planeUnavailableDetail = composition.warnings
+    .filter((warning) => warning && warning !== PLANE_UNAVAILABLE_MESSAGE)
+    .join(" · ");
 
   return (
     <svg
@@ -324,15 +349,37 @@ export function FusionPlaneOrbitPlot({
         />
       ) : (
         <g data-sena-layer="plane-unavailable">
+          {/*
+            This surface's own message first. `buildSenaEnaPlotComposition`
+            puts a surface-branded reason at warnings[0] ("ENA Space requires a
+            computed jENA manifest."), and reading that verbatim made the
+            Fusion figure tell the reader about a different view while the
+            component's own sentence was unreachable. The composition's reasons
+            still carry the specific cause, so they render underneath as
+            detail rather than being dropped.
+          */}
           <text
             x={FUSION_PLANE_SLOT.x}
             y={FUSION_PLANE_SLOT.y + FUSION_PLANE_SLOT.height / 2}
             fill={FIT_FILL}
             fontSize="14"
             fontWeight="700"
+            data-sena-fallback-row="primary"
           >
-            {composition.warnings[0] ?? "The Fusion plane needs a computed jENA projection."}
+            {PLANE_UNAVAILABLE_MESSAGE}
           </text>
+          {planeUnavailableDetail && (
+            <text
+              x={FUSION_PLANE_SLOT.x}
+              y={FUSION_PLANE_SLOT.y + FUSION_PLANE_SLOT.height / 2 + 20}
+              fill={DEFINITION_FILL}
+              fontSize="12"
+              fontWeight="600"
+              data-sena-fallback-row="detail"
+            >
+              {planeUnavailableDetail}
+            </text>
+          )}
         </g>
       )}
 

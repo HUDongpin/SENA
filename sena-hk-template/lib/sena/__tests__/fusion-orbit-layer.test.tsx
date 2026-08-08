@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { FusionOrbitLayer } from "../../../components/sena/workspace/fusion-orbit-layer";
-import { CentralSnaMetricsViewPanel } from "../../../components/sena/workspace/workspace-central-plot-deck-sna-metrics-panel";
+import {
+  CentralSnaMetricsViewPanel,
+  SNA_ORBIT_SOCIOGRAM_CANVAS,
+  SNA_ORBIT_SOCIOGRAM_GEOMETRY
+} from "../../../components/sena/workspace/workspace-central-plot-deck-sna-metrics-panel";
 import { buildSenaOrbitLayout } from "../orbit-layout";
 import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
@@ -155,5 +159,54 @@ describe("SNA view sociogram mount", () => {
     // The metrics the panel already showed are untouched.
     expect(markup).toContain("Density");
     expect(markup).toContain("Reciprocity");
+  });
+
+  it("mounts the ring at the geometry its viewBox pays for", () => {
+    const markup = renderToStaticMarkup(
+      <CentralSnaMetricsViewPanel
+        model={model}
+        selectedId=""
+        onCanvasSelect={() => undefined}
+        threshold={0}
+      />
+    );
+
+    expect(markup).toContain(
+      `viewBox="0 0 ${SNA_ORBIT_SOCIOGRAM_CANVAS.width} ${SNA_ORBIT_SOCIOGRAM_CANVAS.height}"`
+    );
+    // The ring guide is drawn from the layout's resolved geometry, so its
+    // attributes are the proof the mount is not falling back to the default.
+    expect(markup).toContain(`rx="${SNA_ORBIT_SOCIOGRAM_GEOMETRY.rx}"`);
+    expect(markup).toContain(`ry="${SNA_ORBIT_SOCIOGRAM_GEOMETRY.ry}"`);
+  });
+
+  it("keeps every hexagon, lane point, arrowhead and name label inside the viewBox", () => {
+    // The same on-canvas invariant the Fusion surface pins, for the surface that
+    // did not have one. SVG clips to the viewBox, so anything outside it is
+    // silently gone: at the module default the pilot's five-lane band reached
+    // x 1287 and y 916 on this 1240x840 frame and the right-cardinal person's
+    // always-on name was truncated at the edge.
+    const sociogram = buildSenaOrbitLayout(model, { geometry: SNA_ORBIT_SOCIOGRAM_GEOMETRY, threshold: 0 });
+    const inside = (x: number, y: number) => {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(SNA_ORBIT_SOCIOGRAM_CANVAS.width);
+      expect(y).toBeLessThanOrEqual(SNA_ORBIT_SOCIOGRAM_CANVAS.height);
+    };
+
+    // Not vacuous: the pilot fills the five-lane band this geometry pays for.
+    expect(sociogram.lanes.length).toBeGreaterThan(0);
+    expect(sociogram.laneCount).toBeGreaterThanOrEqual(5);
+
+    for (const lane of sociogram.lanes) {
+      for (const [x, y] of [...lane.points, ...lane.arrowhead.polygon]) inside(x, y);
+    }
+    for (const person of sociogram.persons) {
+      inside(person.x - person.radius, person.y - person.radius);
+      inside(person.x + person.radius, person.y + person.radius);
+      const box = person.nameLabel.box;
+      inside(box.x, box.y);
+      inside(box.x + box.width, box.y + box.height);
+    }
   });
 });

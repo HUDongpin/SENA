@@ -226,8 +226,15 @@ describe("Fusion orbit geometry fits its surface", () => {
       "utf8"
     );
     expect(shellSource).toContain('layout === "plane-orbit"');
-    expect(shellSource).toContain("buildAbsoluteEdgeStrokeScale(visibleFusionEdges");
+    expect(shellSource).toContain("buildAbsoluteEdgeStrokeScale(");
     expect(shellSource).toContain("senaOrbitSocialStrokeRange");
+    // Bridges are not in any band on this surface — they are drawn by the
+    // nested plot's overlay channel — so the scale carries their measured
+    // widths as well. Without this the panel reported the A1 band for a line
+    // drawn at the median network width. (The number-for-number agreement is
+    // pinned by rendering, in fusion-plane-parity.test.tsx.)
+    expect(shellSource).toContain("buildSenaEnaOverlayWidths({");
+    expect(shellSource).toContain("planeOverlayWidths");
   });
 
   it("leaves the caption band below the orbit clear", () => {

@@ -1,4 +1,5 @@
 import type { EnaPlotOverlayEdge } from "@/components/ena/EnaPlot";
+import { RENA_EDGE_WIDTH_RANGE, styleRenaNetwork } from "@/lib/ena/plot-encoding";
 import type { SenaEnaPlotComposition } from "./ena-plot-model";
 import type { SenaEdge, SenaLayer } from "./types";
 
@@ -94,4 +95,60 @@ export function buildSenaEnaOverlayEdges({
   }
 
   return overlayEdges;
+}
+
+// --- Drawn overlay width -----------------------------------------------------
+//
+// The renderer decides how thick an overlay line is, and it decides it under a
+// law nothing outside it could restate: the cap is the *median drawn network
+// width*, which only exists once the network has been styled. Any surface that
+// has to report the width it drew — the inspector's line-weight provenance —
+// therefore has to ask the same question the renderer asks, from the same
+// composition, rather than approximate it with a band. These two functions are
+// that question, mirrored from EnaPlot's `medianWidth` and its overlay stroke
+// expression so a change to one fails the test that pins the pair.
+
+/**
+ * The cap EnaPlot applies to every overlay stroke: the median width of the drawn
+ * rENA network. Colour plays no part in a styled edge's width, so the base
+ * colour passed here is immaterial and only has to be a valid one.
+ */
+export function senaEnaOverlayWidthCap(composition: SenaEnaPlotComposition): number {
+  const model = composition.status === "computed" ? composition.model : null;
+  if (!model) return RENA_EDGE_WIDTH_RANGE[0];
+
+  const widths = model.traces
+    .filter((trace) => trace.type === "network" && trace.network)
+    .flatMap((trace) => styleRenaNetwork(model, trace.network!, "#386CB0").edges.map((edge) => edge.strokeWidth))
+    .sort((left, right) => left - right);
+
+  if (widths.length === 0) return RENA_EDGE_WIDTH_RANGE[0];
+  const middle = Math.floor(widths.length / 2);
+  return widths.length % 2 === 0 ? (widths[middle - 1] + widths[middle]) / 2 : widths[middle];
+}
+
+/** `max(1, min(cap, cap * (0.4 + 0.6 * nw)))` — EnaPlot's overlay stroke law. */
+export function senaEnaOverlayStrokeWidth(normalizedWeight: number, cap: number) {
+  return Math.max(1, Math.min(cap, cap * (0.4 + 0.6 * normalizedWeight)));
+}
+
+/**
+ * Drawn width per SENA edge id for the overlay channel of a nested plot.
+ *
+ * Built from the same call that builds the lines, so an edge that is not drawn
+ * has no entry and an edge that is drawn has exactly the number on screen.
+ */
+export function buildSenaEnaOverlayWidths(args: {
+  edges: SenaEdge[];
+  composition: SenaEnaPlotComposition;
+  threshold: number;
+  kinds: SenaEnaOverlayKind[];
+}): Map<string, number> {
+  const cap = senaEnaOverlayWidthCap(args.composition);
+  return new Map(
+    buildSenaEnaOverlayEdges(args).map((edge) => [
+      edge.id,
+      Number(senaEnaOverlayStrokeWidth(edge.normalizedWeight, cap).toFixed(2))
+    ])
+  );
 }

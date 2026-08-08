@@ -22,9 +22,38 @@ import {
 
 const unitKeyColumn = "ENA_UNIT";
 
+/**
+ * A cell is a number, or it is **missing** — never a coercion.
+ *
+ * `Number(null)`, `Number("")` and `Number(false)` are all 0, and `Number(true)`
+ * is 1, so the obvious `Number(value)` + `isFinite` reader silently promotes an
+ * absent value to a real observation: it lands in n, drags the group mean toward
+ * zero, inflates the t interval, and shifts every subtraction delta computed
+ * from it — with no warning anywhere, because nothing failed. The input domain
+ * makes that reachable rather than theoretical: this module's declared input is
+ * the *serialized* twin of a jena-js row (line 106), `JSON.stringify(NaN)` is
+ * `null`, and `SenaManifestRow` types a cell as `string | number | boolean |
+ * null`. `lib/sena/ena-plot-model.ts` already reads cells strictly and drops
+ * such a row from the drawn scatter, so anything looser here would let the
+ * comparison disagree with the picture it sits beside — the one thing the
+ * module header says it must not do.
+ *
+ * Numeric strings are accepted (a serialized CSV column is still a measurement);
+ * a blank or non-numeric string is missing.
+ */
+function numericValue(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return null;
+    const next = Number(trimmed);
+    return Number.isFinite(next) ? next : null;
+  }
+  return null;
+}
+
 function numeric(value: unknown) {
-  const next = Number(value);
-  return Number.isFinite(next) ? next : null;
+  return numericValue(value);
 }
 
 /** Distinct values of a metadata column, in the order the panel should list them. */
@@ -165,8 +194,7 @@ export type EnaGroupInterval = {
 };
 
 function numericCell(row: EnaComparisonRow, column: string) {
-  const value = Number(row[column]);
-  return Number.isFinite(value) ? value : null;
+  return numericValue(row[column]);
 }
 
 /** Half-width of the two-sided 95% t interval, or null when n < 2. */
@@ -236,6 +264,17 @@ export function enaGroupIntervals({
     ? groups.filter((name) => collected.has(name))
     : [...collected.keys()].sort((left, right) => left.localeCompare(right));
 
+  /**
+   * Colour follows the group's position in the **requested** pair, not its
+   * position among the survivors. Filtering first and colouring by the filtered
+   * index handed the left group's hue to the right group whenever the left one
+   * collected no scored unit — while every other comparison surface (the
+   * "More in <group>" legend, the subtraction network's signed ink, the
+   * caption) keeps colouring positionally from the requested pair. The figure
+   * then said blue and the legend said orange for the same group.
+   */
+  const colorIndexOf = (name: string, index: number) => (groups ? groups.indexOf(name) : index);
+
   return names.map((name, index) => {
     const bucket = collected.get(name)!;
     const centre = { x: mean(bucket.xs), y: mean(bucket.ys) };
@@ -243,7 +282,7 @@ export function enaGroupIntervals({
     const halfY = confidenceHalfWidth(bucket.ys);
     return {
       name,
-      color: palette[index % palette.length] ?? palette[0] ?? "#218EBF",
+      color: palette[colorIndexOf(name, index) % palette.length] ?? palette[0] ?? "#218EBF",
       n: bucket.unitIds.length,
       mean: centre,
       ci:

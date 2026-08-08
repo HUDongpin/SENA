@@ -8,6 +8,7 @@ import type {
 } from "./analysis-runtime";
 import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
+import { fusionGrammarLabel } from "./fusion-layer-key";
 import type { SenaJointEmbeddingOperator } from "./fusion-layout";
 import { FusionPlaneOrbitPlot } from "./fusion-plane-orbit";
 import { JointEmbeddingProvenanceStrip } from "./runtime-provenance-panels";
@@ -18,17 +19,12 @@ function formatPlotNumber(value: number, digits = 2) {
   return Number.isInteger(value) ? value.toString() : value.toFixed(digits);
 }
 
-/**
- * The grammar chip names the coordinate frame on screen. It was hardcoded to
- * A1 back when there was only one, which meant maximizing an ENA-space plot
- * captioned a canonical ENA projection as an explanatory mesh — the same class
- * of error as the routing bug below, in text.
- */
-function fusionGrammarLabel(layout: SenaLayoutMode) {
-  if (layout === "plane-orbit") return "Fusion Plane + Orbit";
-  if (layout === "ena-space") return "ENA Space";
-  return "A1 Inner Solid Mesh";
-}
+// The grammar chip names the coordinate frame on screen. It was hardcoded to A1
+// back when there was only one, which meant maximizing an ENA-space plot
+// captioned a canonical ENA projection as an explanatory mesh — the same class
+// of error as the routing bug below, in text. The mapping now lives beside the
+// inline layer key (./fusion-layer-key), which captions the same figures at the
+// other size: two copies of it is how the chip and the key came to disagree.
 
 export function FusionPlotCompactKey({
   model,

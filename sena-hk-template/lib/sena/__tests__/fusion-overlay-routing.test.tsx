@@ -151,6 +151,31 @@ describe("Fusion maximized overlay routes every layout to its own surface", () =
     expect(renderOverlay("plane-orbit")).not.toContain("A1 Inner Solid Mesh");
   });
 
+  it("captions the inline layer key with the same frame the chip names", () => {
+    // The key sits under the figure the router just drew, and it was hardcoded
+    // to "A1 Inner Solid Mesh" — so a fresh load captioned the canonical
+    // plane-orbit default with the deprecated grammar's name, and maximizing
+    // the very same figure renamed it. One mapping, both captions.
+    const captions: Record<SenaLayoutMode, string> = {
+      "plane-orbit": "Fusion Plane + Orbit",
+      "ena-space": "ENA Space",
+      explanatory: "A1 Inner Solid Mesh",
+      joint: "A1 Inner Solid Mesh"
+    };
+
+    for (const layout of modes) {
+      const panel = renderPanel(layout);
+      // The contract pins the marker, so the caption moves and the attribute
+      // does not.
+      expect(panel).toContain('data-visual-role="fusion-layer-key-a1"');
+      expect(panel).toContain(captions[layout]);
+      expect([layout, renderOverlay(layout).includes(captions[layout])]).toEqual([layout, true]);
+    }
+
+    expect(renderPanel("plane-orbit")).not.toContain("A1 Inner Solid Mesh");
+    expect(renderPanel("ena-space")).not.toContain("A1 Inner Solid Mesh");
+  });
+
   it("keeps the joint embedding provenance strip on joint alone, in both surfaces", () => {
     for (const layout of modes) {
       const shouldShow = layout === "joint";

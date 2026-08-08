@@ -125,6 +125,35 @@ describe("enaGroupIntervals", () => {
     expect(picked[0].color).toBe("#218EBF");
   });
 
+  it("keeps a requested group's palette slot when its partner collects nothing", () => {
+    // Colours were assigned by index into the SURVIVING names, so when the left
+    // group of a pair contributed no scored unit the right group inherited the
+    // left one's hue — while the "More in <group>" legend, the subtraction's
+    // signed ink and the caption all colour positionally from the requested
+    // pair. The figure said blue and the legend said orange for the same group.
+    const survivors = enaGroupIntervals({
+      points: groupPoints,
+      xDimension: "SVD1",
+      yDimension: "SVD2",
+      groupOf: enaRowGroupValues(groupPoints, "cohort"),
+      groups: ["Missing", "B"],
+      palette: ENA_COMPARISON_PALETTES["blue-orange"]
+    });
+
+    expect(survivors.map((group) => group.name)).toEqual(["B"]);
+    expect(survivors[0].color).toBe("#EF691B");
+    // The control case is unchanged: both present, both in listed order.
+    const both = enaGroupIntervals({
+      points: groupPoints,
+      xDimension: "SVD1",
+      yDimension: "SVD2",
+      groupOf: enaRowGroupValues(groupPoints, "cohort"),
+      groups: ["A", "B"],
+      palette: ENA_COMPARISON_PALETTES["blue-orange"]
+    });
+    expect(both.map((group) => group.color)).toEqual(["#218EBF", "#EF691B"]);
+  });
+
   it("returns nothing for a column that names no groups", () => {
     expect(
       enaGroupIntervals({
@@ -134,6 +163,78 @@ describe("enaGroupIntervals", () => {
         groupOf: enaRowGroupValues(groupPoints, "missing")
       })
     ).toEqual([]);
+  });
+});
+
+// --- Missing values ----------------------------------------------------------
+// The declared input is the *serialized* twin of a jena-js row, and
+// `JSON.stringify(NaN)` is `null`. `Number(null)` is 0, so the obvious cell
+// reader turned an absent measurement into a real observation: it entered n,
+// dragged the mean toward zero, inflated the interval, and moved every
+// subtraction delta — silently, because nothing failed.
+
+describe("comparison cells are numbers or missing, never coerced", () => {
+  const missingRows = [
+    { ENA_UNIT: "A1", cohort: "A", SVD1: 1, SVD2: 1 },
+    { ENA_UNIT: "A2", cohort: "A", SVD1: 3, SVD2: 1 },
+    { ENA_UNIT: "A3", cohort: "A", SVD1: null, SVD2: 1 }
+  ];
+
+  const intervalOf = (rows: Array<Record<string, unknown>>) =>
+    enaGroupIntervals({
+      points: rows,
+      xDimension: "SVD1",
+      yDimension: "SVD2",
+      groupOf: enaRowGroupValues(rows, "cohort")
+    })[0];
+
+  it("drops a null coordinate rather than counting the unit at zero", () => {
+    const group = intervalOf(missingRows);
+
+    expect(group.n).toBe(2);
+    expect(group.unitIds).toEqual(["A1", "A2"]);
+    // Mean of the two real values, not (1 + 3 + 0) / 3.
+    expect(group.mean.x).toBe(2);
+  });
+
+  it("drops a NaN that survived JSON as a null, which is how it actually arrives", () => {
+    const roundTripped = JSON.parse(
+      JSON.stringify([...missingRows.slice(0, 2), { ENA_UNIT: "A3", cohort: "A", SVD1: Number.NaN, SVD2: 1 }])
+    ) as Array<Record<string, unknown>>;
+
+    expect(roundTripped[2].SVD1).toBeNull();
+    expect(intervalOf(roundTripped).n).toBe(2);
+    expect(intervalOf(roundTripped).mean.x).toBe(2);
+  });
+
+  it("treats blanks and booleans as missing, and a numeric string as a measurement", () => {
+    const base = missingRows.slice(0, 2);
+    const blank = intervalOf([...base, { ENA_UNIT: "A3", cohort: "A", SVD1: "", SVD2: 1 }]);
+    const boolean = intervalOf([...base, { ENA_UNIT: "A3", cohort: "A", SVD1: true, SVD2: 1 }]);
+    const text = intervalOf([...base, { ENA_UNIT: "A3", cohort: "A", SVD1: "not a number", SVD2: 1 }]);
+    const numericString = intervalOf([...base, { ENA_UNIT: "A3", cohort: "A", SVD1: "5", SVD2: 1 }]);
+
+    expect([blank.n, boolean.n, text.n]).toEqual([2, 2, 2]);
+    expect(numericString.n).toBe(3);
+    expect(numericString.mean.x).toBe(3);
+  });
+
+  it("leaves a null line weight out of a group mean instead of averaging in a zero", () => {
+    const rows = [
+      { ENA_UNIT: "A1", cohort: "A", "question & evidence": 0.8 },
+      { ENA_UNIT: "A2", cohort: "A", "question & evidence": null },
+      { ENA_UNIT: "B1", cohort: "B", "question & evidence": 0.1 }
+    ];
+    const network = enaSubtractionNetwork({
+      adjacencyKey: [{ source: "question", target: "evidence", name: "question & evidence" }],
+      lineWeights: rows,
+      groupOf: enaRowGroupValues(rows, "cohort"),
+      groups: ["A", "B"]
+    });
+
+    // 0.8, not (0.8 + 0) / 2 = 0.4 — and so a delta of 0.7, not 0.3.
+    expect(network.edges[0].first).toBeCloseTo(0.8, 12);
+    expect(network.edges[0].delta).toBeCloseTo(0.7, 12);
   });
 });
 
@@ -419,6 +520,80 @@ describe("EnaPlot inks a subtracted network in rENA's two colours", () => {
 // ENASet and its groups already are. Read from the source rather than rendered:
 // the client owns a Web Worker and a file input, and what this pins is the
 // control contract — which controls exist, and that the destructive one is off.
+describe("a drawn subtraction is thresholded by |Δ|, not by the pooled mean", () => {
+  // Twelve units. "question & critique" is used by group A alone (0.30 each)
+  // and by nobody else, so its |Δ| is 0.30 — the largest difference in the
+  // figure — while its all-units pooled mean is only 0.60 / 12 = 0.05.
+  // "question & evidence" is used by everyone at about 0.5, so its pooled mean
+  // is 0.5 and its |Δ| is 0.01.
+  const others = Array.from({ length: 8 }, (_, index) => ({
+    ENA_UNIT: `O${index + 1}`,
+    cohort: "O",
+    "question & evidence": 0.5,
+    "question & critique": 0
+  }));
+  const deltaRows = [
+    { ENA_UNIT: "A1", cohort: "A", "question & evidence": 0.505, "question & critique": 0.3 },
+    { ENA_UNIT: "A2", cohort: "A", "question & evidence": 0.505, "question & critique": 0.3 },
+    { ENA_UNIT: "B1", cohort: "B", "question & evidence": 0.495, "question & critique": 0 },
+    { ENA_UNIT: "B2", cohort: "B", "question & evidence": 0.495, "question & critique": 0 },
+    ...others
+  ];
+  const pooledEdges = [
+    { source: "question", target: "evidence", weight: 0.5, name: "question & evidence" },
+    { source: "question", target: "critique", weight: 0.05, name: "question & critique" }
+  ];
+
+  const modelWithEdges = (edges: typeof pooledEdges): ENAPlotModel => ({
+    ...plotModel,
+    traces: [{ type: "network", name: "Mean network", color: "#18b7c9", network: { nodes: network.nodes, edges } }]
+  });
+  const deltaNetwork = (minDelta: number) =>
+    enaSubtractionNetwork({
+      adjacencyKey,
+      lineWeights: deltaRows,
+      groupOf: enaRowGroupValues(deltaRows, "cohort"),
+      groups: ["A", "B"],
+      minDelta
+    });
+  const drawnNames = (model: ENAPlotModel) =>
+    model.traces.find((trace) => trace.type === "network")!.network!.edges.map((edge) => edge.name);
+
+  it("computes the deltas the fixture was built for", () => {
+    const edges = deltaNetwork(0).edges;
+
+    expect(edges.find((edge) => edge.name === "question & critique")!.delta).toBeCloseTo(0.3, 12);
+    expect(edges.find((edge) => edge.name === "question & evidence")!.delta).toBeCloseTo(0.01, 12);
+  });
+
+  it("keeps the biggest difference and drops the smallest at a 0.1 threshold", () => {
+    const drawn = withEnaSubtractionNetwork(modelWithEdges(pooledEdges), deltaNetwork(0.1));
+
+    expect(drawnNames(drawn)).toEqual(["question & critique"]);
+  });
+
+  it("shows what a pooled-mean pre-trim draws instead — the exact inversion", () => {
+    // This is the old wiring: the slider ran through jena-js's addNetwork,
+    // which drops |pooled mean| <= minWeight, and the subtraction could then
+    // only intersect what survived. At 0.1 that keeps the 0.5-mean edge whose
+    // groups differ by 0.01 and throws away the edge carrying the figure's
+    // largest difference, while the caption still promised "mean connection
+    // weight in A minus B".
+    const preTrimmed = modelWithEdges(pooledEdges.filter((edge) => Math.abs(edge.weight) > 0.1));
+    const drawn = withEnaSubtractionNetwork(preTrimmed, deltaNetwork(0));
+
+    expect(drawnNames(drawn)).toEqual(["question & evidence"]);
+  });
+
+  it("wires /workspace/ena so the slider thresholds the difference it draws", () => {
+    const source = readFileSync("app/workspace/ena/EnaWorkspaceClient.tsx", "utf8");
+
+    expect(source).toContain("minDelta: subtractionOn ? effectiveEnaMinWeight(minWeight) : 0");
+    // …and the pooled pre-trim is skipped exactly while the subtraction is drawn.
+    expect(source).toContain("minWeight > 0 && !drawingSubtraction");
+  });
+});
+
 describe("/workspace/ena comparison controls", () => {
   const source = readFileSync("app/workspace/ena/EnaWorkspaceClient.tsx", "utf8");
 

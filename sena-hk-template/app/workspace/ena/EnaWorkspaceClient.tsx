@@ -859,9 +859,17 @@ export function EnaWorkspaceClient() {
       adjacencyKey: result.set.adjacencyKey,
       lineWeights: result.set.lineWeights,
       groupOf: unitGroupValues(result.set, activeGroupBy),
-      groups: comparisonPair
+      groups: comparisonPair,
+      // "Minimum edge weight" has to threshold the quantity that is drawn. When
+      // the drawn network is a difference, that quantity is |Δ| — not the
+      // all-units pooled mean, which is what jena-js's addNetwork filters and
+      // which has no place in a subtracted figure: it hid an edge carrying the
+      // figure's largest group difference because few units used it at all,
+      // while drawing an edge whose two groups barely differ. Zero when the
+      // subtraction is not drawn, so the default path is untouched.
+      minDelta: subtractionOn ? effectiveEnaMinWeight(minWeight) : 0
     });
-  }, [result, comparisonPair, activeGroupBy]);
+  }, [result, comparisonPair, activeGroupBy, subtractionOn, minWeight]);
 
   const subtractionDrawn = subtractionOn && subtraction?.status === "computed";
 
@@ -874,17 +882,21 @@ export function EnaWorkspaceClient() {
   // weight did nothing at all until the next Run.
   const composedPlotModel = useMemo(() => {
     if (!result) return null;
+    const drawingSubtraction = subtractionDrawn && subtraction !== null;
     const composition: EnaPlotComposition = {
       ...(activeGroupBy ? { groupBy: activeGroupBy } : {}),
-      ...(minWeight > 0 ? { minWeight } : {})
+      // The slider is deliberately NOT passed while the subtraction is drawn:
+      // `withEnaSubtractionNetwork` keeps only the mean edges the difference
+      // still names, so a mean-weight pre-trim would silently threshold the Δ
+      // figure by the pooled mean before |Δ| was ever consulted. The threshold
+      // is applied on |Δ| instead, in the `subtraction` memo above.
+      ...(minWeight > 0 && !drawingSubtraction ? { minWeight } : {})
     };
     const composed = buildEnaPlotModel(result.set, composition);
     // rENA draws a comparison as ONE subtracted network, not two overlaid ones,
     // so the drawn network is replaced rather than added to. Off by default,
     // and off is the model this line never touches.
-    return subtractionDrawn && subtraction
-      ? withEnaSubtractionNetwork(composed, subtraction)
-      : composed;
+    return drawingSubtraction ? withEnaSubtractionNetwork(composed, subtraction) : composed;
   }, [result, activeGroupBy, minWeight, subtractionDrawn, subtraction]);
 
   const displayedPlotModel = useMemo(
@@ -1566,7 +1578,9 @@ export function EnaWorkspaceClient() {
                     className="w-full accent-[#56b09d]"
                   />
                   <span className="text-[11px] font-semibold leading-5 text-muted">
-                    Hides connections at or below this mean weight; a 0.001 floor always applies to keep hairline noise out of the drawn network. Filters the drawn network only — node positions and the projection are unchanged.
+                    {subtractionDrawn
+                      ? "Hides connections whose group difference |Δ| is at or below this value — the threshold follows the quantity the subtracted network draws, not the pooled mean; a 0.001 floor always applies. Filters the drawn network only — node positions and the projection are unchanged."
+                      : "Hides connections at or below this mean weight; a 0.001 floor always applies to keep hairline noise out of the drawn network. Filters the drawn network only — node positions and the projection are unchanged."}
                   </span>
                 </label>
               </div>

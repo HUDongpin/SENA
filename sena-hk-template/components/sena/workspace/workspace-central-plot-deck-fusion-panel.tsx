@@ -108,7 +108,14 @@ export function CentralFusionPlotViewPanel({
         onSelect={onPlotViewSelect}
         plotViewOptions={plotViewOptions}
       />
-      <FusionLayerKey model={model} layers={layers} threshold={threshold} alpha={alpha} beta={beta} gamma={gamma} />
+      {/*
+        The key captions the figure directly above it, so it has to be told
+        which of the four surfaces the router just drew. Hardcoded, it called
+        the default plane-orbit figure "A1 Inner Solid Mesh" on every first
+        load — and disagreed with the maximized overlay's chip for the same
+        figure, which had already been fixed.
+      */}
+      <FusionLayerKey model={model} layers={layers} threshold={threshold} alpha={alpha} beta={beta} gamma={gamma} layout={layout} />
     </section>
   );
 }

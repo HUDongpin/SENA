@@ -4,14 +4,23 @@ import { EnaPlot } from "../../../components/ena/EnaPlot";
 import {
   FUSION_PLANE_SLOT,
   FUSION_PLANE_TITLE,
-  FusionPlaneOrbitPlot
+  FusionPlaneOrbitPlot,
+  PLANE_UNAVAILABLE_MESSAGE
 } from "../../../components/sena/workspace/fusion-plane-orbit";
 import { styleRenaNetwork } from "../../ena/plot-encoding";
 import { buildSenaEnaManifest } from "../ena-manifest";
+import { buildSenaEnaOverlayWidths } from "../ena-overlay";
 import { buildSenaEnaPlotComposition } from "../ena-plot-model";
 import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
 import type { SenaLayer } from "../types";
+import {
+  buildAbsoluteEdgeStrokeScale,
+  buildConceptPairContributionMap,
+  readableEdgeStrokeWidth,
+  senaEdgeStrokeRanges,
+  senaOrbitSocialStrokeRange
+} from "../visual-encoding";
 
 // ADR 0009 extends ADR 0008's rule into Fusion: the plane is <EnaPlot> itself,
 // nested, so its geometry and ink are rENA's through the one shared renderer.
@@ -124,6 +133,35 @@ function renderBasePlane(zoom = 1) {
   );
 }
 
+/**
+ * The plot `/workspace/ena` actually draws: no viewport props at all. The
+ * baseline above is the *slotted* render, which shares the viewport-prop code
+ * path with the nested plane — convenient for a byte-compare, but it means any
+ * future EnaPlot change conditional on those props would drift both sides of
+ * every parity assertion identically and stay green. This is the other side of
+ * that boundary.
+ */
+function renderPlainPlane(zoom = 1) {
+  return svgOnly(
+    renderToStaticMarkup(
+      <EnaPlot
+        model={composition.model!}
+        variance={composition.variance}
+        className=""
+        zoom={zoom}
+      />
+    )
+  );
+}
+
+/** Drops exactly the four viewport attributes, wherever React ordered them. */
+function stripViewportAttributes(markup: string) {
+  return markup.replace(
+    /^<svg[^>]*>/,
+    (tag) => tag.replace(/\s(?:x|y|width|height)="[^"]*"/g, "")
+  );
+}
+
 function renderFusionPlane({
   selectedId = "",
   layers = focusLayers,
@@ -185,6 +223,36 @@ describe("Fusion renders the canonical ENA plot as its plane", () => {
     expect(focused).toBe(base);
     expect(selected).toBe(base);
     expect(allBridges).toBe(base);
+  });
+
+  it("pins the baseline itself to the plain plot /workspace/ena draws", () => {
+    // ADR 0009's enforcement clause names "a plain <EnaPlot model variance>
+    // render", but the baseline every assertion here compares against is the
+    // slotted one. That made the whole suite blind to a viewport-prop-
+    // conditional change in EnaPlot: both sides would drift together and
+    // plot-parity / ena-space-plot-parity never pass viewport props at all, so
+    // nothing crossed the boundary the ADR's claim actually spans. One
+    // assertion closes it — the slot may change the root tag's x/y/width/height
+    // and nothing else.
+    for (const zoom of [1, 1.75]) {
+      const slotted = stripViewportAttributes(renderBasePlane(zoom));
+      const plain = stripViewportAttributes(renderPlainPlane(zoom));
+
+      expect(plain.length).toBeGreaterThan(0);
+      expect(slotted).toBe(plain);
+    }
+
+    // …and the stripper is not passing them by erasing everything: the slot's
+    // numbers are on the root tag before it runs and gone after, while the
+    // plain render never had them and the body of both survives untouched.
+    const rootTag = (markup: string) => /^<svg[^>]*>/.exec(markup)?.[0] ?? "";
+    const slottedRaw = renderBasePlane();
+
+    expect(rootTag(slottedRaw)).toContain(`x="${FUSION_PLANE_SLOT.x}"`);
+    expect(rootTag(slottedRaw)).toContain(`y="${FUSION_PLANE_SLOT.y}"`);
+    expect(rootTag(stripViewportAttributes(slottedRaw))).not.toMatch(/\s(?:x|y|width|height)="/);
+    expect(rootTag(renderPlainPlane())).not.toMatch(/\s(?:x|y|width|height)="/);
+    expect(stripViewportAttributes(slottedRaw)).toContain('data-plot-role="network-node"');
   });
 
   it("keeps parity while the plot is zoomed, because EnaPlot owns the zoom", () => {
@@ -252,6 +320,36 @@ describe("Fusion renders the canonical ENA plot as its plane", () => {
     expect(bridgeCount(all)).toBeGreaterThan(bridgeCount(focused));
   });
 
+  it("keeps a clicked bridge — and its person's siblings — on the plane", () => {
+    // Overlay lines are clickable and report the EDGE id, which for a bridge is
+    // `bridge:<person>:<code>` and is never one of its own endpoints. Matching
+    // that id against source/target emptied the focus filter the moment a
+    // reader clicked a bridge to inspect it: the clicked line and every sibling
+    // vanished while the Inspector opened for the very edge that was no longer
+    // drawn, and EnaPlot's selected-edge highlight became unreachable code.
+    const personBridges = model.edges.filter(
+      (edge) =>
+        edge.layer === "bridge" && (edge.source === selectedPersonId || edge.target === selectedPersonId)
+    );
+    const clicked = personBridges[0];
+    const bridgeCount = (markup: string) => markup.split('data-overlay-kind="bridge"').length - 1;
+
+    expect(personBridges.length).toBeGreaterThan(1);
+
+    const afterClick = nestedPlaneOnly(renderFusionPlane({ selectedId: clicked.id }));
+
+    // The clicked line itself is still there… (its <title> is the label, with
+    // the arrow HTML-escaped by the serializer).
+    expect(afterClick).toContain(`${clicked.label.replace(/>/g, "&gt;")}:`);
+    // …and so are the rest of that person's bridges, which are its context.
+    expect(bridgeCount(afterClick)).toBe(personBridges.length);
+    // Same picture as selecting the person, because an edge selection resolves
+    // to its person end rather than to nothing.
+    expect(bridgeCount(afterClick)).toBe(
+      bridgeCount(nestedPlaneOnly(renderFusionPlane({ selectedId: selectedPersonId })))
+    );
+  });
+
   it("keeps bridge ink under the network's, at the median width and 0.5 opacity", () => {
     const plane = nestedPlaneOnly(
       renderFusionPlane({ selectedId: selectedPersonId, layers: allBridgeLayers })
@@ -270,6 +368,69 @@ describe("Fusion renders the canonical ENA plot as its plane", () => {
     // read with half a printed digit of slack rather than machine epsilon.
     for (const width of widths) expect(width).toBeLessThanOrEqual(cap + 0.005);
     for (const opacity of opacities) expect(opacity).toBeLessThanOrEqual(0.5);
+  });
+
+  it("reports the width it drew for a bridge, not a band nothing on screen uses", () => {
+    // The inspector's line-weight provenance exists so the panel cannot state a
+    // width no line has. It was fixed for the orbit's social lanes only: on this
+    // surface bridges are drawn by the nested plot's overlay channel, capped at
+    // the median rENA network width, so the A1 fallback band reported 10.8px
+    // for the pilot's strongest bridge while the line was 2.45px — 4.4x out,
+    // two clicks from a fresh load.
+    const plane = nestedPlaneOnly(
+      renderFusionPlane({ selectedId: selectedPersonId, layers: allBridgeLayers })
+    );
+
+    // Drawn widths, straight off the rendered lines, keyed by the escaped label
+    // each line's <title> carries.
+    const drawn = new Map<string, number>();
+    for (const chunk of plane.split("<line ").slice(1)) {
+      const width = /data-overlay-visual-width="([\d.]+)"/.exec(chunk)?.[1];
+      const label = /<title>([^<:]*):/.exec(chunk)?.[1];
+      if (width && label) drawn.set(label, Number(width));
+    }
+    expect(drawn.size).toBeGreaterThan(0);
+
+    const contributions = buildConceptPairContributionMap(model);
+    const overlayWidths = buildSenaEnaOverlayWidths({
+      edges: model.edges,
+      composition,
+      threshold: 0,
+      kinds: [{ layer: "bridge", kind: "bridge", enabled: true }]
+    });
+    const shellScale = buildAbsoluteEdgeStrokeScale(
+      model.edges,
+      contributions,
+      { social: senaOrbitSocialStrokeRange },
+      overlayWidths
+    );
+    const bandOnlyScale = buildAbsoluteEdgeStrokeScale(model.edges, contributions, {
+      social: senaOrbitSocialStrokeRange
+    });
+
+    let compared = 0;
+    for (const edge of model.edges.filter((candidate) => candidate.layer === "bridge")) {
+      const drawnWidth = drawn.get(edge.label.replace(/>/g, "&gt;"));
+      if (drawnWidth === undefined) continue;
+      compared += 1;
+      expect([edge.id, readableEdgeStrokeWidth(edge, shellScale)]).toEqual([edge.id, drawnWidth]);
+      // …and the band the fallback would have used is genuinely a different
+      // number, so the assertion above is not passing by coincidence.
+      // …every one of them by a wide margin, upward: the whole drawn band sits
+      // under the A1 fallback's, so there is no crossover where the two agree.
+      expect(readableEdgeStrokeWidth(edge, bandOnlyScale)).toBeGreaterThan(drawnWidth * 1.5);
+      expect(readableEdgeStrokeWidth(edge, bandOnlyScale)).toBeGreaterThanOrEqual(
+        senaEdgeStrokeRanges.bridge.min
+      );
+    }
+    expect(compared).toBeGreaterThan(1);
+
+    // The social band is untouched: measured widths override nothing they were
+    // not given, so the orbit's lanes still read through their own range.
+    const socialEdge = model.edges.find((edge) => edge.layer === "social")!;
+    expect(readableEdgeStrokeWidth(socialEdge, shellScale)).toBe(
+      readableEdgeStrokeWidth(socialEdge, bandOnlyScale)
+    );
   });
 
   it("mounts the orbit outside the plane, under it, and the unit leader over it", () => {
@@ -339,6 +500,42 @@ describe("Fusion renders the canonical ENA plot as its plane", () => {
     expect(withoutTies).toContain('data-visual-role="sna-person-hex-node"');
     // Turning a layer off must not disturb the measured plot underneath it.
     expect(stripSenaLayers(nestedPlaneOnly(withoutTies))).toBe(stripSenaLayers(renderBasePlane()));
+  });
+
+  it("names its own surface when the plane has no projection to draw", () => {
+    // The composition puts a surface-branded reason at warnings[0] ("ENA Space
+    // requires a computed jENA manifest."), and the plane slot read it
+    // verbatim — so the Fusion figure told the reader about a different view
+    // and this component's own sentence was unreachable code.
+    const skipped = buildSenaEnaManifest({
+      ...lessonStudySenaContract,
+      codebook: lessonStudySenaContract.codebook.slice(0, 1)
+    });
+    expect(skipped.status).toBe("skipped");
+
+    const markup = renderToStaticMarkup(
+      <FusionPlaneOrbitPlot
+        model={model}
+        enaManifest={skipped}
+        layers={focusLayers}
+        threshold={0}
+        selectedId=""
+        revealedLabelIds={[]}
+        onSelect={() => undefined}
+      />
+    );
+
+    const primaryAt = markup.indexOf(PLANE_UNAVAILABLE_MESSAGE);
+    expect(markup).toContain('<g data-sena-layer="plane-unavailable">');
+    expect(primaryAt).toBeGreaterThan(-1);
+    expect(markup).toContain('data-sena-fallback-row="primary"');
+    // The composition's reasons are kept, but underneath — never as the line
+    // that answers "what am I looking at".
+    expect(markup.indexOf('data-sena-fallback-row="detail"')).toBeGreaterThan(primaryAt);
+    expect(markup.indexOf("ENA Space requires")).toBeGreaterThan(primaryAt);
+    // The rest of the degraded figure is unchanged: orbit and caption still draw.
+    expect(markup).toContain('data-testid="sena-fusion-orbit-layer"');
+    expect(markup).toContain('<g data-sena-layer="model-footer">');
   });
 
   it("states the model definition and its goodness of fit on the figure", () => {

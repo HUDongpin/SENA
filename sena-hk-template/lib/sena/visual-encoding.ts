@@ -11,6 +11,21 @@ export type SenaEdgeStrokeScale = {
    * canvas omits it and every existing caller is unchanged.
    */
   ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>;
+  /**
+   * Drawn width per edge id, for edges whose surface draws them under a law
+   * this scale cannot express.
+   *
+   * A `ranges` override re-bands the same `min + intensity^0.72 * span` curve,
+   * which is enough when a surface only narrows the band — the orbit's social
+   * lanes. It is not enough for the Fusion plane's bridges: those are drawn by
+   * the shared renderer's overlay channel, at
+   * `max(1, min(cap, cap * (0.4 + 0.6 * nw)))` against a cap that is the median
+   * drawn *network* width, a quantity no band contains. Reporting a band value
+   * for them stated a width no line on screen had — 10.8px for a bridge drawn
+   * at 2.45px on the pilot. A measured width, when the surface can supply one,
+   * outranks any recomputation of it.
+   */
+  widths?: Map<string, number>;
 };
 
 export const senaEdgeStrokeRanges: Record<SenaLayer, { min: number; max: number }> = {
@@ -95,7 +110,8 @@ export function absoluteEdgeStrokeSignal(
 export function buildAbsoluteEdgeStrokeScale(
   edges: SenaEdge[],
   conceptPairContributions?: Map<string, number>,
-  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>
+  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>,
+  widths?: Map<string, number>
 ): SenaEdgeStrokeScale {
   const signals = new Map(edges.map((edge) => [
     edge.id,
@@ -106,9 +122,15 @@ export function buildAbsoluteEdgeStrokeScale(
     return scale;
   }, {} as Record<SenaLayer, { min: number; max: number; span: number }>);
 
-  // Spread rather than assigned: a caller that names no bands gets exactly the
-  // object shape it got before this parameter existed.
-  return { layers, signals, ...(ranges ? { ranges } : {}) };
+  // Spread rather than assigned: a caller that names no bands and no measured
+  // widths gets exactly the object shape it got before these parameters
+  // existed.
+  return {
+    layers,
+    signals,
+    ...(ranges ? { ranges } : {}),
+    ...(widths && widths.size > 0 ? { widths } : {})
+  };
 }
 
 /**
@@ -124,6 +146,8 @@ export function readableAbsoluteEdgeStrokeWidth(
   scale: SenaEdgeStrokeScale,
   range: { min: number; max: number } = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer]
 ) {
+  const drawn = scale.widths?.get(edge.id);
+  if (drawn !== undefined) return drawn;
   const signal = scale.signals.get(edge.id) ?? edge.normalizedWeight;
   const layerScale = scale.layers[edge.layer];
   const rawIntensity = layerScale.span > 1e-6
@@ -134,6 +158,8 @@ export function readableAbsoluteEdgeStrokeWidth(
 }
 
 export function readableEdgeStrokeWidth(edge: SenaEdge, scale: SenaEdgeStrokeScale) {
+  const drawn = scale.widths?.get(edge.id);
+  if (drawn !== undefined) return drawn;
   const range = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer];
   const layerScale = scale.layers[edge.layer];
   const signal = scale.signals.get(edge.id) ?? edge.scaledWeight;
