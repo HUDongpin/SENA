@@ -45,6 +45,7 @@ import { DualLensDashboard } from "./dual-lens-dashboard";
 import { EvidenceLedgerPanel, EvidenceLineageBadges } from "./evidence-ledger-panel";
 import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
+import { FusionOrbitLayer } from "./fusion-orbit-layer";
 import { FusionLayerKey, RankedList } from "./fusion-layer-key";
 import {
   FusionPlotCompactKey,
@@ -602,6 +603,7 @@ export type SenaWorkspaceBoundaryModuleId =
   | "dual-lens-dashboard"
   | "ena-space-plot"
   | "fusion-canvas"
+  | "fusion-orbit-layer"
   | "fusion-plot-overlay"
   | "fusion-layer-key"
   | "inspector-panel"
@@ -973,6 +975,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       "dual-lens-dashboard",
       "ena-space-plot",
       "fusion-canvas",
+      "fusion-orbit-layer",
       "fusion-plot-overlay",
       "fusion-layer-key",
       "inspector-panel",
@@ -3552,6 +3555,21 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       containerResponsibilities: [
         "render Canvas with prepared model, layout, layer visibility, threshold, selection, and zoom state",
         "keep SVG geometry, edge path routing, node glyph sizing, and Fusion Canvas test hooks out of the main workspace container"
+      ]
+    },
+    {
+      id: "fusion-orbit-layer",
+      path: "./fusion-orbit-layer",
+      role: "Social orbit layer (ADR 0009): hexagon persons on a ring, port-docked directed lanes, paper-cased arrowheads, community ring tints, always-on names. Renders inside a host <svg> so the Fusion plane-orbit surface and the SNA view share one sociogram.",
+      runtimeExports: {
+        FusionOrbitLayer
+      },
+      testIds: [
+        "sena-fusion-orbit-layer"
+      ],
+      containerResponsibilities: [
+        "render FusionOrbitLayer inside a host svg with prepared model, threshold, and selection state",
+        "keep orbit ring math, lane assignment, and port docking geometry in lib/sena/orbit-layout"
       ]
     },
     {

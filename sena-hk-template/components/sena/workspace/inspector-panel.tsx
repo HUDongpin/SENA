@@ -1,3 +1,9 @@
+import {
+  readableEdgeStrokeSignal,
+  readableEdgeStrokeWidth,
+  senaEdgeStrokeRanges,
+  type SenaEdgeStrokeScale
+} from "@/lib/sena/visual-encoding";
 import { cn } from "@/lib/utils";
 import type {
   SenaEdge,
@@ -12,16 +18,12 @@ import { EvidenceLineageBadges } from "./evidence-ledger-panel";
 import { RankedList } from "./fusion-layer-key";
 import { MetricCell } from "./workspace-primitives";
 
-type InspectorEdgeStrokeScale = {
-  layers: Record<SenaLayer, { min: number; max: number; span: number }>;
-  signals: Map<string, number>;
-};
-
-const edgeStrokeRanges: Record<SenaLayer, { min: number; max: number }> = {
-  social: { min: 5.2, max: 15.6 },
-  concept: { min: 3.2, max: 12.4 },
-  bridge: { min: 2.4, max: 10.8 }
-};
+// The Inspector reports the width the canvas actually drew, so it must read the
+// canvas's own encoding rather than a structural copy of it: this panel used to
+// carry its own `edgeStrokeRanges` table and its own `readableEdgeStrokeWidth`,
+// which meant a re-step of either one silently desynchronised the reported
+// provenance from the ink. Same functions, one definition.
+const edgeStrokeRanges = senaEdgeStrokeRanges;
 
 const layerCopy: Record<SenaLayer, { label: string; detail: string; className: string }> = {
   social: {
@@ -48,21 +50,6 @@ function formatInspectorNumber(value: number, digits = 2) {
 
 function conceptPairKey(left: string, right: string) {
   return [left, right].sort().join("|");
-}
-
-function readableEdgeStrokeSignal(edge: SenaEdge, scale: InspectorEdgeStrokeScale) {
-  return scale.signals.get(edge.id) ?? edge.scaledWeight;
-}
-
-function readableEdgeStrokeWidth(edge: SenaEdge, scale: InspectorEdgeStrokeScale) {
-  const range = edgeStrokeRanges[edge.layer];
-  const layerScale = scale.layers[edge.layer];
-  const signal = readableEdgeStrokeSignal(edge, scale);
-  const rawIntensity = layerScale.span > 1e-6
-    ? (signal - layerScale.min) / layerScale.span
-    : edge.normalizedWeight;
-  const intensity = Math.min(1, Math.max(0, Math.pow(rawIntensity, 0.72)));
-  return Number((range.min + intensity * (range.max - range.min)).toFixed(2));
 }
 
 function edgeMatrixProvenance(edge: SenaEdge, options: SenaModel["options"]) {
@@ -245,7 +232,7 @@ export type InspectorProps = {
   options: SenaModel["options"];
   pairReport: SenaModel["pairReport"];
   matrixFingerprints: SenaMatrixFingerprint[];
-  edgeStrokeScale: InspectorEdgeStrokeScale;
+  edgeStrokeScale: SenaEdgeStrokeScale;
   jenaConceptPairHandoffRows: SenaJenaConceptPairHandoffRow[];
   jsnaSocialTieHandoffRows: SenaJsnaSocialTieHandoffRow[];
 };
