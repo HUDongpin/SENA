@@ -1,3 +1,4 @@
+import { senaLayerStrokes } from "@/lib/sena/layer-palette";
 import type {
   SenaTemporalRuntimeTrace,
   SenaTemporalWindow
@@ -44,19 +45,19 @@ export function TimelineTrace({
       {[0.25, 0.5, 0.75].map((step) => (
         <line key={step} x1="26" x2={chartWidth - 26} y1={yFor(step)} y2={yFor(step)} stroke="rgb(var(--foreground) / 0.10)" />
       ))}
-      <path d={pathFor("socialConnectivity")} fill="none" stroke="#2f73ff" strokeWidth="4" strokeLinecap="round" />
-      <path d={pathFor("conceptConnectivity")} fill="none" stroke="#a855f7" strokeWidth="4" strokeLinecap="round" />
-      <path d={pathFor("bridgeIntegration")} fill="none" stroke="#24dcee" strokeWidth="4" strokeLinecap="round" />
-      <path data-visual-role="temporal-trace-g-pair-line" d={pathForG()} fill="none" stroke="#fb7185" strokeWidth="4" strokeLinecap="round" />
+      <path d={pathFor("socialConnectivity")} fill="none" stroke={senaLayerStrokes.social} strokeWidth="4" strokeLinecap="round" />
+      <path d={pathFor("conceptConnectivity")} fill="none" stroke={senaLayerStrokes.concept} strokeWidth="4" strokeLinecap="round" />
+      <path d={pathFor("bridgeIntegration")} fill="none" stroke={senaLayerStrokes.bridge} strokeWidth="4" strokeLinecap="round" />
+      <path data-visual-role="temporal-trace-g-pair-line" d={pathForG()} fill="none" stroke={senaLayerStrokes.pair} strokeWidth="4" strokeLinecap="round" />
       {windows.map((point, index) => (
         <g key={point.id} onClick={() => onSelect(index)} className="cursor-pointer">
           {index === activeIndex && (
             <line x1={xFor(index)} x2={xFor(index)} y1="16" y2={chartHeight - 20} stroke="rgb(var(--foreground) / 0.22)" strokeDasharray="4 6" />
           )}
-          <circle cx={xFor(index)} cy={yFor(point.socialConnectivity)} r="4" fill="#2f73ff" />
-          <circle cx={xFor(index)} cy={yFor(point.conceptConnectivity)} r="4" fill="#a855f7" />
-          <circle cx={xFor(index)} cy={yFor(point.bridgeIntegration)} r="4" fill="#24dcee" />
-          <circle cx={xFor(index)} cy={yFor(gTotals[index] / gTotalMax)} r="4" fill="#fb7185" />
+          <circle cx={xFor(index)} cy={yFor(point.socialConnectivity)} r="4" fill={senaLayerStrokes.social} />
+          <circle cx={xFor(index)} cy={yFor(point.conceptConnectivity)} r="4" fill={senaLayerStrokes.concept} />
+          <circle cx={xFor(index)} cy={yFor(point.bridgeIntegration)} r="4" fill={senaLayerStrokes.bridge} />
+          <circle cx={xFor(index)} cy={yFor(gTotals[index] / gTotalMax)} r="4" fill={senaLayerStrokes.pair} />
           {index === activeIndex && (
             <circle cx={xFor(index)} cy={yFor(point.bridgeIntegration)} r="8" fill="none" stroke="#ffffff" strokeWidth="2" opacity="0.9" />
           )}
