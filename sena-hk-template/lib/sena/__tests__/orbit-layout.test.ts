@@ -5,6 +5,7 @@ import {
   SENA_ORBIT_ENVELOPE_DOCK_FLOOR,
   SENA_ORBIT_NODE_RADIUS_RANGE,
   type SenaOrbitLane,
+  type SenaOrbitLayout,
   type SenaOrbitModelInput
 } from "../orbit-layout";
 import { buildAbsoluteEdgeStrokeScale, readableAbsoluteEdgeStrokeWidth } from "../visual-encoding";
@@ -181,6 +182,63 @@ function plateauSeparation(left: SenaOrbitLane, right: SenaOrbitLane) {
   return closest;
 }
 
+const TAU = Math.PI * 2;
+
+/** Signed short way round, the same (-PI, PI] convention the module uses. */
+function shortDelta(from: number, to: number) {
+  let delta = (to - from) % TAU;
+  if (delta > Math.PI) delta -= TAU;
+  if (delta <= -Math.PI) delta += TAU;
+  return delta;
+}
+
+/**
+ * The ellipse's angle parameter at a drawn point. Lane points sit radially
+ * outside the ring, and the outward push is along `(p - centre)`, so dividing
+ * out `rx`/`ry` recovers the parameter the lane was sampled at (the offset
+ * scales both components by the same factor and cancels).
+ */
+function pointAngle(layout: SenaOrbitLayout, point: [number, number]) {
+  return Math.atan2(
+    (point[1] - layout.geometry.center.y) / layout.geometry.ry,
+    (point[0] - layout.geometry.center.x) / layout.geometry.rx
+  );
+}
+
+/** Per-step signed angular steps along a lane, each unwrapped into (-PI, PI]. */
+function laneAngularSteps(layout: SenaOrbitLayout, lane: SenaOrbitLane) {
+  const steps: number[] = [];
+  for (let i = 1; i < lane.points.length; i += 1) {
+    steps.push(shortDelta(pointAngle(layout, lane.points[i - 1]), pointAngle(layout, lane.points[i])));
+  }
+  return steps;
+}
+
+/**
+ * The angular span the lane is *entitled* to: the short arc between its two
+ * people, less the departure and arrival port offsets, reconstructed from the
+ * module's published port law (`6 + offset * 0.30` out, `targetRadius * 0.55 +
+ * offset * 0.75` back, both shrunk together when they exceed 70% of the span).
+ * Mutate a port constant and this reconstruction — and the tests below — move.
+ */
+function laneEntitledSpan(layout: SenaOrbitLayout, lane: SenaOrbitLane) {
+  const persons = new Map(layout.persons.map((person) => [person.id, person]));
+  const source = persons.get(lane.source) as SenaOrbitLayout["persons"][number];
+  const target = persons.get(lane.target) as SenaOrbitLayout["persons"][number];
+  const rAvg = (layout.geometry.rx + layout.geometry.ry) / 2;
+  const delta = shortDelta(source.angle, target.angle);
+  const span = Math.abs(delta);
+  let departOffset = (6 + lane.offset * 0.3) / rAvg;
+  let arrivalPullback = (target.radius * 0.55 + lane.offset * 0.75) / rAvg;
+  const portBudget = span * 0.7;
+  if (departOffset + arrivalPullback > portBudget && departOffset + arrivalPullback > 0) {
+    const shrink = portBudget / (departOffset + arrivalPullback);
+    departOffset *= shrink;
+    arrivalPullback *= shrink;
+  }
+  return { delta, span: span - departOffset - arrivalPullback };
+}
+
 const reciprocalPairs = TIES.filter(([source, target]) => (
   TIES.some(([otherSource, otherTarget]) => otherSource === target && otherTarget === source)
 )).map(([source, target]) => [`social:${source}:${target}`, `social:${target}:${source}`] as const);
@@ -297,6 +355,88 @@ describe("orbit layout — lanes, ports and arrowheads", () => {
         lane.arrowhead.polygon[0][1] - (lane.arrowhead.polygon[1][1] + lane.arrowhead.polygon[2][1]) / 2
       );
       expect(headLength).toBeCloseTo(Math.min(14, Math.max(9, lane.strokeWidth * 2.6)), 1);
+    }
+  });
+});
+
+describe("orbit layout — every lane takes the short way round", () => {
+  // The seam. Placement angles live in [-PI/2, 3PI/2), so a pair whose short arc
+  // crosses -90 degrees has a raw angle difference of the opposite sign and
+  // nearly complementary magnitude to `shortDelta`. Interpolating between raw
+  // angles drew those lanes almost all the way round the ring, against their own
+  // `sweep`, through hexagons, docking on the far side of the target — while
+  // `assignOrbitLanes` had booked only the short arc, voiding the lane
+  // non-overlap guarantee. The antipodal pair every even ring contains is the
+  // boundary instance. Nothing in the shipped dock/plateau invariants saw it,
+  // because none of them looked at where the path went in between.
+  const surfaces: Array<[string, SenaOrbitLayout]> = [
+    ["8-person fixture", buildSenaOrbitLayout(orbitFixture())],
+    ["live pilot model", buildSenaOrbitLayout(buildSenaModel(lessonStudySenaContract))]
+  ];
+
+  for (const [label, layout] of surfaces) {
+    it(`travels the short arc, in the swept direction, on the ${label}`, () => {
+      expect(layout.lanes.length).toBeGreaterThan(0);
+
+      for (const lane of layout.lanes) {
+        const { delta, span } = laneEntitledSpan(layout, lane);
+        const steps = laneAngularSteps(layout, lane);
+        const travel = steps.reduce((total, step) => total + step, 0);
+
+        // Sign: the drawn direction is the sweep the lane declares, which is the
+        // sign of the wrap-aware short delta. This is the assertion the seam bug
+        // fails outright — it drew p8->p1 at -316 degrees for a +45 degree tie.
+        expect(Math.sign(delta)).toBe(lane.sweep);
+        expect(Math.sign(travel)).toBe(lane.sweep);
+
+        // Monotone: no step ever turns back. Exact, no tolerance — a long-way
+        // path is monotone too, but monotone the *other* way, so this and the
+        // sign check together pin the branch the arc was interpolated on.
+        for (const step of steps) {
+          expect(Math.sign(step) === lane.sweep || step === 0).toBe(true);
+        }
+
+        // Magnitude: the short arc less the two port offsets is the ceiling, and
+        // node-clearance trimming is the only thing allowed to take from it.
+        // 1e-4 rad (0.006 degrees) absorbs the 2-decimal rounding the emitted
+        // points carry; the failure this guards against is measured in radians.
+        expect(Math.abs(travel)).toBeLessThanOrEqual(span + 1e-4);
+        expect(Math.abs(travel)).toBeGreaterThanOrEqual(span * 0.85);
+      }
+    });
+
+    it(`clears every hexagon it is not docking at, on the ${label}`, () => {
+      for (const lane of layout.lanes) {
+        for (const person of layout.persons) {
+          let closest = Number.POSITIVE_INFINITY;
+          for (const [x, y] of lane.points) {
+            closest = Math.min(closest, Math.hypot(x - person.x, y - person.y));
+          }
+          // Endpoints included: the depart/arrival trim already buys
+          // `radius + clearance` at both ports, so once the arc is on the right
+          // branch no point of any lane is inside any hexagon at all. The old
+          // long-way lanes ran straight through their own endpoints' hexes
+          // (15.7px into a 40px node) and this is what caught it.
+          expect(closest).toBeGreaterThanOrEqual(person.radius);
+        }
+      }
+    });
+  }
+
+  it("keeps the antipodal pair an even ring guarantees on its short arc", () => {
+    // Eight people, so p1 and p5 sit exactly opposite: raw difference -180
+    // degrees maps to shortDelta +180, and the raw-angle interpolation used to
+    // draw one direction of every such pair the long way with inverted sweep.
+    const layout = buildSenaOrbitLayout(orbitFixture());
+    const antipodal = layout.lanes.filter((lane) => (
+      Math.abs(Math.abs(laneEntitledSpan(layout, lane).delta) - Math.PI) < 1e-9
+    ));
+
+    expect(antipodal.length).toBeGreaterThan(0);
+    for (const lane of antipodal) {
+      const travel = laneAngularSteps(layout, lane).reduce((total, step) => total + step, 0);
+      expect(Math.sign(travel)).toBe(lane.sweep);
+      expect(Math.abs(travel)).toBeLessThanOrEqual(Math.PI + 1e-9);
     }
   });
 });

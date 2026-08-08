@@ -592,8 +592,20 @@ export function buildSenaOrbitLayout(
       arrivalPullback *= shrink;
     }
 
+    // Unwrap the target before building the arc. Placement angles live in
+    // [-PI/2, 3PI/2), so whenever the short arc crosses the seam at -90 degrees
+    // the raw difference `targetAngle - sourceAngle` has the opposite sign and a
+    // nearly complementary magnitude to `delta` — interpolating between raw
+    // angles then draws the lane the long way round, against its own `sweep`,
+    // across third-party hexagons, and docks it on the far side of the target
+    // while `assignOrbitLanes` books only the short arc. `sourceAngle + delta`
+    // is the same point on the ring (cos/sin are periodic) expressed on the
+    // branch the sweep is computed from, so interpolation, envelope, trimming,
+    // docks, arrowheads and the booked occupancy interval all agree for every
+    // pair, including the antipodal boundary every even ring guarantees.
+    const endAngleBase = sourceAngle + delta;
     const startAngle = sourceAngle + sweep * departOffset;
-    const endAngle = targetAngle - sweep * arrivalPullback;
+    const endAngle = endAngleBase - sweep * arrivalPullback;
 
     const sampled: Array<[number, number]> = [];
     const envelopes: number[] = [];
