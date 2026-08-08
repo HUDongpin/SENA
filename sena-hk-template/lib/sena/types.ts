@@ -799,7 +799,7 @@ export type SenaMethodProtocolRuntimeHandoff = {
 };
 
 export type SenaVisualGrammarItem = {
-  id: "fusion-canvas-a1" | "temporal-fusion-arc" | "ena-space-canonical" | "workspace-shell-c3-collapsed-switcher";
+  id: "fusion-canvas-a1" | "temporal-fusion-arc" | "ena-space-canonical" | "workspace-shell-c3-collapsed-switcher" | "fusion-plane-orbit";
   label: string;
   visualEncoding: string;
   dataMapping: string;

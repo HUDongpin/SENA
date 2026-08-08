@@ -380,10 +380,11 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     visualGrammarIds.includes("temporal-fusion-arc") &&
     visualGrammarReferenceAssets.length >= 4 &&
     visualGrammarReferenceAssets.every((asset) => asset.bytes > 0 && /^[a-f0-9]{64}$/.test(asset.sha256)) &&
-    adoptedVisualReferenceIds.includes("a1-inner-solid-mesh-mockup") &&
+    adoptedVisualReferenceIds.includes("fusion-plane-orbit-mockup") &&
     adoptedVisualReferenceIds.includes("temporal-fusion-arc-mockup") &&
     visualGrammarReferencePaths.includes("output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png") &&
     visualGrammarReferencePaths.includes("output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png") &&
+    visualGrammarReferencePaths.includes("output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png") &&
     JSON.stringify(visualGrammarIds) === JSON.stringify(methodProtocolGrammarIds) &&
     JSON.stringify(visualGrammarIds) === JSON.stringify(reportGrammarIds) &&
     productionContract.visualChecks.some((check) => check.id === "fusion-canvas-ena-solid-link") &&

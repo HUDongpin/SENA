@@ -33,6 +33,14 @@ export const senaVisualGrammar: SenaVisualGrammarItem[] = [
     dataMapping: "The central canvas carries the active Temporal Fusion, Fusion A1, ENA Space, SNA, Evidence, or Matrix plot; the bottom Data View drawer maps directly to utterances, coded_segments, interactions, active-window labels, and S/W/B counts without replacing the graph; the right viewports keep synchronized supporting plots visible; the left rail maps to workflow context and plot tooling rather than data results. The Stats provenance summary maps metric counts to direct jSNA, jENA, SENA-implemented, and SENA composite source categories.",
     interpretationRole: "Defines the target workspace shell for making SENA's multi-plot research value legible without crowding the primary analytical view.",
     guardrail: "This shell is a product-workspace layout reference. It should not be interpreted as analysis output, and live implementation must preserve keyboard access, visible labels, and the current export/report provenance gates."
+  },
+  {
+    id: "fusion-plane-orbit",
+    label: "Fusion Plane + Social Orbit",
+    visualEncoding: "The center is the canonical ENA plane rendered by the shared EnaPlot renderer verbatim: measured jENA coordinates, neutral connectivity-sized code nodes, single-hue weight-coupled edges, 4px unit points, origin cross, and variance-labeled SVD axes. Around it, persons sit on an explanatory social orbit ring as hexagonal nodes sized by square-root-scaled strength with community ring tints and always-on name labels. Directed S ties travel in nested orbit lanes with port docking: each tie keeps its own lane end-to-end, docks at its own perimeter port, and ends in a paper-cased arrowhead drawn above all lanes. B person-code bridges cross from orbit hexagons to plane positions as capped translucent overlay lines. S ties never draw inside the plane.",
+    dataMapping: "Plane node positions and unit points come from jENA rotated coordinates in the manifest; plane edges are mean ENA line weights. Orbit ring order maps to community id then social strength from the jSNA social report; lane width maps to corpus-max-anchored normalized S weight through an absolute stroke scale, so widths stay comparable under threshold changes. B overlay lines map to person-code contributions. Every drawn tie exposes weight, normalized weight, scaled weight, visual salience, and visual stroke width as data attributes for auditability.",
+    interpretationRole: "Lets an ENA-literate reader read Fusion's center as a true ENA plot while the social structure stays legible as an explanatory ring — direction, reciprocity, and community visible without competing with measured space.",
+    guardrail: "Plane distances are measurements and must keep lib/sena/__tests__/fusion-plane-parity.test.tsx green: stripping every data-sena-layer subtree must yield exactly what EnaPlot renders alone (ADR 0009). Orbit placement and lane geometry are explanatory choices and carry no metric claim; read data-edge-weight, matrices, and evidence before making research claims."
   }
 ];
 
@@ -43,9 +51,9 @@ export const senaVisualGrammarReferenceAssets: SenaVisualGrammarReferenceAsset[]
     path: "output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png",
     bytes: 730212,
     sha256: "fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399",
-    role: "adopted-reference",
+    role: "alternative-reference",
     relatedGrammarId: "fusion-canvas-a1",
-    note: "Adopted main Fusion Canvas direction: solid purple ENA W mesh inside the concept space with blue SNA outer-orbit arcs."
+    note: "Alternative reference for the diagnostic explanatory and joint layouts (ADR 0009): solid purple ENA W mesh inside the concept space with blue SNA outer-orbit arcs."
   },
   {
     id: "a2-dual-rail-ena-mockup",
@@ -86,6 +94,16 @@ export const senaVisualGrammarReferenceAssets: SenaVisualGrammarReferenceAsset[]
     role: "adopted-reference",
     relatedGrammarId: "workspace-shell-c3-collapsed-switcher",
     note: "Adopted SENA Workspace shell direction: ENA-inspired workbench with a dominant Temporal Fusion canvas, right-side Primary/Secondary plot viewports, collapsed plot switcher, and compact glass semantic rail icons."
+  },
+  {
+    id: "fusion-plane-orbit-mockup",
+    label: "Fusion Plane + Social Orbit mockup",
+    path: "output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png",
+    bytes: 176753,
+    sha256: "c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6",
+    role: "adopted-reference",
+    relatedGrammarId: "fusion-plane-orbit",
+    note: "Adopted Fusion default direction (ADR 0009): canonical ENA plane with port-docked directed social orbit lanes and paper-cased arrowheads."
   }
 ];
 
@@ -110,6 +128,7 @@ export function buildSenaVisualGrammarArtifact(
       "This artifact records the adopted explanatory visual encodings for the local SENA research pilot.",
       "It preserves the A1 Inner Solid Mesh distinction between solid ENA W links and outer-orbit SNA S arcs, with layer-relative weighted stroke widths, readable link halos, and on-demand selected-node label plates for day-mode inspection.",
       "It records the ENA Space canonical grammar (ADR 0008): where a node's position is a measured jENA coordinate the plot follows rENA/jena-js verbatim through the same renderer /workspace/ena uses, and SENA's bridge, social, and unit-identity layers are additive overlay. The A1 grammar continues to apply to the explanatory and joint layouts, where position is a layout choice rather than a measurement.",
+      "It records the Fusion plane + social orbit grammar (ADR 0009): the Fusion default renders the canonical ENA plane through the shared renderer with the social layer on an explanatory orbit ring — nested directed lanes, port docking, paper-cased arrowheads, community tints, and always-on names — while the A1 grammar continues to serve the diagnostic explanatory and joint layouts.",
       "It preserves the Temporal Fusion Arc direction for narrating Plan, Teach, and Reflect lesson-study windows with S/W/B/G visual signals.",
       "It records the C3 Workspace Shell direction for the future /workspace/sena workbench: dominant central plot, right-side Primary/Secondary viewports, bottom Data View drawer, collapsed plot switcher, compact Apple-style glass semantic rail icons, and a Stats metric provenance summary for direct jSNA, jENA, SENA-implemented, and composite metrics.",
       "Visual grammar supports inspection and reporting, but matrix exports, runtime provenance, evidence, and human review remain authoritative for research interpretation."

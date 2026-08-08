@@ -1606,11 +1606,14 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Review packet is missing the archived visual grammar artifact.");
   }
   const visualGrammarIds = visualGrammar.visualGrammar?.map((item) => item.id) ?? [];
-  if (!visualGrammarIds.includes("fusion-canvas-a1") || !visualGrammarIds.includes("temporal-fusion-arc") || !visualGrammarIds.includes("workspace-shell-c3-collapsed-switcher")) {
+  if (!visualGrammarIds.includes("fusion-canvas-a1") || !visualGrammarIds.includes("temporal-fusion-arc") || !visualGrammarIds.includes("workspace-shell-c3-collapsed-switcher") || !visualGrammarIds.includes("fusion-plane-orbit")) {
     throw new Error(`Archived visual grammar artifact is missing adopted grammar ids: ${visualGrammarIds.join(", ")}.`);
   }
-  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "a1-inner-solid-mesh-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png" && asset.bytes === 730212 && asset.sha256 === "fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399")) {
-    throw new Error("Archived visual grammar artifact is missing the adopted A1 Inner Solid Mesh mockup reference.");
+  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "a1-inner-solid-mesh-mockup" && asset.role === "alternative-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png" && asset.bytes === 730212 && asset.sha256 === "fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399")) {
+    throw new Error("Archived visual grammar artifact is missing the alternative A1 Inner Solid Mesh mockup reference.");
+  }
+  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "fusion-plane-orbit-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png" && asset.bytes === 176753 && asset.sha256 === "c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6")) {
+    throw new Error("Archived visual grammar artifact is missing the adopted Fusion Plane + Social Orbit mockup reference.");
   }
   if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "temporal-fusion-arc-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png" && asset.bytes === 675378 && asset.sha256 === "0bb2ca6c5e9418e90572cfd956bcbfcbde34ec4d27aa3946cc8433a7048bb4bb")) {
     throw new Error("Archived visual grammar artifact is missing the adopted Temporal Fusion Arc mockup reference.");
@@ -1629,6 +1632,10 @@ async function verifyArtifactDownloadsAndRestore(page) {
   assertTextIncludes(temporalGrammar?.dataMapping ?? "", "strongest G pair labels", "Temporal Fusion visual grammar");
   assertTextIncludes(workspaceShellGrammar?.visualEncoding ?? "", "collapsed Plots switcher", "Workspace shell visual grammar");
   assertTextIncludes(workspaceShellGrammar?.visualEncoding ?? "", "Apple-style glass tiles", "Workspace shell visual grammar");
+  const planeOrbitGrammar = visualGrammar.visualGrammar?.find((item) => item.id === "fusion-plane-orbit");
+  assertTextIncludes(planeOrbitGrammar?.visualEncoding ?? "", "port docking", "Fusion plane + orbit visual grammar");
+  assertTextIncludes(planeOrbitGrammar?.visualEncoding ?? "", "S ties never draw inside the plane", "Fusion plane + orbit visual grammar");
+  assertTextIncludes(planeOrbitGrammar?.dataMapping ?? "", "corpus-max-anchored normalized S weight", "Fusion plane + orbit visual grammar");
   if (reviewPacket.contents?.projectSnapshot?.schemaVersion !== "sena-project-snapshot/v1") {
     throw new Error("Review packet is missing embedded project snapshot.");
   }
@@ -1715,6 +1722,9 @@ async function verifyArtifactDownloadsAndRestore(page) {
   }
   if (!reviewPacket.contents?.visualGrammarArtifact?.referenceAssets?.some((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup" && asset.path === "output/sena-workspace-layout-options/sena-workspace-layout-option-c2-temporal-studio-collapsed-switcher.png" && asset.sha256 === "bc7c350686c6f3e3af9f0ed3acd3fcaee10bc423cd8be95a36bf88010392d7aa")) {
     throw new Error("Review packet visual grammar artifact is missing the C3 Workspace Shell mockup reference.");
+  }
+  if (!reviewPacket.contents?.visualGrammarArtifact?.referenceAssets?.some((asset) => asset.id === "fusion-plane-orbit-mockup" && asset.path === "output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png" && asset.sha256 === "c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6")) {
+    throw new Error("Review packet visual grammar artifact is missing the Fusion Plane + Social Orbit mockup reference.");
   }
   if (!reviewPacket.artifactManifest?.some((artifact) => artifact.filename === "sena-visual-grammar.json")) {
     throw new Error("Review packet artifact manifest is missing the visual grammar artifact.");

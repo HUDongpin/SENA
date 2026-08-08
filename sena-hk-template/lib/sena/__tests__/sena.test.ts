@@ -665,8 +665,10 @@ describe("SENA model builder", () => {
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestBridgeTie)).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.some((entry) => entry.strongestGPair?.totalContribution && entry.strongestGPair.totalContribution > 0)).toBe(true);
     expect(report.figures.temporalRuntimeNarrative.find((entry) => entry.strongestGPair)?.strongestGPair?.topContributors.length).toBeGreaterThan(0);
-    expect(report.figures.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
+    expect(report.figures.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher", "fusion-plane-orbit"]);
     expect(report.figures.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.guardrail).toContain("Visual distance");
+    expect(report.figures.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.guardrail).toContain("Plane distances are measurements");
+    expect(report.figures.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("S ties never draw inside the plane");
     expect(report.enaManifest.status).toBe("computed");
     expect(report.enaManifest.outputs?.connectionCounts.length).toBe(exampleSenaContract.people.length);
     expect(report.enaManifest.outputs?.lineWeights.length).toBeGreaterThan(0);
@@ -1025,7 +1027,7 @@ describe("SENA model builder", () => {
     expect(protocol.mathematicalFrame.formula).toBe("A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]");
     expect(protocol.mathematicalFrame.layers.map((layer) => layer.id)).toEqual(["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"]);
     expect(protocol.mathematicalFrame.layers.find((layer) => layer.id === "G")?.guardrail).toContain("not as an additional adjacency block");
-    expect(protocol.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
+    expect(protocol.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher", "fusion-plane-orbit"]);
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("solid purple links");
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("outer-orbit social arcs");
     expect(protocol.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("hexagonal person nodes");
@@ -1042,6 +1044,11 @@ describe("SENA model builder", () => {
     expect(protocol.visualGrammar.find((item) => item.id === "temporal-fusion-arc")?.dataMapping).toContain("temporal windows");
     expect(protocol.visualGrammar.find((item) => item.id === "temporal-fusion-arc")?.dataMapping).toContain("active person-code-pair counts");
     expect(protocol.visualGrammar.find((item) => item.id === "temporal-fusion-arc")?.dataMapping).toContain("strongest G pair labels");
+    expect(protocol.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("shared EnaPlot renderer verbatim");
+    expect(protocol.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("port docking");
+    expect(protocol.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("paper-cased arrowhead");
+    expect(protocol.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("S ties never draw inside the plane");
+    expect(protocol.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.dataMapping).toContain("corpus-max-anchored normalized S weight");
     expect(protocol.interpretationGuardrails.some((guardrail) => guardrail.includes("visual grammars"))).toBe(true);
     expect(protocol.runtimeIntegration.jena.dependencySpec).toBe("0.6.2");
     expect(protocol.runtimeIntegration.jena.apiSurface).toContain("ena()");
@@ -1081,7 +1088,7 @@ describe("SENA model builder", () => {
     expect(artifact.title).toBe("Lesson Study Visual Grammar");
     expect(artifact.workspaceRoute).toBe("/workspace/sena");
     expect(artifact.analysisWindow?.id).toBe(model.temporal.windows[0].id);
-    expect(artifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher"]);
+    expect(artifact.visualGrammar.map((item) => item.id)).toEqual(["fusion-canvas-a1", "temporal-fusion-arc", "ena-space-canonical", "workspace-shell-c3-collapsed-switcher", "fusion-plane-orbit"]);
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("solid purple links");
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("outer-orbit social arcs");
     expect(artifact.visualGrammar.find((item) => item.id === "fusion-canvas-a1")?.visualEncoding).toContain("hexagonal person nodes");
@@ -1097,15 +1104,26 @@ describe("SENA model builder", () => {
     expect(artifact.visualGrammar.find((item) => item.id === "workspace-shell-c3-collapsed-switcher")?.visualEncoding).toContain("Network Metrics glyph");
     expect(artifact.visualGrammar.find((item) => item.id === "workspace-shell-c3-collapsed-switcher")?.visualEncoding).toContain("metric provenance summary");
     expect(artifact.visualGrammar.find((item) => item.id === "workspace-shell-c3-collapsed-switcher")?.dataMapping).toContain("SENA composite");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("shared EnaPlot renderer verbatim");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("port docking");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("paper-cased arrowhead");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.visualEncoding).toContain("S ties never draw inside the plane");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.dataMapping).toContain("corpus-max-anchored normalized S weight");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.interpretationRole).toContain("explanatory ring");
+    expect(artifact.visualGrammar.find((item) => item.id === "fusion-plane-orbit")?.guardrail).toContain("lib/sena/__tests__/fusion-plane-parity.test.tsx");
     expect(artifact.referenceAssets.map((asset) => asset.id)).toEqual([
       "a1-inner-solid-mesh-mockup",
       "a2-dual-rail-ena-mockup",
       "a3-white-core-ena-mockup",
       "temporal-fusion-arc-mockup",
-      "workspace-shell-c3-collapsed-switcher-mockup"
+      "workspace-shell-c3-collapsed-switcher-mockup",
+      "fusion-plane-orbit-mockup"
     ]);
-    expect(artifact.referenceAssets.find((asset) => asset.id === "a1-inner-solid-mesh-mockup")?.role).toBe("adopted-reference");
+    expect(artifact.referenceAssets.find((asset) => asset.id === "a1-inner-solid-mesh-mockup")?.role).toBe("alternative-reference");
     expect(artifact.referenceAssets.find((asset) => asset.id === "a1-inner-solid-mesh-mockup")?.path).toBe("output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png");
+    expect(artifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.role).toBe("adopted-reference");
+    expect(artifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.path).toBe("output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png");
+    expect(artifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.relatedGrammarId).toBe("fusion-plane-orbit");
     expect(artifact.referenceAssets.find((asset) => asset.id === "temporal-fusion-arc-mockup")?.role).toBe("adopted-reference");
     expect(artifact.referenceAssets.find((asset) => asset.id === "temporal-fusion-arc-mockup")?.path).toBe("output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png");
     expect(artifact.referenceAssets.find((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup")?.role).toBe("adopted-reference");
@@ -1118,6 +1136,7 @@ describe("SENA model builder", () => {
     expect(artifact.notes.join(" ")).toContain("A1 Inner Solid Mesh");
     expect(artifact.notes.join(" ")).toContain("Temporal Fusion Arc");
     expect(artifact.notes.join(" ")).toContain("C3 Workspace Shell");
+    expect(artifact.notes.join(" ")).toContain("Fusion plane + social orbit grammar (ADR 0009)");
   });
 
   it("builds a standalone metric provenance artifact for SENA research handoff", () => {
@@ -3741,14 +3760,16 @@ describe("SENA model builder", () => {
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "method-protocol-handoff")?.evidence).toContain("companion=sena-coding-reliability-gate.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "method-protocol-handoff")?.evidence).toContain("companion=sena-claim-readiness-gate.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("visualCheck=fusion-canvas-sna-outer-orbit");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssets=5");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("adoptedReferences=a1-inner-solid-mesh-mockup|temporal-fusion-arc-mockup|workspace-shell-c3-collapsed-switcher-mockup");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAsset=a1-inner-solid-mesh-mockup:adopted-reference:output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssets=6");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("adoptedReferences=temporal-fusion-arc-mockup|workspace-shell-c3-collapsed-switcher-mockup|fusion-plane-orbit-mockup");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAsset=a1-inner-solid-mesh-mockup:alternative-reference:output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAsset=temporal-fusion-arc-mockup:adopted-reference:output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAsset=workspace-shell-c3-collapsed-switcher-mockup:adopted-reference:output/sena-workspace-layout-options/sena-workspace-layout-option-c2-temporal-studio-collapsed-switcher.png");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAsset=fusion-plane-orbit-mockup:adopted-reference:output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssetIntegrity=a1-inner-solid-mesh-mockup:730212:fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssetIntegrity=temporal-fusion-arc-mockup:675378:0bb2ca6c5e9418e90572cfd956bcbfcbde34ec4d27aa3946cc8433a7048bb4bb");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssetIntegrity=workspace-shell-c3-collapsed-switcher-mockup:145251:bc7c350686c6f3e3af9f0ed3acd3fcaee10bc423cd8be95a36bf88010392d7aa");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "visual-grammar-handoff")?.evidence).toContain("referenceAssetIntegrity=fusion-plane-orbit-mockup:176753:c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "analysis-scope-handoff")?.actual).toContain("Full conversation");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "analysis-scope-handoff")?.evidence).toContain("summaryWindow=full-conversation");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "temporal-handoff")?.expected).toContain("matrix fingerprints");
@@ -3891,6 +3912,9 @@ describe("SENA model builder", () => {
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "temporal-fusion-arc-mockup")?.sha256).toBe("0bb2ca6c5e9418e90572cfd956bcbfcbde34ec4d27aa3946cc8433a7048bb4bb");
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup")?.path).toBe("output/sena-workspace-layout-options/sena-workspace-layout-option-c2-temporal-studio-collapsed-switcher.png");
     expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup")?.sha256).toBe("bc7c350686c6f3e3af9f0ed3acd3fcaee10bc423cd8be95a36bf88010392d7aa");
+    expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.path).toBe("output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png");
+    expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.bytes).toBe(176753);
+    expect(packet.contents.visualGrammarArtifact.referenceAssets.find((asset) => asset.id === "fusion-plane-orbit-mockup")?.sha256).toBe("c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6");
     expect(packet.contents.developmentPlan.schemaVersion).toBe("sena-development-plan/v1");
     expect(packet.contents.developmentPlan.runtimeParityEvidence.map((evidence) => evidence.id)).toEqual(["jena-rena-sample-parity", "jsna-r-sna-social-parity"]);
     expect(packet.contents.developmentPlan.scope.inScope).toContain("Institution production cutover acceptance evidence with native adapter certification, platform-owner bridge decisions, release-gate records, go-live rehearsal, and redacted operations handoff for database, object storage, pub/sub, audit/SIEM, backup/restore, alerting, email, IdP, and provisioning.");
