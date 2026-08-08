@@ -2,12 +2,20 @@ import type { ENAPlotModel } from "jena-js/plot";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EnaPlot } from "../../../components/ena/EnaPlot";
-import { ENA_COMPARISON_PALETTES, enaGroupIntervals, enaRowGroupValues } from "../comparison";
-import { projectPoint } from "../plot-encoding";
+import {
+  ENA_COMPARISON_PALETTES,
+  enaGroupIntervals,
+  enaRowGroupValues,
+  enaSubtractionNetwork,
+  enaSubtractionTraceName,
+  withEnaSubtractionNetwork
+} from "../comparison";
+import { desaturate, projectPoint } from "../plot-encoding";
 
-// Comparison mode's geometry: group means with a 95% t interval. Checked against
-// arithmetic done by hand in the comments rather than against a second call into
-// the same code — a group mean that agrees with itself proves nothing.
+// Comparison mode's geometry: group means with a 95% t interval, and rENA's
+// subtracted network. Both are checked against arithmetic done by hand in the
+// comments rather than against a second call into the same code — a group mean
+// that agrees with itself proves nothing.
 
 const groupPoints = [
   // Group A: three units. x = 1,3,5 -> mean 3, sd 2. y = 2,4,0 -> mean 2, sd 2.
@@ -127,6 +135,82 @@ describe("enaGroupIntervals", () => {
     ).toEqual([]);
   });
 });
+
+// --- Subtraction network -----------------------------------------------------
+
+const adjacencyKey = [
+  { source: "question", target: "evidence", name: "question & evidence", sourceIndex: 0, targetIndex: 1 },
+  { source: "question", target: "critique", name: "question & critique", sourceIndex: 0, targetIndex: 2 }
+];
+
+// Group A mean: (0.4 + 0.6)/2 = 0.5 and (0.1 + 0.3)/2 = 0.2.
+// Group B mean: (0.2 + 0.0)/2 = 0.1 and (0.5 + 0.7)/2 = 0.6.
+// So the differences are +0.4 and -0.4 — one edge of each sign, by hand.
+const lineWeights = [
+  { ENA_UNIT: "A1", cohort: "A", "question & evidence": 0.4, "question & critique": 0.1 },
+  { ENA_UNIT: "A2", cohort: "A", "question & evidence": 0.6, "question & critique": 0.3 },
+  { ENA_UNIT: "B1", cohort: "B", "question & evidence": 0.2, "question & critique": 0.5 },
+  { ENA_UNIT: "B2", cohort: "B", "question & evidence": 0.0, "question & critique": 0.7 }
+];
+
+function subtraction(groups: [string, string] = ["A", "B"], minDelta = 0) {
+  return enaSubtractionNetwork({
+    adjacencyKey,
+    lineWeights,
+    groupOf: enaRowGroupValues(lineWeights, "cohort"),
+    groups,
+    minDelta
+  });
+}
+
+describe("enaSubtractionNetwork", () => {
+  it("subtracts the two groups' mean line weights, hand-computed", () => {
+    const network = subtraction();
+
+    expect(network.status).toBe("computed");
+    expect(network.counts).toEqual([2, 2]);
+    expect(network.edges.map((edge) => edge.name)).toEqual([
+      "question & evidence",
+      "question & critique"
+    ]);
+    expect(network.edges[0].first).toBeCloseTo(0.5, 12);
+    expect(network.edges[0].second).toBeCloseTo(0.1, 12);
+    expect(network.edges[0].delta).toBeCloseTo(0.4, 12);
+    expect(network.edges[1].first).toBeCloseTo(0.2, 12);
+    expect(network.edges[1].second).toBeCloseTo(0.6, 12);
+    expect(network.edges[1].delta).toBeCloseTo(-0.4, 12);
+  });
+
+  it("negates every difference when the groups are swapped", () => {
+    // The sign carries the reading ("more in A than in B"), so the order of the
+    // pair has to be the only thing that decides it.
+    const forward = subtraction(["A", "B"]);
+    const reverse = subtraction(["B", "A"]);
+
+    for (const [index, edge] of forward.edges.entries()) {
+      expect(reverse.edges[index].delta).toBeCloseTo(-edge.delta, 12);
+    }
+  });
+
+  it("drops differences at or below the minimum, like a mean network's minWeight", () => {
+    expect(subtraction(["A", "B"], 0.5).edges).toEqual([]);
+    expect(subtraction(["A", "B"], 0.5).status).toBe("skipped");
+    expect(subtraction(["A", "B"], 0.3).edges).toHaveLength(2);
+  });
+
+  it("skips rather than invents a network when a group has no units", () => {
+    const missing = subtraction(["A", "Z"]);
+    expect(missing.status).toBe("skipped");
+    expect(missing.counts).toEqual([2, 0]);
+    expect(missing.edges).toEqual([]);
+    expect(missing.warnings[0]).toContain("Z");
+
+    const same = subtraction(["A", "A"]);
+    expect(same.status).toBe("skipped");
+    expect(same.warnings[0]).toContain("two different groups");
+  });
+});
+
 // --- Rendering ---------------------------------------------------------------
 
 const network = {
@@ -195,6 +279,29 @@ function attributes(markup: string, attribute: string) {
   return [...markup.matchAll(new RegExp(`${attribute}="([^"]*)"`, "g"))].map((match) => match[1]);
 }
 
+/** The one `<line>` element carrying this sign, opening tag through its title. */
+function signedLine(markup: string, sign: "positive" | "negative") {
+  return markup.match(new RegExp(`<line[^>]*data-edge-sign="${sign}"[^>]*>.*?</line>`))?.[0] ?? "";
+}
+
+function strokeOf(element: string) {
+  return element.match(/ stroke="([^"]*)"/)?.[1] ?? "";
+}
+
+function channels(hex: string) {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+/**
+ * The palette entry after the weak-edge desaturation the renderer applies to
+ * every network edge, read back from the intensity the element itself printed.
+ */
+function desaturatedAt(element: string, base: string) {
+  const intensity = Number(element.match(/data-edge-intensity="([^"]*)"/)?.[1] ?? "0");
+  return desaturate(base, 0.35 + 0.65 * intensity);
+}
+
 describe("EnaPlot draws comparison groups in marked layers only", () => {
   const plain = renderToStaticMarkup(<EnaPlot model={plotModel} />);
   const withGroups = renderToStaticMarkup(
@@ -238,5 +345,71 @@ describe("EnaPlot draws comparison groups in marked layers only", () => {
     expect(attributes(withGroups, "data-sena-group-interval")).toEqual(["true", "true", "false"]);
     // The one-unit group gets a mean marker and no box.
     expect(attributes(withGroups, "data-sena-group-ci")).toEqual(["A", "B"]);
+  });
+});
+
+describe("EnaPlot inks a subtracted network in rENA's two colours", () => {
+  const subtracted = withEnaSubtractionNetwork(plotModel, subtraction());
+  const plainMarkup = renderToStaticMarkup(<EnaPlot model={plotModel} />);
+
+  it("leaves the network alone with signed mode off — the default", () => {
+    // plot-parity pins the renderer wholesale; this states the same guarantee
+    // from the comparison side, where the signed path is one prop away.
+    expect(renderToStaticMarkup(<EnaPlot model={subtracted} />)).not.toContain("data-edge-sign");
+    expect(plainMarkup).not.toContain("data-edge-sign");
+  });
+
+  it("colours positive differences with group A and negative with group B", () => {
+    const markup = renderToStaticMarkup(
+      <EnaPlot model={subtracted} signedNetwork={{ positive: "#218EBF", negative: "#EF691B" }} />
+    );
+    const positive = signedLine(markup, "positive");
+    const negative = signedLine(markup, "negative");
+
+    // The signed edge is the one the subtraction called positive: "question &
+    // evidence" is +0.4 in A, "question & critique" is -0.4.
+    expect(positive).toContain("question &amp; evidence");
+    expect(negative).toContain("question &amp; critique");
+    // The stroke is its palette entry put through the same weak-edge
+    // desaturation every network edge gets, so the assertion is about which
+    // base colour the sign chose and nothing else.
+    expect(positive).toContain(`stroke="${desaturatedAt(positive, "#218EBF")}"`);
+    expect(negative).toContain(`stroke="${desaturatedAt(negative, "#EF691B")}"`);
+    // And the two ends of the palette are genuinely apart: blue-dominant
+    // against red-dominant, which is what a reader is asked to tell apart.
+    expect(channels(strokeOf(positive)).b).toBeGreaterThan(channels(strokeOf(positive)).r);
+    expect(channels(strokeOf(negative)).r).toBeGreaterThan(channels(strokeOf(negative)).b);
+  });
+
+  it("names the trace after the subtraction it draws", () => {
+    expect(enaSubtractionTraceName(["A", "B"])).toBe("A − B");
+    expect(subtracted.traces[0].name).toBe("A − B");
+    expect(renderToStaticMarkup(<EnaPlot model={subtracted} />)).toContain('data-trace-name="A − B"');
+  });
+
+  it("amplifies a small difference by the multiplier and nothing else", () => {
+    const single = renderToStaticMarkup(
+      <EnaPlot model={subtracted} signedNetwork={{ positive: "#218EBF", negative: "#EF691B" }} />
+    );
+    const tripled = renderToStaticMarkup(
+      <EnaPlot
+        model={subtracted}
+        signedNetwork={{ positive: "#218EBF", negative: "#EF691B", multiplier: 3 }}
+      />
+    );
+    const widths = (markup: string) =>
+      attributes(markup, "data-edge-visual-width").map(Number).sort((left, right) => left - right);
+
+    expect(widths(tripled)).toEqual(widths(single).map((width) => Number((width * 3).toFixed(2))));
+    // Opacity encodes |delta| and must not move with the width control.
+    expect(attributes(tripled, "data-edge-intensity")).toEqual(
+      attributes(single, "data-edge-intensity")
+    );
+  });
+
+  it("keeps the subtracted network's nodes where the model put them", () => {
+    // rENA subtracts edges, not positions: re-deriving node positions from a
+    // difference would place codes where neither group's model places them.
+    expect(subtracted.traces[0].network!.nodes).toEqual(network.nodes);
   });
 });

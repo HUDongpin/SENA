@@ -19,7 +19,8 @@ import {
   plotLegendEntries,
   pointTraceRadius,
   projectPoint,
-  styleRenaNetwork
+  styleRenaNetwork,
+  type RenaNetworkInk
 } from "@/lib/ena/plot-encoding";
 import {
   clampEnaPlotScale,
@@ -156,6 +157,18 @@ export type EnaPlotOverlay = {
   groups?: EnaPlotOverlayGroup[];
 };
 
+/**
+ * rENA's signed-network ink, forwarded to `styleRenaNetwork`. Present only when
+ * the caller has replaced the drawn network with a subtraction; absent, the
+ * network is styled exactly as before and the DOM is unchanged.
+ */
+export type EnaPlotSignedNetwork = {
+  positive: string;
+  negative: string;
+  /** "Δ ×" — amplifies the drawn width of a small difference. */
+  multiplier?: number;
+};
+
 const OVERLAY_BRIDGE_COLOR = "#24dcee";
 const OVERLAY_SOCIAL_COLOR = "#2f73ff";
 /** Overlay ink never outranks the network: opacity ceiling and a width cap. */
@@ -215,6 +228,7 @@ export function EnaPlot({
   zoom = 1,
   ink,
   overlay,
+  signedNetwork,
   selectedId,
   onSelect,
   x: viewportX,
@@ -243,6 +257,13 @@ export function EnaPlot({
   ink?: Partial<EnaPlotInkDisplay>;
   /** SENA's additive layers. Omit for a plain ENA plot. */
   overlay?: EnaPlotOverlay;
+  /**
+   * rENA's `colors = c(pos, neg)` for a subtracted network. Only meaningful
+   * when `model`'s network trace already carries signed differences (see
+   * `withEnaSubtractionNetwork`); omitted, the network is the mean network and
+   * is inked exactly as it always was.
+   */
+  signedNetwork?: EnaPlotSignedNetwork;
   selectedId?: string;
   onSelect?: (id: string) => void;
   /**
@@ -304,13 +325,21 @@ export function EnaPlot({
   // Styled once and reused: the label-suppression pass, the render, and the
   // overlay width cap all need the same numbers, and styling twice with two
   // different base colours was already a latent source of disagreement.
+  const networkInk: RenaNetworkInk = signedNetwork
+    ? {
+        signedColors: { positive: signedNetwork.positive, negative: signedNetwork.negative },
+        widthMultiplier: signedNetwork.multiplier ?? 1
+      }
+    : {};
   const styledNetworks = networkTraces.map((trace) => ({
     trace,
     styled: trace.network
       ? styleRenaNetwork(
           model,
           trace.network,
-          networkTraces.length > 1 ? trace.color : RENA_EDGE_BASE
+          networkTraces.length > 1 ? trace.color : RENA_EDGE_BASE,
+          jenaPlotGeometry,
+          networkInk
         )
       : null
   }));
@@ -493,6 +522,7 @@ export function EnaPlot({
                 data-edge-weight={formatWeight(edge.weight)}
                 data-edge-intensity={edge.intensity.toFixed(3)}
                 data-edge-visual-width={strokeWidth.toFixed(2)}
+                {...(edge.sign ? { "data-edge-sign": edge.sign } : {})}
                 x1={edge.x1}
                 y1={edge.y1}
                 x2={edge.x2}
