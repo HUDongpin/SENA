@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { ENAPlotModel } from "jena-js/plot";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -411,5 +412,42 @@ describe("EnaPlot inks a subtracted network in rENA's two colours", () => {
     // rENA subtracts edges, not positions: re-deriving node positions from a
     // difference would place codes where neither group's model places them.
     expect(subtracted.traces[0].network!.nodes).toEqual(network.nodes);
+  });
+});
+
+// D6 puts the comparison controls on /workspace/ena first, where the live
+// ENASet and its groups already are. Read from the source rather than rendered:
+// the client owns a Web Worker and a file input, and what this pins is the
+// control contract — which controls exist, and that the destructive one is off.
+describe("/workspace/ena comparison controls", () => {
+  const source = readFileSync("app/workspace/ena/EnaWorkspaceClient.tsx", "utf8");
+
+  it("exposes the column, the pair, the palette, the subtraction, and the multiplier", () => {
+    for (const testId of [
+      "ena-comparison-column",
+      "ena-comparison-group-a",
+      "ena-comparison-group-b",
+      "ena-comparison-palette",
+      "ena-comparison-intervals",
+      "ena-comparison-subtraction",
+      "ena-comparison-multiplier"
+    ]) {
+      expect(source).toContain(`"${testId}"`);
+    }
+  });
+
+  it("leaves the subtracted network off until it is asked for", () => {
+    // The default state is the whole reason plot-parity still holds for every
+    // model that existed before comparison mode.
+    expect(source).toContain("useState(false)");
+    expect(source).toMatch(/const \[subtractionOn, setSubtractionOn\] = useState\(false\)/);
+    expect(source).toMatch(/const \[deltaMultiplier, setDeltaMultiplier\] = useState\(1\)/);
+    expect(source).toMatch(/useState<EnaComparisonPaletteId>\("blue-orange"\)/);
+  });
+
+  it("feeds the plot through the additive channel, not a second renderer", () => {
+    expect(source).toContain("overlay={plotOverlay}");
+    expect(source).toContain("signedNetwork={signedNetwork}");
+    expect(source).toContain("withEnaSubtractionNetwork(composed, subtraction)");
   });
 });
