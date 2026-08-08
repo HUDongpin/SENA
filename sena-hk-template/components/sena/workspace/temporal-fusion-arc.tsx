@@ -1,5 +1,6 @@
 "use client";
 
+import { hexPoints } from "@/lib/sena/hex";
 import type { SenaModel, SenaTemporalRuntimeTrace, SenaTemporalWindow } from "@/lib/sena/types";
 import { cn } from "@/lib/utils";
 
@@ -34,13 +35,6 @@ function temporalPhaseIndex(window: SenaTemporalWindow, index: number, total: nu
 function formatNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "0";
   return value.toLocaleString(undefined, { maximumFractionDigits: digits });
-}
-
-function hexPoints(x: number, y: number, radius: number) {
-  return Array.from({ length: 6 }, (_, index) => {
-    const angle = Math.PI / 6 + (index * Math.PI * 2) / 6;
-    return `${x + Math.cos(angle) * radius},${y + Math.sin(angle) * radius}`;
-  }).join(" ");
 }
 
 function truncateSvgText(value: string, maxLength = 13) {

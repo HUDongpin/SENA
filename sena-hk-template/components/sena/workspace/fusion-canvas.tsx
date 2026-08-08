@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { hexPoints } from "@/lib/sena/hex";
 import {
   buildConceptPairContributionMap,
   buildEdgeStrokeScale,
@@ -27,13 +28,6 @@ import { clampFusionPlotZoom } from "./workspace-shell-panels";
 function formatCanvasNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value) ? value.toString() : value.toFixed(digits);
-}
-
-function hexPoints(x: number, y: number, radius: number) {
-  return Array.from({ length: 6 }, (_, index) => {
-    const angle = Math.PI / 6 + (index * Math.PI * 2) / 6;
-    return `${x + Math.cos(angle) * radius},${y + Math.sin(angle) * radius}`;
-  }).join(" ");
 }
 
 function nodeRadius(node: PositionedNode) {
