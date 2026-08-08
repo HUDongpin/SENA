@@ -127,11 +127,33 @@ export type EnaPlotOverlayLegendEntry = {
   kind: "line" | "dot";
 };
 
+/**
+ * A group mean and its 95% confidence interval, in data coordinates.
+ *
+ * jena-js's own `group` trace carries a mean point and nothing else —
+ * `ENAPlotTrace` has `points` and `network` and no interval geometry at all — so
+ * an interval cannot be expressed as a trace and has to ride the additive
+ * channel instead. That is not a workaround: the mean is jena-js's quantity and
+ * the interval is SENA's addition to the figure, so the marked layer is where it
+ * belongs.
+ */
+export type EnaPlotOverlayGroup = {
+  name: string;
+  color: string;
+  mean: { x: number; y: number };
+  /** Null when the group has fewer than two units — mean only, no box. */
+  ci: { x: [number, number]; y: [number, number] } | null;
+  /** Units behind the mean; printed in the tooltip so n is never implied. */
+  n?: number;
+};
+
 export type EnaPlotOverlay = {
   edges?: EnaPlotOverlayEdge[];
   /** Units eligible for the identity glyph when selected or hovered. */
   markers?: EnaPlotOverlayMarker[];
   legend?: EnaPlotOverlayLegendEntry[];
+  /** Comparison means + intervals (ADR 0009 Q3 / D6). */
+  groups?: EnaPlotOverlayGroup[];
 };
 
 const OVERLAY_BRIDGE_COLOR = "#24dcee";
@@ -308,6 +330,7 @@ export function EnaPlot({
   const overlayEdges = overlay?.edges ?? [];
   const overlayMarkers = overlay?.markers ?? [];
   const overlayLegend = overlay?.legend ?? [];
+  const overlayGroups = overlay?.groups ?? [];
   const legendRows = legend.length + overlayLegend.length;
   /** The separator rule between ENA rows and SENA rows costs one row of padding. */
   const legendExtraHeight = overlayLegend.length > 0 ? 8 : 0;
@@ -625,6 +648,91 @@ export function EnaPlot({
           </g>
         );
       })}
+
+      {/*
+        Comparison means and their 95% t intervals (ADR 0009, D6). The interval
+        is drawn first and the mean on top of it, so a wide box never hides the
+        point it is an interval *for*. Both are data-coordinate inputs that this
+        renderer projects, like every other overlay — a comparison surface never
+        computes a pixel.
+      */}
+      {overlayGroups.length > 0 && (
+        <g data-sena-layer="group-ci">
+          {overlayGroups.map((group) => {
+            if (!group.ci) return null;
+            const [x1, y1] = projectPoint(model, { x: group.ci.x[0], y: group.ci.y[0] });
+            const [x2, y2] = projectPoint(model, { x: group.ci.x[1], y: group.ci.y[1] });
+            return (
+              <rect
+                key={group.name}
+                data-sena-group-ci={group.name}
+                // The interval in the coordinates it was computed in. A reader
+                // (or a gate) checking the arithmetic should not have to invert
+                // the projection to do it.
+                data-sena-ci-x={`${group.ci.x[0].toFixed(6)},${group.ci.x[1].toFixed(6)}`}
+                data-sena-ci-y={`${group.ci.y[0].toFixed(6)},${group.ci.y[1].toFixed(6)}`}
+                x={Math.min(x1, x2)}
+                y={Math.min(y1, y2)}
+                width={Math.abs(x2 - x1)}
+                height={Math.abs(y2 - y1)}
+                fill="none"
+                stroke={group.color}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                opacity={0.9}
+              >
+                <title>{`${group.name} — 95% confidence interval`}</title>
+              </rect>
+            );
+          })}
+        </g>
+      )}
+
+      {overlayGroups.length > 0 && (
+        <g data-sena-layer="group-mean">
+          {overlayGroups.map((group) => {
+            const [x, y] = projectPoint(model, group.mean);
+            // jena-js sizes a group marker at 6 to a unit point's 4; the square
+            // is SENA's, so a mean can never be mistaken for a participant.
+            const side = pointTraceRadius("group") * unitScale * 2;
+            return (
+              <g
+                key={group.name}
+                data-sena-group-mean={group.name}
+                {...(group.n === undefined ? {} : { "data-sena-group-n": group.n })}
+                data-sena-group-interval={group.ci ? "true" : "false"}
+              >
+                <rect
+                  x={x - side / 2}
+                  y={y - side / 2}
+                  width={side}
+                  height={side}
+                  fill={group.color}
+                  stroke={PAPER}
+                  strokeWidth={JENA_POINT_STROKE_WIDTH}
+                >
+                  <title>
+                    {group.n === undefined
+                      ? `${group.name} mean`
+                      : `${group.name} mean — ${group.n} unit${group.n === 1 ? "" : "s"}`}
+                  </title>
+                </rect>
+                {inkDisplay.showGroupLabels && (
+                  <text
+                    x={x + side / 2 + 4}
+                    y={y + 4}
+                    fill={NODE_LABEL_FILL}
+                    fontSize={JENA_POINT_LABEL_FONT_SIZE}
+                    fontWeight="700"
+                  >
+                    {group.name}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      )}
 
       {/*
         Click targets live in their own marked layer rather than on the node

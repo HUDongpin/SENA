@@ -8,6 +8,7 @@ import {
   midranks,
   normalCdf,
   standardDeviation,
+  studentTQuantile,
   studentTTwoSidedP,
   tieGroupSizes,
   welchT
@@ -236,5 +237,73 @@ describe("welchT", () => {
     const result = welchT([2, 2, 2], [2, 2, 2]);
     expect(result.degenerate).toBe(true);
     expect(result.meanDifference).toBe(0);
+  });
+});
+
+// The critical value every 95% confidence interval on a group mean multiplies
+// by. Nothing in the repo or in jena-js provided one before this, so these are
+// golden values off a printed t table rather than a second implementation
+// agreeing with the first.
+describe("studentTQuantile", () => {
+  it("reproduces the t table at the 97.5th percentile", () => {
+    // Two-sided 95% critical values — the row every methods section quotes.
+    expect(studentTQuantile(0.975, 1)).toBeCloseTo(12.706, 3);
+    expect(studentTQuantile(0.975, 2)).toBeCloseTo(4.303, 3);
+    expect(studentTQuantile(0.975, 5)).toBeCloseTo(2.571, 3);
+    expect(studentTQuantile(0.975, 10)).toBeCloseTo(2.228, 3);
+    expect(studentTQuantile(0.975, 30)).toBeCloseTo(2.042, 3);
+    expect(studentTQuantile(0.975, Infinity)).toBeCloseTo(1.96, 3);
+  });
+
+  it("reproduces the t table at the 95th percentile", () => {
+    // One-sided 95%: a different column of the same table, so a two-sided /
+    // one-sided mix-up in the conversion fails here and not above.
+    expect(studentTQuantile(0.95, 1)).toBeCloseTo(6.314, 3);
+    expect(studentTQuantile(0.95, 5)).toBeCloseTo(2.015, 3);
+    expect(studentTQuantile(0.95, 10)).toBeCloseTo(1.812, 3);
+    expect(studentTQuantile(0.95, 30)).toBeCloseTo(1.697, 3);
+    expect(studentTQuantile(0.95, Infinity)).toBeCloseTo(1.645, 3);
+  });
+
+  it("approaches the normal quantile as df grows", () => {
+    // The t is the normal in the limit; 1000 df is already within a thousandth
+    // of it, and the infinite case has to be the normal to full precision.
+    expect(studentTQuantile(0.975, 1000)).toBeCloseTo(1.962, 3);
+    expect(studentTQuantile(0.975, Infinity)).toBeCloseTo(1.9599639845, 8);
+  });
+
+  it("inverts the forward tail it bisects", () => {
+    // The round trip is the real contract: whatever the table says, the
+    // quantile and the CDF in this module have to be each other's inverse.
+    for (const df of [1, 3, 7.4, 40]) {
+      for (const p of [0.6, 0.9, 0.975, 0.999]) {
+        const t = studentTQuantile(p, df);
+        expect(studentTTwoSidedP(t, df) / 2).toBeCloseTo(1 - p, 10);
+      }
+    }
+  });
+
+  it("is symmetric about the median", () => {
+    expect(studentTQuantile(0.5, 5)).toBe(0);
+    expect(studentTQuantile(0.025, 5)).toBeCloseTo(-studentTQuantile(0.975, 5), 12);
+    expect(studentTQuantile(0.1, 12)).toBeCloseTo(-studentTQuantile(0.9, 12), 12);
+  });
+
+  it("refuses a probability or a df it cannot answer for", () => {
+    // NaN rather than a plausible number: an interval built on a critical value
+    // that was never computed is worse than no interval at all.
+    expect(Number.isNaN(studentTQuantile(0, 5))).toBe(true);
+    expect(Number.isNaN(studentTQuantile(1, 5))).toBe(true);
+    expect(Number.isNaN(studentTQuantile(-0.1, 5))).toBe(true);
+    expect(Number.isNaN(studentTQuantile(0.975, 0))).toBe(true);
+    expect(Number.isNaN(studentTQuantile(0.975, 0.5))).toBe(true);
+    expect(Number.isNaN(studentTQuantile(Number.NaN, 5))).toBe(true);
+  });
+
+  it("brackets a heavy tail instead of clamping at a fixed ceiling", () => {
+    // df = 1 is Cauchy: the 99.95th percentile is 636.6, far past any plausible
+    // fixed search ceiling, and a clamp there would silently return the ceiling.
+    expect(studentTQuantile(0.9995, 1)).toBeCloseTo(636.619, 2);
+    expect(studentTQuantile(0.999, 1)).toBeCloseTo(318.309, 2);
   });
 });
