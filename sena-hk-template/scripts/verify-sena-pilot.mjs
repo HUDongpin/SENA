@@ -6,6 +6,7 @@ import { cwd } from "node:process";
 import { join } from "node:path";
 import { verifySenaAuthBrowserSmoke } from "./verify-sena-auth-browser-smoke.mjs";
 import { verifySenaBrowserSmoke } from "./verify-sena-browser-smoke.mjs";
+import { verifySenaEnaBrowserSmoke } from "./verify-sena-ena-browser-smoke.mjs";
 import { verifySenaEnterpriseApiBrowserSmoke } from "./verify-sena-enterprise-api-browser-smoke.mjs";
 import { verifySenaRbacCollaborationBrowserSmoke } from "./verify-sena-rbac-collaboration-browser-smoke.mjs";
 import { verifySenaReliabilityBrowserSmoke } from "./verify-sena-reliability-browser-smoke.mjs";
@@ -213,6 +214,11 @@ function verifyNextArtifacts() {
     ".next/server/app/workspace/sena/page_client-reference-manifest.js",
     ".next/server/app/workspace/sena.html",
     ".next/server/app/workspace/sena.rsc",
+    // The jENA workbench is now driven by a browser smoke in the same run, so
+    // its build output is required rather than incidental.
+    ".next/server/app/workspace/ena/page.js",
+    ".next/server/app/workspace/ena.html",
+    ".next/server/app/workspace/ena.rsc",
     ".next/server/app-paths-manifest.json",
     ".next/server/middleware-manifest.json",
     ".next/server/pages-manifest.json",
@@ -231,6 +237,7 @@ function verifyNextArtifacts() {
   const pages = readJson(".next/server/pages-manifest.json");
   const manifestIssues = [
     appPaths["/workspace/sena/page"] === "app/workspace/sena/page.js" ? null : "app-paths-manifest missing /workspace/sena/page",
+    appPaths["/workspace/ena/page"] === "app/workspace/ena/page.js" ? null : "app-paths-manifest missing /workspace/ena/page",
     pages["/404"] === "pages/404.html" ? null : "pages-manifest missing /404",
     pages["/500"] === "pages/500.html" ? null : "pages-manifest missing /500"
   ].filter(Boolean);
@@ -241,7 +248,7 @@ function verifyNextArtifacts() {
     process.exit(1);
   }
 
-  console.log("Next production artifacts are present for /workspace/sena.");
+  console.log("Next production artifacts are present for /workspace/sena and /workspace/ena.");
 }
 
 function extractOpeningTagWithText(html, text) {
@@ -781,6 +788,11 @@ async function verifyProductionServerSmoke() {
       SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
     });
     await verifySenaBrowserSmoke(url);
+    // /workspace/ena is a different route on the same server. It takes an
+    // origin, not the SENA route, and it is public — no session is created
+    // before it runs, which is also what it asserts.
+    console.log("\n> Verify jENA workbench browser smoke");
+    await verifySenaEnaBrowserSmoke(new URL(url).origin);
     console.log("\n> Verify auth browser smoke");
     await verifySenaAuthBrowserSmoke(url);
     console.log("\n> Verify SSO browser smoke");

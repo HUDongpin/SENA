@@ -80,6 +80,80 @@ describe("SENA browser smoke manifest", () => {
     expect(smokeSource).toContain("orbit-social-lane");
   });
 
+  it("includes the jENA workbench in the production browser smoke verifier", () => {
+    const verifierSource = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
+    const enaSmokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-ena-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+
+    expect(SENA_BROWSER_SMOKE_MANIFEST.productionVerifier.steps.enaWorkbench).toMatchObject({
+      exportName: "verifySenaEnaBrowserSmoke",
+      label: "Verify jENA workbench browser smoke"
+    });
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.route).toBe("/workspace/ena");
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.defaultRailMode).toBe("model");
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.comparisonDefaults).toEqual({
+      subtractionOn: false,
+      groupIntervalsOn: true,
+      deltaMultiplier: 1,
+      palette: "blue-orange"
+    });
+
+    // The smoke is only evidence while the pilot still runs it — the export
+    // name and the route it is handed are what a future edit could quietly
+    // drop, so both are pinned in the verifier source.
+    expect(verifierSource).toContain("verify-sena-ena-browser-smoke.mjs");
+    expect(verifierSource).toContain("verifySenaEnaBrowserSmoke");
+    expect(verifierSource).toContain('".next/server/app/workspace/ena/page.js"');
+    expect(verifierSource).toContain('appPaths["/workspace/ena/page"]');
+
+    // And the script must actually reach the surfaces the manifest declares:
+    // every selector, the provenance attributes it reads off the drawn marks,
+    // the SENA-only layers it asserts are absent, and the three exports.
+    expect(enaSmokeSource).toContain(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.route);
+    for (const selector of Object.values(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.selectors)) {
+      expect(enaSmokeSource).toContain(selector);
+    }
+    for (const attribute of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.plotAttributes) {
+      expect(enaSmokeSource).toContain(attribute);
+    }
+    for (const layer of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.absentSenaLayers) {
+      expect(enaSmokeSource).toContain(`"${layer}"`);
+    }
+    for (const railMode of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.railModes) {
+      expect(enaSmokeSource).toContain(`data-rail-mode="${railMode}"`);
+    }
+    for (const tab of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.statsTabs) {
+      expect(enaSmokeSource).toContain(`data-panel-tab="${tab}"`);
+    }
+    for (const palette of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.comparisonPalettes) {
+      expect(enaSmokeSource).toContain(`data-comparison-palette="${palette}"`);
+    }
+    for (const artifact of SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.exports) {
+      expect(enaSmokeSource).toContain(artifact);
+    }
+
+    // FA24-07's kill-proof phrasing. "Not checked" passes on a control that is
+    // absent, disabled, or dead, so the leg must also prove the toggle is
+    // enabled, prove the sibling overlay is live in the same state, and prove
+    // the signed DOM can appear and retract.
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enaWorkbench.flows).toEqual(expect.arrayContaining([
+      "worker-runtime-run",
+      "comparison-group-means-and-intervals",
+      "comparison-subtraction-default-off",
+      "signed-delta-multiplier",
+      "signed-edge-threshold-discriminator"
+    ]));
+    expect(enaSmokeSource).toContain("Subtracted network is checked by default; it must default off.");
+    expect(enaSmokeSource).toContain("so 'off' is forced rather than the default");
+    // U+2212 MINUS SIGN. The subtracted trace name is the proof that the drawn
+    // network became the difference; retyping it as an ASCII hyphen is the easy
+    // way to get a leg that can never see the subtraction.
+    expect(enaSmokeSource).toContain("−");
+    expect(enaSmokeSource).not.toContain("Comparison - Planning");
+  });
+
   it("wires login remember-me to enterprise session policy", () => {
     expect(SENA_AUTH_PAGE_MANIFEST.login.path).toBe("/login");
     expect(SENA_AUTH_PAGE_MANIFEST.login.selectors.rememberSession).toBe("login-remember-session");
