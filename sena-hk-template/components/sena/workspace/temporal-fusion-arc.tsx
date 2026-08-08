@@ -1,6 +1,7 @@
 "use client";
 
 import { hexPoints } from "@/lib/sena/hex";
+import { senaLayerStrokes, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
 import type { SenaModel, SenaTemporalRuntimeTrace, SenaTemporalWindow } from "@/lib/sena/types";
 import { cn } from "@/lib/utils";
 
@@ -106,7 +107,7 @@ export function TemporalFusionArc({
         scores.set(code.id, {
           label: codeLabel.get(code.id) ?? code.label,
           weight: Math.max(current?.weight ?? 0, code.weight),
-          color: codeColor.get(code.id) ?? "#8b5cf6"
+          color: codeColor.get(code.id) ?? senaLayerStrokes.concept
         });
       }
     }
@@ -128,7 +129,9 @@ export function TemporalFusionArc({
   const conceptNodes = phaseGroups.flatMap((phase, phaseIndex) => {
     const concepts = phaseConcepts[phaseIndex];
     const fallbackLabel = phaseIndex === 0 ? "Question" : phaseIndex === 1 ? "Evidence" : "Reflection";
-    const rows = concepts.length > 0 ? concepts : [{ label: fallbackLabel, weight: 0, color: phaseIndex === 2 ? "#e253a5" : "#8b5cf6" }];
+    const rows = concepts.length > 0
+      ? concepts
+      : [{ label: fallbackLabel, weight: 0, color: phaseIndex === 2 ? senaLayerStrokes.pair : senaLayerStrokes.concept }];
     return rows.map((concept, conceptIndex) => ({
       ...concept,
       phaseIndex,
@@ -170,17 +173,20 @@ export function TemporalFusionArc({
       </div>
       <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[22rem] w-full" role="img" aria-label="Temporal Fusion Arc Plan Teach Reflect">
         <defs>
+          {/* Same re-step as the A1 canvas: the arcs keep their gradients, and
+              each ramp loses the pale far stop that made a 4px line vanish
+              against this figure's white plate. */}
           <linearGradient id="temporal-bridge-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#24dcee" />
-            <stop offset="100%" stopColor="#7aa7ff" />
+            <stop offset="0%" stopColor={senaLayerStrokes.bridge} />
+            <stop offset="100%" stopColor={senaLayerStrokes.bridge} />
           </linearGradient>
           <linearGradient id="temporal-concept-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#735cf6" />
-            <stop offset="100%" stopColor="#b14cf1" />
+            <stop offset="0%" stopColor={senaLayerStrokes.concept} />
+            <stop offset="100%" stopColor={senaLayerStrokes.concept} />
           </linearGradient>
           <linearGradient id="temporal-g-gradient" x1="0" x2="1">
-            <stop offset="0%" stopColor="#fb7185" />
-            <stop offset="100%" stopColor="#e253a5" />
+            <stop offset="0%" stopColor={senaLayerStrokes.pair} />
+            <stop offset="100%" stopColor={senaLayerStrokes.pair} />
           </linearGradient>
         </defs>
         <rect x="0" y="0" width={chartWidth} height={chartHeight} rx="12" fill="#ffffff" />
@@ -194,7 +200,7 @@ export function TemporalFusionArc({
               rx="22"
               fill={phase.tint}
               opacity={phase.index === activePhaseIndex ? 0.72 : 0.42}
-              stroke={phase.index === activePhaseIndex ? "#24dcee" : "#cbd5e1"}
+              stroke={phase.index === activePhaseIndex ? senaPlotAccentStroke : "#cbd5e1"}
               strokeWidth={phase.index === activePhaseIndex ? 1.8 : 1}
             />
             <text x={phase.x} y="64" textAnchor="middle" fill="#0f172a" fontSize="20" fontWeight="950">
@@ -207,7 +213,7 @@ export function TemporalFusionArc({
           </g>
         ))}
 
-        <path d="M 90 274 C 220 92 415 92 670 274" fill="none" stroke="#2f73ff" strokeWidth="5.5" strokeLinecap="round" opacity="0.72" />
+        <path d="M 90 274 C 220 92 415 92 670 274" fill="none" stroke={senaLayerStrokes.social} strokeWidth="5.5" strokeLinecap="round" opacity="0.72" />
         <path d="M 104 260 C 250 200 485 200 656 260" fill="none" stroke="url(#temporal-bridge-gradient)" strokeWidth="9" strokeLinecap="round" opacity="0.34" />
         <path d="M 130 216 C 270 130 510 130 630 216" fill="none" stroke="url(#temporal-concept-gradient)" strokeWidth="4.5" strokeLinecap="round" opacity="0.62" />
         <path
@@ -259,8 +265,8 @@ export function TemporalFusionArc({
           if (!actor) return null;
           return (
             <g key={`${phase.label}-actor`}>
-              <line x1={phase.x} y1="252" x2={phase.x} y2="292" stroke="#24dcee" strokeWidth="6" strokeLinecap="round" opacity="0.28" />
-              <circle cx={phase.x} cy="292" r="24" fill="#f8fbff" stroke="#24dcee" strokeWidth="2.4" />
+              <line x1={phase.x} y1="252" x2={phase.x} y2="292" stroke={senaPlotAccentStroke} strokeWidth="6" strokeLinecap="round" opacity="0.28" />
+              <circle cx={phase.x} cy="292" r="24" fill="#f8fbff" stroke={senaPlotAccentStroke} strokeWidth="2.4" />
               <text x={phase.x} y="299" textAnchor="middle" fill="#0f172a" fontSize="14" fontWeight="950">
                 {actor}
               </text>
@@ -279,16 +285,16 @@ export function TemporalFusionArc({
           return (
             <g key={`${phase.label}-metrics`}>
               <rect x={phase.x - 60} y={y - 34} width="120" height="52" rx="10" fill="#f8fafc" stroke="#cbd5e1" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + socialWidth} y1={y - 17} y2={y - 17} stroke="#2f73ff" strokeWidth="4" strokeLinecap="round" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + conceptWidth} y1={y - 7} y2={y - 7} stroke="#a855f7" strokeWidth="4" strokeLinecap="round" />
-              <line x1={phase.x - 48} x2={phase.x - 48 + bridgeWidth} y1={y + 3} y2={y + 3} stroke="#24dcee" strokeWidth="4" strokeLinecap="round" />
+              <line x1={phase.x - 48} x2={phase.x - 48 + socialWidth} y1={y - 17} y2={y - 17} stroke={senaLayerStrokes.social} strokeWidth="4" strokeLinecap="round" />
+              <line x1={phase.x - 48} x2={phase.x - 48 + conceptWidth} y1={y - 7} y2={y - 7} stroke={senaLayerStrokes.concept} strokeWidth="4" strokeLinecap="round" />
+              <line x1={phase.x - 48} x2={phase.x - 48 + bridgeWidth} y1={y + 3} y2={y + 3} stroke={senaLayerStrokes.bridge} strokeWidth="4" strokeLinecap="round" />
               <line
                 data-visual-role="temporal-g-pair-metric"
                 x1={phase.x - 48}
                 x2={phase.x - 48 + gWidth}
                 y1={y + 13}
                 y2={y + 13}
-                stroke="#fb7185"
+                stroke={senaLayerStrokes.pair}
                 strokeWidth="4"
                 strokeLinecap="round"
               />

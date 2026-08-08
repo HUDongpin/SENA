@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { EnaPlot, type EnaPlotOverlay } from "@/components/ena/EnaPlot";
 import { buildSenaEnaOverlayEdges, type SenaEnaOverlayKind } from "@/lib/sena/ena-overlay";
 import { buildSenaEnaPlotComposition } from "@/lib/sena/ena-plot-model";
+import { senaLayerStrokes } from "@/lib/sena/layer-palette";
 import { cn } from "@/lib/utils";
 import type { SenaEnaManifest, SenaLayer, SenaModel } from "./analysis-runtime";
 
@@ -84,10 +85,16 @@ export function SenaEnaSpacePlot({
       kinds
     });
 
+    // A legend swatch has one job: name the colour the reader is looking at.
+    // These three describe marks <EnaPlot> paints from its own overlay
+    // constants (OVERLAY_BRIDGE_COLOR / OVERLAY_SOCIAL_COLOR), which the
+    // unit-identity markers reuse — so those two constants have to point at
+    // this palette too, or a swatch here starts describing a colour the plot is
+    // not drawing.
     const legend: EnaPlotOverlay["legend"] = [];
-    if (toggles.bridge && bridgeLayerEnabled) legend.push({ name: "Person–code bridges", color: "#24dcee", kind: "line" });
-    if (toggles.social && socialLayerEnabled) legend.push({ name: "Social ties", color: "#2f73ff", kind: "line" });
-    if (toggles.identity) legend.push({ name: "Unit identity", color: "#24dcee", kind: "dot" });
+    if (toggles.bridge && bridgeLayerEnabled) legend.push({ name: "Person–code bridges", color: senaLayerStrokes.bridge, kind: "line" });
+    if (toggles.social && socialLayerEnabled) legend.push({ name: "Social ties", color: senaLayerStrokes.social, kind: "line" });
+    if (toggles.identity) legend.push({ name: "Unit identity", color: senaLayerStrokes.bridge, kind: "dot" });
 
     return {
       edges: overlayEdges,

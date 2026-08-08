@@ -304,3 +304,11 @@ export type {
   SenaVisualGrammarArtifact,
   SenaVisualGrammarItem
 } from "./types";
+export {
+  senaLayerChips,
+  senaLayerPalette,
+  senaLayerStrokes,
+  senaPlotAccentStroke,
+  type SenaLayerPaletteChannel,
+  type SenaLayerPaletteEntry
+} from "./layer-palette";
