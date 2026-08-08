@@ -80,7 +80,7 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 | EC-8 | vacuous-pass tests/gates (H13, H28, H10, perf-T3 zero-byte) | fixed instances carry vacuity guards | open — systematic audit of gate-like tests (TL-A4) |
 | EC-9 | missing-data semantics (empty cell counted as applied) | three-way-semantics regression tests (55d3894/28b47f2) | open — kill audit (TL-A5) |
 | EC-10 | geometry/visual escapes invisible to node/jsdom (H5, H9, three overflow bugs) | zoom tests for the two fixed elements | open — owned by smokes (TL-F5) + explicit manual list; never weak vitest proxies |
-| EC-11 | page-import holes (/workspace/ena; broke main twice) | **route half covered**: api-route-reconciliation.test.ts (TL-B1, 6 kills, `npm test`) | open — page half still uncovered: TL-F1 smoke, TL-G5 page-inventory tripwire |
+| EC-11 | page-import holes (/workspace/ena; broke main twice) | **route half**: api-route-reconciliation.test.ts (TL-B1, 6 kills, `npm test`). **page half**: verify-sena-ena-browser-smoke.mjs (TL-H3, source-level kill — client bundle throws at import ⇒ HTTP 200 + correct SSR, gate red; `sena:pilot:verify`) | open — both halves now have a gate and a recorded kill; status stays open pending Peter's confirmation of the wording, and TL-G5's page-inventory tripwire (a NEW undeclared page) is still owed |
 | EC-12 | queued/202-path state bugs (dataset clobber; cross-tenant write) | server-job-ops + worker-contract tests (28b47f2) | open — kill audit + full worker round-trip (TL-A8) |
 | EC-13 | error masking (misleading import/parse messages; G2, 55d3894) | message-shape fixes landed | open — message-specificity tests + kill audit (TL-A7) |
 
@@ -306,6 +306,27 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   2026-08-08 (O2, kills: un-marked ink in the plane breaks byte-equality by construction;
   reverting 26ca5b7's focus predicate → "keeps a clicked bridge" red; gate: npm test)
 
+- TL-H3 jENA workbench behavioural gate (closes the page half of **EC-11**, the class that
+  broke main twice): `scripts/verify-sena-ena-browser-smoke.mjs`, 9 legs / ~50 checks over
+  /workspace/ena, registered in `sena:pilot:verify`. — DONE 2026-08-08 (O2, kills: **6 of 7**
+  source mutations turned the leg red for the predicted reason — (1) CI rect geometry zeroed
+  while its data stayed correct → caught only by the rendered `boundingBox()` assertion;
+  (2) `confidenceHalfWidth` regressed to `sd/n` from `sd/√n` while geometry stayed perfect →
+  caught only by the value pin, the two probes attacking from orthogonal directions;
+  (3) subtraction state default flipped ON; (4) the same toggle's `checked` prop flipped so
+  the default-off assertion itself had to carry the kill; (5) network marks emptied while the
+  plot container survived → red on the node-id census, *after* the container and
+  `data-plot-dimensions` both passed, proving the check does not pass on the container;
+  (7) **EC-11 reproduced from source** — client bundle throws at import, `curl` returns 200
+  and the SSR markup is correct, yet the leg goes red on hydration. Probe (6) SURVIVED and is
+  recorded as a real vacuity, closed in 4028fa3: Goodness of Fit asserted only finite-and-in-
+  `[-1, 1]`, so a projection reporting 0.000 passed green one line above the panel's own
+  "Above 0.9 is the conventional bar" copy; now pinned at the measured 1.000 and re-killed.
+  gate: `npm run sena:pilot:verify`)
+  *Method note:* every probe ran mutate→build→serve→smoke→restore inside a single shell
+  invocation with `git hash-object` recorded before and re-checked after, aborting if the edit
+  was a no-op so a "survived" verdict can never be a mutation that never applied.
+
 ## Q-series findings
 
 - Q1 (2026-08-03) api-docs.test.ts's "documents every route" check is self-fulfilling:
@@ -485,3 +506,16 @@ PENDING — none decided:
   (291f042 + 26ca5b7); the escape pattern (invariants asserting the *edges* of a
   geometry but not its *body*) is worth a Lane A sweep of other geometry suites.
   Suite at this entry: 1349 passed / 1 skipped; sena:pilot:verify green @ b1abee7.
+- **jENA workbench coverage — 2026-08-08.** Out-of-loop entry (slice run after the fusion
+  redesign closeout). TL-H3 seeded and DONE: /workspace/ena goes from **zero** behavioural
+  coverage to a kill-proved gate. Two results worth carrying forward. (1) The vacuity the
+  probes found was in a check whose author had reasoned "a >= 0.9 gate can never fail here,
+  the value is 1.000 by construction" — factually right, and exactly backwards as a
+  conclusion: a value that is constant by construction is the cheapest thing in the suite to
+  pin, and the loosest possible assertion is the one that certifies a broken projection.
+  Worth adding to the vacuity-audit heuristics in TL-A4: **"can't fail on correct code" is
+  true of every passing assertion and is never a reason to weaken one.** (2) EC-11 now has a
+  source-level kill rather than a harness-level one — the probe throws from the client bundle
+  at import time, which is the real shape of the escape (HTTP 200, correct SSR, dead page),
+  and the gate catches it. EC-11's page half can move from open to owned once Peter confirms
+  the wording.

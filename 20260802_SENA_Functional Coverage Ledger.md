@@ -24,26 +24,27 @@ Goal: every feature/button/function of SENA proven functional by fresh evidence,
 
 ### FA-13 jENA workbench — /workspace/ena
 Prior coverage: **NONE behavioral** (build-gate.yml notes no test imports this page; it broke main twice). Highest-risk area in the app.
-- FA13-01 Page loads signed-out; mode rail (Sets/Model/Plot Tools/Stats) switches secondary panel — UNVERIFIED
-- FA13-02 CSV upload parses client-side, infers unit/conversation/code/metadata mapping, resets prior result — UNVERIFIED
-- FA13-03 Sample button loads bundled lesson-study CSV; dataset cards + column preview populate — UNVERIFIED
-- FA13-04 "Full table" opens Data View drawer and scrolls to it — UNVERIFIED
-- FA13-05 Model: column chips cycle roles; Units/Conversation/Codes/Metadata multi-selects update mapping — UNVERIFIED
-- FA13-06 Model accumulation selects (Model/Window/Weight/Node Positions) + Back/Forward/Dims inputs alter run config — UNVERIFIED
-- FA13-07 Plot Tools Dimensions: axis labels, variance toggle, Flip X/Y take effect on plot — UNVERIFIED
-- FA13-08 Plot Tools Plotted Points: Group By draws traces only (never re-projects), scale slider, label toggles — UNVERIFIED
-- FA13-09 Plot Tools Network Graph: code-label/unconnected/weights toggles, edge-weight sliders incl. 0.001 floor readout — UNVERIFIED
-- FA13-10 Reset plot tools restores defaults — UNVERIFIED
-- FA13-11 Stats Compare: Group A/B selects compute Welch t / Cohen's d / Mann-Whitney per dimension — UNVERIFIED
-- FA13-12 Stats Fit + Variance tabs render correct tables for current run — UNVERIFIED
-- FA13-13 Stats Methods write-up + Copy button copies to clipboard — UNVERIFIED
-- FA13-14 Runtime toggle Worker↔API; Run jENA disabled until mapping valid; worker run shows progress % — UNVERIFIED
-- FA13-15 API runtime: fetches CSRF, POST /api/ena/run with session; signed-out behavior is a clear error, not a hang — UNVERIFIED
-- FA13-16 Cancel terminates worker; Clear clears result and error — UNVERIFIED
-- FA13-17 JSON export downloads sena-ena-result.json (parses, sane shape) — UNVERIFIED
-- FA13-18 Points/Connections buttons download CSVs with plausible rows — UNVERIFIED
-- FA13-19 Plot zoom in/out/reset (0.6x–4x) — UNVERIFIED
-- FA13-20 Alerts strip: validation message, error, run warnings, low-rank warning appear when provoked — UNVERIFIED
+**2026-08-08:** first behavioural coverage lands — `scripts/verify-sena-ena-browser-smoke.mjs` (commits d5183a8 + 4028fa3), 9 legs / ~50 checks, registered in `sena:pilot:verify` and green there end-to-end. Kill-proved: 6 of 7 adversarial source mutations turned the leg red for the predicted reason, including an EC-11 reproduction (client bundle throws at import ⇒ `curl` still 200, smoke red — so this gate reads hydration, not status codes). Claim wording provisional pending Peter.
+- FA13-01 Page loads signed-out; mode rail (Sets/Model/Plot Tools/Stats) switches secondary panel — PASS 2026-08-08 (evidence: T3 leg 1 — signed-out proof via nav auth links, full 4-way rail state asserted before/after switching, and a Sets-only node going 0→1; the state change is what proves hydration rather than an HTTP 200)
+- FA13-02 CSV upload parses client-side, infers unit/conversation/code/metadata mapping, resets prior result — UNVERIFIED (not smoke-drivable: Playwright's setInputFiles bypasses the OS chooser, so the dialog itself is untested; the *inference* half is covered indirectly by FA13-03's 12 asserted column roles)
+- FA13-03 Sample button loads bundled lesson-study CSV; dataset cards + column preview populate — PASS 2026-08-08 (evidence: T3 leg 2 — caption changes to a distinct string, cards 18/12/7, and all 12 inferred column roles asserted in order)
+- FA13-04 "Full table" opens Data View drawer and scrolls to it — PASS 2026-08-08 (evidence: T3 leg 2 — aria-expanded false→true→false with table count 0→9 headers→0)
+- FA13-05 Model: column chips cycle roles; Units/Conversation/Codes/Metadata multi-selects update mapping — UNVERIFIED (**row wording is inaccurate** — verified against `EnaWorkspaceClient.tsx:1064` `toggleColumn`: a chip click clears the column from every role then toggles it within the target role, i.e. it assigns or unmaps; it never cycles. Writing the row as stated would produce a false red. Correction reserved for Peter — see Escalations)
+- FA13-06 Model accumulation selects (Model/Window/Weight/Node Positions) + Back/Forward/Dims inputs alter run config — UNVERIFIED (not attempted this slice)
+- FA13-07 Plot Tools Dimensions: axis labels, variance toggle, Flip X/Y take effect on plot — PASS 2026-08-08 (evidence: T3 leg 8 — axis rename reaches the title, variance toggle removes the share, and Flip X is proved a true mirror: every point moves >1px and the before+after abscissa sums are equal within 1e-6)
+- FA13-08 Plot Tools Plotted Points: Group By draws traces only (never re-projects), scale slider, label toggles — PASS 2026-08-08 (evidence: T3 leg 5 — the load-bearing one: selecting Group By adds three mean traces **while** dimensions, edge count, axis title and every (name, weight) pair stay byte-identical. That is the "draws traces only, never re-projects" claim proved rather than assumed. Scale slider not covered)
+- FA13-09 Plot Tools Network Graph: code-label/unconnected/weights toggles, edge-weight sliders incl. 0.001 floor readout — PASS 2026-08-08 (evidence: T3 legs 5+8 — code labels 7→0→7, connection weights 0→21→0, min-edge-weight slider readout 0.001→0.050 with survivor counts and name-sets asserted different)
+- FA13-10 Reset plot tools restores defaults — PASS 2026-08-08 (evidence: T3 leg 8 — axis title, input value and all six abscissas return to baseline)
+- FA13-11 Stats Compare: Group A/B selects compute Welch t / Cohen's d / Mann-Whitney per dimension — PASS 2026-08-08 (evidence: T3 leg 6 — exact statistics text pinned: `n 2 v 3`, `t(2.8) = -0.39, p = 0.723`, `U = 2.0, p = 0.800`, `exact distribution`)
+- FA13-12 Stats Fit + Variance tabs render correct tables for current run — PASS 2026-08-08 (evidence: T3 leg 6 — Pearson and Spearman pinned at the measured 1.000 per plotted dimension plus the qualitative label, and Variance rows asserted to agree with the plot's axis titles. The value pin replaced a range-only check that a 0.000-correlation projection passed; kill-proved in 4028fa3)
+- FA13-13 Stats Methods write-up + Copy button copies to clipboard — PASS 2026-08-08 (evidence: T3 leg 6 — clipboard content asserted to contain the write-up head and `This yielded 6 units of analysis.`)
+- FA13-14 Runtime toggle Worker↔API; Run jENA disabled until mapping valid; worker run shows progress % — **PARTIAL** 2026-08-08 (evidence: T3 leg 3 — the worker path is proved end-to-end: Run enabled on the inferred mapping → a plot whose own marks are asserted (7 node ids, 21 edges, 6 points, axis titles, heaviest edge). NOT covered: the Worker↔API toggle, and the progress percentage — the sample run finishes in ~100ms so only `0%` is ever observable and any mid-run assertion would be flaky. Owed as a separate slice with a larger fixture)
+- FA13-15 API runtime: fetches CSRF, POST /api/ena/run with session; signed-out behavior is a clear error, not a hang — UNVERIFIED (signed-out half is drivable — recon confirmed the surfaced string is `Sign in is required.` — but the signed-in half needs the auth smoke's session; owed)
+- FA13-16 Cancel terminates worker; Clear clears result and error — UNVERIFIED (needs a ~17,600-row synthetic CSV to keep a run alive long enough to cancel. Recon surfaced a **real defect** while scoping it — see Escalations: the intended `Analysis cancelled.` loses a race to jena-js's own `ENA worker client terminated.`)
+- FA13-17 JSON export downloads sena-ena-result.json (parses, sane shape) — PASS 2026-08-08 (evidence: T3 leg 9 — keys `[set, plotModel, summary, warnings]`, summary rows 18 / units 6 / codes 7, runtime `worker`, warnings `[]`)
+- FA13-18 Points/Connections buttons download CSVs with plausible rows — PASS 2026-08-08 (evidence: T3 leg 9 — points header `ENA_UNIT,participant,SVD1,SVD2`; connections 2 id columns + 21 pair columns, first `PoP & GO`; both row counts equal summary.units)
+- FA13-19 Plot zoom in/out/reset (0.6x–4x) — PASS 2026-08-08 (evidence: T3 leg 4 — both clamps asserted with their disabled states, and the 3dp plot attribute cross-checked against the 2dp header readout)
+- FA13-20 Alerts strip: validation message, error, run warnings, low-rank warning appear when provoked — UNVERIFIED (needs purpose-built fixture CSVs — a dataset decision, not a test decision)
 
 ### FA-14 SENA fusion workspace shell — /workspace/sena
 Prior coverage: verify-sena-browser-smoke.mjs (viewport shell, view switching, drawer, uploads, canvas selection, download/restore round-trips) — rerun for fresh proof.
@@ -174,7 +175,7 @@ All statuses provisional — claim wording pending Peter. Evidence run: `sena:pi
 - FA24-04 Four-mode routing: panel AND maximized overlay render the matching surface for plane-orbit/ena-space/explanatory/joint with the matching grammar caption; maximizing never falls back to the Canvas (pre-P3 overlay bug) — PASS 2026-08-08 (evidence: T3 smoke `verifyFusionLayoutRoundTrip`; jsdom pin lib/sena/__tests__/fusion-overlay-routing.test.tsx)
 - FA24-05 Standalone SNA orbit sociogram in the SNA view with full lane provenance — PASS 2026-08-08 (evidence: T3 smoke SNA-view leg + `verifyOrbitLaneProvenance` scoped to `sena-sna-orbit-sociogram`; screenshot …-sna-orbit-sociogram.png)
 - FA24-06 Diagnostic layouts preserve the A1 grammar (`sena-fusion-canvas` testid, concept guide, outer-social-arc, solid links, halos, Q glyph, weighted widths) — PASS 2026-08-08 (evidence: T3 smoke `verifyDiagnosticFusionCanvasLayouts`; screenshot …-fusion-diagnostic-a1-canvas.png)
-- FA24-07 /workspace/ena comparison controls (group means + 95% t-CI overlay, signed subtraction default-off, palette presets, Δ× multiplier) — PASS 2026-08-08 at T1 only (evidence: lib/ena/__tests__/comparison-geometry.test.tsx (23) + statistics goldens + |Δ|-threshold wiring pins from 26ca5b7; T3 browser leg OWED — no gate visits /workspace/ena yet, see Escalations)
+- FA24-07 /workspace/ena comparison controls (group means + 95% t-CI overlay, signed subtraction default-off, palette presets, Δ× multiplier) — PASS 2026-08-08 **at T3** (evidence: leg 5 of `verify-sena-ena-browser-smoke.mjs`, green in `sena:pilot:verify`; commits d5183a8 + 4028fa3. Means asserted with their group n; CI rectangles asserted twice over — the drawn bounds within 1e-4 of both groups' computed values AND a positive rendered boundingBox; palette swap asserted on the ink, not just the active flag; Δ× 3 asserted to triple every stroke width while every weight and sign stays byte-identical; |Δ| threshold asserted to keep a *different set* of edges than the pooled-mean filter. Subtraction default-off is kill-proved twice: flipping the state default and flipping only the control's checked prop both turn the leg red. Upgraded from the T1-only status recorded earlier the same day)
 
 ### FA-23 Cross-cutting
 - FA23-01 Responsive: workspace + marketing at mobile/tablet/desktop viewports, no overflow (footer screenshots in output/playwright are prior evidence) — UNVERIFIED
@@ -187,9 +188,12 @@ All statuses provisional — claim wording pending Peter. Evidence run: `sena:pi
 ## Escalations for Peter
 (append `- <date> <ledger-id>: <one-line question>`; these are the BLOCKED-PETER queue)
 - 2026-08-08 FA24/FA16/FA19: ratify ADR-0009 + the fusion-redesign claim wording (rows marked provisional); FA16-01 item text still names three layouts.
-- 2026-08-08 FA24-07: /workspace/ena has no browser-smoke coverage at all (P4c comparison UI is unit-tested only) — approve adding a smoke leg, or accept T1 evidence for the comparison surface.
+- 2026-08-08 FA24-07: ~~/workspace/ena has no browser-smoke coverage at all~~ — RESOLVED same day: smoke leg added (d5183a8 + 4028fa3), FA24-07 now T3 and 13 FA-13 rows PASS.
+- 2026-08-08 FA13-05: the row's wording does not match the code. `toggleColumn` (EnaWorkspaceClient.tsx:1064) clears a column from every role then toggles it within the target role — a chip click **assigns or unmaps**; it never "cycles roles". Reword the row (and I'll gate it), or tell me the cycling behaviour is the intent and it's the code that's wrong.
+- 2026-08-08 FA13-16 (product defect, cosmetic but user-facing): `cancelAnalysis()` sets `"Analysis cancelled."` (EnaWorkspaceClient.tsx:1149) and is then overwritten — `terminate()` rejects the in-flight run and that rejection's handler surfaces jena-js's own `"ENA worker client terminated."` (the string lives in node_modules/jena-js/dist/browser/index.js, not in SENA). The user sees library internals instead of the intended message. Fix is ours (swallow the post-cancel rejection, or re-assert the message after terminate); worth a bug row.
 - 2026-08-08 UI wording: the "Active view" note still reads "Current window A1 canvas" while the default is the plane-orbit figure — changing it touches plot-switcher copy, which the Perf Report guardrail freezes ("no plot-switcher DOM/label changes"); your call.
 
 ## Iteration log
 (append-only; one line per loop iteration: `- <date> <iteration#> target=<ids> verdict=<...> evidence=<pointer> commit=<sha|none>`)
 - 2026-08-08 fusion-redesign P6 target=FA14-01,04,07;FA16-01,03;FA19-01,02,04;FA24-01…07 verdict=PASS (provisional wording) evidence=sena:pilot:verify green @ b1abee7 + output/playwright/sena-20260808-*.png commit=b1abee7
+- 2026-08-08 ena-workbench-coverage target=FA13-01…20;FA24-07 verdict=13 PASS / 1 PARTIAL (FA13-14) / 6 UNVERIFIED-with-reason; 2 findings raised (FA13-05 wording, FA13-16 defect) evidence=verify-sena-ena-browser-smoke.mjs green in sena:pilot:verify; 6-of-7 adversarial mutations killed; 1 vacuity found and closed (Goodness of Fit) commit=d5183a8+4028fa3
