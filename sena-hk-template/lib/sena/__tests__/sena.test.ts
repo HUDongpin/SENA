@@ -73,6 +73,7 @@ import {
   SENA_ENTERPRISE_PASSWORD_POLICY_MANIFEST
 } from "../auth-page-manifest";
 import { SENA_BROWSER_SMOKE_MANIFEST } from "../browser-smoke-manifest";
+import { senaLayerStrokes } from "../layer-palette";
 import { buildSenaApiDocumentation } from "../api-docs";
 import { SENA_IMPLEMENTED_API_ROUTES } from "../api-route-manifest";
 import {
@@ -2095,6 +2096,7 @@ describe("SENA model builder", () => {
       "next-stage-development-plan",
       "next-stage-development-plan-role",
       "workspace-model-layer-stack-icon",
+      "workspace-model-layout-plane-orbit",
       "workspace-model-layout-explanatory",
       "workspace-model-layout-ena-space",
       "workspace-model-layout-joint",
@@ -2210,6 +2212,16 @@ describe("SENA model builder", () => {
       "fusion-canvas-sna-outer-orbit",
       "fusion-canvas-layer-key",
       "fusion-canvas-g-layer-key",
+      "fusion-plane-orbit-svg-anchor",
+      "fusion-plane-nested-ena-plot",
+      "fusion-orbit-layer-anchor",
+      "fusion-orbit-sena-layer",
+      "fusion-orbit-social-lane",
+      "fusion-orbit-social-arrowhead",
+      "fusion-orbit-lane-normalized-weight",
+      "fusion-plane-unit-link",
+      "fusion-plane-model-footer",
+      "sna-orbit-sociogram",
       "metric-provenance-panel",
       "metric-provenance-panel-role",
       "edge-matrix-provenance",
@@ -2442,6 +2454,22 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-arc-route=\"outer-orbit\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"fusion-layer-key\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"fusion-layer-key-g\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"model-layout-plane-orbit\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"sena-fusion-plane-orbit\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"ena-plot\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"sena-fusion-orbit-layer\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-sena-layer=\"orbit\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"orbit-social-lane\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"orbit-social-arrowhead\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-edge-normalized-weight=");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"sena-fusion-unit-link\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-sena-layer=\"model-footer\"");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"sena-sna-orbit-sociogram\"");
+    // The A1 canvas centre guide's pinned stroke is the single-source concept
+    // layer stroke, not a literal that can drift from it (P5 re-stepped
+    // #895dff to #A06BF5 and orphaned this row until P6).
+    expect(bundle.productionPageContract.visualChecks.find((check) => check.id === "fusion-canvas-center-region")?.requiredText)
+      .toContain(senaLayerStrokes.concept);
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"metric-provenance-panel\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"sena-metric-provenance\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"stats-jena-concept-handoff\"");

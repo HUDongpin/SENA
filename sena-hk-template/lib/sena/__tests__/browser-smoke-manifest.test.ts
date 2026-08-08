@@ -15,6 +15,9 @@ describe("SENA browser smoke manifest", () => {
       route: "/workspace/sena",
       responsiveWidths: [375, 768, 1024, 1440],
       selectors: {
+        planeOrbit: "sena-fusion-plane-orbit",
+        orbitLayer: "sena-fusion-orbit-layer",
+        snaOrbitSociogram: "sena-sna-orbit-sociogram",
         fusionCanvas: "sena-fusion-canvas",
         primaryPlot: "workspace-primary-plot",
         secondaryPlot: "workspace-secondary-plot",
@@ -41,6 +44,40 @@ describe("SENA browser smoke manifest", () => {
     expect(verifierSource).toContain("\"workspace-mobile-figure-dual\"");
     expect(verifierSource).toContain("\"workspace-research-details-drawer\"");
     expect(verifierSource).toContain("verifyInteractiveVisualCheckCoverage");
+  });
+
+  it("keeps the plane-orbit default surface covered rather than only the Diagnostic Canvas", () => {
+    const verifierSource = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
+    const smokeSource = readFileSync(new URL("../../../scripts/verify-sena-browser-smoke.mjs", import.meta.url), "utf8");
+
+    // The verifier's covered set must name the Ring-3 rows the smoke actually
+    // drives; verifyInteractiveVisualCheckCoverage exits 1 if any of them is
+    // missing from the contract, which is what keeps the two files in step.
+    for (const id of [
+      "fusion-plane-orbit-svg-anchor",
+      "fusion-plane-nested-ena-plot",
+      "fusion-orbit-layer-anchor",
+      "fusion-orbit-sena-layer",
+      "fusion-orbit-social-lane",
+      "fusion-orbit-social-arrowhead",
+      "fusion-orbit-lane-normalized-weight",
+      "fusion-plane-unit-link",
+      "fusion-plane-model-footer",
+      "sna-orbit-sociogram",
+      "workspace-model-layout-plane-orbit"
+    ]) {
+      expect(verifierSource).toContain(`"${id}"`);
+    }
+
+    // And the smoke must reach both grammars: the default plane-orbit figure
+    // and, after an explicit layout switch, the Diagnostic A1 Canvas the
+    // Functional Ledger still pins.
+    expect(smokeSource).toContain(SENA_BROWSER_SMOKE_MANIFEST.workspace.selectors.planeOrbit);
+    expect(smokeSource).toContain(SENA_BROWSER_SMOKE_MANIFEST.workspace.selectors.orbitLayer);
+    expect(smokeSource).toContain(SENA_BROWSER_SMOKE_MANIFEST.workspace.selectors.snaOrbitSociogram);
+    expect(smokeSource).toContain(SENA_BROWSER_SMOKE_MANIFEST.workspace.selectors.fusionCanvas);
+    expect(smokeSource).toContain("model-layout-plane-orbit");
+    expect(smokeSource).toContain("orbit-social-lane");
   });
 
   it("wires login remember-me to enterprise session policy", () => {

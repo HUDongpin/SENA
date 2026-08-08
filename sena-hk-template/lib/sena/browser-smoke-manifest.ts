@@ -6,6 +6,15 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
     route: "/workspace/sena",
     responsiveWidths: [375, 768, 1024, 1440],
     selectors: {
+      // The default Fusion figure since ADR 0009. `fusionCanvas` stays declared
+      // because the A1 Canvas is still shipped behind the Diagnostic layouts
+      // (model-layout-explanatory / model-layout-joint) and the Functional
+      // Ledger pins its testid — but it is no longer what a fresh page shows,
+      // so a smoke that waits on it without switching layout first is waiting
+      // for an element that is not there.
+      planeOrbit: "sena-fusion-plane-orbit",
+      orbitLayer: "sena-fusion-orbit-layer",
+      snaOrbitSociogram: "sena-sna-orbit-sociogram",
       fusionCanvas: "sena-fusion-canvas",
       primaryPlot: "workspace-primary-plot",
       secondaryPlot: "workspace-secondary-plot",
