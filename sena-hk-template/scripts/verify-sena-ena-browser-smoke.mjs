@@ -757,11 +757,11 @@ async function verifyEnaSignedThreshold(page) {
 /**
  * Leg 6 — the Stats panel's four tabs.
  *
- * Goodness of fit is asserted structurally, not as a threshold: with two
- * retained dimensions the displayed dimensions *are* the retained ones, so
- * Pearson is 1.000 by construction and any "Pearson >= 0.9" gate can never
- * fail. Variance instead pins the two surfaces that must agree — the axis title
- * and the Variance row both print set.variance.
+ * Goodness of fit is pinned at its measured value (see the note at the
+ * assertion): "1.000 by construction on this fixture" is what makes a tight pin
+ * cheap and a loose one worthless, not a reason to assert only structure.
+ * Variance pins the two surfaces that must agree — the axis title and the
+ * Variance row both print set.variance.
  */
 async function verifyEnaStatsPanels(page) {
   await page.locator('[data-rail-mode="stats"]').click({ timeout: defaultTimeout });
@@ -804,15 +804,39 @@ async function verifyEnaStatsPanels(page) {
   );
   await assertCount(page, '[data-visual-role="ena-stats-comparison"]', 0, "Stats Compare body on the Fit tab");
   const fitText = ((await page.locator('[data-visual-role="ena-stats-goodness-of-fit"]').first().textContent()) ?? "").replace(/\s+/g, " ");
-  const fitCorrelations = [...fitText.matchAll(/Pearson(-?\d+\.\d{3}) \[/g)].map((match) => Number(match[1]));
-  assertNumber(fitCorrelations.length, sampleDimensions.split(",").length, "Goodness of Fit rows (one per plotted dimension)");
-  for (const correlation of fitCorrelations) {
+  const fitPearson = [...fitText.matchAll(/Pearson(-?\d+\.\d{3}) \[/g)].map((match) => Number(match[1]));
+  const fitSpearman = [...fitText.matchAll(/Spearman(-?\d+\.\d{3})/g)].map((match) => Number(match[1]));
+  const fitRows = sampleDimensions.split(",").length;
+  assertNumber(fitPearson.length, fitRows, "Goodness of Fit Pearson rows (one per plotted dimension)");
+  assertNumber(fitSpearman.length, fitRows, "Goodness of Fit Spearman rows (one per plotted dimension)");
+  // Pinned at the value, not merely inside [-1, 1]. On this fixture the two
+  // retained dimensions ARE the two displayed ones, so each unit's position in
+  // the high-dimensional space and its plotted position are the same vector and
+  // both correlations are 1.000 by construction. That is a reason to pin
+  // tightly, not a reason to skip the pin: a regression in jena-js's
+  // enaCorrelations, or a mis-wiring of the manifest's goodnessOfFit, shows up
+  // here and nowhere else. Kill-proved 2026-08-08 — forcing the correlations to
+  // 0.000 left every structural assertion (row count, [-1, 1] range, the word
+  // "Spearman") green while the panel reported a projection that preserves
+  // nothing, one line above its own "Above 0.9 is the conventional bar" copy.
+  // A fixture that ever retains more dimensions than it displays will legitimately
+  // land below 1.000; re-pin it to that measured value rather than loosening this.
+  for (const correlation of [...fitPearson, ...fitSpearman]) {
     assertTrue(
-      Number.isFinite(correlation) && correlation >= -1 && correlation <= 1,
-      `Goodness of Fit Pearson value ${correlation} is outside [-1, 1].`
+      Number.isFinite(correlation) && correlation >= 0.999 && correlation <= 1,
+      `Goodness of Fit correlation ${correlation} is not the 1.000 this fixture projects by construction.`
     );
   }
-  assertTextIncludes(fitText, "Spearman", "Stats Fit body");
+  // The qualitative label the reader actually acts on has to agree with the number.
+  assertNumber(
+    (fitText.match(/strong/g) ?? []).length,
+    fitRows,
+    "Goodness of Fit rows labelled strong"
+  );
+  assertTrue(
+    !/\b(adequate|weak)\b/.test(fitText),
+    `Goodness of Fit reported a non-strong label for a 1.000 projection: ${fitText}`
+  );
 
   await page.locator('[data-panel-tab="variance"]').click({ timeout: defaultTimeout });
   const varianceText = ((await page.locator("aside").first().textContent()) ?? "").replace(/\s+/g, " ");
