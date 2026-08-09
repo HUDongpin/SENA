@@ -103,8 +103,18 @@ function columnsFromRows(rows: SenaImportRow[]) {
 }
 
 function datasetToTables(dataset: SenaDataset, name: string): SenaMappedTable[] {
+  // A per-file dataset build is validation scaffolding: its group:"Derived"
+  // placeholders (label === id, minted by addDerivedContractRows) are
+  // reconstruction artifacts, not declarations, and must not round-trip into the
+  // merged pass as declared roster rows — that would seat a pass-1-minted
+  // interaction target on the roster (bypassing the ADR-0010 gate, since a
+  // roster-less file legitimately derives its targets in isolation) and shadow a
+  // real declared row of the same id from another file. The merged pass
+  // re-derives contribution-shaped placeholders identically; only the roster
+  // verdict changes.
+  const declaredPeople = dataset.people.filter((person) => !(person.group === "Derived" && person.label === person.id));
   return [
-    rowsToTable(`${name}-people`, dataset.people as unknown as SenaImportRow[], "people"),
+    rowsToTable(`${name}-people`, declaredPeople as unknown as SenaImportRow[], "people"),
     rowsToTable(`${name}-interactions`, dataset.interactions as unknown as SenaImportRow[], "interactions"),
     rowsToTable(`${name}-utterances`, dataset.utterances as unknown as SenaImportRow[], "utterances"),
     rowsToTable(`${name}-coded_segments`, dataset.coded_segments as unknown as SenaImportRow[], "coded_segments"),
@@ -826,7 +836,13 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   // audited the same files "pass" through this route and "review" through the
   // browser one. Warnings are excluded from buildSenaDatasetContentHash, so
   // fingerprints are unaffected.
-  const allWarnings = [...warnings, ...result.warnings];
+  // Per-file derivation verdicts are superseded by the merged pass: a person one
+  // file derives can be declared by another, so only `result.warnings` carries
+  // the authoritative placeholder/roster-gate disclosures (ADR-0010 D2). The
+  // raw per-file copies stay on `sources` for provenance; dropping them here
+  // keeps the combined manifest at exactly one copy of each.
+  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include/;
+  const allWarnings = [...warnings.filter((warning) => !perFileDerivationVerdicts.test(warning)), ...result.warnings];
   result.dataset.warnings = allWarnings;
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseImport,
