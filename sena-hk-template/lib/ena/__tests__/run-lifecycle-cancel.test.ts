@@ -364,8 +364,16 @@ describe("EnaWorkspaceClient supersedes on every baked-in run input (FA13-NEW)",
   it("leaves composition controls alone — Group By and minimum edge weight cannot go stale", () => {
     // composedPlotModel rebuilds the drawn network from whatever set exists, so
     // these two follow the controls immediately whichever run lands. Aborting a
-    // run for them would throw away work for nothing.
-    expect(source).not.toContain("supersedeRunForInputChange();\n    setGroupBy");
+    // run for them would throw away work for nothing. Both stay wired straight
+    // to their setters; interposing a supersede has to be a deliberate edit
+    // that trips this, not a reflex applied to everything that feels like input.
+    expect(source).toContain("onChange={setGroupBy}");
+    expect(source).toContain("onChange={(event) => setMinWeight(Number(event.currentTarget.value))}");
+  });
+
+  it("does not tear down a healthy idle worker when nothing is running", () => {
+    // Without the guard, every mapping or option tweak between runs terminates
+    // the worker bundle and pays to respawn it on the next Run.
     expect(functionBody(source, "supersedeRunForInputChange")).toContain("if (!isRunning) return;");
   });
 });
