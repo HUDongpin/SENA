@@ -11,7 +11,7 @@ import {
   ENA_RUN_CANCELLED_MESSAGE,
   cancelEnaAnalysis,
   runEnaAnalysis,
-  type EnaCancelFlag
+  type EnaRunToken
 } from "../../../app/workspace/ena/run-lifecycle";
 
 // FA13-16 (Functional Coverage Ledger, escalation 2026-08-08): Cancel sets
@@ -40,7 +40,7 @@ type LifecycleState = {
 
 function createHarness() {
   const state: LifecycleState = { error: null, isRunning: false, progress: null, result: null, settled: 0 };
-  const cancelRequested: EnaCancelFlag = { current: false };
+  const runToken: EnaRunToken = { current: 0 };
   const setters = {
     setIsRunning: (isRunning: boolean) => { state.isRunning = isRunning; },
     setProgress: (progress: number | null) => { state.progress = progress; },
@@ -48,9 +48,9 @@ function createHarness() {
   };
   return {
     state,
-    cancelRequested,
+    runToken,
     run(execute: () => Promise<string>, initialProgress: number | null = 0) {
-      return runEnaAnalysis<string>(cancelRequested, {
+      return runEnaAnalysis<string>(runToken, {
         initialProgress,
         execute,
         onSettled: () => { state.settled += 1; },
@@ -59,7 +59,7 @@ function createHarness() {
       });
     },
     cancel(teardown: () => void) {
-      cancelEnaAnalysis(cancelRequested, { teardown, ...setters });
+      cancelEnaAnalysis(runToken, { teardown, ...setters });
     }
   };
 }
@@ -125,7 +125,11 @@ describe("ENA run lifecycle vs jena-js worker teardown (FA13-16)", () => {
     expect(harness.state.error).toBe(ENA_RUN_CANCELLED_MESSAGE);
     expect(harness.state.isRunning).toBe(false);
     expect(harness.state.progress).toBeNull();
-    expect(harness.state.settled).toBe(1);
+    // The cancelled run touches nothing on its way out — teardown already
+    // dropped the run handle, and re-running that cleanup would clobber the
+    // handle of whatever run started next. The other half of this claim (a
+    // current run does settle, exactly once) is pinned by the test below.
+    expect(harness.state.settled).toBe(0);
   });
 
   it("still surfaces a genuine worker failure verbatim when nothing was cancelled", async () => {
@@ -143,6 +147,7 @@ describe("ENA run lifecycle vs jena-js worker teardown (FA13-16)", () => {
     await attempt;
     expect(harness.state.error).toBe("codes produced an empty adjacency matrix");
     expect(harness.state.isRunning).toBe(false);
+    expect(harness.state.settled).toBe(1);
   });
 
   it("discards a result that settles after cancel instead of resurrecting it", async () => {
@@ -174,5 +179,72 @@ describe("ENA run lifecycle vs jena-js worker teardown (FA13-16)", () => {
     await harness.run(() => Promise.resolve("second wind"), null);
     expect(harness.state.result).toBe("second wind");
     expect(harness.state.error).toBeNull();
+  });
+
+  it("does not resurrect a cancelled run's result once a new run has started", async () => {
+    // The API runtime has no AbortController, so a cancelled fetch keeps
+    // flying. A shared cancelled-state flag has to be cleared by the next run
+    // (the test above), which hands the abandoned run a window in which it
+    // looks live again — so its stale result lands as if it were the new run's,
+    // and its cleanup stands the new run down mid-flight. A run must be judged
+    // against its own identity, not against shared state its successor owns.
+    const harness = createHarness();
+    let resolveAbandoned: (value: string) => void = () => {};
+    const abandoned = harness.run(() => new Promise<string>((resolve) => { resolveAbandoned = resolve; }), null);
+
+    harness.cancel(() => {});
+
+    // The replacement run is a worker run, so its progress starts at 0 rather
+    // than null: an abandoned run that ran the cleanup would blank it, which a
+    // null-progress current run could not tell apart from doing nothing.
+    let resolveCurrent: (value: string) => void = () => {};
+    const current = harness.run(() => new Promise<string>((resolve) => { resolveCurrent = resolve; }), 0);
+    expect(harness.state.isRunning).toBe(true);
+
+    resolveAbandoned("result of the run the user cancelled");
+    await abandoned;
+    expect(harness.state.result).toBeNull();
+    expect(harness.state.isRunning).toBe(true);
+    expect(harness.state.progress).toBe(0);
+
+    resolveCurrent("result of the run the user is waiting for");
+    await current;
+    expect(harness.state.result).toBe("result of the run the user is waiting for");
+  });
+
+  it("keeps the newest run's outcome when an earlier run settles last", async () => {
+    // Overlapping runs with no cancel between them. Today's UI cannot produce
+    // this — the Run button is *replaced* by Cancel while a run is in flight
+    // (EnaWorkspaceClient), so runAnalysis has one reachable call site and the
+    // cancel-then-rerun path above is the live defect. This pins the module's
+    // own invariant, so a second call site (a retry, an auto-rerun on a mapping
+    // change) cannot reintroduce last-settled-wins.
+    const harness = createHarness();
+    let resolveSuperseded: (value: string) => void = () => {};
+    const superseded = harness.run(() => new Promise<string>((resolve) => { resolveSuperseded = resolve; }), null);
+    let resolveNewest: (value: string) => void = () => {};
+    const newest = harness.run(() => new Promise<string>((resolve) => { resolveNewest = resolve; }), null);
+
+    resolveNewest("newest result");
+    await newest;
+    expect(harness.state.result).toBe("newest result");
+
+    resolveSuperseded("superseded result");
+    await superseded;
+    expect(harness.state.result).toBe("newest result");
+  });
+
+  it("does not paint a superseded run's failure over the current run", async () => {
+    // Error-side twin of the test above, and likewise a guard on the module
+    // rather than a reproduction of today's UI.
+    const harness = createHarness();
+    let rejectSuperseded: (error: Error) => void = () => {};
+    const superseded = harness.run(() => new Promise<string>((_resolve, reject) => { rejectSuperseded = reject; }), null);
+    await harness.run(() => Promise.resolve("current result"), null);
+
+    rejectSuperseded(new Error("superseded failure"));
+    await superseded;
+    expect(harness.state.error).toBeNull();
+    expect(harness.state.result).toBe("current result");
   });
 });

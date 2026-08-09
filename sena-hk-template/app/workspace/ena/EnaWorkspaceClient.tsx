@@ -780,7 +780,7 @@ export function EnaWorkspaceClient() {
   const [progress, setProgress] = useState<number | null>(null);
   const workerBundleRef = useRef<WorkerBundle | null>(null);
   const runHandleRef = useRef<ENAWorkerRunHandle | null>(null);
-  const cancelRequestedRef = useRef(false);
+  const runTokenRef = useRef(0);
   const dataViewRef = useRef<HTMLDivElement | null>(null);
 
   // The full row x column grid lives under the plot, where the width is. Opening
@@ -1124,7 +1124,7 @@ export function EnaWorkspaceClient() {
   }
 
   async function runAnalysis() {
-    await runEnaAnalysis(cancelRequestedRef, {
+    await runEnaAnalysis(runTokenRef, {
       initialProgress: runtime === "worker" ? 0 : null,
       execute: () => (runtime === "worker" ? runWithWorker() : runWithApi()),
       onSettled: () => {
@@ -1138,7 +1138,7 @@ export function EnaWorkspaceClient() {
   }
 
   function cancelAnalysis() {
-    cancelEnaAnalysis(cancelRequestedRef, {
+    cancelEnaAnalysis(runTokenRef, {
       teardown: () => {
         runHandleRef.current?.cancel();
         workerBundleRef.current?.client.terminate();

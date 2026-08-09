@@ -1,12 +1,18 @@
 // Run/cancel sequencing for the ENA workspace, extracted from
 // EnaWorkspaceClient so the cancel/settlement interplay is testable without a
 // DOM. The component owns the React state and worker refs; it hands this
-// module setter callbacks and an executor, plus a mutable cancel flag (a React
+// module setter callbacks and an executor, plus a mutable run token (a React
 // ref in production, a plain { current } object in tests).
 
 export const ENA_RUN_CANCELLED_MESSAGE = "Analysis cancelled.";
 
-export type EnaCancelFlag = { current: boolean };
+/**
+ * Monotonic run counter. Each run claims the next value and writes state only
+ * while it still holds it; cancelling bumps it, and so does the next run. A
+ * boolean "cancelled" flag cannot express this: the next run has to clear it,
+ * which hands the abandoned run a window in which it looks live again.
+ */
+export type EnaRunToken = { current: number };
 
 export type EnaRunHost<TResult> = {
   /** 0 for the worker runtime (which reports progress), null for the API. */
@@ -28,8 +34,10 @@ export type EnaCancelHost = {
   setError: (message: string | null) => void;
 };
 
-export async function runEnaAnalysis<TResult>(cancelRequested: EnaCancelFlag, host: EnaRunHost<TResult>): Promise<void> {
-  cancelRequested.current = false;
+export async function runEnaAnalysis<TResult>(runToken: EnaRunToken, host: EnaRunHost<TResult>): Promise<void> {
+  const token = (runToken.current += 1);
+  const isCurrentRun = () => runToken.current === token;
+
   host.setIsRunning(true);
   host.setProgress(host.initialProgress);
   host.setError(null);
@@ -37,25 +45,32 @@ export async function runEnaAnalysis<TResult>(cancelRequested: EnaCancelFlag, ho
 
   try {
     const result = await host.execute();
-    if (!cancelRequested.current) host.setResult(result);
+    if (isCurrentRun()) host.setResult(result);
   } catch (runError) {
     // FA13-16: cancelling terminates the worker, and jena-js then rejects the
     // in-flight run with its own "ENA worker client terminated." Error — a
     // microtask after cancelEnaAnalysis has already written the user-facing
-    // cancel message. A cancelled run's settlement must not repaint the error
-    // (or, on the API runtime, land a late result the user walked away from).
-    if (!cancelRequested.current) {
+    // cancel message. Neither a cancelled run nor one the user has superseded
+    // may repaint the error.
+    if (isCurrentRun()) {
       host.setError(runError instanceof Error ? runError.message : "ENA analysis failed.");
     }
   } finally {
-    host.onSettled();
-    host.setIsRunning(false);
-    host.setProgress(null);
+    // The API runtime has no AbortController, so an abandoned request keeps
+    // flying and can settle at any moment — including while a fresh run is in
+    // flight. Only the run still holding the token may stand the UI down or
+    // drop the component's run handle; for a cancelled run, teardown already
+    // did both.
+    if (isCurrentRun()) {
+      host.onSettled();
+      host.setIsRunning(false);
+      host.setProgress(null);
+    }
   }
 }
 
-export function cancelEnaAnalysis(cancelRequested: EnaCancelFlag, host: EnaCancelHost): void {
-  cancelRequested.current = true;
+export function cancelEnaAnalysis(runToken: EnaRunToken, host: EnaCancelHost): void {
+  runToken.current += 1;
   host.teardown();
   host.setIsRunning(false);
   host.setProgress(null);
