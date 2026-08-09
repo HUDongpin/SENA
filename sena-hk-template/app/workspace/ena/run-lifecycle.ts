@@ -26,11 +26,14 @@ export type EnaRunHost<TResult> = {
   setResult: (result: TResult | null) => void;
 };
 
-export type EnaCancelHost = {
+export type EnaSupersedeHost = {
   /** Cancels the in-flight run and tears the worker down (jena-js handle.cancel + client.terminate). */
   teardown: () => void;
   setIsRunning: (isRunning: boolean) => void;
   setProgress: (progress: number | null) => void;
+};
+
+export type EnaCancelHost = EnaSupersedeHost & {
   setError: (message: string | null) => void;
 };
 
@@ -69,10 +72,29 @@ export async function runEnaAnalysis<TResult>(runToken: EnaRunToken, host: EnaRu
   }
 }
 
-export function cancelEnaAnalysis(runToken: EnaRunToken, host: EnaCancelHost): void {
+/**
+ * Abandon the run in flight and stand the UI down, saying nothing about why.
+ *
+ * FA13-NEW: a run is computed from the dataset, mapping and accumulation
+ * options as they stood when it started, and all three are baked into its
+ * result. Change one of them and the run can no longer be allowed to settle —
+ * its projection would paint over the new grid while the layer key, Compare
+ * table and Methods write-up went on deriving from the new inputs, with
+ * nothing to signal the mismatch. Bumping the token is what makes the
+ * abandonment stick: teardown cannot reach an API run, which has no
+ * AbortController and keeps flying until it settles.
+ *
+ * Silent by design — the caller is reporting the change that caused it (an
+ * import message, a repopulated mapping). Cancel is this plus the message.
+ */
+export function supersedeEnaRun(runToken: EnaRunToken, host: EnaSupersedeHost): void {
   runToken.current += 1;
   host.teardown();
   host.setIsRunning(false);
   host.setProgress(null);
+}
+
+export function cancelEnaAnalysis(runToken: EnaRunToken, host: EnaCancelHost): void {
+  supersedeEnaRun(runToken, host);
   host.setError(ENA_RUN_CANCELLED_MESSAGE);
 }

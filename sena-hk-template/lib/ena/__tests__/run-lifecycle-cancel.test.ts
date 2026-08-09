@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createENAWorkerClient,
@@ -11,6 +13,7 @@ import {
   ENA_RUN_CANCELLED_MESSAGE,
   cancelEnaAnalysis,
   runEnaAnalysis,
+  supersedeEnaRun,
   type EnaRunToken
 } from "../../../app/workspace/ena/run-lifecycle";
 
@@ -60,6 +63,13 @@ function createHarness() {
     },
     cancel(teardown: () => void) {
       cancelEnaAnalysis(runToken, { teardown, ...setters });
+    },
+    supersede(teardown: () => void) {
+      supersedeEnaRun(runToken, {
+        teardown,
+        setIsRunning: setters.setIsRunning,
+        setProgress: setters.setProgress
+      });
     }
   };
 }
@@ -246,5 +256,116 @@ describe("ENA run lifecycle vs jena-js worker teardown (FA13-16)", () => {
     await superseded;
     expect(harness.state.error).toBeNull();
     expect(harness.state.result).toBe("current result");
+  });
+});
+
+// FA13-NEW (Functional Coverage Ledger, escalation 2026-08-09): an analysis
+// could outlive the data it was computed from. A run is computed from the
+// dataset, the mapping and the accumulation options as they stood when it
+// started, and all three are baked into the result. Loading a new dataset
+// cleared the result and repopulated grid + mapping but neither cancelled nor
+// superseded the run in flight, so when the old run settled its projection
+// painted over the new grid — while the layer key, subtraction, Compare table
+// and Methods write-up went on deriving from the new mapping and group-by.
+// Nothing signalled the mismatch and the export buttons would export it.
+//
+// Peter's chosen semantics: changing a baked-in run input abandons the run
+// rather than letting it finish. `supersedeEnaRun` is that abandonment —
+// `cancelEnaAnalysis` is the same teardown plus the user-facing message.
+describe("ENA run supersession on a run-input change (FA13-NEW)", () => {
+  it("abandons the run in flight and stands the UI down without claiming a cancel", async () => {
+    const harness = createHarness();
+    let resolveAbandoned: (value: string) => void = () => {};
+    const abandoned = harness.run(() => new Promise<string>((resolve) => { resolveAbandoned = resolve; }), 0);
+    expect(harness.state.isRunning).toBe(true);
+
+    let tornDown = 0;
+    harness.supersede(() => { tornDown += 1; });
+
+    // The worker is torn down and the spinner comes down at once — but the user
+    // loaded a dataset, they did not click Cancel, so nothing may write the
+    // cancel message over the import feedback applyCsv is about to set.
+    expect(tornDown).toBe(1);
+    expect(harness.state.isRunning).toBe(false);
+    expect(harness.state.progress).toBeNull();
+    expect(harness.state.error).toBeNull();
+
+    // The API runtime has no AbortController, so the abandoned request keeps
+    // flying. This is the defect itself: its result must never land.
+    resolveAbandoned("projection of the dataset the user replaced");
+    await abandoned;
+    expect(harness.state.result).toBeNull();
+    expect(harness.state.isRunning).toBe(false);
+    expect(harness.state.settled).toBe(0);
+  });
+
+  it("does not let a superseded run paint its failure over the fresh dataset", async () => {
+    const harness = createHarness();
+    let rejectAbandoned: (error: Error) => void = () => {};
+    const abandoned = harness.run(() => new Promise<string>((_resolve, reject) => { rejectAbandoned = reject; }), 0);
+
+    harness.supersede(() => {});
+    rejectAbandoned(new Error("ENA worker client terminated."));
+
+    await abandoned;
+    expect(harness.state.error).toBeNull();
+  });
+
+  it("leaves the next run fully live", async () => {
+    // The token bump must abandon exactly one run, not wedge the module: the
+    // run the user starts on the dataset they just loaded has to behave.
+    const harness = createHarness();
+    const abandoned = harness.run(() => new Promise<string>(() => {}), 0);
+    harness.supersede(() => {});
+    await Promise.race([abandoned, Promise.resolve()]);
+
+    await harness.run(() => Promise.resolve("projection of the dataset now on screen"), 0);
+    expect(harness.state.result).toBe("projection of the dataset now on screen");
+    expect(harness.state.isRunning).toBe(false);
+    expect(harness.state.settled).toBe(1);
+  });
+});
+
+/**
+ * Slice a `function name(...) { ... }` body out of a source file by counting
+ * braces from its opening one.
+ */
+function functionBody(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}(`);
+  expect(start, `${name} not found in EnaWorkspaceClient.tsx`).toBeGreaterThan(-1);
+  const open = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(open, index + 1);
+    }
+  }
+  throw new Error(`unbalanced braces reading ${name}`);
+}
+
+describe("EnaWorkspaceClient supersedes on every baked-in run input (FA13-NEW)", () => {
+  const source = readFileSync(
+    join(process.cwd(), "app/workspace/ena/EnaWorkspaceClient.tsx"),
+    "utf8"
+  );
+
+  // The behaviour above lives in run-lifecycle; these pin the call sites, which
+  // is where the defect actually was. Without them, deleting the supersede call
+  // from applyCsv restores the bug with the module suite still green.
+  it.each(["applyCsv", "updateMapping", "toggleColumn", "updateOptions"])(
+    "%s abandons the run in flight",
+    (mutator) => {
+      expect(functionBody(source, mutator)).toContain("supersedeRunForInputChange()");
+    }
+  );
+
+  it("leaves composition controls alone — Group By and minimum edge weight cannot go stale", () => {
+    // composedPlotModel rebuilds the drawn network from whatever set exists, so
+    // these two follow the controls immediately whichever run lands. Aborting a
+    // run for them would throw away work for nothing.
+    expect(source).not.toContain("supersedeRunForInputChange();\n    setGroupBy");
+    expect(functionBody(source, "supersedeRunForInputChange")).toContain("if (!isRunning) return;");
   });
 });
