@@ -58,6 +58,7 @@ import {
 } from "@/lib/ena/plot-display";
 import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight, unitGroupValues } from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
+import { cancelEnaAnalysis, runEnaAnalysis, supersedeEnaRun } from "./run-lifecycle";
 import type {
   EnaMapping,
   EnaPlotComposition,
@@ -779,6 +780,7 @@ export function EnaWorkspaceClient() {
   const [progress, setProgress] = useState<number | null>(null);
   const workerBundleRef = useRef<WorkerBundle | null>(null);
   const runHandleRef = useRef<ENAWorkerRunHandle | null>(null);
+  const runTokenRef = useRef(0);
   const dataViewRef = useRef<HTMLDivElement | null>(null);
 
   // The full row x column grid lives under the plot, where the width is. Opening
@@ -1031,10 +1033,42 @@ export function EnaWorkspaceClient() {
     [mapping.units.length, mapping.conversation.length, mapping.codes.length]
   );
 
+  function tearDownRun() {
+    runHandleRef.current?.cancel();
+    workerBundleRef.current?.client.terminate();
+    workerBundleRef.current = null;
+    runHandleRef.current = null;
+  }
+
+  /*
+    FA13-NEW: an analysis must not outlive the inputs it was computed from.
+    The dataset, the mapping and the accumulation options are baked into a
+    result and cannot be recovered from it, so changing any of them while a run
+    is in flight abandons that run — otherwise it settles into a workspace that
+    has moved on, painting dataset A's projection under dataset B's grid while
+    the layer key, subtraction, Compare table and Methods write-up all derive
+    from B. Nothing signalled that mismatch and the exports would write it out.
+
+    Composition (Group By, minimum edge weight) is deliberately NOT here: it is
+    rebuilt from whatever set exists, so it follows the controls immediately
+    whichever run lands and cannot go stale. Aborting for it would throw work
+    away for nothing.
+
+    The guard keeps a tweak made between runs free — teardown would otherwise
+    terminate a healthy idle worker and pay to respawn it on the next Run.
+  */
+  function supersedeRunForInputChange() {
+    if (!isRunning) return;
+    supersedeEnaRun(runTokenRef, { teardown: tearDownRun, setIsRunning, setProgress });
+  }
+
   function applyCsv(text: string, sourceLabel: string) {
     try {
       const nextParsed = parseCsv(text);
       const nextMapping = inferEnaMapping(nextParsed.headers, nextParsed.rows);
+      // Only once the import is known good: a CSV that fails to parse leaves
+      // the workspace on the dataset the run in flight still matches.
+      supersedeRunForInputChange();
       setParsed(nextParsed);
       setMapping(nextMapping);
       setResult(null);
@@ -1058,10 +1092,12 @@ export function EnaWorkspaceClient() {
   }
 
   function updateMapping(partial: Partial<EnaMapping>) {
+    supersedeRunForInputChange();
     setMapping((current) => sanitizeMapping({ ...current, ...partial }, parsed.headers));
   }
 
   function toggleColumn(role: ColumnRole, column: string) {
+    supersedeRunForInputChange();
     setMapping((current) => {
       const next: EnaMapping = {
         units: current.units.filter((item) => item !== column),
@@ -1076,6 +1112,7 @@ export function EnaWorkspaceClient() {
   }
 
   function updateOptions(partial: Partial<Required<EnaRunOptions>>) {
+    supersedeRunForInputChange();
     setOptions((current) => ({ ...current, ...partial }));
   }
 
@@ -1122,31 +1159,26 @@ export function EnaWorkspaceClient() {
   }
 
   async function runAnalysis() {
-    setIsRunning(true);
-    setProgress(runtime === "worker" ? 0 : null);
-    setError(null);
-    setResult(null);
-
-    try {
-      const nextResult = runtime === "worker" ? await runWithWorker() : await runWithApi();
-      setResult(nextResult);
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "ENA analysis failed.");
-    } finally {
-      runHandleRef.current = null;
-      setIsRunning(false);
-      setProgress(null);
-    }
+    await runEnaAnalysis(runTokenRef, {
+      initialProgress: runtime === "worker" ? 0 : null,
+      execute: () => (runtime === "worker" ? runWithWorker() : runWithApi()),
+      onSettled: () => {
+        runHandleRef.current = null;
+      },
+      setIsRunning,
+      setProgress,
+      setError,
+      setResult
+    });
   }
 
   function cancelAnalysis() {
-    runHandleRef.current?.cancel();
-    workerBundleRef.current?.client.terminate();
-    workerBundleRef.current = null;
-    runHandleRef.current = null;
-    setIsRunning(false);
-    setProgress(null);
-    setError("Analysis cancelled.");
+    cancelEnaAnalysis(runTokenRef, {
+      teardown: tearDownRun,
+      setIsRunning,
+      setProgress,
+      setError
+    });
   }
 
   function exportResultJson() {
