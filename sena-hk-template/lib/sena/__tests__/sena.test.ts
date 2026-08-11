@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { resolveInstalledPackageFile } from "../../../scripts/resolve-installed-package-file";
 import {
   buildSenaDatasetFromTables,
   buildSenaDataContractAudit,
@@ -158,12 +159,15 @@ const rEnaSampleParity = JSON.parse(
   connectionCounts: Record<string, unknown>[];
 };
 
+// Resolved through Node's module search path rather than a node_modules assumed
+// to sit beside this file, so the suite also runs from a git worktree (which has
+// no install of its own) — see scripts/resolve-installed-package-file.ts.
 const jenaPackage = JSON.parse(
-  readFileSync(new URL("../../../node_modules/jena-js/package.json", import.meta.url), "utf8")
+  readFileSync(resolveInstalledPackageFile("jena-js", "package.json", import.meta.url), "utf8")
 ) as { version: string };
 
 const snaPackage = JSON.parse(
-  readFileSync(new URL("../../../node_modules/sna.js/package.json", import.meta.url), "utf8")
+  readFileSync(resolveInstalledPackageFile("sna.js", "package.json", import.meta.url), "utf8")
 ) as { version: string };
 
 const appPackage = JSON.parse(

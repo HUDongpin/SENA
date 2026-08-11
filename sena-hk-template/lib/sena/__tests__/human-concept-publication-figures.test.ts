@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync, type SpawnSyncReturns } from "node:child_process";
 import sharp from "sharp";
 import { afterAll, describe, expect, it } from "vitest";
+import { resolveInstalledPackageFile } from "../../../scripts/resolve-installed-package-file";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataContractAudit, SenaMatrixBlock, SenaModel } from "../types";
@@ -29,7 +30,12 @@ import {
 
 const appRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const packageJsonPath = path.join(appRoot, "package.json");
-const viteNodePath = path.join(appRoot, "node_modules", ".bin", "vite-node");
+// Not appRoot/node_modules/.bin: a git worktree has no install of its own, so the
+// binary is located through Node's module search path instead — see
+// scripts/resolve-installed-package-file.ts. The package's own entry is spawned
+// with process.execPath rather than the .bin shim, which is a symlink that only
+// exists next to a real install.
+const viteNodePath = resolveInstalledPackageFile("vite-node", "vite-node.mjs", import.meta.url);
 const generatorPath = path.join(appRoot, "scripts", "generate-sena-human-concept-publication-figures.ts");
 const fixedSourcePath = path.join(appRoot, "public", "sena-pilot", "sample", "lesson-study-sena-contract.json");
 const fixedSourceRelativePath = "public/sena-pilot/sample/lesson-study-sena-contract.json";
@@ -201,7 +207,7 @@ function runGenerator(
   cwd = appRoot,
   extraEnv: Partial<NodeJS.ProcessEnv> = {}
 ): SpawnSyncReturns<string> {
-  return spawnSync(viteNodePath, ["--script", generatorPath, ...args], {
+  return spawnSync(process.execPath, [viteNodePath, "--script", generatorPath, ...args], {
     cwd,
     encoding: "utf8",
     timeout: 30_000,
@@ -1325,7 +1331,7 @@ describe("SENA human-concept publication figure generator", () => {
 
   it("lock state: rejects a concurrent generator without moving the live directory lock", async () => {
     const outputDir = makeOutputPath();
-    const first = spawn(viteNodePath, ["--script", generatorPath, "--output-dir", outputDir], {
+    const first = spawn(process.execPath, [viteNodePath, "--script", generatorPath, "--output-dir", outputDir], {
       cwd: appRoot,
       env: {
         ...process.env,
@@ -1842,7 +1848,7 @@ describe("SENA human-concept publication figure generator", () => {
     );
 
     try {
-      const result = spawnSync(viteNodePath, [probePath], {
+      const result = spawnSync(process.execPath, [viteNodePath, probePath], {
         cwd: temporaryCwd,
         encoding: "utf8",
         timeout: 30_000,
