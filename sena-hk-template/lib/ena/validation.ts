@@ -85,6 +85,63 @@ export function sanitizeMapping(mapping: EnaMapping, headers: string[]) {
   return { units, conversation, codes, metadata };
 }
 
+/** The four mapping roles a column can hold, in the order the chips report them. */
+export type EnaColumnRole = "units" | "conversation" | "codes" | "metadata";
+
+const enaColumnRoles: EnaColumnRole[] = ["units", "conversation", "codes", "metadata"];
+
+/**
+ * The role a Model column chip displays for `column` — and, because the chip
+ * hands that role straight back to `toggleEnaColumnRole`, the role a click acts
+ * on. A column with no role reads as `null`; the chip then acts on "metadata".
+ */
+export function enaColumnChipRole(mapping: EnaMapping, column: string): EnaColumnRole | null {
+  return enaColumnRoles.find((role) => (mapping[role] ?? []).includes(column)) ?? null;
+}
+
+/**
+ * One Model column-chip click: clear `column` out of every role, then toggle it
+ * within `role` against the mapping as it stood.
+ *
+ * The consequence is worth stating, because the coverage ledger long described
+ * this control as cycling roles and it does not (FA13-05): the chip passes the
+ * column's *current* role, so a click on a mapped column always unmaps it, and a
+ * click on an unmapped one assigns "metadata" — the only role a chip can assign.
+ * Two clicks on a Units chip therefore leave the column in Metadata rather than
+ * back in Units; Units/Conversation/Codes are reachable only through the
+ * multi-selects. `validateMapping` refuses a run with no unit column, so the
+ * detour is visible rather than silent.
+ */
+/**
+ * One click on the Model column chip for `column`.
+ *
+ * The `?? "metadata"` default lives here rather than in the chip's JSX on
+ * purpose: it *is* the semantics the coverage ledger got wrong, so it has to sit
+ * inside something a test can execute. Left in the markup, a change to it would
+ * slip past every check below.
+ */
+export function toggleEnaColumnChip(mapping: EnaMapping, column: string, headers: string[]): Required<EnaMapping> {
+  return toggleEnaColumnRole(mapping, enaColumnChipRole(mapping, column) ?? "metadata", column, headers);
+}
+
+export function toggleEnaColumnRole(
+  mapping: EnaMapping,
+  role: EnaColumnRole,
+  column: string,
+  headers: string[]
+): Required<EnaMapping> {
+  const cleared: EnaMapping = {
+    units: mapping.units.filter((item) => item !== column),
+    conversation: mapping.conversation.filter((item) => item !== column),
+    codes: mapping.codes.filter((item) => item !== column),
+    metadata: (mapping.metadata ?? []).filter((item) => item !== column)
+  };
+
+  const held = mapping[role] ?? [];
+  cleared[role] = held.includes(column) ? held.filter((item) => item !== column) : [...held, column];
+  return sanitizeMapping(cleared, headers);
+}
+
 function validateMapping(rows: EnaRow[], mapping: EnaMapping) {
   const issues: string[] = [];
   const columns = rowColumns(rows);

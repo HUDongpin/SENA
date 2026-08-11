@@ -69,9 +69,11 @@ import type {
 } from "@/lib/ena/types";
 import {
   defaultEnaOptions,
+  enaColumnChipRole,
   inferEnaMapping,
   prepareEnaRun,
-  sanitizeMapping
+  sanitizeMapping,
+  toggleEnaColumnChip
 } from "@/lib/ena/validation";
 
 type WorkerBundle = {
@@ -128,10 +130,6 @@ function selectedOptions(event: React.ChangeEvent<HTMLSelectElement>) {
 
 function setMembership(values: string[]) {
   return new Set(values);
-}
-
-function toggleValue(values: string[], value: string) {
-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
 function displayValue(value: unknown) {
@@ -512,32 +510,19 @@ function ColumnChips({
 }: {
   headers: string[];
   mapping: EnaMapping;
-  onToggle: (role: ColumnRole, column: string) => void;
+  onToggle: (column: string) => void;
 }) {
-  const units = setMembership(mapping.units);
-  const conversation = setMembership(mapping.conversation);
-  const codes = setMembership(mapping.codes);
-  const metadata = setMembership(mapping.metadata ?? []);
-
   return (
     <div className="grid min-w-0 gap-2">
       <FieldLabel>Columns</FieldLabel>
       <div className="grid max-h-52 min-w-0 grid-cols-2 gap-2 overflow-y-auto overflow-x-hidden pr-1 text-xs sm:grid-cols-3">
         {headers.map((header) => {
-          const role = units.has(header)
-            ? "units"
-            : conversation.has(header)
-              ? "conversation"
-              : codes.has(header)
-                ? "codes"
-                : metadata.has(header)
-                  ? "metadata"
-                  : null;
+          const role = enaColumnChipRole(mapping, header);
 
           return (
             <button
               key={header}
-              onClick={() => onToggle(role ?? "metadata", header)}
+              onClick={() => onToggle(header)}
               className={cn(
                 "flex min-h-10 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left font-bold transition",
                 role === "units" && "border-emerald-400/55 bg-emerald-400/12 text-emerald-300",
@@ -1096,19 +1081,9 @@ export function EnaWorkspaceClient() {
     setMapping((current) => sanitizeMapping({ ...current, ...partial }, parsed.headers));
   }
 
-  function toggleColumn(role: ColumnRole, column: string) {
+  function toggleColumn(column: string) {
     supersedeRunForInputChange();
-    setMapping((current) => {
-      const next: EnaMapping = {
-        units: current.units.filter((item) => item !== column),
-        conversation: current.conversation.filter((item) => item !== column),
-        codes: current.codes.filter((item) => item !== column),
-        metadata: (current.metadata ?? []).filter((item) => item !== column)
-      };
-
-      next[role] = toggleValue(current[role] ?? [], column);
-      return sanitizeMapping(next, parsed.headers);
-    });
+    setMapping((current) => toggleEnaColumnChip(current, column, parsed.headers));
   }
 
   function updateOptions(partial: Partial<Required<EnaRunOptions>>) {
