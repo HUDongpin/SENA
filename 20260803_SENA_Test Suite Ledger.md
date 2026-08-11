@@ -74,7 +74,7 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 | EC-2 | half-committed non-building main (2026-07-18, 2026-07-31) | build-gate.yml builds the pushed ref | open — verify workflow + hooksPath active per clone (TL-G1) |
 | EC-3 | warning-channel loss at sibling call sites (H1 P0, H11 P1, H22, H23) | H22 parity test only | open — call-site exhaustiveness suite (TL-A2) |
 | EC-4 | ingestion identity/derivation on messy input (F1, F2, F5, F6; NaN matrixTotal) | per-bug regression fixtures | open — fuzz harness (TL-A1) + messy corpus (TL-A9) |
-| EC-5 | cross-fix interaction violating ADR prose (G1 fabricated actors) | none — ADR-0006 rule is prose | open — executable ADR invariants (TL-A3) |
+| EC-5 | cross-fix interaction violating ADR prose (G1 fabricated actors) | ADR-0010 roster-boundary invariants in enterprise.test.ts — Q9 repro, forum-adapter repro, 2 preservation pins (`npm test`) | **DONE 2026-08-09** — decision 13 answered (bug: gate + warn → ADR-0010); kill: Q9 + forum assertions watched red against the ungated code (2 failed / 17 passed in-file), green after (TL-A3) |
 | EC-6 | non-canonical statistics (F4 alpha approximation) | alpha: hand-computed 0.5333 golden; ENA: rENA parity | open — kappa/Welch/Mann-Whitney oracles (TL-C6) |
 | EC-7 | degenerate-input perfect scores (kappa 1 on <2 pairable units) | no-evidence floor + tests (28b47f2) | open — kill audit (TL-A6) |
 | EC-8 | vacuous-pass tests/gates (H13, H28, H10, perf-T3 zero-byte) | fixed instances carry vacuity guards | open — systematic audit of gate-like tests (TL-A4) |
@@ -98,18 +98,29 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
 - TL-A3 Executable ADR invariants: ADR-0006 never-invent-a-target (roster members trace to
   a declared row or disclosed derivation); ADR-0005 B_CP transpose fallback; S/B_CP
   identity-resolution parity. Kill: replay G1's fabricated-actor repro.
-  — **BLOCKED-PETER 2026-08-03 (question: Peter decision 13 — is the interactions-target
-  derivation an ADR-0006 D1 violation to fix, or intended behaviour to disclose?)**
-  Recon + an executed repro found that **the honest invariant is RED against current code**
-  (Q9). Do not write this row's test until 13 is answered: the ADR-0006 clause can be
-  phrased two ways, and the tempting phrasing — "traces to a declared row **or a disclosed
-  derivation**" — is satisfied by the current behaviour, because a warning *is* emitted.
-  That phrasing yields a green test certifying the exact behaviour ADR-0006 forbids: a
-  textbook EC-8 vacuous pass, inside the row whose whole purpose is closing EC-5. Write the
-  honest clause, take the red, and let the fix be a decided semantics change — not a test
-  weakened to fit the code. Fixing it is an S-layer semantics change (roster membership, a
-  social edge, person counts, S dimensions, matrix fingerprints), which rule 4 reserves and
-  which ADR-0005:48 says needs coordinated SENA-A02/A07/A13/A15 review. — BLOCKED-PETER
+  — **DONE 2026-08-09.** Peter answered decision 13: **bug — gate + warn** (verbatim: "it's
+  a bug — fix it with gate + warn (not gate-silently, not disclose-and-keep)"). Recorded as
+  **ADR-0010**; the honest clause was written and the semantics changed to meet it, exactly
+  as this row demanded. Landed (branch fix/q9-roster-target-gate): target-only
+  `hasDeclaredRoster` gate in the interactions loop (import.ts) + aggregated dangling-target
+  disclosure judged against the finished roster; adapter `resolvePersonIdentity`
+  pass-through kept per ADR-0010 D3 (single enforcement point — the sibling question is
+  closed, not dropped). Invariant tests in enterprise.test.ts: Q9 repro (declared [P1,P2] +
+  interactions targeting "Ghost" ⇒ people count 2, disclosure present, S drops the ties) and
+  the forum-adapter repro now assert the roster boundary; two preservation pins keep the
+  contribution-shaped derivations (source under a declared roster; everything roster-less).
+  Kill watched red-first: 2 failed / 17 passed in-file against the ungated code, green
+  after. A pre-commit adversarial review then caught (and execution-verified) an
+  enterprise-route bypass — `datasetToTables` round-tripped pass-1 Derived placeholders
+  as declared rows, seating fabricated targets and shadowing real declared rows — plus a
+  duplicated disclosure and a surviving live-check mutant; all three fixed with their own
+  kills (cross-file regression test; single-copy pin; mutant killed 1-failed/20-passed in
+  a single-invocation probe). Final gates: full suite 1356 + 1 skipped, tsc, build all
+  green. Honest-scope note: the
+  never-invent invariant is now executable across all four G1/Q9 chains and the transpose
+  fallback stays pinned by the G1 tests; S/B_CP identity-resolution *parity* as its own
+  extracted invariant was not written (it is exercised on the forum fixtures only) — spin a
+  successor row if wanted.
 - TL-A4 Vacuity-guard audit of gate-like tests (H13/H28/H10/perf-T3 pattern): sweep for
   precondition-less asserts; add guards. — open
 - TL-A5 Missing-data semantics kill audit (EC-9): probe empty-cell→applied remap; tests
@@ -405,10 +416,13 @@ recorded kill, or an explicit owner (smoke step / listed manual check). History:
   Not fixed here: rule 4 (math/semantics guardrail) reserves S-layer changes, and the fix
   removes a roster member *and* a social edge from affected datasets. → Peter decision 13,
   TL-A3 BLOCKED-PETER.
+  **RESOLVED 2026-08-09** — Peter decided 13 (bug: gate + warn). Fix landed as ADR-0010 on
+  fix/q9-roster-target-gate with the TL-A3 invariant suite; see TL-A3 (DONE) and EC-5
+  (DONE) for the kill record.
 
 ## Peter decisions (standing list)
 
-PENDING — none decided:
+Decided: 13 (2026-08-09). PENDING — all others:
 1. Coverage provider dependency (@vitest/coverage-v8, version-matched to vitest 4.1.x).
 2. DOM test infra dependency (jsdom/happy-dom + @testing-library) — components/ and app/
    have zero unit tests today, structurally.
@@ -440,6 +454,10 @@ PENDING — none decided:
     cannot be written honestly until the invariant's wording is settled. Also decides the
     sibling `resolvePersonIdentity` pass-through at import-adapters.ts:430, which the
     2026-07-31 report deferred and the 2026-08-01 report dropped without resolution.
+    **DECIDED 2026-08-09 — bug: gate + warn** ("it's a bug — fix it with gate + warn (not
+    gate-silently, not disclose-and-keep)"). Target-only gate; aggregated dangling-target
+    disclosure on the existing manifest channel; pass-through kept (single enforcement
+    point, ADR-0010 D3). Recorded as ADR-0010; implemented on fix/q9-roster-target-gate.
 
 ## Iteration log
 
@@ -519,3 +537,31 @@ PENDING — none decided:
   at import time, which is the real shape of the escape (HTTP 200, correct SSR, dead page),
   and the gate catches it. EC-11's page half can move from open to owned once Peter confirms
   the wording.
+- **Q9 / decision 13 closeout — 2026-08-09.** Out-of-loop entry (Peter's "implement:
+  gate + warn" directive; branch fix/q9-roster-target-gate off 7ee1d81). TL-A3
+  BLOCKED-PETER → DONE, EC-5 → DONE, decision 13 → decided; new **ADR-0010** records the
+  generalized rule (declared roster is the authoritative actor boundary in every layer)
+  plus its consequences (reproducibility shift for forum datasets with unresolvable reply
+  targets; disclosed tie censoring; external-alter construct deferred to its own ADR).
+  Change: target-only `hasDeclaredRoster` gate in the interactions derivation
+  (import.ts) + per-id aggregated dangling-target disclosure judged against the finished
+  roster; adapter pass-through kept (ADR-0010 D3). Kill protocol followed: the Q9 repro
+  and the rewritten forum-adapter assertions were watched red against the ungated code
+  (2 failed / 17 passed in enterprise.test.ts) before the gate landed; two preservation
+  pins (source derivation under declared roster; roster-less derivation) green on both
+  sides. A pre-commit adversarial review (3 lenses, findings execution-verified) caught
+  three real defects in the first cut, all fixed in-slice with their own kills:
+  (1) enterprise-route bypass — `importSenaEnterpriseFiles`' double-import round-tripped
+  pass-1 `Derived` placeholders through `datasetToTables` as *declared* rows, seating
+  the fabricated target and discarding the analyst's real declared row as a "duplicate"
+  (fix: placeholders no longer round-trip; killed by a new cross-file regression test);
+  (2) the disclosure fired twice through every adapter route (fix: per-file derivation
+  verdicts filtered from the combined manifest, kept on `sources`; killed by a
+  single-copy pin); (3) the roster-less pin could not kill a live-check mutant reading
+  `dataset.people.length` at gate time (fix: sibling test with an utterance-minted
+  person; probe killed the mutant 1-failed/20-passed in one invocation). Closeout gates:
+  full suite **1356 passed / 1 skipped** (+5 tests), `tsc --noEmit` 0, `next build`
+  green. Ratchet delta: **R5 0 → 1 / 13** (EC-5 is the first EC row DONE). Suite-count
+  note for R6: growth is the five new invariant/regression tests, named here per the
+  no-silent-growth rule; wall time not re-benchmarked this entry (dirty box — concurrent
+  sessions).
