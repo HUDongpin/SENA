@@ -1331,7 +1331,7 @@ describe("SENA human-concept publication figure generator", () => {
 
   it("lock state: rejects a concurrent generator without moving the live directory lock", async () => {
     const outputDir = makeOutputPath();
-    const first = spawn(viteNodePath, ["--script", generatorPath, "--output-dir", outputDir], {
+    const first = spawn(process.execPath, [viteNodePath, "--script", generatorPath, "--output-dir", outputDir], {
       cwd: appRoot,
       env: {
         ...process.env,
