@@ -1,34 +1,28 @@
-import appPackage from "../../package.json";
-import rEnaParityFixture from "../ena/__fixtures__/r-ena-sample-parity.json";
-import rSnaSocialParityFixture from "./__fixtures__/r-sna-social-parity.json";
 import type { SenaRuntimeProvenance } from "./types";
 
 export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormula"] = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 
 // Exact published versions of the local JavaScript analysis runtimes. Both
 // are pinned exactly in package.json (jena-js from the npm registry; sna.js
-// as an npm alias of @peterhudongpin/sna.js), and the test suite verifies
-// these constants against the installed node_modules package manifests so
-// the reproducibility record cannot drift from the running code.
+// as an npm alias of @peterhudongpin/sna.js). Every value below is a literal:
+// importing package.json or the R parity fixtures here would inline them into
+// the client workspace chunk. The provenance test in
+// lib/sena/__tests__/sena.test.ts re-derives each value from the real
+// package.json, the installed node_modules manifests, and the fixture files,
+// so the reproducibility record cannot drift from the running code.
 export const jenaRuntimeVersion = "0.6.2";
 
 export const snaRuntimeVersion = "0.4.0";
 
 export const snaRuntimePackageName = "@peterhudongpin/sna.js";
 
-const packageDependencies = appPackage.dependencies as Record<string, string>;
-
 export const jenaRuntimeExpectedDependencySpec = jenaRuntimeVersion;
 
 export const snaRuntimeExpectedDependencySpec = `npm:${snaRuntimePackageName}@${snaRuntimeVersion}`;
 
-export const jenaRuntimeDependencySpec = packageDependencies["jena-js"] ?? jenaRuntimeExpectedDependencySpec;
+export const jenaRuntimeDependencySpec = jenaRuntimeExpectedDependencySpec;
 
-export const snaRuntimeDependencySpec = packageDependencies["sna.js"] ?? snaRuntimeExpectedDependencySpec;
-
-const rEnaLineWeightColumns = Object.keys(rEnaParityFixture.lineWeights[0] ?? {}).filter((column) => column !== "participant");
-const rEnaConnectionCountColumns = Object.keys(rEnaParityFixture.connectionCounts[0] ?? {}).filter((column) => column !== "participant");
-const rSnaGraphFamilies = Object.keys(rSnaSocialParityFixture);
+export const snaRuntimeDependencySpec = snaRuntimeExpectedDependencySpec;
 
 export const senaRuntimeProvenance: SenaRuntimeProvenance = {
   parityEvidence: [
@@ -46,13 +40,13 @@ export const senaRuntimeProvenance: SenaRuntimeProvenance = {
         "nodePositions"
       ],
       sample: {
-        units: rEnaParityFixture.points.length,
-        codes: rEnaParityFixture.nodes.length,
-        dimensions: Object.keys(rEnaParityFixture.variance).length,
-        lineWeightRows: rEnaParityFixture.lineWeights.length,
-        lineWeightColumns: rEnaLineWeightColumns.length,
-        connectionCountRows: rEnaParityFixture.connectionCounts.length,
-        connectionCountColumns: rEnaConnectionCountColumns.length
+        units: 6,
+        codes: 7,
+        dimensions: 2,
+        lineWeightRows: 6,
+        lineWeightColumns: 21,
+        connectionCountRows: 6,
+        connectionCountColumns: 21
       },
       interpretation: "Development-time rENA fixture parity for the local jENA engine; the SENA website still runs local JavaScript and does not require a live R runtime."
     },
@@ -74,7 +68,7 @@ export const senaRuntimeProvenance: SenaRuntimeProvenance = {
         "communities"
       ],
       sample: {
-        graphFamilies: rSnaGraphFamilies.length
+        graphFamilies: 5
       },
       interpretation: "Development-time R sna and igraph fixture parity for local jSNA/sna.js social metrics; the SENA website still runs local JavaScript and does not require a live R runtime."
     }

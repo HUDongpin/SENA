@@ -472,8 +472,16 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
     }
   }
 
+  // A source is a contribution (the person demonstrably acted), so a roster
+  // omission there is recovered like an unknown utterance author. A target is a
+  // *claim about* an actor — who someone replied to — so under a declared roster
+  // an unmatched target stays dangling, exactly as the coded_segments loop below
+  // treats target_person_ids (ADR-0010; the interactions sibling of the G1
+  // chains, Q9). Dangling targets are disclosed after every derivation loop has
+  // run, since a later source or contributor can still legitimize the id.
   for (const interaction of dataset.interactions) {
-    for (const personId of [interaction.source, interaction.target]) {
+    const derivable = hasDeclaredRoster ? [interaction.source] : [interaction.source, interaction.target];
+    for (const personId of derivable) {
       if (!peopleById.has(personId)) {
         dataset.people.push({
           id: personId,
@@ -538,6 +546,25 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
     warnings.push(
       `people table was not uploaded, so coded_segments is the roster: ${derivedTargetOnlyIds.length} person id(s) (${examples}${derivedTargetOnlyIds.length > 3 ? ", …" : ""}) ${derivedTargetOnlyIds.length === 1 ? "was" : "were"} derived solely from target_person_ids and never author a segment. Directed B_CP evidence includes these derived people, so verify they are real participants. This is reported whenever such a person is derived; it does not check the final bridge mode.`
     );
+  }
+
+  // Judged against the finished roster — every derivation loop above has run, so
+  // an id minted later from a contribution (a source, an utterance author, a
+  // segment contributor) is not misreported as dangling. buildSocialMatrix will
+  // drop each of these ties as "unknown person"; this warning names the roster
+  // gate as the reason while the dangling id is still known (ADR-0010).
+  if (hasDeclaredRoster) {
+    const danglingTargetCounts = new Map<string, number>();
+    for (const interaction of dataset.interactions) {
+      if (!peopleById.has(interaction.target)) {
+        danglingTargetCounts.set(interaction.target, (danglingTargetCounts.get(interaction.target) ?? 0) + 1);
+      }
+    }
+    for (const [personId, count] of danglingTargetCounts) {
+      warnings.push(
+        `declared people roster does not include "${personId}"; ${count === 1 ? "1 interaction targeting it was" : `${count} interactions targeting it were`} excluded from the social layer (a target is a claim about an actor, not a declaration of one).`
+      );
+    }
   }
 
   const codeById = new Map(dataset.codebook.map((code) => [code.id, code]));

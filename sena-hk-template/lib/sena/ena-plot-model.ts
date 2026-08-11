@@ -1,4 +1,10 @@
 import type { ENAPlotModel, NetworkGraph } from "jena-js/plot";
+import {
+  ENA_COMPARISON_PALETTES,
+  enaGroupIntervals,
+  enaRowGroupValues,
+  type EnaGroupInterval
+} from "../ena/comparison";
 import { assessEnaLowRank, type EnaLowRankAssessment } from "../ena/low-rank";
 import { enaAxisRange } from "../ena/plot-encoding";
 import { buildSenaEnaNetwork, type SenaEnaNetwork } from "./ena-network";
@@ -61,6 +67,17 @@ export type SenaEnaPlotComposition = {
   displayedVariance: Record<string, number>;
   /** Non-null when the displayed space is effectively 1-D (rank audit rule). */
   lowRank: EnaLowRankAssessment | null;
+  /**
+   * Comparison groups — mean and 95% t interval per group, in raw ENA
+   * coordinates (ADR 0009, Q3/D6). Empty unless `groupBy` names a metadata
+   * column, so an unasked-for comparison is exactly the absence of one and the
+   * parity suites see the DOM they always saw.
+   *
+   * Not traces: `ENAPlotTrace` carries points and networks and nothing that can
+   * express an interval, so the interval rides the renderer's additive overlay
+   * channel instead (see `EnaPlotOverlayGroup`).
+   */
+  groups: EnaGroupInterval[];
   warnings: string[];
 };
 
@@ -94,6 +111,7 @@ function skipped(reason: string, network: SenaEnaNetwork, warnings: string[]): S
     variance: {},
     displayedVariance: {},
     lowRank: null,
+    groups: [],
     warnings: [reason, ...warnings]
   };
 }
@@ -102,6 +120,20 @@ export type SenaEnaPlotCompositionOptions = {
   /** Mirrors jena-js's `addNetwork({ minWeight })`. */
   minWeight?: number;
   title?: string;
+  /**
+   * Metadata column on the manifest's point rows to group units by — `"group"`
+   * or `"role"` for a SENA manifest (`source.metadataColumns`). Omitted, no
+   * groups are computed and nothing is added to the figure.
+   *
+   * `/workspace/ena` reaches the same quantity through jena-js `addGroup` on a
+   * live `ENASet`; ENA Space and the Fusion plane have only the serialized
+   * manifest, which is why this reads rows rather than a set.
+   */
+  groupBy?: string;
+  /** Restricts and orders the groups; omitted lists every value, name-sorted. */
+  groups?: readonly string[];
+  /** Comparison palette (Q3 default: webENA blue/orange). */
+  groupPalette?: readonly string[];
 };
 
 /**
@@ -176,6 +208,19 @@ export function buildSenaEnaPlotComposition(
   const nodeXs = Object.values(codePositions).map((position) => position.x);
   const nodeYs = Object.values(codePositions).map((position) => position.y);
 
+  // Computed from the same point rows the unit markers come from, so a group
+  // mean is the mean of exactly the points a reader can count on the plot.
+  const groups = options.groupBy
+    ? enaGroupIntervals({
+        points: manifest.outputs.points,
+        xDimension,
+        yDimension,
+        groupOf: enaRowGroupValues(manifest.outputs.points, options.groupBy),
+        groups: options.groups,
+        palette: options.groupPalette ?? ENA_COMPARISON_PALETTES["blue-orange"]
+      })
+    : [];
+
   const model: ENAPlotModel = {
     title: options.title ?? "ENA projection",
     dimensions: [xDimension, yDimension],
@@ -232,6 +277,7 @@ export function buildSenaEnaPlotComposition(
       variance: manifest.outputs.variance,
       dimensions
     }),
+    groups,
     warnings
   };
 }

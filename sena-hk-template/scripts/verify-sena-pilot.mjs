@@ -6,6 +6,7 @@ import { cwd } from "node:process";
 import { join } from "node:path";
 import { verifySenaAuthBrowserSmoke } from "./verify-sena-auth-browser-smoke.mjs";
 import { verifySenaBrowserSmoke } from "./verify-sena-browser-smoke.mjs";
+import { verifySenaEnaBrowserSmoke } from "./verify-sena-ena-browser-smoke.mjs";
 import { verifySenaEnterpriseApiBrowserSmoke } from "./verify-sena-enterprise-api-browser-smoke.mjs";
 import { verifySenaRbacCollaborationBrowserSmoke } from "./verify-sena-rbac-collaboration-browser-smoke.mjs";
 import { verifySenaReliabilityBrowserSmoke } from "./verify-sena-reliability-browser-smoke.mjs";
@@ -32,7 +33,22 @@ const browserSmokeCoveredPlotViewVisualCheckIds = new Set([
   "temporal-trace-g-pair-line",
   "temporal-transition-evidence",
   "temporal-transition-summary",
-  "temporal-transition-summary-role"
+  "temporal-transition-summary-role",
+  // Ring 3 (ADR 0009). The default Fusion figure and its social orbit: every
+  // id here is asserted in the live DOM by verify-sena-browser-smoke.mjs, and
+  // verifyInteractiveVisualCheckCoverage below exits 1 if the production
+  // contract stops declaring one of them.
+  "fusion-plane-orbit-svg-anchor",
+  "fusion-plane-nested-ena-plot",
+  "fusion-orbit-layer-anchor",
+  "fusion-orbit-sena-layer",
+  "fusion-orbit-social-lane",
+  "fusion-orbit-social-arrowhead",
+  "fusion-orbit-lane-normalized-weight",
+  "fusion-plane-unit-link",
+  "fusion-plane-model-footer",
+  "sna-orbit-sociogram",
+  "workspace-model-layout-plane-orbit"
 ]);
 const productionShellRequiredText = [
   'data-testid="sena-workspace-loading"'
@@ -198,6 +214,11 @@ function verifyNextArtifacts() {
     ".next/server/app/workspace/sena/page_client-reference-manifest.js",
     ".next/server/app/workspace/sena.html",
     ".next/server/app/workspace/sena.rsc",
+    // The jENA workbench is now driven by a browser smoke in the same run, so
+    // its build output is required rather than incidental.
+    ".next/server/app/workspace/ena/page.js",
+    ".next/server/app/workspace/ena.html",
+    ".next/server/app/workspace/ena.rsc",
     ".next/server/app-paths-manifest.json",
     ".next/server/middleware-manifest.json",
     ".next/server/pages-manifest.json",
@@ -216,6 +237,7 @@ function verifyNextArtifacts() {
   const pages = readJson(".next/server/pages-manifest.json");
   const manifestIssues = [
     appPaths["/workspace/sena/page"] === "app/workspace/sena/page.js" ? null : "app-paths-manifest missing /workspace/sena/page",
+    appPaths["/workspace/ena/page"] === "app/workspace/ena/page.js" ? null : "app-paths-manifest missing /workspace/ena/page",
     pages["/404"] === "pages/404.html" ? null : "pages-manifest missing /404",
     pages["/500"] === "pages/500.html" ? null : "pages-manifest missing /500"
   ].filter(Boolean);
@@ -226,7 +248,7 @@ function verifyNextArtifacts() {
     process.exit(1);
   }
 
-  console.log("Next production artifacts are present for /workspace/sena.");
+  console.log("Next production artifacts are present for /workspace/sena and /workspace/ena.");
 }
 
 function extractOpeningTagWithText(html, text) {
@@ -240,8 +262,20 @@ function extractOpeningTagWithText(html, text) {
   return html.slice(start, end + 1);
 }
 
+/**
+ * Server-rendered-HTML guards for the A1 Fusion Canvas.
+ *
+ * Two things about this path are worth stating rather than rediscovering:
+ * it runs only under SENA_VERIFY_SERVER_RENDERED_WORKSPACE=1 (set nowhere in
+ * this repo, and the workspace route is deliberately client-deferred, so the
+ * fetched HTML is the loading shell), and since ADR 0009 the Canvas it
+ * describes is a *Diagnostic* layout reached with model-layout-explanatory or
+ * model-layout-joint — the default figure is the plane-orbit surface, checked
+ * live by verify-sena-browser-smoke.mjs. The live-DOM smoke is the gate; this
+ * is a static mirror of the Canvas grammar kept in step with the palette.
+ */
 function verifyFusionCanvasVisualGuards(html) {
-  console.log("\n> Verify Fusion Canvas visual guards");
+  console.log("\n> Verify Fusion Canvas visual guards (Diagnostic layout, server-rendered mode)");
 
   const canvasTag = extractOpeningTagWithText(html, 'data-testid="sena-fusion-canvas"');
   if (!canvasTag?.startsWith("<svg")) {
@@ -455,7 +489,11 @@ function verifyFusionCanvasVisualGuards(html) {
   const guideRequirements = [
     'r="184"',
     'fill="none"',
-    'stroke="#895dff"',
+    // P5 re-stepped the concept layer stroke to the single-source palette value
+    // (lib/sena/layer-palette.ts). #895dff is retired and forbidden from the
+    // plot surfaces by layer-palette-stroke-migration.test.ts, so pinning it
+    // here made this guard permanently unsatisfiable.
+    'stroke="#A06BF5"',
     'data-layer="concept"',
     'data-visual-role="concept-space-guide"'
   ];
@@ -750,6 +788,11 @@ async function verifyProductionServerSmoke() {
       SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
     });
     await verifySenaBrowserSmoke(url);
+    // /workspace/ena is a different route on the same server. It takes an
+    // origin, not the SENA route, and it is public — no session is created
+    // before it runs, which is also what it asserts.
+    console.log("\n> Verify jENA workbench browser smoke");
+    await verifySenaEnaBrowserSmoke(new URL(url).origin);
     console.log("\n> Verify auth browser smoke");
     await verifySenaAuthBrowserSmoke(url);
     console.log("\n> Verify SSO browser smoke");

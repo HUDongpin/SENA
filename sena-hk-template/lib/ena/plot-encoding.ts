@@ -300,7 +300,40 @@ export type RenaStyledEdge = ResolvedNetworkEdge & {
   intensity: number;
   opacity: number;
   color: string;
+  /** "positive"/"negative" only in signed mode; "" for an ordinary network. */
+  sign: "" | "positive" | "negative";
 };
+
+/**
+ * rENA's two signed knobs on `ena.plot.network`, and nothing else.
+ *
+ * `colors = c(pos, neg)` is how rENA inks a *subtracted* network: one graph
+ * whose edges are the difference between two groups' means, drawn in the
+ * first group's colour where the difference is positive and the second's where
+ * it is negative. `multiplier` is the companion control ("Δ ×" in the UI),
+ * because a difference of means is an order of magnitude smaller than the means
+ * themselves and would otherwise draw as hairlines.
+ *
+ * Both are optional and both default to off, so an ordinary mean network is
+ * styled exactly as it was before signed mode existed — which is what the
+ * parity suites pin.
+ */
+export type RenaNetworkInk = {
+  signedColors?: { positive: string; negative: string };
+  /** Post-law amplification of the drawn stroke width; 1 changes nothing. */
+  widthMultiplier?: number;
+};
+
+/** "Δ ×" stays in a range where an amplified edge is still an edge. */
+export const RENA_SIGNED_WIDTH_MULTIPLIER_RANGE: readonly [number, number] = [1, 5];
+
+export function clampRenaWidthMultiplier(multiplier: number) {
+  if (!Number.isFinite(multiplier)) return 1;
+  return Math.min(
+    RENA_SIGNED_WIDTH_MULTIPLIER_RANGE[1],
+    Math.max(RENA_SIGNED_WIDTH_MULTIPLIER_RANGE[0], multiplier)
+  );
+}
 
 export type RenaStyledNode = ResolvedNetworkNode & {
   /** Summed |weight| of incident edges, normalized to [0,1]. */
@@ -318,12 +351,18 @@ export type RenaStyledNetwork = {
  * grammar. Edge width, opacity, and colour-saturation all scale with |weight|;
  * node radius scales with summed incident weight. `baseColor` is the trace's
  * colour, playing the role of rENA's positive palette entry.
+ *
+ * `ink` opts into rENA's signed mode for a subtracted network (see
+ * RenaNetworkInk). Omitted — which is what every caller but the comparison
+ * surface passes — the output is byte-identical to what it was before the
+ * option existed.
  */
 export function styleRenaNetwork(
   model: ENAPlotModel,
   network: NetworkGraph,
   baseColor: string,
-  geometry: PlotGeometry = jenaPlotGeometry
+  geometry: PlotGeometry = jenaPlotGeometry,
+  ink: RenaNetworkInk = {}
 ): RenaStyledNetwork {
   const resolvedEdges = resolveNetworkEdges(model, network, geometry);
   const resolvedNodes = resolveNetworkNodes(model, network, geometry);
@@ -349,22 +388,34 @@ export function styleRenaNetwork(
   // degenerateEdgeWidth for why the relative scale cannot be used here.
   const degenerateSpan = maxWeight - minWeight <= DEGENERATE_WEIGHT_SPAN;
 
+  const signedColors = ink.signedColors;
+  // The multiplier amplifies the width the law already produced rather than the
+  // weight going into it: the law is plot-relative (ADR 0008), so scaling every
+  // weight by the same factor before it would cancel out exactly and the control
+  // would do nothing on the branch it exists for.
+  const widthMultiplier = clampRenaWidthMultiplier(ink.widthMultiplier ?? 1);
+
   const edges: RenaStyledEdge[] = resolvedEdges.map((edge) => {
     // Width leads, and intensity follows it, so opacity and saturation stay
     // consistent with the stroke in both branches.
-    const strokeWidth = degenerateSpan
+    const lawWidth = degenerateSpan
       ? degenerateEdgeWidth(edge.weight)
       : rescale(Math.abs(edge.weight), [minWeight, maxWeight], RENA_EDGE_WIDTH_RANGE);
     const intensity = degenerateSpan
-      ? rescale(strokeWidth, RENA_EDGE_WIDTH_RANGE, [0, 1])
+      ? rescale(lawWidth, RENA_EDGE_WIDTH_RANGE, [0, 1])
       : rescale(Math.abs(edge.weight), [minWeight, maxWeight], [0, 1]);
+    const negative = edge.weight < 0;
     return {
       ...edge,
       intensity,
-      strokeWidth,
+      strokeWidth: lawWidth * widthMultiplier,
       opacity: rescale(intensity, [0, 1], RENA_EDGE_OPACITY_RANGE),
       // rENA desaturates weak edges; keep a floor so hue stays legible.
-      color: desaturate(baseColor, 0.35 + 0.65 * intensity)
+      color: desaturate(
+        signedColors ? (negative ? signedColors.negative : signedColors.positive) : baseColor,
+        0.35 + 0.65 * intensity
+      ),
+      sign: signedColors ? (negative ? "negative" : "positive") : ""
     };
   });
 

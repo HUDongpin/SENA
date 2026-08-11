@@ -1,6 +1,7 @@
 import { SenaEnaSpacePlot } from "./ena-space-plot";
 import { Canvas } from "./fusion-canvas";
 import { FusionLayerKey } from "./fusion-layer-key";
+import { FusionPlaneOrbitPlot } from "./fusion-plane-orbit";
 import { JointEmbeddingProvenanceStrip } from "./runtime-provenance-panels";
 import { ActivePlotViewToolbar } from "./workspace-shell-panels";
 import type { CentralFusionPlotViewPanelProps } from "./workspace-central-plot-deck-view-panel-props";
@@ -45,18 +46,34 @@ export function CentralFusionPlotViewPanel({
           />
         )}
         {/*
-          The ENA-space layout puts every node at a projected coordinate, so it
-          renders through the canonical ENA surface wherever it is selected —
-          not just in the ENA Space view. Routing it here rather than inside
-          Canvas is what lets the Fusion Canvas keep one grammar for the two
-          layouts whose positions are explanatory choices (ADR 0008).
+          Three surfaces, one router. The ENA-space layout puts every node at a
+          projected coordinate, so it renders through the canonical ENA surface
+          wherever it is selected — not just in the ENA Space view — and
+          plane-orbit, the default, nests that same renderer inside its own
+          surface (ADR 0009). Routing here rather than inside Canvas is what
+          lets the Fusion Canvas keep one grammar for the two layouts whose
+          positions are explanatory choices (ADR 0008), now labeled diagnostic.
+          The maximized overlay runs the identical switch; the two must not
+          drift, which is what fusion-overlay-routing.test.tsx pins.
         */}
         <div
           data-testid="central-fusion-canvas-frame"
           data-visual-role="fusion-canvas-current-window-frame"
           className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
         >
-          {layout === "ena-space" ? (
+          {layout === "plane-orbit" ? (
+            <FusionPlaneOrbitPlot
+              model={model}
+              enaManifest={enaManifest}
+              layers={layers}
+              threshold={threshold}
+              selectedId={selectedId}
+              revealedLabelIds={revealedLabelIds}
+              onSelect={onCanvasSelect}
+              zoom={fusionPlotZoom}
+              className="h-[min(48dvh,34rem)] min-h-[22rem]"
+            />
+          ) : layout === "ena-space" ? (
             <SenaEnaSpacePlot
               model={model}
               enaManifest={enaManifest}
@@ -91,7 +108,14 @@ export function CentralFusionPlotViewPanel({
         onSelect={onPlotViewSelect}
         plotViewOptions={plotViewOptions}
       />
-      <FusionLayerKey model={model} layers={layers} threshold={threshold} alpha={alpha} beta={beta} gamma={gamma} />
+      {/*
+        The key captions the figure directly above it, so it has to be told
+        which of the four surfaces the router just drew. Hardcoded, it called
+        the default plane-orbit figure "A1 Inner Solid Mesh" on every first
+        load — and disagreed with the maximized overlay's chip for the same
+        figure, which had already been fixed.
+      */}
+      <FusionLayerKey model={model} layers={layers} threshold={threshold} alpha={alpha} beta={beta} gamma={gamma} layout={layout} />
     </section>
   );
 }

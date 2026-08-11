@@ -63,6 +63,54 @@ async function waitForCanvasZoom(page, selector, expectedZoom) {
   );
 }
 
+/**
+ * The orbit's half of the provenance contract (README Demo Flow §8).
+ *
+ * Same rule as the Canvas links below — every drawn tie states the numbers its
+ * thickness came from — applied to the surface that actually draws S ties on
+ * the default figure since ADR 0009. Lanes are the only place S is ink now, so
+ * without this leg the provenance guarantee would hold only in the Diagnostic
+ * layouts a reader has to go looking for.
+ */
+async function verifyOrbitLaneProvenance(page, scopeSelector) {
+  const scope = page.locator(scopeSelector).first();
+  const lanes = scope.locator('[data-layer="social"][data-visual-role="orbit-social-lane"][data-edge-visual-width]');
+  await lanes.first().waitFor({ state: "attached", timeout: defaultTimeout });
+  const rows = await lanes.evaluateAll((elements) => elements.map((element) => ({
+    id: element.getAttribute("data-testid"),
+    width: Number(element.getAttribute("data-edge-visual-width")),
+    raw: Number(element.getAttribute("data-edge-weight")),
+    normalized: Number(element.getAttribute("data-edge-normalized-weight")),
+    scaled: Number(element.getAttribute("data-edge-scaled-weight")),
+    salience: Number(element.getAttribute("data-edge-visual-salience")),
+    stroke: Number(element.getAttribute("stroke-width"))
+  })));
+  if (rows.length === 0) {
+    throw new Error(`No orbit social lanes were drawn inside ${scopeSelector}; the provenance check would pass vacuously.`);
+  }
+  const incomplete = rows.filter((row) => [row.width, row.raw, row.normalized, row.scaled, row.salience]
+    .some((value) => !Number.isFinite(value)));
+  if (incomplete.length > 0) {
+    throw new Error(`Orbit social lanes are missing weight/width provenance: ${JSON.stringify(incomplete)}`);
+  }
+  // The reported width has to be the drawn width, not a parallel number — the
+  // failure the inspector/lane agreement test pins in jsdom, checked here in
+  // the shipped DOM.
+  const desynced = rows.filter((row) => Number.isFinite(row.stroke) && Math.abs(row.stroke - row.width) > 0.011);
+  if (desynced.length > 0) {
+    throw new Error(`Orbit lanes report a stroke width they did not draw: ${JSON.stringify(desynced)}`);
+  }
+  const uniqueSignals = new Set(rows.map((row) => `${row.raw.toFixed(4)}:${row.scaled.toFixed(4)}:${row.salience.toFixed(4)}`));
+  const uniqueWidths = new Set(rows.map((row) => row.width.toFixed(2)));
+  if (rows.length > 1 && uniqueSignals.size > 1 && uniqueWidths.size < 2) {
+    throw new Error(`Orbit social lanes should use variable stroke widths, received ${JSON.stringify(rows)}.`);
+  }
+  const arrowheads = await scope.locator('[data-visual-role="orbit-social-arrowhead"]').count();
+  if (arrowheads !== rows.length) {
+    throw new Error(`Every orbit lane needs a direction: ${rows.length} lanes, ${arrowheads} arrowheads inside ${scopeSelector}.`);
+  }
+}
+
 async function verifyWeightedFusionLinkWidths(page) {
   const canvas = page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-canvas"]').first();
   const layerSelectors = {
@@ -221,10 +269,22 @@ async function verifyResponsiveWorkspaceShell(browser, url) {
           throw new Error(`Advanced surface ${selector} should not be visible by default at ${width}px.`);
         }
       }
-      const visibleFusionCanvasCount = await page.locator('[data-testid="sena-fusion-canvas"]:visible').count();
-      if (visibleFusionCanvasCount !== 1) {
-        throw new Error(`Expected exactly one visible Fusion Canvas at ${width}px, received ${visibleFusionCanvasCount}.`);
+      // ADR 0009 flipped the default Fusion figure from the A1 Canvas to the
+      // plane + orbit surface, so "exactly one visible Fusion figure" is now a
+      // count of plane-orbit surfaces. The Canvas is asserted absent as well:
+      // it is a Diagnostic layout a reader has to ask for, and a fresh page
+      // that mounts one would mean the default flip had regressed.
+      const visiblePlaneOrbitCount = await page.locator('[data-testid="sena-fusion-plane-orbit"]:visible').count();
+      if (visiblePlaneOrbitCount !== 1) {
+        throw new Error(`Expected exactly one visible Fusion plane-orbit figure at ${width}px, received ${visiblePlaneOrbitCount}.`);
       }
+      const defaultFusionCanvasCount = await page.locator('[data-testid="sena-fusion-canvas"]').count();
+      if (defaultFusionCanvasCount !== 0) {
+        throw new Error(`The Diagnostic Fusion Canvas should not mount on a fresh load at ${width}px, received ${defaultFusionCanvasCount}.`);
+      }
+      const planeOrbitFigure = page.locator('[data-testid="sena-fusion-plane-orbit"]').first();
+      await planeOrbitFigure.locator('[data-testid="ena-plot"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+      await planeOrbitFigure.locator('[data-sena-layer="orbit"][data-testid="sena-fusion-orbit-layer"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
 
       const mobileSwitcher = page.locator('[data-testid="workspace-mobile-figure-switcher"]').first();
       if (width < 1280) {
@@ -380,8 +440,17 @@ async function verifyWorkspaceShellAndPlotViews(page) {
   await page.locator('[data-testid="sena-workspace-mode-rail"][data-visual-role="workspace-shell-c3-glass-rail"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-rail-icon-model"][data-icon-name="layer-stack"][data-visual-role="workspace-rail-model-layer-stack-icon"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-rail-icon-stats"][data-icon-name="network-metrics"][data-visual-role="workspace-rail-network-metrics-icon"]').waitFor({ state: "visible", timeout: defaultTimeout });
-  await page.locator('circle[data-visual-role="ena-concept-circle-node"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
-  await page.locator('[data-node-label="Question"][data-node-glyph="Q"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  // Default-figure markers (ADR 0009). The code network is drawn by the shared
+  // rENA renderer nested as the plane, so its nodes carry data-plot-role, not
+  // the Canvas's ena-concept-circle-node / data-node-glyph. Those two markers
+  // are asserted in verifyDiagnosticFusionCanvasLayouts after an explicit
+  // layout switch, which is the only way to reach them now.
+  const defaultFusionFigure = page.locator('[data-testid="sena-fusion-plane-orbit"]').first();
+  await defaultFusionFigure.waitFor({ state: "visible", timeout: defaultTimeout });
+  await defaultFusionFigure.locator('[data-testid="ena-plot"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await defaultFusionFigure.locator('[data-plot-role="network-node"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await defaultFusionFigure.locator('[data-sena-layer="model-footer"] [data-sena-footer-row="model-definition"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await defaultFusionFigure.locator('[data-sena-layer="model-footer"] [data-sena-footer-row="goodness-of-fit"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
   await page.locator('polygon[data-visual-role="sna-person-hex-node"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
   await page.locator('[data-testid="workspace-central-plot-deck"][data-visual-role="workspace-central-plot-deck"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-testid="central-fusion-analysis-scope"][data-visual-role="active-window-fusion-scope"]').waitFor({ state: "visible", timeout: defaultTimeout });
@@ -421,7 +490,7 @@ async function verifyWorkspaceShellAndPlotViews(page) {
     return canvasBeforeToolbar && toolbarBeforeLayerKey;
   });
   if (!fusionPriorityOrderIsSwapped) {
-    throw new Error("Current-window Fusion plot order must be Canvas, Active view toolbar, then A1 layer key.");
+    throw new Error("Current-window Fusion plot order must be figure frame, Active view toolbar, then layer key.");
   }
 
   const initialPlotSwitcherText = await page.locator('[data-testid="workspace-plot-switcher"]').first().innerText({ timeout: defaultTimeout });
@@ -457,34 +526,40 @@ async function verifyWorkspaceShellAndPlotViews(page) {
     throw new Error(`Workspace Data View drawer did not collapse, received data-open=${collapsedDataViewState}.`);
   }
 
-  const centralFusionCanvasSelector = '[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-canvas"]';
+  // Zoom is owned by the figure the router drew, so the selector follows the
+  // default surface; the plane-orbit svg carries data-plot-zoom the same way
+  // the Canvas does, and forwards it into the nested plot rather than into its
+  // own viewBox.
+  const centralFusionFigureSelector = '[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-plane-orbit"]';
   await page.locator('[data-testid="fusion-plot-central-zoom-controls"][data-visual-role="fusion-plot-zoom-controls"]').waitFor({ state: "visible", timeout: defaultTimeout });
-  await waitForCanvasZoom(page, centralFusionCanvasSelector, "1.000");
+  await waitForCanvasZoom(page, centralFusionFigureSelector, "1.000");
   await activateButtonByTestId(page, "fusion-plot-central-zoom-in");
-  await waitForCanvasZoom(page, centralFusionCanvasSelector, "1.125");
+  await waitForCanvasZoom(page, centralFusionFigureSelector, "1.125");
   await activateButtonByTestId(page, "fusion-plot-central-zoom-out");
-  await waitForCanvasZoom(page, centralFusionCanvasSelector, "1.000");
+  await waitForCanvasZoom(page, centralFusionFigureSelector, "1.000");
   await activateButtonByTestId(page, "fusion-plot-central-zoom-out");
-  await waitForCanvasZoom(page, centralFusionCanvasSelector, "0.875");
+  await waitForCanvasZoom(page, centralFusionFigureSelector, "0.875");
   await activateButtonByTestId(page, "fusion-plot-central-zoom-reset");
-  await waitForCanvasZoom(page, centralFusionCanvasSelector, "1.000");
+  await waitForCanvasZoom(page, centralFusionFigureSelector, "1.000");
 
   await activateButtonByTestId(page, "maximize-fusion-plot");
   const maximizedFusionPlot = page.locator('[data-testid="fusion-plot-maximized-overlay"][data-visual-role="fusion-plot-maximized-window"]').first();
   await maximizedFusionPlot.waitFor({ state: "visible", timeout: defaultTimeout });
   await maximizedFusionPlot.locator('[data-testid="fusion-maximized-compact-key"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
   await maximizedFusionPlot.locator('[data-testid="fusion-plot-maximized-zoom-controls"][data-visual-role="fusion-plot-zoom-controls"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
-  const maximizedCanvas = maximizedFusionPlot.locator('[data-testid="sena-fusion-canvas"]').first();
-  await maximizedCanvas.waitFor({ state: "visible", timeout: defaultTimeout });
-  const maximizedFusionCanvasSelector = '[data-testid="fusion-plot-maximized-overlay"] [data-testid="sena-fusion-canvas"]';
-  await waitForCanvasZoom(page, maximizedFusionCanvasSelector, "1.000");
+  const maximizedFigure = maximizedFusionPlot.locator('[data-testid="sena-fusion-plane-orbit"]').first();
+  await maximizedFigure.waitFor({ state: "visible", timeout: defaultTimeout });
+  const maximizedGrammarChip = await maximizedFusionPlot.locator('[data-testid="fusion-maximized-grammar-chip"]').first().innerText({ timeout: defaultTimeout });
+  assertTextIncludes(maximizedGrammarChip, "Fusion Plane + Orbit", "maximized Fusion grammar chip");
+  const maximizedFusionFigureSelector = '[data-testid="fusion-plot-maximized-overlay"] [data-testid="sena-fusion-plane-orbit"]';
+  await waitForCanvasZoom(page, maximizedFusionFigureSelector, "1.000");
   await activateButtonByTestId(page, "fusion-plot-maximized-zoom-in");
-  await waitForCanvasZoom(page, maximizedFusionCanvasSelector, "1.125");
+  await waitForCanvasZoom(page, maximizedFusionFigureSelector, "1.125");
   await activateButtonByTestId(page, "fusion-plot-maximized-zoom-reset");
-  await waitForCanvasZoom(page, maximizedFusionCanvasSelector, "1.000");
-  const maximizedCanvasBox = await maximizedCanvas.boundingBox({ timeout: defaultTimeout });
-  if (!maximizedCanvasBox || maximizedCanvasBox.width < 900 || maximizedCanvasBox.height < 500) {
-    throw new Error(`Maximized Fusion plot canvas is too small: ${JSON.stringify(maximizedCanvasBox)}.`);
+  await waitForCanvasZoom(page, maximizedFusionFigureSelector, "1.000");
+  const maximizedFigureBox = await maximizedFigure.boundingBox({ timeout: defaultTimeout });
+  if (!maximizedFigureBox || maximizedFigureBox.width < 900 || maximizedFigureBox.height < 500) {
+    throw new Error(`Maximized Fusion figure is too small: ${JSON.stringify(maximizedFigureBox)}.`);
   }
   const bodyOverflowWhileMaximized = await page.evaluate(() => document.body.style.overflow);
   if (bodyOverflowWhileMaximized !== "hidden") {
@@ -563,10 +638,26 @@ async function verifyWorkspaceShellAndPlotViews(page) {
       await waitForVisibleText(page, "jENA epistemic lens");
       await waitForVisibleText(page, "SENA bridge lens");
     }
+    if (view === "sna") {
+      // The SNA view used to be numbers about a graph nobody could see; it now
+      // mounts the same orbit layer standalone, with its own geometry.
+      const sociogram = page.locator('[data-testid="sena-sna-orbit-sociogram"]').first();
+      await sociogram.waitFor({ state: "visible", timeout: defaultTimeout });
+      await sociogram.locator('[data-sena-layer="orbit"][data-testid="sena-fusion-orbit-layer"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+      await verifyOrbitLaneProvenance(page, '[data-testid="sena-sna-orbit-sociogram"]');
+      await sociogram.locator('polygon[data-visual-role="sna-person-hex-node"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+      await sociogram.locator('[data-visual-role="orbit-person-label"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+    }
   }
 
-  await page.locator('[data-testid="sena-fusion-canvas"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
-  await waitForVisibleText(page, "A1 INNER SOLID MESH");
+  // The view cycle ends back on Fusion, and Fusion's layout is still the
+  // default — so the figure below and the caption under it are the plane-orbit
+  // grammar, not A1. The layer key is layout-aware since the P5 fix pass; a
+  // caption naming a grammar that is not on screen is the mislabeling ADR 0009
+  // treats as a correctness bug.
+  await page.locator('[data-testid="sena-fusion-plane-orbit"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+  await waitForVisibleText(page, "FUSION PLANE + ORBIT");
+  await verifyOrbitLaneProvenance(page, '[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-plane-orbit"]');
 }
 
 async function centralFusionScope(page) {
@@ -910,7 +1001,9 @@ async function prepareArtifactDownloadPage(browser, url) {
   });
   const page = await context.newPage();
   await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-  await page.locator('[data-testid="sena-fusion-canvas"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+  // A fresh context opens on the default Fusion figure, not the Diagnostic
+  // Canvas — this page never switches layout.
+  await page.locator('[data-testid="sena-fusion-plane-orbit"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
   await expectWorkspaceRailPanel(page, "sets", "Data Import");
   await activateButtonByTestId(page, "load-lesson-study-sample");
   await waitForVisibleText(page, "Lesson-study sample loaded from the research pilot package.");
@@ -1606,11 +1699,14 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Review packet is missing the archived visual grammar artifact.");
   }
   const visualGrammarIds = visualGrammar.visualGrammar?.map((item) => item.id) ?? [];
-  if (!visualGrammarIds.includes("fusion-canvas-a1") || !visualGrammarIds.includes("temporal-fusion-arc") || !visualGrammarIds.includes("workspace-shell-c3-collapsed-switcher")) {
+  if (!visualGrammarIds.includes("fusion-canvas-a1") || !visualGrammarIds.includes("temporal-fusion-arc") || !visualGrammarIds.includes("workspace-shell-c3-collapsed-switcher") || !visualGrammarIds.includes("fusion-plane-orbit")) {
     throw new Error(`Archived visual grammar artifact is missing adopted grammar ids: ${visualGrammarIds.join(", ")}.`);
   }
-  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "a1-inner-solid-mesh-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png" && asset.bytes === 730212 && asset.sha256 === "fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399")) {
-    throw new Error("Archived visual grammar artifact is missing the adopted A1 Inner Solid Mesh mockup reference.");
+  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "a1-inner-solid-mesh-mockup" && asset.role === "alternative-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-a1-inner-solid-mesh.png" && asset.bytes === 730212 && asset.sha256 === "fa123f9d29c4df8a62d02acf85045761749a3170a554b054ff5006498f1bb399")) {
+    throw new Error("Archived visual grammar artifact is missing the alternative A1 Inner Solid Mesh mockup reference.");
+  }
+  if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "fusion-plane-orbit-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png" && asset.bytes === 176753 && asset.sha256 === "c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6")) {
+    throw new Error("Archived visual grammar artifact is missing the adopted Fusion Plane + Social Orbit mockup reference.");
   }
   if (!visualGrammar.referenceAssets?.some((asset) => asset.id === "temporal-fusion-arc-mockup" && asset.role === "adopted-reference" && asset.path === "output/sena-fusion-design-options/sena-fusion-option-c-temporal-arc.png" && asset.bytes === 675378 && asset.sha256 === "0bb2ca6c5e9418e90572cfd956bcbfcbde34ec4d27aa3946cc8433a7048bb4bb")) {
     throw new Error("Archived visual grammar artifact is missing the adopted Temporal Fusion Arc mockup reference.");
@@ -1629,6 +1725,10 @@ async function verifyArtifactDownloadsAndRestore(page) {
   assertTextIncludes(temporalGrammar?.dataMapping ?? "", "strongest G pair labels", "Temporal Fusion visual grammar");
   assertTextIncludes(workspaceShellGrammar?.visualEncoding ?? "", "collapsed Plots switcher", "Workspace shell visual grammar");
   assertTextIncludes(workspaceShellGrammar?.visualEncoding ?? "", "Apple-style glass tiles", "Workspace shell visual grammar");
+  const planeOrbitGrammar = visualGrammar.visualGrammar?.find((item) => item.id === "fusion-plane-orbit");
+  assertTextIncludes(planeOrbitGrammar?.visualEncoding ?? "", "port docking", "Fusion plane + orbit visual grammar");
+  assertTextIncludes(planeOrbitGrammar?.visualEncoding ?? "", "S ties never draw inside the plane", "Fusion plane + orbit visual grammar");
+  assertTextIncludes(planeOrbitGrammar?.dataMapping ?? "", "corpus-max-anchored normalized S weight", "Fusion plane + orbit visual grammar");
   if (reviewPacket.contents?.projectSnapshot?.schemaVersion !== "sena-project-snapshot/v1") {
     throw new Error("Review packet is missing embedded project snapshot.");
   }
@@ -1715,6 +1815,9 @@ async function verifyArtifactDownloadsAndRestore(page) {
   }
   if (!reviewPacket.contents?.visualGrammarArtifact?.referenceAssets?.some((asset) => asset.id === "workspace-shell-c3-collapsed-switcher-mockup" && asset.path === "output/sena-workspace-layout-options/sena-workspace-layout-option-c2-temporal-studio-collapsed-switcher.png" && asset.sha256 === "bc7c350686c6f3e3af9f0ed3acd3fcaee10bc423cd8be95a36bf88010392d7aa")) {
     throw new Error("Review packet visual grammar artifact is missing the C3 Workspace Shell mockup reference.");
+  }
+  if (!reviewPacket.contents?.visualGrammarArtifact?.referenceAssets?.some((asset) => asset.id === "fusion-plane-orbit-mockup" && asset.path === "output/sena-fusion-redesign-options/sena-fusion-plane-orbit.png" && asset.sha256 === "c32d860917f28f9bca822e7b2e9b9215ded6c675d89320c79642cde8a86166e6")) {
+    throw new Error("Review packet visual grammar artifact is missing the Fusion Plane + Social Orbit mockup reference.");
   }
   if (!reviewPacket.artifactManifest?.some((artifact) => artifact.filename === "sena-visual-grammar.json")) {
     throw new Error("Review packet artifact manifest is missing the visual grammar artifact.");
@@ -1832,6 +1935,132 @@ async function verifyArtifactDownloadsAndRestore(page) {
   await waitForVisibleText(page, "0.33");
   await waitForVisibleText(page, "0.44");
   await waitForVisibleText(page, "0.55");
+}
+
+// Every layout button the smoke drives, by its shipped testid. Spelled out
+// (not templated) so the manifest contract test can hold this file to the
+// exact ids the Model Builder renders.
+const fusionLayoutButtons = {
+  "plane-orbit": "model-layout-plane-orbit",
+  "ena-space": "model-layout-ena-space",
+  explanatory: "model-layout-explanatory",
+  joint: "model-layout-joint"
+};
+
+async function selectFusionLayout(page, layout) {
+  const buttonTestId = fusionLayoutButtons[layout];
+  if (!buttonTestId) throw new Error(`Unknown fusion layout "${layout}"`);
+  await activateButtonByTestId(page, "workspace-rail-model");
+  await clickByTestId(page, buttonTestId);
+  await page.locator(`[data-testid="${buttonTestId}"][aria-pressed="true"]`).first().waitFor({ state: "visible", timeout: defaultTimeout }).catch(() => {});
+  await closeWorkspaceTaskDrawer(page);
+}
+
+/**
+ * The A1 Fusion Canvas, reached the only way a reader can reach it now.
+ *
+ * ADR 0009 demoted the Canvas to a Diagnostic layout, so every assertion that
+ * used to run against a fresh page has to switch layout first. Keeping these
+ * checks (rather than deleting them with the default) is what keeps the
+ * Functional Ledger's `data-testid="sena-fusion-canvas"` pin honest: the
+ * marker is still shipped, still reachable, and still carries the A1 grammar.
+ */
+async function verifyDiagnosticFusionCanvasLayouts(page) {
+  await selectFusionLayout(page, "explanatory");
+  const canvas = page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-canvas"]').first();
+  await canvas.waitFor({ state: "visible", timeout: defaultTimeout });
+  await canvas.locator('[data-visual-role="concept-space-guide"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await canvas.locator('[data-layer="social"][data-visual-role="outer-social-arc"][data-arc-route="outer-orbit"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await canvas.locator('[data-layer="concept"][data-visual-role="ena-solid-concept-link"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await canvas.locator('[data-visual-role="fusion-readable-link-halo"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await canvas.locator('circle[data-visual-role="ena-concept-circle-node"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await canvas.locator('[data-node-label="Question"][data-node-glyph="Q"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
+  await verifyWeightedFusionLinkWidths(page);
+  await waitForVisibleText(page, "A1 INNER SOLID MESH");
+
+  await selectFusionLayout(page, "plane-orbit");
+  await page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-plane-orbit"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+  await waitForVisibleText(page, "FUSION PLANE + ORBIT");
+}
+
+/**
+ * All four layouts, in the panel and in the maximized overlay.
+ *
+ * The overlay used to hand `layout` straight to the Canvas, so making an
+ * ENA-space figure bigger silently swapped the canonical projection for the
+ * grammar ADR 0008 retired — a figure that changed meaning when the reader
+ * changed its size. `fusion-overlay-routing.test.tsx` pins the branch in
+ * jsdom; this pins the shipped DOM, including the caption each surface carries.
+ */
+async function verifyFusionLayoutRoundTrip(page) {
+  const layoutCases = [
+    ["plane-orbit", '[data-testid="sena-fusion-plane-orbit"]', "Fusion Plane + Orbit"],
+    ["ena-space", '[data-testid="sena-ena-space-plot"]', "ENA Space"],
+    ["explanatory", '[data-testid="sena-fusion-canvas"]', "A1 Inner Solid Mesh"],
+    ["joint", '[data-testid="sena-fusion-canvas"]', "A1 Inner Solid Mesh"],
+    ["plane-orbit", '[data-testid="sena-fusion-plane-orbit"]', "Fusion Plane + Orbit"]
+  ];
+  for (const [layout, selector, caption] of layoutCases) {
+    await selectFusionLayout(page, layout);
+    await page.locator(`[data-testid="central-fusion-priority-plot"] ${selector}`).first().waitFor({ state: "visible", timeout: defaultTimeout });
+    // The layer key captions the figure from just outside the priority-plot
+    // container (workspace-central-plot-deck-fusion-panel.tsx renders it as a
+    // sibling), so it is scoped to the primary-plot section instead.
+    const keyText = await page.locator('[data-testid="workspace-primary-plot"] [data-testid="fusion-layer-key"]').first().innerText({ timeout: defaultTimeout });
+    assertTextIncludes(keyText.toUpperCase(), caption.toUpperCase(), `${layout} inline layer key caption`);
+  }
+
+  for (const [layout, selector, caption] of [
+    ["plane-orbit", '[data-testid="sena-fusion-plane-orbit"]', "Fusion Plane + Orbit"],
+    ["ena-space", '[data-testid="sena-ena-space-plot"]', "ENA Space"]
+  ]) {
+    await selectFusionLayout(page, layout);
+    await activateButtonByTestId(page, "maximize-fusion-plot");
+    const overlay = page.locator('[data-testid="fusion-plot-maximized-overlay"]').first();
+    await overlay.waitFor({ state: "visible", timeout: defaultTimeout });
+    await overlay.locator(selector).first().waitFor({ state: "visible", timeout: defaultTimeout });
+    const strandedCanvasCount = await overlay.locator('[data-testid="sena-fusion-canvas"]').count();
+    if (strandedCanvasCount !== 0) {
+      throw new Error(`Maximizing the ${layout} figure fell back to the Diagnostic Fusion Canvas (${strandedCanvasCount} mounted).`);
+    }
+    const chip = await overlay.locator('[data-testid="fusion-maximized-grammar-chip"]').first().innerText({ timeout: defaultTimeout });
+    assertTextIncludes(chip, caption, `${layout} maximized grammar chip`);
+    await activateButtonByTestId(page, "restore-fusion-plot");
+    await overlay.waitFor({ state: "hidden", timeout: defaultTimeout });
+  }
+
+  await selectFusionLayout(page, "plane-orbit");
+  await page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-plane-orbit"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+}
+
+/**
+ * The orbit-to-plane unit leader: the one mark that crosses the boundary
+ * between the explanatory orbit and the measured plane, and the reason the two
+ * halves read as one figure rather than a sociogram beside an ENA plot.
+ */
+async function verifyFusionUnitLink(page) {
+  const figure = page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="sena-fusion-plane-orbit"]').first();
+  await figure.waitFor({ state: "visible", timeout: defaultTimeout });
+  if (await figure.locator('[data-testid="sena-fusion-unit-link"]').count() !== 0) {
+    throw new Error("The orbit-to-plane unit leader should be drawn only for a selected person.");
+  }
+  const personNode = figure.locator('[data-testid^="sena-node-"][data-node-kind="person"]').first();
+  await personNode.click({ timeout: defaultTimeout });
+  const unitLink = figure.locator('[data-testid="sena-fusion-unit-link"] [data-visual-role="fusion-unit-leader"]').first();
+  await unitLink.waitFor({ state: "attached", timeout: defaultTimeout });
+  const leader = await unitLink.evaluate((element) => ({
+    x1: Number(element.getAttribute("x1")),
+    y1: Number(element.getAttribute("y1")),
+    x2: Number(element.getAttribute("x2")),
+    y2: Number(element.getAttribute("y2"))
+  }));
+  if (![leader.x1, leader.y1, leader.x2, leader.y2].every((value) => Number.isFinite(value))) {
+    throw new Error(`Fusion unit leader has non-finite endpoints: ${JSON.stringify(leader)}`);
+  }
+  if (Math.hypot(leader.x2 - leader.x1, leader.y2 - leader.y1) < 1) {
+    throw new Error(`Fusion unit leader is degenerate: ${JSON.stringify(leader)}`);
+  }
+  await figure.locator('[data-visual-role="orbit-person-selection-ring"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
 }
 
 async function verifyCanvasSelection(page) {
@@ -1966,20 +2195,18 @@ export async function verifySenaBrowserSmoke(url = smokeUrlFromCli()) {
   try {
     await verifyResponsiveWorkspaceShell(browser, url);
     await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-    await page.locator('[data-testid="sena-fusion-canvas"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
+    await page.locator('[data-testid="sena-fusion-plane-orbit"]').first().waitFor({ state: "visible", timeout: defaultTimeout });
     await verifyWorkspaceShellAndPlotViews(page);
-    await page.locator('[data-layer="social"][data-visual-role="outer-social-arc"][data-arc-route="outer-orbit"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
-    await page.locator('[data-layer="concept"][data-visual-role="ena-solid-concept-link"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
-    await page.locator('[data-visual-role="fusion-readable-link-halo"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
-    await verifyWeightedFusionLinkWidths(page);
-    const initialCentralNodeLabelCount = await page.locator('[data-testid="central-fusion-priority-plot"] [data-testid="fusion-selected-node-label"]').count();
-    if (initialCentralNodeLabelCount !== 0) {
-      throw new Error(`Fusion node labels should be hidden before a node is selected, received ${initialCentralNodeLabelCount}.`);
-    }
+    await verifyDiagnosticFusionCanvasLayouts(page);
+    await verifyFusionLayoutRoundTrip(page);
+    await verifyFusionUnitLink(page);
     await verifyActiveWindowFusionScope(page);
     await waitForVisibleText(page, "SENA Analysis Studio");
-    await waitForVisibleText(page, "Fusion Canvas");
     await clickByTestId(page, "workspace-rail-sets");
+    // The "Fusion Canvas" workflow anchor lives in the rail drawer since the
+    // plane-orbit default landed — on a fresh page no drawer is open and no
+    // edge is selected, so nothing on the default view carries that text.
+    await waitForVisibleText(page, "Fusion Canvas");
     await expectLessonStudyCounts(page);
     await waitForVisibleText(page, "Lesson-study sample loaded from the bundled SENA pilot package.");
     await verifyPilotAssetLinks(page, url);

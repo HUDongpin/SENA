@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { EnaPlot, type EnaPlotOverlay, type EnaPlotOverlayEdge } from "@/components/ena/EnaPlot";
+import { EnaPlot, type EnaPlotOverlay } from "@/components/ena/EnaPlot";
+import { buildSenaEnaOverlayEdges, type SenaEnaOverlayKind } from "@/lib/sena/ena-overlay";
 import { buildSenaEnaPlotComposition } from "@/lib/sena/ena-plot-model";
+import { senaLayerStrokes, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
 import { cn } from "@/lib/utils";
 import type { SenaEnaManifest, SenaLayer, SenaModel } from "./analysis-runtime";
 
@@ -32,14 +34,6 @@ type OverlayToggles = {
 // projection actually places.
 const defaultToggles: OverlayToggles = { bridge: true, social: false, identity: true };
 
-function normalizeWeights<T extends { weight: number }>(edges: T[]) {
-  const peak = Math.max(...edges.map((edge) => Math.abs(edge.weight)), 0);
-  return edges.map((edge) => ({
-    ...edge,
-    normalizedWeight: peak > 0 ? Math.abs(edge.weight) / peak : 0
-  }));
-}
-
 export function SenaEnaSpacePlot({
   model,
   enaManifest,
@@ -66,59 +60,47 @@ export function SenaEnaSpacePlot({
     [enaManifest, model.codes, model.people]
   );
 
+  // Read as scalars before the memo: depending on `layers.bridge` directly makes
+  // the React Compiler infer the whole `layers` object as the dependency, which
+  // is broader than the declared list and disables optimization for the whole
+  // component. `layers` is a pass-through prop with no identity guarantee, so
+  // widening the memo to it instead would rebuild the overlay every render.
+  const bridgeLayerEnabled = layers.bridge;
+  const socialLayerEnabled = layers.social;
+
   const overlay = useMemo<EnaPlotOverlay>(() => {
     if (composition.status !== "computed") return {};
 
-    const unitPositions = new Map(composition.units.map((unit) => [unit.id, unit]));
-    const codePositions = composition.codePositions;
-
-    function resolve(id: string) {
-      const unit = unitPositions.get(id);
-      if (unit) return { x: unit.x, y: unit.y };
-      return codePositions[id] ?? null;
-    }
-
-    const overlayEdges: EnaPlotOverlayEdge[] = [];
-    const kinds: Array<{ layer: SenaLayer; kind: EnaPlotOverlayEdge["kind"]; enabled: boolean }> = [
-      { layer: "bridge", kind: "bridge", enabled: toggles.bridge && layers.bridge },
-      { layer: "social", kind: "social", enabled: toggles.social && layers.social }
+    // Assembly is shared with the Fusion plane (lib/sena/ena-overlay.ts) so the
+    // two surfaces that render through <EnaPlot> cannot disagree about how a
+    // bridge is normalized or where its endpoints are (ADR 0009).
+    const kinds: SenaEnaOverlayKind[] = [
+      { layer: "bridge", kind: "bridge", enabled: toggles.bridge && bridgeLayerEnabled },
+      { layer: "social", kind: "social", enabled: toggles.social && socialLayerEnabled }
     ];
+    const overlayEdges = buildSenaEnaOverlayEdges({
+      edges: model.edges,
+      composition,
+      threshold,
+      kinds
+    });
 
-    for (const { layer, kind, enabled } of kinds) {
-      if (!enabled) continue;
-      const candidates = model.edges.filter(
-        (edge) => edge.layer === layer && edge.normalizedWeight >= threshold
-      );
-      // Normalized within its own layer: a bridge weight and a social weight are
-      // different quantities, so one shared scale would make the larger layer
-      // look uniformly stronger.
-      for (const edge of normalizeWeights(candidates)) {
-        const source = resolve(edge.source);
-        const target = resolve(edge.target);
-        if (!source || !target) continue;
-        overlayEdges.push({
-          id: edge.id,
-          label: edge.label,
-          kind,
-          source,
-          target,
-          weight: edge.weight,
-          normalizedWeight: edge.normalizedWeight
-        });
-      }
-    }
-
+    // A legend swatch has one job: name the colour the reader is looking at.
+    // Bridge/social swatches mirror EnaPlot's overlay constants and the identity
+    // swatch mirrors its UNIT_IDENTITY_ACCENT; the value equality is pinned by
+    // layer-palette-stroke-migration.test.ts, so a swatch here can never drift
+    // from the colour the plot is drawing.
     const legend: EnaPlotOverlay["legend"] = [];
-    if (toggles.bridge && layers.bridge) legend.push({ name: "Person–code bridges", color: "#24dcee", kind: "line" });
-    if (toggles.social && layers.social) legend.push({ name: "Social ties", color: "#2f73ff", kind: "line" });
-    if (toggles.identity) legend.push({ name: "Unit identity", color: "#24dcee", kind: "dot" });
+    if (toggles.bridge && bridgeLayerEnabled) legend.push({ name: "Person–code bridges", color: senaLayerStrokes.bridge, kind: "line" });
+    if (toggles.social && socialLayerEnabled) legend.push({ name: "Social ties", color: senaLayerStrokes.social, kind: "line" });
+    if (toggles.identity) legend.push({ name: "Unit identity", color: senaPlotAccentStroke, kind: "dot" });
 
     return {
       edges: overlayEdges,
       markers: toggles.identity ? composition.units : [],
       legend
     };
-  }, [composition, layers.bridge, layers.social, model.edges, threshold, toggles]);
+  }, [composition, bridgeLayerEnabled, socialLayerEnabled, model.edges, threshold, toggles]);
 
   if (composition.status !== "computed" || !composition.model) {
     return (

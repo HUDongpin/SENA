@@ -276,10 +276,17 @@ describe("SENA enterprise runtime", () => {
     expect(imported.warnings.some((warning) => /does not match any author in this export/i.test(warning)))
       .toBe(true);
 
-    // "Ghost" may still enter the roster through the *social* layer — an unresolved
-    // reply-to is a pre-existing S-layer behaviour and out of scope here. What must
-    // not happen is a bridge-derived placeholder: nothing is derived from
-    // coded_segments, so the code-to-person layer stays on the transpose fallback.
+    // "Ghost" does not enter the roster through the *social* layer either: the
+    // adapter still passes the unresolved reply-to through to the interaction
+    // (its warning above carries the forum context), and the import's roster
+    // gate — the single enforcement point for every producer — refuses to mint
+    // it (ADR-0010, Q9). The dangling tie is disclosed and excluded from S.
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["u1", "u2"]);
+    // Exactly one copy: the enterprise route's per-file pass also detects the
+    // dangling target, but only the merged pass's verdict may reach the manifest.
+    expect(imported.warnings.filter((warning) =>
+      warning.includes('declared people roster does not include "Ghost"')
+    )).toHaveLength(1);
     expect(imported.warnings.some((warning) => /derived a placeholder person from coded_segments/i.test(warning)))
       .toBe(false);
   });
@@ -323,6 +330,132 @@ describe("SENA enterprise runtime", () => {
     expect(model.summary.warnings.some((warning) => /unknown target person "P9"/i.test(warning))).toBe(true);
     expect(model.operatorDiagnostics.direction.bridgeMode).toBe("pc-transpose-fallback");
     expect(model.operatorDiagnostics.direction.independentBridgeMatrices).toBe(false);
+  });
+
+  it("does not derive placeholder people from interaction targets under a declared roster (Q9)", () => {
+    // The interactions sibling of the G1 chains: an interaction's target is the
+    // same kind of claim as a segment's target_person_ids — who someone replied
+    // to — so under a declared roster an unmatched target stays dangling instead
+    // of becoming a Derived roster member (ADR-0010, Peter decision 13). The
+    // social-matrix builder then drops the tie as "unknown person"; the import
+    // discloses the exclusion here, where the dangling id is still known.
+    const contract = {
+      people: [
+        { person_id: "P1", label: "Ada" },
+        { person_id: "P2", label: "Ben" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" },
+        { utterance_id: "u2", person_id: "P2", unit_id: "unit-1", stanza_id: "st-1", turn_index: 2, text: "Reply" }
+      ],
+      coded_segments: [
+        {
+          segment_id: "cs-1",
+          utterance_id: "u2",
+          person_id: "P2",
+          unit_id: "unit-1",
+          stanza_id: "st-1",
+          codes: "Evidence"
+        }
+      ],
+      interactions: [
+        { source: "P1", target: "Ghost", weight: 1 },
+        { source: "P2", target: "Ghost", weight: 2 }
+      ]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+
+    // Ghost is not invented into the roster: the declared count stands.
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2"]);
+    expect(imported.warnings.some((warning) => /derived a placeholder person from interactions/i.test(warning)))
+      .toBe(false);
+    // The exclusion is disclosed, aggregated per dangling id with a tie count.
+    expect(imported.warnings.some((warning) =>
+      warning.includes('declared people roster does not include "Ghost"; 2 interactions targeting it were excluded from the social layer')
+    )).toBe(true);
+
+    // The social layer rejects the dangling ties instead of resizing S around a
+    // fabricated person.
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.warnings.some((warning) => /references an unknown person/i.test(warning))).toBe(true);
+  });
+
+  it("gates interaction targets across files on the enterprise route (single enforcement point)", async () => {
+    // A roster-less contract file legitimately derives its people in isolation
+    // (pass 1), but those placeholders are reconstruction artifacts, not
+    // declarations: they must not round-trip into the merged pass as declared
+    // roster rows, or a pass-1-minted target gets a declared seat and the
+    // ADR-0010 gate never fires — while the analyst's real declared row is
+    // discarded as a duplicate of the placeholder.
+    const contractJson = JSON.stringify({
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" }
+      ],
+      interactions: [{ source: "P1", target: "Ghost", weight: 1 }]
+    });
+    const peopleCsv = "person_id,label,role,group\nP1,Ada,Participant,Learners";
+
+    const imported = await importSenaEnterpriseFiles([
+      uploadLike("contract.json", contractJson),
+      uploadLike("people.csv", peopleCsv)
+    ]);
+
+    // The declared row wins — right metadata, no Derived shadow — and Ghost
+    // stays off the roster.
+    expect(imported.dataset.people.map((person) => person.id)).toEqual(["P1"]);
+    expect(imported.dataset.people[0]?.label).toBe("Ada");
+    expect(imported.dataset.people[0]?.group).toBe("Learners");
+    // The exclusion is disclosed exactly once: the merged pass is the one
+    // authoritative verdict; per-file copies stay on sources only.
+    expect(imported.warnings.filter((warning) =>
+      warning.includes('declared people roster does not include "Ghost"')
+    )).toHaveLength(1);
+  });
+
+  it("still derives placeholder people from interaction sources under a declared roster", () => {
+    // A source is a contribution, not a claim: the person demonstrably acted, so
+    // a roster omission there is recovered the same way as an unknown utterance
+    // author. The roster gate is target-only (ADR-0010).
+    const contract = {
+      people: [{ person_id: "P1", label: "Ada" }],
+      interactions: [{ source: "P9", target: "P1", weight: 1 }]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P9"]);
+    expect(imported.warnings.some((warning) => /did not include "P9"; derived a placeholder person from interactions/i.test(warning)))
+      .toBe(true);
+  });
+
+  it("still derives interaction targets into the roster when no roster was declared", () => {
+    // Roster-less uploads keep the F6-style rule: with no people table the data
+    // tables ARE the roster, so a target legitimately introduces the person it
+    // names.
+    const contract = {
+      interactions: [{ source: "P1", target: "P2", weight: 1 }]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2"]);
+    expect(imported.warnings.some((warning) => /roster does not include/i.test(warning))).toBe(false);
+  });
+
+  it("keeps deriving targets when people exist only from earlier derivation (no declared roster)", () => {
+    // Kills the live-check mutant: hasDeclaredRoster is captured from the
+    // uploaded people table before any derivation runs. Re-reading
+    // dataset.people.length at gate time would see the utterance-minted P1 and
+    // wrongly treat the roster as declared, gating P2.
+    const contract = {
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" }
+      ],
+      interactions: [{ source: "P1", target: "P2", weight: 1 }]
+    };
+
+    const imported = importSenaJsonContract(JSON.stringify(contract));
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2"]);
+    expect(imported.warnings.some((warning) => /roster does not include/i.test(warning))).toBe(false);
   });
 
   it("still derives placeholder people from the coded_segments contributor (F6 regression)", async () => {

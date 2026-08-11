@@ -316,6 +316,66 @@ export function studentTTwoSidedP(t: number, df: number) {
   return incompleteBeta(df / 2, 0.5, df / (df + t * t));
 }
 
+/** Bisection depth: 200 halvings take any starting bracket below 1e-30. */
+const QUANTILE_ITERATIONS = 200;
+/** Absolute width at which the bracket is narrower than any reported digit. */
+const QUANTILE_TOLERANCE = 1e-12;
+
+/**
+ * Bisect a monotone decreasing tail function down to `target`.
+ *
+ * `tail(0)` is 1 and `tail(∞)` is 0 for both distributions used here, so a
+ * bracket always exists; it is found by doubling rather than assumed, because
+ * a heavy-tailed t with df = 1 needs t ≈ 636 for a 0.001 tail and any fixed
+ * ceiling would silently clamp there.
+ */
+function bisectUpperTail(tail: (value: number) => number, target: number) {
+  let low = 0;
+  let high = 2;
+  for (let step = 0; step < 60 && tail(high) > target; step += 1) high *= 2;
+  for (let step = 0; step < QUANTILE_ITERATIONS && high - low > QUANTILE_TOLERANCE; step += 1) {
+    const middle = (low + high) / 2;
+    if (tail(middle) > target) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
+}
+
+/** Standard normal quantile, by the same bisection over `normalCdf`. */
+function normalQuantile(p: number): number {
+  if (p === 0.5) return 0;
+  if (p < 0.5) return -normalQuantile(1 - p);
+  return bisectUpperTail((z) => 1 - normalCdf(z), 1 - p);
+}
+
+/**
+ * Inverse of Student's t CDF: the `t` with `p` of the distribution below it.
+ *
+ * Nothing in the repo or in jena-js provides one — `studentTTwoSidedP` above is
+ * the forward tail, and jena-js exports `inverseNormal` but no inverse t — so a
+ * 95% confidence interval on a group mean had no critical value to multiply by.
+ * This is that value, and `mean ± studentTQuantile(0.975, n − 1) · sd / √n` is
+ * the interval every comparison surface draws.
+ *
+ * Bisection over the forward tail rather than a rational approximation: the
+ * forward tail is already golden-tested against R, the inverse is called a
+ * handful of times per plot, and a bracket-and-halve inherits the forward
+ * function's accuracy instead of introducing a second, differently-wrong one.
+ * Watch the conversion — `studentTTwoSidedP` is two-sided, so the upper tail at
+ * the answer is `1 − p` and the two-sided tail is twice that.
+ *
+ * `df = Infinity` is the normal limit and is answered by the same bisection over
+ * `normalCdf`; the incomplete beta cannot be evaluated there at all.
+ */
+export function studentTQuantile(p: number, df: number): number {
+  if (!Number.isFinite(p) || p <= 0 || p >= 1) return NaN;
+  if (Number.isNaN(df) || df < 1) return NaN;
+  if (p === 0.5) return 0;
+  if (p < 0.5) return -studentTQuantile(1 - p, df);
+  if (!Number.isFinite(df)) return normalQuantile(p);
+  return bisectUpperTail((t) => studentTTwoSidedP(t, df) / 2, 1 - p);
+}
+
 export type WelchTResult = {
   t: number;
   /** Welch-Satterthwaite degrees of freedom — fractional, as it should be. */

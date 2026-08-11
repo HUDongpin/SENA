@@ -89,16 +89,35 @@ export {
 export { buildSenaMethodProtocol, type SenaMethodProtocolOptions } from "./method-protocol";
 export { buildSenaVisualGrammarArtifact, senaVisualGrammar, type SenaVisualGrammarArtifactOptions } from "./visual-grammar";
 export {
+  absoluteEdgeStrokeSignal,
+  buildAbsoluteEdgeStrokeScale,
   buildConceptPairContributionMap,
   buildEdgeStrokeScale,
   buildFusionGraphVisualEncoding,
   describeEdgeVisualEncoding,
   edgeStrokeSignal,
+  readableAbsoluteEdgeStrokeWidth,
   readableEdgeStrokeSignal,
   readableEdgeStrokeWidth,
   senaEdgeStrokeRanges,
+  senaOrbitSocialStrokeRange,
   type SenaEdgeStrokeScale
 } from "./visual-encoding";
+export { hexPoints } from "./hex";
+export {
+  buildSenaOrbitLayout,
+  senaOrbitCommunityTints,
+  senaOrbitDefaultGeometry,
+  SENA_ORBIT_LANE_BASE_OFFSET,
+  SENA_ORBIT_LANE_STEP,
+  SENA_ORBIT_NODE_RADIUS_RANGE,
+  type SenaOrbitGeometry,
+  type SenaOrbitLane,
+  type SenaOrbitLayout,
+  type SenaOrbitLayoutOptions,
+  type SenaOrbitModelInput,
+  type SenaOrbitPerson
+} from "./orbit-layout";
 export { buildSenaDevelopmentPlan, type SenaDevelopmentPlanOptions } from "./development-plan";
 export { buildSenaDemoWalkthrough, type SenaDemoWalkthroughOptions } from "./demo-walkthrough";
 export {
@@ -285,3 +304,11 @@ export type {
   SenaVisualGrammarArtifact,
   SenaVisualGrammarItem
 } from "./types";
+export {
+  senaLayerChips,
+  senaLayerPalette,
+  senaLayerStrokes,
+  senaPlotAccentStroke,
+  type SenaLayerPaletteChannel,
+  type SenaLayerPaletteEntry
+} from "./layer-palette";

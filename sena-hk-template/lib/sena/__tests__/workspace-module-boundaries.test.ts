@@ -374,6 +374,8 @@ describe("SENA workspace module boundaries", () => {
       "dual-lens-dashboard",
       "ena-space-plot",
       "fusion-canvas",
+      "fusion-orbit-layer",
+      "fusion-plane-orbit",
       "fusion-plot-overlay",
       "fusion-layer-key",
       "inspector-panel",

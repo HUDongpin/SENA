@@ -1,7 +1,23 @@
 import { cn } from "@/lib/utils";
-import type { SenaLayer, SenaModel } from "./analysis-runtime";
+import type { SenaLayer, SenaLayoutMode, SenaModel } from "./analysis-runtime";
 
 type LayerVisibility = Record<SenaLayer, boolean>;
+
+/**
+ * The name of the coordinate frame currently on screen.
+ *
+ * It lives in this leaf module because two surfaces caption the same figure —
+ * this key under the inline plot and the maximized overlay's grammar chip — and
+ * a figure that is called one thing at one size and another thing at another is
+ * the mislabeling ADR 0009 treats as a correctness bug, not a copy nit. An
+ * omitted layout keeps the historical A1 caption so a caller that has no layout
+ * to give is unchanged rather than silently renamed.
+ */
+export function fusionGrammarLabel(layout?: SenaLayoutMode) {
+  if (layout === "plane-orbit") return "Fusion Plane + Orbit";
+  if (layout === "ena-space") return "ENA Space";
+  return "A1 Inner Solid Mesh";
+}
 
 function formatLegendNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "0";
@@ -32,7 +48,8 @@ export function FusionLayerKey({
   threshold,
   alpha,
   beta,
-  gamma
+  gamma,
+  layout
 }: {
   model: SenaModel;
   layers: LayerVisibility;
@@ -40,6 +57,8 @@ export function FusionLayerKey({
   alpha: number;
   beta: number;
   gamma: number;
+  /** Which grammar the figure above this key is drawn in; omitted reads as A1. */
+  layout?: SenaLayoutMode;
 }) {
   const layerCounts = {
     social: model.edges.filter((edge) => edge.layer === "social" && edge.normalizedWeight >= threshold).length,
@@ -103,7 +122,12 @@ export function FusionLayerKey({
     <div data-testid="fusion-layer-key" data-visual-role="fusion-layer-key-a1" className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="flex flex-col gap-2 text-xs font-black text-slate-600 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="uppercase text-slate-950">A1 Inner Solid Mesh</div>
+          {/*
+            The attribute stays `fusion-layer-key-a1` on purpose: the production
+            contract pins it, and a marker rename is a separate, contract-level
+            change from telling the reader the truth about the figure.
+          */}
+          <div className="uppercase text-slate-950">{fusionGrammarLabel(layout)}</div>
           <div className="mt-1 font-semibold normal-case text-slate-600">{"A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]"}</div>
         </div>
         <div data-testid="fusion-layer-key-threshold" className="inline-flex w-fit rounded-full border border-slate-300 bg-white px-3 py-1 text-slate-950">

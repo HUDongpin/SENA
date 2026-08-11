@@ -6,6 +6,15 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
     route: "/workspace/sena",
     responsiveWidths: [375, 768, 1024, 1440],
     selectors: {
+      // The default Fusion figure since ADR 0009. `fusionCanvas` stays declared
+      // because the A1 Canvas is still shipped behind the Diagnostic layouts
+      // (model-layout-explanatory / model-layout-joint) and the Functional
+      // Ledger pins its testid — but it is no longer what a fresh page shows,
+      // so a smoke that waits on it without switching layout first is waiting
+      // for an element that is not there.
+      planeOrbit: "sena-fusion-plane-orbit",
+      orbitLayer: "sena-fusion-orbit-layer",
+      snaOrbitSociogram: "sena-sna-orbit-sociogram",
       fusionCanvas: "sena-fusion-canvas",
       primaryPlot: "workspace-primary-plot",
       secondaryPlot: "workspace-secondary-plot",
@@ -45,6 +54,10 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       validationClaim: {
         exportName: "verifySenaValidationClaimBrowserSmoke",
         label: "Verify validation claim browser smoke"
+      },
+      enaWorkbench: {
+        exportName: "verifySenaEnaBrowserSmoke",
+        label: "Verify jENA workbench browser smoke"
       }
     }
   },
@@ -216,6 +229,79 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "validation-preregistration-plan",
       "validation-parity-evidence",
       "domain-expert-review"
+    ]
+  },
+  // The jENA workbench. Unlike every other surface here it is public, holds no
+  // session and persists nothing: it parses the bundled lesson-study CSV at
+  // module scope and computes in a bundled Worker, so the smoke needs no
+  // adapter and no login. Declared separately from `workspace` because the
+  // route, the renderer's props and the failure modes are all different — the
+  // SENA workbench nests EnaPlot inside the Fusion plane, while this route
+  // renders it bare, and asserting the SENA-only layers are ABSENT here is part
+  // of the contract.
+  enaWorkbench: {
+    route: "/workspace/ena",
+    defaultRailMode: "model",
+    railModes: ["sets", "model", "plot", "stats"],
+    statsTabs: ["comparison", "fit", "variance", "methods"],
+    comparisonPalettes: ["blue-orange", "red-blue"],
+    selectors: {
+      workbench: "webena-workbench",
+      setsOpenDataView: "ena-sets-open-data-view",
+      dataViewToggle: "ena-data-view-toggle",
+      plot: "ena-plot",
+      comparison: "ena-comparison",
+      comparisonColumn: "ena-comparison-column",
+      comparisonGroupA: "ena-comparison-group-a",
+      comparisonGroupB: "ena-comparison-group-b",
+      comparisonPalette: "ena-comparison-palette",
+      comparisonIntervals: "ena-comparison-intervals",
+      comparisonSubtraction: "ena-comparison-subtraction",
+      comparisonMultiplier: "ena-comparison-multiplier",
+      minEdgeWeightSlider: "ena-min-edge-weight-slider",
+      minEdgeWeightEffective: "ena-min-edge-weight-effective",
+      statsTabs: "ena-stats-tabs",
+      plotToolsReset: "ena-plot-tools-reset",
+      copyMethods: "ena-copy-methods"
+    },
+    // Provenance attributes the smoke reads off the drawn marks. They are the
+    // same vocabulary EnaPlot emits inside the Fusion plane, which is why this
+    // leg needed no new instrumentation on the page.
+    plotAttributes: [
+      "data-plot-dimensions",
+      "data-plot-zoom",
+      "data-edge-weight",
+      "data-edge-visual-width",
+      "data-edge-sign",
+      "data-sena-group-mean",
+      "data-sena-group-n",
+      "data-sena-group-ci",
+      "data-sena-ci-x",
+      "data-sena-ci-y"
+    ],
+    // Layers EnaPlot only draws for the SENA workspace. On this route they must
+    // stay at zero — the negative is as much the contract as the positive.
+    absentSenaLayers: ["overlay-edges", "node-hit-targets", "unit-identity", "selection-ring"],
+    // The comparison defaults the P4c UI ships with. `subtractionOn: false` is
+    // load-bearing: an ordinary plot must stay the mean network it has always
+    // been, which is what keeps the rENA parity suites honest.
+    comparisonDefaults: {
+      subtractionOn: false,
+      groupIntervalsOn: true,
+      deltaMultiplier: 1,
+      palette: "blue-orange"
+    },
+    flows: [
+      "worker-runtime-run",
+      "comparison-group-means-and-intervals",
+      "comparison-subtraction-default-off",
+      "signed-delta-multiplier",
+      "signed-edge-threshold-discriminator"
+    ],
+    exports: [
+      "sena-ena-result.json",
+      "sena-ena-points.csv",
+      "sena-ena-connections.csv"
     ]
   }
 } as const;

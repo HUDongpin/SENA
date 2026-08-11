@@ -3,6 +3,29 @@ import type { SenaEdge, SenaLayer, SenaModel } from "./types";
 export type SenaEdgeStrokeScale = {
   layers: Record<SenaLayer, { min: number; max: number; span: number }>;
   signals: Map<string, number>;
+  /**
+   * The drawn width band, when the surface this scale describes does not use
+   * the A1 canvas bands. Carried on the scale rather than passed beside it so
+   * that a *reader* of the scale — the inspector's line-weight provenance —
+   * reports the width its surface actually drew. A scale built for the A1
+   * canvas omits it and every existing caller is unchanged.
+   */
+  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>;
+  /**
+   * Drawn width per edge id, for edges whose surface draws them under a law
+   * this scale cannot express.
+   *
+   * A `ranges` override re-bands the same `min + intensity^0.72 * span` curve,
+   * which is enough when a surface only narrows the band — the orbit's social
+   * lanes. It is not enough for the Fusion plane's bridges: those are drawn by
+   * the shared renderer's overlay channel, at
+   * `max(1, min(cap, cap * (0.4 + 0.6 * nw)))` against a cap that is the median
+   * drawn *network* width, a quantity no band contains. Reporting a band value
+   * for them stated a width no line on screen had — 10.8px for a bridge drawn
+   * at 2.45px on the pilot. A measured width, when the surface can supply one,
+   * outranks any recomputation of it.
+   */
+  widths?: Map<string, number>;
 };
 
 export const senaEdgeStrokeRanges: Record<SenaLayer, { min: number; max: number }> = {
@@ -10,6 +33,13 @@ export const senaEdgeStrokeRanges: Record<SenaLayer, { min: number; max: number 
   concept: { min: 3.2, max: 12.4 },
   bridge: { min: 2.4, max: 10.8 }
 };
+
+/**
+ * The orbit band is narrower than the A1 canvas and carries every social tie at
+ * once, so it re-steps the social width range rather than reusing the canvas's
+ * 5.2-15.6px. ADR 0009 (P2): lanes nest, and a 15.6px lane cannot nest.
+ */
+export const senaOrbitSocialStrokeRange = { min: 2.5, max: 8.5 } as const;
 
 function codePairKey(codeA: string, codeB: string) {
   return codeA < codeB ? `${codeA}|${codeB}` : `${codeB}|${codeA}`;
@@ -47,8 +77,90 @@ export function buildEdgeStrokeScale(
   return { layers, signals };
 }
 
+/**
+ * The absolute counterpart of `edgeStrokeSignal`: the salience an edge carries
+ * on its own, not relative to whatever else survived the current filter.
+ * `normalizedWeight` is already corpus-anchored — under the default `"max"`
+ * normalization its divisor *is* the matrix max
+ * (`operatorDiagnostics.normalization.S.divisor`), and every other rule divides
+ * by a corpus-wide constant too — so no extra plumbing is needed to read it as
+ * a fraction of the corpus. The concept tie-breaker is preserved in the same
+ * (log1p / 100) magnitude so absolute concept widths separate visual ties the
+ * way the relative scale does.
+ */
+export function absoluteEdgeStrokeSignal(
+  edge: SenaEdge,
+  conceptPairContributions?: Map<string, number>
+) {
+  if (edge.layer !== "concept" || !conceptPairContributions) return edge.normalizedWeight;
+  const gContribution = conceptPairContributions.get(codePairKey(edge.source, edge.target)) ?? 0;
+  return edge.normalizedWeight + Math.log1p(gContribution) / 100;
+}
+
+/**
+ * A stroke scale whose intensity is anchored on the corpus, not on the passed
+ * edge array. Every layer's window is fixed at [0, 1] in normalized-weight
+ * space, so the identical edge draws at the identical width whether the caller
+ * passes the whole model or a threshold-filtered slice — the property the orbit
+ * needs, because a reader comparing lane widths across two threshold settings
+ * is comparing quantities, and `buildEdgeStrokeScale` rescales those under
+ * filtering by design (A1's grammar text says "scaled within the active visible
+ * layer" and keeps that behaviour).
+ */
+export function buildAbsoluteEdgeStrokeScale(
+  edges: SenaEdge[],
+  conceptPairContributions?: Map<string, number>,
+  ranges?: Partial<Record<SenaLayer, { min: number; max: number }>>,
+  widths?: Map<string, number>
+): SenaEdgeStrokeScale {
+  const signals = new Map(edges.map((edge) => [
+    edge.id,
+    absoluteEdgeStrokeSignal(edge, conceptPairContributions)
+  ]));
+  const layers = (["social", "concept", "bridge"] as SenaLayer[]).reduce((scale, layer) => {
+    scale[layer] = { min: 0, max: 1, span: 1 };
+    return scale;
+  }, {} as Record<SenaLayer, { min: number; max: number; span: number }>);
+
+  // Spread rather than assigned: a caller that names no bands and no measured
+  // widths gets exactly the object shape it got before these parameters
+  // existed.
+  return {
+    layers,
+    signals,
+    ...(ranges ? { ranges } : {}),
+    ...(widths && widths.size > 0 ? { widths } : {})
+  };
+}
+
+/**
+ * width = min + clamp(normalizedWeight)^0.72 * (max - min).
+ *
+ * Same exponent and rounding as `readableEdgeStrokeWidth`; the only differences
+ * are the corpus anchor supplied by `buildAbsoluteEdgeStrokeScale` and the
+ * optional range override, which lets the orbit use its own narrower social
+ * band without disturbing `senaEdgeStrokeRanges` for the A1 canvas.
+ */
+export function readableAbsoluteEdgeStrokeWidth(
+  edge: SenaEdge,
+  scale: SenaEdgeStrokeScale,
+  range: { min: number; max: number } = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer]
+) {
+  const drawn = scale.widths?.get(edge.id);
+  if (drawn !== undefined) return drawn;
+  const signal = scale.signals.get(edge.id) ?? edge.normalizedWeight;
+  const layerScale = scale.layers[edge.layer];
+  const rawIntensity = layerScale.span > 1e-6
+    ? (signal - layerScale.min) / layerScale.span
+    : edge.normalizedWeight;
+  const intensity = Math.min(1, Math.max(0, Math.pow(Math.max(0, rawIntensity), 0.72)));
+  return Number((range.min + intensity * (range.max - range.min)).toFixed(2));
+}
+
 export function readableEdgeStrokeWidth(edge: SenaEdge, scale: SenaEdgeStrokeScale) {
-  const range = senaEdgeStrokeRanges[edge.layer];
+  const drawn = scale.widths?.get(edge.id);
+  if (drawn !== undefined) return drawn;
+  const range = scale.ranges?.[edge.layer] ?? senaEdgeStrokeRanges[edge.layer];
   const layerScale = scale.layers[edge.layer];
   const signal = scale.signals.get(edge.id) ?? edge.scaledWeight;
   const rawIntensity = layerScale.span > 1e-6

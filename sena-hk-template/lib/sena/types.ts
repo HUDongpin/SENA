@@ -4,7 +4,7 @@ export type SenaLayer = "social" | "concept" | "bridge";
 
 export type SenaEdgeType = "PP" | "CC" | "PC" | "CP";
 
-export type SenaLayoutMode = "explanatory" | "ena-space" | "joint";
+export type SenaLayoutMode = "plane-orbit" | "explanatory" | "ena-space" | "joint";
 
 export type SenaNormalization = "max" | "frobenius" | "log1p-max" | "log-max" | "none";
 
@@ -342,6 +342,17 @@ export type SenaEnaManifest = {
     windowSizeForward: number;
     dimensions: number;
     nodePositionMethod: "undirected" | "directed" | "directed-ground-response";
+    /**
+     * jena-js's rotation method. Absent means SVD, which is both the jena-js
+     * default and every manifest emitted before comparison mode existed — so a
+     * default run records exactly the options it always recorded, and only a
+     * deliberately rotated one says so.
+     */
+    rotation?: "svd" | "mean";
+    /** The metadata column whose two values define a means rotation. */
+    groupColumn?: string;
+    /** Set when the space was reused from a prior manifest's rotation. */
+    projectedIn?: boolean;
   };
   datasetCounts: {
     rows: number;
@@ -369,6 +380,49 @@ export type SenaEnaManifest = {
      * Optional, so a manifest emitted before this field stays readable.
      */
     rotationVariance?: Record<string, number>;
+    /**
+     * jena-js `enaCorrelations(set)` — per dimension, how well the projected
+     * unit positions agree with their network centroids (Pearson and Spearman
+     * over all pairwise differences, with a 95% interval on the Pearson). This
+     * is the co-registration goodness of fit rENA reports beside an ENA model
+     * definition. Serialized here because the correlation needs the live
+     * `ENASet`, and the manifest is what survives to the client.
+     *
+     * Optional twice over: a manifest emitted before this field stays readable,
+     * and a run whose correlation pass fails or is not estimable keeps its
+     * projection, recording the reason as a warning instead.
+     */
+    goodnessOfFit?: Array<{
+      dimension: string;
+      pearson: number;
+      spearman: number;
+      pearsonLower: number;
+      pearsonUpper: number;
+    }>;
+    /**
+     * The rotation itself, in the form jena-js's `projectIn` needs to place a
+     * second window in this window's space — the fix the rank audit anticipates
+     * for windows whose own SVDs are not comparable.
+     *
+     * Only the parts not already serialized are stored: the adjacency key and
+     * the code list are read back off `outputs.adjacencyKey` and
+     * `source.codeColumns` by `senaEnaRotationReference`, and the rotated node
+     * positions are `outputs.nodePositions`.
+     *
+     * Emitted only when a caller asked for a rotation worth sharing (a means
+     * rotation, a projected-in space, or an explicit request), so a default run
+     * carries exactly the bytes it carried before this field existed.
+     */
+    rotation?: {
+      method: "svd" | "mean";
+      /** Names for every column of `matrix` — MR1 first under a means rotation. */
+      columns: string[];
+      /** The full rotation matrix, not the two displayed columns. */
+      matrix: number[][];
+      eigenvalues: number[];
+      /** The centre `projectIn` re-centres a new window's line weights on. */
+      centerVector: number[];
+    };
     connectionCounts: SenaManifestRow[];
     lineWeights: SenaManifestRow[];
     pointsForProjection: SenaManifestRow[];
@@ -799,7 +853,7 @@ export type SenaMethodProtocolRuntimeHandoff = {
 };
 
 export type SenaVisualGrammarItem = {
-  id: "fusion-canvas-a1" | "temporal-fusion-arc" | "ena-space-canonical" | "workspace-shell-c3-collapsed-switcher";
+  id: "fusion-canvas-a1" | "temporal-fusion-arc" | "ena-space-canonical" | "workspace-shell-c3-collapsed-switcher" | "fusion-plane-orbit";
   label: string;
   visualEncoding: string;
   dataMapping: string;

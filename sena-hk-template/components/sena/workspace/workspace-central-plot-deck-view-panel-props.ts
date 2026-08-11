@@ -74,7 +74,17 @@ export type CentralEnaSpaceViewPanelProps = Pick<
   | "plotViewOptions"
 >;
 
-export type CentralSnaMetricsViewPanelProps = Pick<WorkspaceCentralPlotDeckRenderProps, "model">;
+// The SNA view is metric cells over a table; it now leads with the orbit
+// sociogram, which needs the same selection and threshold the Fusion canvas
+// gets. The branch already spreads the full deck render props into this panel,
+// so widening the Pick is a type-only change — no plumbing moves.
+export type CentralSnaMetricsViewPanelProps = Pick<
+  WorkspaceCentralPlotDeckRenderProps,
+  | "model"
+  | "selectedId"
+  | "onCanvasSelect"
+  | "threshold"
+>;
 
 export type CentralEvidenceLedgerViewPanelProps = Pick<
   WorkspaceCentralPlotDeckRenderProps,

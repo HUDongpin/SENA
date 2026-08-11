@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { hexPoints } from "@/lib/sena/hex";
+import { senaLayerStrokes, senaPlotAccentStroke } from "@/lib/sena/layer-palette";
 import {
   buildConceptPairContributionMap,
   buildEdgeStrokeScale,
@@ -27,13 +29,6 @@ import { clampFusionPlotZoom } from "./workspace-shell-panels";
 function formatCanvasNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value) ? value.toString() : value.toFixed(digits);
-}
-
-function hexPoints(x: number, y: number, radius: number) {
-  return Array.from({ length: 6 }, (_, index) => {
-    const angle = Math.PI / 6 + (index * Math.PI * 2) / 6;
-    return `${x + Math.cos(angle) * radius},${y + Math.sin(angle) * radius}`;
-  }).join(" ");
 }
 
 function nodeRadius(node: PositionedNode) {
@@ -74,7 +69,7 @@ function readableConceptGlyph(label: string) {
 // renderer as /workspace/ena (ADR 0008).
 
 function edgeStroke(edge: SenaEdge) {
-  if (edge.layer === "social") return "#2f73ff";
+  if (edge.layer === "social") return senaLayerStrokes.social;
   if (edge.layer === "concept") return "url(#concept-link-gradient)";
   return "url(#bridge-gradient)";
 }
@@ -185,14 +180,21 @@ export function Canvas({
       data-plot-zoom={safeZoom.toFixed(3)}
     >
       <defs>
+        {/* A1 keeps its grammar: the W mesh and the B ribbons still paint
+            through their gradients, so every `url(#…)` reference, visual role
+            and halo below is untouched. What the palette re-step removes is the
+            pale far stop each ramp used to end on — that stop is where a link
+            crossing white paper thinned out of contrast, and it is the whole
+            reason the strokes were re-validated. Both ends now carry the
+            channel's validated stroke; the defs stay two-stop so a second
+            *validated* stop can return without touching a consumer. */}
         <linearGradient id="concept-link-gradient" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stopColor="#735cf6" />
-          <stop offset="100%" stopColor="#b14cf1" />
+          <stop offset="0%" stopColor={senaLayerStrokes.concept} />
+          <stop offset="100%" stopColor={senaLayerStrokes.concept} />
         </linearGradient>
         <linearGradient id="bridge-gradient" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stopColor="#24dcee" />
-          <stop offset="54%" stopColor="#5bd7ff" />
-          <stop offset="100%" stopColor="#78adff" />
+          <stop offset="0%" stopColor={senaLayerStrokes.bridge} />
+          <stop offset="100%" stopColor={senaLayerStrokes.bridge} />
         </linearGradient>
         <filter id="concept-link-glow" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="2.2" result="blur" />
@@ -243,7 +245,7 @@ export function Canvas({
         cy={center.y}
         r={conceptGuideRadius}
         fill="none"
-        stroke="#895dff"
+        stroke={senaLayerStrokes.concept}
         strokeOpacity="0.34"
         strokeWidth="1.5"
         strokeDasharray="8 12"
@@ -445,7 +447,7 @@ export function Canvas({
               <polygon
                 points={hexPoints(node.x, node.y, radius + 6)}
                 fill="rgb(var(--background) / 0.72)"
-                stroke="#24dcee"
+                stroke={senaPlotAccentStroke}
                 strokeWidth={selected ? 4 : 2}
                 data-visual-role="sna-person-hex-node"
               />
