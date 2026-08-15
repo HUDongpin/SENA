@@ -42,8 +42,54 @@ function now() {
   return new Date().toISOString();
 }
 
-function id(prefix: string) {
-  return `${prefix}_${randomBytes(12).toString("hex")}`;
+/**
+ * The audit id is the only per-entry field that survives *both* stores intact.
+ * The file-backed JSON keeps whatever object it was handed, but the Postgres
+ * table stores exactly (id, event, user_id, team_id, project_id, detail,
+ * webhook_delivery, created_at) and `normalizeStoredAuditLogEntry` rebuilds an
+ * entry from those columns alone — so a separate `seq` field would simply be
+ * dropped on the Postgres round trip, and an in-memory array index never leaves
+ * the process at all. Encoding insertion order *into the id* is therefore the
+ * one tie-break both stores can honour, and it is already the field both
+ * orderings tie on: `auditChainRows` sorts `createdAt` then `id`, and the
+ * Postgres read is `ORDER BY created_at DESC, id DESC`.
+ *
+ * Layout is ULID's, in hex: 12 hex of a monotonic millisecond clock, then 12 hex
+ * of a per-millisecond sequence seeded randomly and incremented for every
+ * further entry inside that millisecond. Two properties follow:
+ *   - ids are strictly lexicographically increasing across calls in a process,
+ *     so comparing two same-millisecond ids *is* comparing insertion order;
+ *   - the shape (`audit_` + 24 lowercase hex) and the 96 bits of id width are
+ *     unchanged, so nothing about what the log contains changes.
+ */
+const auditIdSequenceMax = 2 ** 48 - 1;
+let auditIdClockMs = 0;
+let auditIdSequence = 0;
+
+function randomAuditIdSequence() {
+  return randomBytes(6).readUIntBE(0, 6);
+}
+
+function auditIdHex(value: number) {
+  return value.toString(16).padStart(12, "0");
+}
+
+function nextAuditId() {
+  const wallClockMs = Date.now();
+  if (wallClockMs > auditIdClockMs) {
+    auditIdClockMs = wallClockMs;
+    auditIdSequence = randomAuditIdSequence();
+  } else if (auditIdSequence < auditIdSequenceMax) {
+    // Same millisecond, or a clock that stepped backwards: hold the prefix and
+    // step the sequence, so this id still sorts after the one before it.
+    auditIdSequence += 1;
+  } else {
+    // 2^48 entries inside one millisecond. Borrow the next millisecond rather
+    // than wrap, which would put the id order behind the insertion order.
+    auditIdClockMs += 1;
+    auditIdSequence = randomAuditIdSequence();
+  }
+  return `audit_${auditIdHex(auditIdClockMs)}${auditIdHex(auditIdSequence)}`;
 }
 
 function envValue(key: string) {
@@ -469,10 +515,23 @@ function auditEntryHash(entry: SenaEnterpriseAuditLogEntry) {
   })).digest("hex");
 }
 
+/**
+ * Oldest-first. The keys are deliberately the ones the chain has always used —
+ * `createdAt`, then `id` — because chain hashes are computed over this order:
+ * changing the comparator would move the chain head of an *already stored* log
+ * and invalidate archived integrity evidence. What changed is the ids
+ * themselves (see `nextAuditId`), so for entries recorded inside the same
+ * millisecond the `id` tie-break now reproduces insertion order instead of
+ * ordering them at random.
+ */
+function compareAuditEntriesOldestFirst(a: SenaEnterpriseAuditLogEntry, b: SenaEnterpriseAuditLogEntry) {
+  return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+}
+
 function auditChainRows(entries: SenaEnterpriseAuditLogEntry[]) {
   let chainHash = createHash("sha256").update("sena-enterprise-audit-chain/v1").digest("hex");
   return [...entries]
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    .sort(compareAuditEntriesOldestFirst)
     .map((entry) => {
       const entryHash = auditEntryHash(entry);
       chainHash = createHash("sha256").update(`${chainHash}.${entryHash}`).digest("hex");
@@ -834,7 +893,7 @@ export async function recordEnterpriseAuditAsync(entry: Omit<SenaEnterpriseAudit
 
 function buildAuditEntry(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">): SenaEnterpriseAuditLogEntry {
   return {
-    id: id("audit"),
+    id: nextAuditId(),
     createdAt: now(),
     ...entry,
     webhookDelivery: entry.webhookDelivery ?? initialAuditWebhookDelivery()
@@ -1022,9 +1081,13 @@ export async function deliverEnterpriseAuditLog(
   const nowMs = Date.now();
   const deliveryQueue: SenaEnterpriseAuditLogEntry[] = [];
 
+  // Same comparator as the chain, so the order a SIEM receives events in is the
+  // order the chain links them in. Sorting on `createdAt` alone left ties to
+  // sort stability, i.e. to the newest-first order `db.auditLog` happens to be
+  // stored in — which reversed same-millisecond pairs on the way out.
   for (const entry of scopedEntries
     .filter((candidate) => !input.auditId || candidate.id === input.auditId)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    .sort(compareAuditEntriesOldestFirst)) {
     const delivery = ensureAuditWebhookDelivery(entry);
     if (!delivery) {
       result.summary.skipped += 1;
