@@ -215,6 +215,40 @@ function expectNoLeakedFailureDetail(bodyText: string, harness: OpsHarness) {
 }
 
 describe("SENA ops probes with no live service configured (FA22-06)", () => {
+  it("declares the observability report informational when unconfigured, but never once the SLO is breached", async () => {
+    const harness = startUnconfiguredOps({ opsToken });
+    const observability = await import("../enterprise/ops-observability");
+
+    // Unconfigured: no external sink, so nothing was dialled and the 503 reports a
+    // state. It must not move the error rate.
+    await harness.get("observability");
+    const quiet = await observability.getEnterpriseObservabilitySnapshotWithPostgresEvidence();
+    expect(quiet.provider.externalSinkConfigured).toBe(false);
+    expect(quiet.summary.sloBreached).toBe(false);
+    expect(quiet.summary.serverErrors).toBe(0);
+    expect(quiet.summary.errorRatePercent).toBe(0);
+
+    // A breached SLO is the signal this endpoint exists to raise. Marking that
+    // informational would mute the alert using the alert's own reading, so the
+    // route must keep counting it even though the deployment is still unconfigured.
+    for (let index = 0; index < 24; index += 1) {
+      observability.recordEnterpriseObservedRequest({
+        routeId: "sena-test-genuine-failure",
+        method: "GET",
+        statusCode: 500,
+        durationMs: 1,
+        requestId: `slo-breach-${index}`
+      });
+    }
+    const breached = await observability.getEnterpriseObservabilitySnapshotWithPostgresEvidence();
+    expect(breached.summary.sloBreached).toBe(true);
+
+    const before = breached.summary.serverErrors;
+    await harness.get("observability");
+    const after = await observability.getEnterpriseObservabilitySnapshotWithPostgresEvidence();
+    expect(after.summary.serverErrors).toBe(before + 1);
+  });
+
   it("answers every JSON probe 503 with a schemaVersion'd not-configured report instead of a crash", async () => {
     const harness = startUnconfiguredOps({ opsToken });
 
