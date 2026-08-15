@@ -473,7 +473,7 @@ say so if a default is wrong. Rows still genuinely open are marked **OPEN**.
 | 6 | B10 email provider | **OPEN** | auto-dispatch is built; SENA still does not pick a provider. You must set `SENA_EMAIL_WEBHOOK_URL` + a bridge |
 | 7 | ADR-0009 ratification + FA-24 de-provisionalization + FA16-01 four-layout wording | Phase 5, F | ratify as-built |
 | 8 | Lift the perf guardrail for the one-string A1-canvas caption fix | F | approve with a coordinated harness update |
-| 9 | 852,000 B budget ratchet confirmation + T7 three-option (loading/worker/decline) | E | confirm budget; decide T7 after re-baseline |
+| 9 | 852,000 B budget ratchet confirmation + T7 three-option (loading/worker/decline) | E | **now measured, still yours.** Head is 824,408 / 852,000 B (27,592 B headroom). T7 is no longer weighed against an unmeasured benefit: the workspace reaches interactive in 0.30 s locally but **3.06 s on Fast 3G and 9.28 s on Slow 3G**, and the compute chunk T7 defers is 55% of the JS on open. The CPU profile also shows it is the dominant term in P8's residual, so T7 and P8 are one problem. The choice between async-with-loading-state, web worker, and decline is a UX judgement and remains yours. |
 | 10 | The 12 standing test-tooling decisions (coverage, DOM infra, Stryker, playwright, CI-inclusion of vitest, sharp CVEs, worker-route docs) | D, Phase 4 | batch: items 1–3 unlock the most leverage |
 | 11 | Spec v0.1 unbuilt controls: which remain commitments vs superseded | F | keep hidden-edge count + threshold-in-export; supersede the rest |
 | 12 | B12/A11 product calls: should the W-toggle be scoped-annotated; should register role/opt-in persist | P3.4/P3.5 | annotate; persist role as profile metadata |
