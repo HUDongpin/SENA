@@ -165,18 +165,28 @@ async function verifySampleUploadPaths(page) {
 
   const contractTemplateText = await downloadTextByButton(page, /Contract template/i, "sena-data-contract-template.json");
   const contractTemplate = JSON.parse(contractTemplateText);
+  // The template carries one worked example row per table, not empty arrays: it has
+  // to document the fields the importer enforces AND stay importable itself, which
+  // is what the upload below proves.
   for (const table of ["people", "interactions", "utterances", "coded_segments", "codebook"]) {
-    if (!Array.isArray(contractTemplate[table]) || contractTemplate[table].length !== 0) {
-      throw new Error(`Exported contract template table ${table} should be an empty array.`);
+    if (!Array.isArray(contractTemplate[table]) || contractTemplate[table].length < 1) {
+      throw new Error(`Exported contract template table ${table} should hold at least one example row.`);
+    }
+    for (const requiredColumn of contractTemplate._required?.[table] ?? []) {
+      if (!contractTemplate[table][0][requiredColumn]) {
+        throw new Error(`Exported contract template ${table} row is missing required column ${requiredColumn}.`);
+      }
     }
   }
   await uploadTextPayloadByTestId(page, "sena-data-import-upload-input", "sena-data-contract-template.json", "application/json", contractTemplateText);
   await waitForVisibleText(page, "sena-data-contract-template.json: JSON contract loaded.");
-  await expectMetricValue(page, "data-count-people", 0);
-  await expectMetricValue(page, "data-count-codes", 0);
-  await expectMetricValue(page, "data-count-utterances", 0);
-  await expectMetricValue(page, "data-count-segments", 0);
-  await expectMetricValue(page, "data-count-social-ties", 0);
+  // The template is a worked two-person example, and it imports cleanly — no
+  // dangling interaction target, no derived placeholder code.
+  await expectMetricValue(page, "data-count-people", 2);
+  await expectMetricValue(page, "data-count-codes", 2);
+  await expectMetricValue(page, "data-count-utterances", 1);
+  await expectMetricValue(page, "data-count-segments", 1);
+  await expectMetricValue(page, "data-count-social-ties", 1);
 
   await uploadFilesByTestId(page, "sena-upload-input", sampleContractJsonPath);
   await waitForVisibleText(page, "lesson-study-sena-contract.json: JSON contract loaded.");

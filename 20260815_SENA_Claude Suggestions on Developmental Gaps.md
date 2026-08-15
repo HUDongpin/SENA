@@ -275,11 +275,15 @@ Branch: **`fix/gap-remediation-2026-08-15`** (off `main` @ `6bbb222`). Not merge
 | `eslint .` | clean |
 | `npm test` | **1448 passed, 1 skipped, 0 failed** (main was 1380 — 68 new tests) |
 | `next build --webpack` | success from a clean `.next` |
-| `sena:performance:check` | **PASS — 824,080 / 852,000 B** (the fixes cost ~2.3 KB; ~27.9 KB headroom remains) |
+| `sena:performance:check` | **PASS — 824,488 / 852,000 B** (the fixes cost ~2.7 KB against the last recorded 821,787; ~27.5 KB headroom remains) |
 
 Two pre-existing tests had to be updated because they **encoded the defective behaviour**, not because the fixes broke them: `auth-mfa-reset-route.test.ts` pinned A4 itself (production + the single exposure flag returning a live token — it now opts into the new second override, and the interlock is covered separately), and `enterprise.test.ts` asserted `activeRateLimitBuckets=1` where the new per-subject buckets make it 6. Both are noted inline in the tests.
 
-Not run: `sena:pilot:verify`'s browser smokes. They need a running server and the campaign's dataset fixtures, and the workspace UI fixes (B5/B6/B7/B12) are exactly the kind of change that deserves T3 browser evidence — see §10.6.
+**Browser smokes: both green (T3).** Run against a clean production build on a real server:
+- `verify-sena-browser-smoke.mjs` — **passed**. This one earned its keep: it initially went **red on the B9 template change**, because it downloads the contract template and *uploads it straight back in*. That caught a genuine flaw in the first version of the fix — a template restructured for documentation would no longer have imported. The template was redesigned to stay a valid contract (plain arrays of example rows, docs in ignored `_` keys) and made **internally consistent**, so it now imports with **zero warnings** rather than the dangling-target and placeholder-code warnings the first attempt produced. A reference contract that tripped the ADR-0010 warning would have been teaching the mistake it exists to prevent.
+- `verify-sena-ena-browser-smoke.mjs` — **passed** (9 legs), covering the workbench that A5 changed most.
+
+So B5/B6/B7/B9/B11/B12 and A5 all have live-DOM evidence behind them, not just type-checks.
 
 ### 10.2 Method
 
@@ -310,7 +314,7 @@ Six agents worked file-disjoint groups in parallel, plus direct work on the work
 | **B5** dead workflow-rail steps | Steps get real handlers: Data/Model switch the rail mode and open the drawer; canvas/temporal/evidence close it and scroll. Added the **missing `#workflow-canvas` target**, which existed nowhere in the DOM. | tsc + lint clean |
 | **B6** invisible import errors | An import error now opens the drawer that contains the error plate — previously the upload hooks could only choose *which* panel a closed drawer would show. | tsc + lint clean |
 | **B7** silent publication buttons | Disabled when signed out, with an inline "Sign in to export publication formats" note on the surface the user is actually on. | tsc + lint clean |
-| **B9** empty contract template | Template is now **generated from `senaImportFields`**, so it cannot drift from what the importer enforces: every accepted field, required ones marked and populated with example values, ADR-0007 `\|` separators. | 6 tests; **5 red** against the old empty-array template |
+| **B9** empty contract template | Template is now **generated from `senaImportFields`**, so it cannot drift from what the importer enforces: every accepted field, required ones marked and populated, ADR-0007 `\|` separators. It stays a **valid, importable contract** (plain arrays; docs in `_` keys the importer ignores) and is **internally consistent** — a second person so the tie is not a dangling target, a second code so nothing is derived — so it imports with zero warnings. | 7 tests; **5 red** against the old empty-array template; the browser smoke caught the first design being unimportable |
 | **B11** swallowed refresh failures | One `guardEnterpriseRefresh` wrapper at the single prop-wiring site — keeps the throwing helpers intact for their internal callers that sequence on failure. | tsc + lint clean |
 | **B12** inert W toggle | Annotated "Diagnostic layouts only" when the plane-orbit layout is active, so a deliberate no-op stops looking like a broken control. | tsc + lint clean |
 

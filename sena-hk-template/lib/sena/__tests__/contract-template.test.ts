@@ -1,17 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { buildSenaContractTemplate, buildSenaContractTemplateJson } from "../contract-template";
-import { buildSenaDatasetFromTables, senaImportFields, senaImportTables } from "../import";
-
-type TemplateTable = { _required: string[]; rows: Array<Record<string, string>> };
+import { importSenaJsonContract, senaImportFields, senaImportTables } from "../import";
 
 describe("sena data contract template", () => {
   const template = buildSenaContractTemplate();
+  const required = template._required as Record<string, string[]>;
 
-  it("emits one example row per contract table", () => {
+  it("emits at least one example row per contract table, as an array", () => {
     for (const { value: table } of senaImportTables) {
-      const entry = template[table] as TemplateTable | undefined;
-      expect(entry, `missing table ${table}`).toBeDefined();
-      expect(entry?.rows).toHaveLength(1);
+      const rows = template[table];
+      expect(Array.isArray(rows), `${table} must be an array to remain a valid contract`).toBe(true);
+      expect((rows as unknown[]).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps every row of a table on the same column set", () => {
+    for (const { value: table } of senaImportTables) {
+      const rows = template[table] as Array<Record<string, string>>;
+      const columns = JSON.stringify(Object.keys(rows[0]));
+      for (const row of rows) {
+        expect(JSON.stringify(Object.keys(row)), `${table} rows disagree on columns`).toBe(columns);
+      }
     }
   });
 
@@ -19,58 +28,52 @@ describe("sena data contract template", () => {
   // names and none of the fields the importer enforces.
   it("names every field the importer accepts, and marks the required ones", () => {
     for (const { value: table } of senaImportTables) {
-      const entry = template[table] as TemplateTable;
-      const row = entry.rows[0];
+      const row = (template[table] as Array<Record<string, string>>)[0];
       for (const definition of senaImportFields[table]) {
         const columnName = definition.aliases[0] ?? definition.field;
         expect(Object.keys(row), `${table}.${columnName} missing from template row`).toContain(columnName);
         if (definition.required) {
-          expect(entry._required, `${table}.${columnName} not marked required`).toContain(columnName);
+          expect(required[table], `${table}.${columnName} not marked required`).toContain(columnName);
           expect(row[columnName], `${table}.${columnName} has no example value`).not.toBe("");
         }
       }
     }
   });
 
-  it("carries no required field with a blank example, so the template can be filled in by editing", () => {
-    for (const { value: table } of senaImportTables) {
-      const entry = template[table] as TemplateTable;
-      for (const required of entry._required) {
-        expect(entry.rows[0][required]).toBeTruthy();
-      }
-    }
-  });
-
   it("uses the ADR-0007 multi-value separator for multi-value cells", () => {
-    const codedSegments = template.coded_segments as TemplateTable;
-    expect(codedSegments.rows[0].codes).toContain("|");
-    expect(codedSegments.rows[0].target_person_ids).toContain("|");
+    const codedSegments = (template.coded_segments as Array<Record<string, string>>)[0];
+    expect(codedSegments.codes).toContain("|");
   });
 
   it("serializes to parseable JSON", () => {
     expect(() => JSON.parse(buildSenaContractTemplateJson())).not.toThrow();
   });
 
-  // The point of the template is that filling it in produces a dataset the
-  // importer accepts: a template whose example row trips the required-field
-  // validator would send every analyst straight into warnings.
-  it("produces no missing-required-field warnings when imported as-is", () => {
-    const tables = senaImportTables.map(({ value }) => {
-      const entry = template[value] as TemplateTable;
-      const columns = Object.keys(entry.rows[0]);
-      return {
-        table: value,
-        name: `${value}.csv`,
-        columns,
-        rows: entry.rows,
-        mapping: Object.fromEntries(
-          senaImportFields[value].map((definition) => [definition.field, definition.aliases[0] ?? definition.field])
-        )
-      };
-    });
+  /**
+   * The template is uploaded straight back into the importer by the workspace
+   * browser smoke, so it has to remain a valid contract. A template that
+   * documents the fields but no longer imports would trade one defect for another.
+   */
+  /**
+   * Internally consistent, not merely parseable: the example roster covers the
+   * interaction's target and the codebook covers every code the segment cites.
+   * A reference contract that imports with ADR-0010 dangling-target warnings
+   * would be teaching the mistake it exists to prevent.
+   */
+  it("is itself importable and imports with no warnings at all", () => {
+    const result = importSenaJsonContract(buildSenaContractTemplateJson());
+    expect(result.warnings).toEqual([]);
+    expect(result.dataset.people.map((person) => person.id)).toEqual(["P1", "P2"]);
+    expect(result.dataset.codebook.map((code) => code.id)).toEqual(["CODE_A", "CODE_B"]);
+    expect(result.dataset.coded_segments.length).toBeGreaterThan(0);
+    expect(result.dataset.interactions.length).toBeGreaterThan(0);
+  });
 
-    const result = buildSenaDatasetFromTables(tables as never);
-    const missingRequired = result.warnings.filter((warning) => warning.includes("missing required field"));
-    expect(missingRequired).toEqual([]);
+  it("keeps the documentation keys out of the contract tables", () => {
+    expect(template._README).toBeDefined();
+    for (const { value: table } of senaImportTables) {
+      const row = (template[table] as Array<Record<string, string>>)[0];
+      expect(Object.keys(row).some((key) => key.startsWith("_"))).toBe(false);
+    }
   });
 });
