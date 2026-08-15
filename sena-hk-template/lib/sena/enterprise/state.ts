@@ -631,6 +631,13 @@ export type SenaEnterpriseFileStateWritePolicy = {
   evidence: string[];
 };
 
+// This gate is deliberately NOT senaProductionPosture() (auth-config.ts):
+// SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH blocks file-backed writes only in
+// combination with NODE_ENV=production, which is why its blocking reason is the
+// compound label below. The other two posture flags block on their own, matching
+// the canonical predicate. The divergence is pinned by
+// production-posture-predicate-agreement.test.ts — aligning this gate with the
+// canonical posture is a behaviour change, not a refactor.
 export function enterpriseFileStateWritePolicy(): SenaEnterpriseFileStateWritePolicy {
   const productionPerformancePathRequired = booleanEnv("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH");
   const productionPerformancePathHardGate = process.env.NODE_ENV === "production" && productionPerformancePathRequired;

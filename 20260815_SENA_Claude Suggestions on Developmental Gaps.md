@@ -273,9 +273,9 @@ Branch: **`fix/gap-remediation-2026-08-15`** (off `main` @ `6bbb222`). Not merge
 |---|---|
 | `tsc --noEmit` | clean |
 | `eslint .` | clean |
-| `npm test` | **1457 passed, 1 skipped, 0 failed** (main was 1380 — 77 new tests) |
+| `npm test` | **1612 passed, 1 skipped, 0 failed** (main was 1380 — 232 new tests) |
 | `next build --webpack` | success from a clean `.next` |
-| `sena:performance:check` | **PASS — 824,530 / 852,000 B** (the fixes cost ~2.7 KB against the last recorded 821,787; ~27.5 KB headroom remains) |
+| `sena:performance:check` | **PASS — 824,633 / 852,000 B** (~2.8 KB against the last recorded 821,787; ~27.4 KB headroom remains) |
 
 Two pre-existing tests had to be updated because they **encoded the defective behaviour**, not because the fixes broke them: `auth-mfa-reset-route.test.ts` pinned A4 itself (production + the single exposure flag returning a live token — it now opts into the new second override, and the interlock is covered separately), and `enterprise.test.ts` asserted `activeRateLimitBuckets=1` where the new per-subject buckets make it 6. Both are noted inline in the tests.
 
