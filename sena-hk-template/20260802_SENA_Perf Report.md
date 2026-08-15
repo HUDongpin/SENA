@@ -440,3 +440,60 @@ strict-evidence flags.
   Load-to-interactive is now 301.9 ms vs the 325.8 ms recorded one iteration earlier.
   Next: T10 (low) or T8 (low); the substantive queue is empty pending Peter's T7 and
   ratchet decisions.
+
+- **2026-08-16 iteration 9 — post-redesign re-baseline, by same-session A/B.** The
+  ledger's runtime numbers all predated the 2026-08-11 fusion merge, so nobody knew
+  whether the redesign had regressed them. P6's 9–31% cross-day drift means a
+  comparison against the 2026-08-03 figures would have been a reading, not a verdict,
+  so all three builds below were built and measured **in one session on one machine
+  against one `node_modules`**, from clean git worktrees pinned to a commit (the main
+  clone carried uncommitted work from a concurrent session).
+
+  Bases chosen deliberately. The first attempt used `28b47f2` — main's parent at the
+  merge — and produced an apparent 17.7 ms improvement. That base **predates the T11
+  double-render fix** (`c4ff7ba`, same day, not an ancestor), so the A/B was crediting
+  the redesign with an unrelated fix: it showed `canvasRemountMs` 18.4 ms, the very
+  thing T11 removed. Re-based to **`cb75e20`, the commit the fusion branch was actually
+  built on**, which contains T11. Recording the discarded attempt because the trap is
+  reusable: "the parent of the merge" is not the same as "the code the branch was
+  written against".
+
+  | | `cb75e20` pre-redesign | `6bbb222` main (redesign) | `18884e1` + remediation |
+  |---|---|---|---|
+  | default surface | A1 canvas | plane-orbit | plane-orbit |
+  | canvasSettled median | **301.9 ms** | — | **301.9 ms** |
+  | canvasRemountMs | 0.0 | — | 0.0 |
+  | plot switch, all views | **29.0 ms** | — | **29.3 ms** |
+  | total-static-js-br | **812,095 B** | **821,600 B** | **824,408 B** |
+
+  **Verdict: the fusion redesign did not regress workspace latency.** `canvasSettled`
+  is identical at 301.9 ms and the plot switch moves +0.3 ms — far inside its own IQR
+  (24.1–35.4 ms base, 24.8–36.2 ms head). This is a like-for-like comparison of what a
+  user actually gets by default, and note the two sides render *different figures*: the
+  plane-orbit surface costs the same as the A1 canvas it replaced.
+
+  **Byte attribution** (the "~10 KB unattributed" the gap review flagged, now measured):
+  redesign **+9,505 B (+1.17%)**, this session's remediation **+2,808 B (+0.35%)** for
+  ~18k lines, total **+12,313 B (+1.52%)** since pre-redesign. Head sits at
+  **824,408 / 852,000 B — 27,592 B (3.24%) headroom**. Shared first-load is unchanged at
+  526.6 KiB (was 526.4), so no framework-floor regression; the compute chunk is 955.9
+  KiB raw (was 923.9). Hot paths unchanged: `buildSenaModel` 31.6 ms @250x against 31.5
+  recorded, `importSenaJsonContract` 6.1 ms, total 52.4 ms.
+
+  **The harness was dead, not stale.** `bench-sena-workspace-latency.mjs` waited on
+  `sena-fusion-canvas`, which ADR-0009 stopped rendering by default on 2026-08-11, so
+  the bench had been timing out for five days — invisible because it had not been run
+  since 2026-08-03. The staleness hid its own cause. Fixed in `960af7f` to match either
+  surface, which is also what made this A/B possible. A measurement tool that silently
+  stops measuring is the same failure class as a test that cannot fail: neither reports
+  anything wrong, both simply stop being evidence.
+
+  **Conditions, disclosed:** Mac16,11, 12 cores; load average 3.0–5.0 throughout, with
+  no competing SENA process (the other node processes on the box were a different
+  project's idle dev server and Playwright daemon, both at 0.0% CPU). 15 cold-load runs
+  per build, fresh context each; 2 warmup + 7 measured per hot-path scale point.
+  `canvasFirst` is ~301.9 ms on every build measured, including the discarded one — that
+  floor is structural, not redesign-related, and remains the open question P8 named.
+
+  Next: unchanged — the substantive queue is still T7 and the ratchet confirmation,
+  both Peter's.
