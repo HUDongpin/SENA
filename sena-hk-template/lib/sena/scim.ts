@@ -2,9 +2,14 @@ import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaEnterpriseRole } from "./enterprise/access-control";
 import type { SenaEnterpriseSsoProvider } from "./enterprise";
 import { SenaEnterpriseError } from "./enterprise/errors";
+// The SCIM surface writes and reads through the primary-state pair, so a
+// SCIM-provisioned user lands in whichever store login and team reads actually
+// consult. Under the file primary these are the synchronous behaviour verbatim;
+// under SENA_ENTERPRISE_STATE_STORE=postgres they are the difference between a
+// 201 and a user nobody can see.
 import {
-  listEnterpriseProvisioningDirectory,
-  provisionEnterpriseOrganization,
+  listEnterpriseProvisioningDirectoryAsync,
+  provisionEnterpriseOrganizationAsync,
   type SenaEnterpriseProvisioningDirectory,
   type SenaEnterpriseProvisioningInput,
   type SenaEnterpriseProvisioningMembershipInput,
@@ -317,13 +322,13 @@ function buildProvisioningInputFromScimGroup(resource: JsonRecord, options: Sena
   };
 }
 
-export function provisionEnterpriseScimUser(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
+export async function provisionEnterpriseScimUser(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
   const resource = asRecord(resourceInput);
   const user = buildProvisioningUserFromScim(resource, options);
   const teams = dedupeTeams((user.memberships ?? [])
     .map(teamInputFromMembership)
     .filter((team): team is SenaEnterpriseProvisioningTeamInput => Boolean(team)));
-  const provisioning = provisionEnterpriseOrganization({
+  const provisioning = await provisionEnterpriseOrganizationAsync({
     source: "scim",
     organization: user.organization ?? organizationFromResource(resource, options),
     dryRun: Boolean(options.dryRun),
@@ -341,9 +346,9 @@ export function provisionEnterpriseScimUser(resourceInput: unknown, options: Sen
   };
 }
 
-function provisionScimGroupResource(resource: JsonRecord, options: SenaScimProvisioningOptions, scope: ScimGroupProvisioningScope): SenaScimProvisioningBridgeResult {
+async function provisionScimGroupResource(resource: JsonRecord, options: SenaScimProvisioningOptions, scope: ScimGroupProvisioningScope): Promise<SenaScimProvisioningBridgeResult> {
   const input = buildProvisioningInputFromScimGroup(resource, options, scope);
-  const provisioning = provisionEnterpriseOrganization(input);
+  const provisioning = await provisionEnterpriseOrganizationAsync(input);
   const group = provisioning.teams[0];
   const id = group?.id ?? asString(resource.id) ?? asString(resource.externalId) ?? asString(resource.displayName);
   const location = options.locationBase ? `${options.locationBase.replace(/\/$/, "")}/Groups/${encodeURIComponent(id)}` : undefined;
@@ -379,8 +384,8 @@ function provisionScimGroupResource(resource: JsonRecord, options: SenaScimProvi
   };
 }
 
-export function provisionEnterpriseScimGroup(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  return provisionScimGroupResource(asRecord(resourceInput), options, {});
+export async function provisionEnterpriseScimGroup(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  return await provisionScimGroupResource(asRecord(resourceInput), options, {});
 }
 
 export function enterpriseScimServiceProviderConfig(
@@ -667,8 +672,8 @@ function directoryGroupToScim(team: SenaEnterpriseProvisioningDirectory["teams"]
   };
 }
 
-export function listEnterpriseScimUsers(locationBase?: string, query?: SenaScimListQuery) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function listEnterpriseScimUsers(locationBase?: string, query?: SenaScimListQuery) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return {
     ...scimListPage(
       directory.users.map((user) => directoryUserToScim(user, locationBase)),
@@ -681,8 +686,8 @@ export function listEnterpriseScimUsers(locationBase?: string, query?: SenaScimL
   };
 }
 
-export function listEnterpriseScimGroups(locationBase?: string, query?: SenaScimListQuery) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function listEnterpriseScimGroups(locationBase?: string, query?: SenaScimListQuery) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return {
     ...scimListPage(
       directory.teams.map((team) => directoryGroupToScim(team, locationBase)),
@@ -703,8 +708,8 @@ function requireDirectoryScimUser(directory: SenaEnterpriseProvisioningDirectory
   return user;
 }
 
-export function getEnterpriseScimUser(resourceId: string, locationBase?: string) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function getEnterpriseScimUser(resourceId: string, locationBase?: string) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return directoryUserToScim(requireDirectoryScimUser(directory, resourceId, "GET"), locationBase);
 }
 
@@ -713,19 +718,19 @@ export function getEnterpriseScimUser(resourceId: string, locationBase?: string)
 // deprovisioning transition the rest of this bridge already speaks: the user
 // row, its email, and its audit trail survive while every membership goes
 // suspended.
-export function deactivateEnterpriseScimUser(resourceId: string, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function deactivateEnterpriseScimUser(resourceId: string, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   const user = requireDirectoryScimUser(directory, resourceId, "DELETE");
   const payload = directoryUserToScimProvisioningPayload(user);
   replaceScimPath(payload, "active", false);
-  return provisionEnterpriseScimUser(payload, options);
+  return await provisionEnterpriseScimUser(payload, options);
 }
 
-export function patchEnterpriseScimUser(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function patchEnterpriseScimUser(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   const user = requireDirectoryScimUser(directory, resourceId, "PatchOp");
   const patchedResource = applyScimPatchOperations(directoryUserToScimProvisioningPayload(user), patchInput);
-  return provisionEnterpriseScimUser(patchedResource, options);
+  return await provisionEnterpriseScimUser(patchedResource, options);
 }
 
 function directoryGroupToScimProvisioningPayload(
@@ -929,8 +934,8 @@ function requireDirectoryScimGroup(directory: SenaEnterpriseProvisioningDirector
   return team;
 }
 
-export function getEnterpriseScimGroup(resourceId: string, locationBase?: string) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function getEnterpriseScimGroup(resourceId: string, locationBase?: string) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return directoryGroupToScim(requireDirectoryScimGroup(directory, resourceId, "GET"), locationBase);
 }
 
@@ -939,16 +944,16 @@ export function getEnterpriseScimGroup(resourceId: string, locationBase?: string
 // active elsewhere. The team row survives — SENA has no team archival — so a
 // group whose own manager is the team's last active manager is refused with
 // `last_team_manager_required` rather than half-applied.
-export function deactivateEnterpriseScimGroup(resourceId: string, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function deactivateEnterpriseScimGroup(resourceId: string, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   const team = requireDirectoryScimGroup(directory, resourceId, "DELETE");
   const payload = directoryGroupToScimProvisioningPayload(team, directory);
   payload.members = asArray(payload.members).map(asRecord).map((member) => ({ ...member, active: false }));
-  return provisionScimGroupResource(payload, options, { scopeMemberStatusToGroup: true });
+  return await provisionScimGroupResource(payload, options, { scopeMemberStatusToGroup: true });
 }
 
-export function patchEnterpriseScimGroup(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function patchEnterpriseScimGroup(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   const team = requireDirectoryScimGroup(directory, resourceId, "PatchOp");
   const payload = directoryGroupToScimProvisioningPayload(team, directory);
   const fallbackRole = roleFromValue(extension(payload, senaScimGroupExtensionSchema).defaultRole, defaultRole(options));
@@ -958,5 +963,5 @@ export function patchEnterpriseScimGroup(resourceId: string, patchInput: unknown
     scimGroupMemberDirectory(directory),
     fallbackRole
   );
-  return provisionScimGroupResource(patchedResource, options, { scopeMemberStatusToGroup: true });
+  return await provisionScimGroupResource(patchedResource, options, { scopeMemberStatusToGroup: true });
 }

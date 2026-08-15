@@ -29,7 +29,7 @@ async function upsertGroup(request: Request, resourceId: string) {
   const resource = typeof body === "object" && body !== null && !Array.isArray(body)
     ? { id: resourceId, ...body }
     : { id: resourceId };
-  const bridge = provisionEnterpriseScimGroup(resource, scimOptions(request));
+  const bridge = await provisionEnterpriseScimGroup(resource, scimOptions(request));
   return NextResponse.json(bridge.resource);
 }
 
@@ -37,7 +37,7 @@ export async function GET(request: Request, { params }: ScimResourceRouteContext
   return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
-    return NextResponse.json(getEnterpriseScimGroup(resourceId, scimOptions(request).locationBase));
+    return NextResponse.json(await getEnterpriseScimGroup(resourceId, scimOptions(request).locationBase));
   });
 }
 
@@ -47,7 +47,7 @@ export async function DELETE(request: Request, { params }: ScimResourceRouteCont
   return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
-    deactivateEnterpriseScimGroup(resourceId, scimOptions(request));
+    await deactivateEnterpriseScimGroup(resourceId, scimOptions(request));
     return new NextResponse(null, { status: 204 });
   });
 }
@@ -70,13 +70,13 @@ export async function PATCH(request: Request, { params }: ScimResourceRouteConte
     const isPatchOp = schemas.some((schema: unknown) => String(schema).toLowerCase().includes("patchop")) ||
       (typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray((body as { Operations?: unknown }).Operations));
     if (isPatchOp) {
-      const bridge = patchEnterpriseScimGroup(resourceId, body, scimOptions(request));
+      const bridge = await patchEnterpriseScimGroup(resourceId, body, scimOptions(request));
       return NextResponse.json(bridge.resource);
     }
     const resource = typeof body === "object" && body !== null && !Array.isArray(body)
       ? { id: resourceId, ...body }
       : { id: resourceId };
-    const bridge = provisionEnterpriseScimGroup(resource, scimOptions(request));
+    const bridge = await provisionEnterpriseScimGroup(resource, scimOptions(request));
     return NextResponse.json(bridge.resource);
   });
 }

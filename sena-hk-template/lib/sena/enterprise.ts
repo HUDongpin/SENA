@@ -385,7 +385,9 @@ export type {
 } from "./enterprise/provisioning";
 export {
   listEnterpriseProvisioningDirectory,
-  provisionEnterpriseOrganization
+  listEnterpriseProvisioningDirectoryAsync,
+  provisionEnterpriseOrganization,
+  provisionEnterpriseOrganizationAsync
 } from "./enterprise/provisioning";
 export type {
   SenaEnterpriseOrganizationDeploymentPackage

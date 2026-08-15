@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-groups", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
-    const bridge = provisionEnterpriseScimGroup(body, scimOptions(request));
+    const bridge = await provisionEnterpriseScimGroup(body, scimOptions(request));
     return NextResponse.json(bridge.resource, {
       status: bridge.provisioning.summary.teamsCreated > 0 ? 201 : 200
     });
@@ -43,6 +43,6 @@ function scimListQuery(request: Request): SenaScimListQuery {
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-groups", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
-    return NextResponse.json(listEnterpriseScimGroups(scimOptions(request).locationBase, scimListQuery(request)));
+    return NextResponse.json(await listEnterpriseScimGroups(scimOptions(request).locationBase, scimListQuery(request)));
   });
 }

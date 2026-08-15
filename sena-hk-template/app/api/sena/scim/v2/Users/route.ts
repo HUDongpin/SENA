@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-users", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
-    const bridge = provisionEnterpriseScimUser(body, scimOptions(request));
+    const bridge = await provisionEnterpriseScimUser(body, scimOptions(request));
     return NextResponse.json(bridge.resource, {
       status: bridge.provisioning.summary.usersCreated > 0 ? 201 : 200
     });
@@ -43,6 +43,6 @@ function scimListQuery(request: Request): SenaScimListQuery {
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-users", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
-    return NextResponse.json(listEnterpriseScimUsers(scimOptions(request).locationBase, scimListQuery(request)));
+    return NextResponse.json(await listEnterpriseScimUsers(scimOptions(request).locationBase, scimListQuery(request)));
   });
 }

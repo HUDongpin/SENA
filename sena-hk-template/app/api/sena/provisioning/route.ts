@@ -4,7 +4,7 @@ import {
   enterpriseErrorResponse
 } from "@/lib/sena/enterprise/errors";
 import {
-  provisionEnterpriseOrganization
+  provisionEnterpriseOrganizationAsync
 } from "@/lib/sena/enterprise/provisioning";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-provisioning" }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
-    return NextResponse.json(provisionEnterpriseOrganization(body));
+    return NextResponse.json(await provisionEnterpriseOrganizationAsync(body));
   });
 }
 
