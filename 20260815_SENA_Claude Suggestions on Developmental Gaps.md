@@ -273,9 +273,9 @@ Branch: **`fix/gap-remediation-2026-08-15`** (off `main` @ `6bbb222`). Not merge
 |---|---|
 | `tsc --noEmit` | clean |
 | `eslint .` | clean |
-| `npm test` | **1612 passed, 1 skipped, 0 failed** (main was 1380 — 232 new tests) |
+| `npm test` | **1691 passed, 1 skipped, 0 failed** (main was 1380 — 311 new tests) |
 | `next build --webpack` | success from a clean `.next` |
-| `sena:performance:check` | **PASS — 824,633 / 852,000 B** (~2.8 KB against the last recorded 821,787; ~27.4 KB headroom remains) |
+| `sena:performance:check` | **PASS — 824,791 / 852,000 B** (~3.0 KB against the last recorded 821,787; ~27.2 KB headroom remains) |
 
 Two pre-existing tests had to be updated because they **encoded the defective behaviour**, not because the fixes broke them: `auth-mfa-reset-route.test.ts` pinned A4 itself (production + the single exposure flag returning a live token — it now opts into the new second override, and the interlock is covered separately), and `enterprise.test.ts` asserted `activeRateLimitBuckets=1` where the new per-subject buckets make it 6. Both are noted inline in the tests.
 
@@ -428,7 +428,20 @@ Two further variants: **a source-contract grep is not behavioural evidence**, an
 
 And the campaign's own claims were not exempt. My ledger note said the smoke asserts Clear resets the counts; it did not. My figure commit opened by saying no artifact carried the figure, then fixed five of six. My replay commit argued the skew ceiling was load-bearing and left it unproven — caught by someone else.
 
-### 12.4 What follows
+### 12.4 Final gate
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint .` | clean |
+| `npm test` | **1691 passed, 1 skipped, 0 failed** (main was 1380) |
+| `next build --webpack` | success from a clean `.next` |
+| `sena:performance:check` | **PASS — 824,791 / 852,000 B** |
+| both browser smokes | **green** |
+
+All eleven FA-22 defects are fixed. The one remaining item on gap #10 is the **perf re-baseline** (Perf Report iteration 9), deliberately not run: this repo's own protocol records 9–31% cross-day timing drift on identical code, and the machine has had several concurrent sessions throughout. Numbers taken under that load would be contaminated in a way that could not be quantified, and once written into the Perf Report they would be quoted as fact. It needs a quiet tree.
+
+### 12.5 What follows
 
 The verification backlog is not a queue of rows to mark green. On this evidence it is the **primary defect-detection instrument**, and the ~41 rows still unverified are not merely unproven — they are, by the rate observed here, where the next defects are. The adversarial pass is not polish at the end of a phase; it is the phase.
 
