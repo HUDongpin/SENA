@@ -522,3 +522,47 @@ strict-evidence flags.
   replace one, but it does establish the gap is CPU-bound rather than scheduling or
   network, which narrows where that profile should look. The remaining ~120 ms is the
   part a profile still has to explain.
+
+- **2026-08-16 iteration 9, part 2 — P8 attributed, and T7's missing measurement taken.**
+  P8 asked for a browser CPU profile of the 70–302 ms window and had been open since
+  iteration 7. Taken via CDP `Profiler` at a 100 µs sampling interval over a cold load
+  (2,530 samples, 381.8 ms window). Top self-time:
+
+  | self | frame |
+  |---|---|
+  | 78.6 ms | `(program)` — V8 parse/compile |
+  | 25.7 ms | webpack module loader |
+  | 25.6 + 16.4 + 5.3 + 4.2 + 4.2 + 3.8 ms | chunk **2599** |
+  | 24.6 ms | `(idle)` |
+  | 19.4 ms | garbage collector |
+
+  Chunk 2599 is the **955.9 KiB compute chunk** (`sna.js` + `jena-js` + SVD). So the
+  residue is dominated by downloading, parsing and evaluating the eagerly-loaded compute
+  bundle, plus the GC that follows it — not React scheduling, which iteration 7 had
+  listed as the co-equal candidate. **P8's open question is answered: the gap is module
+  evaluation of the compute chunk.**
+
+  That makes **P8 and T7 the same problem**, which neither row previously said. T7
+  proposes deferring exactly this chunk, and its case was recorded as resting on
+  network-constrained users with the note that *"network-throttled measurement is itself
+  out of scope pending Peter's tooling call."* No new tooling was needed — CDP
+  `Network.emulateNetworkConditions` is already available through the pinned Playwright.
+  Measured (3 cold runs each, same build, same session):
+
+  | network | canvas settled |
+  |---|---|
+  | unthrottled | **0.30 s** |
+  | Fast 3G (1.6 Mbps, 150 ms RTT) | **3.06 s** |
+  | Slow 3G (500 kbps, 400 ms RTT) | **9.28 s** |
+
+  ~1,730 KiB of raw JS arrives on open, of which the compute chunk is 955.9 KiB — **55%
+  of the payload for code the first paint does not need**. On a slow connection the
+  workspace is nine seconds from interactive.
+
+  **This does not decide T7** — the three options (async model with a loading state, web
+  worker, or decline) remain Peter's, and the choice is a UX judgement, not a
+  measurement. What changes is that the option is no longer being weighed against an
+  unmeasured benefit: the local 14.2 ms download that made T7 look negligible was an
+  artifact of measuring on localhost, and the same chunk costs seconds on a real
+  connection. The ratchet confirmation is likewise unchanged and still Peter's; head
+  sits at 824,408 / 852,000 B.
