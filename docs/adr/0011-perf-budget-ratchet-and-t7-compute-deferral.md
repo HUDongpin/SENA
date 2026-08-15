@@ -1,6 +1,7 @@
 # ADR-0011 — Performance budget ratchet confirmed; T7 compute-chunk deferral decided
 
-- **Status:** Accepted under delegated implementation authority (2026-08-16). Peter ratifies at PR review, as with ADR-0009.
+- **Status:** Accepted under delegated implementation authority (2026-08-16); **T7 implemented in `d1e684a`**. Peter ratifies at PR review, as with ADR-0009.
+- **Correction (2026-08-16, after implementation):** this ADR called chunk 2599 "the compute chunk" and said it is "55% of the JS arriving on open" for code the first paint does not need. The second half is **wrong**. 2599 is the entire workspace client bundle and most of it *is* needed for first paint. Decision 2 still stands — two-stage loading was the right direction and delivers an 8.80 s usable-shell window — but it stands on "the shell should not wait for the whole bundle", not on the false premise that the bundle is mostly unnecessary.
 - **Context:** Perf Report iteration 9 (2026-08-16). Both items had sat open since 2026-08-03 marked "pending Peter", and both were blocked on evidence rather than on preference.
 
 ## Why this ADR exists
@@ -38,7 +39,11 @@ Two-stage loading changes what a user sees: the shell appears early and the figu
 
 It is also the largest of the three in implementation cost: `model` and its ~54 downstream consumers live in one hook, so the split is a component boundary — an outer stage that owns the compute import and an inner stage that runs today's hook unchanged once compute is ready. Hooks cannot be conditional, which is why this is a component split rather than a nullable value threaded through.
 
-**This ADR decides the direction. The implementation is tracked separately and is not part of this record** — landing it half-done and calling T7 closed would be the failure mode this campaign has spent itself documenting.
+**Outcome (implemented `d1e684a`).** Chrome paints at 0.6 s, figure at 9.4 s — an **8.80 s** window where a Slow 3G researcher sees their workspace instead of a skeleton, for +1,493 B and no local cost. Time-to-figure did *not* move, and could not have: the Slow 3G load is bandwidth-saturated, so that number is bytes ÷ bandwidth and two-stage changes ordering rather than bytes. An acceptance criterion demanding it improve was miscalibrated and briefly caused the working implementation to be reverted.
+
+The seconds live in a follow-on this ADR did not scope: **22 of the analysis barrel's 31 modules — 505,495 B, 72% — are reachable only through report and audit builders the figure never reads**, and sit on its critical path only because the hook computes them in render-body `useMemo`s.
+
+**This ADR decided the direction. The implementation is recorded above rather than assumed** — landing it half-done and calling T7 closed would be the failure mode this campaign has spent itself documenting.
 
 ## Ratification
 
