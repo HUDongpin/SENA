@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { patchEnterpriseScimGroup, provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  deactivateEnterpriseScimGroup,
+  getEnterpriseScimGroup,
+  patchEnterpriseScimGroup,
+  provisionEnterpriseScimGroup,
+  type SenaScimProvisioningOptions
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -24,6 +30,25 @@ async function upsertGroup(request: Request, resourceId: string) {
     : { id: resourceId };
   const bridge = provisionEnterpriseScimGroup(resource, scimOptions(request));
   return NextResponse.json(bridge.resource);
+}
+
+export async function GET(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    return NextResponse.json(getEnterpriseScimGroup(resourceId, scimOptions(request).locationBase));
+  });
+}
+
+// SCIM DELETE deprovisions by suspending this group's memberships, not by
+// erasing the team or its users. RFC 7644 3.6 wants 204 with no body.
+export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    deactivateEnterpriseScimGroup(resourceId, scimOptions(request));
+    return new NextResponse(null, { status: 204 });
+  });
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {

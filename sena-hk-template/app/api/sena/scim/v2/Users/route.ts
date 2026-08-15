@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { listEnterpriseScimUsers, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  listEnterpriseScimUsers,
+  provisionEnterpriseScimUser,
+  type SenaScimListQuery,
+  type SenaScimProvisioningOptions
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -25,9 +30,18 @@ export async function POST(request: Request) {
   });
 }
 
+function scimListQuery(request: Request): SenaScimListQuery {
+  const url = new URL(request.url);
+  return {
+    filter: url.searchParams.get("filter"),
+    startIndex: url.searchParams.get("startIndex"),
+    count: url.searchParams.get("count")
+  };
+}
+
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-users" }, async () => {
     requireProvisioningBearerToken(request);
-    return NextResponse.json(listEnterpriseScimUsers(scimOptions(request).locationBase));
+    return NextResponse.json(listEnterpriseScimUsers(scimOptions(request).locationBase, scimListQuery(request)));
   });
 }

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { patchEnterpriseScimUser, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  deactivateEnterpriseScimUser,
+  getEnterpriseScimUser,
+  patchEnterpriseScimUser,
+  provisionEnterpriseScimUser,
+  type SenaScimProvisioningOptions
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -24,6 +30,25 @@ async function upsertUser(request: Request, resourceId: string) {
     : { id: resourceId };
   const bridge = provisionEnterpriseScimUser(resource, scimOptions(request));
   return NextResponse.json(bridge.resource);
+}
+
+export async function GET(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    return NextResponse.json(getEnterpriseScimUser(resourceId, scimOptions(request).locationBase));
+  });
+}
+
+// SCIM DELETE deprovisions by suspending, not by erasing: the user row survives
+// with every membership suspended. RFC 7644 3.6 wants 204 with no body.
+export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    deactivateEnterpriseScimUser(resourceId, scimOptions(request));
+    return new NextResponse(null, { status: 204 });
+  });
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {

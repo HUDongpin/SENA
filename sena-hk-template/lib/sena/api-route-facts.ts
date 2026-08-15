@@ -633,9 +633,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     id: "sena-scim-user-resource",
     group: "provisioning",
     path: "/api/sena/scim/v2/Users/{resourceId}",
-    methods: ["PUT", "PATCH"],
+    methods: ["GET", "PUT", "PATCH", "DELETE"],
     auth: "scim-bearer",
-    summary: "Replace or patch a SCIM user resource and mapped SENA memberships.",
+    summary: "Read, replace, patch, or deprovision a SCIM user resource and mapped SENA memberships. DELETE suspends rather than erases.",
     evidenceNoteId: "sena-scim-user-resource",
     responses: ["urn:ietf:params:scim:schemas:core:2.0:User"]
   },
@@ -653,9 +653,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     id: "sena-scim-group-resource",
     group: "provisioning",
     path: "/api/sena/scim/v2/Groups/{resourceId}",
-    methods: ["PUT", "PATCH"],
+    methods: ["GET", "PUT", "PATCH", "DELETE"],
     auth: "scim-bearer",
-    summary: "Replace or patch a SCIM group resource and mapped team memberships.",
+    summary: "Read, replace, patch, or deprovision a SCIM group resource and mapped team memberships. DELETE suspends the group's memberships rather than erasing the team.",
     evidenceNoteId: "sena-scim-group-resource",
     responses: ["urn:ietf:params:scim:schemas:core:2.0:Group"]
   }

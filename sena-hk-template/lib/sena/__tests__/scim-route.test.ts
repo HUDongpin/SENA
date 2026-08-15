@@ -8,7 +8,15 @@ const senaScimUserExtensionSchema = "urn:sena:params:scim:schemas:extension:ente
 const senaScimGroupExtensionSchema = "urn:sena:params:scim:schemas:extension:enterprise:2.0:Group";
 
 type ScimGroupMember = { value?: string; type?: string; active?: boolean };
-type ScimGroupResource = { id?: string; displayName?: string; members?: ScimGroupMember[] };
+type ScimGroupResource = { id?: string; externalId?: string; displayName?: string; members?: ScimGroupMember[] };
+type ScimUserResource = { id?: string; userName?: string; externalId?: string; active?: boolean };
+type ScimListResponse<Resource> = {
+  totalResults?: number;
+  startIndex?: number;
+  itemsPerPage?: number;
+  Resources?: Resource[];
+};
+type ScimErrorBody = { error?: string; code?: string; Resources?: unknown; totalResults?: unknown };
 
 describe("SENA SCIM route production ownership gate", () => {
   it("returns SCIM/IdP ownership and rotation headers on ServiceProviderConfig", async () => {
@@ -380,5 +388,467 @@ describe("SENA SCIM Groups resource PatchOp", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
+  });
+});
+
+describe("SENA SCIM resource reads, deprovisioning, and collection queries", () => {
+  const usersBase = "https://sena.example.test/api/sena/scim/v2/Users";
+  const groupsBase = "https://sena.example.test/api/sena/scim/v2/Groups";
+  const authHeaders = { authorization: "Bearer sena-test-provisioning-token" };
+  const scimHeaders = { ...authHeaders, "content-type": "application/scim+json" };
+  const readRequest = (url: string) => new Request(url, { headers: authHeaders });
+  const deleteRequest = (url: string) => new Request(url, { method: "DELETE", headers: authHeaders });
+  const resourceContext = (resourceId: string) => ({ params: Promise.resolve({ resourceId }) });
+  const filterUrl = (base: string, filter: string) => `${base}?filter=${encodeURIComponent(filter)}`;
+
+  type ScimRoutes = {
+    usersRoute: typeof import("../../../app/api/sena/scim/v2/Users/route");
+    groupsRoute: typeof import("../../../app/api/sena/scim/v2/Groups/route");
+    userResourceRoute: typeof import("../../../app/api/sena/scim/v2/Users/[resourceId]/route");
+    groupResourceRoute: typeof import("../../../app/api/sena/scim/v2/Groups/[resourceId]/route");
+    enterprise: typeof import("../enterprise");
+  };
+
+  // Same temp-directory + stubbed-token + aliased-module dance the PatchOp specs
+  // above run inline; hoisted here because six cases need it identically.
+  async function withScimRoutes<T>(prefix: string, run: (routes: ScimRoutes) => Promise<T>) {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), prefix));
+    vi.resetModules();
+    vi.stubEnv("SENA_PROVISIONING_TOKEN", "sena-test-provisioning-token");
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_APP_URL = "https://sena.example.test";
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/provisioning-auth", async () => await import("../provisioning-auth"));
+    vi.doMock("@/lib/sena/scim", async () => await import("../scim"));
+
+    try {
+      return await run({
+        usersRoute: await import("../../../app/api/sena/scim/v2/Users/route"),
+        groupsRoute: await import("../../../app/api/sena/scim/v2/Groups/route"),
+        userResourceRoute: await import("../../../app/api/sena/scim/v2/Users/[resourceId]/route"),
+        groupResourceRoute: await import("../../../app/api/sena/scim/v2/Groups/[resourceId]/route"),
+        enterprise: await import("../enterprise")
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      delete process.env.SENA_APP_URL;
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }
+
+  async function seedGroup(
+    groupsRoute: ScimRoutes["groupsRoute"],
+    body: Record<string, unknown>
+  ) {
+    const response = await groupsRoute.POST(new Request(groupsBase, {
+      method: "POST",
+      headers: scimHeaders,
+      body: JSON.stringify(body)
+    }));
+    return { status: response.status, group: await response.json() as ScimGroupResource };
+  }
+
+  async function seedUser(
+    usersRoute: ScimRoutes["usersRoute"],
+    body: Record<string, unknown>
+  ) {
+    const response = await usersRoute.POST(new Request(usersBase, {
+      method: "POST",
+      headers: scimHeaders,
+      body: JSON.stringify(body)
+    }));
+    return { status: response.status, user: await response.json() as ScimUserResource };
+  }
+
+  const cohortBody = (input: {
+    displayName: string;
+    externalId: string;
+    organization: string;
+    members: Array<{ value: string; email: string; display: string; type: string }>;
+  }) => ({
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group", senaScimGroupExtensionSchema],
+    displayName: input.displayName,
+    externalId: input.externalId,
+    [senaScimGroupExtensionSchema]: { organization: input.organization, plan: "enterprise" },
+    members: input.members
+  });
+
+  it("serves a single SCIM User and Group by id and 404s an unknown id", async () => {
+    await withScimRoutes("sena-scim-resource-get-", async ({ groupsRoute, userResourceRoute, groupResourceRoute }) => {
+      const { status, group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Read Cohort",
+        externalId: "okta-group-read",
+        organization: "SENA Read Org",
+        members: [
+          { value: "okta-read-pi", email: "read-pi@example.edu", display: "Read PI", type: "pi" },
+          { value: "okta-read-coder", email: "read-coder@example.edu", display: "Read Coder", type: "coder" }
+        ]
+      }));
+      expect(status).toBe(201);
+      const groupId = String(group.id);
+      const piId = String(group.members?.find((member) => member.type === "pi")?.value);
+
+      const userRead = await userResourceRoute.GET(readRequest(`${usersBase}/${piId}`), resourceContext(piId));
+      const user = await userRead.json() as ScimUserResource;
+      expect(userRead.status).toBe(200);
+      expect(userRead.headers.get("x-sena-observed-route")).toBe("sena-scim-users-resource");
+      expect(user.id).toBe(piId);
+      expect(user.userName).toBe("read-pi@example.edu");
+      expect(user.active).toBe(true);
+
+      const groupRead = await groupResourceRoute.GET(readRequest(`${groupsBase}/${groupId}`), resourceContext(groupId));
+      const readGroup = await groupRead.json() as ScimGroupResource;
+      expect(groupRead.status).toBe(200);
+      expect(readGroup.id).toBe(groupId);
+      expect(readGroup.displayName).toBe("Read Cohort");
+      expect(readGroup.members).toHaveLength(2);
+
+      // IdPs that stored only their own id must resolve the same resource.
+      const byExternalId = await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/okta-group-read`),
+        resourceContext("okta-group-read")
+      );
+      expect(byExternalId.status).toBe(200);
+      expect((await byExternalId.json() as ScimGroupResource).id).toBe(groupId);
+
+      const missingUser = await userResourceRoute.GET(
+        readRequest(`${usersBase}/okta-user-missing`),
+        resourceContext("okta-user-missing")
+      );
+      expect(missingUser.status).toBe(404);
+      expect((await missingUser.json() as ScimErrorBody).code).toBe("scim_user_not_found");
+
+      const missingGroup = await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/okta-group-missing`),
+        resourceContext("okta-group-missing")
+      );
+      expect(missingGroup.status).toBe(404);
+      expect((await missingGroup.json() as ScimErrorBody).code).toBe("scim_group_not_found");
+    });
+  });
+
+  it("treats DELETE on a SCIM User as a suspend that keeps the resource readable", async () => {
+    await withScimRoutes("sena-scim-user-delete-", async ({ usersRoute, groupsRoute, userResourceRoute }) => {
+      const { group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Delete Cohort",
+        externalId: "okta-group-user-delete",
+        organization: "SENA Delete Org",
+        members: [
+          { value: "okta-delete-pi", email: "delete-pi@example.edu", display: "Delete PI", type: "pi" },
+          { value: "okta-delete-coder", email: "delete-coder@example.edu", display: "Delete Coder", type: "coder" }
+        ]
+      }));
+      const piId = String(group.members?.find((member) => member.type === "pi")?.value);
+      const coderId = String(group.members?.find((member) => member.type === "coder")?.value);
+
+      const deleted = await userResourceRoute.DELETE(
+        deleteRequest(`${usersBase}/${coderId}`),
+        resourceContext(coderId)
+      );
+      expect(deleted.status).toBe(204);
+      expect(await deleted.text()).toBe("");
+
+      const afterDelete = await userResourceRoute.GET(
+        readRequest(`${usersBase}/${coderId}`),
+        resourceContext(coderId)
+      );
+      expect(afterDelete.status).toBe(200);
+      expect((await afterDelete.json() as ScimUserResource).active).toBe(false);
+
+      const listed = await usersRoute.GET(readRequest(usersBase));
+      const directory = await listed.json() as ScimListResponse<ScimUserResource>;
+      expect(directory.totalResults).toBe(2);
+      expect(directory.Resources?.find((resource) => resource.id === coderId)?.active).toBe(false);
+      expect(directory.Resources?.find((resource) => resource.id === piId)?.active).toBe(true);
+
+      const deletedAgain = await userResourceRoute.DELETE(
+        deleteRequest(`${usersBase}/okta-user-missing`),
+        resourceContext("okta-user-missing")
+      );
+      expect(deletedAgain.status).toBe(404);
+    });
+  });
+
+  it("treats DELETE on a SCIM Group as a roster suspend that keeps the team and its users", async () => {
+    await withScimRoutes("sena-scim-group-delete-", async ({ groupsRoute, groupResourceRoute, usersRoute, enterprise }) => {
+      // A SENA-owned team whose roster the IdP manages: the owner membership is
+      // API-provisioned, so the SCIM roster can be suspended without stranding
+      // the team.
+      enterprise.provisionEnterpriseOrganization({
+        source: "api",
+        organization: "SENA Group Delete Org",
+        teams: [{ name: "Shared Cohort", plan: "enterprise" }],
+        users: [{
+          externalId: "sena-owner",
+          email: "sena-owner@example.edu",
+          name: "SENA Owner",
+          memberships: [{ teamName: "Shared Cohort", role: "owner" }]
+        }]
+      });
+
+      const { status, group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Shared Cohort",
+        externalId: "okta-group-shared",
+        organization: "SENA Group Delete Org",
+        members: [
+          { value: "okta-shared-coder", email: "shared-coder@example.edu", display: "Shared Coder", type: "coder" }
+        ]
+      }));
+      expect(status).toBe(200);
+      const groupId = String(group.id);
+      const coderId = String(group.members?.find((member) => member.type === "coder")?.value);
+
+      const deleted = await groupResourceRoute.DELETE(
+        deleteRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      );
+      expect(deleted.status).toBe(204);
+      expect(await deleted.text()).toBe("");
+
+      const afterDelete = await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      );
+      const readGroup = await afterDelete.json() as ScimGroupResource;
+      expect(afterDelete.status).toBe(200);
+      expect(readGroup.displayName).toBe("Shared Cohort");
+      // Length first: `every` on an emptied roster would pass vacuously, which
+      // is exactly the erase this DELETE must not be.
+      expect(readGroup.members).toHaveLength(1);
+      expect(readGroup.members?.every((member) => member.active === false)).toBe(true);
+
+      // The suspend erases nothing: the user row survives and the API-owned
+      // membership that keeps the team administrable is untouched.
+      const listedUsers = await usersRoute.GET(readRequest(usersBase));
+      const userDirectory = await listedUsers.json() as ScimListResponse<ScimUserResource>;
+      expect(userDirectory.Resources?.find((resource) => resource.id === coderId)?.userName)
+        .toBe("shared-coder@example.edu");
+      const apiDirectory = enterprise.listEnterpriseProvisioningDirectory("api");
+      expect(apiDirectory.users.find((user) => user.email === "sena-owner@example.edu")?.memberships)
+        .toEqual([expect.objectContaining({ status: "active", role: "owner" })]);
+
+      const missing = await groupResourceRoute.DELETE(
+        deleteRequest(`${groupsBase}/okta-group-missing`),
+        resourceContext("okta-group-missing")
+      );
+      expect(missing.status).toBe(404);
+    });
+  });
+
+  it("refuses a Group DELETE that would leave the team with no active manager", async () => {
+    await withScimRoutes("sena-scim-group-delete-guard-", async ({ groupsRoute, groupResourceRoute }) => {
+      const { group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Stranded Cohort",
+        externalId: "okta-group-stranded",
+        organization: "SENA Stranded Org",
+        members: [
+          { value: "okta-stranded-pi", email: "stranded-pi@example.edu", display: "Stranded PI", type: "pi" },
+          { value: "okta-stranded-coder", email: "stranded-coder@example.edu", display: "Stranded Coder", type: "coder" }
+        ]
+      }));
+      const groupId = String(group.id);
+
+      const deleted = await groupResourceRoute.DELETE(
+        deleteRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      );
+      expect(deleted.status).toBe(400);
+      expect((await deleted.json() as ScimErrorBody).code).toBe("last_team_manager_required");
+
+      // A refused deprovision must not half-apply.
+      const afterRefusal = await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      );
+      const survivingGroup = await afterRefusal.json() as ScimGroupResource;
+      expect(survivingGroup.members).toHaveLength(2);
+      expect(survivingGroup.members?.every((member) => member.active === true)).toBe(true);
+    });
+  });
+
+  it("applies an eq filter to the Users and Groups collections", async () => {
+    await withScimRoutes("sena-scim-filter-", async ({ usersRoute, groupsRoute }) => {
+      for (const suffix of ["a", "b", "c"]) {
+        const { status } = await seedUser(usersRoute, {
+          schemas: ["urn:ietf:params:scim:schemas:core:2.0:User", senaScimUserExtensionSchema],
+          userName: `filter-${suffix}@example.edu`,
+          externalId: `okta-filter-${suffix}`,
+          name: { formatted: `Filter ${suffix.toUpperCase()}` },
+          emails: [{ value: `filter-${suffix}@example.edu`, primary: true }],
+          [senaScimUserExtensionSchema]: { organization: "SENA Filter Org" }
+        });
+        expect(status).toBe(201);
+      }
+      await seedGroup(groupsRoute, cohortBody({
+        displayName: "Filter Cohort One",
+        externalId: "okta-group-filter-one",
+        organization: "SENA Filter Org",
+        members: [{ value: "okta-filter-pi-one", email: "filter-pi-one@example.edu", display: "Filter PI One", type: "pi" }]
+      }));
+      await seedGroup(groupsRoute, cohortBody({
+        displayName: "Filter Cohort Two",
+        externalId: "okta-group-filter-two",
+        organization: "SENA Filter Org",
+        members: [{ value: "okta-filter-pi-two", email: "filter-pi-two@example.edu", display: "Filter PI Two", type: "pi" }]
+      }));
+
+      const byUserName = await usersRoute.GET(readRequest(filterUrl(usersBase, 'userName eq "filter-b@example.edu"')));
+      const userNameMatches = await byUserName.json() as ScimListResponse<ScimUserResource>;
+      expect(byUserName.status).toBe(200);
+      expect(userNameMatches.totalResults).toBe(1);
+      expect(userNameMatches.itemsPerPage).toBe(1);
+      expect(userNameMatches.Resources?.map((resource) => resource.userName)).toEqual(["filter-b@example.edu"]);
+
+      const byExternalId = await usersRoute.GET(readRequest(filterUrl(usersBase, 'externalId eq "okta-filter-c"')));
+      const externalIdMatches = await byExternalId.json() as ScimListResponse<ScimUserResource>;
+      expect(externalIdMatches.totalResults).toBe(1);
+      expect(externalIdMatches.Resources?.map((resource) => resource.userName)).toEqual(["filter-c@example.edu"]);
+
+      const noMatch = await usersRoute.GET(readRequest(filterUrl(usersBase, 'userName eq "absent@example.edu"')));
+      const noMatches = await noMatch.json() as ScimListResponse<ScimUserResource>;
+      expect(noMatch.status).toBe(200);
+      expect(noMatches.totalResults).toBe(0);
+      expect(noMatches.itemsPerPage).toBe(0);
+      expect(noMatches.Resources).toEqual([]);
+
+      const byDisplayName = await groupsRoute.GET(readRequest(filterUrl(groupsBase, 'displayName eq "Filter Cohort Two"')));
+      const displayNameMatches = await byDisplayName.json() as ScimListResponse<ScimGroupResource>;
+      expect(displayNameMatches.totalResults).toBe(1);
+      expect(displayNameMatches.Resources?.map((resource) => resource.displayName)).toEqual(["Filter Cohort Two"]);
+
+      const byGroupExternalId = await groupsRoute.GET(
+        readRequest(filterUrl(groupsBase, 'externalId eq "okta-group-filter-one"'))
+      );
+      const groupExternalIdMatches = await byGroupExternalId.json() as ScimListResponse<ScimGroupResource>;
+      expect(groupExternalIdMatches.totalResults).toBe(1);
+      expect(groupExternalIdMatches.Resources?.map((resource) => resource.displayName)).toEqual(["Filter Cohort One"]);
+    });
+  });
+
+  it("pages the Users collection with startIndex and count", async () => {
+    await withScimRoutes("sena-scim-pagination-", async ({ usersRoute }) => {
+      for (const suffix of ["a", "b", "c"]) {
+        await seedUser(usersRoute, {
+          schemas: ["urn:ietf:params:scim:schemas:core:2.0:User", senaScimUserExtensionSchema],
+          userName: `page-${suffix}@example.edu`,
+          externalId: `okta-page-${suffix}`,
+          emails: [{ value: `page-${suffix}@example.edu`, primary: true }],
+          [senaScimUserExtensionSchema]: { organization: "SENA Page Org" }
+        });
+      }
+
+      const unpaged = await usersRoute.GET(readRequest(usersBase));
+      const allUsers = await unpaged.json() as ScimListResponse<ScimUserResource>;
+      expect(allUsers.totalResults).toBe(3);
+      expect(allUsers.startIndex).toBe(1);
+      expect(allUsers.itemsPerPage).toBe(3);
+      const orderedNames = allUsers.Resources?.map((resource) => resource.userName) ?? [];
+
+      const secondPage = await usersRoute.GET(readRequest(`${usersBase}?startIndex=2&count=1`));
+      const window = await secondPage.json() as ScimListResponse<ScimUserResource>;
+      expect(secondPage.status).toBe(200);
+      expect(window.totalResults).toBe(3);
+      expect(window.startIndex).toBe(2);
+      expect(window.itemsPerPage).toBe(1);
+      expect(window.Resources?.map((resource) => resource.userName)).toEqual([orderedNames[1]]);
+
+      const tail = await usersRoute.GET(readRequest(`${usersBase}?startIndex=3&count=10`));
+      const tailWindow = await tail.json() as ScimListResponse<ScimUserResource>;
+      expect(tailWindow.totalResults).toBe(3);
+      expect(tailWindow.startIndex).toBe(3);
+      expect(tailWindow.itemsPerPage).toBe(1);
+      expect(tailWindow.Resources?.map((resource) => resource.userName)).toEqual([orderedNames[2]]);
+
+      // RFC 7644 3.4.2.4: count=0 returns totals only.
+      const countOnly = await usersRoute.GET(readRequest(`${usersBase}?count=0`));
+      const totalsOnly = await countOnly.json() as ScimListResponse<ScimUserResource>;
+      expect(totalsOnly.totalResults).toBe(3);
+      expect(totalsOnly.itemsPerPage).toBe(0);
+      expect(totalsOnly.Resources).toEqual([]);
+
+      const combined = await usersRoute.GET(
+        readRequest(`${filterUrl(usersBase, 'userName eq "page-b@example.edu"')}&startIndex=1&count=5`)
+      );
+      const combinedPage = await combined.json() as ScimListResponse<ScimUserResource>;
+      expect(combinedPage.totalResults).toBe(1);
+      expect(combinedPage.Resources?.map((resource) => resource.userName)).toEqual(["page-b@example.edu"]);
+    });
+  });
+
+  it("advertises exactly the filter support it implements", async () => {
+    await withScimRoutes("sena-scim-filter-advertisement-", async ({ usersRoute, groupsRoute }) => {
+      const scim = await import("../scim");
+      const config = scim.enterpriseScimServiceProviderConfig("https://sena.example.test/api/sena/scim/v2");
+
+      expect(config.filter).toEqual({ supported: true, maxResults: scim.scimListMaxResults });
+      // Nothing else grew a capability, so nothing else may claim one.
+      expect(config.sort).toEqual({ supported: false });
+      expect(config.bulk.supported).toBe(false);
+      expect(config.senaFilterSupport.operators).toEqual(["eq"]);
+      expect(config.senaFilterSupport.attributes.Users).toEqual([...scim.scimSupportedUserFilterAttributes]);
+      expect(config.senaFilterSupport.attributes.Groups).toEqual([...scim.scimSupportedGroupFilterAttributes]);
+
+      // The advertisement is only worth anything if the surface honours it
+      // exactly: everything listed is accepted, and a plausible attribute the
+      // document omits is refused rather than quietly ignored.
+      for (const attribute of config.senaFilterSupport.attributes.Users) {
+        const response = await usersRoute.GET(readRequest(filterUrl(usersBase, `${attribute} eq "probe"`)));
+        expect([attribute, response.status]).toEqual([attribute, 200]);
+      }
+      for (const attribute of config.senaFilterSupport.attributes.Groups) {
+        const response = await groupsRoute.GET(readRequest(filterUrl(groupsBase, `${attribute} eq "probe"`)));
+        expect([attribute, response.status]).toEqual([attribute, 200]);
+      }
+      const unlistedForUsers = await usersRoute.GET(readRequest(filterUrl(usersBase, 'displayName eq "probe"')));
+      expect(unlistedForUsers.status).toBe(400);
+      const unlistedForGroups = await groupsRoute.GET(readRequest(filterUrl(groupsBase, 'userName eq "probe"')));
+      expect(unlistedForGroups.status).toBe(400);
+    });
+  });
+
+  it("refuses filter and pagination syntax it does not support instead of ignoring it", async () => {
+    await withScimRoutes("sena-scim-filter-refusal-", async ({ usersRoute, groupsRoute }) => {
+      await seedUser(usersRoute, {
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:User", senaScimUserExtensionSchema],
+        userName: "refuse-a@example.edu",
+        externalId: "okta-refuse-a",
+        emails: [{ value: "refuse-a@example.edu", primary: true }],
+        [senaScimUserExtensionSchema]: { organization: "SENA Refuse Org" }
+      });
+
+      const refusals = [
+        // Operator SENA does not implement.
+        filterUrl(usersBase, 'userName sw "refuse"'),
+        // Attribute SENA does not index.
+        filterUrl(usersBase, 'name.familyName eq "Refuse"'),
+        // Logical composition.
+        filterUrl(usersBase, 'userName eq "refuse-a@example.edu" and active eq true'),
+        // Complete nonsense must not degrade to "return everything".
+        filterUrl(usersBase, "userName")
+      ];
+      for (const url of refusals) {
+        const response = await usersRoute.GET(readRequest(url));
+        const body = await response.json() as ScimErrorBody;
+        expect(response.status).toBe(400);
+        expect(body.code).toBe("unsupported_scim_filter");
+        expect(body.Resources).toBeUndefined();
+        expect(body.totalResults).toBeUndefined();
+      }
+
+      const groupRefusal = await groupsRoute.GET(readRequest(filterUrl(groupsBase, 'userName eq "refuse-a@example.edu"')));
+      expect(groupRefusal.status).toBe(400);
+      expect((await groupRefusal.json() as ScimErrorBody).code).toBe("unsupported_scim_filter");
+
+      for (const url of [`${usersBase}?startIndex=abc`, `${usersBase}?count=nope`]) {
+        const response = await usersRoute.GET(readRequest(url));
+        const body = await response.json() as ScimErrorBody;
+        expect(response.status).toBe(400);
+        expect(body.code).toBe("invalid_scim_pagination");
+        expect(body.Resources).toBeUndefined();
+      }
+    });
   });
 });
