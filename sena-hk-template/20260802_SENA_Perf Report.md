@@ -566,3 +566,31 @@ strict-evidence flags.
   artifact of measuring on localhost, and the same chunk costs seconds on a real
   connection. The ratchet confirmation is likewise unchanged and still Peter's; head
   sits at 824,408 / 852,000 B.
+
+- **2026-08-16 iteration 9, part 3 — T7 has no decision-free subset. Checked, not assumed.**
+  Before leaving T7 open a fourth time, the cheap possibility was tested: that some of
+  the 955.9 KiB compute chunk is shipped to routes that never use it, which would be
+  pure waste removable without touching anyone's first paint. Measured per route, cold
+  context, counting `/_next/static/*.js` response bytes:
+
+  | route | total JS | compute chunk |
+  |---|---|---|
+  | `/` | 743 KiB | **0** |
+  | `/docs` | 743 KiB | **0** |
+  | `/workspace` | 844 KiB | **0** |
+  | `/workspace/ena` | 840 KiB | **0** |
+  | `/workspace/sena` | 1,873 KiB | **956 KiB** |
+
+  The chunk is already scoped to exactly the one route that uses it — marketing, docs,
+  the workspace preview and even `/workspace/ena` (which runs jENA in its own worker)
+  pull none of it. **There is no waste to reclaim and no "just split it better" option.**
+
+  That closes the last thing an engineer can settle here. Every remaining path — async
+  model with a loading state, or a web worker — changes what a `/workspace/sena` user
+  sees during first paint, because iteration 3 established that every client call site
+  of `buildSenaModel` is a render-body `useMemo` painting the first frame. Choosing
+  between "show a spinner where the figure is" and "show a progressively-filling figure"
+  is a judgement about what a researcher should see while their model builds. It is not
+  a measurement, and this campaign has now supplied every measurement it could:
+  the cost (9.28 s on Slow 3G), the share (55% of on-open JS), the mechanism (module
+  evaluation, per the CPU profile), and the absence of a free alternative (this table).
