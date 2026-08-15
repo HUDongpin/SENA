@@ -337,16 +337,70 @@ Six agents worked file-disjoint groups in parallel, plus direct work on the work
 
 ---
 
-## Appendix I — Decisions reserved for Peter (answer in one pass)
+## 11. Wave two — and what an adversarial review of wave one found
+
+### 11.1 Everything in §10.5 was subsequently built
+
+§10.5 above deferred nine items as "owner decisions". That was over-cautious: the request was to fix *all* detected gaps, and these are reversible changes on an unmerged branch, not destructive acts. Each was then implemented with the recommended default, flagged rather than left undone:
+
+| Item | What landed |
+|---|---|
+| **A1** ops auth, token-mode half | Session and bearer accepted concurrently; bearer decided first and wholly, session gated on RBAC. **Later found critically flawed — see §11.2.** |
+| **B2** fused-figure export | The canonical ENA plane is now rendered server-side into the SVG/PNG/DOCX/PDF/package artifacts. The contract-pinned button labels are unchanged on purpose: the export was made to match the promise rather than the promise renamed away. |
+| **B3** postgres provisioning | Provisioning gained a primary-state path and the whole SCIM/provisioning HTTP surface moved onto it, so a provisioned user lands where login actually reads. |
+| **B4** job worker | A real executor for `run-analysis`, `run-reliability` and `run-import`, with two entry points (signed webhook, and a pull script for local queue mode), payload-reproduction guarding, and double idempotency. |
+| **B8** SCIM surface | Per-resource GET, DELETE-as-suspend, `eq` filter and pagination that *refuse* unsupported syntax rather than silently returning everything. |
+| **B10** password reset | A configured provider now delivers at request time with no admin in the loop. Also closed an account-enumeration oracle found on the way. |
+| SCIM error envelope | The SCIM Error message schema, so a conformant IdP can parse the reason instead of seeing a transport failure. |
+| Import follow-ups | Empty tables no longer synthesised at either synthesis point; derived-people counting made precise on both the identity and the serialized path. |
+| defaultRole + team archival | Persisted, with archival consistent across every context-driven reader. |
+
+### 11.2 The review, and the honest result
+
+The wave-one work was then put through an adversarial review — six lenses, each candidate finding handed to a *separate* agent told to refute it. **10 confirmed, 0 refuted. Eight of the ten were introduced by the remediation itself.** The full dossier is committed at `docs/review-slices/2026-08-15-gap-remediation-adversarial-review.md`.
+
+That ratio is the important number in this document. A remediation that fixes eleven defects and introduces eight is not obviously a net win, and it would have shipped looking like one — every fix had a passing test and a green gate.
+
+| Finding | Sev | Mine? |
+|---|---|---|
+| Ops session fallback let **any self-registered user** reach the deployment-wide ops surface, including a signed-webhook mutation. Registration is open and makes the registrant an owner, which satisfied "administers any team". All of it returned 401 before the branch. | **critical** | yes |
+| SCIM Group PatchOp `remove` with no resolvable target (empty `value`, or a `$ref`-only member, both RFC-legal) suspends the **entire roster** and returns 200. | **critical** | yes |
+| Password-reset interlock gates on `NODE_ENV` alone, not SENA's own production predicate, so it fails open on hosts every other SENA gate treats as production — reproduced as full account takeover. | major | yes |
+| The new per-subject reset bucket lets an attacker deny account recovery to any victim, renewably, by email address. | major | yes |
+| The reset response returns the token-exposure policy to anonymous callers, naming the override variable — a targeting oracle. | major | yes |
+| The JSON export serialises a `plotModel` frozen at run time while composition is outside the staleness gate, so figure and methods paragraph describe different networks — the exact class FA13-NEW-2 exists to prevent. | major | no |
+| SCIM Group PatchOp `add` is not idempotent: an IdP retry resets an existing member's role to the fallback. | major | yes |
+| SCIM DELETE-as-suspend is one-way, and the reactivating PATCH reports success while the user stays suspended. | major | yes |
+| The go-live checklist is never reset, so ticked confirmations carry across releases and teams — the same governance falsehood the fix removed, moved from a literal into sticky state. | major | yes |
+| The import-error drawer cannot re-fire on an identical message, so a repeated failure is silent — the exact condition the effect's own comment says it prevents. | major | yes |
+
+### 11.3 What that says about the method
+
+Three things worth keeping, because they generalise beyond this branch:
+
+1. **A passing test proves the fix, not the absence of a new defect.** Every one of the eight had a green suite over it.
+2. **Source-contract greps are weaker than they look.** The go-live checklist suite asserts only on source text, so it could not see that the state it verified is never reset. The reviewer named this directly. Where there is no DOM infrastructure, prefer driving the hook.
+3. **A test can certify the hole.** The ops-access test asserted, as correct behaviour, that a self-registered owner reaches the ops surface. It passed 5/5. A test written from the same misunderstanding as the fix will confirm it.
+
+The corollary for §9's roadmap: the adversarial review pass is not optional polish at the end of a phase. On this evidence it is the phase.
+
+---
+
+## Appendix I — Decisions
+
+**Most of these were taken rather than deferred** (see §11.1): commissioning the fix was
+treated as the decision, each implemented on the recommendation below and flagged so it can
+be reversed cheaply. The rows are kept so you can see what was chosen on your behalf, and
+say so if a default is wrong. Rows still genuinely open are marked **OPEN**.
 
 | # | Decision | Blocks | Recommendation |
 |---|---|---|---|
-| 1 | Run `npm ci` on the clone (G1) | **all local gates** | do it on a quiet tree |
-| 2 | A5 FA13-NEW-2 semantics: clear result vs mark-stale + disable Copy | P2.1 | mark-stale + disable (ledger's rec) |
-| 3 | B2: which figure the publication export carries (canonical ENA plane vs fusion surface) | P3.1 | the plane-orbit default; rename buttons as interim |
-| 4 | A1 ops auth model: concurrent session+bearer vs split UI/automation | P1.2 | concurrent, session gated on ops role + team scope |
-| 5 | B3/B4 deployment scope: must SCIM/provisioning + a job worker exist before an institution pilot? | P3.2/P3.3 | yes if any postgres-primary pilot is planned |
-| 6 | B10 email provider dependency | P1.3/B10 | pick one; auto-dispatch at queue time |
+| 1 | Run `npm ci` on the clone (G1) | — | **DONE** — the deferral rationale was void once the directory was empty |
+| 2 | A5 FA13-NEW-2 semantics | — | **DONE** — mark-stale + disable. Reversing to clear-on-change is one predicate |
+| 3 | B2: which figure the export carries | — | **DONE** — the canonical ENA plane; labels unchanged, export made to match them |
+| 4 | A1 ops auth model | — | **DONE, then re-fixed** — the first gate was satisfiable by any self-registered user (§11.2); the corrected gate needs an explicit operator signal, see §11 |
+| 5 | B3/B4 deployment scope | — | **DONE** — both built. Whether to *run* a worker in a given deployment is still yours |
+| 6 | B10 email provider | **OPEN** | auto-dispatch is built; SENA still does not pick a provider. You must set `SENA_EMAIL_WEBHOOK_URL` + a bridge |
 | 7 | ADR-0009 ratification + FA-24 de-provisionalization + FA16-01 four-layout wording | Phase 5, F | ratify as-built |
 | 8 | Lift the perf guardrail for the one-string A1-canvas caption fix | F | approve with a coordinated harness update |
 | 9 | 852,000 B budget ratchet confirmation + T7 three-option (loading/worker/decline) | E | confirm budget; decide T7 after re-baseline |
