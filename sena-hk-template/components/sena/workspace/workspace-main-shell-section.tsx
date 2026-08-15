@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useRef,
@@ -84,6 +85,31 @@ export function WorkspaceMainShellSection({
     setIsTaskPanelOpen(true);
   }
 
+  // The workflow steps are anchors, but three of their targets are unreachable by
+  // hash alone: the Data and Model panels only exist inside this drawer, and the
+  // canvas/temporal/evidence surfaces sit behind it while it is open and inert.
+  const WORKFLOW_STEP_RAIL_MODES: Record<string, typeof railProps.active> = {
+    "workflow-data": "sets",
+    "workflow-model": "model"
+  };
+
+  function handleWorkflowStepSelect(stepId: string, event: ReactMouseEvent<HTMLAnchorElement>) {
+    const railMode = WORKFLOW_STEP_RAIL_MODES[stepId];
+    if (railMode) {
+      event.preventDefault();
+      panelTriggerModeRef.current = railMode;
+      railProps.onChange(railMode);
+      setIsTaskPanelOpen(true);
+      return;
+    }
+    if (stepId === "workflow-report") return; // the hash handler opens Research Details
+    event.preventDefault();
+    setIsTaskPanelOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById(stepId)?.scrollIntoView({ block: "start" });
+    });
+  }
+
   function handleMobileFigureKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -96,6 +122,16 @@ export function WorkspaceMainShellSection({
     if (rightInspectorProps.selectedId) setMobileFigure("dual");
     // Keep Dual selected after closing the inspector so its comparison remains visible.
   }, [rightInspectorProps.selectedId]);
+
+  const importError = leftRailProps.dataImportFeedbackProps.importError;
+  useEffect(() => {
+    // The import error plate and warnings panel live inside this drawer, and the
+    // upload hooks can only select which panel it would show — not open it. Without
+    // this a failed header upload changes nothing the user can see.
+    if (!importError) return;
+    panelTriggerModeRef.current = "sets";
+    setIsTaskPanelOpen(true);
+  }, [importError]);
 
   useEffect(() => {
     const surfaces = [headerSurfaceRef.current, analysisSurfaceRef.current, reportSurfaceRef.current]
@@ -263,7 +299,7 @@ export function WorkspaceMainShellSection({
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <WorkspaceLeftRailPanelSection {...leftRailProps} />
+              <WorkspaceLeftRailPanelSection {...leftRailProps} onWorkflowStepSelect={handleWorkflowStepSelect} />
             </div>
           </div>
         </div>

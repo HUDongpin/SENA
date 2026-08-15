@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { requireEnterprisePermission, type SenaEnterpriseRole } from "./access-control";
 import { recordEnterpriseUploadWarningCountsAsync } from "./import-analysis";
 import { SenaEnterpriseError } from "./errors";
 import {
@@ -31,6 +32,68 @@ export type SenaEnterpriseServerJobQueueMode = "managed" | "webhook" | "qstash" 
 export type SenaEnterpriseServerJobSource = "project" | "snapshot" | "dataset" | "upload" | "mixed" | "unknown";
 export type SenaEnterpriseServerJobStatus = "queued" | "running" | "succeeded" | "failed" | "dead-lettered";
 export type SenaEnterpriseServerJobStatusAction = "mark-running" | "mark-succeeded" | "mark-failed" | "retry" | "dead-letter";
+
+/**
+ * Tenant boundary for a session-authenticated ops caller.
+ *
+ * The ops routes accept two very different callers: an external worker holding
+ * a SENA_OPS_TOKEN bearer token, which legitimately reaches across every team,
+ * and a signed-in human, who must never leave their own team. Passing the scope
+ * down here — rather than filtering in the route — means the check runs at the
+ * data-access boundary, so a future caller of these functions cannot forget it.
+ * Omitting the scope is the machine-to-machine path and stays cross-team.
+ */
+export type SenaEnterpriseServerJobCallerScope = {
+  teamId: string;
+  memberships: Array<{ teamId: string; role: SenaEnterpriseRole; status: string }>;
+};
+
+/**
+ * Server job lifecycle is a team-administration surface, so the scope check
+ * mirrors the RBAC shape the native adapter certification route already uses
+ * for session-mode ops reads.
+ */
+const serverJobScopePermission = "team:manage" as const;
+
+/**
+ * Resolves the team filter a scoped caller is allowed to use, and throws before
+ * any read or write when they reach outside it. Returns the requested team for
+ * unscoped (bearer) callers so their cross-team reach is unchanged.
+ */
+function scopedServerJobTeamId(
+  callerScope: SenaEnterpriseServerJobCallerScope | undefined,
+  requestedTeamId?: string
+) {
+  if (!callerScope) return requestedTeamId;
+  const scopeTeamId = callerScope.teamId?.trim();
+  if (!scopeTeamId) {
+    throw new SenaEnterpriseError(
+      "Team id is required for session-scoped SENA server job access.",
+      400,
+      "server_job_team_required"
+    );
+  }
+  requireEnterprisePermission(callerScope, scopeTeamId, serverJobScopePermission);
+  if (requestedTeamId && requestedTeamId !== scopeTeamId) {
+    throw new SenaEnterpriseError("Your SENA role does not allow this action.", 403, "permission_denied");
+  }
+  return scopeTeamId;
+}
+
+/**
+ * A scoped caller may only touch jobs their own team owns — declaring a team
+ * they administer is not enough if the job belongs to someone else.
+ */
+function assertScopedServerJobAccess(
+  callerScope: SenaEnterpriseServerJobCallerScope | undefined,
+  scopeTeamId: string | undefined,
+  job: { teamId: string }
+) {
+  if (!callerScope) return;
+  if (job.teamId !== scopeTeamId) {
+    throw new SenaEnterpriseError("Your SENA role does not allow this action.", 403, "permission_denied");
+  }
+}
 
 export const senaEnterpriseServerJobKinds = [
   "analysis",
@@ -1310,16 +1373,21 @@ export async function listEnterpriseServerJobs(input: {
   teamId?: string;
   projectId?: string;
   limit?: number;
+  callerScope?: SenaEnterpriseServerJobCallerScope;
 } = {}): Promise<SenaEnterpriseServerJobList> {
+  // Resolved before either store is touched: a scoped caller's team is not an
+  // optional filter, it is the only team the query may see.
+  const teamId = scopedServerJobTeamId(input.callerScope, input.teamId);
   if (isPostgresServerJobStoreActive()) {
-    return postgresServerJobStore().listJobs(input);
+    const { callerScope: _callerScope, ...filters } = input;
+    return postgresServerJobStore().listJobs({ ...filters, teamId });
   }
   const state = await readEnterpriseState();
   const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
   const allJobs = sortServerJobs((state.db.serverJobs ?? [])
     .filter((job) => !input.status || job.status === input.status)
     .filter((job) => !input.kind || job.kind === input.kind)
-    .filter((job) => !input.teamId || job.teamId === input.teamId)
+    .filter((job) => !teamId || job.teamId === teamId)
     .filter((job) => !input.projectId || job.projectId === input.projectId));
   const jobs = allJobs.slice(0, limit);
   return {
@@ -1464,8 +1532,15 @@ export async function updateEnterpriseServerJobStatus(input: {
   reason?: string;
   force?: boolean;
   uploadWarnings?: Array<{ uploadId?: unknown; warningCount?: unknown }>;
+  callerScope?: SenaEnterpriseServerJobCallerScope;
 }): Promise<SenaEnterpriseServerJobStatusUpdate> {
+  // Resolved before the job is looked up, so a caller with no rights on the
+  // team they declared cannot use job ids as an existence oracle.
+  const scopeTeamId = scopedServerJobTeamId(input.callerScope);
   const current = await getEnterpriseServerJob(input.jobId);
+  // Ownership is checked before any lifecycle validation or write, so a scoped
+  // caller cannot mark another tenant's job running, succeeded, or failed.
+  assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
   if (input.action === "retry" && current.status !== "failed" && current.status !== "dead-lettered") {
     throw new SenaEnterpriseError("Only failed or dead-lettered SENA server jobs can be retried.", 409, "server_job_retry_not_allowed");
   }

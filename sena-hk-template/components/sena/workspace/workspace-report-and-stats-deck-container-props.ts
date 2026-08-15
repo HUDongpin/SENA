@@ -93,6 +93,7 @@ export type WorkspaceReportAndStatsDeckContainerPropsInput =
   WorkspaceReportAndStatsDeckEvidenceFieldPropGroup &
   Pick<WorkspaceReportGeneratorReviewMetadataPropGroup, "onDemoManualReviewChange"> & {
     hasReliabilityDashboard: boolean;
+    hasPublicationAccess: boolean;
   };
 
 export function buildWorkspaceReportAndStatsDeckContainerProps({
@@ -120,6 +121,7 @@ export function buildWorkspaceReportAndStatsDeckContainerProps({
   evidenceLedger,
   evidenceSourceFilter,
   hasReliabilityDashboard,
+  hasPublicationAccess,
   interpretation,
   limitations,
   methodValidation,
@@ -272,6 +274,7 @@ export function buildWorkspaceReportAndStatsDeckContainerProps({
   const workspaceReportGeneratorExportCompositionFieldProps = buildWorkspaceReportGeneratorExportCompositionFieldProps({
     ...workspaceReportGeneratorExportCallbackProps,
     hasReliabilityDashboard,
+    hasPublicationAccess,
   });
 
   const workspaceReportGeneratorExportCompositionProps = buildWorkspaceReportGeneratorExportCompositionProps({

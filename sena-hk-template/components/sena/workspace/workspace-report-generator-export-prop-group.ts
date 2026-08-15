@@ -19,6 +19,7 @@ export type WorkspaceReportGeneratorExportPropGroup = Pick<WorkspaceReportGenera
   | "onExportMarkdown"
   | "onReliabilityUpload"
   | "hasReliabilityDashboard"
+  | "hasPublicationAccess"
   | "onExportPublication"
 >;
 

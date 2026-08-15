@@ -6,6 +6,7 @@ import {
   looksLikeSenaContractJson,
   inferSenaColumnMapping,
   inferSenaTableFromName,
+  isDerivedPlaceholderPerson,
   parseSenaCsv,
   senaDatasetMetadataFromJson,
   type SenaImportRow,
@@ -103,18 +104,36 @@ function columnsFromRows(rows: SenaImportRow[]) {
 }
 
 function datasetToTables(dataset: SenaDataset, name: string): SenaMappedTable[] {
-  // A per-file dataset build is validation scaffolding: its group:"Derived"
-  // placeholders (label === id, minted by addDerivedContractRows) are
-  // reconstruction artifacts, not declarations, and must not round-trip into the
-  // merged pass as declared roster rows — that would seat a pass-1-minted
-  // interaction target on the roster (bypassing the ADR-0010 gate, since a
-  // roster-less file legitimately derives its targets in isolation) and shadow a
-  // real declared row of the same id from another file. The merged pass
-  // re-derives contribution-shaped placeholders identically; only the roster
-  // verdict changes.
-  const declaredPeople = dataset.people.filter((person) => !(person.group === "Derived" && person.label === person.id));
+  // A per-file dataset build is validation scaffolding: the placeholders
+  // addDerivedContractRows mints are reconstruction artifacts, not declarations,
+  // and must not round-trip into the merged pass as declared roster rows — that
+  // would seat a pass-1-minted interaction target on the roster (bypassing the
+  // ADR-0010 gate, since a roster-less file legitimately derives its targets in
+  // isolation) and shadow a real declared row of the same id from another file.
+  // The merged pass re-derives contribution-shaped placeholders identically;
+  // only the roster verdict changes.
+  //
+  // Which rows are placeholders is asked of the minting code, never inferred
+  // from the row's contents. The old group:"Derived"-and-label===id convention
+  // matched an analyst-declared `{"person_id":"P3","group":"Derived"}` just as
+  // well (normalizePeople defaults label to id), so a declared isolate — or one
+  // reachable only as an interaction target — was dropped here with no warning,
+  // and this route reported a smaller N than the browser/JSON route for the
+  // same contract. A declared row survives whatever its group and label.
+  const declaredPeople = dataset.people.filter((person) => !isDerivedPlaceholderPerson(person));
   return [
-    rowsToTable(`${name}-people`, declaredPeople as unknown as SenaImportRow[], "people"),
+    // A file that declared no roster contributes no people table. Synthesizing
+    // an empty one made buildSenaDatasetFromTables demand "Person ID" of a table
+    // the analyst never uploaded (zero rows means zero columns, so the mapping
+    // cannot carry the id field) and inflated missingTableWarningCount with it.
+    // Omitting the table lets the merged pass emit its "people table is not
+    // uploaded" note instead — the same disclosure the browser/JSON route gives
+    // this contract. The check is not relaxed for zero-row tables generally: a
+    // header-only people.csv the analyst *did* upload still has its required
+    // field verified.
+    ...(declaredPeople.length > 0
+      ? [rowsToTable(`${name}-people`, declaredPeople as unknown as SenaImportRow[], "people")]
+      : []),
     rowsToTable(`${name}-interactions`, dataset.interactions as unknown as SenaImportRow[], "interactions"),
     rowsToTable(`${name}-utterances`, dataset.utterances as unknown as SenaImportRow[], "utterances"),
     rowsToTable(`${name}-coded_segments`, dataset.coded_segments as unknown as SenaImportRow[], "coded_segments"),
@@ -841,7 +860,17 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   // the authoritative placeholder/roster-gate disclosures (ADR-0010 D2). The
   // raw per-file copies stay on `sources` for provenance; dropping them here
   // keeps the combined manifest at exactly one copy of each.
-  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include/;
+  //
+  // "people table is not uploaded" is the same kind of per-file verdict, and it
+  // is superseded the same way: a file that declares no roster no longer
+  // synthesizes an empty people table, so the merged pass now re-decides this
+  // one — emitting it when no file supplied a roster, and staying silent when
+  // another file did. Keeping the per-file copy would either duplicate the
+  // merged verdict or assert "not uploaded" about a roster that a sibling file
+  // plainly uploaded. Only the people verdict is superseded: the other four
+  // tables are still round-tripped per file, so the merged pass never re-decides
+  // them and their per-file copies are the only disclosure there is.
+  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include|^people table is not uploaded/;
   const allWarnings = [...warnings.filter((warning) => !perFileDerivationVerdicts.test(warning)), ...result.warnings];
   result.dataset.warnings = allWarnings;
   return {

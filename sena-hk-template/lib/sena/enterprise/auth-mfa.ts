@@ -18,6 +18,7 @@ import {
 
 const mfaSetupMinutes = positiveIntegerEnv("SENA_MFA_SETUP_MINUTES", 10);
 const mfaChallengeMinutes = positiveIntegerEnv("SENA_MFA_CHALLENGE_MINUTES", 5);
+const mfaChallengeMaxAttempts = positiveIntegerEnv("SENA_MFA_CHALLENGE_MAX_ATTEMPTS", 5);
 const mfaTotpStepSeconds = 30;
 const mfaTotpDigits = 6;
 const mfaTotpWindow = 1;
@@ -58,6 +59,8 @@ export type SenaEnterpriseMfaChallenge = {
   challengeHash: string;
   createdAt: string;
   expiresAt: string;
+  // Optional so challenges persisted before the attempt budget landed still load.
+  attemptCount?: number;
 };
 
 export type SenaEnterpriseMfaStatus = {
@@ -267,7 +270,8 @@ export function createMfaChallenge(db: SenaEnterpriseDb, user: SenaEnterpriseUse
     userId: user.id,
     challengeHash: tokenHash(challengeToken),
     createdAt: now(),
-    expiresAt: mfaChallengeExpiry()
+    expiresAt: mfaChallengeExpiry(),
+    attemptCount: 0
   };
   db.mfaChallenges = (db.mfaChallenges ?? [])
     .filter((candidate) => candidate.userId !== user.id && Date.parse(candidate.expiresAt) > Date.now());
@@ -295,8 +299,20 @@ export function verifyMfaChallenge(db: SenaEnterpriseDb, user: SenaEnterpriseUse
     candidate.challengeHash === tokenHash(input.mfaChallengeToken ?? "")
   ));
   const factor = activeMfaFactor(db, user.id);
-  const challengeValid = Boolean(challenge && Date.parse(challenge.expiresAt) > Date.now());
+  const attemptsSpent = challenge?.attemptCount ?? 0;
+  const challengeValid = Boolean(
+    challenge &&
+    Date.parse(challenge.expiresAt) > Date.now() &&
+    attemptsSpent < mfaChallengeMaxAttempts
+  );
   const codeValid = Boolean(factor && input.mfaCode && verifyTotp(openMfaSecret(factor.secret), input.mfaCode));
+  const success = challengeValid && codeValid && Boolean(challenge && factor);
+  if (challenge && !success) {
+    challenge.attemptCount = attemptsSpent + 1;
+    if (challenge.attemptCount >= mfaChallengeMaxAttempts) {
+      db.mfaChallenges = (db.mfaChallenges ?? []).filter((candidate) => candidate.id !== challenge.id);
+    }
+  }
   appendAudit(db, {
     event: "auth.mfa.verify",
     userId: user.id,
@@ -304,12 +320,14 @@ export function verifyMfaChallenge(db: SenaEnterpriseDb, user: SenaEnterpriseUse
     detail: {
       method: "totp",
       phase: "login",
-      success: challengeValid && codeValid,
-      challengeId: challenge?.id ?? null
+      success,
+      challengeId: challenge?.id ?? null,
+      attemptCount: challenge?.attemptCount ?? 0,
+      maxAttempts: mfaChallengeMaxAttempts
     }
   });
 
-  if (!challengeValid || !codeValid || !challenge || !factor) {
+  if (!success || !challenge || !factor) {
     throw new SenaEnterpriseError("Authenticator code is incorrect or expired.", 401, "invalid_mfa_code");
   }
 

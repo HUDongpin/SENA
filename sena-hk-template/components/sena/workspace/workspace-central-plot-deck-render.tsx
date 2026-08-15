@@ -47,7 +47,10 @@ export function WorkspaceCentralPlotDeckRender(props: WorkspaceCentralPlotDeckRe
       }
       className="min-h-[calc(100vh-7rem)]"
     >
-      <CentralPlotDeckBody {...bodyProps} />
+      {/* The Fusion Canvas workflow step had no target element anywhere in the DOM. */}
+      <div id="workflow-canvas">
+        <CentralPlotDeckBody {...bodyProps} />
+      </div>
     </WorkspaceShellPanel>
   );
 }

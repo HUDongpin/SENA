@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   lessonStudySenaContract
 } from "@/lib/sena/pilot-assets";
@@ -110,7 +110,11 @@ import { useEnterpriseCollaborationActions } from "./use-enterprise-collaboratio
 import { useEnterpriseCollaborationEffects } from "./use-enterprise-collaboration-effects";
 import { useEnterpriseDatabaseSyncActions } from "./use-enterprise-database-sync-actions";
 import { useEnterpriseExpertReviewActions } from "./use-enterprise-expert-review-actions";
-import { useEnterpriseGoLiveActions } from "./use-enterprise-go-live-actions";
+import {
+  EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST,
+  useEnterpriseGoLiveActions,
+  type EnterpriseGoLiveChecklistState
+} from "./use-enterprise-go-live-actions";
 import { useEnterpriseGovernanceExportActions } from "./use-enterprise-governance-export-actions";
 import { useEnterpriseImportActions } from "./use-enterprise-import-actions";
 import { useEnterpriseJsonArtifactExportAction } from "./use-enterprise-json-artifact-export-action";
@@ -302,6 +306,9 @@ export function useSenaFusionWorkspaceMainShellProps() {
   const [platformDecisionProductionEvidenceVerifiedAt, setPlatformDecisionProductionEvidenceVerifiedAt] = useState("");
   const [platformDecisionNotes, setPlatformDecisionNotes] = useState("");
   const [releaseGateDecision, setReleaseGateDecision] = useState<EnterpriseReleaseGateDecision>("conditional");
+  const [goLiveChecklist, setGoLiveChecklist] = useState<EnterpriseGoLiveChecklistState>(
+    EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST
+  );
   const [releaseGateApproverName, setReleaseGateApproverName] = useState("");
   const [releaseGateApproverRole, setReleaseGateApproverRole] = useState("Research platform lead");
   const [releaseGateEnvironment, setReleaseGateEnvironment] = useState("pilot-production");
@@ -686,6 +693,41 @@ export function useSenaFusionWorkspaceMainShellProps() {
     setEnterpriseReleaseGateState
   });
 
+  // The refresh helpers throw so their internal callers can sequence on failure.
+  // Panel buttons invoke them directly, so they need the same reporting the mutate actions do.
+  const guardEnterpriseRefresh = useCallback(
+    <TArgs extends unknown[], TResult>(refresh: (...args: TArgs) => Promise<TResult>) =>
+      async (...args: TArgs): Promise<TResult | null> => {
+        setEnterpriseBusy(true);
+        try {
+          return await refresh(...args);
+        } catch (error) {
+          setEnterpriseMessage(error instanceof Error ? error.message : "Refresh failed.");
+          return null;
+        } finally {
+          setEnterpriseBusy(false);
+        }
+      },
+    [setEnterpriseBusy, setEnterpriseMessage]
+  );
+
+  const refreshEnterpriseTeamStateFromPanel = useMemo(
+    () => guardEnterpriseRefresh(refreshEnterpriseTeamState),
+    [guardEnterpriseRefresh, refreshEnterpriseTeamState]
+  );
+  const refreshEnterpriseSessionListFromPanel = useMemo(
+    () => guardEnterpriseRefresh(refreshEnterpriseSessionList),
+    [guardEnterpriseRefresh, refreshEnterpriseSessionList]
+  );
+  const refreshEnterprisePlatformDecisionStateFromPanel = useMemo(
+    () => guardEnterpriseRefresh(refreshEnterprisePlatformDecisionState),
+    [guardEnterpriseRefresh, refreshEnterprisePlatformDecisionState]
+  );
+  const refreshEnterpriseReleaseGateReviewsFromPanel = useMemo(
+    () => guardEnterpriseRefresh(refreshEnterpriseReleaseGateReviews),
+    [guardEnterpriseRefresh, refreshEnterpriseReleaseGateReviews]
+  );
+
   const {
     refreshEnterpriseCollaboration,
     touchEnterprisePresence,
@@ -954,6 +996,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
   } = useEnterpriseGoLiveActions({
     enterpriseUserPresent: Boolean(enterpriseContext?.user),
     activeEnterpriseTeamId,
+    goLiveChecklist,
     releaseGateDecision,
     releaseGateVersion,
     releaseGateEnvironment,
@@ -1424,11 +1467,25 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onDeliverAuditLog: deliverEnterpriseAuditLogFromWorkspace,
     onDeliverBackup: deliverEnterpriseBackupFromWorkspace,
     onSyncDatabase: syncEnterpriseDatabaseFromWorkspace,
-    onRefreshNotifications: refreshEnterpriseTeamState,
+    onRefreshNotifications: refreshEnterpriseTeamStateFromPanel,
     onDeliverNotifications: deliverEnterpriseNotifications,
     onDeliverEmails: deliverEnterpriseEmailsFromWorkspace,
     onMarkNotificationRead: markEnterpriseNotificationReadFromWorkspace,
-    canSubmitAttestation: Boolean(activeEnterpriseTeamId && releaseGateApproverName.trim() && releaseGateNotes.trim()),
+    goLiveChecklist,
+    onGoLiveChecklistChange: setGoLiveChecklist,
+    // The server rejects an approved attestation unless every item is confirmed; mirror that here
+    // so the reviewer sees the gate before submitting rather than as a failure afterwards.
+    canSubmitAttestation: Boolean(
+      activeEnterpriseTeamId &&
+        releaseGateApproverName.trim() &&
+        releaseGateNotes.trim() &&
+        (releaseGateDecision !== "approved" ||
+          (goLiveChecklist.rehearsalReviewed &&
+            goLiveChecklist.releaseGateDraftReviewed &&
+            goLiveChecklist.verificationEvidenceReviewed &&
+            goLiveChecklist.rollbackOwnerConfirmed &&
+            goLiveChecklist.platformOwnerDecisionReviewed))
+    ),
     onExportOpsStatusJson: exportEnterpriseOpsStatusJson,
     onExportOpsReadinessJson: exportEnterpriseOpsReadinessJson,
     onExportDeploymentPackageJson: exportEnterpriseDeploymentPackageJson,
@@ -1480,7 +1537,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onEnableMfa: enableEnterpriseMfaFromSetup,
     onMfaDisableCodeChange: setEnterpriseMfaDisableCode,
     onDisableMfa: disableEnterpriseMfaFromCode,
-    onRefreshSessionList: refreshEnterpriseSessionList,
+    onRefreshSessionList: refreshEnterpriseSessionListFromPanel,
     onRevokeSession: revokeEnterpriseSession,
     enterpriseUserId,
     enterpriseTeamMemberships,
@@ -1491,7 +1548,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onTeamInviteEmailChange: setTeamInviteEmail,
     onTeamInviteRoleChange: setTeamInviteRole,
     onTeamInviteCodeChange: setTeamInviteCode,
-    onRefreshTeamState: refreshEnterpriseTeamState,
+    onRefreshTeamState: refreshEnterpriseTeamStateFromPanel,
     onCreateTeamInvitation: createTeamInvitation,
     onAcceptTeamInvitation: acceptTeamInvitation,
     onUpdateTeamMembership: updateTeamMembership,
@@ -1512,7 +1569,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     platformDecisionNotes,
     platformDecisionRequiresIdentityEvidenceUrl,
     platformDecisionRequiresIdentityEvidenceTimestamp,
-    onRefreshPlatformDecisionState: refreshEnterprisePlatformDecisionState,
+    onRefreshPlatformDecisionState: refreshEnterprisePlatformDecisionStateFromPanel,
     onExportPlatformDecisionRegisterJson: exportEnterprisePlatformDecisionRegisterJson,
     onExportNativeAdapterCertificationJson: exportEnterpriseNativeAdapterCertificationJson,
     onPlatformDecisionIdChange: (value: EnterprisePlatformDecisionId) => {
@@ -1550,7 +1607,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onReleaseGateVerificationStatusChange: setReleaseGateVerificationStatus,
     onReleaseGateVerificationSummaryChange: setReleaseGateVerificationSummary,
     onReleaseGateVerificationHashChange: setReleaseGateVerificationHash,
-    onRefreshReleaseGateReviews: refreshEnterpriseReleaseGateReviews,
+    onRefreshReleaseGateReviews: refreshEnterpriseReleaseGateReviewsFromPanel,
     onSubmitReleaseGateReview: submitEnterpriseReleaseGateReview,
     enterpriseClaimPackage,
     latestEnterpriseAnalysisRun,
@@ -1717,6 +1774,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onExportProductionPageContractJson: exportProductionPageContractJson,
     onExportProjectSnapshot: exportProjectSnapshot,
     onExportPublication: exportPublication,
+    hasPublicationAccess: Boolean(enterpriseContext?.user),
     onExportReadinessJson: exportPilotReadinessJson,
     onExportReliabilityDashboardJson: exportReliabilityDashboardJson,
     onExportReviewPacket: exportReviewPacketJson,

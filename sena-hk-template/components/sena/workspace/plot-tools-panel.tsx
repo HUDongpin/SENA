@@ -212,15 +212,26 @@ export function PlotToolsPanel({
         >
           {(["social", "concept", "bridge"] as SenaLayer[]).map((layer) => {
             const Icon = layers[layer] ? Eye : EyeOff;
+            // On the plane-orbit figure the plane's code network IS the ENA model,
+            // so the concept toggle only affects the Canvas-based Diagnostic layouts.
+            const inertOnThisLayout = layer === "concept" && layout === "plane-orbit";
             return (
               <button
                 key={layer}
                 type="button"
                 data-testid={`plot-layer-${layer}-toggle`}
+                data-layer-inert-on-layout={inertOnThisLayout ? "true" : undefined}
                 onClick={() => onLayerToggle(layer)}
                 className={cn("flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-black", layerCopy[layer].className, !layers[layer] && "opacity-50")}
               >
-                <span>{layerCopy[layer].label}</span>
+                <span>
+                  {layerCopy[layer].label}
+                  {inertOnThisLayout && (
+                    <span className="ml-2 text-xs font-bold uppercase tracking-[0.06em] opacity-70">
+                      Diagnostic layouts only
+                    </span>
+                  )}
+                </span>
                 <Icon className="h-4 w-4" />
               </button>
             );

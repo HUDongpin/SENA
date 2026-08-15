@@ -1,6 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useCallback } from "react";
+import { buildSenaContractTemplateJson } from "@/lib/sena/contract-template";
 import { lessonStudySampleUrl } from "@/lib/sena/pilot-assets";
 import type { SenaEnterpriseImportResult } from "@/lib/sena/import-adapters";
 import type { SenaLocalReliabilityImportResult } from "@/lib/sena/reliability-adapters";
@@ -192,11 +193,7 @@ export function useDataImportMappedTableActions({
   ]);
 
   const exportContractTemplate = useCallback(() => {
-    downloadText(
-      "sena-data-contract-template.json",
-      JSON.stringify({ people: [], interactions: [], utterances: [], coded_segments: [], codebook: [] }, null, 2),
-      "application/json"
-    );
+    downloadText("sena-data-contract-template.json", buildSenaContractTemplateJson(), "application/json");
   }, [downloadText]);
 
   return {

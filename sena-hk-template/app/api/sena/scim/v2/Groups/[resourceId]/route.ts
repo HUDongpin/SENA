@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import { patchEnterpriseScimGroup, provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -36,6 +36,21 @@ export async function PUT(request: Request, { params }: ScimResourceRouteContext
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
   return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
     const { resourceId } = await params;
-    return await upsertGroup(request, resourceId);
+    requireProvisioningBearerToken(request);
+    const body = await request.json();
+    const schemas = typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray(body.schemas)
+      ? body.schemas
+      : [];
+    const isPatchOp = schemas.some((schema: unknown) => String(schema).toLowerCase().includes("patchop")) ||
+      (typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray((body as { Operations?: unknown }).Operations));
+    if (isPatchOp) {
+      const bridge = patchEnterpriseScimGroup(resourceId, body, scimOptions(request));
+      return NextResponse.json(bridge.resource);
+    }
+    const resource = typeof body === "object" && body !== null && !Array.isArray(body)
+      ? { id: resourceId, ...body }
+      : { id: resourceId };
+    const bridge = provisionEnterpriseScimGroup(resource, scimOptions(request));
+    return NextResponse.json(bridge.resource);
   });
 }

@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import { cn } from "@/lib/utils";
 import {
   DataContractAuditPanel,
@@ -38,6 +39,7 @@ export type WorkspaceLeftRailPanelSectionProps = {
   enterpriseRuntimeProps: WorkspaceEnterpriseRuntimeSectionProps["runtimeProps"];
   dataContractAuditProps: DataContractAuditPanelProps;
   dataImportFeedbackProps: WorkspaceDataImportFeedbackSectionProps;
+  onWorkflowStepSelect?: (stepId: string, event: MouseEvent<HTMLAnchorElement>) => void;
   modelBuilderProps: ModelBuilderPanelProps;
   plotToolsProps: PlotToolsPanelProps;
   statsProps: WorkspaceStatsPanelProps;
@@ -53,7 +55,8 @@ export function WorkspaceLeftRailPanelSection({
   modelBuilderProps,
   plotToolsProps,
   statsProps,
-  workflowStepStates
+  workflowStepStates,
+  onWorkflowStepSelect
 }: WorkspaceLeftRailPanelSectionProps) {
   return (
     <aside data-testid="workspace-left-panel" className="order-2 grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 border-b border-slate-300/70 bg-white p-4 xl:order-none xl:border-b-0 xl:border-r">
@@ -90,7 +93,11 @@ export function WorkspaceLeftRailPanelSection({
 
       <div>
         <div className="mb-3 text-xs font-black uppercase text-slate-500">Research workflow</div>
-        <WorkflowRail steps={workflowStepStates} activeId={activeRailPanel.activeWorkflowId} />
+        <WorkflowRail
+          steps={workflowStepStates}
+          activeId={activeRailPanel.activeWorkflowId}
+          onStepSelect={onWorkflowStepSelect}
+        />
       </div>
     </aside>
   );

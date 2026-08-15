@@ -16,9 +16,26 @@ import type {
 
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
 
+export type EnterpriseGoLiveChecklistState = {
+  rehearsalReviewed: boolean;
+  releaseGateDraftReviewed: boolean;
+  verificationEvidenceReviewed: boolean;
+  rollbackOwnerConfirmed: boolean;
+  platformOwnerDecisionReviewed: boolean;
+};
+
+export const EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST: EnterpriseGoLiveChecklistState = {
+  rehearsalReviewed: false,
+  releaseGateDraftReviewed: false,
+  verificationEvidenceReviewed: false,
+  rollbackOwnerConfirmed: false,
+  platformOwnerDecisionReviewed: false
+};
+
 export type EnterpriseGoLiveActionsOptions = {
   enterpriseUserPresent: boolean;
   activeEnterpriseTeamId: string;
+  goLiveChecklist: EnterpriseGoLiveChecklistState;
   releaseGateDecision: EnterpriseReleaseGateDecision;
   releaseGateVersion: string;
   releaseGateEnvironment: string;
@@ -42,6 +59,7 @@ export type EnterpriseGoLiveActionsOptions = {
 export function useEnterpriseGoLiveActions({
   enterpriseUserPresent,
   activeEnterpriseTeamId,
+  goLiveChecklist,
   releaseGateDecision,
   releaseGateVersion,
   releaseGateEnvironment,
@@ -163,11 +181,13 @@ export function useEnterpriseGoLiveActions({
           attesterRole: releaseGateApproverRole,
           notes: releaseGateNotes,
           checklist: {
-            rehearsalReviewed: true,
-            releaseGateDraftReviewed: true,
-            verificationEvidenceReviewed: releaseGateVerificationStatus === "passed",
-            rollbackOwnerConfirmed: true,
-            platformOwnerDecisionReviewed: true
+            rehearsalReviewed: goLiveChecklist.rehearsalReviewed,
+            releaseGateDraftReviewed: goLiveChecklist.releaseGateDraftReviewed,
+            // The reviewer confirms they read the evidence; a passing status is not that confirmation.
+            verificationEvidenceReviewed:
+              goLiveChecklist.verificationEvidenceReviewed && releaseGateVerificationStatus === "passed",
+            rollbackOwnerConfirmed: goLiveChecklist.rollbackOwnerConfirmed,
+            platformOwnerDecisionReviewed: goLiveChecklist.platformOwnerDecisionReviewed
           }
         },
         { jsonHeaders: enterpriseJsonHeaders }
@@ -182,6 +202,7 @@ export function useEnterpriseGoLiveActions({
     activeEnterpriseTeamId,
     enterpriseJsonHeaders,
     enterpriseUserPresent,
+    goLiveChecklist,
     releaseGateApproverName,
     releaseGateApproverRole,
     releaseGateDecision,

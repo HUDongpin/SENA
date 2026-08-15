@@ -116,8 +116,9 @@ export async function requireApiSessionForMutation(request: Request): Promise<Se
 function requestClientKey(request: Request, discriminator?: string) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
-  const userAgent = request.headers.get("user-agent")?.slice(0, 160) || "unknown-agent";
-  return [forwardedFor || realIp || "local", userAgent, discriminator || "anonymous"].join("|");
+  // Every distinct key gets its own counter, so no attacker-controlled header may
+  // enter the key: a User-Agent here lets one client mint fresh buckets at will.
+  return [forwardedFor || realIp || "local", discriminator || "anonymous"].join("|");
 }
 
 export function enforceAuthRateLimit(request: Request, input: {

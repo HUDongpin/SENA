@@ -19,7 +19,26 @@ export type MethodsWriteUpInput = {
   groupBy: string;
   minWeight: number;
   comparisons: DimensionComparison[];
+  /**
+   * True when the mapping or options changed after `result` was fitted, so the
+   * two no longer describe the same analysis (FA13-NEW-2). Required, not
+   * optional: this function reads live inputs and a frozen run side by side and
+   * interleaves them inside single sentences, so whether they still agree is
+   * something every caller has to have answered.
+   */
+  stale: boolean;
 };
+
+/**
+ * What replaces the paragraph when the inputs have moved on.
+ *
+ * Refusing is the whole point of the module: the write-up is composed from the
+ * live mapping and options *and* the frozen run, so once those disagree every
+ * sentence that mixes them is false in a way no reader could detect. Suppressing
+ * the copy is not a fallback here — it is the only honest output.
+ */
+export const ENA_METHODS_WRITE_UP_STALE =
+  "The mapping or accumulation options changed after this model was fitted, so the analysis on screen was not computed from the settings now shown, and a methods paragraph mixing the two would describe an analysis that never ran. Re-run the model to generate its write-up. Nothing has been lost: the fitted model is still plotted, and restoring the settings it ran on brings the write-up back.";
 
 function list(values: string[]) {
   if (values.length === 0) return "none";
@@ -46,10 +65,15 @@ export function buildEnaMethodsWriteUp({
   options,
   groupBy,
   minWeight,
-  comparisons
+  comparisons,
+  stale
 }: MethodsWriteUpInput) {
   if (!result) {
     return "Run the model to generate a methods write-up describing this analysis.";
+  }
+
+  if (stale) {
+    return ENA_METHODS_WRITE_UP_STALE;
   }
 
   const { summary, set } = result;

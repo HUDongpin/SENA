@@ -106,8 +106,21 @@ export function configuredSenaAppOrigin(input: { required?: boolean } = {}) {
   }
 }
 
+export function passwordResetTokenExposurePolicy() {
+  const requested = envValue("SENA_PASSWORD_RESET_EXPOSE_TOKEN") === "1";
+  const explicitOverride = envValue("SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE") === "1";
+  const productionRuntime = process.env.NODE_ENV === "production";
+  return {
+    requested,
+    enabled: requested && (!productionRuntime || explicitOverride),
+    productionRuntime,
+    explicitOverride,
+    env: "SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE" as const
+  };
+}
+
 export function passwordResetTokenExposure() {
-  return envValue("SENA_PASSWORD_RESET_EXPOSE_TOKEN") === "1";
+  return passwordResetTokenExposurePolicy().enabled;
 }
 
 export function csrfKeySource(): "env-configured" | "session-secret" | "local-default-review" {

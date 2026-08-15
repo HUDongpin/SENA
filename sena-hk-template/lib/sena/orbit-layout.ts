@@ -189,11 +189,28 @@ function normalizeAngle(angle: number) {
   return wrapped < 0 ? wrapped + TAU : wrapped;
 }
 
-/** Signed short way round from `from` to `to`, in (-PI, PI]. */
+/**
+ * Signed short way round from `from` to `to`, in [-PI, PI], and *antisymmetric*:
+ * `shortDelta(a, b) === -shortDelta(b, a)` for every input, boundary included.
+ *
+ * The boundary is not a rounding detail. An exactly antipodal pair — which every
+ * even ring guarantees, and which the 6-person pilot ring contains three of — has
+ * two equally short arcs, so the tie has to be broken the same way from both
+ * ends. Folding `-PI` up to `+PI` (the old `<=`) broke it the *opposite* way from
+ * each end: both directions returned `+PI`, `arcInterval` then handed back a
+ * different half-ring per direction, and since `assignOrbitLanes` books one
+ * interval for a reciprocal pair while the lane builder redraws each partner from
+ * its own delta, the outer partner was drawn across a half-ring nobody had
+ * reserved — free for a third edge to be booked into. Keeping the sign of the
+ * raw difference (`<`) breaks the tie by direction instead: the two partners
+ * agree on one half-ring, book it, and render adjacent like every other
+ * reciprocal pair. JS `%` keeps the dividend's sign, so this makes the whole
+ * function odd rather than only patching the antipodal case.
+ */
 function shortDelta(from: number, to: number) {
   let delta = (to - from) % TAU;
   if (delta > Math.PI) delta -= TAU;
-  if (delta <= -Math.PI) delta += TAU;
+  if (delta < -Math.PI) delta += TAU;
   return delta;
 }
 
@@ -309,7 +326,7 @@ function edgeOrder(left: SenaEdge, right: SenaEdge) {
  */
 function assignOrbitLanes(edges: SenaEdge[], angles: Map<string, number>): LaneAssignment[] {
   const ordered = [...edges].sort(edgeOrder);
-  const byEndpoints = new Map(edges.map((edge) => [`${edge.source} ${edge.target}`, edge]));
+  const byEndpoints = new Map(edges.map((edge) => [`${edge.source}\u0000${edge.target}`, edge]));
   const occupancy: Array<Array<[number, number]>> = [];
   const assignments: LaneAssignment[] = [];
   const assigned = new Set<string>();
@@ -328,7 +345,7 @@ function assignOrbitLanes(edges: SenaEdge[], angles: Map<string, number>): LaneA
     const to = angles.get(edge.target);
     if (from === undefined || to === undefined) continue;
     const interval = arcInterval(from, to);
-    const partner = byEndpoints.get(`${edge.target} ${edge.source}`);
+    const partner = byEndpoints.get(`${edge.target}\u0000${edge.source}`);
 
     if (partner && !assigned.has(partner.id)) {
       const [inner, outer] = edgeOrder(edge, partner) <= 0 ? [edge, partner] : [partner, edge];

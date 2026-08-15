@@ -413,6 +413,148 @@ describe("SENA enterprise runtime", () => {
     )).toHaveLength(1);
   });
 
+  it("keeps an analyst-declared roster row that looks like a reconstruction placeholder (A6)", async () => {
+    // The round-trip filter used to *infer* "machine placeholder" from
+    // group:"Derived" && label === id. An analyst who genuinely declares
+    // {"person_id":"P3","group":"Derived"} with no label mints exactly that
+    // signature — normalizePeople defaults label to id — so the enterprise route
+    // dropped the row before the merged pass ever saw it. Nothing re-derives an
+    // isolate (P3) or a target-only id (P4), so N and the S dimension each fell
+    // silently: the inverse of the failure ADR-0010 exists to prevent. Declared
+    // rows now survive whatever their group and label; only rows the import
+    // itself minted carry the sentinel the filter reads.
+    const contractJson = JSON.stringify({
+      people: [
+        { person_id: "P1", label: "Ada" },
+        { person_id: "P2", label: "Ben" },
+        { person_id: "P3", group: "Derived" },
+        { person_id: "P4", group: "Derived" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" },
+        { utterance_id: "u2", person_id: "P2", unit_id: "unit-1", stanza_id: "st-1", turn_index: 2, text: "Reply" }
+      ],
+      interactions: [{ source: "P1", target: "P4", weight: 1 }]
+    });
+
+    const imported = await importSenaEnterpriseFiles([uploadLike("contract.json", contractJson)]);
+
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["P1", "P2", "P3", "P4"]);
+    // The declared metadata survives too — the row is the analyst's, verbatim.
+    expect(imported.dataset.people.find((person) => person.id === "P3")?.group).toBe("Derived");
+    expect(imported.dataset.people.find((person) => person.id === "P3")?.label).toBe("P3");
+    // N and the S dimension follow the declared roster, so P4 is a seated actor
+    // and its tie is not censored as a dangling target.
+    const model = buildSenaModel(imported.dataset);
+    expect(model.summary.people).toBe(4);
+    expect(model.matrices.S.labels).toHaveLength(4);
+    expect(model.matrices.S.raw).toHaveLength(4);
+    expect(imported.warnings.some((warning) => /roster does not include "P4"/.test(warning))).toBe(false);
+    // The sentinel is internal scaffolding, not contract data: it must not reach
+    // the roster rows the analyst reads back.
+    for (const person of imported.dataset.people) {
+      expect(Object.keys(person).sort()).toEqual(["group", "id", "initials", "label", "role"]);
+    }
+    expect(JSON.stringify(imported.dataset.people)).not.toMatch(/placeholder|derivedBy|sentinel/i);
+  });
+
+  it("agrees with the JSON contract route on N for the same contract (A6)", async () => {
+    // Two import routes, one contract: the enterprise multi-file route round-trips
+    // its per-file dataset back through buildSenaDatasetFromTables, and that
+    // round trip must be roster-preserving. Any row the browser/JSON route seats
+    // the enterprise route must seat too, or the same upload reports two
+    // different node sets — and every count normalized by N with it.
+    const contract = {
+      people: [
+        { person_id: "P1", label: "Ada", group: "Learners" },
+        { person_id: "P2", group: "Derived" },
+        { person_id: "P3", label: "P3", group: "Derived" },
+        { person_id: "P4", label: "Dee", group: "Derived" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" }
+      ],
+      coded_segments: [
+        { segment_id: "cs-1", utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", codes: "Evidence" }
+      ],
+      interactions: [{ source: "P1", target: "P2", weight: 1 }]
+    };
+
+    const browser = importSenaJsonContract(JSON.stringify(contract));
+    const enterprise = await importSenaEnterpriseFiles([uploadLike("contract.json", JSON.stringify(contract))]);
+
+    expect(enterprise.dataset.people.map((person) => person.id).sort())
+      .toEqual(browser.dataset.people.map((person) => person.id).sort());
+    expect(buildSenaModel(enterprise.dataset).summary.people)
+      .toBe(buildSenaModel(browser.dataset).summary.people);
+    expect(buildSenaModel(enterprise.dataset).matrices.S.labels)
+      .toEqual(buildSenaModel(browser.dataset).matrices.S.labels);
+  });
+
+  it("does not warn about a People table the analyst never uploaded (A6)", async () => {
+    // datasetToTables used to emit a `<file>-people` table unconditionally. For a
+    // roster-less contract that table has zero rows and no columns, so its
+    // mapping cannot carry the id field and buildSenaDatasetFromTables demanded
+    // "Person ID" from a table nobody uploaded — a phantom that also inflated
+    // the cleaning manifest's missingTableWarningCount.
+    const contractJson = JSON.stringify({
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" }
+      ],
+      coded_segments: [
+        { segment_id: "cs-1", utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", codes: "Evidence" }
+      ]
+    });
+
+    const rosterLess = await importSenaEnterpriseFiles([uploadLike("contract.json", contractJson)]);
+
+    expect(rosterLess.warnings.some((warning) =>
+      /is mapped as people but is missing required field/i.test(warning)
+    )).toBe(false);
+    // The honest disclosure stands in its place, exactly as the browser/JSON
+    // route words it for the same contract — the F6 rule, not a mapping fault.
+    expect(importSenaJsonContract(contractJson).warnings.some((warning) =>
+      /people table is not uploaded/i.test(warning)
+    )).toBe(true);
+    // And exactly once: the merged pass is the authoritative roster verdict, so
+    // the per-file copy is superseded rather than stacked on top of it.
+    expect(rosterLess.warnings.filter((warning) =>
+      /^people table is not uploaded/.test(warning)
+    )).toHaveLength(1);
+    // Roster-less derivation is untouched: the contributor is still recovered.
+    expect(rosterLess.dataset.people.map((person) => person.id)).toEqual(["P1"]);
+
+    // A people table the analyst *did* upload still has its required field
+    // checked — including a header-only one, which is why the zero-row escape
+    // hatch was rejected in favour of not synthesizing the table at all.
+    const badHeaders = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "name,role\nAda,Participant"),
+      uploadLike("utterances.csv", "utterance_id,person_id,text\nu1,P1,Opening")
+    ]);
+    expect(badHeaders.warnings.some((warning) =>
+      warning === 'people.csv is mapped as people but is missing required field "Person ID".'
+    )).toBe(true);
+
+    const emptyButDeclared = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "name,role"),
+      uploadLike("utterances.csv", "utterance_id,person_id,text\nu1,P1,Opening")
+    ]);
+    expect(emptyButDeclared.warnings.some((warning) =>
+      warning === 'people.csv is mapped as people but is missing required field "Person ID".'
+    )).toBe(true);
+
+    // A per-file "no people table" verdict is a per-file fact, not the import's:
+    // another file can supply the roster, and the merged pass is what decides.
+    const rosterFromAnotherFile = await importSenaEnterpriseFiles([
+      uploadLike("contract.json", contractJson),
+      uploadLike("people.csv", "person_id,label,role,group\nP1,Ada,Participant,Learners")
+    ]);
+    expect(rosterFromAnotherFile.warnings.some((warning) =>
+      /^people table is not uploaded/.test(warning)
+    )).toBe(false);
+    expect(rosterFromAnotherFile.dataset.people.map((person) => person.label)).toEqual(["Ada"]);
+  });
+
   it("still derives placeholder people from interaction sources under a declared roster", () => {
     // A source is a contribution, not a claim: the person demonstrably acted, so
     // a roster omission there is recovered the same way as an unknown utterance
@@ -1301,8 +1443,10 @@ describe("SENA enterprise runtime", () => {
     const rateLimitGovernance = enterprise.getEnterpriseGovernanceStatus();
     expect(rateLimitGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("rateLimitEvents=1");
+    // Registration and password-reset now also take a per-subject bucket (A2), and
+    // those are real limiter records that ops-governance counts.
     expect(rateLimitGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
-      .toContain("activeRateLimitBuckets=1");
+      .toContain("activeRateLimitBuckets=6");
     const rateLimitAudit = enterprise.listEnterpriseAuditLog(registered.context, {
       event: "security.rate_limit",
       limit: 5

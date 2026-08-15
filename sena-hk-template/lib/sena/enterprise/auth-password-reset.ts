@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import { envValue, now, passwordResetTokenExposure } from "./auth-config";
+import { envValue, now, passwordResetTokenExposure, passwordResetTokenExposurePolicy } from "./auth-config";
 import {
   authEmailDomain,
   authEmailHash,
@@ -9,6 +9,10 @@ import {
   tokenHash,
   validateEnterprisePassword
 } from "./auth-password";
+import {
+  enforceEnterpriseAuthSubjectRateLimit,
+  enforceEnterpriseAuthSubjectRateLimitAsync
+} from "./auth-security";
 import { SenaEnterpriseError } from "./errors";
 import {
   queueEnterpriseNotification
@@ -49,6 +53,7 @@ export type SenaEnterprisePasswordResetRequestResult = {
     emailDeliveryId?: string;
     resetToken?: string;
     resetUrl?: string;
+    tokenExposure: ReturnType<typeof passwordResetTokenExposurePolicy>;
   };
 };
 
@@ -186,7 +191,8 @@ function createEnterprisePasswordResetInDb(
   }
   const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = {
     mode: passwordResetDeliveryMode(emailDelivery),
-    emailDeliveryId: emailDelivery?.id
+    emailDeliveryId: emailDelivery?.id,
+    tokenExposure: passwordResetTokenExposurePolicy()
   };
   if (passwordResetTokenExposure()) {
     delivery.resetToken = user ? resetToken : randomBytes(32).toString("base64url");
@@ -204,6 +210,7 @@ function createEnterprisePasswordResetInDb(
 }
 
 export function createEnterprisePasswordReset(input: SenaEnterprisePasswordResetInput): SenaEnterprisePasswordResetRequestResult {
+  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.password_reset", subject: normalizeEmail(input.email) });
   const db = readEnterpriseDb();
   const result = createEnterprisePasswordResetInDb(db, input);
   saveDb(db);
@@ -211,6 +218,7 @@ export function createEnterprisePasswordReset(input: SenaEnterprisePasswordReset
 }
 
 export async function createEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetInput): Promise<SenaEnterprisePasswordResetRequestResult> {
+  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.password_reset", subject: normalizeEmail(input.email) });
   const state = await readEnterpriseState();
   const result = createEnterprisePasswordResetInDb(state.db, input);
   await saveEnterpriseState(state, state.db);

@@ -145,6 +145,8 @@ export function EnterpriseRuntimePanel(props: EnterpriseRuntimePanelProps) {
       <EnterpriseOpsExports
         disabled={disabled}
         canSubmitAttestation={props.canSubmitAttestation}
+        goLiveChecklist={props.goLiveChecklist}
+        onGoLiveChecklistChange={props.onGoLiveChecklistChange}
         onExportOpsStatusJson={props.onExportOpsStatusJson}
         onExportOpsReadinessJson={props.onExportOpsReadinessJson}
         onExportDeploymentPackageJson={props.onExportDeploymentPackageJson}

@@ -38,11 +38,13 @@ type LifecycleState = {
   isRunning: boolean;
   progress: number | null;
   result: string | null;
+  /** What the on-screen result was computed from (FA13-NEW-2, result-staleness.test.ts). */
+  resultInputs: string | null;
   settled: number;
 };
 
 function createHarness() {
-  const state: LifecycleState = { error: null, isRunning: false, progress: null, result: null, settled: 0 };
+  const state: LifecycleState = { error: null, isRunning: false, progress: null, result: null, resultInputs: null, settled: 0 };
   const runToken: EnaRunToken = { current: 0 };
   const setters = {
     setIsRunning: (isRunning: boolean) => { state.isRunning = isRunning; },
@@ -58,6 +60,8 @@ function createHarness() {
         execute,
         onSettled: () => { state.settled += 1; },
         setResult: (result) => { state.result = result; },
+        inputFingerprint: "inputs-of-this-attempt",
+        setResultInputs: (fingerprint) => { state.resultInputs = fingerprint; },
         ...setters
       });
     },

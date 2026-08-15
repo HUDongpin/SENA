@@ -22,6 +22,8 @@ const passwordResetRateLimitWindowSeconds = positiveIntegerEnv("SENA_PASSWORD_RE
 const passwordResetRateLimitMaxRequests = positiveIntegerEnv("SENA_PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS", 5);
 const ssoRateLimitWindowSeconds = positiveIntegerEnv("SENA_SSO_RATE_LIMIT_WINDOW_SECONDS", 5 * 60);
 const ssoRateLimitMaxRequests = positiveIntegerEnv("SENA_SSO_RATE_LIMIT_MAX_REQUESTS", 30);
+const authSubjectRateLimitWindowSeconds = positiveIntegerEnv("SENA_AUTH_SUBJECT_RATE_LIMIT_WINDOW_SECONDS", 15 * 60);
+const authSubjectRateLimitMaxRequests = positiveIntegerEnv("SENA_AUTH_SUBJECT_RATE_LIMIT_MAX_REQUESTS", 5);
 
 export type SenaEnterpriseAuthLockout = {
   id: string;
@@ -88,18 +90,21 @@ export function findAuthLockout(db: SenaEnterpriseDb, email: string) {
   return db.authLockouts.find((lockout) => lockout.emailHash === emailHash);
 }
 
+export type SenaEnterpriseAuthFailureMethod = "password" | "mfa";
+
 export function appendLockedLoginAudit(
   db: SenaEnterpriseDb,
   email: string,
   user: SenaEnterpriseUser | undefined,
-  lockout: SenaEnterpriseAuthLockout
+  lockout: SenaEnterpriseAuthLockout,
+  method: SenaEnterpriseAuthFailureMethod = "password"
 ) {
   appendAudit(db, {
     event: "auth.login.locked",
     userId: user?.id,
     teamId: authLockoutTeamId(db, user),
     detail: {
-      method: "password",
+      method,
       emailHash: lockout.emailHash,
       emailDomain: authEmailDomain(email),
       failedCount: lockout.failedCount,
@@ -108,7 +113,12 @@ export function appendLockedLoginAudit(
   });
 }
 
-export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: SenaEnterpriseUser) {
+export function recordFailedLogin(
+  db: SenaEnterpriseDb,
+  email: string,
+  user?: SenaEnterpriseUser,
+  method: SenaEnterpriseAuthFailureMethod = "password"
+) {
   const timestamp = now();
   const timestampMs = Date.parse(timestamp);
   const emailHash = authEmailHash(email);
@@ -143,7 +153,7 @@ export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: Se
     userId: user?.id,
     teamId: authLockoutTeamId(db, user),
     detail: {
-      method: "password",
+      method,
       emailHash,
       emailDomain,
       failedCount: lockout.failedCount,
@@ -152,7 +162,7 @@ export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: Se
     }
   });
   if (isAuthLockoutActive(lockout)) {
-    appendLockedLoginAudit(db, email, user, lockout);
+    appendLockedLoginAudit(db, email, user, lockout, method);
   }
   return lockout;
 }
@@ -270,4 +280,31 @@ export async function enforceEnterpriseApiRateLimitAsync(input: {
     await saveEnterpriseState(state, state.db);
     throw error;
   }
+}
+
+export type SenaEnterpriseAuthSubjectRateLimitInput = {
+  bucket: string;
+  subject: string;
+  limit?: number;
+  windowSeconds?: number;
+};
+
+// The per-request limiter is keyed on client IP, which a distributed caller can
+// rotate. Flows that act on a named subject (register, password reset) also need
+// a bucket keyed only on that subject so the account itself stays covered.
+function authSubjectRateLimitInput(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return {
+    bucket: `${input.bucket}.subject`,
+    key: `subject:${input.subject.trim().toLowerCase() || "anonymous"}`,
+    limit: input.limit ?? authSubjectRateLimitMaxRequests,
+    windowSeconds: input.windowSeconds ?? authSubjectRateLimitWindowSeconds
+  };
+}
+
+export function enforceEnterpriseAuthSubjectRateLimit(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return enforceEnterpriseApiRateLimit(authSubjectRateLimitInput(input));
+}
+
+export async function enforceEnterpriseAuthSubjectRateLimitAsync(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return enforceEnterpriseApiRateLimitAsync(authSubjectRateLimitInput(input));
 }

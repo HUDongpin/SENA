@@ -16,6 +16,10 @@ import {
   validateEnterprisePassword
 } from "./auth-password";
 import {
+  enforceEnterpriseAuthSubjectRateLimit,
+  enforceEnterpriseAuthSubjectRateLimitAsync
+} from "./auth-security";
+import {
   contextFromDb,
   createSession
 } from "./auth-session";
@@ -33,6 +37,11 @@ export type SenaEnterpriseRegistrationInput = {
   organization: string;
   plan?: SenaEnterpriseTeam["plan"];
   inviteCode?: string;
+  // Onboarding context the registrant declares about themselves. It is recorded
+  // with the registration only — membership role stays driven by the invitation
+  // or by workspace ownership, never by anything the registrant can choose.
+  selfDeclaredRole?: string;
+  productUpdates?: boolean;
 };
 
 function registerEnterpriseUserInDb(
@@ -95,7 +104,17 @@ function registerEnterpriseUserInDb(
   });
 
   const session = createSession(db, user.id);
-  appendAudit(db, { event: "auth.register", userId: user.id, teamId: team.id, detail: { plan: team.plan, role } });
+  appendAudit(db, {
+    event: "auth.register",
+    userId: user.id,
+    teamId: team.id,
+    detail: {
+      plan: team.plan,
+      role,
+      selfDeclaredRole: input.selfDeclaredRole?.trim().slice(0, 80) || null,
+      productUpdatesOptIn: input.productUpdates === true
+    }
+  });
   if (pendingInvite) {
     appendAudit(db, {
       event: "team.invite.accept",
@@ -112,6 +131,7 @@ function registerEnterpriseUserInDb(
 }
 
 export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
+  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.register", subject: normalizeEmail(input.email) });
   const db = readEnterpriseDb();
   const result = registerEnterpriseUserInDb(db, input);
   saveDb(db);
@@ -119,6 +139,7 @@ export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
 }
 
 export async function registerEnterpriseUserAsync(input: SenaEnterpriseRegistrationInput) {
+  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.register", subject: normalizeEmail(input.email) });
   const state = await readEnterpriseState();
   const result = registerEnterpriseUserInDb(state.db, input);
   await saveEnterpriseState(state, state.db);

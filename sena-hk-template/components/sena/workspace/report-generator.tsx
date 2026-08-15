@@ -794,7 +794,8 @@ export function ReportGenerator({
   onExportMarkdown,
   onReliabilityUpload,
   hasReliabilityDashboard,
-  onExportPublication
+  onExportPublication,
+  hasPublicationAccess
 }: {
   model: SenaModel;
   completenessAudit: SenaReportCompletenessAudit;
@@ -866,6 +867,7 @@ export function ReportGenerator({
   onReliabilityUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   hasReliabilityDashboard: boolean;
   onExportPublication: (format: PublicationFormat) => void;
+  hasPublicationAccess: boolean;
 }) {
   const edgeEvidenceCount = model.edges.reduce((total, edge) => total + edge.evidence.length, 0);
   const pairEvidenceCount = model.pairReport.reduce((total, pair) => total + pair.evidence.length, 0);
@@ -1175,27 +1177,32 @@ export function ReportGenerator({
         <button onClick={onExportMarkdown} className={buttonStyles({ variant: "secondary" })}>
           <FileText className="h-4 w-4" /> Export report MD
         </button>
-        <button data-testid="export-publication-html" onClick={() => onExportPublication("html")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-html" disabled={!hasPublicationAccess} onClick={() => onExportPublication("html")} className={buttonStyles({ variant: "secondary" })}>
           <FileText className="h-4 w-4" /> Export HTML
         </button>
-        <button data-testid="export-publication-svg" onClick={() => onExportPublication("svg")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-svg" disabled={!hasPublicationAccess} onClick={() => onExportPublication("svg")} className={buttonStyles({ variant: "secondary" })}>
           <Download className="h-4 w-4" /> Export figure SVG
         </button>
-        <button data-testid="export-publication-png" onClick={() => onExportPublication("png")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-png" disabled={!hasPublicationAccess} onClick={() => onExportPublication("png")} className={buttonStyles({ variant: "secondary" })}>
           <Download className="h-4 w-4" /> Export figure PNG
         </button>
-        <button data-testid="export-publication-xlsx" onClick={() => onExportPublication("xlsx")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-xlsx" disabled={!hasPublicationAccess} onClick={() => onExportPublication("xlsx")} className={buttonStyles({ variant: "secondary" })}>
           <Download className="h-4 w-4" /> Export Excel
         </button>
-        <button data-testid="export-publication-docx" onClick={() => onExportPublication("docx")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-docx" disabled={!hasPublicationAccess} onClick={() => onExportPublication("docx")} className={buttonStyles({ variant: "secondary" })}>
           <FileText className="h-4 w-4" /> Export DOCX
         </button>
-        <button data-testid="export-publication-pdf" onClick={() => onExportPublication("pdf")} className={buttonStyles({ variant: "secondary" })}>
+        <button data-testid="export-publication-pdf" disabled={!hasPublicationAccess} onClick={() => onExportPublication("pdf")} className={buttonStyles({ variant: "secondary" })}>
           <FileText className="h-4 w-4" /> Export PDF
         </button>
-        <button data-testid="export-publication-package" onClick={() => onExportPublication("package")} className={buttonStyles()}>
+        <button data-testid="export-publication-package" disabled={!hasPublicationAccess} onClick={() => onExportPublication("package")} className={buttonStyles()}>
           <Download className="h-4 w-4" /> Export publication package
         </button>
+        {!hasPublicationAccess && (
+          <p data-testid="publication-export-signin-note" className="basis-full text-xs font-semibold text-muted">
+            Sign in to export publication formats.
+          </p>
+        )}
       </div>
     </div>
   );
