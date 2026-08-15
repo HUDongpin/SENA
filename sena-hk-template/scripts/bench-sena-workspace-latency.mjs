@@ -42,8 +42,20 @@ import { chromium } from "playwright";
 
 const url = process.argv[2] ?? process.env.SENA_LATENCY_URL ?? "http://127.0.0.1:3123/workspace/sena";
 const RUNS = Number(process.env.SENA_LATENCY_RUNS ?? 15);
-const CANVAS = '[data-testid="sena-fusion-canvas"]';
+// The settle signal is a plotted node inside whichever fusion surface the build
+// renders by default. ADR-0009 flipped that default from the A1 canvas to the
+// plane-orbit figure, and because this harness had not been run since 2026-08-03
+// nobody saw that it was still waiting on `sena-fusion-canvas` — which the default
+// view stopped rendering when the redesign merged on 2026-08-11. The wait simply
+// timed out, so the whole timing lane was dead rather than wrong.
+//
+// Matching either surface keeps one harness valid across both, which is also what
+// makes a same-session A/B against a pre-redesign build possible — and the
+// same-session rule (P6: 9-31% cross-day drift) means an A/B is the only way to
+// turn these numbers into a verdict rather than a reading.
+const FUSION_SURFACES = ['[data-testid="sena-fusion-canvas"]', '[data-testid="sena-fusion-plane-orbit"]'];
 const NODE_MARK = '[data-testid^="sena-node-"]';
+const SETTLED = FUSION_SURFACES.map((surface) => `${surface} ${NODE_MARK}`).join(", ");
 const VIEWS = ["fusion", "dual", "temporal", "ena", "sna", "evidence", "matrix"];
 const SETTLE_MS = 150;
 // Pinned: the desktop/mobile branch swap is width-dependent, so an unpinned
@@ -77,9 +89,14 @@ function instrument() {
   // carried model nodes. Retaining the element lets us ask isConnected later,
   // which is how the surviving canvas is identified after the branch swap.
   window.__sena = { canvases: [], lastMutation: null };
+  // Inlined rather than referencing FUSION_SURFACES: addInitScript serialises this
+  // function, so it cannot close over module scope. Both surfaces are matched for
+  // the reason given at the constant — the default flipped to plane-orbit, and the
+  // metrics below are what actually go stale if this query misses it.
+  const surfaces = '[data-testid="sena-fusion-canvas"], [data-testid="sena-fusion-plane-orbit"]';
   const check = () => {
     window.__sena.lastMutation = performance.now();
-    for (const canvas of document.querySelectorAll('[data-testid="sena-fusion-canvas"]')) {
+    for (const canvas of document.querySelectorAll(surfaces)) {
       if (window.__sena.canvases.some((entry) => entry.el === canvas)) continue;
       if (!canvas.querySelector('[data-testid^="sena-node-"]')) continue;
       window.__sena.canvases.push({ el: canvas, at: performance.now() });
@@ -111,7 +128,7 @@ for (let run = 0; run < RUNS; run += 1) {
   await context.addInitScript(instrument);
   const page = await context.newPage();
   await page.goto(url, { waitUntil: "load", timeout: 30000 });
-  await page.waitForSelector(`${CANVAS} ${NODE_MARK}`, { timeout: 30000 });
+  await page.waitForSelector(SETTLED, { timeout: 30000 });
   // The branch swap lands a few ms after the first canvas; wait for the DOM to
   // stop mutating so the surviving canvas is the one we record.
   await page.waitForFunction(
@@ -147,7 +164,7 @@ const switchContext = await browser.newContext({ viewport: VIEWPORT });
 await switchContext.addInitScript(instrument);
 const switchPage = await switchContext.newPage();
 await switchPage.goto(url, { waitUntil: "load", timeout: 30000 });
-await switchPage.waitForSelector(`${CANVAS} ${NODE_MARK}`, { timeout: 30000 });
+await switchPage.waitForSelector(SETTLED, { timeout: 30000 });
 
 for (let run = 0; run < RUNS; run += 1) {
   for (const view of VIEWS) {
