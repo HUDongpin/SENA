@@ -30,6 +30,19 @@ export type SenaEnterpriseProvisioningTeamInput = {
   name: string;
   organization?: string;
   plan?: SenaEnterpriseTeam["plan"];
+  /**
+   * Role members of this team default to. Persisted on the team record;
+   * undefined leaves an already-stored default untouched, so a provisioning
+   * request that does not speak about defaults cannot silently erase one.
+   */
+  defaultRole?: SenaEnterpriseRole;
+  /**
+   * `true` retires the team, `false` restores it, undefined leaves its archival
+   * state exactly as it is.
+   */
+  archived?: boolean;
+  /** Actor recorded on the archival; defaults to the provisioning source. */
+  archivedBy?: string;
 };
 
 export type SenaEnterpriseProvisioningMembershipInput = {
@@ -80,6 +93,8 @@ export type SenaEnterpriseProvisioningResult = {
     externalId?: string;
     name: string;
     status: "created" | "updated";
+    /** Set only when this request changed the team's archival state. */
+    archival?: "archived" | "restored";
   }>;
   users: Array<{
     id: string;
@@ -169,6 +184,69 @@ function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?:
   }).length;
 }
 
+/**
+ * The last-active-manager guard exists to stop a team being stranded with
+ * nobody who can administer it. A retired team has nobody by construction, so
+ * an archived team is out of the calculation entirely — otherwise retiring a
+ * team whose only manager it owns would be refused rather than applied.
+ */
+function teamIsArchived(db: SenaEnterpriseDb, teamId: string) {
+  return Boolean(db.teams.find((team) => team.id === teamId)?.archived);
+}
+
+function requireActiveTeamManagers(db: SenaEnterpriseDb, teamId: string, error: SenaEnterpriseError, override?: {
+  membershipId: string;
+  role: SenaEnterpriseRole;
+  status: SenaEnterpriseMembership["status"];
+}) {
+  if (teamIsArchived(db, teamId)) return;
+  if (activeTeamManagerCount(db, teamId, override) === 0) throw error;
+}
+
+/**
+ * Retires a team. Every membership still active on it is suspended — not just
+ * the ones the archiving source provisioned — because every reader that decides
+ * "is this team mine" does so through an active membership: the session context
+ * (`contextFromDb`), and therefore team listings and every RBAC check built on
+ * it. A team that vanished from listings but still granted permissions would be
+ * worse than no archival at all.
+ */
+function archiveProvisionedTeam(
+  db: SenaEnterpriseDb,
+  team: SenaEnterpriseTeam,
+  input: SenaEnterpriseProvisioningTeamInput,
+  source: SenaEnterpriseProvisioningSource,
+  syncedAt: string
+) {
+  if (team.archived) return false;
+  const suspended = db.memberships.filter((membership) => membership.teamId === team.id && membership.status === "active");
+  for (const membership of suspended) {
+    membership.status = "suspended";
+    membership.updatedAt = syncedAt;
+  }
+  team.archived = {
+    archivedAt: syncedAt,
+    archivedBy: input.archivedBy?.trim() || `${source}:${team.provisioning?.externalId ?? team.id}`,
+    source,
+    suspendedMembershipIds: suspended.map((membership) => membership.id)
+  };
+  team.updatedAt = syncedAt;
+  return true;
+}
+
+function restoreProvisionedTeam(db: SenaEnterpriseDb, team: SenaEnterpriseTeam, syncedAt: string) {
+  if (!team.archived) return false;
+  const restored = new Set(team.archived.suspendedMembershipIds);
+  for (const membership of db.memberships) {
+    if (!restored.has(membership.id) || membership.status === "active") continue;
+    membership.status = "active";
+    membership.updatedAt = syncedAt;
+  }
+  delete team.archived;
+  team.updatedAt = syncedAt;
+  return true;
+}
+
 type SenaEnterpriseProvisioningAuditEntry = Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">;
 
 type SenaEnterpriseProvisioningCommit = {
@@ -227,6 +305,9 @@ function provisionEnterpriseOrganizationInDb(
     if (plan !== "individual" && plan !== "lab" && plan !== "enterprise") {
       throw new SenaEnterpriseError("Provisioned team plan is not supported.", 400, "invalid_provisioning_plan");
     }
+    if (teamInput.defaultRole && !rolePermissions[teamInput.defaultRole]) {
+      throw new SenaEnterpriseError("Provisioned team default role is not supported.", 400, "invalid_provisioning_team_default_role");
+    }
     let team = provisionedTeamByInput(db, source, organization, teamInput);
     let status: "created" | "updated" = "updated";
     if (!team) {
@@ -235,6 +316,7 @@ function provisionEnterpriseOrganizationInDb(
         name,
         plan,
         organization: teamInput.organization?.trim() || organization,
+        defaultRole: teamInput.defaultRole,
         provisioning: provisioningMetadata(source, teamInput.externalId, syncedAt),
         createdAt: syncedAt,
         updatedAt: syncedAt
@@ -246,11 +328,21 @@ function provisionEnterpriseOrganizationInDb(
       team.name = name;
       team.plan = plan;
       team.organization = teamInput.organization?.trim() || organization;
+      if (teamInput.defaultRole) team.defaultRole = teamInput.defaultRole;
       team.provisioning = provisioningMetadata(source, teamInput.externalId ?? team.provisioning?.externalId, syncedAt);
       team.updatedAt = syncedAt;
       result.summary.teamsUpdated += 1;
     }
-    result.teams.push({ id: team.id, externalId: team.provisioning?.externalId, name: team.name, status });
+    // Archival is settled before memberships are applied, so the membership
+    // guards below see the team's final state: a retired team is out of the
+    // manager calculation, and a restored one accepts active members again.
+    let archival: "archived" | "restored" | undefined;
+    if (teamInput.archived === true && archiveProvisionedTeam(db, team, teamInput, source, syncedAt)) {
+      archival = "archived";
+    } else if (teamInput.archived === false && restoreProvisionedTeam(db, team, syncedAt)) {
+      archival = "restored";
+    }
+    result.teams.push({ id: team.id, externalId: team.provisioning?.externalId, name: team.name, status, archival });
   }
 
   const touchedTeamIds = new Set(result.teams.map((team) => team.id));
@@ -306,9 +398,12 @@ function provisionEnterpriseOrganizationInDb(
 
     if (userInput.status === "suspended") {
       for (const membership of db.memberships.filter((candidate) => candidate.userId === user!.id && candidate.status !== "suspended")) {
-        if (activeTeamManagerCount(db, membership.teamId, { membershipId: membership.id, role: membership.role, status: "suspended" }) === 0) {
-          throw new SenaEnterpriseError("Provisioning cannot suspend the last active team manager.", 400, "last_team_manager_required");
-        }
+        requireActiveTeamManagers(
+          db,
+          membership.teamId,
+          new SenaEnterpriseError("Provisioning cannot suspend the last active team manager.", 400, "last_team_manager_required"),
+          { membershipId: membership.id, role: membership.role, status: "suspended" }
+        );
         membership.status = "suspended";
         membership.provisioning = provisioningMetadata(source, membership.provisioning?.externalId ?? `${user.provisioning?.externalId ?? user.id}:${membership.teamId}`, syncedAt);
         membership.updatedAt = syncedAt;
@@ -337,6 +432,12 @@ function provisionEnterpriseOrganizationInDb(
       if (!team) {
         throw new SenaEnterpriseError("Provisioned membership referenced a missing team.", 400, "provisioning_team_missing");
       }
+      // A retired team may still take suspended memberships — that is exactly
+      // what the archiving request writes — but granting active access to it
+      // would resurrect the team for RBAC while it stays hidden from listings.
+      if (team.archived && membershipStatus === "active") {
+        throw new SenaEnterpriseError("Provisioned memberships cannot be added to an archived team.", 400, "provisioning_team_archived");
+      }
       let membership = db.memberships.find((candidate) => candidate.teamId === team.id && candidate.userId === user!.id);
       const change: "created" | "updated" = membership ? "updated" : "created";
       if (!membership) {
@@ -353,9 +454,12 @@ function provisionEnterpriseOrganizationInDb(
         db.memberships.push(membership);
         result.summary.membershipsCreated += 1;
       } else {
-        if (activeTeamManagerCount(db, team.id, { membershipId: membership.id, role: membershipInput.role, status: membershipStatus }) === 0) {
-          throw new SenaEnterpriseError("Provisioning cannot remove the last active team manager.", 400, "last_team_manager_required");
-        }
+        requireActiveTeamManagers(
+          db,
+          team.id,
+          new SenaEnterpriseError("Provisioning cannot remove the last active team manager.", 400, "last_team_manager_required"),
+          { membershipId: membership.id, role: membershipInput.role, status: membershipStatus }
+        );
         membership.role = membershipInput.role;
         membership.status = membershipStatus;
         membership.provisioning = provisioningMetadata(source, membership.provisioning?.externalId ?? `${user.provisioning?.externalId ?? user.id}:${team.provisioning?.externalId ?? team.id}`, syncedAt);
@@ -375,9 +479,11 @@ function provisionEnterpriseOrganizationInDb(
   }
 
   for (const teamId of touchedTeamIds) {
-    if (activeTeamManagerCount(db, teamId) === 0) {
-      throw new SenaEnterpriseError("Provisioned teams require at least one active owner, PI, or manager.", 400, "provisioning_team_manager_required");
-    }
+    requireActiveTeamManagers(
+      db,
+      teamId,
+      new SenaEnterpriseError("Provisioned teams require at least one active owner, PI, or manager.", 400, "provisioning_team_manager_required")
+    );
   }
 
   if (dryRun) return { result, audit: null };
@@ -395,7 +501,9 @@ function provisionEnterpriseOrganizationInDb(
         usersCreated: result.summary.usersCreated,
         usersUpdated: result.summary.usersUpdated,
         membershipsCreated: result.summary.membershipsCreated,
-        membershipsUpdated: result.summary.membershipsUpdated
+        membershipsUpdated: result.summary.membershipsUpdated,
+        teamsArchived: result.teams.filter((team) => team.archival === "archived").length,
+        teamsRestored: result.teams.filter((team) => team.archival === "restored").length
       }
     }
   };
@@ -452,7 +560,11 @@ function listEnterpriseProvisioningDirectoryFromDb(
   source: SenaEnterpriseProvisioningSource
 ): SenaEnterpriseProvisioningDirectory {
   const users = db.users.filter((user) => user.provisioning?.source === source);
-  const teams = db.teams.filter((team) => team.provisioning?.source === source);
+  // An archived team is retired: it leaves the directory, and so do the
+  // memberships pointing at it, so a directory read never advertises a group
+  // that a GET would 404 on.
+  const archivedTeamIds = new Set(db.teams.filter((team) => team.archived).map((team) => team.id));
+  const teams = db.teams.filter((team) => team.provisioning?.source === source && !team.archived);
   const teamById = new Map(db.teams.map((team) => [team.id, team]));
   const userById = new Map(db.users.map((user) => [user.id, user]));
   return {
@@ -467,7 +579,11 @@ function listEnterpriseProvisioningDirectoryFromDb(
       organization: user.organization,
       ssoSubjects: user.ssoIdentities.map((identity) => `${identity.provider}:${identity.subject}`),
       memberships: db.memberships
-        .filter((membership) => membership.userId === user.id && membership.provisioning?.source === source)
+        .filter((membership) => (
+          membership.userId === user.id &&
+          membership.provisioning?.source === source &&
+          !archivedTeamIds.has(membership.teamId)
+        ))
         .map((membership) => {
           const team = teamById.get(membership.teamId);
           return {
@@ -486,6 +602,7 @@ function listEnterpriseProvisioningDirectoryFromDb(
       name: team.name,
       organization: team.organization,
       plan: team.plan,
+      defaultRole: team.defaultRole,
       members: db.memberships
         .filter((membership) => membership.teamId === team.id && membership.provisioning?.source === source)
         .map((membership) => {
@@ -528,6 +645,11 @@ export type SenaEnterpriseProvisioningDirectory = {
     name: string;
     organization: string;
     plan: SenaEnterpriseTeam["plan"];
+    /**
+     * The team's stored default role, surfaced so a provisioning client can
+     * recover it on a request that does not carry the group's own extension.
+     */
+    defaultRole?: SenaEnterpriseRole;
     members: Array<{
       userId: string;
       userExternalId?: string;
