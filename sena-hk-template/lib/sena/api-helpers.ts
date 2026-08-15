@@ -128,8 +128,24 @@ export async function requireApiSessionForMutation(request: Request): Promise<Se
 function requestClientKey(request: Request, discriminator?: string) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
-  // Every distinct key gets its own counter, so no attacker-controlled header may
-  // enter the key: a User-Agent here lets one client mint fresh buckets at will.
+  // Every distinct key gets its own counter, so anything an attacker can vary
+  // freely must stay out of it — a User-Agent here let one client mint unlimited
+  // fresh buckets, which is why it was removed.
+  //
+  // The IP component is NOT in that safe category on its own, and saying otherwise
+  // is what this comment used to do. Both headers are client-supplied; the
+  // left-most x-forwarded-for value is only trustworthy when every request reaches
+  // this handler through a proxy that overwrites the header rather than appending
+  // to it. Behind such a proxy (Vercel's edge, an ingress that rewrites XFF) the
+  // key is sound. Deployed with the app directly reachable, a caller can vary
+  // x-forwarded-for per request and split these buckets exactly as a rotated
+  // User-Agent did. Taking the right-most hop instead is not a general fix: which
+  // entry is trustworthy depends on how many proxies are in front, so it would
+  // trade one wrong assumption for another.
+  //
+  // The per-subject backstops are what hold when this assumption does not:
+  // recordFailedLogin on login, and the password-reset and registration subject
+  // budgets. Those are keyed on the account, which an attacker cannot vary.
   return [forwardedFor || realIp || "local", discriminator || "anonymous"].join("|");
 }
 
