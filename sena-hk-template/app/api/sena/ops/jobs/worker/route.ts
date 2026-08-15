@@ -2,6 +2,11 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
+import {
+  runEnterpriseServerJobFromQueueWebhook,
+  serverJobWorkerInlineExecutionEnabled,
+  type SenaServerJobWorkerOutcome
+} from "@/lib/sena/enterprise/server-job-worker-runtime";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
@@ -58,6 +63,7 @@ function parsePayload(body: string) {
     const parsed = JSON.parse(body) as {
       schemaVersion?: unknown;
       job?: { id?: unknown; kind?: unknown };
+      workerPayload?: unknown;
       probe?: { dispatchEvent?: unknown };
     };
     if (typeof parsed.schemaVersion !== "string") {
@@ -84,6 +90,81 @@ function acceptedEvent(request: Request, payload: ReturnType<typeof parsePayload
   return event as "server_job.queue" | "server_job.queue.probe";
 }
 
+type WorkerExecutionReceipt = {
+  attempted: boolean;
+  status: "succeeded" | "failed" | "skipped" | "not-attempted";
+  jobStatus?: string;
+  attempts?: number;
+  retryable?: boolean;
+  errorCode?: string;
+  errorHash?: string;
+  skipReason?: string;
+  workerRunIdHash?: string;
+  jobIdValueExcluded: true;
+  resultIdValuesExcluded: true;
+};
+
+const notAttemptedExecution: WorkerExecutionReceipt = {
+  attempted: false,
+  status: "not-attempted",
+  jobIdValueExcluded: true,
+  resultIdValuesExcluded: true
+};
+
+function executionReceipt(outcome: SenaServerJobWorkerOutcome): WorkerExecutionReceipt {
+  return {
+    attempted: true,
+    status: outcome.status,
+    jobStatus: outcome.jobStatus,
+    attempts: outcome.attempts,
+    retryable: outcome.retryable,
+    errorCode: outcome.errorCode,
+    errorHash: outcome.errorHash,
+    skipReason: outcome.skipReason,
+    // Only the hash: the run id correlates worker logs to a job without the
+    // receipt carrying an id an intermediary could replay.
+    workerRunIdHash: outcome.workerRunId ? sha256Text(outcome.workerRunId) : undefined,
+    jobIdValueExcluded: true,
+    resultIdValuesExcluded: true
+  };
+}
+
+/**
+ * Runs the delivered job in-process.
+ *
+ * This is the half that was missing: the signature and payload hash are already
+ * verified above, so a body that reaches here is one the queue signed. Only then
+ * is the job claimed and executed. Operators running a separate external worker
+ * turn this off with SENA_JOB_WORKER_INLINE_EXECUTION=0, which restores the
+ * pre-existing receipt-only behaviour.
+ */
+async function executeDeliveredJob(
+  event: "server_job.queue" | "server_job.queue.probe",
+  payload: ReturnType<typeof parsePayload>
+): Promise<WorkerExecutionReceipt> {
+  if (event !== "server_job.queue") return notAttemptedExecution;
+  if (!serverJobWorkerInlineExecutionEnabled()) return notAttemptedExecution;
+  const jobId = typeof payload.job?.id === "string" ? payload.job.id.trim() : "";
+  if (!jobId) {
+    return { ...notAttemptedExecution, status: "skipped", skipReason: "server_job_worker_job_id_missing" };
+  }
+  try {
+    return executionReceipt(await runEnterpriseServerJobFromQueueWebhook({
+      jobId,
+      workerPayload: payload.workerPayload
+    }));
+  } catch (error) {
+    // The delivery itself was valid, so the receipt still reports 202 — but it
+    // reports why nothing ran rather than implying the job was handled.
+    return {
+      ...notAttemptedExecution,
+      attempted: true,
+      status: "skipped",
+      skipReason: error instanceof SenaEnterpriseError ? error.code : "server_job_worker_execution_unavailable"
+    };
+  }
+}
+
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-jobs-worker" }, async () => {
     const body = await request.text();
@@ -93,6 +174,7 @@ export async function POST(request: Request) {
     const event = acceptedEvent(request, payload);
     const jobIdHash = typeof payload.job?.id === "string" ? sha256Text(payload.job.id) : undefined;
     const jobKind = typeof payload.job?.kind === "string" ? payload.job.kind : undefined;
+    const execution = await executeDeliveredJob(event, payload);
 
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhookReceipt,
@@ -108,6 +190,7 @@ export async function POST(request: Request) {
         accepted: event === "server_job.queue.probe",
         probeIdValueExcluded: true
       },
+      execution,
       delivery: {
         payloadSha256,
         signatureVerified: true,
@@ -124,6 +207,7 @@ export async function POST(request: Request) {
         "x-sena-server-job-worker": "accepted",
         "x-sena-server-job-worker-event": event,
         "x-sena-server-job-worker-signature": "verified",
+        "x-sena-server-job-worker-execution": execution.status,
         "x-sena-server-job-worker-payload-sha256": payloadSha256,
         "x-sena-server-job-worker-url-values": "excluded"
       }

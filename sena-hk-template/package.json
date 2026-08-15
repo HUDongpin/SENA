@@ -34,6 +34,7 @@
     "sena:jobs:queue-verify": "vite-node scripts/verify-sena-job-queue-runtime.ts",
     "sena:jobs:worker-contract": "vite-node scripts/verify-sena-job-worker-contract.ts",
     "sena:jobs:worker-heartbeat": "vite-node scripts/verify-sena-job-worker-heartbeat.ts",
+    "sena:jobs:worker-run": "vite-node scripts/run-sena-job-worker.ts",
     "sena:production-evidence:check": "vite-node scripts/verify-sena-production-evidence-manifest.ts",
     "sena:production-evidence:archive": "vite-node scripts/archive-sena-production-evidence.ts",
     "sena:production-evidence:bind": "node scripts/bind-sena-production-evidence.mjs",
