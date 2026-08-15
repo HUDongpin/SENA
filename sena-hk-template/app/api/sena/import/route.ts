@@ -1,7 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { NextResponse } from "next/server";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "@/lib/sena/analysis-run";
-import { buildSenaStableContentHash } from "@/lib/sena/data-contract-audit";
 import {
   createEnterpriseAnalysisRunWithPostgresMirrorAsync,
   createEnterpriseImportRunWithPostgresMirrorAsync,
@@ -27,9 +26,8 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
-import { importSenaEnterpriseFiles } from "@/lib/sena/import-adapters";
+import { importSenaEnterpriseFiles, withSenaImportDatasetMetadata } from "@/lib/sena/import-adapters";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
-import type { SenaDataset } from "@/lib/sena/types";
 
 export const runtime = "nodejs";
 
@@ -50,51 +48,6 @@ function formJson<T = unknown>(value: FormDataEntryValue | null, fieldName: stri
   } catch {
     throw new SenaEnterpriseError(`${fieldName} must be valid JSON.`, 400, "invalid_import_form_json");
   }
-}
-
-function hasOpaquePersonIds(dataset: SenaDataset) {
-  return dataset.people.length > 0 && dataset.people.every((person) => /^p-\d+$/i.test(person.id));
-}
-
-function withImportDatasetMetadata(
-  dataset: SenaDataset,
-  dataGovernance: SenaAnalysisRunInput["dataGovernance"] | undefined,
-  generatedAt: string
-): SenaDataset {
-  if (dataset.metadata || !dataGovernance || !hasOpaquePersonIds(dataset)) return dataset;
-  const consentScope = dataGovernance.consentScope?.trim();
-  const retentionPolicy = dataGovernance.retentionPolicy?.trim();
-  const irbApprovalId = dataGovernance.irbApprovalId?.trim();
-  if (!consentScope || !retentionPolicy || !irbApprovalId) return dataset;
-
-  return {
-    ...dataset,
-    metadata: {
-      datasetVersion: `enterprise-import-${buildSenaStableContentHash({
-        people: dataset.people.map((person) => person.id),
-        utterances: dataset.utterances.map((utterance) => utterance.id),
-        codedSegments: dataset.coded_segments.map((segment) => segment.segmentId),
-        codebook: dataset.codebook.map((code) => code.id)
-      })}`,
-      consent: {
-        instrument: irbApprovalId,
-        date: dataGovernance.reviewedAt?.slice(0, 10) || generatedAt.slice(0, 10),
-        scope: consentScope
-      },
-      retention: {
-        policy: retentionPolicy
-      },
-      pseudonymization: {
-        personIdPolicy: "opaque",
-        rosterMapping: "not-stored"
-      },
-      codebook: {
-        id: `enterprise-import-codebook-${buildSenaStableContentHash(dataset.codebook.map((code) => code.id))}`,
-        version: "imported-v1",
-        contentHash: buildSenaStableContentHash(dataset.codebook)
-      }
-    }
-  };
 }
 
 function importResponseHeaders(input: {
@@ -236,7 +189,7 @@ export async function POST(request: Request) {
     }
 
     const result = await importSenaEnterpriseFiles(bufferedFiles);
-    const dataset = withImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
+    const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
     const sourceByName = new Map(result.sources.map((source) => [source.name, source]));
     const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,

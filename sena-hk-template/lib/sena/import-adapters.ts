@@ -1,4 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type { SenaAnalysisRunInput } from "./analysis-run";
+import { buildSenaStableContentHash } from "./data-contract-audit";
 import { readXlsxWorkbookRows } from "./excel-workbook";
 import {
   buildSenaDatasetFromTables,
@@ -893,4 +895,102 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
     sources,
     cleaningManifest: buildCleaningManifest(sources, allWarnings, result.dataset)
   };
+}
+
+export type SenaImportDataGovernance = SenaAnalysisRunInput["dataGovernance"];
+
+function hasOpaquePersonIds(dataset: SenaDataset) {
+  return dataset.people.length > 0 && dataset.people.every((person) => /^p-\d+$/i.test(person.id));
+}
+
+/**
+ * Derives dataset.metadata (consent, retention, pseudonymization, codebook) from
+ * the governance block an enterprise import request carried.
+ *
+ * Both callers of importSenaEnterpriseFiles apply this before they build a
+ * snapshot: the synchronous import route and the queued-job worker. It lives here
+ * rather than beside either one because library code cannot import from a route
+ * module — and while each held its own copy, the two could drift into persisting
+ * different datasets, and so different projectSnapshotSha256 values, for the same
+ * files and the same dataGovernance block.
+ */
+export function withSenaImportDatasetMetadata(
+  dataset: SenaDataset,
+  dataGovernance: SenaImportDataGovernance | undefined,
+  generatedAt: string
+): SenaDataset {
+  if (dataset.metadata || !dataGovernance || !hasOpaquePersonIds(dataset)) return dataset;
+  const consentScope = dataGovernance.consentScope?.trim();
+  const retentionPolicy = dataGovernance.retentionPolicy?.trim();
+  const irbApprovalId = dataGovernance.irbApprovalId?.trim();
+  if (!consentScope || !retentionPolicy || !irbApprovalId) return dataset;
+
+  return {
+    ...dataset,
+    metadata: {
+      datasetVersion: `enterprise-import-${buildSenaStableContentHash({
+        people: dataset.people.map((person) => person.id),
+        utterances: dataset.utterances.map((utterance) => utterance.id),
+        codedSegments: dataset.coded_segments.map((segment) => segment.segmentId),
+        codebook: dataset.codebook.map((code) => code.id)
+      })}`,
+      consent: {
+        instrument: irbApprovalId,
+        date: dataGovernance.reviewedAt?.slice(0, 10) || generatedAt.slice(0, 10),
+        scope: consentScope
+      },
+      retention: {
+        policy: retentionPolicy
+      },
+      pseudonymization: {
+        personIdPolicy: "opaque",
+        rosterMapping: "not-stored"
+      },
+      codebook: {
+        id: `enterprise-import-codebook-${buildSenaStableContentHash(dataset.codebook.map((code) => code.id))}`,
+        version: "imported-v1",
+        contentHash: buildSenaStableContentHash(dataset.codebook)
+      }
+    }
+  };
+}
+
+export type SenaReliabilityUploadFile = {
+  name: string;
+  bytes: Buffer;
+};
+
+/**
+ * Picks the parser for a reliability upload by extension.
+ *
+ * Shared by the synchronous reliability route and the queued-job worker for the
+ * same reason as withSenaImportDatasetMetadata above: a queued run has to score
+ * the same rows out of the same file the direct run would, and two copies of this
+ * dispatch had already drifted — only one of them rejected legacy .xls, so a
+ * queued .xls was read as CSV and scored as whatever its binary bytes happened to
+ * parse into.
+ */
+export async function readSenaReliabilityUploadRows(
+  file: SenaReliabilityUploadFile
+): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".xlsx")) {
+    const workbook = await readXlsxWorkbookRows(file.bytes);
+    return { rows: workbook.flatMap((sheet) => sheet.rows), warnings: [] };
+  }
+  if (lower.endsWith(".xls")) {
+    throw new Error(`${file.name}: legacy .xls reliability uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before uploading.`);
+  }
+  if (lower.endsWith(".json")) {
+    const parsed = JSON.parse(file.bytes.toString("utf8"));
+    return {
+      rows: Array.isArray(parsed) ? parsed.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)) : [],
+      warnings: []
+    };
+  }
+  const parsed = parseSenaCsv(file.bytes.toString("utf8"));
+  // Ragged-row repairs are recorded per file; the padded empty value cell is
+  // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
+  // instead of being read as an applied code that moves kappa/alpha.
+  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }

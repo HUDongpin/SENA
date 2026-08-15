@@ -26,6 +26,41 @@ const reliabilityCsv = [
   "c2,u2,Evidence,0"
 ].join("\n");
 
+// Opaque person ids and no dataset.metadata of its own: the two preconditions
+// withSenaImportDatasetMetadata requires before it derives one from the request's
+// dataGovernance block. A contract that already carries metadata, or that names
+// people by roster id, would leave the derivation dormant and make the parity
+// assertion below vacuous.
+const parityImportContract = {
+  people: [
+    { id: "p-1", label: "Participant 1", role: "Teacher", group: "Parity Team", initials: "P1" },
+    { id: "p-2", label: "Participant 2", role: "Teacher", group: "Parity Team", initials: "P2" }
+  ],
+  interactions: [
+    { source: "p-1", target: "p-2", weight: 2, channel: "reply", stage: "Plan", turnIndex: 1 }
+  ],
+  utterances: [
+    { id: "u1", personId: "p-1", unitId: "parity-unit", stanzaId: "parity-1", stage: "Plan", turnIndex: 1, text: "What evidence would tell us the question worked", timestamp: "2026-06-08T09:00:00Z" },
+    { id: "u2", personId: "p-2", unitId: "parity-unit", stanzaId: "parity-1", stage: "Plan", turnIndex: 2, text: "We can explain the pattern with the exit tickets", timestamp: "2026-06-08T09:01:00Z" }
+  ],
+  coded_segments: [
+    { segmentId: "s1", utteranceId: "u1", personId: "p-1", unitId: "parity-unit", stanzaId: "parity-1", stage: "Plan", turnIndex: 1, text: "What evidence would tell us the question worked", codes: ["question"], confidence: 1 },
+    { segmentId: "s2", utteranceId: "u2", personId: "p-2", unitId: "parity-unit", stanzaId: "parity-1", stage: "Plan", turnIndex: 2, text: "We can explain the pattern with the exit tickets", codes: ["explanation"], confidence: 1 }
+  ],
+  codebook: [
+    { id: "question", label: "Question", family: "Inquiry", description: "Problem framing and inquiry prompts", color: "#7c3aed" },
+    { id: "explanation", label: "Explanation", family: "Inquiry", description: "Mechanism and reasoning moves", color: "#0ea5e9" }
+  ]
+};
+
+const parityDataGovernance = {
+  irbApprovalId: "IRB-2026-PARITY-01",
+  consentScope: "Consented lesson-study discourse, secondary analysis only",
+  retentionPolicy: "Raw transcripts deleted 24 months after publication",
+  dataSteward: "Parity Data Steward",
+  reviewedAt: "2026-08-10T00:00:00.000Z"
+};
+
 async function workerFixture(options: { inlinePayload?: boolean } = {}) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-job-worker-runtime-"));
   process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
@@ -728,4 +763,158 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(stored.status).toBe("queued");
     expect(stored.lifecycle.attempts).toBe(0);
   });
+
+  /**
+   * The reason withSenaImportDatasetMetadata lives in import-adapters.ts instead
+   * of in the import route beside its only other caller.
+   *
+   * Queueing is meant to be a scheduling decision, not a semantic one: the same
+   * file with the same dataGovernance block has to land the same dataset either
+   * way. projectSnapshotSha256 is the sharpest place to assert that, because it
+   * hashes the whole snapshot the analysis run was built from — so it moves if
+   * the derived consent/retention/pseudonymization/codebook metadata moves, and
+   * it moved for real while the route and the worker each kept their own copy of
+   * the derivation.
+   *
+   * The clock is frozen only because buildSenaAnalysisRun stamps generatedAt from
+   * the wall clock when the caller does not supply one, and neither caller does;
+   * without that the two hashes would differ on the timestamp alone and the
+   * assertion would say nothing about the metadata.
+   */
+  it("lands the same project snapshot for a queued import as the synchronous route does for the same file and governance block", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-job-worker-import-parity-"));
+    let sessionToken = "";
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-15T09:30:00.000Z"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/import-adapters", async () => await import("../import-adapters"));
+    vi.doMock("@/lib/sena/analysis-run", async () => await import("../analysis-run"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const importAnalysis = await import("../enterprise/import-analysis");
+      const queue = await import("../enterprise/server-job-queue");
+      const runtime = await import("../enterprise/server-job-worker-runtime");
+
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Import Parity Owner",
+        email: "import-parity-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Import Parity Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const teamId = registered.context.teams[0].id;
+
+      // Byte-identical inputs down the two paths, including the file name: the
+      // adapters prefix their warnings with it, and those warnings ride on the
+      // dataset the snapshot is built from.
+      const fileName = "parity-import.json";
+      const fileBody = JSON.stringify(parityImportContract);
+      const title = "Import Parity Project";
+
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const form = new FormData();
+      form.set("teamId", teamId);
+      form.set("action", "create-project");
+      form.set("title", title);
+      form.set("dataGovernance", JSON.stringify(parityDataGovernance));
+      form.append("files", new File([fileBody], fileName, { type: "application/json" }));
+
+      const route = await import("../../../app/api/sena/import/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/import", {
+        method: "POST",
+        headers: {
+          "x-sena-csrf-token": csrf.token
+        },
+        body: form
+      }));
+      const direct = await response.json() as {
+        dataset?: {
+          metadata?: {
+            datasetVersion?: string;
+            consent?: { instrument?: string; date?: string; scope?: string };
+            retention?: { policy?: string };
+            pseudonymization?: { personIdPolicy?: string; rosterMapping?: string };
+          };
+        };
+      };
+      expect(response.status).toBe(201);
+
+      // Not a vacuous pin: the direct import really did derive the metadata, so
+      // the hash below is a hash of a governed dataset rather than of a dataset
+      // the derivation declined to touch.
+      expect(direct.dataset?.metadata?.consent).toEqual({
+        instrument: parityDataGovernance.irbApprovalId,
+        date: "2026-08-10",
+        scope: parityDataGovernance.consentScope
+      });
+      expect(direct.dataset?.metadata?.retention?.policy).toBe(parityDataGovernance.retentionPolicy);
+      expect(direct.dataset?.metadata?.pseudonymization).toEqual({
+        personIdPolicy: "opaque",
+        rosterMapping: "not-stored"
+      });
+      const directSnapshotSha256 = response.headers.get("x-sena-project-snapshot-sha256");
+      expect(directSnapshotSha256).toMatch(/^[a-f0-9]{64}$/);
+
+      const uploads = await importAnalysis.createEnterpriseUploadsWithPostgresMirrorAsync(registered.context, {
+        teamId,
+        files: [{
+          name: fileName,
+          contentType: "application/json",
+          bytes: Buffer.from(fileBody, "utf8")
+        }]
+      });
+      const uploadIds = uploads.map((upload) => upload.id);
+      const payload = {
+        action: "run-import",
+        teamId,
+        uploadIds,
+        persistProject: true,
+        title,
+        includeRuntimeBundle: false,
+        dataGovernance: parityDataGovernance
+      };
+      const job = await queue.enqueueEnterpriseServerJob({
+        kind: "import",
+        teamId,
+        actorUserId: registered.context.user.id,
+        payload,
+        payloadSummary: {
+          source: "upload",
+          fileCount: uploadIds.length,
+          uploadIds,
+          persist: true,
+          includeRuntimeBundle: false,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }
+      });
+      const outcome = await runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+      expect(outcome.errorCode).toBeUndefined();
+      expect(outcome.status).toBe("succeeded");
+      expect(outcome.result?.projectSnapshotSha256).toBe(directSnapshotSha256);
+    } finally {
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_ALLOW_LOCAL;
+      vi.useRealTimers();
+      vi.doUnmock("next/headers");
+      vi.doUnmock("@/lib/sena/enterprise");
+      vi.doUnmock("@/lib/sena/api-helpers");
+      vi.doUnmock("@/lib/sena/import-adapters");
+      vi.doUnmock("@/lib/sena/analysis-run");
+    }
+  }, 30_000);
 });
