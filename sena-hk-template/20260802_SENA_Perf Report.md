@@ -594,3 +594,27 @@ strict-evidence flags.
   a measurement, and this campaign has now supplied every measurement it could:
   the cost (9.28 s on Slow 3G), the share (55% of on-open JS), the mechanism (module
   evaluation, per the CPU profile), and the absence of a free alternative (this table).
+
+- **2026-08-16 iteration 9, part 4 — T7 "just preload it in parallel" REJECTED by measurement.**
+  The waterfall showed the compute chunk starting only at **3,300 ms** on Slow 3G,
+  after wave 1 (framework chunks, 475→3,262 ms) had finished, then taking 5.9 s to
+  transfer — so ~2.8 s looked like pure serial idling, recoverable with no UX change at
+  all. `analysis-runtime` is reachable only through a static import inside
+  `SenaFusionWorkspace`, so webpack cannot discover it until that chunk arrives.
+
+  Hypothesis: kicking off `import("./workspace/analysis-runtime")` at module scope in
+  `SenaFusionWorkspaceLoader` (a floating warm-up, `dynamic()` still owning render)
+  would start the fetch in wave 1 and cut ~2.8 s for free.
+
+  **It did not work, and it cost bytes.** Time-to-figure 9.28 s → **9.34 s** (median of
+  3, i.e. unchanged within noise) while `total-static-js-br` rose 824,408 → **832,282 B
+  (+7,874)**. The eager reference changed webpack's chunking rather than parallelising
+  the fetch — chunk 2599 was not even requested under its old identity — so the payload
+  was reorganised, not scheduled earlier. **Reverted;** the tree is back at 824,791 B.
+
+  Recorded because the negative result is the useful part: the obvious cheap fix for the
+  serial waterfall does not exist at this layer, which removes the last "surely there's
+  something free here" objection to T7's framing. A preload hint targeting the emitted
+  chunk URL might still work, but that URL is content-hashed per build, so it needs a
+  build-time manifest lookup rather than a source-level import — a real mechanism, not a
+  one-liner, and it belongs to whichever T7 option is chosen rather than preceding it.
