@@ -12,9 +12,11 @@ import { describe, expect, it, vi } from "vitest";
  * shape for: the default read, `?format=csv`, `?integrity=1`, the POST delivery
  * handler, and the unauthenticated/unauthorised form of each.
  *
- * Three assertions below deliberately pin behaviour this file considers wrong.
- * They are marked DEFECT and say what the handler should do instead; they exist
- * so the next change to the route is a decision rather than an accident.
+ * Two specs here used to be marked DEFECT and pinned the export as it shipped:
+ * a CSV silently cut to the first page, and an integrity payload computed for
+ * `format=csv` and dropped. Both defects are fixed, and those specs are now the
+ * inverted regression — same fixtures, opposite expectations — so a relapse
+ * fails on the exact assertions that once described the bug.
  */
 
 const auditUrl = "https://sena.example.test/api/sena/governance/audit";
@@ -96,12 +98,26 @@ type AuditDeliveryBody = {
 
 type ErrorBody = { error?: string; code?: string };
 
+type OpsAuditModule = typeof import("../enterprise/ops-audit");
+
 type AuditRouteHarness = {
   route: typeof import("../../../app/api/sena/governance/audit/route");
   enterprise: typeof import("../enterprise");
   state: typeof import("../enterprise/state");
   signIn: (token: string) => void;
   signOut: () => void;
+};
+
+type AuditRouteOptions = {
+  /**
+   * Replaces named exports of the ops-audit module *as the route sees it*
+   * (`@/lib/sena/enterprise/ops-audit`), leaving the relative import the fixtures
+   * use untouched. The only caller is the retention-cap spec, which has no other
+   * way to produce a scoped set larger than the export cap: the file-backed store
+   * slices `db.auditLog` at that same cap, so an over-cap read only exists on the
+   * Postgres store.
+   */
+  opsAudit?: (actual: OpsAuditModule) => Partial<OpsAuditModule>;
 };
 
 const hex64 = /^[a-f0-9]{64}$/;
@@ -116,7 +132,8 @@ const isoTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 async function withAuditRoute<T>(
   prefix: string,
   run: (harness: AuditRouteHarness) => Promise<T>,
-  env: Record<string, string> = {}
+  env: Record<string, string> = {},
+  options: AuditRouteOptions = {}
 ) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), prefix));
   let sessionToken = "";
@@ -131,7 +148,10 @@ async function withAuditRoute<T>(
     })
   }));
   vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
-  vi.doMock("@/lib/sena/enterprise/ops-audit", async () => await import("../enterprise/ops-audit"));
+  vi.doMock("@/lib/sena/enterprise/ops-audit", async () => {
+    const actual = await import("../enterprise/ops-audit");
+    return options.opsAudit ? { ...actual, ...options.opsAudit(actual) } : actual;
+  });
   vi.doMock("@/lib/sena/enterprise/errors", async () => await import("../enterprise/errors"));
   vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
 
@@ -396,7 +416,7 @@ describe("SENA governance audit route CSV export", () => {
     });
   });
 
-  it("DEFECT: truncates the CSV export at the default page limit and says nothing", async () => {
+  it("exports every scoped event for format=csv instead of the first page", async () => {
     await withAuditRoute("sena-governance-audit-csv-truncation-", async ({ route, enterprise, state, signIn }) => {
       const owner = seedAuditOwner(enterprise, "truncation");
       const teamId = owner.context.teams[0].id;
@@ -412,6 +432,8 @@ describe("SENA governance audit route CSV export", () => {
       }
       state.saveDb(db);
 
+      // The JSON read is still a paged read and is deliberately unchanged: 100
+      // of 150 with a nextOffset the caller can follow.
       const json = await route.GET(readRequest(`${auditUrl}?teamId=${teamId}`));
       const jsonBody = await json.json() as AuditLogBody;
       expect(json.status).toBe(200);
@@ -427,39 +449,84 @@ describe("SENA governance audit route CSV export", () => {
       const csv = await csvResponse.text();
       const rows = csvRows(csv);
 
-      // What the handler does today. The shipped "Export audit CSV" button
-      // (components/sena/workspace/enterprise-ops-actions.ts) sends no `limit`,
-      // so `listEnterpriseAuditLogAsync` applies its default of 100 and
-      // `auditCsv(result.events)` writes one page — 100 of 150 events — under
-      // the filename sena-enterprise-audit-log.csv.
-      expect(rows).toHaveLength(101);
+      // The export is the whole scoped set — header row plus all 150 events —
+      // not the 100-row page the shipped "Export audit CSV" button used to get
+      // (components/sena/workspace/enterprise-ops-actions.ts sends no `limit`).
+      expect(csvResponse.status).toBe(200);
+      expect(rows).toHaveLength(151);
 
-      // DEFECT: nothing in the response distinguishes a complete export from a
-      // truncated one. There is no trailing marker row, no `nextOffset`
-      // anywhere in the CSV, and no response header carrying the total; the JSON
-      // read above knows total=150 and the export audit entry records it, but
-      // the artifact the operator archives does not. A retention or e-discovery
-      // export silently missing its oldest 50 events is indistinguishable from a
-      // complete one. Expected: either export the full scoped set for
-      // format=csv, or surface total/returned on the response (header or marker
-      // row) so truncation is visible. These assertions pin the gap; they do not
-      // bless it.
-      expect(csv).not.toContain("truncated");
-      expect(csv).not.toContain("nextOffset");
-      expect(rows.at(-1)).toContain('"project.read"');
-      expect(auditPaginationHeaders(csvResponse)).toEqual({ total: null, returned: null, nextOffset: null });
+      // The events an audit request is usually *about* are the oldest ones, and
+      // they are exactly what a newest-first page drops. The last row is the
+      // registration that opened the log, not the 100th project.read.
+      expect(rows.at(-1)).toContain('"auth.register"');
+      expect(rows.filter((row) => row.includes('"project.read"'))).toHaveLength(149);
 
-      // An explicit limit is the only way to get the whole log out today. The
-      // count is 151 rather than 150 because the export above appended its own
-      // governance.audit.export entry — recorded after that export's page was
-      // taken, so an export never contains its own record.
-      const full = await (await route.GET(readRequest(`${auditUrl}?format=csv&limit=500&teamId=${teamId}`))).text();
-      expect(csvRows(full)).toHaveLength(152);
-      expect(full).toContain('"governance.audit.export"');
+      // ...and the response says so in machine-readable form, so an archiver can
+      // tell a complete artifact from a partial one without counting rows.
+      expect(auditPaginationHeaders(csvResponse)).toEqual({ total: "150", returned: "150", nextOffset: "none" });
+
+      // A `limit` cannot shrink the export: paging is a JSON concern, and a
+      // partial file under the name sena-enterprise-audit-log.csv is the defect
+      // this spec exists for. The count is 152 rather than 151 because the
+      // export above appended its own governance.audit.export entry — recorded
+      // after that export was taken, so an export never contains its own record.
+      const full = await route.GET(readRequest(`${auditUrl}?format=csv&limit=1&teamId=${teamId}`));
+      expect(auditPaginationHeaders(full)).toEqual({ total: "151", returned: "151", nextOffset: "none" });
+      const fullCsv = await full.text();
+      expect(csvRows(fullCsv)).toHaveLength(152);
+      expect(fullCsv).toContain('"governance.audit.export"');
+
+      // The export audit entry keeps describing what actually left the building.
+      const exported = (await (await route.GET(readRequest(`${auditUrl}?event=governance.audit.export&teamId=${teamId}`)))
+        .json() as AuditLogBody).events ?? [];
+      expect(exported.map((entry) => entry.detail)).toEqual([
+        expect.objectContaining({ events: 151, total: 151, complete: true }),
+        expect.objectContaining({ events: 150, total: 150, complete: true })
+      ]);
     });
   });
 
-  it("DEFECT: computes the integrity payload for format=csv and then discards it", async () => {
+  it("refuses rather than hand back a CSV truncated at the retention cap", async () => {
+    await withAuditRoute("sena-governance-audit-csv-cap-", async ({ route, enterprise, signIn }) => {
+      const owner = seedAuditOwner(enterprise, "cap");
+      const teamId = owner.context.teams[0].id;
+      signIn(owner.token);
+
+      const response = await route.GET(readRequest(`${auditUrl}?format=csv&teamId=${teamId}`));
+      const body = await response.json() as ErrorBody;
+
+      // The scoped set is one event larger than the export can return (see the
+      // opsAudit stub below). There is no partial-file answer here: the caller
+      // gets a 4xx naming the cap, not a spreadsheet missing its oldest rows.
+      expect(response.status).toBe(413);
+      expect(body.code).toBe("audit_export_truncated");
+      expect(body.error).toContain("5000");
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(response.headers.get("content-disposition")).toBeNull();
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
+
+      // Nothing was exported, so nothing claims to have been.
+      const exported = (await (await route.GET(readRequest(`${auditUrl}?event=governance.audit.export&teamId=${teamId}`)))
+        .json() as AuditLogBody).events ?? [];
+      expect(exported).toEqual([]);
+    }, {}, {
+      opsAudit: (actual) => ({
+        exportEnterpriseAuditLogAsync: async (context, input) => {
+          const result = await actual.exportEnterpriseAuditLogAsync(context, input);
+          return {
+            ...result,
+            pagination: {
+              ...result.pagination,
+              total: result.pagination.returned + 1,
+              nextOffset: result.pagination.returned
+            }
+          };
+        }
+      })
+    });
+  });
+
+  it("carries the audit chain head on the CSV export it was asked to compute", async () => {
     await withAuditRoute("sena-governance-audit-csv-integrity-", async ({ route, enterprise, signIn }) => {
       const owner = seedAuditOwner(enterprise, "csv-integrity");
       const teamId = owner.context.teams[0].id;
@@ -476,19 +543,32 @@ describe("SENA governance audit route CSV export", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toBe("text/csv; charset=utf-8");
 
-      // DEFECT: GET runs `verifyEnterpriseAuditIntegrityAsync` — a full
-      // chain hash over every scoped event — before the format branch, then the
-      // CSV branch returns without using it. So `integrity=1` on a CSV export
-      // costs the work and delivers nothing: the exported artifact carries no
-      // chain head, and lib/sena/api-evidence-notes.ts nonetheless documents
-      // this surface as one that exposes "chain-head evidence". Expected:
-      // either emit the chain head with the export (an x-sena-audit-chain-head
-      // header is enough) or skip the computation on the CSV path. Pinned, not
-      // blessed.
+      // `integrity=1` now buys what it pays for. GET already hashes every scoped
+      // entry and every chain link; the export carries that chain head out with
+      // it, so the artifact a compliance reviewer archives can be tied back to
+      // the log — which is what lib/sena/api-evidence-notes.ts claims this
+      // surface does.
+      expect(response.headers.get("x-sena-audit-chain-head")).toBe(chainHead);
+      expect(response.headers.get("x-sena-audit-integrity-status")).toBe("review");
+
+      // The evidence rides on headers, not in the body: the header row and the
+      // CSV grammar are unchanged, so no parser has to learn a new dialect.
       expect(csv).not.toContain(chainHead as string);
       expect(csv.split("\n")[0]).toBe('"id","createdAt","event","userId","teamId","projectId","detail"');
-      expect(response.headers.get("x-sena-audit-chain-head")).toBeNull();
-      expect([...response.headers.keys()].some((header) => header.includes("integrity"))).toBe(false);
+      expect(csvRows(csv)).toHaveLength(2);
+
+      // ...and the chain head is recorded against the export entry, so the log
+      // itself says which artifact was handed out.
+      const exported = (await (await route.GET(readRequest(`${auditUrl}?event=governance.audit.export&teamId=${teamId}`)))
+        .json() as AuditLogBody).events ?? [];
+      expect(exported[0]?.detail).toEqual(expect.objectContaining({ chainHead }));
+
+      // Without integrity=1 the chain pass is skipped rather than computed and
+      // dropped, so no chain-head header is promised.
+      const plain = await route.GET(readRequest(`${auditUrl}?format=csv&teamId=${teamId}`));
+      expect(plain.status).toBe(200);
+      expect(plain.headers.get("x-sena-audit-chain-head")).toBeNull();
+      expect(plain.headers.get("x-sena-audit-integrity-status")).toBeNull();
     });
   });
 

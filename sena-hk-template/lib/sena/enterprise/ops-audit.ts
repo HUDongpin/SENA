@@ -538,12 +538,29 @@ function auditTeamScopeFromDb(db: SenaEnterpriseDb, context?: SenaEnterpriseSess
   return manageable;
 }
 
+/**
+ * Paged reads stay small enough to answer a UI request. Exports do not page at
+ * all — see `exportEnterpriseAuditLogAsync` — so their ceiling is the retention
+ * cap itself.
+ */
+const auditPageMaxLimit = 500;
+
+export const enterpriseAuditExportMaxEvents = auditRetentionMaxEvents;
+
 export function listEnterpriseAuditLog(context: SenaEnterpriseSessionContext, input: SenaEnterpriseAuditLogQuery = {}): SenaEnterpriseAuditLogResult {
+  return listEnterpriseAuditLogPage(context, input, auditPageMaxLimit);
+}
+
+function listEnterpriseAuditLogPage(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseAuditLogQuery,
+  maxLimit: number
+): SenaEnterpriseAuditLogResult {
   const db = readEnterpriseDb();
   const teamIds = auditTeamScopeFromDb(db, context, input.teamId);
   const from = auditTimestamp(input.from);
   const to = auditTimestamp(input.to);
-  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), maxLimit);
   const offset = Math.max(Math.trunc(input.offset ?? 0), 0);
 
   const filtered = auditEntriesInScope(db, teamIds).filter((entry) => {
@@ -583,12 +600,40 @@ export function listEnterpriseAuditLog(context: SenaEnterpriseSessionContext, in
 }
 
 export async function listEnterpriseAuditLogAsync(context: SenaEnterpriseSessionContext, input: SenaEnterpriseAuditLogQuery = {}): Promise<SenaEnterpriseAuditLogResult> {
+  return listEnterpriseAuditLogPageAsync(context, input, auditPageMaxLimit);
+}
+
+/**
+ * The whole scoped set in one answer, for callers producing an archival artifact
+ * rather than a screenful. `limit`/`offset` are deliberately not accepted: a page
+ * of an audit export is indistinguishable from the export once it is a file on
+ * someone's disk. The ceiling is the retention cap, which the file-backed store
+ * enforces on write (`appendAudit`) and which the Postgres integrity pass already
+ * reads at; when a scoped set exceeds it, `pagination.nextOffset` is non-null and
+ * the caller is expected to refuse rather than emit a partial artifact.
+ */
+export async function exportEnterpriseAuditLogAsync(
+  context: SenaEnterpriseSessionContext,
+  input: Omit<SenaEnterpriseAuditLogQuery, "limit" | "offset"> = {}
+): Promise<SenaEnterpriseAuditLogResult> {
+  return listEnterpriseAuditLogPageAsync(
+    context,
+    { ...input, limit: enterpriseAuditExportMaxEvents, offset: 0 },
+    enterpriseAuditExportMaxEvents
+  );
+}
+
+async function listEnterpriseAuditLogPageAsync(
+  context: SenaEnterpriseSessionContext,
+  input: SenaEnterpriseAuditLogQuery,
+  maxLimit: number
+): Promise<SenaEnterpriseAuditLogResult> {
   if (!isPostgresAuditStoreActive()) {
-    return listEnterpriseAuditLog(context, input);
+    return listEnterpriseAuditLogPage(context, input, maxLimit);
   }
   const state = await readEnterpriseState();
   const teamIds = auditTeamScopeFromDb(state.db, context, input.teamId);
-  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), maxLimit);
   const offset = Math.max(Math.trunc(input.offset ?? 0), 0);
   auditTimestamp(input.from);
   auditTimestamp(input.to);
