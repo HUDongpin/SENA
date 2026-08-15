@@ -140,12 +140,27 @@ export function cancelEnaAnalysis(runToken: EnaRunToken, host: EnaCancelHost): v
  * The inputs a run bakes into its result and which cannot be recovered from
  * it: the column mapping and the accumulation options.
  *
- * Composition — Group By and the minimum edge weight — is deliberately absent.
- * `composedPlotModel` rebuilds the drawn network from whatever set exists, so
- * those two follow their controls immediately whichever run landed and cannot
- * go stale; marking a result for them would nag the researcher to re-run for
- * nothing. The dataset is the third baked-in input, but replacing it clears
- * the result outright (applyCsv), leaving nothing to mark.
+ * Composition — Group By and the minimum edge weight — is deliberately absent,
+ * and marking a result for them would nag the researcher to re-run for nothing.
+ * But the reason is narrower than "composition cannot go stale", which is what
+ * this comment used to claim and which is false as stated: a run DOES bake the
+ * composition it was started with into `result.plotModel` (buildEnaPlotModel
+ * consumes both `groupBy` and `minWeight`), and that frozen model does go stale
+ * the moment either control moves.
+ *
+ * What licenses the exclusion is that every surface which shows or states the
+ * composition derives it live rather than reading the frozen model:
+ * `composedPlotModel` rebuilds the drawn network from whatever set exists, and
+ * the Methods write-up is handed `activeGroupBy` and `minWeight` directly.
+ * The JSON export was the exception — it serialised `result.plotModel` verbatim
+ * and so shipped a figure spec with no group traces beside a paragraph reading
+ * "Units were grouped by stage" — and it is now handed the drawn model instead
+ * (`enaResultForExport`). Any future consumer of the frozen `result.plotModel`
+ * has to do the same: this stamp will not mark it, and no stale banner will
+ * warn about it.
+ *
+ * The dataset is the third baked-in input, but replacing it clears the result
+ * outright (applyCsv), leaving nothing to mark.
  */
 export type EnaBakedInInputs = {
   mapping: EnaMapping;

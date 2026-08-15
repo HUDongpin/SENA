@@ -158,6 +158,31 @@ export function buildEnaPlotModel(set: ENASet, composition: EnaPlotComposition =
   return model;
 }
 
+/**
+ * The result as it is written to disk by the JSON export.
+ *
+ * FA13-NEW-2. `result.plotModel` is built once, at run time, from the
+ * composition that stood when Run was pressed — `buildEnaPlotModel` consumes
+ * both `groupBy` (the group-mean traces) and `minWeight` (the network
+ * threshold) and freezes the answer into the result. The workspace then goes on
+ * rebuilding the *drawn* figure from the live controls (`composedPlotModel`),
+ * and the Methods write-up reads those same controls live. Serialising the
+ * frozen model therefore handed the researcher a figure spec and a methods
+ * paragraph, exported together, describing two different networks: "Units were
+ * grouped by stage" over a plotModel with no group traces at all.
+ *
+ * So the export takes the model that is actually drawn. `set`, `summary` and
+ * `warnings` are the fitted run's and are carried through untouched — they do
+ * not depend on composition, and the points/connections CSVs export the same
+ * fitted quantities.
+ *
+ * `drawnPlotModel` is null only before anything has been composed, in which
+ * case there is no drawn figure to disagree with and the fitted model stands.
+ */
+export function enaResultForExport(result: EnaRunResult, drawnPlotModel: ENAPlotModel | null): EnaRunResult {
+  return drawnPlotModel ? { ...result, plotModel: drawnPlotModel } : result;
+}
+
 export function buildEnaRunResult(
   set: ENASet,
   rowCount: number,

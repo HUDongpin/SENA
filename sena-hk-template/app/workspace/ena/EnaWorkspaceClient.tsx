@@ -56,7 +56,13 @@ import {
   enaPlotScaleRange,
   type EnaPlotDisplay
 } from "@/lib/ena/plot-display";
-import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight, unitGroupValues } from "@/lib/ena/results";
+import {
+  buildEnaPlotModel,
+  buildEnaRunResult,
+  effectiveEnaMinWeight,
+  enaResultForExport,
+  unitGroupValues
+} from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
 import {
   canPublishEnaResult,
@@ -982,9 +988,13 @@ export function EnaWorkspaceClient() {
     same analysis. supersedeRunForInputChange covers the run in flight; this
     covers the run that already finished, which its guard cannot reach.
 
-    Composition (Group By, minimum edge weight) is not part of the stamp: those
-    are rebuilt from whatever set exists, so they cannot go stale. That
-    exclusion lives in enaRunInputFingerprint, where a test can execute it.
+    Composition (Group By, minimum edge weight) is not part of the stamp — not
+    because a run bakes in no composition (it bakes one into result.plotModel),
+    but because every surface that shows or states it derives it live: the drawn
+    figure from composedPlotModel, the write-up from activeGroupBy/minWeight,
+    and the JSON export from the drawn model rather than the frozen one. The
+    exclusion and its narrowed justification live in run-lifecycle, where a test
+    can execute them.
   */
   const liveInputFingerprint = useMemo(
     () => enaRunInputFingerprint({ mapping, options }),
@@ -1071,10 +1081,12 @@ export function EnaWorkspaceClient() {
     the layer key, subtraction, Compare table and Methods write-up all derive
     from B. Nothing signalled that mismatch and the exports would write it out.
 
-    Composition (Group By, minimum edge weight) is deliberately NOT here: it is
-    rebuilt from whatever set exists, so it follows the controls immediately
-    whichever run lands and cannot go stale. Aborting for it would throw work
-    away for nothing.
+    Composition (Group By, minimum edge weight) is deliberately NOT here: the
+    drawn figure is rebuilt from whatever set exists, so it follows the controls
+    immediately whichever run lands. Aborting for it would throw work away for
+    nothing. (The run does freeze a composition into result.plotModel; what
+    keeps that harmless is that nothing publishes it — the JSON export takes the
+    drawn model. See enaResultForExport and run-lifecycle's stamp docstring.)
 
     The guard keeps a tweak made between runs free — teardown would otherwise
     terminate a healthy idle worker and pay to respawn it on the next Run.
@@ -1201,9 +1213,21 @@ export function EnaWorkspaceClient() {
   // (FA13-NEW-2). The buttons are held rather than hidden, so the reason stays
   // visible; `resultIsPublishable` is re-checked here because a disabled
   // control is a courtesy, not a guarantee.
+  // The figure spec that leaves here is `composedPlotModel` — the one the
+  // renderer is drawing — not `result.plotModel`, which froze Group By and the
+  // minimum edge weight at the moment Run was pressed. Composition is
+  // deliberately outside the staleness stamp because the drawn plot and the
+  // Methods write-up both follow those two controls live; the JSON export was
+  // the one surface that did not, so it shipped a plotModel with no group
+  // traces beside a paragraph reading "Units were grouped by stage". See
+  // enaResultForExport.
   function exportResultJson() {
     if (!resultIsPublishable || !result) return;
-    downloadText("sena-ena-result.json", JSON.stringify(result, null, 2), "application/json");
+    downloadText(
+      "sena-ena-result.json",
+      JSON.stringify(enaResultForExport(result, composedPlotModel), null, 2),
+      "application/json"
+    );
   }
 
   function exportPointsCsv() {
