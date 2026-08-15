@@ -640,7 +640,9 @@ function buildEnterpriseOpsStatus(
     },
     counts: {
       users: db.users.length,
-      teams: db.teams.length,
+      // Excludes archived (retired) teams; they remain in db.teams for audit and backup.
+      teams: db.teams.filter((team) => !team.archived).length,
+      teamsArchived: db.teams.filter((team) => team.archived).length,
       projects: db.projects.length,
       uploads: db.uploads.length,
       importRuns: db.importRuns.length,

@@ -870,7 +870,11 @@ export function getEnterpriseGovernanceStatus(input: {
     },
     counts: {
       users: db.users.length,
-      teams: db.teams.length,
+      // Archived teams are retired, not deleted: they stay in db.teams so audit
+      // history and backups keep resolving them. A go-live decision reads this
+      // count as "teams live on this deployment", so it must exclude them.
+      teams: db.teams.filter((team) => !team.archived).length,
+      teamsArchived: db.teams.filter((team) => team.archived).length,
       projects: db.projects.length,
       uploads: db.uploads.length,
       importRuns: db.importRuns.length,
@@ -972,6 +976,7 @@ export type SenaEnterpriseGovernanceStatus = {
   counts: {
     users: number;
     teams: number;
+    teamsArchived: number;
     projects: number;
     uploads: number;
     importRuns: number;
