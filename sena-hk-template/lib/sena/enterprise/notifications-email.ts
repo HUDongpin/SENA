@@ -25,6 +25,7 @@ import {
   webhookErrorHash,
   webhookQueueProvider,
   webhookRetryAt,
+  webhookTimeoutMs,
   type SenaEnterpriseWebhookProviderMode,
   type SenaEnterpriseWebhookQueueProvider
 } from "./webhook-delivery";
@@ -232,7 +233,30 @@ function emailWebhookPayload(
   };
 }
 
-async function postEmailWebhook(emailDelivery: SenaEnterpriseEmailDelivery) {
+export function enterpriseEmailProvider() {
+  return emailWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+}
+
+// Inline dispatch runs inside a user-facing request, so it gets a tighter budget
+// than the operator-triggered flush: a mail bridge that is merely slow must not
+// turn a password-reset POST into a gateway timeout. The abort fires at the
+// smaller of the provider timeout and this budget, so no fetch outlives the
+// response it was blocking.
+function emailInlineDispatchTimeoutMs() {
+  return Math.min(
+    emailWebhookTimeoutMs(),
+    webhookTimeoutMs("SENA_EMAIL_INLINE_DISPATCH_TIMEOUT_MS", 3000, 10_000)
+  );
+}
+
+type SenaEnterpriseEmailAttemptResult = {
+  ok: boolean;
+  httpStatus?: number;
+  errorCode?: string;
+  errorHash?: string;
+};
+
+async function postEmailWebhook(emailDelivery: SenaEnterpriseEmailDelivery, timeoutMs = emailWebhookTimeoutMs()) {
   const webhookUrl = emailWebhookUrl();
   if (!webhookUrl) {
     throw new SenaEnterpriseError("Email webhook delivery is not configured.", 503, "email_webhook_not_configured");
@@ -262,7 +286,7 @@ async function postEmailWebhook(emailDelivery: SenaEnterpriseEmailDelivery) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), emailWebhookTimeoutMs());
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -301,7 +325,7 @@ export function queueEnterpriseEmail(db: SenaEnterpriseDb, input: {
   expiresAt?: string;
   templateData?: Record<string, string | number | boolean | null | undefined>;
 }) {
-  const provider = emailWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const provider = enterpriseEmailProvider();
   if (!provider.configured || !provider.endpointHash) return undefined;
   const recipientEmail = normalizeEmail(input.recipientEmail);
   const payload: SenaEnterpriseEmailDeliveryPayload = {
@@ -355,6 +379,130 @@ export function queueEnterpriseEmail(db: SenaEnterpriseDb, input: {
   return delivery;
 }
 
+// One place records what an attempt did to a queued email, so the operator flush
+// and the inline auto-dispatch can never drift into different bookkeeping.
+function applyEmailDeliveryAttempt(
+  db: SenaEnterpriseDb,
+  emailDelivery: SenaEnterpriseEmailDelivery,
+  attemptResult: SenaEnterpriseEmailAttemptResult,
+  attemptedAt: string,
+  actor: { userId?: string; trigger: "manual-flush" | "auto-dispatch" }
+) {
+  emailDelivery.attempts += 1;
+  emailDelivery.lastAttemptAt = attemptedAt;
+  emailDelivery.lastStatus = attemptResult.httpStatus;
+  emailDelivery.lastErrorCode = attemptResult.errorCode;
+  emailDelivery.lastErrorHash = attemptResult.errorHash;
+
+  if (attemptResult.ok) {
+    emailDelivery.status = "delivered";
+    emailDelivery.deliveredAt = attemptedAt;
+    delete emailDelivery.nextAttemptAt;
+    delete emailDelivery.failedAt;
+  } else if (emailDelivery.attempts >= emailDelivery.maxAttempts || attemptResult.errorCode === "expired") {
+    emailDelivery.status = "failed";
+    emailDelivery.failedAt = attemptedAt;
+    delete emailDelivery.nextAttemptAt;
+  } else {
+    emailDelivery.status = "pending";
+    emailDelivery.nextAttemptAt = webhookRetryAt(emailDelivery.attempts);
+  }
+
+  appendAudit(db, {
+    event: attemptResult.ok ? "email.webhook.deliver" : "email.webhook.fail",
+    userId: actor.userId,
+    teamId: emailDelivery.teamId,
+    projectId: emailDelivery.projectId,
+    detail: {
+      emailDeliveryId: emailDelivery.id,
+      kind: emailDelivery.kind,
+      provider: emailDelivery.provider,
+      endpointHash: emailDelivery.endpointHash,
+      attempts: emailDelivery.attempts,
+      status: emailDelivery.status,
+      httpStatus: emailDelivery.lastStatus ?? null,
+      errorCode: emailDelivery.lastErrorCode ?? null,
+      trigger: actor.trigger,
+      recipientEmailHash: emailDelivery.recipientEmailHash,
+      recipientEmailDomain: emailDelivery.recipientEmailDomain
+    }
+  });
+
+  return emailDelivery.status;
+}
+
+export type SenaEnterpriseEmailDispatchOutcome = {
+  attempted: boolean;
+  delivered: boolean;
+  status: SenaEnterpriseEmailDeliveryStatus;
+  errorCode?: string;
+};
+
+// Sends one queued email immediately, without an operator session. This is what
+// keeps self-service password reset self-service: `deliverEnterpriseEmails`
+// needs a signed-in admin with team:manage (and silently ignores queue rows that
+// carry no teamId), so a locked-out user cannot depend on it.
+//
+// It never throws: a broken mail bridge must degrade the delivery record, not
+// the request that queued it.
+export async function dispatchEnterpriseEmailDelivery(
+  db: SenaEnterpriseDb,
+  emailDelivery: SenaEnterpriseEmailDelivery,
+  input: { timeoutMs?: number } = {}
+): Promise<SenaEnterpriseEmailDispatchOutcome> {
+  try {
+    const provider = enterpriseEmailProvider();
+    if (!provider.configured || !provider.endpointHash) {
+      return { attempted: false, delivered: false, status: emailDelivery.status, errorCode: "email_provider_not_configured" };
+    }
+    if (emailDelivery.status === "delivered") {
+      return { attempted: false, delivered: true, status: "delivered" };
+    }
+    if (emailDelivery.endpointHash !== provider.endpointHash) {
+      emailDelivery.endpointHash = provider.endpointHash;
+      emailDelivery.status = "pending";
+      emailDelivery.attempts = 0;
+      delete emailDelivery.nextAttemptAt;
+      delete emailDelivery.failedAt;
+    }
+    emailDelivery.maxAttempts = provider.maxAttempts;
+    if (emailDelivery.attempts >= emailDelivery.maxAttempts) {
+      return { attempted: false, delivered: false, status: emailDelivery.status, errorCode: "max_attempts_exhausted" };
+    }
+
+    const attemptedAt = now();
+    let attemptResult: SenaEnterpriseEmailAttemptResult;
+    if (emailDelivery.expiresAt && Date.parse(emailDelivery.expiresAt) <= Date.now()) {
+      attemptResult = { ok: false, errorCode: "expired" };
+    } else if (provider.mode === "local-sink") {
+      attemptResult = localWebhookSinkAttempt(emailDelivery.endpointHash);
+    } else {
+      attemptResult = await postEmailWebhook(emailDelivery, input.timeoutMs ?? emailInlineDispatchTimeoutMs());
+    }
+
+    const status = applyEmailDeliveryAttempt(db, emailDelivery, attemptResult, attemptedAt, {
+      userId: emailDelivery.userId,
+      trigger: "auto-dispatch"
+    });
+    return {
+      attempted: true,
+      delivered: attemptResult.ok,
+      status,
+      errorCode: attemptResult.errorCode
+    };
+  } catch (error) {
+    // Provider misconfiguration (for example an unparseable webhook URL) raises
+    // before any attempt is made. Report it as an undelivered dispatch rather
+    // than failing the caller's request.
+    return {
+      attempted: false,
+      delivered: false,
+      status: emailDelivery.status,
+      errorCode: error instanceof SenaEnterpriseError ? error.code : "email_dispatch_error"
+    };
+  }
+}
+
 export async function deliverEnterpriseEmails(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string } = {}
@@ -380,7 +528,7 @@ async function deliverEnterpriseEmailsFromDb(
   input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string },
   db: SenaEnterpriseDb
 ): Promise<SenaEnterpriseEmailDeliveryResult> {
-  const provider = emailWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const provider = enterpriseEmailProvider();
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200);
   const force = Boolean(input.force);
   const teamIds = input.teamId ? [input.teamId] : manageableTeamIds(context);
@@ -450,7 +598,7 @@ async function deliverEnterpriseEmailsFromDb(
 
   for (const emailDelivery of targets) {
     const attemptedAt = now();
-    let attemptResult: { ok: boolean; httpStatus?: number; errorCode?: string; errorHash?: string };
+    let attemptResult: SenaEnterpriseEmailAttemptResult;
     if (emailDelivery.expiresAt && Date.parse(emailDelivery.expiresAt) <= Date.now()) {
       attemptResult = {
         ok: false,
@@ -464,26 +612,15 @@ async function deliverEnterpriseEmailsFromDb(
       attemptResult = await postEmailWebhook(emailDelivery);
     }
 
-    emailDelivery.attempts += 1;
-    emailDelivery.lastAttemptAt = attemptedAt;
-    emailDelivery.lastStatus = attemptResult.httpStatus;
-    emailDelivery.lastErrorCode = attemptResult.errorCode;
-    emailDelivery.lastErrorHash = attemptResult.errorHash;
-
-    if (attemptResult.ok) {
-      emailDelivery.status = "delivered";
-      emailDelivery.deliveredAt = attemptedAt;
-      delete emailDelivery.nextAttemptAt;
-      delete emailDelivery.failedAt;
+    const status = applyEmailDeliveryAttempt(db, emailDelivery, attemptResult, attemptedAt, {
+      userId: context.user.id,
+      trigger: "manual-flush"
+    });
+    if (status === "delivered") {
       result.summary.delivered += 1;
-    } else if (emailDelivery.attempts >= emailDelivery.maxAttempts || attemptResult.errorCode === "expired") {
-      emailDelivery.status = "failed";
-      emailDelivery.failedAt = attemptedAt;
-      delete emailDelivery.nextAttemptAt;
+    } else if (status === "failed") {
       result.summary.failed += 1;
     } else {
-      emailDelivery.status = "pending";
-      emailDelivery.nextAttemptAt = webhookRetryAt(emailDelivery.attempts);
       result.summary.pending += 1;
     }
 
@@ -498,25 +635,6 @@ async function deliverEnterpriseEmailsFromDb(
       attempts: emailDelivery.attempts,
       httpStatus: emailDelivery.lastStatus,
       errorCode: emailDelivery.lastErrorCode
-    });
-
-    appendAudit(db, {
-      event: attemptResult.ok ? "email.webhook.deliver" : "email.webhook.fail",
-      userId: context.user.id,
-      teamId: emailDelivery.teamId,
-      projectId: emailDelivery.projectId,
-      detail: {
-        emailDeliveryId: emailDelivery.id,
-        kind: emailDelivery.kind,
-        provider: emailDelivery.provider,
-        endpointHash: emailDelivery.endpointHash,
-        attempts: emailDelivery.attempts,
-        status: emailDelivery.status,
-        httpStatus: emailDelivery.lastStatus ?? null,
-        errorCode: emailDelivery.lastErrorCode ?? null,
-        recipientEmailHash: emailDelivery.recipientEmailHash,
-        recipientEmailDomain: emailDelivery.recipientEmailDomain
-      }
     });
   }
 
