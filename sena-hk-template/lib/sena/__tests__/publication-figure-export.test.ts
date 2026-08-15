@@ -226,6 +226,22 @@ describe("SENA publication figure export", () => {
     expect(bluePixels).toBeGreaterThan(200);
   });
 
+  it("carries the figure into the HTML artifact, not just a prose Figures section", async () => {
+    const snapshot = publicationSnapshot(pilotDataset(), "Publication Figure Fixture");
+    const html = String((await buildSenaPublicationExport(snapshot, "html")).body);
+
+    // The report's own "Figures" heading is prose (counts), so asserting the word
+    // "Figures" would pass against the figure-less document this test exists to forbid.
+    expect(html).toContain('data-sena-figure="canonical-ena-plane"');
+    expect(html).toContain("<svg");
+    // Inlined, not linked: the artifact must stay a single self-contained file.
+    expect(html).not.toContain("<?xml");
+    // Real plotted geometry, in the count the model actually produces — a decorative
+    // or placeholder svg would not track the fixture.
+    expect(occurrences(html, 'data-plot-role="network-edge"')).toBe(pilotFigure.edges.length);
+    expect(occurrences(html, 'data-plot-role="network-node"')).toBe(pilotFigure.nodes.length);
+  });
+
   it("carries the figure into the package, DOCX, and PDF artifacts", async () => {
     const snapshot = publicationSnapshot(pilotDataset(), "Publication Figure Fixture");
 

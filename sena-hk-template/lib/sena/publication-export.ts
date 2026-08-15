@@ -423,8 +423,17 @@ export function buildSenaPublicationFigurePng(figure: SenaPublicationFigure) {
   return encodePng(width, height, pixels);
 }
 
-export function buildSenaPublicationHtml(report: SenaReport) {
+export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublicationFigure) {
   const markdown = buildSenaMarkdownReport(report);
+  // The report's own "Figures" section is prose — node, edge and window counts —
+  // so without this the HTML export is the one publication artifact that names
+  // figures and shows none. Inlined rather than linked: the artifact has to stay
+  // a single self-contained file an author can attach.
+  const figureBlock = figure
+    ? `<figure data-sena-figure="canonical-ena-plane">${
+        buildSenaPublicationFigureSvgDocument(figure).replace(/^<\?xml[^>]*\?>\s*/, "")
+      }<figcaption>${escapeXml(`${figure.caption.modelDefinition}. ${figure.caption.goodnessOfFit}.`)}</figcaption></figure>`
+    : "";
   const body = markdown
     .split("\n")
     .map((line) => {
@@ -448,7 +457,7 @@ export function buildSenaPublicationHtml(report: SenaReport) {
     li { margin: 4px 0; }
   </style>
 </head>
-<body>${body}</body>
+<body>${figureBlock}${body}</body>
 </html>`;
 }
 
@@ -822,7 +831,7 @@ async function buildSingleSenaPublicationExport(
     return {
       filename: `${safeTitle}.html`,
       contentType: "text/html; charset=utf-8",
-      body: buildSenaPublicationHtml(report)
+      body: buildSenaPublicationHtml(report, figure)
     };
   }
   if (format === "xlsx") {
