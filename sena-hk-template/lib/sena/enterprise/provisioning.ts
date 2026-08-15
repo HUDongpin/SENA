@@ -172,6 +172,117 @@ function validProvisioningSource(source: unknown): source is SenaEnterpriseProvi
   return source === "api" || source === "scim";
 }
 
+function invalidProvisioningRequest(message: string, code: string): never {
+  throw new SenaEnterpriseError(message, 400, code);
+}
+
+function provisioningRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `undefined`/`null` mean "no entries" and cannot be misread; anything else
+ * that is not an array of objects is a caller error rather than an empty list.
+ */
+function provisioningEntries(value: unknown, field: string): Record<string, unknown>[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    invalidProvisioningRequest(`Provisioning "${field}" must be an array.`, "invalid_provisioning_body");
+  }
+  return value.map((entry) => {
+    if (!provisioningRecord(entry)) {
+      invalidProvisioningRequest(`Every "${field}" entry must be an object.`, "invalid_provisioning_body");
+    }
+    return entry;
+  });
+}
+
+function requireProvisioningString(value: unknown, field: string, code: string) {
+  if (typeof value !== "string") invalidProvisioningRequest(`Provisioning "${field}" must be a string.`, code);
+}
+
+function optionalProvisioningString(value: unknown, field: string, code: string) {
+  if (value !== undefined && typeof value !== "string") {
+    invalidProvisioningRequest(`Provisioning "${field}" must be a string when present.`, code);
+  }
+}
+
+function optionalProvisioningBoolean(value: unknown, field: string, code: string) {
+  if (value !== undefined && typeof value !== "boolean") {
+    invalidProvisioningRequest(`Provisioning "${field}" must be true or false when present.`, code);
+  }
+}
+
+/**
+ * Settles the shape of a provisioning request before a single row is touched.
+ *
+ * Everything refused here is a caller error and answers 400. That status is not
+ * cosmetic: this endpoint is driven by IdP webhooks whose retry policies treat
+ * 5xx as "retry later", so a permanently-malformed body that reached the old
+ * bare `input.organization.trim()` TypeError was answered 500, retried on
+ * backoff indefinitely, never surfaced to the integration's operator, and burnt
+ * a provisioning error-budget sample on every attempt.
+ *
+ * Only the shape is decided here. Enum values (plan, roles, statuses, SSO
+ * provider) keep their existing per-entry refusals, which already answer 400
+ * with a code naming the field.
+ */
+function validatedProvisioningInput(input: unknown): SenaEnterpriseProvisioningInput {
+  if (!provisioningRecord(input)) {
+    invalidProvisioningRequest("Provisioning requires a JSON object body.", "invalid_provisioning_body");
+  }
+  // Absent, non-string and blank organizations now answer with one code. The
+  // blank case was already a 400; the other two fell through to a 500 on the
+  // very same field.
+  if (typeof input.organization !== "string") {
+    invalidProvisioningRequest("Provisioning requires an organization name.", "invalid_provisioning_organization");
+  }
+  // An absent source legitimately defaults to "api" below — /api/sena/provisioning
+  // callers need not name one, and lib/sena/scim.ts always passes "scim"
+  // explicitly. A source the caller did spell out but SENA does not know is
+  // refused rather than rewritten: `source` decides which directory owns the
+  // rows, so a silent fallback strands them under a tag the integration never
+  // reads back and its next sync duplicates every team and membership.
+  if (input.source !== undefined && !validProvisioningSource(input.source)) {
+    invalidProvisioningRequest("Provisioned source is not supported.", "invalid_provisioning_source");
+  }
+  // Read as a boolean, never as truthiness: `"false"` is a caller asking for a
+  // real sync, and answering it 200 with created-counts while writing nothing
+  // lets an integration record the sync as complete.
+  optionalProvisioningBoolean(input.dryRun, "dryRun", "invalid_provisioning_dry_run");
+
+  for (const team of provisioningEntries(input.teams, "teams")) {
+    requireProvisioningString(team.name, "teams[].name", "invalid_provisioning_team");
+    optionalProvisioningString(team.externalId, "teams[].externalId", "invalid_provisioning_team");
+    optionalProvisioningString(team.organization, "teams[].organization", "invalid_provisioning_team");
+    optionalProvisioningString(team.archivedBy, "teams[].archivedBy", "invalid_provisioning_team");
+    // Same reasoning as dryRun: `archived` is applied on === true / === false,
+    // so a stringly-typed flag would retire nothing behind a 200.
+    optionalProvisioningBoolean(team.archived, "teams[].archived", "invalid_provisioning_team");
+  }
+
+  for (const user of provisioningEntries(input.users, "users")) {
+    requireProvisioningString(user.email, "users[].email", "invalid_provisioning_email");
+    optionalProvisioningString(user.externalId, "users[].externalId", "invalid_provisioning_user");
+    optionalProvisioningString(user.name, "users[].name", "invalid_provisioning_user");
+    optionalProvisioningString(user.organization, "users[].organization", "invalid_provisioning_user");
+    if (user.sso !== undefined && user.sso !== null) {
+      if (!provisioningRecord(user.sso)) {
+        invalidProvisioningRequest("Provisioning \"users[].sso\" must be an object.", "invalid_provisioning_body");
+      }
+      optionalProvisioningString(user.sso.provider, "users[].sso.provider", "invalid_provisioning_sso_provider");
+      optionalProvisioningString(user.sso.subject, "users[].sso.subject", "invalid_provisioning_sso_subject");
+    }
+    for (const membership of provisioningEntries(user.memberships, "users[].memberships")) {
+      optionalProvisioningString(membership.teamId, "users[].memberships[].teamId", "invalid_provisioning_membership");
+      optionalProvisioningString(membership.teamExternalId, "users[].memberships[].teamExternalId", "invalid_provisioning_membership");
+      optionalProvisioningString(membership.teamName, "users[].memberships[].teamName", "invalid_provisioning_membership");
+    }
+  }
+
+  return input as SenaEnterpriseProvisioningInput;
+}
+
 function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?: {
   membershipId: string;
   role: SenaEnterpriseRole;
@@ -271,13 +382,17 @@ function recordProvisioningAudit(entry: SenaEnterpriseProvisioningAuditEntry) {
  * of `savedDb`, so a caller that honours `result.dryRun` never persists it.
  */
 function provisionEnterpriseOrganizationInDb(
-  input: SenaEnterpriseProvisioningInput,
+  rawInput: unknown,
   savedDb: SenaEnterpriseDb
 ): SenaEnterpriseProvisioningCommit {
-  const source = validProvisioningSource(input.source) ? input.source : "api";
+  // Both entry points funnel through here, so the SCIM bridge and the route get
+  // the same refusals — and the shape is settled before `savedDb` is touched,
+  // so a refused request cannot half-apply.
+  const input = validatedProvisioningInput(rawInput);
+  const source = input.source ?? "api";
   const organization = input.organization.trim();
   if (!organization) throw new SenaEnterpriseError("Provisioning requires an organization name.", 400, "invalid_provisioning_organization");
-  const dryRun = Boolean(input.dryRun);
+  const dryRun = input.dryRun ?? false;
   const db = dryRun ? dbWorkingCopy(savedDb) : savedDb;
   const syncedAt = now();
   const result: SenaEnterpriseProvisioningResult = {
