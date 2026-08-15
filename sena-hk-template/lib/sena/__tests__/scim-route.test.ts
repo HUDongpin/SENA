@@ -1071,3 +1071,484 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
     });
   });
 });
+
+// Every other case in this file sends a *valid* bearer token, so the whole
+// provisioning gate could be deleted from all five route files and they would
+// all still pass — verified by doing exactly that. These cases are the negative
+// control: they exercise the refusal branches of requireProvisioningBearerToken
+// on every exported method of every SCIM route, and they assert the refusal
+// provisioned nothing, because a handler that provisioned first and refused
+// afterwards would satisfy a status-code-only assertion.
+describe("SENA SCIM provisioning bearer-token gate", () => {
+  const usersBase = "https://sena.example.test/api/sena/scim/v2/Users";
+  const groupsBase = "https://sena.example.test/api/sena/scim/v2/Groups";
+  const configBase = "https://sena.example.test/api/sena/scim/v2/ServiceProviderConfig";
+  const validToken = "sena-test-provisioning-token";
+  const gateOrganization = "SENA Gate Org";
+  const scimErrorSchema = "urn:ietf:params:scim:api:messages:2.0:Error";
+  const resourceContext = (resourceId: string) => ({ params: Promise.resolve({ resourceId }) });
+
+  type ScimAuthRoutes = {
+    usersRoute: typeof import("../../../app/api/sena/scim/v2/Users/route");
+    groupsRoute: typeof import("../../../app/api/sena/scim/v2/Groups/route");
+    userResourceRoute: typeof import("../../../app/api/sena/scim/v2/Users/[resourceId]/route");
+    groupResourceRoute: typeof import("../../../app/api/sena/scim/v2/Groups/[resourceId]/route");
+    configRoute: typeof import("../../../app/api/sena/scim/v2/ServiceProviderConfig/route");
+    enterprise: typeof import("../enterprise");
+  };
+
+  // The same temp-directory + aliased-module dance the cases above use, with one
+  // deliberate difference: SENA_PROVISIONING_TOKEN is set through process.env
+  // rather than vi.stubEnv, because the unconfigured case has to *remove* it
+  // mid-test and vi.unstubAllEnvs is all-or-nothing. The original value is
+  // restored in finally, so the surrounding suite is unaffected.
+  async function withScimAuthGate<T>(prefix: string, run: (routes: ScimAuthRoutes) => Promise<T>) {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), prefix));
+    const previousToken = process.env.SENA_PROVISIONING_TOKEN;
+    vi.resetModules();
+    process.env.SENA_PROVISIONING_TOKEN = validToken;
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_APP_URL = "https://sena.example.test";
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/provisioning-auth", async () => await import("../provisioning-auth"));
+    vi.doMock("@/lib/sena/scim", async () => await import("../scim"));
+
+    try {
+      return await run({
+        usersRoute: await import("../../../app/api/sena/scim/v2/Users/route"),
+        groupsRoute: await import("../../../app/api/sena/scim/v2/Groups/route"),
+        userResourceRoute: await import("../../../app/api/sena/scim/v2/Users/[resourceId]/route"),
+        groupResourceRoute: await import("../../../app/api/sena/scim/v2/Groups/[resourceId]/route"),
+        configRoute: await import("../../../app/api/sena/scim/v2/ServiceProviderConfig/route"),
+        enterprise: await import("../enterprise")
+      });
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.SENA_PROVISIONING_TOKEN;
+      } else {
+        process.env.SENA_PROVISIONING_TOKEN = previousToken;
+      }
+      delete process.env.SENA_APP_URL;
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }
+
+  // Ground truth for "did anything get provisioned", read straight from the
+  // enterprise store rather than back through the surface under test — a gate
+  // bug cannot hide a write from this. generatedAt is stamped at read time and
+  // is the one field that moves without anything having happened.
+  function directorySnapshot(enterprise: ScimAuthRoutes["enterprise"]) {
+    return (["scim", "api"] as const).map((source) => {
+      const directory = enterprise.listEnterpriseProvisioningDirectory(source);
+      return { source: directory.source, users: directory.users, teams: directory.teams };
+    });
+  }
+
+  const authHeaders = (authorization: string | undefined, contentType?: string) => ({
+    ...(authorization === undefined ? {} : { authorization }),
+    ...(contentType === undefined ? {} : { "content-type": contentType })
+  });
+
+  type ScimProbe = {
+    label: string;
+    routeId: string;
+    /** Writes carry a body that provisions something real if it is ever let through. */
+    write: boolean;
+    invoke: (authorization?: string) => Promise<Response>;
+  };
+
+  const userBody = (input: { userName: string; externalId: string; display: string }) => ({
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:User", senaScimUserExtensionSchema],
+    userName: input.userName,
+    externalId: input.externalId,
+    name: { formatted: input.display },
+    emails: [{ value: input.userName, primary: true }],
+    [senaScimUserExtensionSchema]: { organization: gateOrganization }
+  });
+
+  const groupBody = (input: { displayName: string; externalId: string; memberPrefix: string }) => ({
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group", senaScimGroupExtensionSchema],
+    displayName: input.displayName,
+    externalId: input.externalId,
+    [senaScimGroupExtensionSchema]: { organization: gateOrganization, plan: "enterprise" },
+    members: [
+      { value: `${input.memberPrefix}-pi`, email: `${input.memberPrefix}-pi@example.edu`, display: "Gate PI", type: "pi" },
+      { value: `${input.memberPrefix}-coder`, email: `${input.memberPrefix}-coder@example.edu`, display: "Gate Coder", type: "coder" }
+    ]
+  });
+
+  type GateSeed = {
+    cohortId: string;
+    deleteCohortId: string;
+    patchTargetId: string;
+    deleteTargetId: string;
+  };
+
+  // Two SCIM cohorts, each with an API-provisioned owner so the last-manager
+  // guard can never stand in for the gate under test, and four independent
+  // write targets so no probe below can mask another's effect.
+  async function seedGateDirectory(routes: ScimAuthRoutes): Promise<GateSeed> {
+    routes.enterprise.provisionEnterpriseOrganization({
+      source: "api",
+      organization: gateOrganization,
+      teams: [{ name: "Gate Cohort", plan: "enterprise" }, { name: "Gate Delete Cohort", plan: "enterprise" }],
+      users: [{
+        externalId: "sena-gate-owner",
+        email: "gate-owner@example.edu",
+        name: "Gate Owner",
+        memberships: [
+          { teamName: "Gate Cohort", role: "owner" },
+          { teamName: "Gate Delete Cohort", role: "owner" }
+        ]
+      }]
+    });
+
+    const seedCohort = async (body: Record<string, unknown>) => {
+      const response = await routes.groupsRoute.POST(new Request(groupsBase, {
+        method: "POST",
+        headers: authHeaders(`Bearer ${validToken}`, "application/scim+json"),
+        body: JSON.stringify(body)
+      }));
+      expect([body.displayName, response.status < 300]).toEqual([body.displayName, true]);
+      return String((await response.json() as ScimGroupResource).id);
+    };
+
+    const cohortId = await seedCohort({
+      ...groupBody({ displayName: "Gate Cohort", externalId: "okta-group-gate", memberPrefix: "okta-gate" }),
+      members: [
+        { value: "okta-gate-pi", email: "gate-pi@example.edu", display: "Gate PI", type: "pi" },
+        { value: "okta-gate-patch", email: "gate-patch@example.edu", display: "Gate Patch Target", type: "coder" },
+        { value: "okta-gate-delete", email: "gate-delete@example.edu", display: "Gate Delete Target", type: "coder" }
+      ]
+    });
+    const deleteCohortId = await seedCohort(groupBody({
+      displayName: "Gate Delete Cohort",
+      externalId: "okta-group-gate-delete",
+      memberPrefix: "okta-gate-delete-cohort"
+    }));
+
+    const directory = routes.enterprise.listEnterpriseProvisioningDirectory("scim");
+    const idByEmail = (email: string) => String(directory.users.find((user) => user.email === email)?.id);
+    const patchTargetId = idByEmail("gate-patch@example.edu");
+    const deleteTargetId = idByEmail("gate-delete@example.edu");
+    expect([patchTargetId, deleteTargetId].some((id) => id === "undefined")).toBe(false);
+    return { cohortId, deleteCohortId, patchTargetId, deleteTargetId };
+  }
+
+  /**
+   * Every exported method of every SCIM route file, in the order they must be
+   * replayed for the authorized control below to be meaningful: each write
+   * touches a target no other write has already moved.
+   */
+  function scimProbes(routes: ScimAuthRoutes, seed: GateSeed): ScimProbe[] {
+    const send = (authorization: string | undefined, method: string, body: unknown) => ({
+      method,
+      headers: authHeaders(authorization, "application/scim+json"),
+      body: JSON.stringify(body)
+    });
+    const read = (authorization: string | undefined) => ({ headers: authHeaders(authorization) });
+    const patchOp = (operations: unknown[]) => ({
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: operations
+    });
+
+    return [
+      {
+        label: "POST /Users",
+        routeId: "sena-scim-users",
+        write: true,
+        invoke: (authorization) => routes.usersRoute.POST(new Request(usersBase, send(authorization, "POST", userBody({
+          userName: "gate-intruder@example.edu",
+          externalId: "okta-gate-intruder",
+          display: "Gate Intruder"
+        }))))
+      },
+      {
+        label: "PUT /Users/{id}",
+        routeId: "sena-scim-users-resource",
+        write: true,
+        invoke: (authorization) => routes.userResourceRoute.PUT(
+          new Request(`${usersBase}/okta-gate-put`, send(authorization, "PUT", userBody({
+            userName: "gate-put@example.edu",
+            externalId: "okta-gate-put",
+            display: "Gate Put"
+          }))),
+          resourceContext("okta-gate-put")
+        )
+      },
+      {
+        label: "PATCH /Users/{id}",
+        routeId: "sena-scim-users-resource",
+        write: true,
+        invoke: (authorization) => routes.userResourceRoute.PATCH(
+          new Request(`${usersBase}/${seed.patchTargetId}`, send(authorization, "PATCH", patchOp([
+            { op: "replace", path: "active", value: false }
+          ]))),
+          resourceContext(seed.patchTargetId)
+        )
+      },
+      {
+        label: "DELETE /Users/{id}",
+        routeId: "sena-scim-users-resource",
+        write: true,
+        invoke: (authorization) => routes.userResourceRoute.DELETE(
+          new Request(`${usersBase}/${seed.deleteTargetId}`, { method: "DELETE", ...read(authorization) }),
+          resourceContext(seed.deleteTargetId)
+        )
+      },
+      {
+        label: "POST /Groups",
+        routeId: "sena-scim-groups",
+        write: true,
+        invoke: (authorization) => routes.groupsRoute.POST(new Request(groupsBase, send(authorization, "POST", groupBody({
+          displayName: "Gate Intruder Cohort",
+          externalId: "okta-group-gate-intruder",
+          memberPrefix: "okta-gate-intruder-member"
+        }))))
+      },
+      {
+        label: "PUT /Groups/{id}",
+        routeId: "sena-scim-groups-resource",
+        write: true,
+        invoke: (authorization) => routes.groupResourceRoute.PUT(
+          new Request(`${groupsBase}/okta-group-gate-put`, send(authorization, "PUT", groupBody({
+            displayName: "Gate Put Cohort",
+            externalId: "okta-group-gate-put",
+            memberPrefix: "okta-gate-put-member"
+          }))),
+          resourceContext("okta-group-gate-put")
+        )
+      },
+      {
+        label: "PATCH /Groups/{id}",
+        routeId: "sena-scim-groups-resource",
+        write: true,
+        invoke: (authorization) => routes.groupResourceRoute.PATCH(
+          new Request(`${groupsBase}/${seed.cohortId}`, send(authorization, "PATCH", patchOp([
+            { op: "replace", path: "displayName", value: "Gate Cohort (Breached)" }
+          ]))),
+          resourceContext(seed.cohortId)
+        )
+      },
+      {
+        label: "DELETE /Groups/{id}",
+        routeId: "sena-scim-groups-resource",
+        write: true,
+        invoke: (authorization) => routes.groupResourceRoute.DELETE(
+          new Request(`${groupsBase}/${seed.deleteCohortId}`, { method: "DELETE", ...read(authorization) }),
+          resourceContext(seed.deleteCohortId)
+        )
+      },
+      {
+        label: "GET /Users",
+        routeId: "sena-scim-users",
+        write: false,
+        invoke: (authorization) => routes.usersRoute.GET(new Request(usersBase, read(authorization)))
+      },
+      {
+        label: "GET /Users/{id}",
+        routeId: "sena-scim-users-resource",
+        write: false,
+        invoke: (authorization) => routes.userResourceRoute.GET(
+          new Request(`${usersBase}/${seed.patchTargetId}`, read(authorization)),
+          resourceContext(seed.patchTargetId)
+        )
+      },
+      {
+        label: "GET /Groups",
+        routeId: "sena-scim-groups",
+        write: false,
+        invoke: (authorization) => routes.groupsRoute.GET(new Request(groupsBase, read(authorization)))
+      },
+      {
+        label: "GET /Groups/{id}",
+        routeId: "sena-scim-groups-resource",
+        write: false,
+        invoke: (authorization) => routes.groupResourceRoute.GET(
+          new Request(`${groupsBase}/${seed.cohortId}`, read(authorization)),
+          resourceContext(seed.cohortId)
+        )
+      },
+      {
+        label: "GET /ServiceProviderConfig",
+        routeId: "sena-scim-service-provider-config",
+        write: false,
+        invoke: (authorization) => routes.configRoute.GET(new Request(configBase, read(authorization)))
+      }
+    ];
+  }
+
+  // One assertion per case, carrying the case labels, so a failure names the
+  // route, method and header variant instead of a bare status mismatch.
+  async function observedRefusal(probe: ScimProbe, headerLabel: string, response: Response) {
+    const body = await response.json() as ScimErrorBody & Record<string, unknown>;
+    return {
+      case: `${probe.label} / ${headerLabel}`,
+      status: response.status,
+      statusClass: response.headers.get("x-sena-observed-status-class"),
+      observedRoute: response.headers.get("x-sena-observed-route"),
+      bodyKeys: Object.keys(body).sort(),
+      schemas: body.schemas,
+      bodyStatus: body.status,
+      scimType: body.scimType,
+      senaCode: body.senaCode,
+      hasDetail: Boolean(body.detail),
+      // Only the ServiceProviderConfig success path emits the identity-production
+      // evidence headers; a refusal must not carry them either.
+      ownerGateHeader: response.headers.get("x-sena-scim-production-owner-gate")
+    };
+  }
+
+  const expectedRefusal = (probe: ScimProbe, headerLabel: string, status: number, code: string) => ({
+    case: `${probe.label} / ${headerLabel}`,
+    status,
+    statusClass: status >= 500 ? "5xx" : "4xx",
+    observedRoute: probe.routeId,
+    // Exactly the SCIM Error envelope and nothing else. A refused read that
+    // still carried Resources/id/schemaVersion would be a disclosure behind a
+    // 401, and scimType is defined only for 400s over a closed vocabulary, so a
+    // guessed one here is worse than none.
+    bodyKeys: ["detail", "schemas", "senaCode", "status"],
+    schemas: [scimErrorSchema],
+    bodyStatus: String(status),
+    scimType: undefined,
+    senaCode: code,
+    hasDetail: true,
+    ownerGateHeader: null
+  });
+
+  const refusedHeaders: Array<{ label: string; authorization?: string; code: string }> = [
+    { label: "no Authorization header", authorization: undefined, code: "provisioning_token_required" },
+    { label: "wrong scheme", authorization: `Basic ${validToken}`, code: "provisioning_token_required" },
+    { label: "raw token with no scheme", authorization: validToken, code: "provisioning_token_required" },
+    // A Headers value is whitespace-normalised on construction, so "Bearer   "
+    // and "Bearer \t " both arrive as a bare "Bearer": an empty bearer and a
+    // whitespace-only one are the same wire request, and both are *missing*, not
+    // invalid — the distinction an IdP operator debugs against.
+    { label: "bare Bearer with no value", authorization: "Bearer", code: "provisioning_token_required" },
+    { label: "Bearer with an empty value", authorization: "Bearer ", code: "provisioning_token_required" },
+    { label: "Bearer with a whitespace-only value", authorization: "Bearer \t  ", code: "provisioning_token_required" },
+    { label: "wrong token value", authorization: "Bearer sena-not-the-provisioning-token", code: "provisioning_token_invalid" },
+    // Length-varying values also pin that the constant-time compare hashes
+    // first: timingSafeEqual throws on unequal-length buffers, and a thrown
+    // TypeError would surface as a 500, not a 401.
+    { label: "one-character token", authorization: "Bearer x", code: "provisioning_token_invalid" },
+    { label: "valid token with a suffix", authorization: `Bearer ${validToken}-extra`, code: "provisioning_token_invalid" },
+    { label: "prefix of the valid token", authorization: `Bearer ${validToken.slice(0, -1)}`, code: "provisioning_token_invalid" },
+    { label: "scheme repeated inside the value", authorization: `Bearer Bearer ${validToken}`, code: "provisioning_token_invalid" }
+  ];
+
+  it("refuses every SCIM route and method whose bearer token is missing, malformed or wrong", async () => {
+    await withScimAuthGate("sena-scim-auth-refusal-", async (routes) => {
+      const seed = await seedGateDirectory(routes);
+      const probes = scimProbes(routes, seed);
+      expect(probes).toHaveLength(13);
+      const before = directorySnapshot(routes.enterprise);
+
+      for (const probe of probes) {
+        for (const variant of refusedHeaders) {
+          const response = await probe.invoke(variant.authorization);
+          expect(await observedRefusal(probe, variant.label, response))
+            .toEqual(expectedRefusal(probe, variant.label, 401, variant.code));
+        }
+      }
+
+      // The whole point of the control: 143 refused requests, eight of them
+      // carrying bodies that provision real users, teams and memberships when
+      // they are let through, and the directory has not moved. A handler that
+      // provisioned first and refused afterwards fails here, not above.
+      expect(directorySnapshot(routes.enterprise)).toEqual(before);
+    });
+  });
+
+  it("provisions for real when the same refused requests carry a valid token", async () => {
+    // Guards the case above against passing vacuously: if these bodies were
+    // no-ops, "the directory did not move" would hold for the wrong reason.
+    await withScimAuthGate("sena-scim-auth-control-", async (routes) => {
+      const seed = await seedGateDirectory(routes);
+      const authorization = `Bearer ${validToken}`;
+
+      for (const probe of scimProbes(routes, seed).filter((candidate) => candidate.write)) {
+        const before = directorySnapshot(routes.enterprise);
+        const response = await probe.invoke(authorization);
+        expect([probe.label, response.status < 300]).toEqual([probe.label, true]);
+        expect([probe.label, directorySnapshot(routes.enterprise)])
+          .not.toEqual([probe.label, before]);
+      }
+
+      // ...and the reads answer with directory content rather than an envelope.
+      for (const probe of scimProbes(routes, seed).filter((candidate) => !candidate.write)) {
+        const response = await probe.invoke(authorization);
+        const body = await response.json() as Record<string, unknown>;
+        expect([probe.label, response.status]).toEqual([probe.label, 200]);
+        expect([probe.label, body.schemas]).not.toEqual([probe.label, [scimErrorSchema]]);
+      }
+    });
+  });
+
+  it("refuses every SCIM route and method with 503 when no provisioning token is configured", async () => {
+    await withScimAuthGate("sena-scim-auth-unconfigured-", async (routes) => {
+      const seed = await seedGateDirectory(routes);
+      const probes = scimProbes(routes, seed);
+      const before = directorySnapshot(routes.enterprise);
+
+      // requireProvisioningBearerToken checks configuration before it looks at
+      // the request, so an unconfigured deployment answers 503 to every caller
+      // — including one holding what would otherwise be the right token. That
+      // ordering is the difference between "SENA is not accepting provisioning"
+      // and "your token is wrong", and an IdP retries the two differently.
+      const variants = [
+        { label: "no Authorization header", authorization: undefined },
+        { label: "the otherwise-valid token", authorization: `Bearer ${validToken}` },
+        { label: "a wrong token", authorization: "Bearer sena-not-the-provisioning-token" }
+      ];
+
+      for (const unset of ["", "   "]) {
+        // Empty and whitespace-only are both "not configured": the reader trims
+        // and coerces to undefined, so a blank deploy-time value cannot open the
+        // surface by accidentally matching a blank bearer.
+        process.env.SENA_PROVISIONING_TOKEN = unset;
+        for (const probe of probes) {
+          for (const variant of variants) {
+            const response = await probe.invoke(variant.authorization);
+            expect(await observedRefusal(probe, `${variant.label} @ token=${JSON.stringify(unset)}`, response))
+              .toEqual(expectedRefusal(probe, `${variant.label} @ token=${JSON.stringify(unset)}`, 503, "provisioning_not_configured"));
+          }
+        }
+      }
+
+      delete process.env.SENA_PROVISIONING_TOKEN;
+      for (const probe of probes) {
+        const response = await probe.invoke(`Bearer ${validToken}`);
+        expect(await observedRefusal(probe, "unset variable", response))
+          .toEqual(expectedRefusal(probe, "unset variable", 503, "provisioning_not_configured"));
+      }
+
+      expect(directorySnapshot(routes.enterprise)).toEqual(before);
+    });
+  });
+
+  it("accepts the header shapes RFC 7235 leaves an IdP free to send", async () => {
+    // The refusals above would all hold on a surface that refused everything.
+    // These pin the accepting side of the same parser, and with it the exact
+    // tolerance the gate has: the scheme is case-insensitive and the token is
+    // trimmed, and nothing wider than that.
+    await withScimAuthGate("sena-scim-auth-accepted-", async (routes) => {
+      const seed = await seedGateDirectory(routes);
+      const probe = scimProbes(routes, seed).find((candidate) => candidate.label === "GET /Users");
+      const accepted = [
+        { label: "canonical scheme", authorization: `Bearer ${validToken}` },
+        { label: "lower-case scheme", authorization: `bearer ${validToken}` },
+        { label: "upper-case scheme", authorization: `BEARER ${validToken}` },
+        { label: "padded token", authorization: `Bearer  ${validToken}  ` }
+      ];
+      for (const variant of accepted) {
+        const response = await probe!.invoke(variant.authorization);
+        expect([variant.label, response.status]).toEqual([variant.label, 200]);
+      }
+    });
+  });
+});
