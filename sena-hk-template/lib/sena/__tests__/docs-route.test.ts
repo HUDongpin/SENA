@@ -326,27 +326,33 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
       // the endpoint never wanted.
       expect(Object.keys(document.paths?.["/api/sena/docs"] ?? {})).toEqual(["get"]);
       expect(self?.security).toEqual([]);
-      expect(self?.parameters).toBeUndefined();
+      // The endpoint's only parameter is the `format` query switch: no
+      // credential-bearing header, no CSRF token, nothing in `in: "cookie"`.
+      expect((self?.parameters ?? []).map((parameter) => `${parameter.in}:${parameter.name}`))
+        .toEqual(["query:format"]);
 
-      // A session-authenticated mutation is the contrast case: it does carry a
-      // security requirement and the CSRF header parameter.
+      // A session-authenticated mutation is the contrast case: it carries a
+      // security requirement, the CSRF header parameter, AND the path parameter
+      // its template expression requires. Both must survive together — a fix
+      // that spread one parameter list over the other would silently drop one.
       const projectPut = document.paths?.["/api/sena/projects/{projectId}"]?.put;
       expect(projectPut?.security).toEqual([{ sessionCookie: [] }]);
       expect(projectPut?.parameters).toEqual([
+        expect.objectContaining({ name: "projectId", in: "path", required: true }),
         expect.objectContaining({ name: "x-sena-csrf-token", in: "header", required: true })
       ]);
     });
   });
 
-  it("DEFECT (unfixed): templated paths declare no `in: \"path\"` parameter", async () => {
+  it("declares a required `in: \"path\"` parameter for every template expression", async () => {
     await withDocsRoute("sena-docs-route-pathparams-", async ({ route }) => {
       const document = await (await route.GET(new Request(`${docsUrl}?format=openapi`))).json() as OpenApiDocument;
       const paths = document.paths ?? {};
 
       const templated = Object.keys(paths).filter((key) => key.includes("{"));
       // Guard against a vacuous pass: if the surface ever stops having
-      // templated paths, this case must fail loudly rather than pretend the
-      // defect went away.
+      // templated paths, this case must fail loudly rather than pretend it
+      // proved something.
       expect(templated.sort()).toEqual([
         "/api/sena/projects/{projectId}",
         "/api/sena/projects/{projectId}/collaboration",
@@ -358,66 +364,117 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
       // OpenAPI 3.1 §4.8.9.1: "Each template expression in the path MUST
       // correspond to a path parameter that is included in the Path Item itself
       // and/or in each of the Path Item's Operations", and such a parameter MUST
-      // have `required: true`. buildSenaOpenApiDocument emits none, so this
-      // document is NOT a valid OpenAPI 3.1 document and linters/codegen
-      // (Spectral, Redocly, openapi-generator) reject or mis-generate it.
+      // have `required: true`. Without them Spectral errors, openapi-generator
+      // emits a client method with no id argument that requests the literal
+      // `%7BprojectId%7D`, and Swagger UI renders no ID box.
       //
-      // This block PINS THE DEFECT — it documents what ships today, it does not
-      // bless it. The fix belongs in lib/sena/api-docs.ts
-      // (buildSenaOpenApiDocument), which is outside this change's blast radius.
-      // When that lands, invert these three expectations.
+      // This block previously PINNED the defect (15 operations, zero path
+      // parameters). It is now the regression that keeps them there.
       const missing: string[] = [];
+      const notRequired: string[] = [];
+      const unschemad: string[] = [];
+      let checked = 0;
       for (const pathKey of templated) {
         const expressions = [...pathKey.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]);
-        const itemLevel = (paths[pathKey] as { parameters?: Array<{ in?: string; name?: string }> }).parameters ?? [];
+        const itemLevel = (paths[pathKey] as {
+          parameters?: Array<{ in?: string; name?: string; required?: boolean; schema?: unknown }>;
+        }).parameters ?? [];
         for (const [method, operation] of Object.entries(paths[pathKey])) {
           if (!httpMethodKeys.includes(method)) continue;
-          const declared = new Set([...itemLevel, ...(operation.parameters ?? [])]
+          const declared = new Map([...itemLevel, ...(operation.parameters ?? [])]
             .filter((parameter) => parameter.in === "path")
-            .map((parameter) => parameter.name));
+            .map((parameter) => [parameter.name, parameter] as const));
           for (const expression of expressions) {
-            if (!declared.has(expression)) missing.push(`${method.toUpperCase()} ${pathKey} -> {${expression}}`);
+            checked += 1;
+            const where = `${method.toUpperCase()} ${pathKey} -> {${expression}}`;
+            const parameter = declared.get(expression);
+            if (!parameter) {
+              missing.push(where);
+              continue;
+            }
+            // `required: true` is not merely conventional here — 3.1 makes it
+            // mandatory for `in: "path"`, and a generator that sees `false`
+            // emits an optional argument.
+            if (parameter.required !== true) notRequired.push(where);
+            if (!parameter.schema) unschemad.push(where);
           }
         }
       }
-      expect(missing).toContain("GET /api/sena/projects/{projectId} -> {projectId}");
-      // Every method of every templated path is affected, not just one:
+      expect(missing).toEqual([]);
+      expect(notRequired).toEqual([]);
+      expect(unschemad).toEqual([]);
+      // Every method of every templated path is covered, not just one:
       // 4 on the project resource, 2 + 1 on collaboration, 4 + 4 on SCIM.
-      expect(missing).toHaveLength(15);
+      expect(checked).toBe(15);
+
+      // The operations that need BOTH a path parameter and the CSRF header are
+      // where a naive fix breaks: `parameters` was built by a single object
+      // spread, so adding a second one would overwrite or be overwritten.
+      // Exactly four operations sit in that intersection.
+      const both: string[] = [];
+      for (const [pathKey, item] of Object.entries(paths)) {
+        for (const [method, operation] of Object.entries(item)) {
+          if (!httpMethodKeys.includes(method)) continue;
+          const kinds = new Set((operation.parameters ?? []).map((parameter) => parameter.in));
+          const csrf = (operation.parameters ?? []).some((parameter) => parameter.name === "x-sena-csrf-token");
+          if (kinds.has("path") && csrf) both.push(`${method.toUpperCase()} ${pathKey}`);
+        }
+      }
+      expect(both.sort()).toEqual([
+        "DELETE /api/sena/projects/{projectId}",
+        "PATCH /api/sena/projects/{projectId}",
+        "POST /api/sena/projects/{projectId}/collaboration",
+        "PUT /api/sena/projects/{projectId}"
+      ]);
     });
   });
 
-  it("DEFECT (unfixed): GET operations are documented with a request body", async () => {
+  it("documents query parameters instead of hanging a request body on a GET", async () => {
     await withDocsRoute("sena-docs-route-getbody-", async ({ route }) => {
       const document = await (await route.GET(new Request(`${docsUrl}?format=openapi`))).json() as OpenApiDocument;
       const paths = document.paths ?? {};
 
+      // OpenAPI 3.1: requestBody "has no defined semantics" for GET, and tools
+      // that honour it generate clients that attach a body to a GET. The
+      // generator used to attach one to every endpoint with an evidence note,
+      // including this very docs endpoint — whose note describes a *query
+      // string*, not a body.
       const getsWithBody = Object.entries(paths)
         .filter(([, item]) => item.get?.requestBody !== undefined)
         .map(([pathKey]) => pathKey)
         .sort();
+      expect(getsWithBody).toEqual([]);
 
-      // OpenAPI 3.1: requestBody "has no defined semantics" for GET, and tools
-      // that honour it generate clients that attach a body to a GET. The
-      // generator attaches one to every endpoint that has an evidence note,
-      // including this very docs endpoint — whose note describes a *query
-      // string*, not a body.
-      //
-      // PINS THE DEFECT. The evidence note belongs in `parameters` (in: query)
-      // for GET, not in `requestBody`. Fix lives in lib/sena/api-docs.ts.
-      expect(getsWithBody).toContain("/api/sena/docs");
-      expect(paths["/api/sena/docs"]?.get?.requestBody).toEqual(expect.objectContaining({
-        required: false,
-        content: expect.objectContaining({
-          "application/json": expect.objectContaining({
-            schema: expect.objectContaining({ description: "Query { format?: openapi }" })
-          }),
-          // A GET documented as accepting multipart/form-data is the same bug,
-          // one step louder.
-          "multipart/form-data": expect.anything()
-        })
-      }));
-      expect(getsWithBody.length).toBeGreaterThan(1);
+      // The docs endpoint's own `format` switch is now a real query parameter
+      // with its allowed values, not prose buried in a body schema description.
+      const self = paths["/api/sena/docs"]?.get;
+      expect(self?.requestBody).toBeUndefined();
+      const format = (self?.parameters ?? []).find((parameter) => parameter.name === "format");
+      expect(format).toEqual(expect.objectContaining({ name: "format", in: "query", required: false }));
+      expect((format?.schema as { type?: string; enum?: string[]; default?: string } | undefined))
+        .toEqual(expect.objectContaining({ type: "string", enum: ["json", "openapi"], default: "json" }));
+      expect(String((format as { description?: string } | undefined)?.description)).toContain("openapi");
+
+      // A DELETE whose handler reads no body must not be documented with one
+      // either — every templated resource DELETE is in that group.
+      for (const pathKey of [
+        "/api/sena/projects/{projectId}",
+        "/api/sena/scim/v2/Users/{resourceId}",
+        "/api/sena/scim/v2/Groups/{resourceId}"
+      ]) {
+        expect([pathKey, paths[pathKey]?.delete?.requestBody]).toEqual([pathKey, undefined]);
+      }
+      // ...but a DELETE that really does read one keeps it, and keeps it
+      // optional: DELETE /api/auth/sessions parses JSON to pick the scope.
+      expect(paths["/api/auth/sessions"]?.delete?.requestBody)
+        .toEqual(expect.objectContaining({ required: false }));
+
+      // POST/PUT/PATCH still carry a required body wherever the manifest has
+      // evidence for one — the GET guard must not have eaten those.
+      expect(paths["/api/sena/projects"]?.post?.requestBody)
+        .toEqual(expect.objectContaining({ required: true }));
+      expect(paths["/api/sena/projects/{projectId}"]?.put?.requestBody)
+        .toEqual(expect.objectContaining({ required: true }));
     });
   });
 });
