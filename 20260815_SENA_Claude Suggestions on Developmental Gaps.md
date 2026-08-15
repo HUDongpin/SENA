@@ -374,6 +374,14 @@ That ratio is the important number in this document. A remediation that fixes el
 | The go-live checklist is never reset, so ticked confirmations carry across releases and teams — the same governance falsehood the fix removed, moved from a literal into sticky state. | major | yes |
 | The import-error drawer cannot re-fire on an identical message, so a repeated failure is silent — the exact condition the effect's own comment says it prevents. | major | yes |
 
+**All ten are fixed**, each with a test watched failing first. Three of the fixes are worth singling out because the fixer improved on the review rather than just executing it:
+
+- The **import-error** defect was deeper than diagnosed. The review blamed the effect's dependency array; the real cause is a level below it — `setImportError` stored a bare string, so re-reporting an identical message made React bail out of the update entirely. There was no re-render, so no dependency array could have fixed it. The state now carries an attempt counter, while a redundant *clear* still returns the same object so a genuine no-op still bails.
+- The **go-live** fix uses derive-during-render rather than the suggested effect, because an effect leaves one committed frame with stale ticks sitting over a live Attest button.
+- The review's claim that the drawer **traps the retry loop** was checked and **refuted**: the drawer's Data panel carries its own file input directly above the error plate, so the user never has to close it to retry.
+
+Two fixers also declined to do something and said why, which is the behaviour worth keeping. The SCIM agent implemented group archival for DELETE, ran it, found it would let an IdP revoke a **SENA-owned** owner's access to a team SENA created — reaching that *around* the last-manager guard rather than through it — and backed it out. The ops fixer rejected a dedicated operator role because it is self-mintable exactly as `owner` is: any team owner can issue an invitation carrying an arbitrary role.
+
 ### 11.3 What that says about the method
 
 Three things worth keeping, because they generalise beyond this branch:
