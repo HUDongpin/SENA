@@ -308,99 +308,239 @@ describe("SENA provisioning route POST", () => {
     });
   });
 
-  it("DEFECT: answers a malformed or structurally-invalid body with 500 rather than 400", async () => {
-    await withProvisioningRoute("sena-provisioning-route-body-defect-", {}, async ({ route, state }) => {
+  it("refuses a malformed or structurally-invalid body with a 400 and writes nothing", async () => {
+    await withProvisioningRoute("sena-provisioning-route-body-shape-", {}, async ({ route, state }) => {
       // Every one of these is a caller error and belongs in the 4xx family. The
-      // route parses with a bare `await request.json()` and the provisioning
-      // core reaches straight for `input.source` / `input.organization.trim()`,
-      // so each throws a plain SyntaxError/TypeError that
-      // enterpriseErrorResponse maps to 500 unexpected_error.
+      // status is the whole defect: every standard IdP/webhook retry policy
+      // treats a 5xx as retryable, so a permanently-broken body was retried on
+      // backoff forever, never surfaced the misconfiguration to the
+      // integration's operator, and filed a 5xx sample against the provisioning
+      // error budget on every attempt.
       //
-      // These expectations DOCUMENT the defect; they do not bless it. The
-      // correct answer is a 400 — and note the incoherence this pins: a
-      // *blank* organization already yields 400 invalid_provisioning_organization
-      // (asserted above), while an *absent* one on the very same field falls
-      // through to a 5xx.
+      // The organization rows also close an incoherence: a *blank* organization
+      // was already refused with 400 invalid_provisioning_organization
+      // (asserted above) while an absent or non-string one on the very same
+      // field fell through to a 5xx.
       const bad = [
-        { label: "unparseable JSON", body: "{not json" },
-        { label: "empty body", body: "" },
-        { label: "JSON null", body: "null" },
-        { label: "JSON array", body: "[]" },
-        { label: "JSON scalar", body: "42" },
-        { label: "object with no organization", body: {} },
-        { label: "organization present but not a string", body: { organization: 123 } },
-        { label: "well-formed teams with no organization", body: { teams: [{ name: "Orphan Cohort" }] } }
+        { label: "unparseable JSON", body: "{not json", code: "invalid_provisioning_body" },
+        { label: "empty body", body: "", code: "invalid_provisioning_body" },
+        { label: "JSON null", body: "null", code: "invalid_provisioning_body" },
+        { label: "JSON array", body: "[]", code: "invalid_provisioning_body" },
+        { label: "JSON scalar", body: "42", code: "invalid_provisioning_body" },
+        { label: "object with no organization", body: {}, code: "invalid_provisioning_organization" },
+        { label: "organization present but not a string", body: { organization: 123 }, code: "invalid_provisioning_organization" },
+        { label: "well-formed teams with no organization", body: { teams: [{ name: "Orphan Cohort" }] }, code: "invalid_provisioning_organization" },
+        // The reported case: an IdP whose template misnames the organization
+        // field posts a body of unknown keys only.
+        { label: "nothing but unknown keys", body: { orgnisation: "SENA Typo Org", sync: true }, code: "invalid_provisioning_organization" },
+        {
+          label: "teams that is not an array",
+          body: { organization: "SENA Shape Org", teams: "Cohort" },
+          code: "invalid_provisioning_body"
+        },
+        {
+          label: "team entry that is not an object",
+          body: { organization: "SENA Shape Org", teams: ["Cohort"] },
+          code: "invalid_provisioning_body"
+        },
+        {
+          label: "team with no name",
+          body: { organization: "SENA Shape Org", teams: [{ externalId: "idp-group-cohort" }] },
+          code: "invalid_provisioning_team"
+        },
+        {
+          label: "team name that is not a string",
+          body: { organization: "SENA Shape Org", teams: [{ name: 7 }] },
+          code: "invalid_provisioning_team"
+        },
+        {
+          // Same coercion class as dryRun: `archived` is read as === true /
+          // === false, so a stringly-typed flag silently retired nothing while
+          // the caller was answered 200.
+          label: "team archived that is not a boolean",
+          body: { organization: "SENA Shape Org", teams: [{ name: "Archive Cohort", archived: "true" }] },
+          code: "invalid_provisioning_team"
+        },
+        {
+          label: "users that is not an array",
+          body: { organization: "SENA Shape Org", users: { email: "solo@example.edu" } },
+          code: "invalid_provisioning_body"
+        },
+        {
+          label: "user with no email",
+          body: { organization: "SENA Shape Org", users: [{ name: "No Email" }] },
+          code: "invalid_provisioning_email"
+        },
+        {
+          label: "user email that is not a string",
+          body: { organization: "SENA Shape Org", users: [{ email: 42 }] },
+          code: "invalid_provisioning_email"
+        },
+        {
+          label: "user name that is not a string",
+          body: { organization: "SENA Shape Org", users: [{ email: "shape@example.edu", name: 42 }] },
+          code: "invalid_provisioning_user"
+        },
+        {
+          label: "memberships that is not an array",
+          body: { organization: "SENA Shape Org", users: [{ email: "shape@example.edu", memberships: "pi" }] },
+          code: "invalid_provisioning_body"
+        },
+        {
+          label: "membership teamName that is not a string",
+          body: {
+            organization: "SENA Shape Org",
+            users: [{ email: "shape@example.edu", memberships: [{ teamName: 9, role: "pi" }] }]
+          },
+          code: "invalid_provisioning_membership"
+        },
+        {
+          label: "sso subject that is not a string",
+          body: {
+            organization: "SENA Shape Org",
+            users: [{ email: "shape@example.edu", sso: { provider: "institution", subject: 9 } }]
+          },
+          code: "invalid_provisioning_sso_subject"
+        }
       ];
 
-      for (const { label, body } of bad) {
+      for (const { label, body, code } of bad) {
         const response = await route.POST(postRequest(body));
         const parsed = await response.json() as ProvisioningResultBody;
-        expect([label, response.status]).toEqual([label, 500]);
-        expect([label, parsed.code]).toEqual([label, "unexpected_error"]);
-        // Filed as a server fault: this is the part that burns the error
-        // budget, pages the on-call, and tells an IdP's retry policy that a
-        // permanently-malformed body is worth retrying forever.
-        expect([label, response.headers.get("x-sena-observed-status-class")]).toEqual([label, "5xx"]);
+        expect([label, response.status]).toEqual([label, 400]);
+        expect([label, parsed.code]).toEqual([label, code]);
+        expect([label, typeof parsed.error]).toEqual([label, "string"]);
+        // 4xx is what tells an IdP's retry policy to stop and alert its
+        // operator instead of retrying a body that can never succeed.
+        expect([label, response.headers.get("x-sena-observed-status-class")]).toEqual([label, "4xx"]);
       }
 
-      // Second defect in the same envelope: the 500 body forwards the raw
-      // JavaScript TypeError message, so an internal source expression is
-      // handed to the caller. `enterpriseErrorResponse` only sanitizes
-      // SenaEnterpriseError; anything else arrives verbatim.
-      const leaky = await route.POST(postRequest({ organization: 123 }));
-      expect((await leaky.json() as ProvisioningResultBody).error).toBe("input.organization.trim is not a function");
+      // The refusal carries SENA's own wording. The 500 it replaces forwarded
+      // the raw JavaScript TypeError ("input.organization.trim is not a
+      // function"), handing an internal source expression to the caller;
+      // lib/sena/enterprise/errors.ts has since redacted whatever still reaches
+      // that exit, and a refusal SENA authored never goes near it.
+      const refused = await route.POST(postRequest({ organization: 123 }));
+      const refusedBody = await refused.json() as ProvisioningResultBody;
+      expect(refusedBody.error).toBe("Provisioning requires an organization name.");
+      expect(String(refusedBody.error)).not.toMatch(/is not a function|TypeError|SyntaxError|input\./);
 
-      // The status is wrong, but nothing half-applied.
+      // Refused before anything is touched: nothing half-applied.
       expect(await primarySnapshot(state)).toEqual({ users: [], teams: [], memberships: [], provisioningAudits: 0 });
+
+      // ...and a well-formed body on the same harness still provisions, so the
+      // refusals above are the validation's doing and not a broken fixture.
+      const accepted = await route.POST(postRequest(cohortBody("SENA Shape Org")));
+      expect(accepted.status).toBe(200);
+      expect((await accepted.json() as ProvisioningResultBody).summary?.usersCreated).toBe(2);
     });
   });
 
-  it("DEFECT: treats any truthy dryRun as a dry run, so `dryRun: \"false\"` silently skips the write", async () => {
-    await withProvisioningRoute("sena-provisioning-route-dryrun-coercion-", {}, async ({ route, state }) => {
-      // provisionEnterpriseOrganizationInDb takes `Boolean(input.dryRun)`, and
-      // every non-empty string is truthy. A caller that spells the flag out as
-      // a string — a shell/curl template, a form-encoded proxy, a config value
-      // read as text — asks explicitly for a real sync and is answered 200 with
-      // full "created" counts while nothing is written.
-      //
-      // Pinning the defect, not blessing it: a non-boolean dryRun should be
-      // refused with a 400, the way an unsupported plan/role/status already is.
-      const skipped = await route.POST(postRequest({ ...cohortBody("SENA Coercion Org"), dryRun: "false" }));
-      const skippedBody = await skipped.json() as ProvisioningResultBody;
-      expect(skipped.status).toBe(200);
-      expect(skippedBody.summary?.usersCreated).toBe(2);
-      // The only tell that the caller's explicit "false" was inverted.
-      expect(skippedBody.dryRun).toBe(true);
+  it("refuses a non-boolean dryRun with a 400 instead of reading it as truthiness", async () => {
+    await withProvisioningRoute("sena-provisioning-route-dryrun-shape-", {}, async ({ route, state }) => {
+      // `Boolean(input.dryRun)` read every non-empty string as "dry run". A
+      // caller that spells the flag out — a shell/curl template, a form-encoded
+      // proxy, a config value read as text — asks explicitly for a real sync,
+      // and was answered 200 with full "created" counts while nothing was
+      // written, so an integration gating on status filed the sync as complete.
+      // Every other unsupported value on this surface (plan, role, membership
+      // status, user status, SSO provider) already earns an explicit 400.
+      const refusals: Array<[string, unknown]> = [
+        ["string false", "false"],
+        ["string true", "true"],
+        ["string no", "no"],
+        ["empty string", ""],
+        ["zero", 0],
+        ["one", 1],
+        ["null", null],
+        ["empty array", []],
+        ["empty object", {}]
+      ];
+
+      for (const [label, dryRun] of refusals) {
+        const response = await route.POST(postRequest({ ...cohortBody("SENA Coercion Org"), dryRun }));
+        const parsed = await response.json() as ProvisioningResultBody;
+        expect([label, response.status]).toEqual([label, 400]);
+        expect([label, parsed.code]).toEqual([label, "invalid_provisioning_dry_run"]);
+        expect([label, response.headers.get("x-sena-observed-status-class")]).toEqual([label, "4xx"]);
+        // No provisioning result at all — in particular no created-counts
+        // summary an integration could read as a completed sync.
+        expect([label, parsed.dryRun]).toEqual([label, undefined]);
+        expect([label, parsed.summary]).toEqual([label, undefined]);
+      }
       expect(await primarySnapshot(state)).toEqual({ users: [], teams: [], memberships: [], provisioningAudits: 0 });
 
-      // The falsy coercions do commit, so the flag is not simply ignored — it
-      // is read as truthiness, which is the bug.
-      const committed = await route.POST(postRequest({ ...cohortBody("SENA Coercion Org"), dryRun: null }));
+      // The real booleans keep their meaning on both sides.
+      const dryRun = await route.POST(postRequest({ ...cohortBody("SENA Coercion Org"), dryRun: true }));
+      expect(dryRun.status).toBe(200);
+      expect((await dryRun.json() as ProvisioningResultBody).dryRun).toBe(true);
+      expect(await primarySnapshot(state)).toEqual({ users: [], teams: [], memberships: [], provisioningAudits: 0 });
+
+      const committed = await route.POST(postRequest({ ...cohortBody("SENA Coercion Org"), dryRun: false }));
       expect(committed.status).toBe(200);
       expect((await committed.json() as ProvisioningResultBody).dryRun).toBe(false);
       expect((await primarySnapshot(state)).users).toHaveLength(2);
     });
   });
 
-  it("DEFECT: silently rewrites an unrecognised source to \"api\" instead of refusing it", async () => {
-    await withProvisioningRoute("sena-provisioning-route-source-coercion-", {}, async ({ route, provisioning }) => {
-      // Unsupported plan, role, membership status, user status and SSO provider
-      // each earn an explicit 400. `source` alone falls back silently, and it is
-      // the field that decides which directory the rows belong to.
-      const response = await route.POST(postRequest({ ...cohortBody("SENA Source Org"), source: "scim-v2" }));
-      const body = await response.json() as ProvisioningResultBody;
-      expect(response.status).toBe(200);
-      expect(body.source).toBe("api");
+  it("refuses an unrecognised source with a 400 while an absent one still defaults to \"api\"", async () => {
+    await withProvisioningRoute("sena-provisioning-route-source-shape-", {}, async ({ route, provisioning, state }) => {
+      // `source` decides which directory owns the rows, and
+      // listEnterpriseProvisioningDirectory filters on it. Rewriting "scim-v2"
+      // to "api" answered 200 while the SCIM directory the integration reads
+      // back stayed empty, so its next correctly-spelled sync matched nothing
+      // and created the same teams, users and memberships a second time under
+      // the other tag.
+      for (const [label, source] of [
+        ["misspelled scim", "scim-v2"],
+        ["case-shifted", "SCIM"],
+        ["padded", " api "],
+        ["null", null],
+        ["numeric", 7]
+      ] as Array<[string, unknown]>) {
+        const response = await route.POST(postRequest({ ...cohortBody("SENA Source Org"), source }));
+        const parsed = await response.json() as ProvisioningResultBody;
+        expect([label, response.status]).toEqual([label, 400]);
+        expect([label, parsed.code]).toEqual([label, "invalid_provisioning_source"]);
+        expect([label, response.headers.get("x-sena-observed-status-class")]).toEqual([label, "4xx"]);
+        expect([label, parsed.source]).toEqual([label, undefined]);
+      }
 
-      // The consequence: an IdP that meant "scim" and mistyped it gets a 200
-      // whose rows never appear in the SCIM directory it will read back, and
-      // its next sync creates them again under the source it did spell right.
-      const scimDirectory = await provisioning.listEnterpriseProvisioningDirectoryAsync("scim");
-      expect(scimDirectory.users).toEqual([]);
-      expect(scimDirectory.teams).toEqual([]);
-      const apiDirectory = await provisioning.listEnterpriseProvisioningDirectoryAsync("api");
-      expect(apiDirectory.users.map((user) => user.email).sort())
+      // Nothing landed under either tag, so there is nothing for the corrected
+      // sync to duplicate.
+      expect(await primarySnapshot(state)).toEqual({ users: [], teams: [], memberships: [], provisioningAudits: 0 });
+      expect((await provisioning.listEnterpriseProvisioningDirectoryAsync("scim")).users).toEqual([]);
+      expect((await provisioning.listEnterpriseProvisioningDirectoryAsync("api")).users).toEqual([]);
+
+      // An absent source is not an invalid one: a POST that never names a
+      // source keeps the documented "api" default. (The SCIM bridge in
+      // lib/sena/scim.ts always passes one explicitly, so nothing depends on
+      // this default meaning "scim".)
+      const { source, ...withoutSource } = cohortBody("SENA Source Org");
+      expect(source).toBe("api");
+      const defaulted = await route.POST(postRequest(withoutSource));
+      const defaultedBody = await defaulted.json() as ProvisioningResultBody;
+      expect(defaulted.status).toBe(200);
+      expect(defaultedBody.source).toBe("api");
+      expect((await provisioning.listEnterpriseProvisioningDirectoryAsync("api")).users.map((user) => user.email).sort())
         .toEqual(["provisioning-coder@example.edu", "provisioning-pi@example.edu"]);
+    });
+  });
+
+  it("keeps an explicitly requested scim source on the rows it provisions", async () => {
+    await withProvisioningRoute("sena-provisioning-route-source-scim-", {}, async ({ route, provisioning }) => {
+      // The other half of the source contract: a source spelled right is
+      // honoured, so the directory the integration reads back is the one it
+      // just wrote to.
+      const response = await route.POST(postRequest({ ...cohortBody("SENA Scim Source Org"), source: "scim" }));
+      expect(response.status).toBe(200);
+      expect((await response.json() as ProvisioningResultBody).source).toBe("scim");
+
+      const scimDirectory = await provisioning.listEnterpriseProvisioningDirectoryAsync("scim");
+      expect(scimDirectory.teams.map((team) => team.name)).toEqual(["Provisioning Cohort"]);
+      expect(scimDirectory.users.map((user) => user.email).sort())
+        .toEqual(["provisioning-coder@example.edu", "provisioning-pi@example.edu"]);
+      expect((await provisioning.listEnterpriseProvisioningDirectoryAsync("api")).teams).toEqual([]);
     });
   });
 });

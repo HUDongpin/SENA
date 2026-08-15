@@ -229,45 +229,76 @@ function bearerOnlyOpsAction(request: Request, input: { mutation: boolean }) {
   return input.mutation || deploymentWideOpsDispatchPaths.has(requestPath(request));
 }
 
-async function opsSessionAccess(request: Request, input: { mutation: boolean }) {
-  const context = await requireApiSession();
-  // CSRF stays ahead of the RBAC answer: a cookie-authenticated mutation without
-  // the header is the hole this parallel path must not open.
-  if (input.mutation) await requireApiCsrf(request, context);
-  requireOpsSessionPermission(request, context);
-  return { mode: "session" as const };
+/**
+ * The ONLY place the ops surface consults a session, and the normalisation
+ * lives inside it rather than around its callers.
+ *
+ * That placement is the fix, not a style choice. This helper used to be called
+ * from two branches of resolveOpsAccess with the try/catch written around only
+ * the second one, so the "no ops token configured" branch reached
+ * requireApiSession unwrapped. requireApiSession → requireEnterpriseSessionAsync
+ * → readEnterpriseState, and on a Postgres primary normalizePostgresStateError
+ * (lib/sena/enterprise/state.ts) re-throws anything lacking a numeric `status`
+ * verbatim — a plain `pg` connection error qualifies. The raw driver message
+ * then reached enterpriseErrorResponse and was published, with the internal
+ * database hostname in it, to a caller who had presented no credential at all:
+ * the failure happens during the session LOOKUP, so any invented cookie value
+ * gets there. A guard that has to be repeated at each call site is a guard that
+ * will be forgotten at one of them, which is precisely what happened.
+ *
+ * Session and RBAC refusals are the product's own answers and surface as
+ * themselves (401 auth, 403 CSRF/role). Anything else means there is no session
+ * context to evaluate at all — the caller is told which credential the
+ * deployment can actually accept, and nothing about why the lookup failed.
+ */
+async function opsSessionAccess(
+  request: Request,
+  input: { mutation: boolean; opsTokensConfigured: boolean }
+) {
+  try {
+    const context = await requireApiSession();
+    // CSRF stays ahead of the RBAC answer: a cookie-authenticated mutation without
+    // the header is the hole this parallel path must not open.
+    if (input.mutation) await requireApiCsrf(request, context);
+    requireOpsSessionPermission(request, context);
+    return { mode: "session" as const };
+  } catch (error) {
+    if (error instanceof SenaEnterpriseError) throw error;
+    // With tokens configured this is the automation caller who simply forgot
+    // the token, and saying so is actionable. With none configured there is no
+    // token to bring, so naming one would send the operator after a credential
+    // the deployment does not accept; the refusal stays coded and generic, and
+    // the real cause is left to the server-side log rather than the response.
+    throw input.opsTokensConfigured
+      ? new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required")
+      : new SenaEnterpriseError("SENA ops access could not be verified.", 401, "ops_session_unverified");
+  }
 }
 
 async function resolveOpsAccess(request: Request, input: { mutation: boolean }) {
   const configuredTokens = configuredOpsTokens();
-  if (configuredTokens.length === 0) {
-    return await opsSessionAccess(request, input);
-  }
-  const provided = bearerToken(request);
-  if (provided) {
-    // Bearer semantics are untouched: a supplied token is the whole decision,
-    // and an invalid one never falls through to the session path.
-    if (!opsTokenMatches(configuredTokens, provided)) {
-      throw new SenaEnterpriseError("Ops bearer token is invalid.", 401, "ops_token_invalid");
+  const opsTokensConfigured = configuredTokens.length > 0;
+  if (opsTokensConfigured) {
+    const provided = bearerToken(request);
+    if (provided) {
+      // Bearer semantics are untouched: a supplied token is the whole decision,
+      // and an invalid one never falls through to the session path.
+      if (!opsTokenMatches(configuredTokens, provided)) {
+        throw new SenaEnterpriseError("Ops bearer token is invalid.", 401, "ops_token_invalid");
+      }
+      return { mode: "bearer" as const };
     }
-    return { mode: "bearer" as const };
+    if (bearerOnlyOpsAction(request, input)) {
+      // Answered before the session path existed, and answered again now: the
+      // deployment-wide dispatching surface is automation's, not a browser's.
+      // Thrown ahead of requireApiSession so the response does not depend on
+      // whether a cookie happened to be attached.
+      throw new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required");
+    }
   }
-  if (bearerOnlyOpsAction(request, input)) {
-    // Answered before the session path existed, and answered again now: the
-    // deployment-wide dispatching surface is automation's, not a browser's.
-    // Thrown ahead of requireApiSession so the response does not depend on
-    // whether a cookie happened to be attached.
-    throw new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required");
-  }
-  try {
-    return await opsSessionAccess(request, input);
-  } catch (error) {
-    // Session and RBAC refusals surface as themselves (401 auth, 403 CSRF/role).
-    // Anything else means there is no session context to evaluate at all, which
-    // is the automation caller who simply forgot the token.
-    if (error instanceof SenaEnterpriseError) throw error;
-    throw new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required");
-  }
+  // Single, unbypassable session call site: every configuration that reaches a
+  // session — tokens configured or not — arrives here, already normalised.
+  return await opsSessionAccess(request, { ...input, opsTokensConfigured });
 }
 
 export async function requireOpsAccess(request: Request) {
