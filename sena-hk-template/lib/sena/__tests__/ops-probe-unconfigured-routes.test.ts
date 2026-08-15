@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -429,17 +429,165 @@ describe("SENA ops probes with no live service configured (FA22-06)", () => {
     expect(harness.postgresPoolAttempts()).toBe(0);
   });
 
-  it("DEFECT: the unconfigured 503s are booked as server errors, so scraping the probes breaches the deployment's own SLO", async () => {
+  it("keeps answering /ops/metrics 200 once the deployment is degraded, so the scrape carries the gauges that say so", async () => {
+    // A Prometheus scrape target that answers non-2xx has FAILED the scrape: `up`
+    // goes to 0 and not one sample line is ingested. The gauges that report the
+    // degradation are computed and serialised on exactly the request that would
+    // have thrown them away, so an alert written `sena_enterprise_degraded == 1`
+    // could never fire and only a bare `up == 0` was left, saying nothing about
+    // what broke.
+    const harness = startUnconfiguredOps({ opsToken });
+
+    // A real degraded status, not a stub. One warm-up scrape initialises
+    // enterprise-db.json (the read path only writes when the file is absent —
+    // lib/sena/enterprise/state.ts:736), after which a read-only data directory
+    // fails probeWrite and probeLock without making the state read itself throw.
+    // Those flip `ops-storage-writable` and `ops-storage-lock` to "review", two of
+    // the five checks that make buildEnterpriseOpsStatus report "degraded"
+    // (lib/sena/enterprise/ops-status.ts:748).
+    expect(await (await harness.get("metrics")).text()).toContain("sena_enterprise_degraded 0");
+    chmodSync(harness.enterpriseDbDir, 0o555);
+    try {
+      const response = await harness.get("metrics");
+      const metrics = await response.text();
+
+      // The degradation is in the body, which is only worth anything if the body
+      // is ingested.
+      expect(metrics).toContain("sena_enterprise_degraded 1");
+      expect(response.status).toBe(200);
+      // The exposition contract is unchanged by answering 200.
+      expect(response.headers.get("content-type")).toBe("text/plain; version=0.0.4; charset=utf-8");
+      expect(response.headers.get("x-sena-observed-route")).toBe(opsSurfaces.metrics.observedRoute);
+      expect(metrics).toContain("# TYPE sena_enterprise_degraded gauge");
+      expectNoLeakedFailureDetail(metrics, harness);
+    } finally {
+      chmodSync(harness.enterpriseDbDir, 0o755);
+    }
+  });
+
+  it("books a handler-declared informational not-configured response as a report, not a server error", async () => {
+    // The classification boundary. `recordEnterpriseObservedRequest` cannot read
+    // "nothing failed here" off a status code — a 503 from an exhausted backend or
+    // a lock timeout is a genuine error and has to keep counting — so the handler
+    // that built the response is the only place that knows, and it says so by
+    // passing `informational`.
+    const harness = startUnconfiguredOps({ opsToken });
+    const observability = await import("../enterprise/ops-observability");
+
+    const informationalProbes = [
+      opsSurfaces.postgres.observedRoute,
+      opsSurfaces.objectStorage.observedRoute,
+      opsSurfaces.cdn.observedRoute,
+      opsSurfaces.observabilityProbe.observedRoute
+    ];
+    for (const routeId of informationalProbes) {
+      observability.recordEnterpriseObservedRequest({
+        routeId,
+        method: "GET",
+        statusCode: 503,
+        durationMs: 5,
+        informational: true
+      });
+    }
+
+    const snapshot = observability.getEnterpriseObservabilitySnapshot();
+
+    // The wire fact is kept — these really were 503s — but none of them is an error.
+    expect(snapshot.summary.total).toBe(4);
+    expect(snapshot.summary.informational).toBe(4);
+    expect(snapshot.summary.errors).toBe(0);
+    expect(snapshot.summary.serverErrors).toBe(0);
+    expect(snapshot.summary.clientErrors).toBe(0);
+    expect(snapshot.summary.errorRatePercent).toBe(0);
+    expect(snapshot.summary.sloBreached).toBe(false);
+    expect(snapshot.evidence).toContain("observabilityInformationalResponses=4");
+
+    const byRoute = new Map(snapshot.routes.map((route) => [route.routeId, route]));
+    for (const routeId of informationalProbes) {
+      expect(byRoute.get(routeId)?.total).toBe(1);
+      // No probe is charged an error for answering the question it exists to answer.
+      expect(byRoute.get(routeId)?.errors).toBe(0);
+    }
+
+    const samples = observability.listEnterpriseObservedRequests();
+    expect(samples.every((sample) => sample.statusClass === "5xx")).toBe(true);
+    expect(samples.every((sample) => sample.informational)).toBe(true);
+    expect(samples.every((sample) => sample.error === false)).toBe(true);
+  });
+
+  it("still books an unmarked 5xx as a server error, so a real failure moves the rate", async () => {
+    // The other half of the boundary: nothing about 5xx was relaxed. A response the
+    // handler did NOT declare informational counts exactly as it did before, and
+    // still drives errorRatePercent and the SLO.
+    const harness = startUnconfiguredOps({ opsToken });
+    const observability = await import("../enterprise/ops-observability");
+
+    for (const routeId of [
+      opsSurfaces.postgres.observedRoute,
+      opsSurfaces.objectStorage.observedRoute,
+      opsSurfaces.cdn.observedRoute
+    ]) {
+      observability.recordEnterpriseObservedRequest({
+        routeId,
+        method: "GET",
+        statusCode: 503,
+        durationMs: 5,
+        informational: true
+      });
+    }
+    // Same status code, same route, no informational declaration: a Postgres lock
+    // timeout or an exhausted pool reaching the caller as a 503.
+    observability.recordEnterpriseObservedRequest({
+      routeId: opsSurfaces.postgres.observedRoute,
+      method: "GET",
+      statusCode: 503,
+      durationMs: 5
+    });
+
+    const snapshot = observability.getEnterpriseObservabilitySnapshot();
+
+    expect(snapshot.summary.total).toBe(4);
+    expect(snapshot.summary.informational).toBe(3);
+    expect(snapshot.summary.errors).toBe(1);
+    expect(snapshot.summary.serverErrors).toBe(1);
+    expect(snapshot.summary.errorRatePercent).toBe(25);
+    // 25% is over the default error-rate SLO, so the breach the deployment
+    // actually has still surfaces.
+    expect(snapshot.summary.sloBreached).toBe(true);
+
+    const postgresRoute = snapshot.routes.find((route) => route.routeId === opsSurfaces.postgres.observedRoute);
+    expect(postgresRoute?.total).toBe(2);
+    expect(postgresRoute?.errors).toBe(1);
+  });
+
+  it("DEFECT (route wiring outstanding): the unconfigured 503s are still booked as server errors end to end, so scraping the probes breaches the deployment's own SLO", async () => {
     // This test documents a defect; it does not bless the behaviour.
     //
-    // observeSenaApiRoute records every handled response into the observability
-    // ring buffer, and recordEnterpriseObservedRequest classifies a sample as an
-    // error purely on `statusCode >= 500`
-    // (lib/sena/enterprise/ops-observability.ts:780). The five probes above
-    // answer 503 for a state that is not a failure — nothing broke, the
-    // deployment simply has no Postgres/object-storage/CDN/exporter yet — so a
-    // monitor polling them drives the deployment's own error-rate SLI to 100%
-    // and flips sloBreached, on a deployment where nothing has actually failed.
+    // The classification itself is fixed: recordEnterpriseObservedRequest no
+    // longer decides on `statusCode >= 500` alone, and a handler that declares
+    // `informational: true` gets a 503 that reports a state kept out of the error
+    // count. The two cases above pin that, and pin that an undeclared 5xx still
+    // counts.
+    //
+    // What is NOT yet done is carrying the declaration from the four probe
+    // handlers to the recorder, which needs files outside this change's scope:
+    //
+    //   lib/sena/api-helpers.ts  — observeSenaApiRoute builds the recorder input
+    //     from {routeId, method, response.status, durationMs, requestId} and
+    //     drops the response itself, so no per-response intent can reach the
+    //     recorder today. It has to read the declaration off the handler's
+    //     Response (a sentinel header, stripped before the response goes out) and
+    //     pass `informational` through.
+    //   app/api/sena/ops/{postgres,object-storage,cdn,observability/probe}/route.ts
+    //     — each sets that sentinel only for its own not-configured answer
+    //     (provider.configured === false / mode "not-configured" /
+    //     target.configured === false / deliveryStatus "not-configured"), never
+    //     for a probe that ran and failed. A probe that dialled a configured
+    //     backend and lost must keep counting as the error it is.
+    //
+    // Until that lands, the numbers below are what a monitor polling the probes
+    // on a half-provisioned deployment still sees: an error-rate SLI pinned at
+    // 100% and sloBreached true, with nothing actually failed.
     const harness = startUnconfiguredOps({ opsToken });
 
     await harness.get("postgres");
@@ -503,28 +651,18 @@ describe("SENA ops probes with no live service configured (FA22-06)", () => {
     expect(harness.postgresPoolAttempts()).toBe(0);
   });
 
-  it("DEFECT: with no ops token configured, a backend failure during the session lookup escapes as a 500 carrying the raw driver message", async () => {
-    // This test documents a defect; it does not bless the behaviour.
+  it("refuses with a coded 401 when the session lookup itself fails against an unreachable backend, leaking no driver detail", async () => {
+    // This case was a DEFECT pin: the "no ops token configured" branch of
+    // resolveOpsAccess returned early, calling opsSessionAccess OUTSIDE the
+    // try/catch that normalises unrecognised throws, so a Postgres primary that
+    // could not be reached — the state of a half-provisioned deployment — reached
+    // enterpriseErrorResponse and had its raw message published verbatim in the
+    // body of an UNAUTHENTICATED response, internal hostname and all.
     //
-    // lib/sena/ops-api.ts resolveOpsAccess:
-    //
-    //   if (configuredTokens.length === 0) {
-    //     return await opsSessionAccess(request, input);   // <- unwrapped
-    //   }
-    //   ...
-    //   try { return await opsSessionAccess(request, input); }
-    //   catch (error) {
-    //     if (error instanceof SenaEnterpriseError) throw error;
-    //     throw new SenaEnterpriseError("Ops bearer token is required.", 401, "ops_token_required");
-    //   }
-    //
-    // The early return on the "no ops token configured" branch calls the same
-    // helper OUTSIDE the try/catch that normalises unrecognised throws. So when
-    // the session lookup fails for a non-enterprise reason — here a Postgres
-    // primary that cannot be reached, which is exactly the state of a
-    // half-provisioned deployment — the raw error reaches
-    // enterpriseErrorResponse and its message is published verbatim in the body
-    // of an UNAUTHENTICATED response.
+    // Both halves of that are now closed (lib/sena/ops-api.ts:273-274, and
+    // lib/sena/enterprise/errors.ts, which no longer publishes a raw Error.message
+    // for unrecognised throws). The case is kept, inverted, as the regression that
+    // holds the leak shut.
     const unreachableHost = "db-internal.sena.invalid";
     const harnessEnv = {
       SENA_ENTERPRISE_DB_ADAPTER: "postgres",
@@ -535,29 +673,33 @@ describe("SENA ops probes with no live service configured (FA22-06)", () => {
       throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${unreachableHost}`), { code: "ENOTFOUND" });
     };
 
-    const leaking = startUnconfiguredOps({
+    const tokenless = startUnconfiguredOps({
       env: harnessEnv,
       sessionCookie: "any-cookie-value-an-anonymous-caller-can-invent",
       pgQuery: failingPg
     });
 
-    const response = await leaking.get("observability");
+    const response = await tokenless.get("observability");
     const text = await response.text();
     const body = JSON.parse(text) as { error?: string; code?: string };
 
-    // What it should be: a coded refusal with no backend detail. What it is:
-    expect(response.status).toBe(500);
-    expect(body.code).toBe("unexpected_error");
-    expect(body.error).toContain("ENOTFOUND");
-    // The internal database hostname reaches an unauthenticated caller.
-    expect(body.error).toContain(unreachableHost);
+    // A coded refusal with no backend detail. The code is deliberately NOT
+    // ops_token_required: no ops token is configured here, so naming a bearer
+    // token would send the operator after a credential this deployment does not
+    // accept.
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("ops_session_unverified");
+    // Nothing about the backend that failed reaches an unauthenticated caller.
+    expect(text).not.toContain("ENOTFOUND");
+    expect(text).not.toContain(unreachableHost);
+    expect(text).not.toContain("super-secret");
+    expectNoLeakedFailureDetail(text, tokenless);
     releaseHarness?.();
     releaseHarness = undefined;
 
-    // The contrast that isolates the cause: the SAME request against the SAME
-    // broken backend, with an ops token configured, takes the wrapped branch and
-    // answers a coded 401 that leaks nothing. Only "no ops token configured"
-    // turns the failure into a 500 with the hostname in it.
+    // The other branch, unchanged: the SAME request against the SAME broken
+    // backend with an ops token configured is refused as ops_token_required,
+    // because there a bearer token is the credential that would work.
     const guarded = startUnconfiguredOps({
       opsToken,
       env: harnessEnv,

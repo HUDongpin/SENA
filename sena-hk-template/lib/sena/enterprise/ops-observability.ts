@@ -29,6 +29,20 @@ export type SenaEnterpriseObservedRequest = {
   statusClass: "2xx" | "3xx" | "4xx" | "5xx" | "unknown";
   durationMs: number;
   slow: boolean;
+  /**
+   * The response reports a state rather than a failure, as declared by the
+   * handler that built it. Kept alongside `statusClass` rather than replacing it:
+   * the sample still records that a 5xx went out on the wire, it just is not
+   * counted against the deployment's error budget.
+   *
+   * Optional because samples read back out of the Postgres observed-request
+   * table are rebuilt from indexed columns that predate this field
+   * (enterprise-postgres.ts normalizeStoredObservedRequest). The classification
+   * itself still round-trips: `error` is a stored column and is written already
+   * resolved, so a window served from Postgres counts the same errors either
+   * way — only the marker explaining why is absent there.
+   */
+  informational?: boolean;
   error: boolean;
   errorCodeHash?: string;
   redaction: {
@@ -81,6 +95,12 @@ export type SenaEnterpriseObservabilitySnapshot = {
     maxSamples: number;
     total: number;
     errors: number;
+    /**
+     * Non-2xx responses a handler declared informational — a state report, not a
+     * failure. Reported so the window stays readable: these are excluded from
+     * `errors` and `serverErrors`, and this is where they went.
+     */
+    informational: number;
     clientErrors: number;
     serverErrors: number;
     slow: number;
@@ -756,6 +776,18 @@ export function enterpriseObservabilityProbeReadiness(): SenaEnterpriseObservabi
   };
 }
 
+/**
+ * Records one handled response into the SLI window.
+ *
+ * The error classification deliberately does NOT come from the status code
+ * alone. A 503 can mean two unrelated things: an exhausted backend or a lock
+ * timeout — a genuine failure that must burn error budget — or a probe
+ * reporting "this backend is not configured yet", which is the answer that
+ * endpoint exists to give and in which nothing has failed. Only the handler
+ * that built the response can tell those apart, so the intent is carried in
+ * from there via `informational` and is never inferred here. Anything a handler
+ * does not explicitly declare informational is classified exactly as before.
+ */
 export function recordEnterpriseObservedRequest(input: {
   routeId: string;
   method: string;
@@ -763,10 +795,18 @@ export function recordEnterpriseObservedRequest(input: {
   durationMs: number;
   requestId?: string;
   errorCode?: string;
+  /**
+   * Declared by the handler when the response reports a state rather than a
+   * failure — e.g. an ops probe answering "not configured yet". Narrow on
+   * purpose: it takes a non-2xx out of the error count without touching the
+   * status code, the status class, or any other response's classification.
+   */
+  informational?: boolean;
 }): SenaEnterpriseObservedRequest {
   const observedAt = now();
   const durationMs = boundedDuration(input.durationMs);
   const cls = statusClass(input.statusCode);
+  const informational = input.informational === true;
   const entry: SenaEnterpriseObservedRequest = {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseObservedRequest,
     observedAt,
@@ -777,7 +817,8 @@ export function recordEnterpriseObservedRequest(input: {
     statusClass: cls,
     durationMs,
     slow: durationMs >= enterpriseObservabilitySlowRequestMs(),
-    error: input.statusCode >= 500,
+    informational,
+    error: input.statusCode >= 500 && !informational,
     errorCodeHash: input.errorCode ? sha256Text(input.errorCode) : undefined,
     redaction: {
       requestIdValueExcluded: true,
@@ -851,8 +892,13 @@ function buildEnterpriseObservabilitySnapshot(input: {
   const samples = input.samples;
   const durations = samples.map((sample) => sample.durationMs);
   const errors = samples.filter((sample) => sample.error).length;
+  const informational = samples.filter((sample) => sample.informational === true).length;
   const clientErrors = samples.filter((sample) => sample.statusClass === "4xx").length;
-  const serverErrors = samples.filter((sample) => sample.statusClass === "5xx").length;
+  // Counts the 5xx responses that actually failed. Reading the resolved `error`
+  // flag rather than re-deriving from `informational` keeps this correct for
+  // samples served out of the Postgres window, where the marker is not stored
+  // but `error` is.
+  const serverErrors = samples.filter((sample) => sample.statusClass === "5xx" && sample.error).length;
   const slow = samples.filter((sample) => sample.slow).length;
   const p95Ms = percentile(durations, 95);
   const errorRatePercent = samples.length ? Number(((errors / samples.length) * 100).toFixed(2)) : 0;
@@ -889,6 +935,7 @@ function buildEnterpriseObservabilitySnapshot(input: {
       maxSamples: maxObservedRequests,
       total: samples.length,
       errors,
+      informational,
       clientErrors,
       serverErrors,
       slow,
@@ -908,6 +955,7 @@ function buildEnterpriseObservabilitySnapshot(input: {
       ...readiness.evidence,
       `observabilitySamples=${samples.length}`,
       `observabilityErrors=${errors}`,
+      `observabilityInformationalResponses=${informational}`,
       `observabilityP95Ms=${p95Ms}`,
       `observabilityErrorRatePercent=${errorRatePercent}`,
       `observabilitySloBreached=${sloBreached}`,
