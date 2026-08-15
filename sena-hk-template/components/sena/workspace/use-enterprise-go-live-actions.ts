@@ -32,6 +32,34 @@ export const EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST: EnterpriseGoLiveChecklistState 
   platformOwnerDecisionReviewed: false
 };
 
+// A confirmation is a claim about one release, in one environment, for one team.
+// Move any of those three and the ticks on screen no longer describe what would be
+// attested, so the held checklist is scoped by this key rather than kept as loose
+// session state.
+export type EnterpriseGoLiveChecklistScope = {
+  teamId: string;
+  environment: string;
+  releaseVersion: string;
+};
+
+export type HeldEnterpriseGoLiveChecklist = {
+  scopeKey: string;
+  checklist: EnterpriseGoLiveChecklistState;
+};
+
+export function enterpriseGoLiveChecklistScopeKey(scope: EnterpriseGoLiveChecklistScope): string {
+  // NUL-delimited: a team id or environment containing the delimiter cannot forge
+  // another scope's key and inherit its confirmations.
+  return [scope.teamId, scope.environment, scope.releaseVersion].join("\u0000");
+}
+
+export function enterpriseGoLiveChecklistForScope(
+  held: HeldEnterpriseGoLiveChecklist,
+  scopeKey: string
+): EnterpriseGoLiveChecklistState {
+  return held.scopeKey === scopeKey ? held.checklist : EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST;
+}
+
 export type EnterpriseGoLiveActionsOptions = {
   enterpriseUserPresent: boolean;
   activeEnterpriseTeamId: string;
@@ -47,6 +75,7 @@ export type EnterpriseGoLiveActionsOptions = {
   exportEnterpriseJsonArtifact: (url: string, filename: string, label: string) => Promise<void>;
   setEnterpriseBusy: StateSetter<boolean>;
   setEnterpriseMessage: StateSetter<string>;
+  setGoLiveChecklist: StateSetter<EnterpriseGoLiveChecklistState>;
   setReleaseGateDecision: StateSetter<EnterpriseReleaseGateDecision>;
   setReleaseGateEnvironment: StateSetter<string>;
   setReleaseGateVersion: StateSetter<string>;
@@ -71,6 +100,7 @@ export function useEnterpriseGoLiveActions({
   exportEnterpriseJsonArtifact,
   setEnterpriseBusy,
   setEnterpriseMessage,
+  setGoLiveChecklist,
   setReleaseGateDecision,
   setReleaseGateEnvironment,
   setReleaseGateVersion,
@@ -140,7 +170,12 @@ export function useEnterpriseGoLiveActions({
       setReleaseGateVerificationStatus(draft.verificationEvidence.status);
       setReleaseGateVerificationSummary(draft.verificationEvidence.summary);
       setReleaseGateVerificationHash("");
-      setEnterpriseMessage(`Go-live release gate draft applied: ${draft.releaseVersion} · ${draft.decision}.`);
+      // The draft replaces the decision, environment, release version, notes, and
+      // verification evidence the reviewer was looking at. Whatever they had already
+      // confirmed was confirmed about the previous material, so it cannot ride along
+      // into an attestation for this one.
+      setGoLiveChecklist(EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST);
+      setEnterpriseMessage(`Go-live release gate draft applied: ${draft.releaseVersion} · ${draft.decision}. Re-confirm the go-live checklist before attesting.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Go-live rehearsal draft failed.");
     } finally {
@@ -151,6 +186,7 @@ export function useEnterpriseGoLiveActions({
     enterpriseUserPresent,
     setEnterpriseBusy,
     setEnterpriseMessage,
+    setGoLiveChecklist,
     setReleaseGateDecision,
     setReleaseGateEnvironment,
     setReleaseGateNotes,
@@ -192,6 +228,10 @@ export function useEnterpriseGoLiveActions({
         },
         { jsonHeaders: enterpriseJsonHeaders }
       );
+      // The confirmations have been spent on this attestation. Leaving them ticked
+      // would let the next click record a second approved attestation asserting
+      // reviews nobody repeated.
+      setGoLiveChecklist(EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST);
       setEnterpriseMessage(`Go-live attestation recorded: ${payload.attestation?.releaseVersion ?? releaseGateVersion} · ${payload.attestation?.decision ?? releaseGateDecision} · go-live identity ${payload.attestation?.latestReleaseGateSnapshot?.identityProductionStatus ?? "missing"} · identity verifier ${payload.attestation?.latestReleaseGateSnapshot?.identitySubmissionVerifierIncomplete ?? "missing"} incomplete · identity rotation ${payload.attestation?.latestReleaseGateSnapshot?.identityRotationFreshness ?? "missing"} · identity cutover ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistStatus ?? "missing"} · cutover blockers ${payload.attestation?.latestReleaseGateSnapshot?.identityCutoverChecklistBlockingItems ?? "missing"} · identity handoff ${payload.attestation?.identityProductionHandoffSnapshot?.status ?? "missing"} · handoff blockers ${payload.attestation?.identityProductionHandoffSnapshot?.platformRequestPacket.summary.blockingRequests ?? "missing"} · blocked ${payload.attestation?.latestReleaseGateSnapshot?.identityReleaseGateBlocked ? "yes" : "no"}.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Go-live attestation failed.");
@@ -211,7 +251,8 @@ export function useEnterpriseGoLiveActions({
     releaseGateVerificationStatus,
     releaseGateVersion,
     setEnterpriseBusy,
-    setEnterpriseMessage
+    setEnterpriseMessage,
+    setGoLiveChecklist
   ]);
 
   return {

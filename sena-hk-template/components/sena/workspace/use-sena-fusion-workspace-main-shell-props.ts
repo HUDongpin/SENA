@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
 import {
   lessonStudySenaContract
 } from "@/lib/sena/pilot-assets";
@@ -112,8 +112,11 @@ import { useEnterpriseDatabaseSyncActions } from "./use-enterprise-database-sync
 import { useEnterpriseExpertReviewActions } from "./use-enterprise-expert-review-actions";
 import {
   EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST,
+  enterpriseGoLiveChecklistForScope,
+  enterpriseGoLiveChecklistScopeKey,
   useEnterpriseGoLiveActions,
-  type EnterpriseGoLiveChecklistState
+  type EnterpriseGoLiveChecklistState,
+  type HeldEnterpriseGoLiveChecklist
 } from "./use-enterprise-go-live-actions";
 import { useEnterpriseGovernanceExportActions } from "./use-enterprise-governance-export-actions";
 import { useEnterpriseImportActions } from "./use-enterprise-import-actions";
@@ -187,11 +190,44 @@ import type {
 
 type LayerVisibility = Record<SenaLayer, boolean>;
 
+export type WorkspaceImportErrorState = {
+  message: string | null;
+  attempt: number;
+};
+
+export const INITIAL_WORKSPACE_IMPORT_ERROR_STATE: WorkspaceImportErrorState = {
+  message: null,
+  attempt: 0
+};
+
+// The drawer that carries the import error plate is opened by an effect keyed on
+// this state. React bails out of a setState that stores an equal value, so a plain
+// `string | null` made a retry of the same bad file re-render nothing at all and the
+// drawer stayed shut — the generic fallbacks ("SENA import failed.") collapse many
+// unrelated causes onto one string, so this is the common case, not the edge. The
+// attempt counter moves on every reported failure while the message itself stays put,
+// so the plate is never blanked and re-set just to fire the effect.
+export function nextWorkspaceImportErrorState(
+  current: WorkspaceImportErrorState,
+  value: SetStateAction<string | null>
+): WorkspaceImportErrorState {
+  const message = typeof value === "function" ? value(current.message) : value;
+  if (message === null) {
+    return current.message === null ? current : { message: null, attempt: current.attempt };
+  }
+  return { message, attempt: current.attempt + 1 };
+}
+
 export function useSenaFusionWorkspaceMainShellProps() {
   const [dataset, setDataset] = useState(() => lessonStudySenaContract);
   const [uploadedTables, setUploadedTables] = useState<UploadedSenaTable[]>([]);
   const [importMessage, setImportMessage] = useState("Lesson-study sample loaded from the bundled SENA pilot package.");
-  const [importError, setImportError] = useState<string | null>(null);
+  const [importErrorState, setImportErrorState] = useState(INITIAL_WORKSPACE_IMPORT_ERROR_STATE);
+  const importError = importErrorState.message;
+  const importErrorAttempt = importErrorState.attempt;
+  const setImportError = useCallback((value: SetStateAction<string | null>) => {
+    setImportErrorState((current) => nextWorkspaceImportErrorState(current, value));
+  }, []);
   // ADR 0009 D5: Fusion opens on the canonical plane with its social orbit.
   // joint and explanatory remain one click away, relabeled "Diagnostic".
   const [layout, setLayout] = useState<SenaLayoutMode>("plane-orbit");
@@ -306,9 +342,10 @@ export function useSenaFusionWorkspaceMainShellProps() {
   const [platformDecisionProductionEvidenceVerifiedAt, setPlatformDecisionProductionEvidenceVerifiedAt] = useState("");
   const [platformDecisionNotes, setPlatformDecisionNotes] = useState("");
   const [releaseGateDecision, setReleaseGateDecision] = useState<EnterpriseReleaseGateDecision>("conditional");
-  const [goLiveChecklist, setGoLiveChecklist] = useState<EnterpriseGoLiveChecklistState>(
-    EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST
-  );
+  const [heldGoLiveChecklist, setHeldGoLiveChecklist] = useState<HeldEnterpriseGoLiveChecklist>({
+    scopeKey: "",
+    checklist: EMPTY_ENTERPRISE_GO_LIVE_CHECKLIST
+  });
   const [releaseGateApproverName, setReleaseGateApproverName] = useState("");
   const [releaseGateApproverRole, setReleaseGateApproverRole] = useState("Research platform lead");
   const [releaseGateEnvironment, setReleaseGateEnvironment] = useState("pilot-production");
@@ -588,6 +625,24 @@ export function useSenaFusionWorkspaceMainShellProps() {
   const activeRailPanel = workspaceRailPanelCopy[workspaceRailMode];
   const enterpriseUserId = enterpriseContext?.user?.id ?? "";
   const activeEnterpriseTeamId = enterpriseContext?.teams[0]?.id ?? "";
+  // Reviewer confirmations are scoped to the team, environment, and release version
+  // they were ticked against, and resolved during render rather than reset by an
+  // effect — there must be no frame in which the panel shows stale ticks over a
+  // release the reviewer has not looked at.
+  const goLiveChecklistScopeKey = enterpriseGoLiveChecklistScopeKey({
+    teamId: activeEnterpriseTeamId,
+    environment: releaseGateEnvironment,
+    releaseVersion: releaseGateVersion
+  });
+  const goLiveChecklist = enterpriseGoLiveChecklistForScope(heldGoLiveChecklist, goLiveChecklistScopeKey);
+  const setGoLiveChecklist = (value: SetStateAction<EnterpriseGoLiveChecklistState>) => {
+    setHeldGoLiveChecklist((current) => ({
+      scopeKey: goLiveChecklistScopeKey,
+      checklist: typeof value === "function"
+        ? value(enterpriseGoLiveChecklistForScope(current, goLiveChecklistScopeKey))
+        : value
+    }));
+  };
   const latestEnterpriseImportRun = enterpriseImportRuns[0] ?? null;
   const latestImportCleaningManifest = latestEnterpriseImportRun?.cleaningManifest ?? localEnterpriseImportResult?.cleaningManifest ?? null;
   const latestEnterpriseAnalysisRun = enterpriseAnalysisRuns[0] ?? null;
@@ -1008,6 +1063,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     exportEnterpriseJsonArtifact,
     setEnterpriseBusy,
     setEnterpriseMessage,
+    setGoLiveChecklist,
     setReleaseGateDecision,
     setReleaseGateEnvironment,
     setReleaseGateVersion,
@@ -1669,6 +1725,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     gamma,
     icon: StatsNetworkMetricsIcon,
     importError,
+    importErrorAttempt,
     importMessage,
     isAdvancedOpen: isPlotToolsAdvancedOpen,
     isLoadingSample,

@@ -7,6 +7,10 @@ import {
 
 export type WorkspaceDataImportFeedbackSectionProps = {
   importError: string | null;
+  // Counts reported failures rather than describing one. The plate below renders
+  // only the message; the shell reads this to tell a repeated failure apart from
+  // the failure already on screen, which an identical message cannot do.
+  importErrorAttempt: number;
   uploadedTables: UploadedSenaTable[];
   warnings: string[];
   onTableChange: (id: string, table: SenaImportTable) => void;

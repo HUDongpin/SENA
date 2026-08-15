@@ -36,6 +36,16 @@ const workspaceDialogFocusableSelector = [
   '[tabindex]:not([tabindex="-1"])'
 ].join(",");
 
+// Empty while there is no error, and a different value for every reported failure —
+// including a repeat of an identical message, which the generic import fallbacks
+// produce for many unrelated causes. Keying the drawer effect on this instead of on
+// the message is what lets a second failure reopen the drawer.
+export function workspaceImportErrorDrawerSignal(
+  feedback: { importError: string | null; importErrorAttempt: number }
+): string {
+  return feedback.importError ? `${feedback.importErrorAttempt}:${feedback.importError}` : "";
+}
+
 export type WorkspaceMainShellSectionProps = {
   isFusionPlotMaximized: boolean;
   fusionPlotMaximizedOverlayProps: ComponentProps<typeof FusionPlotMaximizedOverlay>;
@@ -123,15 +133,16 @@ export function WorkspaceMainShellSection({
     // Keep Dual selected after closing the inspector so its comparison remains visible.
   }, [rightInspectorProps.selectedId]);
 
-  const importError = leftRailProps.dataImportFeedbackProps.importError;
+  const importErrorDrawerSignal = workspaceImportErrorDrawerSignal(leftRailProps.dataImportFeedbackProps);
   useEffect(() => {
     // The import error plate and warnings panel live inside this drawer, and the
     // upload hooks can only select which panel it would show — not open it. Without
-    // this a failed header upload changes nothing the user can see.
-    if (!importError) return;
+    // this a failed header upload changes nothing the user can see. Keyed on the
+    // signal rather than the message so retrying the same bad file reopens it.
+    if (!importErrorDrawerSignal) return;
     panelTriggerModeRef.current = "sets";
     setIsTaskPanelOpen(true);
-  }, [importError]);
+  }, [importErrorDrawerSignal]);
 
   useEffect(() => {
     const surfaces = [headerSurfaceRef.current, analysisSurfaceRef.current, reportSurfaceRef.current]
