@@ -560,54 +560,55 @@ describe("SENA ops probes with no live service configured (FA22-06)", () => {
     expect(postgresRoute?.errors).toBe(1);
   });
 
-  it("DEFECT (route wiring outstanding): the unconfigured 503s are still booked as server errors end to end, so scraping the probes breaches the deployment's own SLO", async () => {
-    // This test documents a defect; it does not bless the behaviour.
+  it("books the four unconfigured probe scrapes as informational end to end, leaving the deployment's own SLO unbreached", async () => {
+    // Was a DEFECT pin. The classification was fixed first — the two cases above
+    // pin that a declared response leaves the error count and an undeclared 5xx
+    // does not — but the declaration had no way to travel from the handler that
+    // knows to the recorder that counts, so a monitor polling the probes on a
+    // half-provisioned deployment saw an error-rate SLI pinned at 100% with
+    // nothing failed, during exactly the pre-go-live window the signal is for.
     //
-    // The classification itself is fixed: recordEnterpriseObservedRequest no
-    // longer decides on `statusCode >= 500` alone, and a handler that declares
-    // `informational: true` gets a 503 that reports a state kept out of the error
-    // count. The two cases above pin that, and pin that an undeclared 5xx still
-    // counts.
-    //
-    // What is NOT yet done is carrying the declaration from the four probe
-    // handlers to the recorder, which needs files outside this change's scope:
-    //
-    //   lib/sena/api-helpers.ts  — observeSenaApiRoute builds the recorder input
-    //     from {routeId, method, response.status, durationMs, requestId} and
-    //     drops the response itself, so no per-response intent can reach the
-    //     recorder today. It has to read the declaration off the handler's
-    //     Response (a sentinel header, stripped before the response goes out) and
-    //     pass `informational` through.
-    //   app/api/sena/ops/{postgres,object-storage,cdn,observability/probe}/route.ts
-    //     — each sets that sentinel only for its own not-configured answer
-    //     (provider.configured === false / mode "not-configured" /
-    //     target.configured === false / deliveryStatus "not-configured"), never
-    //     for a probe that ran and failed. A probe that dialled a configured
-    //     backend and lost must keep counting as the error it is.
-    //
-    // Until that lands, the numbers below are what a monitor polling the probes
-    // on a half-provisioned deployment still sees: an error-rate SLI pinned at
-    // 100% and sloBreached true, with nothing actually failed.
-    const harness = startUnconfiguredOps({ opsToken });
+    // The middle is now wired: each probe stamps the api-helpers sentinel on its
+    // own not-configured Response, and observeSenaApiRoute reads it off that
+    // Response and passes `informational` to the recorder.
+    const harness = startUnconfiguredOps({
+      opsToken,
+      // The case is about the error-rate term of the SLO. Pinning the latency
+      // term keeps a slow machine from breaching on p95 and reporting it here as
+      // a classification failure.
+      env: { SENA_OBSERVABILITY_SLO_P95_MS: "120000" }
+    });
 
     await harness.get("postgres");
     await harness.get("objectStorage");
     await harness.get("cdn");
     await harness.get("observabilityProbe");
 
+    // The alert-rule-facing artifact first, over exactly those four scrapes: a
+    // Prometheus rule keyed on the SLO has nothing to fire on.
+    const metrics = await (await harness.get("metrics")).text();
+    expect(metrics).toContain('sena_enterprise_observability_slo_breached{store="current-process-ring-buffer"} 0');
+    expect(metrics).toContain('sena_enterprise_observability_error_rate_percent{store="current-process-ring-buffer"} 0');
+
     const observability = await harness.get("observability");
     const body = await observability.json() as {
-      summary?: { total?: number; errors?: number; serverErrors?: number; clientErrors?: number; errorRatePercent?: number; sloBreached?: boolean };
+      summary?: { total?: number; errors?: number; informational?: number; serverErrors?: number; clientErrors?: number; errorRatePercent?: number; sloBreached?: boolean };
       routes?: Array<{ routeId?: string; total?: number; errors?: number }>;
+      evidence?: string[];
     };
 
-    // Four benign "not configured" reports, counted as four server errors.
-    expect(body.summary?.total).toBe(4);
-    expect(body.summary?.serverErrors).toBe(4);
-    expect(body.summary?.errors).toBe(4);
+    // Five samples: the four probes plus the /ops/metrics scrape on the line
+    // above, which is observed like any other request and answered 200.
+    expect(body.summary?.total).toBe(5);
+    // The wire fact is kept — those four really were 503s — but none of them is
+    // an error, so no error budget is spent reporting an unset backend.
+    expect(body.summary?.informational).toBe(4);
+    expect(body.summary?.errors).toBe(0);
+    expect(body.summary?.serverErrors).toBe(0);
     expect(body.summary?.clientErrors).toBe(0);
-    expect(body.summary?.errorRatePercent).toBe(100);
-    expect(body.summary?.sloBreached).toBe(true);
+    expect(body.summary?.errorRatePercent).toBe(0);
+    expect(body.summary?.sloBreached).toBe(false);
+    expect(body.evidence).toContain("observabilityInformationalResponses=4");
 
     const byRoute = new Map((body.routes ?? []).map((route) => [route.routeId, route]));
     for (const routeId of [
@@ -617,16 +618,127 @@ describe("SENA ops probes with no live service configured (FA22-06)", () => {
       opsSurfaces.observabilityProbe.observedRoute
     ]) {
       expect(byRoute.get(routeId)?.total).toBe(1);
-      // Each ops probe is charged an error against itself for answering the
-      // question it exists to answer.
-      expect(byRoute.get(routeId)?.errors).toBe(1);
+      // No probe is charged an error for answering the question it exists to answer.
+      expect(byRoute.get(routeId)?.errors).toBe(0);
     }
 
-    // ...and the breach is exported, so an alert rule keyed on the SLO fires on
-    // any deployment that has not finished configuring its backends.
-    const metrics = await (await harness.get("metrics")).text();
-    expect(metrics).toContain('sena_enterprise_observability_slo_breached{store="current-process-ring-buffer"} 1');
-    expect(metrics).toContain('sena_enterprise_observability_error_rate_percent{store="current-process-ring-buffer"} 100');
+    // Decided from env, as before: still nothing dialled, still no pool opened.
+    expect(harness.fetchAttempts).toEqual([]);
+    expect(harness.postgresPoolAttempts()).toBe(0);
+  });
+
+  it("keeps a probe that dialled a CONFIGURED backend and lost counted as a server error that moves the rate", async () => {
+    // The other side of the distinction, end to end this time. Getting it
+    // backwards — marking every 503 the probes emit — would mute a real edge
+    // outage, which is worse than the defect being fixed.
+    const harness = startUnconfiguredOps({
+      opsToken,
+      // A CDN target IS configured here. The harness fetch refuses every outbound
+      // call, so the probe dials it and loses: cdn-verification's fetch_error
+      // branch, which keeps target.configured true.
+      env: {
+        SENA_CDN_VERIFY_URL: "https://cdn.sena.invalid/",
+        SENA_OBSERVABILITY_SLO_P95_MS: "120000"
+      }
+    });
+
+    const cdn = await harness.get("cdn");
+    const cdnBody = await cdn.json() as { target?: { configured?: boolean }; evidence?: string[] };
+    expect(cdn.status).toBe(503);
+    // Configured, dialled, failed — not the not-configured answer.
+    expect(cdnBody.target?.configured).toBe(true);
+    expect(cdnBody.evidence).toContain("errorCode=fetch_error");
+    expect(harness.fetchAttempts).toHaveLength(1);
+
+    // The three genuinely unconfigured probes alongside it, so the rate has both
+    // kinds in the same window.
+    await harness.get("postgres");
+    await harness.get("objectStorage");
+    await harness.get("observabilityProbe");
+
+    const body = await (await harness.get("observability")).json() as {
+      summary?: { total?: number; errors?: number; informational?: number; serverErrors?: number; errorRatePercent?: number; sloBreached?: boolean };
+      routes?: Array<{ routeId?: string; total?: number; errors?: number }>;
+    };
+
+    expect(body.summary?.total).toBe(4);
+    expect(body.summary?.informational).toBe(3);
+    expect(body.summary?.errors).toBe(1);
+    expect(body.summary?.serverErrors).toBe(1);
+    // One real failure in four requests, over the default 5% error-rate SLO: the
+    // breach a dead CDN should raise still raises.
+    expect(body.summary?.errorRatePercent).toBe(25);
+    expect(body.summary?.sloBreached).toBe(true);
+
+    const byRoute = new Map((body.routes ?? []).map((route) => [route.routeId, route]));
+    expect(byRoute.get(opsSurfaces.cdn.observedRoute)?.errors).toBe(1);
+    for (const routeId of [
+      opsSurfaces.postgres.observedRoute,
+      opsSurfaces.objectStorage.observedRoute,
+      opsSurfaces.observabilityProbe.observedRoute
+    ]) {
+      expect(byRoute.get(routeId)?.errors).toBe(0);
+    }
+  });
+
+  it("strips the informational sentinel before the response leaves, so no client ever sees it", async () => {
+    // The declaration is an internal signal between the handler and
+    // observeSenaApiRoute. Leaking it would publish a header no caller can act on
+    // and would hand an attacker the marker's exact name and value.
+    const harness = startUnconfiguredOps({ opsToken });
+    const { senaInformationalResponseHeaderName } = await import("../api-helpers");
+
+    for (const surface of ["postgres", "objectStorage", "cdn", "observabilityProbe"] as const) {
+      const response = await harness.get(surface);
+      expect(response.status).toBe(503);
+      expect(response.headers.get(senaInformationalResponseHeaderName)).toBeNull();
+      // Nothing under another spelling either.
+      expect([...response.headers.keys()].filter((name) => name.includes("informational"))).toEqual([]);
+    }
+
+    // ...and the marker was really set on every one of those responses, so the
+    // assertions above cannot be satisfied by a sentinel that is never stamped.
+    const observability = await import("../enterprise/ops-observability");
+    expect(observability.getEnterpriseObservabilitySnapshot().summary.informational).toBe(4);
+  });
+
+  it("ignores a client-supplied sentinel on the request, so a caller cannot launder its own 5xx", async () => {
+    // The declaration is read off the Response the handler built, never off the
+    // request, and the marker's value is a per-process token minted in
+    // api-helpers that never leaves the process. A caller that learns the header
+    // name gets nothing from either half.
+    const harness = startUnconfiguredOps({
+      opsToken,
+      env: {
+        SENA_CDN_VERIFY_URL: "https://cdn.sena.invalid/",
+        SENA_OBSERVABILITY_SLO_P95_MS: "120000"
+      }
+    });
+    const { senaInformationalResponseHeaderName } = await import("../api-helpers");
+
+    // A genuine failure — configured CDN, refused dial — with the sentinel spoofed
+    // on the request, in the two shapes a caller would try.
+    const spoofed = await harness.get("cdn", {
+      headers: { [senaInformationalResponseHeaderName]: "true" }
+    });
+    expect(spoofed.status).toBe(503);
+    expect(spoofed.headers.get(senaInformationalResponseHeaderName)).toBeNull();
+
+    const spoofedWithGuessedToken = await harness.get("cdn", {
+      headers: { [senaInformationalResponseHeaderName]: "3f1d9c3e-6a1e-4a2f-9f1a-0b7c5d2e8a41" }
+    });
+    expect(spoofedWithGuessedToken.status).toBe(503);
+
+    const observability = await import("../enterprise/ops-observability");
+    const snapshot = observability.getEnterpriseObservabilitySnapshot();
+
+    // Both failures counted, neither laundered.
+    expect(snapshot.summary.total).toBe(2);
+    expect(snapshot.summary.informational).toBe(0);
+    expect(snapshot.summary.errors).toBe(2);
+    expect(snapshot.summary.serverErrors).toBe(2);
+    expect(snapshot.summary.errorRatePercent).toBe(100);
+    expect(snapshot.summary.sloBreached).toBe(true);
   });
 
   it("refuses each probe 401 with a machine-readable code when no ops credential is configured either", async () => {

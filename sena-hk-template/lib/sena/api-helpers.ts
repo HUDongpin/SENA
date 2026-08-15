@@ -48,6 +48,62 @@ function requestIdFromHeaders(request: Request) {
     randomUUID();
 }
 
+/**
+ * Sentinel a handler stamps on its OWN Response to declare that a non-2xx answer
+ * reports a state rather than a failure — an ops probe answering "this backend is
+ * not configured yet". `observeSenaApiRoute` reads it, forwards it to the recorder
+ * as `informational`, and strips it, so it never reaches the client.
+ *
+ * The name is exported for tests. The name alone is not the marker: see the token
+ * below.
+ */
+export const senaInformationalResponseHeaderName = "x-sena-observed-informational";
+
+/**
+ * The actual marker is this per-process value, minted at module load and never
+ * emitted anywhere — not in a header that leaves the process (it is deleted before
+ * the response goes out), not in a body, not in a log line.
+ *
+ * Two things follow, and both matter:
+ *
+ *   Nothing outside this process can produce it. A client that guesses the header
+ *   name and sends it on a REQUEST is already inert — the declaration is read off
+ *   the Response the handler built, and no route copies request headers into a
+ *   response — but the token means that even a handler that did echo request
+ *   headers could not be tricked into declaring a genuine 5xx informational.
+ *
+ *   Nothing sets it by accident. A stray `"x-sena-observed-informational": "true"`
+ *   in a headers literal does not match, so it is stripped and classified exactly
+ *   as an undeclared response. Declaring intent requires calling the function
+ *   below, which is the only holder of the value.
+ */
+const senaInformationalResponseToken = randomUUID();
+
+/**
+ * Declares a response informational for observability only. It does not change the
+ * status code, the body, or anything the client sees — the sole effect is that
+ * `recordEnterpriseObservedRequest` keeps this response out of the error count.
+ *
+ * Reserved for the answer an endpoint exists to give (a probe reporting an unset
+ * backend). A response that failed at something it attempted must NOT be marked.
+ */
+export function markSenaApiResponseInformational<T extends Response>(response: T): T {
+  response.headers.set(senaInformationalResponseHeaderName, senaInformationalResponseToken);
+  return response;
+}
+
+/**
+ * Reads the declaration and removes the sentinel in one step, so there is no path
+ * on which the header survives into the client's response: it is deleted whenever
+ * present, whether or not the value is ours.
+ */
+function takeInformationalDeclaration(response: Response) {
+  const declared = response.headers.get(senaInformationalResponseHeaderName);
+  if (declared === null) return false;
+  response.headers.delete(senaInformationalResponseHeaderName);
+  return declared === senaInformationalResponseToken;
+}
+
 function applyObservedRequestHeaders(response: Response, sample: SenaEnterpriseObservedRequest) {
   response.headers.set("x-sena-request-id-hash", sample.requestIdHash);
   response.headers.set("x-sena-observed-route", sample.routeId);
@@ -75,12 +131,17 @@ export async function observeSenaApiRoute(
   const requestId = requestIdFromHeaders(request);
   try {
     const response = await handler();
+    // Read from the Response the handler just built, never from `request`: the
+    // declaration is the handler's, and a caller must not be able to reclassify
+    // its own request.
+    const informational = takeInformationalDeclaration(response);
     const sample = recordEnterpriseObservedRequest({
       routeId: input.routeId,
       method: request.method,
       statusCode: response.status,
       durationMs: Date.now() - startedAt,
-      requestId
+      requestId,
+      informational
     });
     emitEnterpriseObservedRequest(sample);
     void mirrorEnterpriseObservedRequestToPostgres(sample);
