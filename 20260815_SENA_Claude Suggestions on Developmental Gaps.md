@@ -394,6 +394,46 @@ The corollary for §9's roadmap: the adversarial review pass is not optional pol
 
 ---
 
+## 12. Gap #10, and the finding that outgrew the document
+
+§1 listed nine code defects and one verification gap. The nine are closed. The tenth — ~84 unverified rows and stale perf baselines — is where the campaign stopped being about closing a backlog.
+
+### 12.1 The harvest: one row, honestly
+
+Rather than write tests, the ~232 tests this branch added were audited against the rows they might discharge, with **every proposed upgrade handed to a second agent told to show it was over-claimed**. Result: **1 row flips to PASS**, 9 reach PARTIAL with their remaining conjuncts named, 41 stay unverified, and **2 proposed upgrades were cut down by the challenge**. That ratio is the point. Under-claiming is cheap; over-claiming corrupts the ledger, and this ledger had already been corrupted once — by me.
+
+### 12.2 Invoking untested handlers found eleven defects
+
+The FA-22 rows flagged handlers "never invoked by any test". Invoking four of those families produced **11 confirmed defects, 0 refuted**. Not a hit rate that suggests luck:
+
+- An **anonymous caller could read the internal database hostname** — a driver error escaped a branch that bypassed the error-normalising catch. The A/B is exact: with an ops token configured the same request answers 401 and leaks nothing.
+- The **audit CSV export was silently truncated to 100 rows** — a file byte-for-byte indistinguishable from a complete export, omitting exactly the oldest events an auditor asks for, while the route recorded the truncation in its own log.
+- **Scraping the ops probes breached the deployment's own SLO**, pinning error rate at 100% on a deployment where nothing had failed — during the pre-go-live window, teaching operators to mute the alert.
+- The **published OpenAPI document was not valid OpenAPI 3.1** — every templated path missing its required parameters, so generated clients request the literal `%7BprojectId%7D`.
+- **Provisioning answered 500 to any malformed body**, which every IdP retry policy treats as retryable — so a misconfigured integration retries forever while burning SENA's error budget.
+- Plus: `dryRun: "false"` performing a dry run, an unrecognised `source` silently rewritten so the next sync duplicates everything, `/ops/metrics` returning 503 and thereby discarding the gauges reporting the degradation, and the integrity chain computed for CSV then thrown away.
+
+### 12.3 The finding
+
+**A test can certify the defect it was written to guard against.** It happened four times, and the shape is identical each time — the assertion reads a value the code chose rather than one the behaviour produced:
+
+| Where | What it asserted |
+|---|---|
+| Ops access | that a self-registered outsider reaching the ops surface is *correct* |
+| Workspace Clear | a message string the handler assigns, never that the data cleared |
+| Worker webhook | a hard-coded July timestamp — i.e. that a six-week-old signed request is accepted |
+| Go-live checklist | source text, so it could not see that the state it verified is never reset |
+
+Two further variants: **a source-contract grep is not behavioural evidence**, and **a comment can overstate its own guarantee** — the ENA staleness docstring claimed composition cannot go stale, which licensed the export defect for as long as anyone believed it.
+
+And the campaign's own claims were not exempt. My ledger note said the smoke asserts Clear resets the counts; it did not. My figure commit opened by saying no artifact carried the figure, then fixed five of six. My replay commit argued the skew ceiling was load-bearing and left it unproven — caught by someone else.
+
+### 12.4 What follows
+
+The verification backlog is not a queue of rows to mark green. On this evidence it is the **primary defect-detection instrument**, and the ~41 rows still unverified are not merely unproven — they are, by the rate observed here, where the next defects are. The adversarial pass is not polish at the end of a phase; it is the phase.
+
+---
+
 ## Appendix I — Decisions
 
 **Most of these were taken rather than deferred** (see §11.1): commissioning the fix was
