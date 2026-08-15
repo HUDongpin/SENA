@@ -24,7 +24,7 @@ import {
   createSession
 } from "./auth-session";
 import { now } from "./auth-config";
-import { requirePendingInvitationForEmail } from "./auth-invitations";
+import { requireInvitationTeam, requirePendingInvitationForEmail } from "./auth-invitations";
 
 function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
@@ -84,9 +84,7 @@ function registerEnterpriseUserInDb(
   let team: SenaEnterpriseTeam;
   let role: SenaEnterpriseRole;
   if (pendingInvite) {
-    const invitedTeam = db.teams.find((candidate) => candidate.id === pendingInvite.teamId);
-    if (!invitedTeam) throw new SenaEnterpriseError("Invitation team is no longer available.", 410, "invitation_team_missing");
-    team = invitedTeam;
+    team = requireInvitationTeam(db, pendingInvite);
     role = pendingInvite.role;
     pendingInvite.status = "accepted";
     pendingInvite.acceptedAt = timestamp;

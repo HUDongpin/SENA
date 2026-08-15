@@ -20,6 +20,7 @@ import {
   tokenHash
 } from "./auth-password";
 import {
+  requireInvitationTeam,
   requirePendingInvitationForEmail,
   safeInviteCode
 } from "./auth-invitations";
@@ -1092,8 +1093,7 @@ function ssoEnterpriseUserInDb(
   }
 
   if (pendingInvite) {
-    const invitedTeam = db.teams.find((candidate) => candidate.id === pendingInvite.teamId);
-    if (!invitedTeam) throw new SenaEnterpriseError("Invitation team is no longer available.", 410, "invitation_team_missing");
+    requireInvitationTeam(db, pendingInvite);
     const existingMembership = db.memberships.find((membership) => membership.teamId === pendingInvite.teamId && membership.userId === user.id);
     if (!existingMembership) {
       db.memberships.push({
