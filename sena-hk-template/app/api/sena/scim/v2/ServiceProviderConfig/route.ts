@@ -15,7 +15,8 @@ import {
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
 import {
   enterpriseScimServiceProviderConfig,
-  senaScimIdentityProductionExtensionSchema
+  senaScimIdentityProductionExtensionSchema,
+  scimErrorBody
 } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
@@ -85,7 +86,7 @@ function scimIdentityProductionExtension(
 }
 
 export async function GET(request: Request) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-service-provider-config" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-service-provider-config", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     const opsStatus = await getEnterpriseOpsStatusWithPostgresEvidence();
     const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });

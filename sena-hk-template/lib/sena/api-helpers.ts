@@ -59,7 +59,16 @@ function applyObservedRequestHeaders(response: Response, sample: SenaEnterpriseO
 
 export async function observeSenaApiRoute(
   request: Request,
-  input: { routeId: string },
+  input: {
+    routeId: string;
+    /**
+     * Rewrites the error body for surfaces that owe callers a different envelope
+     * (SCIM clients expect urn:ietf:params:scim:api:messages:2.0:Error). Status and
+     * the observed error code are taken before this runs, so observability is
+     * unaffected by the shape a route chooses to emit.
+     */
+    errorBody?: (body: { error: string; code: string }, status: number) => unknown;
+  },
   handler: () => Promise<Response> | Response
 ) {
   const startedAt = Date.now();
@@ -89,7 +98,10 @@ export async function observeSenaApiRoute(
     emitEnterpriseObservedRequest(sample);
     void mirrorEnterpriseObservedRequestToPostgres(sample);
     return applyObservedRequestHeaders(
-      NextResponse.json(enterpriseError.body, { status: enterpriseError.status }),
+      NextResponse.json(
+        input.errorBody ? input.errorBody(enterpriseError.body, enterpriseError.status) : enterpriseError.body,
+        { status: enterpriseError.status }
+      ),
       sample
     );
   }

@@ -6,7 +6,8 @@ import {
   getEnterpriseScimUser,
   patchEnterpriseScimUser,
   provisionEnterpriseScimUser,
-  type SenaScimProvisioningOptions
+  type SenaScimProvisioningOptions,
+  scimErrorBody
 } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
@@ -33,7 +34,7 @@ async function upsertUser(request: Request, resourceId: string) {
 }
 
 export async function GET(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     return NextResponse.json(getEnterpriseScimUser(resourceId, scimOptions(request).locationBase));
@@ -43,7 +44,7 @@ export async function GET(request: Request, { params }: ScimResourceRouteContext
 // SCIM DELETE deprovisions by suspending, not by erasing: the user row survives
 // with every membership suspended. RFC 7644 3.6 wants 204 with no body.
 export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     deactivateEnterpriseScimUser(resourceId, scimOptions(request));
@@ -52,14 +53,14 @@ export async function DELETE(request: Request, { params }: ScimResourceRouteCont
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     return await upsertUser(request, resourceId);
   });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     const body = await request.json();

@@ -48,6 +48,34 @@ export const scimSupportedFilterOperators = ["eq"] as const;
 export const scimSupportedUserFilterAttributes = ["id", "userName", "externalId"] as const;
 export const scimSupportedGroupFilterAttributes = ["id", "displayName", "externalId"] as const;
 
+/**
+ * SCIM clients parse errors against the Error message schema, not SENA's own
+ * `{error, code}` envelope, so a conformant IdP shown the internal shape sees an
+ * unparseable body and reports a transport failure rather than the real reason.
+ *
+ * `scimType` is only defined for 400s (RFC 7644 §3.12), and only over a closed
+ * vocabulary — so it is emitted for the codes that genuinely map, and omitted
+ * rather than guessed for everything else. SENA's `code` is preserved as a
+ * non-standard field so existing tooling and the audit trail keep working.
+ */
+const SCIM_ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error";
+
+const SCIM_TYPE_BY_CODE: Record<string, string> = {
+  unsupported_scim_filter: "invalidFilter",
+  invalid_scim_pagination: "invalidValue"
+};
+
+export function scimErrorBody(body: { error: string; code: string }, status: number) {
+  const scimType = status === 400 ? SCIM_TYPE_BY_CODE[body.code] : undefined;
+  return {
+    schemas: [SCIM_ERROR_SCHEMA],
+    status: String(status),
+    ...(scimType ? { scimType } : {}),
+    detail: body.error,
+    senaCode: body.code
+  };
+}
+
 export type SenaScimProvisioningBridgeResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.scimProvisioningBridge;
   resourceType: "User" | "Group";

@@ -5,7 +5,8 @@ import {
   listEnterpriseScimGroups,
   provisionEnterpriseScimGroup,
   type SenaScimListQuery,
-  type SenaScimProvisioningOptions
+  type SenaScimProvisioningOptions,
+  scimErrorBody
 } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ function scimOptions(request: Request): SenaScimProvisioningOptions {
 }
 
 export async function POST(request: Request) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
     const bridge = provisionEnterpriseScimGroup(body, scimOptions(request));
@@ -40,7 +41,7 @@ function scimListQuery(request: Request): SenaScimListQuery {
 }
 
 export async function GET(request: Request) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     return NextResponse.json(listEnterpriseScimGroups(scimOptions(request).locationBase, scimListQuery(request)));
   });

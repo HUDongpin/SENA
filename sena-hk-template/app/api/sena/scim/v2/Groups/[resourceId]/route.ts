@@ -6,7 +6,8 @@ import {
   getEnterpriseScimGroup,
   patchEnterpriseScimGroup,
   provisionEnterpriseScimGroup,
-  type SenaScimProvisioningOptions
+  type SenaScimProvisioningOptions,
+  scimErrorBody
 } from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
@@ -33,7 +34,7 @@ async function upsertGroup(request: Request, resourceId: string) {
 }
 
 export async function GET(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     return NextResponse.json(getEnterpriseScimGroup(resourceId, scimOptions(request).locationBase));
@@ -43,7 +44,7 @@ export async function GET(request: Request, { params }: ScimResourceRouteContext
 // SCIM DELETE deprovisions by suspending this group's memberships, not by
 // erasing the team or its users. RFC 7644 3.6 wants 204 with no body.
 export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     deactivateEnterpriseScimGroup(resourceId, scimOptions(request));
@@ -52,14 +53,14 @@ export async function DELETE(request: Request, { params }: ScimResourceRouteCont
 }
 
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     return await upsertGroup(request, resourceId);
   });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     const body = await request.json();

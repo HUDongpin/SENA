@@ -16,7 +16,15 @@ type ScimListResponse<Resource> = {
   itemsPerPage?: number;
   Resources?: Resource[];
 };
-type ScimErrorBody = { error?: string; code?: string; Resources?: unknown; totalResults?: unknown };
+type ScimErrorBody = {
+  schemas?: string[];
+  status?: string;
+  scimType?: string;
+  detail?: string;
+  senaCode?: string;
+  Resources?: unknown;
+  totalResults?: unknown;
+};
 
 describe("SENA SCIM route production ownership gate", () => {
   it("returns SCIM/IdP ownership and rotation headers on ServiceProviderConfig", async () => {
@@ -519,14 +527,21 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
         resourceContext("okta-user-missing")
       );
       expect(missingUser.status).toBe(404);
-      expect((await missingUser.json() as ScimErrorBody).code).toBe("scim_user_not_found");
+      const missingUserBody = await missingUser.json() as ScimErrorBody;
+      expect(missingUserBody.senaCode).toBe("scim_user_not_found");
+      // Same envelope on a non-400: schemas and status always, but scimType only
+      // where RFC 7644 defines it (400s), so a 404 must not carry a guessed one.
+      expect(missingUserBody.schemas).toEqual(["urn:ietf:params:scim:api:messages:2.0:Error"]);
+      expect(missingUserBody.status).toBe("404");
+      expect(missingUserBody.scimType).toBeUndefined();
+      expect(missingUserBody.detail).toBeTruthy();
 
       const missingGroup = await groupResourceRoute.GET(
         readRequest(`${groupsBase}/okta-group-missing`),
         resourceContext("okta-group-missing")
       );
       expect(missingGroup.status).toBe(404);
-      expect((await missingGroup.json() as ScimErrorBody).code).toBe("scim_group_not_found");
+      expect((await missingGroup.json() as ScimErrorBody).senaCode).toBe("scim_group_not_found");
     });
   });
 
@@ -656,7 +671,7 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
         resourceContext(groupId)
       );
       expect(deleted.status).toBe(400);
-      expect((await deleted.json() as ScimErrorBody).code).toBe("last_team_manager_required");
+      expect((await deleted.json() as ScimErrorBody).senaCode).toBe("last_team_manager_required");
 
       // A refused deprovision must not half-apply.
       const afterRefusal = await groupResourceRoute.GET(
@@ -833,20 +848,31 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
         const response = await usersRoute.GET(readRequest(url));
         const body = await response.json() as ScimErrorBody;
         expect(response.status).toBe(400);
-        expect(body.code).toBe("unsupported_scim_filter");
+        expect(body.senaCode).toBe("unsupported_scim_filter");
         expect(body.Resources).toBeUndefined();
         expect(body.totalResults).toBeUndefined();
       }
 
+      // A conformant IdP parses errors against the SCIM Error message schema; shown
+      // SENA's internal {error, code} shape it reports a transport failure instead of
+      // the real reason. scimType is only defined for 400s and only over a closed
+      // vocabulary, so it is emitted where it genuinely maps and omitted elsewhere.
+      for (const url of refusals) {
+        const body = await (await usersRoute.GET(readRequest(url))).json() as ScimErrorBody;
+        expect(body.schemas).toEqual(["urn:ietf:params:scim:api:messages:2.0:Error"]);
+        expect(body.status).toBe("400");
+        expect(body.scimType).toBe("invalidFilter");
+        expect(body.detail).toBeTruthy();
+      }
       const groupRefusal = await groupsRoute.GET(readRequest(filterUrl(groupsBase, 'userName eq "refuse-a@example.edu"')));
       expect(groupRefusal.status).toBe(400);
-      expect((await groupRefusal.json() as ScimErrorBody).code).toBe("unsupported_scim_filter");
+      expect((await groupRefusal.json() as ScimErrorBody).senaCode).toBe("unsupported_scim_filter");
 
       for (const url of [`${usersBase}?startIndex=abc`, `${usersBase}?count=nope`]) {
         const response = await usersRoute.GET(readRequest(url));
         const body = await response.json() as ScimErrorBody;
         expect(response.status).toBe(400);
-        expect(body.code).toBe("invalid_scim_pagination");
+        expect(body.senaCode).toBe("invalid_scim_pagination");
         expect(body.Resources).toBeUndefined();
       }
     });
