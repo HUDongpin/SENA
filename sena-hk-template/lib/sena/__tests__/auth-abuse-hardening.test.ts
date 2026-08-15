@@ -144,6 +144,91 @@ describe("SENA auth rate-limit key custody (A2)", () => {
     expect(second.remaining).toBe(first.remaining - 1);
   });
 
+  // The three tests below pin the deployment assumption requestClientKey documents,
+  // rather than a property it holds on its own. They are written to fail if the
+  // x-forwarded-for handling is ever changed (right-most hop, trusted-proxy hop
+  // count, allowlist) so that the comment cannot silently drift out of date.
+
+  it("keys on the left-most x-forwarded-for entry, ignoring the hops behind it", async () => {
+    enterpriseTempDbDir("sena-auth-ratelimit-xff-leftmost-");
+    vi.resetModules();
+
+    const { enforceAuthRateLimit } = await import("../api-helpers");
+    function loginAttempt(forwardedFor: string) {
+      return enforceAuthRateLimit(new Request("https://sena.example.test/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": forwardedFor,
+          "user-agent": "Mozilla/5.0 (fixed)"
+        }
+      }), { bucket: "auth.login", discriminator: "victim@example.edu", limit: 10 });
+    }
+
+    // A proxy that appends leaves the value the client sent in front of the hop it
+    // observed, and it is the client's value that reaches the key.
+    const appended = loginAttempt("198.51.100.1, 203.0.113.7");
+    const clientValueOnly = loginAttempt("198.51.100.1");
+    const observedHopOnly = loginAttempt("203.0.113.7");
+
+    expect(clientValueOnly.keyHash).toBe(appended.keyHash);
+    expect(clientValueOnly.requestCount).toBe(2);
+    // The hop the proxy actually saw shares no counter with the pair above, which
+    // is what makes an appending proxy insufficient here.
+    expect(observedHopOnly.keyHash).not.toBe(appended.keyHash);
+    expect(observedHopOnly.requestCount).toBe(1);
+  });
+
+  it("mints a fresh bucket for every rotated x-forwarded-for value", async () => {
+    enterpriseTempDbDir("sena-auth-ratelimit-xff-rotation-");
+    vi.resetModules();
+
+    const { enforceAuthRateLimit } = await import("../api-helpers");
+    const rotated = ["198.51.100.1", "198.51.100.2", "198.51.100.3"].map((ip) =>
+      enforceAuthRateLimit(new Request("https://sena.example.test/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": ip,
+          "user-agent": "Mozilla/5.0 (fixed)"
+        }
+      }), { bucket: "auth.login", discriminator: "victim@example.edu", limit: 10 }));
+
+    // Exactly the failure a rotated User-Agent used to cause. It is tolerated only
+    // because SENA runs behind a proxy that overwrites x-forwarded-for; expose the
+    // app directly and this per-IP limiter stops bounding anything. What still
+    // bounds the attempt is the per-subject backstop covered by the tests below.
+    expect(new Set(rotated.map((outcome) => outcome.keyHash)).size).toBe(3);
+    expect(rotated.map((outcome) => outcome.requestCount)).toEqual([1, 1, 1]);
+  });
+
+  it("falls back to x-real-ip only when x-forwarded-for is absent", async () => {
+    enterpriseTempDbDir("sena-auth-ratelimit-real-ip-");
+    vi.resetModules();
+
+    const { enforceAuthRateLimit } = await import("../api-helpers");
+    function loginAttempt(headers: Record<string, string>) {
+      return enforceAuthRateLimit(new Request("https://sena.example.test/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers }
+      }), { bucket: "auth.login", discriminator: "victim@example.edu", limit: 10 });
+    }
+
+    const realIpOnly = loginAttempt({ "x-real-ip": "198.51.100.4" });
+    const bothHeaders = loginAttempt({
+      "x-forwarded-for": "203.0.113.7",
+      "x-real-ip": "198.51.100.4"
+    });
+    const forwardedOnly = loginAttempt({ "x-forwarded-for": "203.0.113.7" });
+
+    // x-real-ip is a second client-supplied header, not a more trustworthy one, so
+    // it buys nothing when x-forwarded-for is present.
+    expect(forwardedOnly.keyHash).toBe(bothHeaders.keyHash);
+    expect(forwardedOnly.requestCount).toBe(2);
+    expect(realIpOnly.keyHash).not.toBe(bothHeaders.keyHash);
+    expect(realIpOnly.requestCount).toBe(1);
+  });
+
   it("backstops registration attempts per email even when the source IP rotates", async () => {
     enterpriseTempDbDir("sena-auth-register-subject-");
     vi.resetModules();
