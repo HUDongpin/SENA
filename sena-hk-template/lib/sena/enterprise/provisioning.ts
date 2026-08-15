@@ -7,9 +7,11 @@ import {
 import { SenaEnterpriseError } from "./errors";
 import {
   readEnterpriseDb,
-  writeEnterpriseDb
+  readEnterpriseState,
+  writeEnterpriseDb,
+  writeEnterpriseState
 } from "./state";
-import { recordEnterpriseAudit } from "./ops-audit";
+import { recordEnterpriseAudit, recordEnterpriseAuditAsync } from "./ops-audit";
 import type { SenaEnterpriseSsoProvider } from "./auth-sso";
 import type { SenaEnterpriseAuditLogEntry } from "./ops-audit";
 import type { SenaEnterpriseDb, SenaEnterpriseTeam } from "./state";
@@ -167,16 +169,37 @@ function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?:
   }).length;
 }
 
-function recordProvisioningAudit(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
+type SenaEnterpriseProvisioningAuditEntry = Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">;
+
+type SenaEnterpriseProvisioningCommit = {
+  result: SenaEnterpriseProvisioningResult;
+  /** Null for a dry run: nothing is persisted, so nothing is audited. */
+  audit: SenaEnterpriseProvisioningAuditEntry | null;
+};
+
+function recordProvisioningAudit(entry: SenaEnterpriseProvisioningAuditEntry) {
   recordEnterpriseAudit(entry);
 }
 
-export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisioningInput): SenaEnterpriseProvisioningResult {
+/**
+ * Applies a provisioning request to an already-read enterprise database and
+ * hands the caller the audit entry to record.
+ *
+ * Persistence is deliberately the caller's job so the same mutation can be
+ * committed against whichever primary state store is configured: the
+ * synchronous file store (`provisionEnterpriseOrganization`) or the async
+ * primary — Postgres under SENA_ENTERPRISE_STATE_STORE=postgres —
+ * (`provisionEnterpriseOrganizationAsync`). A dry run mutates a throwaway copy
+ * of `savedDb`, so a caller that honours `result.dryRun` never persists it.
+ */
+function provisionEnterpriseOrganizationInDb(
+  input: SenaEnterpriseProvisioningInput,
+  savedDb: SenaEnterpriseDb
+): SenaEnterpriseProvisioningCommit {
   const source = validProvisioningSource(input.source) ? input.source : "api";
   const organization = input.organization.trim();
   if (!organization) throw new SenaEnterpriseError("Provisioning requires an organization name.", 400, "invalid_provisioning_organization");
   const dryRun = Boolean(input.dryRun);
-  const savedDb = readEnterpriseDb();
   const db = dryRun ? dbWorkingCopy(savedDb) : savedDb;
   const syncedAt = now();
   const result: SenaEnterpriseProvisioningResult = {
@@ -357,9 +380,10 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
     }
   }
 
-  if (!dryRun) {
-    writeEnterpriseDb(db);
-    recordProvisioningAudit({
+  if (dryRun) return { result, audit: null };
+  return {
+    result,
+    audit: {
       event: "provisioning.sync",
       teamId: result.teams[0]?.id,
       detail: {
@@ -373,13 +397,60 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
         membershipsCreated: result.summary.membershipsCreated,
         membershipsUpdated: result.summary.membershipsUpdated
       }
-    });
+    }
+  };
+}
+
+/**
+ * File-primary provisioning. Unchanged behaviour: read, mutate, write, audit —
+ * all through the synchronous file-backed store. Callers that can await should
+ * prefer provisionEnterpriseOrganizationAsync, which routes the same write to
+ * the configured primary state store.
+ */
+export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisioningInput): SenaEnterpriseProvisioningResult {
+  const db = readEnterpriseDb();
+  const { result, audit } = provisionEnterpriseOrganizationInDb(input, db);
+  if (!result.dryRun) {
+    writeEnterpriseDb(db);
+    if (audit) recordProvisioningAudit(audit);
+  }
+  return result;
+}
+
+/**
+ * Primary-state provisioning: the SCIM and /api/sena/provisioning write path.
+ * With the file store as primary this is byte-for-byte the file behaviour
+ * above; with SENA_ENTERPRISE_STATE_STORE=postgres the provisioned users,
+ * teams, and memberships land in the Postgres primary that login,
+ * registration, and team reads actually consult — instead of a
+ * .sena-enterprise/enterprise-db.json those readers never open.
+ */
+export async function provisionEnterpriseOrganizationAsync(input: SenaEnterpriseProvisioningInput): Promise<SenaEnterpriseProvisioningResult> {
+  const state = await readEnterpriseState();
+  const { result, audit } = provisionEnterpriseOrganizationInDb(input, state.db);
+  if (!result.dryRun) {
+    await writeEnterpriseState(state, state.db);
+    if (audit) await recordEnterpriseAuditAsync(audit);
   }
   return result;
 }
 
 export function listEnterpriseProvisioningDirectory(source: SenaEnterpriseProvisioningSource = "scim"): SenaEnterpriseProvisioningDirectory {
-  const db = readEnterpriseDb();
+  return listEnterpriseProvisioningDirectoryFromDb(readEnterpriseDb(), source);
+}
+
+/** Primary-state twin of listEnterpriseProvisioningDirectory: the SCIM read surface. */
+export async function listEnterpriseProvisioningDirectoryAsync(
+  source: SenaEnterpriseProvisioningSource = "scim"
+): Promise<SenaEnterpriseProvisioningDirectory> {
+  const state = await readEnterpriseState();
+  return listEnterpriseProvisioningDirectoryFromDb(state.db, source);
+}
+
+function listEnterpriseProvisioningDirectoryFromDb(
+  db: SenaEnterpriseDb,
+  source: SenaEnterpriseProvisioningSource
+): SenaEnterpriseProvisioningDirectory {
   const users = db.users.filter((user) => user.provisioning?.source === source);
   const teams = db.teams.filter((team) => team.provisioning?.source === source);
   const teamById = new Map(db.teams.map((team) => [team.id, team]));
