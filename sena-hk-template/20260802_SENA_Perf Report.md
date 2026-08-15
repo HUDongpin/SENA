@@ -618,3 +618,38 @@ strict-evidence flags.
   chunk URL might still work, but that URL is content-hashed per build, so it needs a
   build-time manifest lookup rather than a source-level import — a real mechanism, not a
   one-liner, and it belongs to whichever T7 option is chosen rather than preceding it.
+
+- **2026-08-16 iteration 9, part 5 — T7 landed, and a correction to what this ledger said chunk 2599 is.**
+  Two-stage loading is implemented (ADR-0011, commit `d1e684a`). Chrome paints at
+  **0.6 s** and the figure at **9.4 s**: an **8.80 s window** where a Slow 3G researcher
+  sees their workspace rather than a skeleton. Cost +1,493 B; unthrottled `canvasSettled`
+  301.6 ms against the 301.9 ms baseline; suite 1691, both smokes green, no test changed.
+
+  **Correction — parts 1–4 of this iteration mischaracterised chunk 2599, and so did
+  ADR-0011.** It was described as "the 955.9 KiB compute chunk (`sna.js` + `jena-js` +
+  SVD)" and as "55% of the JS arriving on open **for code the first paint does not
+  need**." The second half is wrong. 2599 is the **entire workspace client bundle** —
+  `sena-fusion-plane-orbit`, `workspace-rail-*`, Report Generator and enterprise-runtime
+  literals all live in it and nowhere else — and most of it genuinely *is* needed for
+  first paint. It was also probed for server-only leakage (SQL, `pg`, `exceljs`, `docx`,
+  `pdf-lib`, `process.env`): zero hits, nothing to reclaim there either. The marker-grep
+  that produced the original label found `sna`/`jena`/`svd` present and stopped, which is
+  how a true observation became a false description.
+
+  **Why time-to-figure did not move, and what would move it.** The Slow 3G load is
+  **bandwidth-saturated end to end**: 474,476 B of JS wire bytes at an effective
+  406 kbps, wave 1 477→3,271 ms and wave 2 3,307→9,181 ms with a 36 ms seam. Time-to-
+  figure ≈ wire bytes ÷ bandwidth. Two-stage loading changes *ordering*; it cannot change
+  *bytes*. Setting "Slow 3G time-to-figure must improve" as an acceptance criterion for
+  it was a miscalibration on my part — it asked a reordering to do a payload's job, and
+  the implementation was briefly reverted for failing a test it could never have passed.
+
+  **The follow-on, which is where the seconds actually are.** The analysis barrel's
+  transitive graph is 31 modules / 704,014 B of source. The fusion figure needs **9 of
+  them / 198,519 B** (`model`, `operators`, `ena-manifest`, `sna-manifest`,
+  `data-contract-audit`, plus `sna.js`/`jena-js`). The other **22 modules / 505,495 B —
+  72% — are reachable only through report and audit builders the figure never reads**
+  (`report.ts` 120,816 B, `review-packet.ts` 74,249 B, `development-plan.ts` 30,124 B, …).
+  They sit on the figure's critical path solely because the hook computes them in
+  render-body `useMemo`s. Getting them off it means splitting that hook — deliberately
+  out of scope for T7, and now the highest-value perf target on the board.
