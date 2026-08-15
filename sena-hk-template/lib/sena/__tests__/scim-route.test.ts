@@ -8,7 +8,13 @@ const senaScimUserExtensionSchema = "urn:sena:params:scim:schemas:extension:ente
 const senaScimGroupExtensionSchema = "urn:sena:params:scim:schemas:extension:enterprise:2.0:Group";
 
 type ScimGroupMember = { value?: string; type?: string; active?: boolean };
-type ScimGroupResource = { id?: string; externalId?: string; displayName?: string; members?: ScimGroupMember[] };
+type ScimGroupResource = {
+  id?: string;
+  externalId?: string;
+  displayName?: string;
+  members?: ScimGroupMember[];
+  [senaScimGroupExtensionSchema]?: { organization?: string; plan?: string; defaultRole?: string };
+};
 type ScimUserResource = { id?: string; userName?: string; externalId?: string; active?: boolean };
 type ScimListResponse<Resource> = {
   totalResults?: number;
@@ -226,9 +232,10 @@ describe("SENA SCIM Groups resource PatchOp", () => {
       expect(addedGroup.id).toBe(groupId);
       expect(addedGroup.displayName).toBe("Genomics Cohort");
       expect(addedGroup.members).toEqual(expect.arrayContaining([
-        // A member added without an explicit role lands on the least-privileged
-        // default: the group's defaultRole is not part of stored team state.
-        expect.objectContaining({ value: analystId, type: "viewer", active: true }),
+        // A member added without an explicit role lands on the group's stored
+        // defaultRole. A PatchOp body carries no group extension of its own, so
+        // this only holds because the team persists the default the POST set.
+        expect.objectContaining({ value: analystId, type: "coder", active: true }),
         expect.objectContaining({ value: piMemberId, type: "pi", active: true }),
         expect.objectContaining({ value: coderMemberId, type: "coder", active: true })
       ]));
@@ -266,6 +273,9 @@ describe("SENA SCIM Groups resource PatchOp", () => {
       const storedGroup = directory.Resources.find((resource) => resource.id === groupId);
       expect(storedGroup?.displayName).toBe("Genomics Cohort (Renamed)");
       expect(storedGroup?.members?.filter((member) => member.active)).toHaveLength(2);
+      // The default a PatchOp-added member inherits has to be readable, or an
+      // IdP operator cannot tell which role their next `add` will grant.
+      expect(storedGroup?.[senaScimGroupExtensionSchema]?.defaultRole).toBe("coder");
     } finally {
       vi.unstubAllEnvs();
       delete process.env.SENA_APP_URL;
@@ -406,6 +416,11 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
   const scimHeaders = { ...authHeaders, "content-type": "application/scim+json" };
   const readRequest = (url: string) => new Request(url, { headers: authHeaders });
   const deleteRequest = (url: string) => new Request(url, { method: "DELETE", headers: authHeaders });
+  const patchRequest = (url: string, body: unknown) => new Request(url, {
+    method: "PATCH",
+    headers: scimHeaders,
+    body: JSON.stringify(body)
+  });
   const resourceContext = (resourceId: string) => ({ params: Promise.resolve({ resourceId }) });
   const filterUrl = (base: string, filter: string) => `${base}?filter=${encodeURIComponent(filter)}`;
 
@@ -681,6 +696,184 @@ describe("SENA SCIM resource reads, deprovisioning, and collection queries", () 
       const survivingGroup = await afterRefusal.json() as ScimGroupResource;
       expect(survivingGroup.members).toHaveLength(2);
       expect(survivingGroup.members?.every((member) => member.active === true)).toBe(true);
+    });
+  });
+
+  it("refuses a Group PatchOp remove that names no resolvable member instead of suspending the roster", async () => {
+    await withScimRoutes("sena-scim-group-remove-guard-", async ({ groupsRoute, groupResourceRoute, enterprise }) => {
+      // An API-provisioned owner keeps the team administrable, so the
+      // last-manager guard cannot stand in for the check under test: without it
+      // a roster-wide suspend would be refused for the wrong reason.
+      enterprise.provisionEnterpriseOrganization({
+        source: "api",
+        organization: "SENA Remove Guard Org",
+        teams: [{ name: "Remove Guard Cohort", plan: "enterprise" }],
+        users: [{
+          externalId: "sena-remove-guard-owner",
+          email: "remove-guard-owner@example.edu",
+          name: "Remove Guard Owner",
+          memberships: [{ teamName: "Remove Guard Cohort", role: "owner" }]
+        }]
+      });
+      const { group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Remove Guard Cohort",
+        externalId: "okta-group-remove-guard",
+        organization: "SENA Remove Guard Org",
+        members: [
+          { value: "okta-remove-guard-pi", email: "remove-guard-pi@example.edu", display: "Guard PI", type: "pi" },
+          { value: "okta-remove-guard-coder", email: "remove-guard-coder@example.edu", display: "Guard Coder", type: "coder" }
+        ]
+      }));
+      const groupId = String(group.id);
+
+      // Each of these names a removal target that resolves to no member. None is
+      // the RFC 7644 3.5.2.2 "remove the whole attribute" request — that one
+      // names no value at all — so reading them as one deprovisions the entire
+      // cohort behind a 200 nobody retries.
+      const unresolvable = [
+        { label: "empty delta", value: [] },
+        { label: "$ref-only reference", value: [{ $ref: `${usersBase}/okta-remove-guard-coder`, display: "Guard Coder" }] },
+        { label: "blank value", value: [{ value: "  " }] }
+      ];
+      for (const { label, value } of unresolvable) {
+        const response = await groupResourceRoute.PATCH(patchRequest(`${groupsBase}/${groupId}`, {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+          Operations: [{ op: "remove", path: "members", value }]
+        }), resourceContext(groupId));
+        const body = await response.json() as ScimErrorBody;
+        expect([label, response.status]).toEqual([label, 400]);
+        expect([label, body.senaCode]).toEqual([label, "invalid_scim_patch"]);
+      }
+
+      const afterRefusals = await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      );
+      const roster = await afterRefusals.json() as ScimGroupResource;
+      expect(roster.members).toHaveLength(2);
+      expect(roster.members?.every((member) => member.active === true)).toBe(true);
+
+      // The body that genuinely is the whole-attribute remove still lands.
+      const clearedAll = await groupResourceRoute.PATCH(patchRequest(`${groupsBase}/${groupId}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "remove", path: "members" }]
+      }), resourceContext(groupId));
+      const clearedGroup = await clearedAll.json() as ScimGroupResource;
+      expect(clearedAll.status).toBe(200);
+      expect(clearedGroup.members).toHaveLength(2);
+      expect(clearedGroup.members?.every((member) => member.active === false)).toBe(true);
+    });
+  });
+
+  it("keeps a member's provisioned role when an IdP re-adds them without one", async () => {
+    await withScimRoutes("sena-scim-group-add-idempotent-", async ({ groupsRoute, groupResourceRoute }) => {
+      const { group } = await seedGroup(groupsRoute, cohortBody({
+        displayName: "Resync Cohort",
+        externalId: "okta-group-resync",
+        organization: "SENA Resync Org",
+        members: [
+          { value: "okta-resync-pi", email: "resync-pi@example.edu", display: "Resync PI", type: "pi" },
+          { value: "okta-resync-coder", email: "resync-coder@example.edu", display: "Resync Coder", type: "coder" }
+        ]
+      }));
+      const groupId = String(group.id);
+      const piId = String(group.members?.find((member) => member.type === "pi")?.value);
+      const coderId = String(group.members?.find((member) => member.type === "coder")?.value);
+
+      // A retry or a full re-sync re-sends members the IdP already added, with a
+      // bare value or the RFC-conformant `type: "User"`. Neither is an
+      // enterprise role, and neither is a request to demote anyone — least of
+      // all the PI whose demotion would wedge the sync on the last-manager guard.
+      const resynced = await groupResourceRoute.PATCH(patchRequest(`${groupsBase}/${groupId}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "add", path: "members", value: [{ value: piId }, { value: coderId, type: "User" }] }]
+      }), resourceContext(groupId));
+      const resyncedGroup = await resynced.json() as ScimGroupResource;
+      expect(resynced.status).toBe(200);
+      expect(resyncedGroup.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: piId, type: "pi", active: true }),
+        expect.objectContaining({ value: coderId, type: "coder", active: true })
+      ]));
+
+      // Idempotence is not a role freeze: a reference that does name a role
+      // still changes one.
+      const promoted = await groupResourceRoute.PATCH(patchRequest(`${groupsBase}/${groupId}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "add", path: "members", value: [{ value: coderId, type: "reviewer" }] }]
+      }), resourceContext(groupId));
+      const promotedGroup = await promoted.json() as ScimGroupResource;
+      expect(promoted.status).toBe(200);
+      expect(promotedGroup.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: coderId, type: "reviewer", active: true })
+      ]));
+
+      const stored = await groupResourceRoute.GET(readRequest(`${groupsBase}/${groupId}`), resourceContext(groupId));
+      const storedGroup = await stored.json() as ScimGroupResource;
+      expect(storedGroup.members).toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: "okta-resync-pi", type: "pi", active: true }),
+        expect.objectContaining({ value: "okta-resync-coder", type: "reviewer", active: true })
+      ]));
+    });
+  });
+
+  it("reactivates a suspended SCIM User for real and answers only what it did", async () => {
+    await withScimRoutes("sena-scim-user-reactivate-", async ({ groupsRoute, userResourceRoute, groupResourceRoute }) => {
+      const seedCohort = async (suffix: string) => (await seedGroup(groupsRoute, cohortBody({
+        displayName: `Return Cohort ${suffix.toUpperCase()}`,
+        externalId: `okta-group-return-${suffix}`,
+        organization: "SENA Return Org",
+        members: [
+          { value: `okta-return-pi-${suffix}`, email: `return-pi-${suffix}@example.edu`, display: "Return PI", type: "pi" },
+          { value: "okta-return-coder", email: "return-coder@example.edu", display: "Return Coder", type: "coder" }
+        ]
+      }))).group;
+      const firstGroup = await seedCohort("a");
+      const secondGroup = await seedCohort("b");
+      const coderId = String(firstGroup.members?.find((member) => member.type === "coder")?.value);
+      const rosterOf = async (groupId: string) => (await (await groupResourceRoute.GET(
+        readRequest(`${groupsBase}/${groupId}`),
+        resourceContext(groupId)
+      )).json() as ScimGroupResource).members?.find((member) => member.value === "okta-return-coder");
+      const readCoder = async () => (await (await userResourceRoute.GET(
+        readRequest(`${usersBase}/${coderId}`),
+        resourceContext(coderId)
+      )).json() as ScimUserResource).active;
+
+      const deleted = await userResourceRoute.DELETE(deleteRequest(`${usersBase}/${coderId}`), resourceContext(coderId));
+      expect(deleted.status).toBe(204);
+      expect(await readCoder()).toBe(false);
+
+      const reactivated = await userResourceRoute.PATCH(patchRequest(`${usersBase}/${coderId}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "replace", path: "active", value: true }]
+      }), resourceContext(coderId));
+      const reactivatedUser = await reactivated.json() as ScimUserResource;
+      expect(reactivated.status).toBe(200);
+
+      // The PATCH answer and the GET that immediately follows it are the same
+      // fact: an IdP told `active: true` records success and stops retrying.
+      expect([reactivatedUser.active, await readCoder()]).toEqual([true, true]);
+      // ...and "reactivated" means the suspended memberships came back.
+      expect(await rosterOf(String(firstGroup.id))).toEqual(expect.objectContaining({ active: true }));
+      expect(await rosterOf(String(secondGroup.id))).toEqual(expect.objectContaining({ active: true }));
+
+      // The inverse of DELETE is not a licence to undo a Group PatchOp removal:
+      // a user still active somewhere is already active, so `active: true`
+      // restores nothing and must not resurrect the group they were removed from.
+      const removed = await groupResourceRoute.PATCH(patchRequest(`${groupsBase}/${secondGroup.id}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "remove", path: `members[value eq "${coderId}"]` }]
+      }), resourceContext(String(secondGroup.id)));
+      expect(removed.status).toBe(200);
+      expect(await rosterOf(String(secondGroup.id))).toEqual(expect.objectContaining({ active: false }));
+
+      const reasserted = await userResourceRoute.PATCH(patchRequest(`${usersBase}/${coderId}`, {
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+        Operations: [{ op: "replace", path: "active", value: true }]
+      }), resourceContext(coderId));
+      expect([(await reasserted.json() as ScimUserResource).active, await readCoder()]).toEqual([true, true]);
+      expect(await rosterOf(String(secondGroup.id))).toEqual(expect.objectContaining({ active: false }));
+      expect(await rosterOf(String(firstGroup.id))).toEqual(expect.objectContaining({ active: true }));
     });
   });
 
