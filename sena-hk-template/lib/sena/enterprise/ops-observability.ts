@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SenaEnterpriseError } from "./errors";
+import { senaProductionPosture } from "./auth-config";
 import {
   envValue,
   now,
@@ -361,20 +362,16 @@ function postgresObservabilitySampleStoreConfigured() {
   return postgresObservabilitySampleStoreRequested() && resolveEnterprisePostgresConfig().configured;
 }
 
+// Production posture is answered by senaProductionPosture() (auth-config.ts),
+// never re-derived here: re-derivation is what let the password-reset interlock
+// drift onto a NODE_ENV-only test and fail open (f5d94fa). The site-local
+// opt-in flag is the only term this gate adds on top.
 export function enterpriseObservabilityProductionSampleStoreRequired() {
-  return process.env.NODE_ENV === "production" ||
-    booleanEnv("SENA_OBSERVABILITY_REQUIRED") ||
-    booleanEnv("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
-    booleanEnv("SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
-    booleanEnv("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED");
+  return booleanEnv("SENA_OBSERVABILITY_REQUIRED") || senaProductionPosture();
 }
 
 export function enterpriseObservabilityLiveProbeRequired() {
-  return process.env.NODE_ENV === "production" ||
-    booleanEnv("SENA_OBSERVABILITY_LIVE_PROBE_REQUIRED") ||
-    booleanEnv("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
-    booleanEnv("SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
-    booleanEnv("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED");
+  return booleanEnv("SENA_OBSERVABILITY_LIVE_PROBE_REQUIRED") || senaProductionPosture();
 }
 
 function observabilityErrorHash(error: unknown) {

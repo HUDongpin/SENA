@@ -23,10 +23,27 @@ export function booleanEnv(key: string) {
 }
 
 // The three flags a SENA operator sets to declare a deployment production, next
-// to NODE_ENV. They are the same set every other production hard-gate ORs onto
-// the NODE_ENV test (enterpriseFileStateWritePolicy in state.ts,
-// enterpriseObservabilityProductionSampleStoreRequired in ops-observability.ts,
-// enterpriseObjectStorageLiveProbeRequired in object-storage-adapter.ts).
+// to NODE_ENV.
+//
+// `enterpriseObservabilityProductionSampleStoreRequired` (ops-observability.ts),
+// its live-probe sibling, and `enterpriseObjectStorageLiveProbeRequired`
+// (object-storage-adapter.ts) all call senaProductionPosture() directly, each
+// OR-ing its own opt-in flag on top.
+//
+// `enterpriseFileStateWritePolicy` (state.ts) deliberately does NOT, and an
+// earlier version of this comment wrongly said it did. It requires NODE_ENV=
+// production **AND** SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH together — its
+// blocking reason is the compound label "NODE_ENV=production+SENA_REQUIRE_
+// PRODUCTION_PERFORMANCE_PATH", and a test asserts that exact string. The other
+// two flags do block it on their own. Do not "align" it with this predicate:
+// that would silently change when file-backed writes are refused, which is a
+// behaviour change wearing a refactor's clothes.
+//
+// Six further re-derivations remain outside this set (cdn-verification,
+// server-job-queue, server-job-worker-contract, and three env-injecting ones in
+// enterprise-postgres, performance-budget-artifact, conference-load-rehearsal).
+// The last of those already micro-diverges: it trims NODE_ENV, so " production"
+// reads as production there and not here.
 export const SENA_PRODUCTION_POSTURE_ENV_KEYS = [
   "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH",
   "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
