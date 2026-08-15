@@ -273,9 +273,9 @@ Branch: **`fix/gap-remediation-2026-08-15`** (off `main` @ `6bbb222`). Not merge
 |---|---|
 | `tsc --noEmit` | clean |
 | `eslint .` | clean |
-| `npm test` | **1448 passed, 1 skipped, 0 failed** (main was 1380 — 68 new tests) |
+| `npm test` | **1457 passed, 1 skipped, 0 failed** (main was 1380 — 77 new tests) |
 | `next build --webpack` | success from a clean `.next` |
-| `sena:performance:check` | **PASS — 824,488 / 852,000 B** (the fixes cost ~2.7 KB against the last recorded 821,787; ~27.5 KB headroom remains) |
+| `sena:performance:check` | **PASS — 824,530 / 852,000 B** (the fixes cost ~2.7 KB against the last recorded 821,787; ~27.5 KB headroom remains) |
 
 Two pre-existing tests had to be updated because they **encoded the defective behaviour**, not because the fixes broke them: `auth-mfa-reset-route.test.ts` pinned A4 itself (production + the single exposure flag returning a live token — it now opts into the new second override, and the interlock is covered separately), and `enterprise.test.ts` asserted `activeRateLimitBuckets=1` where the new per-subject buckets make it 6. Both are noted inline in the tests.
 
@@ -317,12 +317,13 @@ Six agents worked file-disjoint groups in parallel, plus direct work on the work
 | **B9** empty contract template | Template is now **generated from `senaImportFields`**, so it cannot drift from what the importer enforces: every accepted field, required ones marked and populated, ADR-0007 `\|` separators. It stays a **valid, importable contract** (plain arrays; docs in `_` keys the importer ignores) and is **internally consistent** — a second person so the tie is not a dangling target, a second code so nothing is derived — so it imports with zero warnings. | 7 tests; **5 red** against the old empty-array template; the browser smoke caught the first design being unimportable |
 | **B11** swallowed refresh failures | One `guardEnterpriseRefresh` wrapper at the single prop-wiring site — keeps the throwing helpers intact for their internal callers that sequence on failure. | tsc + lint clean |
 | **B12** inert W toggle | Annotated "Diagnostic layouts only" when the plane-orbit layout is active, so a deliberate no-op stops looking like a broken control. | tsc + lint clean |
+| **B8** SCIM create/update/deactivate-only surface | Added per-resource GET and DELETE, plus `eq` filtering and pagination on the collections. **DELETE is a suspend, not an erase** — it reuses the existing `active: false` transition, so the user row, email, SSO identities and audit history survive; on a group it suspends that group's memberships while leaving people active elsewhere. Unsupported filters are **refused with a 400 naming the supported set, never silently ignored** — silently ignoring a filter is worse than refusing it, because the IdP believes it got a filtered set. `ServiceProviderConfig` updated to match, and only to match. | 8 tests, each watched red (`GET is not a function`, `DELETE is not a function`, `expected 5 to be 1` for the ignored filter, `expected 200 to be 400` for the refusal) |
 
 ### 10.5 Deliberately not fixed — and why
 
 - **B2 fused-figure export.** The button labels are **pinned by the production page contract** (`sena.test.ts` asserts the strings "Export figure SVG"/"PNG"), so even the "honest rename" interim is a contract change, and rendering the real figure needs the which-figure decision (Appendix I #3). Left entirely.
 - **A1 other half** (production `SENA_OPS_TOKEN` 401s every ops panel) — needs the auth-model decision (#4). The agent explicitly left `requireOpsAccess` byte-identical.
-- **B3** postgres provisioning, **B4** job worker, **B8** SCIM DELETE/GET, **B10** email delivery — all gated on deployment-scope or dependency decisions (#5, #6).
+- **B3** postgres provisioning, **B4** job worker, **B10** email delivery — gated on deployment-scope or dependency decisions (#5, #6). (**B8** was *not* left — see below.)
 - **A5's semantics** were implemented as *mark-stale* rather than *clear*, per this document's own recommendation, on the FA13-NEW precedent that commissioning a fix constitutes the decision. If you wanted *clear*, that is a small change to one predicate.
 
 ### 10.6 New items the fixes surfaced (not fixed, worth a ledger row)
@@ -331,6 +332,8 @@ Six agents worked file-disjoint groups in parallel, plus direct work on the work
 - `data-contract-audit.ts:167` still counts `derivedPeople` by `group === "Derived"`, the same infer-from-contents pattern A6 just removed; it over-counts an analyst-declared row. Disclosure count only, no data loss.
 - A SCIM PatchOp-added member gets `viewer`, not the group's `defaultRole` — `defaultRole` isn't persisted in team state, so it can't be recovered at patch time.
 - **Contract change:** session-mode callers of `/api/sena/ops/jobs` must now pass `teamId`, and scoping uses `team:manage`, so an `admin` member loses access they previously had. No in-tree caller is affected (the UI never called it in session mode), but it is a permission-vocabulary decision worth ratifying.
+- **SCIM error bodies** use SENA's `{error, code}` shape rather than the SCIM `urn:…:2.0:Error` schema. That shape comes from `enterprise/errors.ts` and predates this work, so it was left alone — but a conformant IdP expects the SCIM envelope, and it is worth a follow-up across the whole SCIM surface.
+- **Group DELETE cannot archive the team.** SENA has no team archival, so a group DELETE suspends the memberships and leaves the team row; where the group's manager is the team's last active manager it refuses with 400 rather than half-applying. Real group deletion would need archival support in `enterprise/provisioning.ts`.
 
 ---
 
