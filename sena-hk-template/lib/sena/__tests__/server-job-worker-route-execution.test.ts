@@ -322,3 +322,27 @@ describe("SENA server job worker route execution", () => {
     expect(stored.status).toBe("queued");
   });
 });
+
+describe("server job webhook timestamp skew ceiling", () => {
+  // The ceiling is the guard that stops an operator restoring exactly the
+  // unbounded replay this control removed — 5c8d9ab's own commit message argues
+  // it "matters as much as the default". The window's *widening* was pinned; its
+  // *bound* was not, so setting the env to a year left the whole job family green.
+  it("clamps SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS to the ceiling rather than honouring it", async () => {
+    const queue = await import("../enterprise/server-job-queue");
+    const previous = process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS;
+    try {
+      process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS = "31536000";
+      expect(queue.serverJobWebhookTimestampSkewSeconds()).toBe(queue.serverJobWebhookTimestampMaxSkewSeconds);
+
+      // A value inside the ceiling is still honoured, so the clamp is a bound and
+      // not a constant — without this the assertion above would pass against a
+      // function that ignored the env entirely.
+      process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS = "1800";
+      expect(queue.serverJobWebhookTimestampSkewSeconds()).toBe(1800);
+    } finally {
+      if (previous === undefined) delete process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS;
+      else process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS = previous;
+    }
+  });
+});
