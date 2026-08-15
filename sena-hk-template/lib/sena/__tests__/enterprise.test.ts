@@ -555,6 +555,184 @@ describe("SENA enterprise runtime", () => {
     expect(rosterFromAnotherFile.dataset.people.map((person) => person.label)).toEqual(["Ada"]);
   });
 
+  it("does not warn about the other four tables the analyst never uploaded (A6 sibling)", async () => {
+    // The People fix left its four siblings synthesizing unconditionally, so a
+    // contract that legitimately carries only a roster and a transcript was
+    // accused of six mapping faults about tables nobody uploaded — the same
+    // phantom, one table over.
+    const contractJson = JSON.stringify({
+      people: [
+        { person_id: "P1", label: "Ada" },
+        { person_id: "P2", label: "Ben" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" },
+        { utterance_id: "u2", person_id: "P2", unit_id: "unit-1", stanza_id: "st-1", turn_index: 2, text: "Reply" }
+      ]
+    });
+
+    const imported = await importSenaEnterpriseFiles([uploadLike("contract.json", contractJson)]);
+
+    expect(imported.warnings.filter((warning) =>
+      /is mapped as (?:interactions|utterances|coded segments|codebook) but is missing required field/.test(warning)
+    )).toEqual([]);
+    // The honest disclosure replaces it, once per absent table — the merged pass
+    // is the one verdict, exactly as it is for people.
+    for (const table of ["interactions", "coded_segments", "codebook"]) {
+      expect(imported.warnings.filter((warning) =>
+        warning === `${table} table is not uploaded; validation may derive placeholders where possible.`
+      )).toHaveLength(1);
+    }
+    expect(new Set(imported.warnings).size).toBe(imported.warnings.length);
+    // The browser/JSON route words it the same way for the same contract.
+    const browser = importSenaJsonContract(contractJson);
+    expect(browser.warnings.filter((warning) => /table is not uploaded/.test(warning)).sort())
+      .toEqual(imported.warnings.filter((warning) => /table is not uploaded/.test(warning)).sort());
+    // Nothing about the data changed.
+    expect(imported.dataset.people.map((person) => person.id)).toEqual(["P1", "P2"]);
+    expect(imported.dataset.utterances).toHaveLength(2);
+
+    // A per-file "not uploaded" verdict is a per-file fact: a sibling file can
+    // supply the table, and the merged pass is what decides. This is why the
+    // per-file copies are superseded rather than stacked.
+    const suppliedElsewhere = await importSenaEnterpriseFiles([
+      uploadLike("contract.json", contractJson),
+      uploadLike("interactions.csv", "source,target,weight\nP1,P2,1")
+    ]);
+    expect(suppliedElsewhere.warnings.some((warning) => /^interactions table is not uploaded/.test(warning))).toBe(false);
+    expect(suppliedElsewhere.warnings.filter((warning) => /^coded_segments table is not uploaded/.test(warning))).toHaveLength(1);
+    expect(suppliedElsewhere.dataset.interactions).toHaveLength(1);
+  });
+
+  it("rejects an upload whose every file yielded no rows, instead of importing nothing (A6 sibling)", async () => {
+    // Consequence of contributing only non-empty tables: a file that produced no
+    // rows at all contributes nothing, so an upload made entirely of such files
+    // now fails the "no supported tables" check instead of returning an empty
+    // dataset dressed in five phantom mapping faults. This matches what the CSV
+    // and forum adapters already do with unusable input ("CSV is empty.", "did
+    // not contain importable posts"); the transcript path was the odd one out.
+    await expect(importSenaEnterpriseFiles([
+      uploadLike("notes.txt", "Session notes\n----\nno speaker lines here")
+    ])).rejects.toThrow(/No supported SENA import tables were found/);
+
+    // One usable file is enough: the junk file no longer decides the import.
+    const withRealData = await importSenaEnterpriseFiles([
+      uploadLike("notes.txt", "Session notes\n----\nno speaker lines here"),
+      uploadLike("people.csv", "person_id,label\nP1,Ada")
+    ]);
+    expect(withRealData.dataset.people.map((person) => person.id)).toEqual(["P1"]);
+  });
+
+  it("still warns about header-only and malformed tables the analyst did upload (A6 sibling)", async () => {
+    // Never-uploaded and uploaded-but-empty are different facts and only the
+    // first may go quiet. A header-only CSV has real columns, so the analyst
+    // *did* declare a table shape and it stays verified; the tables the fix
+    // silences have no columns at all because nobody uploaded them.
+    const headerOnly = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "person_id,label\nP1,Ada"),
+      uploadLike("utterances.csv", "utterance_id,person_id,text\nu1,P1,Opening"),
+      uploadLike("interactions.csv", "source,target,weight")
+    ]);
+    // Uploaded, so it is not reported as absent...
+    expect(headerOnly.warnings.some((warning) => /^interactions table is not uploaded/.test(warning))).toBe(false);
+    // ...and its declared columns satisfy the required fields, so no fault either.
+    expect(headerOnly.warnings.some((warning) => /interactions\.csv is mapped as interactions/.test(warning))).toBe(false);
+
+    const headerOnlyWrongColumns = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "person_id,label\nP1,Ada"),
+      uploadLike("utterances.csv", "utterance_id,person_id,text\nu1,P1,Opening"),
+      uploadLike("interactions.csv", "note,comment")
+    ]);
+    expect(headerOnlyWrongColumns.warnings).toContain(
+      'interactions.csv is mapped as interactions but is missing required field "Source person".'
+    );
+    expect(headerOnlyWrongColumns.warnings).toContain(
+      'interactions.csv is mapped as interactions but is missing required field "Target person".'
+    );
+
+    const malformed = await importSenaEnterpriseFiles([
+      uploadLike("people.csv", "person_id,label\nP1,Ada"),
+      uploadLike("utterances.csv", "utterance_id,person_id,text\nu1,P1,Opening"),
+      uploadLike("codebook.csv", "name,notes\nEvidence,cites data"),
+      uploadLike("coded_segments.csv", "seg,utt,tags\ncs-1,u1,Evidence")
+    ]);
+    expect(malformed.warnings).toContain(
+      'codebook.csv is mapped as codebook but is missing required field "Code ID".'
+    );
+    expect(malformed.warnings).toContain(
+      'coded_segments.csv is mapped as coded segments but is missing required field "Segment ID".'
+    );
+    expect(malformed.warnings).toContain(
+      'coded_segments.csv is mapped as coded segments but is missing required field "Codes".'
+    );
+  });
+
+  it("does not accuse a forum export of mapping faults for ties and tags it never had (A6 sibling)", async () => {
+    // The forum adapter synthesizes the same five tables, so a thread with no
+    // replies and no tags was accused of the identical phantom fault — twice,
+    // once per file and once from the merged pass, with byte-identical text.
+    const forumCsv = [
+      "post_id,thread_id,author_id,author_name,message",
+      "1,t1,a1,Ada,Hello there",
+      "2,t1,a2,Ben,Hi back"
+    ].join("\n");
+
+    const imported = await importSenaEnterpriseFiles([uploadLike("forum.csv", forumCsv)]);
+
+    expect(imported.warnings.filter((warning) => /is mapped as .* but is missing required field/.test(warning))).toEqual([]);
+    expect(new Set(imported.warnings).size).toBe(imported.warnings.length);
+    // The adapter's own cleaning note is what tells the analyst what happened.
+    expect(imported.warnings.some((warning) => /no tags, codes, or hashtag markers were found/.test(warning))).toBe(true);
+    expect(imported.dataset.utterances).toHaveLength(2);
+    expect(imported.dataset.people.map((person) => person.id).sort()).toEqual(["a1", "a2"]);
+  });
+
+  it("counts only import-minted placeholders as derived people in the audit (A6)", () => {
+    // The audit inferred "machine placeholder" from group === "Derived", the
+    // same contents-sniffing the WeakSet sentinel replaced in the import — so an
+    // analyst who genuinely declares group:"Derived" was disclosed as a person
+    // the import invented.
+    const derivedPlaceholders = (dataset: SenaDataset) =>
+      buildSenaDataContractAudit(dataset).items.find((entry) => entry.id === "people-table")?.detail[0];
+
+    const minted = importSenaJsonContract(JSON.stringify({
+      people: [{ person_id: "P1", label: "Ada" }],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" },
+        { utterance_id: "u2", person_id: "P9", unit_id: "unit-1", stanza_id: "st-1", turn_index: 2, text: "Reply" }
+      ]
+    }));
+    expect(minted.dataset.people.map((person) => person.id)).toEqual(["P1", "P9"]);
+    expect(derivedPlaceholders(minted.dataset)).toBe("derivedPlaceholders=1");
+
+    // The WeakSet dies with the in-memory objects, and the audit runs over a
+    // dataset that crossed the enterprise import route's JSON response. A count
+    // that silently drops to zero on that path is worse than an over-count, so
+    // the disclosure must survive a round trip.
+    const roundTripped = JSON.parse(JSON.stringify(minted.dataset)) as SenaDataset;
+    expect(derivedPlaceholders(roundTripped)).toBe("derivedPlaceholders=1");
+
+    // The sentinel covers the mirror-image loss: consumers rebuild the dataset
+    // with their own warning list (the import route folds run warnings in, the
+    // enterprise route filters per-file verdicts out), and the rows they carry
+    // over are still the ones this process minted.
+    expect(derivedPlaceholders({ ...minted.dataset, warnings: [] })).toBe("derivedPlaceholders=1");
+
+    const declared = importSenaJsonContract(JSON.stringify({
+      people: [
+        { person_id: "P1", label: "Ada" },
+        { person_id: "P3", group: "Derived" }
+      ],
+      utterances: [
+        { utterance_id: "u1", person_id: "P1", unit_id: "unit-1", stanza_id: "st-1", turn_index: 1, text: "Opening" }
+      ]
+    }));
+    expect(declared.dataset.people.map((person) => person.id)).toEqual(["P1", "P3"]);
+    expect(derivedPlaceholders(declared.dataset)).toBe("derivedPlaceholders=0");
+    expect(derivedPlaceholders(JSON.parse(JSON.stringify(declared.dataset)) as SenaDataset)).toBe("derivedPlaceholders=0");
+    expect(derivedPlaceholders({ ...declared.dataset, warnings: [] })).toBe("derivedPlaceholders=0");
+  });
+
   it("still derives placeholder people from interaction sources under a declared roster", () => {
     // A source is a contribution, not a claim: the person demonstrably acted, so
     // a roster omission there is recovered the same way as an unknown utterance
@@ -1108,7 +1286,7 @@ describe("SENA enterprise runtime", () => {
     expect(provisioningGovernance.checks.find((check: { id: string }) => check.id === "organization-provisioning")?.evidence)
       .toContain("provisionedUsers=2");
 
-    const scimPi = scim.provisionEnterpriseScimUser({
+    const scimPi = await scim.provisionEnterpriseScimUser({
       schemas: [scim.scimCoreUserSchema, scim.senaScimUserExtensionSchema],
       userName: "scim-pi@example.edu",
       externalId: "scim-pi-001",
@@ -1126,7 +1304,7 @@ describe("SENA enterprise runtime", () => {
     expect(scimPi.provisioning.summary.teamsCreated).toBe(1);
     expect(scimPi.provisioning.summary.membershipsCreated).toBe(1);
     expect(scimPi.resource.schemas).toContain(scim.senaScimUserExtensionSchema);
-    const scimCoder = scim.provisionEnterpriseScimUser({
+    const scimCoder = await scim.provisionEnterpriseScimUser({
       schemas: [scim.scimCoreUserSchema, scim.senaScimUserExtensionSchema],
       userName: "scim-coder@example.edu",
       externalId: "scim-coder-001",
@@ -1146,7 +1324,7 @@ describe("SENA enterprise runtime", () => {
     });
     expect(scimCoderLogin.context.memberships[0].role).toBe("coder");
     expect(scimCoderLogin.context.teams[0].provisioning?.externalId).toBe("scim-cohort");
-    const scimCoderSuspended = scim.patchEnterpriseScimUser(String(scimCoder.resource.id), {
+    const scimCoderSuspended = await scim.patchEnterpriseScimUser(String(scimCoder.resource.id), {
       schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
       Operations: [{ op: "replace", path: "active", value: false }]
     });
@@ -1157,7 +1335,7 @@ describe("SENA enterprise runtime", () => {
       subject: "scim-coder-001"
     });
     expect(suspendedScimCoderLogin.context.memberships).toHaveLength(0);
-    const scimGroup = scim.provisionEnterpriseScimGroup({
+    const scimGroup = await scim.provisionEnterpriseScimGroup({
       schemas: [scim.scimCoreGroupSchema, scim.senaScimGroupExtensionSchema],
       displayName: "SCIM Review Group",
       externalId: "scim-review",
@@ -1175,11 +1353,11 @@ describe("SENA enterprise runtime", () => {
     expect(scimGroup.provisioning.summary.teamsCreated).toBe(1);
     expect(scimGroup.provisioning.summary.usersCreated).toBe(1);
     expect(scimGroup.resource.members).toEqual(expect.arrayContaining([expect.objectContaining({ type: "pi", active: true })]));
-    const scimUsersList = scim.listEnterpriseScimUsers("https://sena.example.test/api/sena/scim/v2");
+    const scimUsersList = await scim.listEnterpriseScimUsers("https://sena.example.test/api/sena/scim/v2");
     expect(scimUsersList.schemaVersion).toBe("sena-scim-users-list/v1");
     expect(scimUsersList.totalResults).toBe(5);
     expect(scimUsersList.Resources.find((resource) => resource.userName === "scim-coder@example.edu")?.active).toBe(false);
-    const scimGroupsList = scim.listEnterpriseScimGroups("https://sena.example.test/api/sena/scim/v2");
+    const scimGroupsList = await scim.listEnterpriseScimGroups("https://sena.example.test/api/sena/scim/v2");
     expect(scimGroupsList.schemaVersion).toBe("sena-scim-groups-list/v1");
     expect(scimGroupsList.totalResults).toBe(3);
     expect(scimGroupsList.Resources.find((resource) => resource.displayName === "SCIM Cohort")?.members)

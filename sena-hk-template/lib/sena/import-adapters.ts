@@ -121,23 +121,28 @@ function datasetToTables(dataset: SenaDataset, name: string): SenaMappedTable[] 
   // and this route reported a smaller N than the browser/JSON route for the
   // same contract. A declared row survives whatever its group and label.
   const declaredPeople = dataset.people.filter((person) => !isDerivedPlaceholderPerson(person));
+  // A file contributes only the tables it actually has rows for. Synthesizing an
+  // empty one made buildSenaDatasetFromTables demand its required fields of a
+  // table the analyst never uploaded — zero rows means zero columns, so the
+  // inferred mapping cannot name any field — and inflated
+  // missingTableWarningCount with each phantom. Omitting the table lets the
+  // merged pass emit its "<table> is not uploaded" note instead, the same
+  // disclosure the browser/JSON route gives the same contract.
+  //
+  // The check is not relaxed for zero-row tables generally, and this is the only
+  // place it can be dropped safely: a table reconstructed from a finished
+  // dataset cannot have been header-only, because the columns are recomputed
+  // from the rows. A header-only people.csv/interactions.csv the analyst *did*
+  // upload keeps its real parsed columns on the CSV route and still has its
+  // required fields verified.
+  const uploadedTable = (table: SenaMappedTable["table"], rows: SenaImportRow[]) =>
+    rows.length > 0 ? [rowsToTable(`${name}-${table}`, rows, table)] : [];
   return [
-    // A file that declared no roster contributes no people table. Synthesizing
-    // an empty one made buildSenaDatasetFromTables demand "Person ID" of a table
-    // the analyst never uploaded (zero rows means zero columns, so the mapping
-    // cannot carry the id field) and inflated missingTableWarningCount with it.
-    // Omitting the table lets the merged pass emit its "people table is not
-    // uploaded" note instead — the same disclosure the browser/JSON route gives
-    // this contract. The check is not relaxed for zero-row tables generally: a
-    // header-only people.csv the analyst *did* upload still has its required
-    // field verified.
-    ...(declaredPeople.length > 0
-      ? [rowsToTable(`${name}-people`, declaredPeople as unknown as SenaImportRow[], "people")]
-      : []),
-    rowsToTable(`${name}-interactions`, dataset.interactions as unknown as SenaImportRow[], "interactions"),
-    rowsToTable(`${name}-utterances`, dataset.utterances as unknown as SenaImportRow[], "utterances"),
-    rowsToTable(`${name}-coded_segments`, dataset.coded_segments as unknown as SenaImportRow[], "coded_segments"),
-    rowsToTable(`${name}-codebook`, dataset.codebook as unknown as SenaImportRow[], "codebook")
+    ...uploadedTable("people", declaredPeople as unknown as SenaImportRow[]),
+    ...uploadedTable("interactions", dataset.interactions as unknown as SenaImportRow[]),
+    ...uploadedTable("utterances", dataset.utterances as unknown as SenaImportRow[]),
+    ...uploadedTable("coded_segments", dataset.coded_segments as unknown as SenaImportRow[]),
+    ...uploadedTable("codebook", dataset.codebook as unknown as SenaImportRow[])
   ];
 }
 
@@ -565,7 +570,15 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
     warnings.push("Forum/LMS export was cleaned into utterances and reply interactions, but no tags, codes, or hashtag markers were found.");
   }
 
-  const result = buildSenaDatasetFromTables([peopleTable, interactionTable, utteranceTable, segmentTable, codebookTable]);
+  // Same rule as datasetToTables, at the other place this module synthesizes the
+  // five-table contract: a thread with no replies and no tags produces empty
+  // interaction/segment/codebook tables, and passing those on reported their
+  // required fields missing — a mapping fault the analyst cannot act on and did
+  // not commit. buildSenaDatasetFromTables discloses the absent tables instead.
+  const result = buildSenaDatasetFromTables(
+    [peopleTable, interactionTable, utteranceTable, segmentTable, codebookTable]
+      .filter((table) => table.rows.length > 0)
+  );
   return { dataset: result.dataset, warnings: [...warnings, ...result.warnings] };
 }
 
@@ -861,16 +874,16 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   // raw per-file copies stay on `sources` for provenance; dropping them here
   // keeps the combined manifest at exactly one copy of each.
   //
-  // "people table is not uploaded" is the same kind of per-file verdict, and it
-  // is superseded the same way: a file that declares no roster no longer
-  // synthesizes an empty people table, so the merged pass now re-decides this
-  // one — emitting it when no file supplied a roster, and staying silent when
-  // another file did. Keeping the per-file copy would either duplicate the
-  // merged verdict or assert "not uploaded" about a roster that a sibling file
-  // plainly uploaded. Only the people verdict is superseded: the other four
-  // tables are still round-tripped per file, so the merged pass never re-decides
-  // them and their per-file copies are the only disclosure there is.
-  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include|^people table is not uploaded/;
+  // "<table> is not uploaded" is the same kind of per-file verdict, and it is
+  // superseded the same way, for all five tables: no producer synthesizes an
+  // empty table any more (neither datasetToTables nor the forum adapter), so
+  // every file now reports the tables it lacks and the merged pass re-decides
+  // each one — emitting it when no file supplied that table, and staying silent
+  // when another file did. Keeping the per-file copies would either duplicate
+  // the merged verdict or assert "not uploaded" about a table a sibling file
+  // plainly uploaded. Files on the plain-CSV route never emit this verdict (one
+  // table per file, no contract pass), so nothing is lost by filtering it.
+  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include|^(?:people|interactions|utterances|coded_segments|codebook) table is not uploaded/;
   const allWarnings = [...warnings.filter((warning) => !perFileDerivationVerdicts.test(warning)), ...result.warnings];
   result.dataset.warnings = allWarnings;
   return {

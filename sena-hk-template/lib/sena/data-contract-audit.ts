@@ -1,3 +1,4 @@
+import { isDerivedPlaceholderPerson } from "./import";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaDataContractAudit,
@@ -164,7 +165,28 @@ export function buildSenaDataContractAudit(
   const duplicatePersonIds = duplicateValues(personIds);
   const blankPersonIds = people.length - personIds.length;
   const blankPersonLabels = people.filter((person) => !nonEmpty(person.label)).length;
-  const derivedPeople = people.filter((person) => person.group === "Derived" || dataset.warnings?.some((warning) => warning.includes(`"${person.id}"`) && warning.includes("placeholder person"))).length;
+  // Two signals, because neither alone is both precise and durable.
+  //
+  // The sentinel (`isDerivedPlaceholderPerson`) is authoritative but holds only
+  // for the person objects this process minted: it is a WeakSet keyed on object
+  // identity, so it says nothing about a dataset that arrived over the wire.
+  // The enterprise import route is exactly that path — the API returns the
+  // dataset as JSON and the workspace audits the re-parsed copy — so relying on
+  // the sentinel alone would report derivedPlaceholders=0 there, turning an
+  // over-count into a silent under-disclosure, which is the worse failure.
+  //
+  // The derivation warning is the durable half: `pushDerivedPlaceholderPerson`
+  // is always accompanied by a `... "<id>"; derived a placeholder person from
+  // <table>` note, warnings ride on the dataset, and they survive serialization.
+  // What is gone is the third, imprecise signal — `group === "Derived"` — which
+  // matched an analyst who genuinely declared `{"person_id":"P3","group":
+  // "Derived"}` and disclosed their row as a person the import invented. This is
+  // the same infer-from-contents convention the sentinel replaced at the import
+  // boundary (ADR-0010); a declared row is now counted as declared here too.
+  const derivedPeople = people.filter((person) =>
+    isDerivedPlaceholderPerson(person) ||
+    dataset.warnings?.some((warning) => warning.includes(`"${person.id}"`) && warning.includes("placeholder person"))
+  ).length;
 
   const codeIds = codebook.map((code) => code.id).filter(nonEmpty);
   const codeIdSet = new Set(codeIds);
