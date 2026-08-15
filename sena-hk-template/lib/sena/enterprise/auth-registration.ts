@@ -44,13 +44,23 @@ export type SenaEnterpriseRegistrationInput = {
   productUpdates?: boolean;
 };
 
+// Input the registrant controls entirely, checked before anything is spent on
+// their behalf. Running this ahead of the subject rate limit is what keeps a
+// run of password-policy rejections from consuming the address's budget: five
+// weak passwords used to lock the legitimate registrant out of their own
+// address, and let a third party pre-burn a known one.
+function validateEnterpriseRegistrationInput(input: SenaEnterpriseRegistrationInput) {
+  const email = normalizeEmail(input.email);
+  if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required.", 400, "invalid_email");
+  validateEnterprisePassword(input.password, email);
+  return email;
+}
+
 function registerEnterpriseUserInDb(
   db: ReturnType<typeof readEnterpriseDb>,
   input: SenaEnterpriseRegistrationInput
 ) {
-  const email = normalizeEmail(input.email);
-  if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required.", 400, "invalid_email");
-  validateEnterprisePassword(input.password, email);
+  const email = validateEnterpriseRegistrationInput(input);
 
   if (db.users.some((user) => user.email === email)) {
     throw new SenaEnterpriseError("An account already exists for this email.", 409, "email_exists");
@@ -131,7 +141,8 @@ function registerEnterpriseUserInDb(
 }
 
 export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
-  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.register", subject: normalizeEmail(input.email) });
+  const email = validateEnterpriseRegistrationInput(input);
+  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.register", subject: email });
   const db = readEnterpriseDb();
   const result = registerEnterpriseUserInDb(db, input);
   saveDb(db);
@@ -139,7 +150,8 @@ export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
 }
 
 export async function registerEnterpriseUserAsync(input: SenaEnterpriseRegistrationInput) {
-  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.register", subject: normalizeEmail(input.email) });
+  const email = validateEnterpriseRegistrationInput(input);
+  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.register", subject: email });
   const state = await readEnterpriseState();
   const result = registerEnterpriseUserInDb(state.db, input);
   await saveEnterpriseState(state, state.db);

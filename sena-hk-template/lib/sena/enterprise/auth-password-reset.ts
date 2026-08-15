@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import { envValue, now, passwordResetTokenExposure, passwordResetTokenExposurePolicy } from "./auth-config";
+import {
+  envValue,
+  now,
+  passwordResetTokenExposure,
+  passwordResetTokenExposureAuditDetail
+} from "./auth-config";
 import {
   authEmailDomain,
   authEmailHash,
@@ -10,8 +15,8 @@ import {
   validateEnterprisePassword
 } from "./auth-password";
 import {
-  enforceEnterpriseAuthSubjectRateLimit,
-  enforceEnterpriseAuthSubjectRateLimitAsync
+  enterprisePasswordResetSubjectRateLimit,
+  observeEnterpriseAuthSubjectRateLimitInDb
 } from "./auth-security";
 import { SenaEnterpriseError } from "./errors";
 import {
@@ -50,12 +55,17 @@ export type SenaEnterprisePasswordResetRequestResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePasswordResetRequest;
   status: "queued";
   expiresAt: string;
+  // Anonymous callers reach this payload, so it carries delivery facts only.
+  // The token-exposure policy names the production override variable and says
+  // whether this deployment hands out live tokens — a targeting oracle in a
+  // public response — so it goes to the audit trail and the ops/readiness
+  // evidence instead (passwordResetTokenExposureAuditDetail /
+  // passwordResetTokenExposureEvidence in auth-config).
   delivery: {
     mode: "email-provider-required" | "email-webhook" | "email-dispatch-failed" | "local-token";
     emailDeliveryId?: string;
     resetToken?: string;
     resetUrl?: string;
-    tokenExposure: ReturnType<typeof passwordResetTokenExposurePolicy>;
   };
 };
 
@@ -183,7 +193,33 @@ type PreparedEnterprisePasswordReset = {
   resetToken: string;
   expiresAt: string;
   baseUrl?: string;
+  subjectBackstopSuppressed: boolean;
 };
+
+// The subject bucket is keyed only on the account, so anyone who knows the
+// address shares it with the holder. Rejecting the over-budget request would
+// let a third party lock the holder out of recovery, so instead:
+//   * only requests that mint real reset material for a real account count, and
+//   * an over-budget request is answered exactly like an in-budget one but sends
+//     no new mail and leaves the live link alone.
+// Reset mail only ever goes to the account holder, so an exhausted budget means
+// the holder has already been sent that many links inside the window; declining
+// to send one more never removes their way back in. The budget itself sits well
+// above the per-IP one (enterprisePasswordResetSubjectRateLimit), so no single
+// capped caller can reach it.
+function consumePasswordResetSubjectBackstop(db: SenaEnterpriseDb, email: string) {
+  const normalized = normalizeEmail(email);
+  const recipientExists = db.users.some((candidate) => candidate.email === normalized);
+  if (!recipientExists) return { counted: false, suppressed: false };
+  const { limit, windowSeconds } = enterprisePasswordResetSubjectRateLimit();
+  const outcome = observeEnterpriseAuthSubjectRateLimitInDb(db, {
+    bucket: "auth.password_reset",
+    subject: normalized,
+    limit,
+    windowSeconds
+  });
+  return { counted: true, suppressed: outcome.limited };
+}
 
 function prepareEnterprisePasswordResetInDb(
   db: SenaEnterpriseDb,
@@ -192,14 +228,24 @@ function prepareEnterprisePasswordResetInDb(
   const email = normalizeEmail(input.email);
   const emailHash = authEmailHash(email);
   const emailDomain = authEmailDomain(email);
-  const user = db.users.find((candidate) => candidate.email === email);
+  const backstop = consumePasswordResetSubjectBackstop(db, email);
+  const account = db.users.find((candidate) => candidate.email === email);
+  // A suppressed request issues nothing, so it takes the same path as an
+  // address with no account — which is also what keeps the two answers
+  // indistinguishable to the caller.
+  const user = backstop.suppressed ? undefined : account;
   const expiresAt = passwordResetExpiry();
   const resetToken = randomBytes(32).toString("base64url");
   const resetUrl = new URL("/reset-password", passwordResetBaseUrl(input.baseUrl));
   resetUrl.searchParams.set("token", resetToken);
 
-  db.passwordResetRequests = (db.passwordResetRequests ?? [])
-    .filter((request) => request.emailHash !== emailHash && Date.parse(request.expiresAt) > Date.now() && !request.usedAt);
+  // A suppressed request must not run this prune either: rotating the stored
+  // request would invalidate the link already sitting in the holder's inbox and
+  // turn the backstop into the lockout it exists to prevent.
+  if (!backstop.suppressed) {
+    db.passwordResetRequests = (db.passwordResetRequests ?? [])
+      .filter((request) => request.emailHash !== emailHash && Date.parse(request.expiresAt) > Date.now() && !request.usedAt);
+  }
 
   let emailDelivery: SenaEnterpriseEmailDelivery | undefined;
   if (user) {
@@ -238,7 +284,8 @@ function prepareEnterprisePasswordResetInDb(
     emailDelivery,
     resetToken,
     expiresAt,
-    baseUrl: input.baseUrl
+    baseUrl: input.baseUrl,
+    subjectBackstopSuppressed: backstop.suppressed
   };
 }
 
@@ -266,7 +313,12 @@ function finalizeEnterprisePasswordReset(
       dispatchAttempted: dispatch.attempted,
       dispatchDelivered: dispatch.delivered,
       dispatchErrorCode: dispatch.errorCode ?? null,
-      expiresAt
+      subjectBackstopSuppressed: prepared.subjectBackstopSuppressed,
+      expiresAt,
+      // Operator-side custody of the exposure interlock. The public response
+      // must not carry it, so the audit trail is where an operator reads
+      // whether this deployment is handing out live tokens.
+      ...passwordResetTokenExposureAuditDetail()
     }
   });
   if (user) {
@@ -286,10 +338,7 @@ function finalizeEnterprisePasswordReset(
       }
     });
   }
-  const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = {
-    mode,
-    tokenExposure: passwordResetTokenExposurePolicy()
-  };
+  const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = { mode };
   if (passwordResetTokenExposure()) {
     // The queue id only exists when the address resolved to an account, so it is
     // only safe to return alongside an exposed token — a posture that already
@@ -313,7 +362,6 @@ function finalizeEnterprisePasswordReset(
 // this entry point only queues. Production self-service reset runs through
 // `createEnterprisePasswordResetAsync`, which dispatches inline.
 export function createEnterprisePasswordReset(input: SenaEnterprisePasswordResetInput): SenaEnterprisePasswordResetRequestResult {
-  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.password_reset", subject: normalizeEmail(input.email) });
   const db = readEnterpriseDb();
   const prepared = prepareEnterprisePasswordResetInDb(db, input);
   const result = finalizeEnterprisePasswordReset(db, prepared, passwordResetDispatchNotAttempted);
@@ -322,7 +370,8 @@ export function createEnterprisePasswordReset(input: SenaEnterprisePasswordReset
 }
 
 export async function createEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetInput): Promise<SenaEnterprisePasswordResetRequestResult> {
-  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.password_reset", subject: normalizeEmail(input.email) });
+  // The subject backstop is now counted inside the prepare step, on this same
+  // db handle, so the count and the work it gates land in one save.
   const state = await readEnterpriseState();
   const prepared = prepareEnterprisePasswordResetInDb(state.db, input);
   // Dispatch before the single save so the persisted delivery record, the audit

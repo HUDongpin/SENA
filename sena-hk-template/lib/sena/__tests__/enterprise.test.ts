@@ -1622,9 +1622,12 @@ describe("SENA enterprise runtime", () => {
     expect(rateLimitGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("rateLimitEvents=1");
     // Registration and password-reset now also take a per-subject bucket (A2), and
-    // those are real limiter records that ops-governance counts.
+    // those are real limiter records that ops-governance counts. The
+    // weak-password registration above is not among them: the subject budget is
+    // spent only on input that passed validation, so a run of policy rejections
+    // cannot burn the address's budget.
     expect(rateLimitGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
-      .toContain("activeRateLimitBuckets=6");
+      .toContain("activeRateLimitBuckets=5");
     const rateLimitAudit = enterprise.listEnterpriseAuditLog(registered.context, {
       event: "security.rate_limit",
       limit: 5

@@ -48,6 +48,13 @@ function readProjectFile(relativePath: string) {
 
 const enterpriseDbDirs: string[] = [];
 
+type EnterpriseDbFile = {
+  emailDeliveries: Array<{ id: string; kind: string; status: string }>;
+  passwordResetRequests: Array<{ id: string; emailHash: string; tokenHash: string; createdAt: string }>;
+  apiRateLimits: Array<{ bucket: string; keyHash: string; requestCount: number; limit: number }>;
+  auditLog: Array<{ event: string; detail: Record<string, unknown> }>;
+};
+
 function enterpriseTempDbDir(prefix: string) {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
   enterpriseDbDirs.push(dir);
@@ -55,17 +62,50 @@ function enterpriseTempDbDir(prefix: string) {
   return dir;
 }
 
+function readEnterpriseDbFile(dir: string): EnterpriseDbFile {
+  const parsed = JSON.parse(readFileSync(path.join(dir, "enterprise-db.json"), "utf8")) as Partial<EnterpriseDbFile>;
+  return {
+    emailDeliveries: parsed.emailDeliveries ?? [],
+    passwordResetRequests: parsed.passwordResetRequests ?? [],
+    apiRateLimits: parsed.apiRateLimits ?? [],
+    auditLog: parsed.auditLog ?? []
+  };
+}
+
+function configureEmailWebhook() {
+  process.env.SENA_EMAIL_WEBHOOK_URL = "https://mail.example.test/sena";
+  process.env.SENA_EMAIL_WEBHOOK_SECRET = "sena-email-webhook-secret-for-tests";
+}
+
+function stubAcceptingEmailWebhook() {
+  const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function passwordResetRequestBody(email: string) {
+  return JSON.stringify({ action: "request", email });
+}
+
 afterEach(() => {
   // doMock registrations outlive resetModules, and their cached factory result
   // keeps the enterprise state module pinned to a previous test's temp db dir.
   vi.doUnmock("@/lib/sena/enterprise");
   vi.doUnmock("@/lib/sena/api-helpers");
+  vi.doUnmock("@/lib/sena/enterprise/auth-password-reset");
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   delete process.env.SENA_ENTERPRISE_DB_DIR;
   delete process.env.SENA_APP_URL;
   delete process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN;
   delete process.env.SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE;
   delete process.env.SENA_AUTH_LOCKOUT_MAX_FAILURES;
+  delete process.env.SENA_PASSWORD_RESET_SUBJECT_RATE_LIMIT_MAX_REQUESTS;
+  delete process.env.SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH;
+  delete process.env.SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED;
+  delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
+  delete process.env.SENA_EMAIL_WEBHOOK_URL;
+  delete process.env.SENA_EMAIL_WEBHOOK_SECRET;
   while (enterpriseDbDirs.length) {
     rmSync(enterpriseDbDirs.pop()!, { recursive: true, force: true });
   }
@@ -138,25 +178,133 @@ describe("SENA auth rate-limit key custody (A2)", () => {
     expect(statuses[5]).toBe(429);
   });
 
-  it("backstops password-reset requests per email even when the source IP rotates", async () => {
-    enterpriseTempDbDir("sena-auth-password-reset-subject-");
+  it("does not spend the registration subject budget on password-policy rejections", async () => {
+    enterpriseTempDbDir("sena-auth-register-subject-validation-");
+    vi.resetModules();
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+
+    const route = await import("../../../app/api/auth/register/route");
+    async function registerAttempt(ip: string, password: string) {
+      const response = await route.POST(new Request("https://sena.example.test/api/auth/register", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": ip,
+          "user-agent": `agent-${ip}`
+        },
+        body: JSON.stringify({
+          name: "Late Registrant",
+          email: "late-registrant@example.edu",
+          password,
+          organization: "Backstop Lab"
+        })
+      }));
+      return response.status;
+    }
+
+    // An attacker (or a registrant fighting the password policy) can burn the
+    // whole subject budget on requests that never created anything.
+    const rejected: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      rejected.push(await registerAttempt(`203.0.113.${40 + attempt}`, "short"));
+    }
+
+    expect(rejected).toEqual([400, 400, 400, 400, 400]);
+    expect(await registerAttempt("203.0.113.99", "sena-secure-123")).toBe(201);
+  });
+});
+
+describe("SENA password-reset subject backstop non-starvation (GAP-2)", () => {
+  it("keeps the account holder recoverable after one attacker IP spends its whole reset budget", async () => {
+    const dir = enterpriseTempDbDir("sena-password-reset-holder-starvation-");
+    configureEmailWebhook();
+    vi.resetModules();
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/enterprise/auth-password-reset", async () => await import("../enterprise/auth-password-reset"));
+
+    const { registerEnterpriseUser } = await import("../enterprise/auth-registration");
+    registerEnterpriseUser({
+      name: "Reset Holder",
+      email: "reset-holder@example.edu",
+      password: "sena-secure-123",
+      organization: "Backstop Lab"
+    });
+    stubAcceptingEmailWebhook();
+
+    const route = await import("../../../app/api/auth/password-reset/route");
+    async function resetRequest(ip: string) {
+      const response = await route.POST(new Request("https://sena.example.test/api/auth/password-reset", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": ip },
+        body: passwordResetRequestBody("reset-holder@example.edu")
+      }));
+      return response.status;
+    }
+
+    const attacker: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      attacker.push(await resetRequest("203.0.113.10"));
+    }
+    expect(attacker).toEqual([202, 202, 202, 202, 202, 429]);
+
+    // The holder arrives from their own address and must still be able to
+    // recover: a third party may not consume the account's own recovery budget.
+    expect(await resetRequest("198.51.100.42")).toBe(202);
+
+    const db = readEnterpriseDbFile(dir);
+    expect(db.emailDeliveries.filter((row) => row.kind === "auth.password_reset")).toHaveLength(6);
+  });
+
+  it("suppresses reset mail past the subject budget without failing the request or invalidating the live link", async () => {
+    const dir = enterpriseTempDbDir("sena-password-reset-subject-budget-");
+    configureEmailWebhook();
+    process.env.SENA_PASSWORD_RESET_SUBJECT_RATE_LIMIT_MAX_REQUESTS = "2";
     vi.resetModules();
 
     const { registerEnterpriseUser } = await import("../enterprise/auth-registration");
     registerEnterpriseUser({
-      name: "Reset Backstop",
-      email: "reset-backstop@example.edu",
+      name: "Reset Flood",
+      email: "reset-flood@example.edu",
       password: "sena-secure-123",
       organization: "Backstop Lab"
     });
+    stubAcceptingEmailWebhook();
 
-    const { createEnterprisePasswordReset } = await import("../enterprise/auth-password-reset");
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      createEnterprisePasswordReset({ email: "reset-backstop@example.edu" });
+    const { createEnterprisePasswordResetAsync } = await import("../enterprise/auth-password-reset");
+    await createEnterprisePasswordResetAsync({ email: "reset-flood@example.edu" });
+    const second = await createEnterprisePasswordResetAsync({ email: "reset-flood@example.edu" });
+    const liveTokenHash = readEnterpriseDbFile(dir).passwordResetRequests.map((row) => row.tokenHash);
+    const third = await createEnterprisePasswordResetAsync({ email: "reset-flood@example.edu" });
+
+    expect(third.status).toBe("queued");
+    expect(third.delivery).toEqual(second.delivery);
+
+    const db = readEnterpriseDbFile(dir);
+    expect(db.emailDeliveries.filter((row) => row.kind === "auth.password_reset")).toHaveLength(2);
+    // The suppressed request must not rotate the token that is already sitting
+    // in the holder's inbox, or the backstop would itself break recovery.
+    expect(db.passwordResetRequests.map((row) => row.tokenHash)).toEqual(liveTokenHash);
+  });
+
+  it("does not spend the subject budget on addresses that have no account to mail", async () => {
+    const dir = enterpriseTempDbDir("sena-password-reset-subject-unknown-");
+    configureEmailWebhook();
+    process.env.SENA_PASSWORD_RESET_SUBJECT_RATE_LIMIT_MAX_REQUESTS = "2";
+    vi.resetModules();
+    stubAcceptingEmailWebhook();
+
+    const { createEnterprisePasswordResetAsync } = await import("../enterprise/auth-password-reset");
+    const results = [];
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      results.push(await createEnterprisePasswordResetAsync({ email: "no-such-account@example.edu" }));
     }
 
-    expect(() => createEnterprisePasswordReset({ email: "reset-backstop@example.edu" }))
-      .toThrow(/Too many requests/i);
+    expect(results.map((result) => result.status)).toEqual(["queued", "queued", "queued", "queued"]);
+    const db = readEnterpriseDbFile(dir);
+    expect(db.apiRateLimits.filter((row) => row.bucket === "auth.password_reset.subject")).toHaveLength(0);
+    expect(db.auditLog.filter((entry) => entry.event === "security.rate_limit")).toHaveLength(0);
   });
 });
 
@@ -268,7 +416,10 @@ describe("SENA password-reset token exposure interlock (A4)", () => {
     expect(result.delivery.resetToken).toBeUndefined();
     expect(result.delivery.resetUrl).toBeUndefined();
     expect(result.delivery.mode).not.toBe("local-token");
-    expect(result.delivery.tokenExposure).toEqual(expect.objectContaining({
+    expect(result.delivery).not.toHaveProperty("tokenExposure");
+
+    const { passwordResetTokenExposurePolicy } = await import("../enterprise/auth-config");
+    expect(passwordResetTokenExposurePolicy()).toEqual(expect.objectContaining({
       enabled: false,
       requested: true,
       productionRuntime: true,
@@ -297,7 +448,10 @@ describe("SENA password-reset token exposure interlock (A4)", () => {
 
     expect(result.delivery.mode).toBe("local-token");
     expect(result.delivery.resetToken).toEqual(expect.any(String));
-    expect(result.delivery.tokenExposure).toEqual(expect.objectContaining({
+    expect(result.delivery).not.toHaveProperty("tokenExposure");
+
+    const { passwordResetTokenExposurePolicy } = await import("../enterprise/auth-config");
+    expect(passwordResetTokenExposurePolicy()).toEqual(expect.objectContaining({
       enabled: true,
       productionRuntime: true,
       explicitOverride: true
@@ -322,10 +476,145 @@ describe("SENA password-reset token exposure interlock (A4)", () => {
 
     expect(result.delivery.mode).toBe("local-token");
     expect(result.delivery.resetToken).toEqual(expect.any(String));
-    expect(result.delivery.tokenExposure).toEqual(expect.objectContaining({
+    expect(result.delivery).not.toHaveProperty("tokenExposure");
+
+    const { passwordResetTokenExposurePolicy } = await import("../enterprise/auth-config");
+    expect(passwordResetTokenExposurePolicy()).toEqual(expect.objectContaining({
       enabled: true,
       productionRuntime: false,
       explicitOverride: false
+    }));
+  });
+});
+
+describe("SENA password-reset production-posture interlock (GAP-1)", () => {
+  it("treats a SENA-classified production deployment as production with NODE_ENV unset", async () => {
+    // A plain `node server.js` / docker-compose host never sets NODE_ENV, so the
+    // NODE_ENV-only test failed open on exactly the deployments SENA classifies
+    // as production.
+    vi.stubEnv("NODE_ENV", undefined);
+    process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED = "1";
+    process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN = "1";
+    vi.resetModules();
+
+    const { passwordResetTokenExposure, passwordResetTokenExposurePolicy } = await import("../enterprise/auth-config");
+
+    expect(process.env.NODE_ENV).toBeUndefined();
+    expect(passwordResetTokenExposurePolicy()).toEqual(expect.objectContaining({
+      requested: true,
+      enabled: false,
+      productionRuntime: true,
+      explicitOverride: false
+    }));
+    expect(passwordResetTokenExposure()).toBe(false);
+  });
+
+  it("fires the interlock for each SENA production-posture flag on its own", async () => {
+    const flags = [
+      "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH",
+      "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
+      "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED"
+    ];
+    for (const flag of flags) {
+      vi.stubEnv("NODE_ENV", undefined);
+      vi.stubEnv("SENA_PASSWORD_RESET_EXPOSE_TOKEN", "1");
+      vi.stubEnv(flag, "1");
+      vi.resetModules();
+
+      const { passwordResetTokenExposurePolicy } = await import("../enterprise/auth-config");
+      expect(passwordResetTokenExposurePolicy(), flag).toEqual(expect.objectContaining({
+        requested: true,
+        enabled: false,
+        productionRuntime: true
+      }));
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("withholds the live reset token end to end on a SENA production posture", async () => {
+    enterpriseTempDbDir("sena-password-reset-posture-interlock-");
+    // NODE_ENV stays non-production; the SENA posture flag alone must gate.
+    process.env.SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH = "1";
+    process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN = "1";
+    vi.resetModules();
+
+    const { registerEnterpriseUser } = await import("../enterprise/auth-registration");
+    registerEnterpriseUser({
+      name: "Posture Interlock User",
+      email: "posture-interlock@example.edu",
+      password: "sena-secure-123",
+      organization: "Exposure Lab"
+    });
+
+    const { createEnterprisePasswordReset } = await import("../enterprise/auth-password-reset");
+    const result = createEnterprisePasswordReset({ email: "posture-interlock@example.edu" });
+
+    expect(result.delivery.resetToken).toBeUndefined();
+    expect(result.delivery.resetUrl).toBeUndefined();
+    expect(result.delivery.mode).not.toBe("local-token");
+  });
+
+  it("still honours the explicit second override under a SENA production posture", async () => {
+    enterpriseTempDbDir("sena-password-reset-posture-override-");
+    process.env.SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH = "1";
+    process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN = "1";
+    process.env.SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE = "1";
+    vi.resetModules();
+
+    const { registerEnterpriseUser } = await import("../enterprise/auth-registration");
+    registerEnterpriseUser({
+      name: "Posture Override User",
+      email: "posture-override@example.edu",
+      password: "sena-secure-123",
+      organization: "Exposure Lab"
+    });
+
+    const { createEnterprisePasswordReset } = await import("../enterprise/auth-password-reset");
+    const result = createEnterprisePasswordReset({ email: "posture-override@example.edu" });
+
+    expect(result.delivery.mode).toBe("local-token");
+    expect(result.delivery.resetToken).toEqual(expect.any(String));
+  });
+});
+
+describe("SENA password-reset policy disclosure (GAP-3)", () => {
+  it("keeps the token-exposure policy out of the anonymous response and in the audit trail", async () => {
+    const dir = enterpriseTempDbDir("sena-password-reset-policy-disclosure-");
+    process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN = "1";
+    vi.resetModules();
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/enterprise/auth-password-reset", async () => await import("../enterprise/auth-password-reset"));
+
+    const { registerEnterpriseUser } = await import("../enterprise/auth-registration");
+    registerEnterpriseUser({
+      name: "Policy Disclosure User",
+      email: "policy-disclosure@example.edu",
+      password: "sena-secure-123",
+      organization: "Exposure Lab"
+    });
+
+    const route = await import("../../../app/api/auth/password-reset/route");
+    const response = await route.POST(new Request("https://sena.example.test/api/auth/password-reset", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: passwordResetRequestBody("policy-disclosure@example.edu")
+    }));
+    const payload = await response.json() as { delivery: Record<string, unknown> };
+
+    expect(response.status).toBe(202);
+    expect(JSON.stringify(payload)).not.toContain("SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE");
+    expect(payload.delivery).not.toHaveProperty("tokenExposure");
+    expect(payload.delivery).not.toHaveProperty("productionRuntime");
+    expect(payload.delivery).not.toHaveProperty("explicitOverride");
+
+    const requestAudit = readEnterpriseDbFile(dir).auditLog.find((entry) => entry.event === "auth.password_reset.request");
+    expect(requestAudit?.detail).toEqual(expect.objectContaining({
+      tokenExposureRequested: true,
+      tokenExposureEnabled: true,
+      tokenExposureProductionRuntime: false,
+      tokenExposureExplicitOverride: false,
+      tokenExposureOverrideEnv: "SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE"
     }));
   });
 });

@@ -16,6 +16,37 @@ export function envValue(key: string) {
   const value = process.env[key]?.trim();
   return value || undefined;
 }
+
+export function booleanEnv(key: string) {
+  const value = envValue(key)?.toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+// The three flags a SENA operator sets to declare a deployment production, next
+// to NODE_ENV. They are the same set every other production hard-gate ORs onto
+// the NODE_ENV test (enterpriseFileStateWritePolicy in state.ts,
+// enterpriseObservabilityProductionSampleStoreRequired in ops-observability.ts,
+// enterpriseObjectStorageLiveProbeRequired in object-storage-adapter.ts).
+export const SENA_PRODUCTION_POSTURE_ENV_KEYS = [
+  "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH",
+  "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
+  "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED"
+] as const;
+
+// Gating a security interlock on NODE_ENV alone fails open: a `node server.js`
+// or docker-compose host never sets NODE_ENV, so a deployment SENA itself
+// classifies as production reads as development. Every hard-gate must answer
+// this predicate, not re-derive its own.
+export function senaProductionPostureReasons() {
+  return [
+    process.env.NODE_ENV === "production" ? "NODE_ENV=production" : null,
+    ...SENA_PRODUCTION_POSTURE_ENV_KEYS.map((key) => (booleanEnv(key) ? key : null))
+  ].filter((reason): reason is string => Boolean(reason));
+}
+
+export function senaProductionPosture() {
+  return senaProductionPostureReasons().length > 0;
+}
 export function productionSecretStrength(value: string | undefined, minLength = 32): "configured" | "weak" | "missing" {
   if (!value) return "missing";
   const lower = value.toLowerCase();
@@ -106,14 +137,20 @@ export function configuredSenaAppOrigin(input: { required?: boolean } = {}) {
   }
 }
 
+// This object names the override variable and reports whether the deployment is
+// currently handing out live reset tokens, so it is operator evidence, never
+// part of an anonymous API response. Surface it through the audit trail
+// (passwordResetTokenExposureAuditDetail) and the ops/readiness evidence.
 export function passwordResetTokenExposurePolicy() {
   const requested = envValue("SENA_PASSWORD_RESET_EXPOSE_TOKEN") === "1";
   const explicitOverride = envValue("SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE") === "1";
-  const productionRuntime = process.env.NODE_ENV === "production";
+  const postureReasons = senaProductionPostureReasons();
+  const productionRuntime = postureReasons.length > 0;
   return {
     requested,
     enabled: requested && (!productionRuntime || explicitOverride),
     productionRuntime,
+    postureReasons,
     explicitOverride,
     env: "SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE" as const
   };
@@ -121,6 +158,22 @@ export function passwordResetTokenExposurePolicy() {
 
 export function passwordResetTokenExposure() {
   return passwordResetTokenExposurePolicy().enabled;
+}
+
+// Operator-facing custody of the interlock. Ops/readiness already gates on
+// passwordResetTokenExposure() (ops-deployment-readiness.ts, ops-governance.ts,
+// ops-deployment-decisions.ts); this is the per-request record of the same
+// policy, and it is where the override variable is named — never in a response.
+export function passwordResetTokenExposureAuditDetail() {
+  const policy = passwordResetTokenExposurePolicy();
+  return {
+    tokenExposureRequested: policy.requested,
+    tokenExposureEnabled: policy.enabled,
+    tokenExposureProductionRuntime: policy.productionRuntime,
+    tokenExposureProductionPosture: policy.postureReasons.join("|") || "none",
+    tokenExposureExplicitOverride: policy.explicitOverride,
+    tokenExposureOverrideEnv: policy.env
+  };
 }
 
 export function csrfKeySource(): "env-configured" | "session-secret" | "local-default-review" {
