@@ -12,6 +12,7 @@ function signedProbeRequest(input: {
   payloadHash?: string;
   signature?: string;
   event?: string;
+  timestamp?: string;
 } = {}) {
   const body = input.body ?? JSON.stringify({
     schemaVersion: "sena-enterprise-server-job-queue-probe/v1",
@@ -25,7 +26,9 @@ function signedProbeRequest(input: {
       secretValuesExcluded: true
     }
   });
-  const timestamp = "2026-07-02T00:00:00.000Z";
+  // The receiver enforces a freshness window, so the default fixture timestamp
+  // has to be current; pass one explicitly to build a replay.
+  const timestamp = input.timestamp ?? new Date().toISOString();
   const secret = input.secret ?? "sena-test-job-queue-secret";
   const payloadHash = input.payloadHash ?? createHash("sha256").update(body).digest("hex");
   const signature = input.signature ??
@@ -91,6 +94,33 @@ describe("SENA server job worker receiver route", () => {
     expect(response.status).toBe(401);
     expect(body.code).toBe("server_job_worker_payload_hash_invalid");
     expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs-worker");
+  });
+
+  it("rejects a replayed probe webhook whose signed timestamp is outside the window", async () => {
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-queue-secret";
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+
+    const response = await route.POST(signedProbeRequest({
+      timestamp: "2026-07-02T00:00:00.000Z"
+    }));
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("server_job_worker_timestamp_outside_window");
+    expect(response.headers.get("x-sena-server-job-worker")).toBeNull();
+  });
+
+  it("distinguishes a missing timestamp from a stale one", async () => {
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-queue-secret";
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const request = signedProbeRequest();
+    request.headers.delete("x-sena-webhook-timestamp");
+
+    const response = await route.POST(request);
+    const body = await response.json() as { code?: string };
+
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("server_job_worker_timestamp_required");
   });
 
   it("rejects queue webhooks when the signature is missing", async () => {

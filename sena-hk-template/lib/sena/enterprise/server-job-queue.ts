@@ -596,6 +596,69 @@ function serverJobWebhookSignature(secret: string, attemptedAt: string, body: st
   return createHmac("sha256", secret).update(`${attemptedAt}.${body}`).digest("hex");
 }
 
+/**
+ * Replay window for the signed queue webhook.
+ *
+ * The signature covers `${attemptedAt}.${body}`, so the timestamp is
+ * authenticated — but that also means a captured request stays signature-valid
+ * forever. This window is the only thing that bounds how long a replay of it
+ * works, which is why the receiver must check it rather than merely require the
+ * header. Five minutes sits an order of magnitude above the dispatch timeout
+ * (SENA_JOB_QUEUE_TIMEOUT_MS, default 5s, ceiling 30s) and comfortably covers a
+ * managed provider's redelivery plus ordinary NTP drift, while keeping a
+ * captured request useful for minutes rather than indefinitely.
+ */
+export const serverJobWebhookTimestampDefaultSkewSeconds = 300;
+
+/**
+ * Ceiling on the tunable. Without it an operator could set the window to a year
+ * and quietly restore the unbounded-replay behaviour this control exists to
+ * remove; positiveIntegerEnv clamps rather than throws, matching
+ * SENA_JOB_QUEUE_MAX_ATTEMPTS.
+ */
+export const serverJobWebhookTimestampMaxSkewSeconds = 3600;
+
+export function serverJobWebhookTimestampSkewSeconds() {
+  return positiveIntegerEnv(
+    "SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS",
+    serverJobWebhookTimestampDefaultSkewSeconds,
+    serverJobWebhookTimestampMaxSkewSeconds
+  );
+}
+
+// serverJobQueueRequestHeaders sends `now()` — i.e. Date#toISOString — as the
+// timestamp header, so the accepted shape is a full ISO-8601 instant with a zone
+// designator. Date.parse alone is too permissive: it would accept "2026-08-15"
+// or a bare year and, for "0"/"NaN", hand back NaN, whose comparisons are all
+// false and would silently pass a naive freshness check.
+const serverJobWebhookTimestampPattern =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function parseServerJobWebhookTimestamp(value: string) {
+  const candidate = value.trim();
+  if (!serverJobWebhookTimestampPattern.test(candidate)) return undefined;
+  const parsed = Date.parse(candidate);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export type SenaEnterpriseServerJobWebhookTimestampFreshness = "fresh" | "outside-window" | "invalid";
+
+/**
+ * Both directions are bounded: a sender whose clock runs slightly fast must
+ * still be accepted, but a wildly future-dated timestamp is refused so nobody
+ * can mint a request that stays valid for as long as they like.
+ */
+export function serverJobWebhookTimestampFreshness(
+  value: string,
+  nowMs: number = Date.now()
+): SenaEnterpriseServerJobWebhookTimestampFreshness {
+  const parsed = parseServerJobWebhookTimestamp(value);
+  if (parsed === undefined) return "invalid";
+  return Math.abs(nowMs - parsed) <= serverJobWebhookTimestampSkewSeconds() * 1000
+    ? "fresh"
+    : "outside-window";
+}
+
 function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }

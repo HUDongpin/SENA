@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
 import {
+  serverJobWebhookTimestampFreshness,
+  serverJobWebhookTimestampSkewSeconds
+} from "@/lib/sena/enterprise/server-job-queue";
+import {
   runEnterpriseServerJobFromQueueWebhook,
   serverJobWorkerInlineExecutionEnabled,
   type SenaServerJobWorkerOutcome
@@ -55,6 +59,41 @@ function verifySignature(request: Request, body: string) {
   const expected = createHmac("sha256", configuredQueueSecret()).update(`${timestamp}.${body}`).digest("hex");
   if (!timingSafeEqual(Buffer.from(match[1].toLowerCase(), "hex"), Buffer.from(expected, "hex"))) {
     throw new SenaEnterpriseError("SENA job queue signature is invalid.", 401, "server_job_worker_signature_invalid");
+  }
+  return timestamp;
+}
+
+/**
+ * Bounds replay of an otherwise valid delivery.
+ *
+ * The timestamp is signed, so it cannot be edited — but being signed is exactly
+ * why a captured request replays forever unless its age is checked. Requiring
+ * the header (server_job_worker_timestamp_required) only proves it was sent.
+ *
+ * Deliberately runs after verifySignature: a caller without the queue secret is
+ * refused before reaching this, so the window cannot be probed by an
+ * unauthenticated attacker. The two failures are distinguishable to a caller
+ * that does hold a validly signed body, but that tells them only what they
+ * already know (their own timestamp); it grants no search advantage toward the
+ * secret, since the route's existing 202-vs-401 split already separates a valid
+ * signature from an invalid one, and the HMAC comparison itself stays
+ * constant-time.
+ */
+function verifyTimestampFreshness(timestamp: string) {
+  const freshness = serverJobWebhookTimestampFreshness(timestamp);
+  if (freshness === "invalid") {
+    throw new SenaEnterpriseError(
+      "SENA job queue timestamp is not an ISO-8601 instant.",
+      401,
+      "server_job_worker_timestamp_invalid"
+    );
+  }
+  if (freshness === "outside-window") {
+    throw new SenaEnterpriseError(
+      `SENA job queue timestamp is outside the ${serverJobWebhookTimestampSkewSeconds()}s freshness window.`,
+      401,
+      "server_job_worker_timestamp_outside_window"
+    );
   }
 }
 
@@ -169,7 +208,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-jobs-worker" }, async () => {
     const body = await request.text();
     const payloadSha256 = verifyPayloadHash(request, body);
-    verifySignature(request, body);
+    verifyTimestampFreshness(verifySignature(request, body));
     const payload = parsePayload(body);
     const event = acceptedEvent(request, payload);
     const jobIdHash = typeof payload.job?.id === "string" ? sha256Text(payload.job.id) : undefined;
@@ -194,6 +233,8 @@ export async function POST(request: Request) {
       delivery: {
         payloadSha256,
         signatureVerified: true,
+        timestampVerified: true,
+        timestampSkewSeconds: serverJobWebhookTimestampSkewSeconds(),
         workerRuntime: process.env.SENA_JOB_WORKER_RUNTIME || "vercel-serverless-queue-receiver"
       },
       redaction: {
@@ -207,6 +248,7 @@ export async function POST(request: Request) {
         "x-sena-server-job-worker": "accepted",
         "x-sena-server-job-worker-event": event,
         "x-sena-server-job-worker-signature": "verified",
+        "x-sena-server-job-worker-timestamp": "verified",
         "x-sena-server-job-worker-execution": execution.status,
         "x-sena-server-job-worker-payload-sha256": payloadSha256,
         "x-sena-server-job-worker-url-values": "excluded"

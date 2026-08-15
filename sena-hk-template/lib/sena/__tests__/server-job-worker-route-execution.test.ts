@@ -9,13 +9,21 @@ const envNames = [
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_SECRET",
+  "SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS",
   "SENA_JOB_WORKER_INLINE_EXECUTION"
 ];
 
 const queueSecret = "sena-test-job-queue-secret";
 
-function signedQueueRequest(input: { body: string; signature?: string }) {
-  const timestamp = "2026-08-15T00:00:00.000Z";
+function skewedTimestamp(offsetSeconds: number) {
+  return new Date(Date.now() + offsetSeconds * 1000).toISOString();
+}
+
+// The queue dispatcher signs `${attemptedAt}.${body}` and sends attemptedAt as
+// the timestamp header, so a replay fixture is just a request whose signature is
+// genuine for a timestamp the receiver should no longer accept.
+function signedQueueRequest(input: { body: string; signature?: string; timestamp?: string }) {
+  const timestamp = input.timestamp ?? new Date().toISOString();
   const signature = input.signature ??
     `sha256=${createHmac("sha256", queueSecret).update(`${timestamp}.${input.body}`).digest("hex")}`;
   return new Request("https://sena.example.test/api/sena/ops/jobs/worker", {
@@ -181,6 +189,118 @@ describe("SENA server job worker route execution", () => {
       teamId: fixture.teamId
     });
     expect(runs).toHaveLength(0);
+  });
+
+  it("rejects a correctly signed queue webhook replayed outside the skew window and executes nothing", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    // A capture from an hour ago, and a mint-your-own-validity attempt an hour
+    // ahead. Both carry a signature that is genuine for their own timestamp.
+    for (const offsetSeconds of [-3600, 3600]) {
+      const response = await route.POST(signedQueueRequest({
+        body: fixture.body,
+        timestamp: skewedTimestamp(offsetSeconds)
+      }));
+      const body = await response.json() as { code?: string };
+
+      expect(response.status).toBe(401);
+      expect(body.code).toBe("server_job_worker_timestamp_outside_window");
+    }
+
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("queued");
+    expect(stored.lifecycle.attempts).toBe(0);
+
+    const runs = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    expect(runs).toHaveLength(0);
+  });
+
+  it("rejects an ill-formed queue webhook timestamp and executes nothing", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    // "0" and "NaN" are the values that silently pass a naive numeric freshness
+    // check; the date-only form has no instant to compare against.
+    for (const timestamp of ["not-a-timestamp", "0", "NaN", "2026-08-15", "2026-08-32T00:00:00.000Z"]) {
+      const response = await route.POST(signedQueueRequest({ body: fixture.body, timestamp }));
+      const body = await response.json() as { code?: string };
+
+      expect(response.status).toBe(401);
+      expect(body.code).toBe("server_job_worker_timestamp_invalid");
+    }
+
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("queued");
+    expect(stored.lifecycle.attempts).toBe(0);
+
+    const runs = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    expect(runs).toHaveLength(0);
+  });
+
+  it("tolerates a sender clock running behind inside the skew window", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({
+      body: fixture.body,
+      timestamp: skewedTimestamp(-120)
+    }));
+    const body = await response.json() as { execution?: { status?: string } };
+
+    expect(response.status).toBe(202);
+    expect(body.execution?.status).toBe("succeeded");
+
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("succeeded");
+  });
+
+  it("tolerates a sender clock running ahead inside the skew window", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({
+      body: fixture.body,
+      timestamp: skewedTimestamp(120)
+    }));
+    const body = await response.json() as { execution?: { status?: string } };
+
+    expect(response.status).toBe(202);
+    expect(body.execution?.status).toBe("succeeded");
+
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("succeeded");
+  });
+
+  it("widens the freshness window only as far as SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS allows", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS = "1800";
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const stale = await route.POST(signedQueueRequest({
+      body: fixture.body,
+      timestamp: skewedTimestamp(-2400)
+    }));
+    expect(stale.status).toBe(401);
+    expect(await stale.json()).toMatchObject({ code: "server_job_worker_timestamp_outside_window" });
+
+    const accepted = await route.POST(signedQueueRequest({
+      body: fixture.body,
+      timestamp: skewedTimestamp(-1200)
+    }));
+    const body = await accepted.json() as { execution?: { status?: string } };
+
+    expect(accepted.status).toBe(202);
+    expect(body.execution?.status).toBe("succeeded");
   });
 
   it("stays receipt-only when inline execution is disabled", async () => {
