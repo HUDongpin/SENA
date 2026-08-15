@@ -302,6 +302,16 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       purpose: "Bearer token for deployment monitors"
     }),
     deploymentEnv({
+      name: "SENA_OPS_SESSION_OPERATOR_EMAILS",
+      category: "ops",
+      // Not secret and not a credential: an identity allowlist, consulted only
+      // after the caller has already authenticated by session.
+      required: true,
+      configured: opsStatus.deployment.opsSessionOperatorsConfigured,
+      secret: false,
+      purpose: "Operators allowed to reach the deployment-wide ops panels by session; unset means those panels are bearer-only"
+    }),
+    deploymentEnv({
       name: "SENA_PROVISIONING_TOKEN",
       category: "provisioning",
       required: !selfManagedEnterprise,
