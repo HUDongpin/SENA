@@ -497,3 +497,28 @@ strict-evidence flags.
 
   Next: unchanged — the substantive queue is still T7 and the ratchet confirmation,
   both Peter's.
+
+- **2026-08-16 iteration 9 addendum — the flat metric is real work, and it dents P8.**
+  `canvasSettled` read 301.9 ms on *every* build measured, to 0.1 ms, which is a
+  suspicious result for a render metric: a number that cannot move would make "no
+  regression" trivially true rather than meaningful. Checked rather than assumed, by
+  CPU-throttling the same build (5 fresh contexts per rate):
+
+  | CDP throttle | canvas median |
+  |---|---|
+  | 1x | 303.1 ms |
+  | 4x | 649.6 ms |
+  | 8x | 1375.5 ms |
+
+  It moves 4.5x, so the metric is CPU-bound work and iteration 9's verdict stands on a
+  metric that *can* register a regression. First grep for a fixed ~300 ms timer in the
+  workspace mount path found none, which is consistent.
+
+  It is not perfectly linear in the throttle, so the sample decomposes: solving across
+  the 4x→8x leg gives roughly **~180 ms of CPU work plus ~120 ms of fixed
+  (non-CPU) overhead** at 1x. That ~180 ms is almost exactly the residue **P8** named
+  and left open ("all critical-path JS finishes by ~70 ms and long tasks total 71 ms,
+  yet the canvas settles at ~302 ms"). P8 asked for a browser CPU profile; this does not
+  replace one, but it does establish the gap is CPU-bound rather than scheduling or
+  network, which narrows where that profile should look. The remaining ~120 ms is the
+  part a profile still has to explain.
