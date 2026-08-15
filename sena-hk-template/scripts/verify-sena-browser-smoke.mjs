@@ -161,7 +161,17 @@ async function expectLessonStudyCounts(page) {
 
 async function verifySampleUploadPaths(page) {
   await clickByTestId(page, "clear-sena-contract");
+  // "No SENA contract loaded." is a literal the handler assigns, not a value derived
+  // from dataset state, so on its own it is the app asserting about itself. Assert the
+  // counts actually fall to zero: without this, deleting setDataset(createEmptySenaDataset())
+  // and setUploadedTables([]) from clearContract leaves this whole smoke green, because
+  // every later count is produced by an upload that overwrites regardless.
   await waitForVisibleText(page, "No SENA contract loaded.");
+  await expectMetricValue(page, "data-count-people", 0);
+  await expectMetricValue(page, "data-count-codes", 0);
+  await expectMetricValue(page, "data-count-utterances", 0);
+  await expectMetricValue(page, "data-count-segments", 0);
+  await expectMetricValue(page, "data-count-social-ties", 0);
 
   const contractTemplateText = await downloadTextByButton(page, /Contract template/i, "sena-data-contract-template.json");
   const contractTemplate = JSON.parse(contractTemplateText);
