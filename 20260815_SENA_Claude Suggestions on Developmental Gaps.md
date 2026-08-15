@@ -439,7 +439,16 @@ And the campaign's own claims were not exempt. My ledger note said the smoke ass
 | `sena:performance:check` | **PASS — 824,791 / 852,000 B** |
 | both browser smokes | **green** |
 
-All eleven FA-22 defects are fixed. The one remaining item on gap #10 is the **perf re-baseline** (Perf Report iteration 9), deliberately not run: this repo's own protocol records 9–31% cross-day timing drift on identical code, and the machine has had several concurrent sessions throughout. Numbers taken under that load would be contaminated in a way that could not be quantified, and once written into the Perf Report they would be quoted as fact. It needs a quiet tree.
+All eleven FA-22 defects are fixed. **Gap #10 is now closed**: the perf re-baseline ran on 2026-08-16 as Perf Report iteration 9, on a quiet tree.
+
+**The redesign did not regress workspace latency** — `canvasSettled` identical at 301.9 ms and plot switch +0.3 ms, inside its own IQR — established by a same-session A/B rather than a comparison against August figures, which P6's 9–31% cross-day drift would have made a reading rather than a verdict. Bundle growth is attributed rather than suspected: **redesign +9,505 B, this session's remediation +2,808 B** for ~18k lines, leaving 27,592 B (3.24%) of headroom.
+
+Two things the re-baseline found that the numbers alone would not have:
+
+- **The latency harness had been dead for five days, not stale.** It waited on `sena-fusion-canvas`, which ADR-0009 stopped rendering by default when the redesign merged — so the bench timed out, invisibly, because it had not been run since 2026-08-03. The staleness hid its own cause. This is §12.3's failure class again in a new place: *a measurement tool that silently stops measuring is the same defect as a test that cannot fail* — neither reports anything wrong, both simply stop being evidence.
+- **The first A/B was wrong and had to be discarded.** Using the merge's parent produced an apparent 17.7 ms improvement, because that commit predates the T11 double-render fix — the A/B was crediting the redesign with an unrelated win. The correct base is the commit the branch was *written against*, not the one it merged *onto*.
+
+And one correction to §12.4's own earlier claim: the "final gate" reported before this was run against a working tree carrying uncommitted work from a concurrent session. **The branch did not build at HEAD** — `b1bf2fc` committed a consumer of a shared helper whose provider was never committed. Fixed in `e1ab7d5`, and the gate re-run from a clean worktree pinned to a commit: tsc clean, 1691 passing, clean build. Using explicit paths stopped me sweeping in unrelated files; it did not stop me committing a file a concurrent session had already edited. On a shared clone, *"did I stage only my paths"* is not the same question as *"does the branch build without anything I did not stage"*.
 
 ### 12.5 What follows
 
