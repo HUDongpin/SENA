@@ -11,6 +11,26 @@ regresses >2%; otherwise revert and log the negative result. Gates before record
 or the change is reverted. After a landed bundle win, ratchet the corresponding budget in
 `lib/sena/enterprise/performance-budget-artifact.ts`.
 
+**Protocol refinement (2026-08-16, T7 review) — match the criterion to the mechanism.**
+Before setting an acceptance criterion for a change, classify what the change can move,
+and classify what gates the metric. A change that alters **ordering** (code-splitting,
+deferral, two-stage loading, prefetch) cannot move a metric gated by **payload** —
+on a bandwidth-saturated load, time-to-X is wire-bytes ÷ bandwidth, and reordering leaves
+both terms untouched. Only removing bytes from the critical path moves it.
+
+Establish which regime you are in *before* writing the criterion, from the waterfall: if
+the transfer is continuous from first byte to last with no idle gap, the load is
+bandwidth-bound and every ordering change will read as noise. If there is idle to
+reclaim, ordering can win.
+
+This rule exists because T7 was set the criterion "Slow 3G time-to-figure must improve",
+which two-stage loading could never satisfy — the load is saturated end to end (474,476 B
+at an effective 406 kbps, 36 ms seam between waves). It measured −6 ms and a correct,
+working implementation was reverted for failing a test that was impossible by
+construction, while the criterion that mattered — a usable shell during the wait — passed
+with an 8.80 s window. Asking a reordering to do a payload's job wastes the work and,
+worse, produces a false negative that reads as evidence against the right direction.
+
 **Protocol refinement (2026-08-03, loop-command review).** Acceptance is two-tier. Byte
 metrics (deterministic): any measurable improvement above the build-noise floor may land
 when behavior-preserving (calibrate the floor once — build the same commit twice
