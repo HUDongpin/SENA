@@ -555,9 +555,14 @@ strict-evidence flags.
   | Fast 3G (1.6 Mbps, 150 ms RTT) | **3.06 s** |
   | Slow 3G (500 kbps, 400 ms RTT) | **9.28 s** |
 
-  ~1,730 KiB of raw JS arrives on open, of which the compute chunk is 955.9 KiB — **55%
-  of the payload for code the first paint does not need**. On a slow connection the
-  workspace is nine seconds from interactive.
+  ~1,730 KiB of raw JS arrives on open, of which chunk 2599 is 955.9 KiB — 55% of the
+  payload. ~~**for code the first paint does not need**~~ — **struck 2026-08-16, this was
+  false.** 2599 is the *entire workspace client bundle*, not a compute chunk: verified by
+  marker audit, it carries `sena-fusion-plane-orbit`, `workspace-rail-*` and
+  `sena-fusion-canvas` (all first-paint UI) alongside `svd`, `Report Generator`,
+  `enterprise-runtime` and `krippendorff`. Most of it *is* needed for first paint. On a
+  slow connection the workspace is nine seconds from interactive — that part stands, and
+  it is what justified T7.
 
   **This does not decide T7** — the three options (async model with a loading state, web
   worker, or decline) remain Peter's, and the choice is a UX judgement, not a

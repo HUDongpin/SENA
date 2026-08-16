@@ -1,7 +1,7 @@
 # ADR-0011 — Performance budget ratchet confirmed; T7 compute-chunk deferral decided
 
 - **Status:** Accepted under delegated implementation authority (2026-08-16); **T7 implemented in `d1e684a`**. Peter ratifies at PR review, as with ADR-0009.
-- **Correction (2026-08-16, after implementation):** this ADR called chunk 2599 "the compute chunk" and said it is "55% of the JS arriving on open" for code the first paint does not need. The second half is **wrong**. 2599 is the entire workspace client bundle and most of it *is* needed for first paint. Decision 2 still stands — two-stage loading was the right direction and delivers an 8.80 s usable-shell window — but it stands on "the shell should not wait for the whole bundle", not on the false premise that the bundle is mostly unnecessary.
+- **Correction (2026-08-16, after implementation):** this ADR calls chunk 2599 "the compute chunk" throughout (below, and in Decision 2). That name is **wrong**, and the Perf Report entry this ADR rests on stated the premise outright — "55% of the payload for code the first paint does not need", now struck at its source. 2599 is the entire workspace client bundle and most of it *is* needed for first paint. Decision 2 still stands — two-stage loading was the right direction and delivers an 8.80 s usable-shell window — but it stands on "the shell should not wait for the whole bundle", not on the false premise that the bundle is mostly unnecessary.
 - **Context:** Perf Report iteration 9 (2026-08-16). Both items had sat open since 2026-08-03 marked "pending Peter", and both were blocked on evidence rather than on preference.
 
 ## Why this ADR exists
@@ -20,7 +20,7 @@ Confirmed at the existing value rather than re-ratcheted down to the new actual,
 
 ## Decision 2 — T7: two-stage shell, not a worker, not decline
 
-**Decline is ruled out by measurement.** The workspace reaches interactive in 0.30 s locally but **3.06 s on Fast 3G and 9.28 s on Slow 3G**, and the compute chunk is 955.9 KiB — **55% of the JS arriving on open**. The 14.2 ms local download that made T7 look negligible in iteration 3 was an artifact of measuring on localhost.
+**Decline is ruled out by measurement.** The workspace reaches interactive in 0.30 s locally but **3.06 s on Fast 3G and 9.28 s on Slow 3G**, and chunk 2599 is 955.9 KiB — **55% of the JS arriving on open** (called "the compute chunk" here and below; see the Correction above — it is the whole workspace bundle, and most of it *is* needed for first paint, so the size is the argument, not the redundancy). The 14.2 ms local download that made T7 look negligible in iteration 3 was an artifact of measuring on localhost.
 
 **"Async model with a visible loading state" is not an available option — it already exists.** `SenaFusionWorkspaceLoader` already wraps the workspace in `next/dynamic` with a skeleton, and a Slow 3G user was observed watching that skeleton for the full nine seconds before the entire workspace appeared at once.
 
