@@ -24,7 +24,15 @@
  * analysis stage's ids. That is load-bearing: the browser smokes drive controls
  * like `workspace-rail-model`, and a shell that answered to the same id could be
  * clicked in place of the real control during the hand-off.
+ *
+ * `next/link` is the one import here, and it is exempt from the rule above: it is
+ * Next's own runtime, already in the first-wave payload via NavBar and Footer, and
+ * it has no edge to the analysis barrel. The home link must be a `<Link>` and not
+ * an `<a>` — an `<a>` full-page-reloads out of a workspace the reader is waiting
+ * on, which is the opposite of what staging the load is for, and it is what
+ * `workspace-header-section.tsx` uses for this same link at the same geometry.
  */
+import Link from "next/link";
 
 const shellRailItems = [
   { id: "sets", label: "Sets" },
@@ -60,7 +68,7 @@ export function SenaWorkspaceShellStage() {
           data-testid="sena-workspace-shell-header"
           className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b-2 border-cyanGlow bg-[#1f1f1f] px-3 py-2 text-white lg:flex-nowrap"
         >
-          <a href="/" className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow">
+          <Link href="/" className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/18 bg-white/8 text-cyanGlow">
               <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 5H6l6 7-6 7h12" />
@@ -70,7 +78,7 @@ export function SenaWorkspaceShellStage() {
               <span className="block truncate text-lg font-black leading-tight">SENA Analysis Studio</span>
               <span className="mt-0.5 block truncate text-xs font-bold leading-tight text-slate-300">Social-Epistemic Nexus Analytics</span>
             </span>
-          </a>
+          </Link>
 
           <div
             data-testid="sena-workspace-compute-pending"
