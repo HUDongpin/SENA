@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { brotliCompressSync, constants } from "node:zlib";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { booleanEnvFrom, senaProductionPostureFrom } from "./auth-config";
 import { now } from "./ops-runtime";
 
 export type SenaEnterpriseProductionPerformanceBudgetCheckId =
@@ -110,23 +111,28 @@ function budgetEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, 
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : defaultValue;
 }
 
-function booleanEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string) {
-  const value = env[key];
-  return value === "1" || value === "true" || value === "yes";
-}
-
 function boundedIntegerEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string, defaultValue: number, min: number, max: number) {
   const parsed = Number(env[key]);
   if (!Number.isFinite(parsed)) return defaultValue;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
-function performanceBudgetStrictBindingRequired(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
-  return env.NODE_ENV === "production" ||
-    booleanEnv(env, "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
-    booleanEnv(env, "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
-    booleanEnv(env, "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED") ||
-    booleanEnv(env, "SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED");
+// Production posture is answered by senaProductionPostureFrom() (auth-config.ts),
+// never re-derived here: re-derivation is what let the password-reset interlock
+// drift onto a NODE_ENV-only test and fail open (f5d94fa). The site-local opt-in
+// flag is the only term this gate adds on top.
+//
+// This file used to carry its own stricter booleanEnv — no trim, no lowercase,
+// and no "on" — so " 1 ", "TRUE" and "on" read as production everywhere else in
+// SENA but as development here. Adopting the shared parser widens this gate to
+// match the rest; every value affected newly reads as production, so the change
+// can only engage the binding check, never skip it.
+// Exported so production-posture-predicate-agreement.test.ts can hold it to the
+// same standard as the other hard-gates; the only production caller is the
+// artifact builder below, which reaches it through the real filesystem.
+export function performanceBudgetStrictBindingRequired(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
+  return booleanEnvFrom(env, "SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED") ||
+    senaProductionPostureFrom(env);
 }
 
 function artifactReadErrorHash(error: unknown) {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { senaProductionPostureFrom } from "./auth-config";
 import {
   now,
   productionEvidenceTimestampConfigured,
@@ -626,14 +627,21 @@ export function conferenceLoadRehearsalSha256(artifact: SenaEnterpriseConference
   return createHash("sha256").update(`${JSON.stringify(artifact, null, 2)}\n`).digest("hex");
 }
 
+// Production posture is answered by senaProductionPostureFrom() (auth-config.ts),
+// never re-derived here: re-derivation is what let the password-reset interlock
+// drift onto a NODE_ENV-only test and fail open (f5d94fa). The site-local opt-in
+// flag is the only term this gate adds on top.
+//
+// This gate read NODE_ENV through envValueFrom, which trims, so " production"
+// counted as production here and nowhere else. That trim was the better
+// semantics and it is now the canonical one, so this site keeps its behaviour
+// exactly and the rest of SENA moved to meet it — see the note on
+// senaProductionPostureReasonsFrom.
 export function conferenceLoadRehearsalProductionEvidenceRequired(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
 ) {
-  return envValueFrom(env, "NODE_ENV") === "production" ||
-    booleanEnv(env, "SENA_CONFERENCE_LOAD_REHEARSAL_REQUIRED") ||
-    booleanEnv(env, "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
-    booleanEnv(env, "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
-    booleanEnv(env, "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED");
+  return booleanEnv(env, "SENA_CONFERENCE_LOAD_REHEARSAL_REQUIRED") ||
+    senaProductionPostureFrom(env);
 }
 
 export function conferenceLoadRehearsalProductionEvidenceReadiness(
