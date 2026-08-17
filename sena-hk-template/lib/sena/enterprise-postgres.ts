@@ -1,4 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { senaProductionPostureFrom } from "./enterprise/auth-config";
 import { createHash, randomBytes } from "node:crypto";
 import { Pool, type PoolConfig } from "pg";
 import type {
@@ -453,14 +454,15 @@ function validSha256(value?: string) {
   return Boolean(value && /^[a-f0-9]{64}$/i.test(value));
 }
 
+// Production posture is answered by senaProductionPostureFrom() (enterprise/
+// auth-config.ts), never re-derived here: re-derivation is what let the
+// password-reset interlock drift onto a NODE_ENV-only test and fail open
+// (f5d94fa). The site-local opt-in flag is the only term this gate adds on top.
 export function enterprisePostgresLiveProbeRequired(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
 ) {
-  return env.NODE_ENV === "production" ||
-    booleanEnv(env, "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED") ||
-    booleanEnv(env, "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") ||
-    booleanEnv(env, "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED") ||
-    booleanEnv(env, "SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED");
+  return booleanEnv(env, "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED") ||
+    senaProductionPostureFrom(env);
 }
 
 function sha256Text(value: string) {

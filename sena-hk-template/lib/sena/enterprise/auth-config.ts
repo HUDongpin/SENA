@@ -12,14 +12,22 @@ export function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-export function envValue(key: string) {
-  const value = process.env[key]?.trim();
+export function envValueFrom(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string) {
+  const value = env[key]?.trim();
   return value || undefined;
 }
 
-export function booleanEnv(key: string) {
-  const value = envValue(key)?.toLowerCase();
+export function envValue(key: string) {
+  return envValueFrom(process.env, key);
+}
+
+export function booleanEnvFrom(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string) {
+  const value = envValueFrom(env, key)?.toLowerCase();
   return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+export function booleanEnv(key: string) {
+  return booleanEnvFrom(process.env, key);
 }
 
 // The three flags a SENA operator sets to declare a deployment production, next
@@ -39,11 +47,12 @@ export function booleanEnv(key: string) {
 // that would silently change when file-backed writes are refused, which is a
 // behaviour change wearing a refactor's clothes.
 //
-// Six further re-derivations remain outside this set (cdn-verification,
-// server-job-queue, server-job-worker-contract, and three env-injecting ones in
-// enterprise-postgres, performance-budget-artifact, conference-load-rehearsal).
-// The last of those already micro-diverges: it trims NODE_ENV, so " production"
-// reads as production there and not here.
+// The six further re-derivations this comment used to list are gone: the three
+// process.env ones (cdn-verification, server-job-queue, server-job-worker-
+// contract) call senaProductionPosture(), and the three env-injecting ones
+// (enterprise-postgres, performance-budget-artifact, conference-load-rehearsal)
+// call senaProductionPostureFrom(env). Every production hard-gate now answers
+// one of the two, so the agreement suite can hold them all.
 export const SENA_PRODUCTION_POSTURE_ENV_KEYS = [
   "SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH",
   "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",
@@ -54,15 +63,39 @@ export const SENA_PRODUCTION_POSTURE_ENV_KEYS = [
 // or docker-compose host never sets NODE_ENV, so a deployment SENA itself
 // classifies as production reads as development. Every hard-gate must answer
 // this predicate, not re-derive its own.
-export function senaProductionPostureReasons() {
+//
+// NODE_ENV is read through envValueFrom, so it is trimmed like every other input
+// here: NODE_ENV=" production" classifies as production. conference-load-
+// rehearsal.ts already trimmed it and the other sites did not; trimming is the
+// semantics that won, because it is the only direction that cannot fail open.
+// Whitespace is invisible in a compose file or a CI variable, and reading
+// " production" as development would disengage every interlock on a host the
+// operator declared production — the f5d94fa shape. Widening only ever engages
+// more gates, so no caller can regress from this.
+//
+// Case is deliberately left alone ("Production" is not production): Node and
+// Next honour exact lowercase `production` only, and a wrong-case value is a
+// visible mistake rather than an invisible one.
+export function senaProductionPostureReasonsFrom(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
   return [
-    process.env.NODE_ENV === "production" ? "NODE_ENV=production" : null,
-    ...SENA_PRODUCTION_POSTURE_ENV_KEYS.map((key) => (booleanEnv(key) ? key : null))
+    envValueFrom(env, "NODE_ENV") === "production" ? "NODE_ENV=production" : null,
+    ...SENA_PRODUCTION_POSTURE_ENV_KEYS.map((key) => (booleanEnvFrom(env, key) ? key : null))
   ].filter((reason): reason is string => Boolean(reason));
 }
 
+export function senaProductionPostureReasons() {
+  return senaProductionPostureReasonsFrom(process.env);
+}
+
+// The env-injecting variant, for hard-gates that take their environment as a
+// parameter. Both forms delegate to one body so the two cannot drift apart —
+// that drift is the whole defect class this predicate exists to close.
+export function senaProductionPostureFrom(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
+  return senaProductionPostureReasonsFrom(env).length > 0;
+}
+
 export function senaProductionPosture() {
-  return senaProductionPostureReasons().length > 0;
+  return senaProductionPostureFrom(process.env);
 }
 export function productionSecretStrength(value: string | undefined, minLength = 32): "configured" | "weak" | "missing" {
   if (!value) return "missing";

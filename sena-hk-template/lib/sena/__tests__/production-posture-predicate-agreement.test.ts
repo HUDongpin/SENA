@@ -1,13 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   SENA_PRODUCTION_POSTURE_ENV_KEYS,
-  senaProductionPosture
+  senaProductionPosture,
+  senaProductionPostureFrom
 } from "../enterprise/auth-config";
 import {
   enterpriseObservabilityLiveProbeRequired,
   enterpriseObservabilityProductionSampleStoreRequired
 } from "../enterprise/ops-observability";
 import { enterpriseObjectStorageLiveProbeRequired } from "../enterprise/object-storage-adapter";
+import { enterpriseCdnLiveProbeRequired } from "../enterprise/cdn-verification";
+import { serverJobQueueLiveProbeRequired } from "../enterprise/server-job-queue";
+import { serverJobWorkerContractRequired } from "../enterprise/server-job-worker-contract";
+import { enterprisePostgresLiveProbeRequired } from "../enterprise-postgres";
+import { performanceBudgetStrictBindingRequired } from "../enterprise/performance-budget-artifact";
+import { conferenceLoadRehearsalProductionEvidenceRequired } from "../enterprise/conference-load-rehearsal";
 import { enterpriseFileStateWritePolicy } from "../enterprise/state";
 
 // f5d94fa fixed an account-takeover hole whose entire cause was two copies of
@@ -40,13 +47,51 @@ const postureSites = [
     id: "object-storage-adapter.ts enterpriseObjectStorageLiveProbeRequired",
     siteLocalEnvKeys: ["SENA_OBJECT_STORAGE_LIVE_PROBE_REQUIRED"],
     read: () => enterpriseObjectStorageLiveProbeRequired()
+  },
+  {
+    id: "cdn-verification.ts enterpriseCdnLiveProbeRequired",
+    siteLocalEnvKeys: ["SENA_CDN_LIVE_PROBE_REQUIRED"],
+    read: () => enterpriseCdnLiveProbeRequired()
+  },
+  {
+    id: "server-job-queue.ts serverJobQueueLiveProbeRequired",
+    siteLocalEnvKeys: ["SENA_JOB_QUEUE_LIVE_PROBE_REQUIRED"],
+    read: () => serverJobQueueLiveProbeRequired()
+  },
+  {
+    id: "server-job-worker-contract.ts serverJobWorkerContractRequired",
+    siteLocalEnvKeys: ["SENA_JOB_WORKER_CONTRACT_REQUIRED"],
+    read: () => serverJobWorkerContractRequired()
+  }
+] as const;
+
+// The same guard for the hard-gates that take their environment as a parameter.
+// They answer senaProductionPostureFrom(env), and this table drives them with an
+// explicit env object so the injected path is exercised directly rather than
+// through process.env.
+const envInjectingPostureSites = [
+  {
+    id: "enterprise-postgres.ts enterprisePostgresLiveProbeRequired",
+    siteLocalEnvKeys: ["SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED"],
+    read: (env: Record<string, string | undefined>) => enterprisePostgresLiveProbeRequired(env)
+  },
+  {
+    id: "performance-budget-artifact.ts performanceBudgetStrictBindingRequired",
+    siteLocalEnvKeys: ["SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED"],
+    read: (env: Record<string, string | undefined>) => performanceBudgetStrictBindingRequired(env)
+  },
+  {
+    id: "conference-load-rehearsal.ts conferenceLoadRehearsalProductionEvidenceRequired",
+    siteLocalEnvKeys: ["SENA_CONFERENCE_LOAD_REHEARSAL_REQUIRED"],
+    read: (env: Record<string, string | undefined>) => conferenceLoadRehearsalProductionEvidenceRequired(env)
   }
 ] as const;
 
 const watchedEnvKeys = [
   "NODE_ENV",
   ...SENA_PRODUCTION_POSTURE_ENV_KEYS,
-  ...postureSites.flatMap((site) => site.siteLocalEnvKeys)
+  ...postureSites.flatMap((site) => site.siteLocalEnvKeys),
+  ...envInjectingPostureSites.flatMap((site) => site.siteLocalEnvKeys)
 ];
 
 const [performancePathKey, evidenceManifestKey, saasOperatingModelKey] = SENA_PRODUCTION_POSTURE_ENV_KEYS;
@@ -96,7 +141,16 @@ const postureMatrix: PostureCase[] = [
   { label: "posture flag = \"false\"", env: { [evidenceManifestKey]: "false" }, posture: false },
   { label: "posture flag = \"\" (empty)", env: { [saasOperatingModelKey]: "" }, posture: false },
   { label: "posture flag = \"enabled\" (unrecognised)", env: { [performancePathKey]: "enabled" }, posture: false },
-  { label: "NODE_ENV=\"Production\" (wrong case) alone", env: { NODE_ENV: "Production" }, posture: false }
+  { label: "NODE_ENV=\"Production\" (wrong case) alone", env: { NODE_ENV: "Production" }, posture: false },
+  // NODE_ENV is trimmed like every other input to the predicate. conference-
+  // load-rehearsal.ts read it through a trimming helper and every other site did
+  // not; the trim won, because it is the only direction that cannot fail open.
+  // A deployment whose NODE_ENV picked up invisible whitespace in a compose file
+  // or CI variable still classifies as production, so its interlocks stay
+  // engaged instead of silently standing down.
+  { label: "NODE_ENV=\" production \" (padded)", env: { NODE_ENV: " production " }, posture: true },
+  { label: "NODE_ENV=\"\\tproduction\\n\" (tab/newline padded)", env: { NODE_ENV: "\tproduction\n" }, posture: true },
+  { label: "NODE_ENV=\" development \" (padded)", env: { NODE_ENV: " development " }, posture: false }
 ];
 
 describe("SENA production posture predicate agreement", () => {
@@ -141,6 +195,62 @@ describe("SENA production posture predicate agreement", () => {
       setEnv({ [key]: "1" });
       expect(senaProductionPosture()).toBe(false);
       expect(site.read(), `${site.id} ignored its site-local flag ${key}`).toBe(true);
+    }
+  });
+
+  // The env-injecting gates get the identical matrix, driven through an explicit
+  // env object. process.env is cleared of every watched key first, so a site
+  // that ignored its parameter and read process.env instead would read "nothing
+  // set" and fail here rather than agreeing by accident.
+  it.each(postureMatrix)(
+    "every env-injecting production hard-gate agrees with senaProductionPostureFrom(env) for $label",
+    ({ env, posture: expected }) => {
+      setEnv({});
+      const posture = senaProductionPostureFrom(env);
+      expect(posture, "senaProductionPostureFrom(env) disagreed with the canonical matrix").toBe(expected);
+      for (const site of envInjectingPostureSites) {
+        expect(
+          site.read(env),
+          `${site.id} disagreed with senaProductionPostureFrom(env) — re-derived production posture has drifted from lib/sena/enterprise/auth-config.ts`
+        ).toBe(posture);
+      }
+    }
+  );
+
+  it.each(postureMatrix)(
+    "every env-injecting hard-gate reads its injected env, not process.env, for $label",
+    ({ env, posture }) => {
+      // Opposite of the case under test in process.env: if a gate reached for
+      // the ambient environment it would return the wrong answer here.
+      setEnv(posture ? {} : { NODE_ENV: "production" });
+      for (const site of envInjectingPostureSites) {
+        expect(site.read(env), `${site.id} read process.env instead of its injected env`).toBe(posture);
+      }
+    }
+  );
+
+  it.each(envInjectingPostureSites)("$id keeps its site-local opt-in flag on top of the shared predicate", (site) => {
+    for (const key of site.siteLocalEnvKeys) {
+      setEnv({});
+      const env = { [key]: "1" };
+      expect(senaProductionPostureFrom(env)).toBe(false);
+      expect(site.read(env), `${site.id} ignored its site-local flag ${key}`).toBe(true);
+    }
+  });
+
+  // The site-local flags parse through the shared booleanEnv too. performance-
+  // budget-artifact.ts used to carry a stricter private parser (no trim, no
+  // lowercase, no "on"), so these three spellings read as off there and on
+  // everywhere else.
+  it.each(envInjectingPostureSites)("$id parses its site-local flag with the shared truthiness rules", (site) => {
+    for (const key of site.siteLocalEnvKeys) {
+      setEnv({});
+      for (const value of [" 1 ", "TRUE", "on"]) {
+        expect(site.read({ [key]: value }), `${site.id} did not accept ${key}=${JSON.stringify(value)}`).toBe(true);
+      }
+      for (const value of ["0", "false", "enabled", ""]) {
+        expect(site.read({ [key]: value }), `${site.id} accepted ${key}=${JSON.stringify(value)}`).toBe(false);
+      }
     }
   });
 });
