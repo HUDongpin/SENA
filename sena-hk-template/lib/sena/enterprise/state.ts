@@ -54,8 +54,12 @@ import type {
   SenaEnterprisePlatformDecisionAcceptance
 } from "./ops-platform-decisions";
 import type {
-  SenaEnterpriseProvisioningMetadata
+  SenaEnterpriseProvisioningMetadata,
+  SenaEnterpriseProvisioningSource
 } from "./provisioning";
+import type {
+  SenaEnterpriseRole
+} from "./access-control";
 import type {
   SenaEnterpriseExpertReview
 } from "./expert-review";
@@ -107,11 +111,40 @@ export type SenaEnterpriseUser = {
   updatedAt: string;
 };
 
+/**
+ * A retired team. Provisioning is additive-only, so a team is never erased: the
+ * audit history and the analysis runs attached to it have to survive. Archival
+ * is the team-level twin of the DELETE-as-suspend that user deprovisioning
+ * already established — reversible, and recorded with who did it and when.
+ *
+ * `suspendedMembershipIds` names exactly the memberships this archival
+ * deactivated (the ones that were still active), so restoring the team restores
+ * that access and nothing else — including memberships the archiving IdP never
+ * carried in its own Group payload.
+ */
+export type SenaEnterpriseTeamArchival = {
+  archivedAt: string;
+  archivedBy: string;
+  source: SenaEnterpriseProvisioningSource;
+  suspendedMembershipIds: string[];
+};
+
 export type SenaEnterpriseTeam = {
   id: string;
   name: string;
   plan: "individual" | "lab" | "enterprise";
   organization: string;
+  /**
+   * Role a provisioned member of this team lands on when the request names no
+   * role. Persisted because a SCIM Group PatchOp carries only the operation —
+   * not the Group extension that configured the default — so without a stored
+   * copy a later "add member" silently falls back to viewer. Undefined on teams
+   * provisioned before this field existed, which keeps their fallback exactly
+   * where it was.
+   */
+  defaultRole?: SenaEnterpriseRole;
+  /** Present only while the team is retired; cleared by re-provisioning. */
+  archived?: SenaEnterpriseTeamArchival;
   provisioning?: SenaEnterpriseProvisioningMetadata;
   createdAt: string;
   updatedAt: string;
@@ -598,6 +631,13 @@ export type SenaEnterpriseFileStateWritePolicy = {
   evidence: string[];
 };
 
+// This gate is deliberately NOT senaProductionPosture() (auth-config.ts):
+// SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH blocks file-backed writes only in
+// combination with NODE_ENV=production, which is why its blocking reason is the
+// compound label below. The other two posture flags block on their own, matching
+// the canonical predicate. The divergence is pinned by
+// production-posture-predicate-agreement.test.ts — aligning this gate with the
+// canonical posture is a behaviour change, not a refactor.
 export function enterpriseFileStateWritePolicy(): SenaEnterpriseFileStateWritePolicy {
   const productionPerformancePathRequired = booleanEnv("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH");
   const productionPerformancePathHardGate = process.env.NODE_ENV === "production" && productionPerformancePathRequired;

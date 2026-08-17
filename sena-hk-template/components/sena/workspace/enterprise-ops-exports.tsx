@@ -7,13 +7,25 @@ import {
   FileText,
   ShieldCheck
 } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
 import { buttonStyles } from "@/components/Primitives";
+import type { EnterpriseGoLiveChecklistState } from "./use-enterprise-go-live-actions";
 
 type EnterpriseOpsExportHandler = () => void | Promise<void>;
+
+const GO_LIVE_CHECKLIST_ITEMS = [
+  { key: "rehearsalReviewed", label: "Go-live rehearsal reviewed" },
+  { key: "releaseGateDraftReviewed", label: "Release gate draft reviewed" },
+  { key: "verificationEvidenceReviewed", label: "Verification evidence reviewed" },
+  { key: "rollbackOwnerConfirmed", label: "Rollback owner confirmed" },
+  { key: "platformOwnerDecisionReviewed", label: "Platform owner decision reviewed" }
+] as const satisfies readonly { key: keyof EnterpriseGoLiveChecklistState; label: string }[];
 
 export type EnterpriseOpsExportsProps = {
   disabled: boolean;
   canSubmitAttestation: boolean;
+  goLiveChecklist: EnterpriseGoLiveChecklistState;
+  onGoLiveChecklistChange: Dispatch<SetStateAction<EnterpriseGoLiveChecklistState>>;
   onExportOpsStatusJson: EnterpriseOpsExportHandler;
   onExportOpsReadinessJson: EnterpriseOpsExportHandler;
   onExportDeploymentPackageJson: EnterpriseOpsExportHandler;
@@ -34,6 +46,8 @@ export type EnterpriseOpsExportsProps = {
 export function EnterpriseOpsExports({
   disabled,
   canSubmitAttestation,
+  goLiveChecklist,
+  onGoLiveChecklistChange,
   onExportOpsStatusJson,
   onExportOpsReadinessJson,
   onExportDeploymentPackageJson,
@@ -187,6 +201,28 @@ export function EnterpriseOpsExports({
         >
           <ShieldCheck className="h-4 w-4" /> Apply draft
         </button>
+        <fieldset
+          data-testid="enterprise-go-live-attestation-checklist"
+          className="basis-full rounded-lg border border-white/10 p-3"
+        >
+          <legend className="px-1 text-[0.65rem] font-black uppercase tracking-[0.08em] text-cyanGlow">
+            Reviewer confirmations
+          </legend>
+          {GO_LIVE_CHECKLIST_ITEMS.map((item) => (
+            <label key={item.key} className="flex items-center gap-2 py-1 text-xs">
+              <input
+                type="checkbox"
+                data-testid={`enterprise-go-live-checklist-${item.key}`}
+                checked={goLiveChecklist[item.key]}
+                disabled={disabled}
+                onChange={(event) =>
+                  onGoLiveChecklistChange((current) => ({ ...current, [item.key]: event.target.checked }))
+                }
+              />
+              {item.label}
+            </label>
+          ))}
+        </fieldset>
         <button
           type="button"
           data-testid="enterprise-go-live-attestation-submit"

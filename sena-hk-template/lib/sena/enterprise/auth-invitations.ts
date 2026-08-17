@@ -66,6 +66,32 @@ export function safeInviteCode(inviteCode?: string) {
   return value ? value.slice(0, 128) : undefined;
 }
 
+/**
+ * The team an invitation may still be materialised into — the single definition
+ * every acceptance path shares, so none of them can drift.
+ *
+ * Team archival's whole consistency mechanism is that no *active* membership
+ * survives it: every context-driven reader decides "is this team mine" through
+ * an active membership, so RBAC, team listings, the default-team pick and the
+ * provisioning directory all exclude a retired team for free. An invitation
+ * issued before the archival is the one remaining writer that could mint a
+ * fresh active membership into that team — which would hand its holder full
+ * RBAC on a team that is gone from every listing, reviving it.
+ *
+ * From the invitee's side a retired team is simply gone, so it is refused with
+ * the same 410 a genuinely deleted team produces: the two stay
+ * indistinguishable, and callers already handle the code. Restoration is
+ * untouched — it reactivates exactly the memberships the archival suspended and
+ * clears `archived`, after which invitations are materialised again.
+ */
+export function requireInvitationTeam(db: SenaEnterpriseDb, invitation: SenaEnterpriseInvitation) {
+  const team = db.teams.find((candidate) => candidate.id === invitation.teamId);
+  if (!team || team.archived) {
+    throw new SenaEnterpriseError("Invitation team is no longer available.", 410, "invitation_team_missing");
+  }
+  return team;
+}
+
 export function requirePendingInvitationForEmail(db: SenaEnterpriseDb, inviteCode: string | undefined, email: string) {
   const safeCode = safeInviteCode(inviteCode);
   if (!safeCode) return undefined;
@@ -77,6 +103,9 @@ export function requirePendingInvitationForEmail(db: SenaEnterpriseDb, inviteCod
   if (invitation.email !== email) {
     throw new SenaEnterpriseError("Invitation email does not match the requested account.", 403, "invitation_email_mismatch");
   }
+  // Checked here rather than at each signup entry point: registration and SSO
+  // both redeem invitations through this lookup, so one guard closes both.
+  requireInvitationTeam(db, invitation);
   return invitation;
 }
 
@@ -194,8 +223,7 @@ function acceptEnterpriseInvitationInDb(
   if (normalizeEmail(context.user.email) !== invitation.email) {
     throw new SenaEnterpriseError("Invitation email does not match the signed-in user.", 403, "invitation_email_mismatch");
   }
-  const team = db.teams.find((candidate) => candidate.id === invitation.teamId);
-  if (!team) throw new SenaEnterpriseError("Invitation team is no longer available.", 410, "invitation_team_missing");
+  requireInvitationTeam(db, invitation);
   if (db.memberships.some((membership) => membership.teamId === invitation.teamId && membership.userId === context.user.id)) {
     throw new SenaEnterpriseError("The signed-in user is already a member of this team.", 409, "membership_already_exists");
   }

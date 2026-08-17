@@ -112,6 +112,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [productUpdates, setProductUpdates] = useState(false);
   const [plan, setPlan] = useState<"individual" | "lab" | "enterprise">("lab");
   const [ssoStatuses, setSsoStatuses] = useState<SsoProviderStatus[]>([]);
   const [preflight, setPreflight] = useState<SsoPreflightResult | null>(null);
@@ -169,6 +170,7 @@ export default function RegisterPage() {
           email,
           organization,
           role,
+          productUpdates,
           password,
           inviteCode,
           plan
@@ -273,6 +275,9 @@ export default function RegisterPage() {
                     <option>Student</option>
                     <option>Enterprise</option>
                   </select>
+                  <span className="text-xs font-semibold leading-5 text-muted">
+                    Recorded with your registration for onboarding context. Workspace permissions come from your invitation or workspace ownership.
+                  </span>
                 </label>
               </div>
 
@@ -324,7 +329,7 @@ export default function RegisterPage() {
 
               <div className="grid gap-3 text-sm text-muted">
                 <label className="flex gap-3"><input data-testid={SENA_AUTH_PAGE_MANIFEST.register.selectors.terms} required type="checkbox" className="mt-1 h-4 w-4" /> I agree to the Terms and responsible AI use policy.</label>
-                <label className="flex gap-3"><input type="checkbox" className="mt-1 h-4 w-4" /> Receive product updates and research-platform announcements.</label>
+                <label className="flex gap-3"><input type="checkbox" checked={productUpdates} onChange={(event) => setProductUpdates(event.currentTarget.checked)} className="mt-1 h-4 w-4" /> Receive product updates and research-platform announcements.</label>
               </div>
 
               {message && (

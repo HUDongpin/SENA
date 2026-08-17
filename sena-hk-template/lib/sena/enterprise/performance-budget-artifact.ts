@@ -399,8 +399,18 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
   const budgets = {
     workspaceHtmlBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES", 80_000),
     workspaceRouteJsBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES", 180_000),
-    // 900_000 → 852_000: provisional ratchet after the 2026-08-03 runtime-constants
-    // win (actual 811,509 B); final value pending Peter (see Perf Report ledger).
+    // 900_000 → 852_000, set 2026-08-03 after the runtime-constants win and held.
+    //
+    // It was provisional only because it had been set against a pre-redesign build and
+    // nobody had re-measured since; iteration 9 (2026-08-16) did, by same-session A/B.
+    // Actual is 824,791 B — 27,209 B (3.19%) of headroom — with the fusion redesign
+    // accounting for +9,505 B of the growth and the 2026-08-15 remediation +2,808 B.
+    //
+    // Confirmed at 852_000 rather than re-ratcheted down to the new actual: T7 is still
+    // open, and every option for it reorganises this payload (one attempt already moved
+    // it +7,874 B before being reverted). Tightening now would spend the headroom that
+    // work needs and turn an unrelated build into a red gate. Re-ratchet once T7 lands.
+    // Confirmed under delegated authority; see docs/adr/0011.
     totalStaticJsBrotliBytes: budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 852_000)
   };
   const productionBuildPresent = existsSync(nextDir) && existsSync(staticChunksDir);

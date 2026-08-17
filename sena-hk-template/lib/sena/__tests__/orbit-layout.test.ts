@@ -184,11 +184,16 @@ function plateauSeparation(left: SenaOrbitLane, right: SenaOrbitLane) {
 
 const TAU = Math.PI * 2;
 
-/** Signed short way round, the same (-PI, PI] convention the module uses. */
+/**
+ * Signed short way round, the same [-PI, PI] convention the module uses —
+ * including the antisymmetric antipodal boundary (`<`, not `<=`), so that both
+ * directions of an exactly opposite pair agree on one half-ring instead of both
+ * folding onto `+PI`.
+ */
 function shortDelta(from: number, to: number) {
   let delta = (to - from) % TAU;
   if (delta > Math.PI) delta -= TAU;
-  if (delta <= -Math.PI) delta += TAU;
+  if (delta < -Math.PI) delta += TAU;
   return delta;
 }
 
@@ -203,6 +208,33 @@ function pointAngle(layout: SenaOrbitLayout, point: [number, number]) {
     (point[1] - layout.geometry.center.y) / layout.geometry.ry,
     (point[0] - layout.geometry.center.x) / layout.geometry.rx
   );
+}
+
+function normalizeAngle(angle: number) {
+  const wrapped = angle % TAU;
+  return wrapped < 0 ? wrapped + TAU : wrapped;
+}
+
+/**
+ * The occupancy interval `assignOrbitLanes` books for a lane, mirrored from the
+ * module: `[lo, lo + |shortDelta|]`, `lo` being whichever endpoint the sweep
+ * departs from. A reciprocal pair books ONE interval for *both* of its lanes,
+ * computed from the edge the heaviest-first pass reached first — which, because
+ * `ordered` is sorted by `edgeOrder` and the inner lane is chosen by that same
+ * comparator, is always the inner (lower-lane) partner.
+ */
+function bookedArc(layout: SenaOrbitLayout, lane: SenaOrbitLane): [number, number] {
+  const persons = new Map(layout.persons.map((person) => [person.id, person]));
+  const from = (persons.get(lane.source) as SenaOrbitLayout["persons"][number]).angle;
+  const to = (persons.get(lane.target) as SenaOrbitLayout["persons"][number]).angle;
+  const delta = shortDelta(from, to);
+  const lo = normalizeAngle(delta >= 0 ? from : to);
+  return [lo, lo + Math.abs(delta)];
+}
+
+function angleInArc(angle: number, [lo, hi]: [number, number], epsilon: number) {
+  const wrapped = normalizeAngle(angle);
+  return [-TAU, 0, TAU].some((shift) => wrapped + shift >= lo - epsilon && wrapped + shift <= hi + epsilon);
 }
 
 /** Per-step signed angular steps along a lane, each unwrapped into (-PI, PI]. */
@@ -403,6 +435,53 @@ describe("orbit layout — every lane takes the short way round", () => {
         expect(Math.abs(travel)).toBeLessThanOrEqual(span + 1e-4);
         expect(Math.abs(travel)).toBeGreaterThanOrEqual(span * 0.85);
       }
+    });
+
+    it(`stays inside the arc its lane assignment booked, on the ${label}`, () => {
+      // The occupancy book is the whole basis of the lane-overlap guarantee: a
+      // lane may only be drawn where `assignOrbitLanes` reserved room for it.
+      // Every other invariant here measures a lane against its *own* endpoints,
+      // which is exactly what a booking bug survives — the arc is short, sweeps
+      // the way it says, clears the hexagons, and is still on a half-ring nobody
+      // reserved. An exactly antipodal pair is the case that separates the two:
+      // both directions return the same `+PI` from `shortDelta`, so `arcInterval`
+      // hands back a *different* half-ring per direction while `assignOrbitLanes`
+      // books only the first one for both lanes.
+      const laneByEdge = new Map(layout.lanes.map((lane) => [lane.edgeId, lane]));
+      let antipodalLanesChecked = 0;
+
+      for (const lane of layout.lanes) {
+        const partner = laneByEdge.get(`social:${lane.target}:${lane.source}`);
+        const booker = partner && partner.lane < lane.lane ? partner : lane;
+        const booked = bookedArc(layout, booker);
+
+        // A booked arc is a half ring at most, by construction — so a pair whose
+        // two lanes land on opposite halves can never both fit in one booking.
+        expect(booked[1] - booked[0]).toBeLessThanOrEqual(Math.PI + 1e-9);
+
+        if (Math.abs(Math.abs(laneEntitledSpan(layout, lane).delta) - Math.PI) < 1e-9) {
+          antipodalLanesChecked += 1;
+        }
+
+        // 1e-3 rad (0.06 degrees) absorbs the 2-decimal rounding the emitted
+        // points carry; the excursion this guards against is a half ring wide.
+        const outside = lane.points.filter((point) => !angleInArc(pointAngle(layout, point), booked, 1e-3));
+        expect({ edgeId: lane.edgeId, pointsOutsideBookedArc: outside.length })
+          .toEqual({ edgeId: lane.edgeId, pointsOutsideBookedArc: 0 });
+
+        if (partner) {
+          // Both directions of a reciprocal tie have to resolve to the same
+          // half-ring. That agreement is what makes booking the interval once
+          // and handing it to both lanes legitimate in the first place.
+          const own = bookedArc(layout, lane);
+          expect(Math.abs(shortDelta(booked[0], own[0]))).toBeLessThan(1e-9);
+          expect(own[1] - own[0]).toBeCloseTo(booked[1] - booked[0], 12);
+        }
+      }
+
+      // The boundary case has to actually be present, or the loop above is only
+      // exercising the pairs that were never in doubt.
+      expect(antipodalLanesChecked).toBeGreaterThan(0);
     });
 
     it(`clears every hexagon it is not docking at, on the ${label}`, () => {

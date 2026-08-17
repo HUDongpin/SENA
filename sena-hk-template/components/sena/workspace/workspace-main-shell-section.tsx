@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useRef,
@@ -34,6 +35,16 @@ const workspaceDialogFocusableSelector = [
   'textarea:not([disabled])',
   '[tabindex]:not([tabindex="-1"])'
 ].join(",");
+
+// Empty while there is no error, and a different value for every reported failure —
+// including a repeat of an identical message, which the generic import fallbacks
+// produce for many unrelated causes. Keying the drawer effect on this instead of on
+// the message is what lets a second failure reopen the drawer.
+export function workspaceImportErrorDrawerSignal(
+  feedback: { importError: string | null; importErrorAttempt: number }
+): string {
+  return feedback.importError ? `${feedback.importErrorAttempt}:${feedback.importError}` : "";
+}
 
 export type WorkspaceMainShellSectionProps = {
   isFusionPlotMaximized: boolean;
@@ -84,6 +95,31 @@ export function WorkspaceMainShellSection({
     setIsTaskPanelOpen(true);
   }
 
+  // The workflow steps are anchors, but three of their targets are unreachable by
+  // hash alone: the Data and Model panels only exist inside this drawer, and the
+  // canvas/temporal/evidence surfaces sit behind it while it is open and inert.
+  const WORKFLOW_STEP_RAIL_MODES: Record<string, typeof railProps.active> = {
+    "workflow-data": "sets",
+    "workflow-model": "model"
+  };
+
+  function handleWorkflowStepSelect(stepId: string, event: ReactMouseEvent<HTMLAnchorElement>) {
+    const railMode = WORKFLOW_STEP_RAIL_MODES[stepId];
+    if (railMode) {
+      event.preventDefault();
+      panelTriggerModeRef.current = railMode;
+      railProps.onChange(railMode);
+      setIsTaskPanelOpen(true);
+      return;
+    }
+    if (stepId === "workflow-report") return; // the hash handler opens Research Details
+    event.preventDefault();
+    setIsTaskPanelOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById(stepId)?.scrollIntoView({ block: "start" });
+    });
+  }
+
   function handleMobileFigureKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -96,6 +132,17 @@ export function WorkspaceMainShellSection({
     if (rightInspectorProps.selectedId) setMobileFigure("dual");
     // Keep Dual selected after closing the inspector so its comparison remains visible.
   }, [rightInspectorProps.selectedId]);
+
+  const importErrorDrawerSignal = workspaceImportErrorDrawerSignal(leftRailProps.dataImportFeedbackProps);
+  useEffect(() => {
+    // The import error plate and warnings panel live inside this drawer, and the
+    // upload hooks can only select which panel it would show — not open it. Without
+    // this a failed header upload changes nothing the user can see. Keyed on the
+    // signal rather than the message so retrying the same bad file reopens it.
+    if (!importErrorDrawerSignal) return;
+    panelTriggerModeRef.current = "sets";
+    setIsTaskPanelOpen(true);
+  }, [importErrorDrawerSignal]);
 
   useEffect(() => {
     const surfaces = [headerSurfaceRef.current, analysisSurfaceRef.current, reportSurfaceRef.current]
@@ -263,7 +310,7 @@ export function WorkspaceMainShellSection({
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <WorkspaceLeftRailPanelSection {...leftRailProps} />
+              <WorkspaceLeftRailPanelSection {...leftRailProps} onWorkflowStepSelect={handleWorkflowStepSelect} />
             </div>
           </div>
         </div>

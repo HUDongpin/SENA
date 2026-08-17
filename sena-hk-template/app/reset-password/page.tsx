@@ -48,8 +48,12 @@ export default function ResetPasswordPage() {
         setResetToken(payload.delivery.resetToken);
         setLocalResetUrl(payload.delivery.resetUrl ?? null);
         setMessage("Local reset token issued for this pilot runtime.");
+      } else if (payload.delivery?.mode === "email-provider-required") {
+        setMessage("Email delivery is not configured on this deployment, so no reset message was sent. Contact your SENA administrator to finish the reset.");
+      } else if (payload.delivery?.mode === "email-webhook") {
+        setMessage("If an account exists, password reset instructions have been queued for email delivery.");
       } else {
-        setMessage("If an account exists, password reset instructions have been queued.");
+        setMessage("If an account exists, the password reset request was recorded.");
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Password reset request failed.");

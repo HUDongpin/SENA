@@ -187,6 +187,7 @@ export function buildWorkspaceHeaderLeftRailContainerProps({
   gamma,
   icon,
   importError,
+  importErrorAttempt,
   importMessage,
   isAdvancedOpen,
   isLoadingSample,
@@ -338,6 +339,7 @@ export function buildWorkspaceHeaderLeftRailContainerProps({
 
   const workspaceDataImportFeedbackFieldProps = buildWorkspaceDataImportFeedbackFieldProps({
     importError,
+    importErrorAttempt,
     uploadedTables,
     warnings,
     onTableChange,

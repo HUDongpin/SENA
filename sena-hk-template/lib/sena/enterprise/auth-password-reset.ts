@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import { envValue, now, passwordResetTokenExposure } from "./auth-config";
+import {
+  envValue,
+  now,
+  passwordResetTokenExposure,
+  passwordResetTokenExposureAuditDetail
+} from "./auth-config";
 import {
   authEmailDomain,
   authEmailHash,
@@ -9,11 +14,17 @@ import {
   tokenHash,
   validateEnterprisePassword
 } from "./auth-password";
+import {
+  enterprisePasswordResetSubjectRateLimit,
+  observeEnterpriseAuthSubjectRateLimitInDb
+} from "./auth-security";
 import { SenaEnterpriseError } from "./errors";
 import {
   queueEnterpriseNotification
 } from "./notifications-delivery";
 import {
+  dispatchEnterpriseEmailDelivery,
+  enterpriseEmailProvider,
   queueEnterpriseEmail,
   type SenaEnterpriseEmailDelivery
 } from "./notifications-email";
@@ -44,8 +55,14 @@ export type SenaEnterprisePasswordResetRequestResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePasswordResetRequest;
   status: "queued";
   expiresAt: string;
+  // Anonymous callers reach this payload, so it carries delivery facts only.
+  // The token-exposure policy names the production override variable and says
+  // whether this deployment hands out live tokens — a targeting oracle in a
+  // public response — so it goes to the audit trail and the ops/readiness
+  // evidence instead (passwordResetTokenExposureAuditDetail /
+  // passwordResetTokenExposureEvidence in auth-config).
   delivery: {
-    mode: "email-provider-required" | "email-webhook" | "local-token";
+    mode: "email-provider-required" | "email-webhook" | "email-dispatch-failed" | "local-token";
     emailDeliveryId?: string;
     resetToken?: string;
     resetUrl?: string;
@@ -80,9 +97,67 @@ function passwordResetExpiry() {
   return new Date(Date.now() + passwordResetMinutes * 60 * 1000).toISOString();
 }
 
-function passwordResetDeliveryMode(emailDelivery?: SenaEnterpriseEmailDelivery): SenaEnterprisePasswordResetRequestResult["delivery"]["mode"] {
+type SenaEnterprisePasswordResetDispatch = {
+  attempted: boolean;
+  delivered: boolean;
+  errorCode?: string;
+};
+
+const passwordResetDispatchNotAttempted: SenaEnterprisePasswordResetDispatch = {
+  attempted: false,
+  delivered: false
+};
+
+// The mode is a function of the configured channel and that channel's observed
+// health — never of whether the address belongs to an account. Deriving it from
+// the queued email (as this used to) made an existing account answer
+// `email-webhook` while an unknown one answered `email-provider-required`, which
+// is an account-enumeration oracle in the production posture.
+function passwordResetDeliveryMode(
+  providerConfigured: boolean,
+  dispatchHealth: "confirmed" | "failed"
+): SenaEnterprisePasswordResetRequestResult["delivery"]["mode"] {
   if (passwordResetTokenExposure()) return "local-token";
-  return emailDelivery ? "email-webhook" : "email-provider-required";
+  if (!providerConfigured) return "email-provider-required";
+  return dispatchHealth === "failed" ? "email-dispatch-failed" : "email-webhook";
+}
+
+function passwordResetEmailProviderConfigured() {
+  try {
+    return enterpriseEmailProvider().configured;
+  } catch {
+    // An unparseable webhook URL is still an operator who configured a provider;
+    // the dispatch outcome, not the provider probe, carries the failure.
+    return true;
+  }
+}
+
+// An unknown address has no email to dispatch, so it inherits the channel's last
+// observed health. Reporting a failure requires positive evidence of a failed
+// attempt, which keeps the known and unknown branches identical on a deployment
+// that has never seen one.
+function passwordResetDispatchHealth(
+  db: SenaEnterpriseDb,
+  dispatch: SenaEnterprisePasswordResetDispatch
+): "confirmed" | "failed" {
+  if (dispatch.attempted) return dispatch.delivered ? "confirmed" : "failed";
+  const lastAttempted = (db.emailDeliveries ?? [])
+    .filter((delivery) => delivery.kind === "auth.password_reset" && delivery.attempts > 0 && delivery.lastAttemptAt)
+    .sort((a, b) => (b.lastAttemptAt ?? "").localeCompare(a.lastAttemptAt ?? ""))[0];
+  return lastAttempted && lastAttempted.status !== "delivered" ? "failed" : "confirmed";
+}
+
+async function dispatchPasswordResetEmail(
+  db: SenaEnterpriseDb,
+  emailDelivery?: SenaEnterpriseEmailDelivery
+): Promise<SenaEnterprisePasswordResetDispatch> {
+  if (!emailDelivery) return passwordResetDispatchNotAttempted;
+  const outcome = await dispatchEnterpriseEmailDelivery(db, emailDelivery);
+  return {
+    attempted: outcome.attempted,
+    delivered: outcome.delivered,
+    errorCode: outcome.errorCode
+  };
 }
 
 function passwordResetBaseUrl(baseUrl?: string) {
@@ -110,21 +185,67 @@ export type SenaEnterprisePasswordResetCompleteInput = {
   password: string;
 };
 
-function createEnterprisePasswordResetInDb(
+type PreparedEnterprisePasswordReset = {
+  emailHash: string;
+  emailDomain: string;
+  user?: SenaEnterpriseUser;
+  emailDelivery?: SenaEnterpriseEmailDelivery;
+  resetToken: string;
+  expiresAt: string;
+  baseUrl?: string;
+  subjectBackstopSuppressed: boolean;
+};
+
+// The subject bucket is keyed only on the account, so anyone who knows the
+// address shares it with the holder. Rejecting the over-budget request would
+// let a third party lock the holder out of recovery, so instead:
+//   * only requests that mint real reset material for a real account count, and
+//   * an over-budget request is answered exactly like an in-budget one but sends
+//     no new mail and leaves the live link alone.
+// Reset mail only ever goes to the account holder, so an exhausted budget means
+// the holder has already been sent that many links inside the window; declining
+// to send one more never removes their way back in. The budget itself sits well
+// above the per-IP one (enterprisePasswordResetSubjectRateLimit), so no single
+// capped caller can reach it.
+function consumePasswordResetSubjectBackstop(db: SenaEnterpriseDb, email: string) {
+  const normalized = normalizeEmail(email);
+  const recipientExists = db.users.some((candidate) => candidate.email === normalized);
+  if (!recipientExists) return { counted: false, suppressed: false };
+  const { limit, windowSeconds } = enterprisePasswordResetSubjectRateLimit();
+  const outcome = observeEnterpriseAuthSubjectRateLimitInDb(db, {
+    bucket: "auth.password_reset",
+    subject: normalized,
+    limit,
+    windowSeconds
+  });
+  return { counted: true, suppressed: outcome.limited };
+}
+
+function prepareEnterprisePasswordResetInDb(
   db: SenaEnterpriseDb,
   input: SenaEnterprisePasswordResetInput
-): SenaEnterprisePasswordResetRequestResult {
+): PreparedEnterprisePasswordReset {
   const email = normalizeEmail(input.email);
   const emailHash = authEmailHash(email);
   const emailDomain = authEmailDomain(email);
-  const user = db.users.find((candidate) => candidate.email === email);
+  const backstop = consumePasswordResetSubjectBackstop(db, email);
+  const account = db.users.find((candidate) => candidate.email === email);
+  // A suppressed request issues nothing, so it takes the same path as an
+  // address with no account — which is also what keeps the two answers
+  // indistinguishable to the caller.
+  const user = backstop.suppressed ? undefined : account;
   const expiresAt = passwordResetExpiry();
   const resetToken = randomBytes(32).toString("base64url");
   const resetUrl = new URL("/reset-password", passwordResetBaseUrl(input.baseUrl));
   resetUrl.searchParams.set("token", resetToken);
 
-  db.passwordResetRequests = (db.passwordResetRequests ?? [])
-    .filter((request) => request.emailHash !== emailHash && Date.parse(request.expiresAt) > Date.now() && !request.usedAt);
+  // A suppressed request must not run this prune either: rotating the stored
+  // request would invalidate the link already sitting in the holder's inbox and
+  // turn the backstop into the lockout it exists to prevent.
+  if (!backstop.suppressed) {
+    db.passwordResetRequests = (db.passwordResetRequests ?? [])
+      .filter((request) => request.emailHash !== emailHash && Date.parse(request.expiresAt) > Date.now() && !request.usedAt);
+  }
 
   let emailDelivery: SenaEnterpriseEmailDelivery | undefined;
   if (user) {
@@ -156,6 +277,29 @@ function createEnterprisePasswordResetInDb(
     });
   }
 
+  return {
+    emailHash,
+    emailDomain,
+    user,
+    emailDelivery,
+    resetToken,
+    expiresAt,
+    baseUrl: input.baseUrl,
+    subjectBackstopSuppressed: backstop.suppressed
+  };
+}
+
+function finalizeEnterprisePasswordReset(
+  db: SenaEnterpriseDb,
+  prepared: PreparedEnterprisePasswordReset,
+  dispatch: SenaEnterprisePasswordResetDispatch
+): SenaEnterprisePasswordResetRequestResult {
+  const { emailDelivery, emailHash, emailDomain, expiresAt, user } = prepared;
+  const mode = passwordResetDeliveryMode(
+    passwordResetEmailProviderConfigured(),
+    passwordResetDispatchHealth(db, dispatch)
+  );
+
   appendAudit(db, {
     event: "auth.password_reset.request",
     userId: user?.id,
@@ -163,9 +307,18 @@ function createEnterprisePasswordResetInDb(
     detail: {
       emailHash,
       emailDomain,
-      delivery: passwordResetDeliveryMode(emailDelivery),
+      delivery: mode,
       emailDeliveryId: emailDelivery?.id ?? null,
-      expiresAt
+      emailStatus: emailDelivery?.status ?? null,
+      dispatchAttempted: dispatch.attempted,
+      dispatchDelivered: dispatch.delivered,
+      dispatchErrorCode: dispatch.errorCode ?? null,
+      subjectBackstopSuppressed: prepared.subjectBackstopSuppressed,
+      expiresAt,
+      // Operator-side custody of the exposure interlock. The public response
+      // must not carry it, so the audit trail is where an operator reads
+      // whether this deployment is handing out live tokens.
+      ...passwordResetTokenExposureAuditDetail()
     }
   });
   if (user) {
@@ -179,18 +332,20 @@ function createEnterprisePasswordResetInDb(
       actionUrl: "/reset-password",
       detail: {
         expiresAt,
-        delivery: passwordResetDeliveryMode(emailDelivery),
-        emailDeliveryId: emailDelivery?.id ?? null
+        delivery: mode,
+        emailDeliveryId: emailDelivery?.id ?? null,
+        emailStatus: emailDelivery?.status ?? null
       }
     });
   }
-  const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = {
-    mode: passwordResetDeliveryMode(emailDelivery),
-    emailDeliveryId: emailDelivery?.id
-  };
+  const delivery: SenaEnterprisePasswordResetRequestResult["delivery"] = { mode };
   if (passwordResetTokenExposure()) {
-    delivery.resetToken = user ? resetToken : randomBytes(32).toString("base64url");
-    const exposedResetUrl = new URL("/reset-password", passwordResetBaseUrl(input.baseUrl));
+    // The queue id only exists when the address resolved to an account, so it is
+    // only safe to return alongside an exposed token — a posture that already
+    // hands the caller the reset material.
+    delivery.emailDeliveryId = emailDelivery?.id;
+    delivery.resetToken = user ? prepared.resetToken : randomBytes(32).toString("base64url");
+    const exposedResetUrl = new URL("/reset-password", passwordResetBaseUrl(prepared.baseUrl));
     exposedResetUrl.searchParams.set("token", delivery.resetToken);
     delivery.resetUrl = exposedResetUrl.toString();
   }
@@ -203,16 +358,26 @@ function createEnterprisePasswordResetInDb(
   };
 }
 
+// Synchronous callers (the local file-backed facade) cannot await a webhook, so
+// this entry point only queues. Production self-service reset runs through
+// `createEnterprisePasswordResetAsync`, which dispatches inline.
 export function createEnterprisePasswordReset(input: SenaEnterprisePasswordResetInput): SenaEnterprisePasswordResetRequestResult {
   const db = readEnterpriseDb();
-  const result = createEnterprisePasswordResetInDb(db, input);
+  const prepared = prepareEnterprisePasswordResetInDb(db, input);
+  const result = finalizeEnterprisePasswordReset(db, prepared, passwordResetDispatchNotAttempted);
   saveDb(db);
   return result;
 }
 
 export async function createEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetInput): Promise<SenaEnterprisePasswordResetRequestResult> {
+  // The subject backstop is now counted inside the prepare step, on this same
+  // db handle, so the count and the work it gates land in one save.
   const state = await readEnterpriseState();
-  const result = createEnterprisePasswordResetInDb(state.db, input);
+  const prepared = prepareEnterprisePasswordResetInDb(state.db, input);
+  // Dispatch before the single save so the persisted delivery record, the audit
+  // trail, and the mode the caller is told all describe the same outcome.
+  const dispatch = await dispatchPasswordResetEmail(state.db, prepared.emailDelivery);
+  const result = finalizeEnterprisePasswordReset(state.db, prepared, dispatch);
   await saveEnterpriseState(state, state.db);
   return result;
 }

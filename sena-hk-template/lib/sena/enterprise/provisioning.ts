@@ -7,9 +7,11 @@ import {
 import { SenaEnterpriseError } from "./errors";
 import {
   readEnterpriseDb,
-  writeEnterpriseDb
+  readEnterpriseState,
+  writeEnterpriseDb,
+  writeEnterpriseState
 } from "./state";
-import { recordEnterpriseAudit } from "./ops-audit";
+import { recordEnterpriseAudit, recordEnterpriseAuditAsync } from "./ops-audit";
 import type { SenaEnterpriseSsoProvider } from "./auth-sso";
 import type { SenaEnterpriseAuditLogEntry } from "./ops-audit";
 import type { SenaEnterpriseDb, SenaEnterpriseTeam } from "./state";
@@ -28,6 +30,19 @@ export type SenaEnterpriseProvisioningTeamInput = {
   name: string;
   organization?: string;
   plan?: SenaEnterpriseTeam["plan"];
+  /**
+   * Role members of this team default to. Persisted on the team record;
+   * undefined leaves an already-stored default untouched, so a provisioning
+   * request that does not speak about defaults cannot silently erase one.
+   */
+  defaultRole?: SenaEnterpriseRole;
+  /**
+   * `true` retires the team, `false` restores it, undefined leaves its archival
+   * state exactly as it is.
+   */
+  archived?: boolean;
+  /** Actor recorded on the archival; defaults to the provisioning source. */
+  archivedBy?: string;
 };
 
 export type SenaEnterpriseProvisioningMembershipInput = {
@@ -78,6 +93,8 @@ export type SenaEnterpriseProvisioningResult = {
     externalId?: string;
     name: string;
     status: "created" | "updated";
+    /** Set only when this request changed the team's archival state. */
+    archival?: "archived" | "restored";
   }>;
   users: Array<{
     id: string;
@@ -155,6 +172,117 @@ function validProvisioningSource(source: unknown): source is SenaEnterpriseProvi
   return source === "api" || source === "scim";
 }
 
+function invalidProvisioningRequest(message: string, code: string): never {
+  throw new SenaEnterpriseError(message, 400, code);
+}
+
+function provisioningRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `undefined`/`null` mean "no entries" and cannot be misread; anything else
+ * that is not an array of objects is a caller error rather than an empty list.
+ */
+function provisioningEntries(value: unknown, field: string): Record<string, unknown>[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    invalidProvisioningRequest(`Provisioning "${field}" must be an array.`, "invalid_provisioning_body");
+  }
+  return value.map((entry) => {
+    if (!provisioningRecord(entry)) {
+      invalidProvisioningRequest(`Every "${field}" entry must be an object.`, "invalid_provisioning_body");
+    }
+    return entry;
+  });
+}
+
+function requireProvisioningString(value: unknown, field: string, code: string) {
+  if (typeof value !== "string") invalidProvisioningRequest(`Provisioning "${field}" must be a string.`, code);
+}
+
+function optionalProvisioningString(value: unknown, field: string, code: string) {
+  if (value !== undefined && typeof value !== "string") {
+    invalidProvisioningRequest(`Provisioning "${field}" must be a string when present.`, code);
+  }
+}
+
+function optionalProvisioningBoolean(value: unknown, field: string, code: string) {
+  if (value !== undefined && typeof value !== "boolean") {
+    invalidProvisioningRequest(`Provisioning "${field}" must be true or false when present.`, code);
+  }
+}
+
+/**
+ * Settles the shape of a provisioning request before a single row is touched.
+ *
+ * Everything refused here is a caller error and answers 400. That status is not
+ * cosmetic: this endpoint is driven by IdP webhooks whose retry policies treat
+ * 5xx as "retry later", so a permanently-malformed body that reached the old
+ * bare `input.organization.trim()` TypeError was answered 500, retried on
+ * backoff indefinitely, never surfaced to the integration's operator, and burnt
+ * a provisioning error-budget sample on every attempt.
+ *
+ * Only the shape is decided here. Enum values (plan, roles, statuses, SSO
+ * provider) keep their existing per-entry refusals, which already answer 400
+ * with a code naming the field.
+ */
+function validatedProvisioningInput(input: unknown): SenaEnterpriseProvisioningInput {
+  if (!provisioningRecord(input)) {
+    invalidProvisioningRequest("Provisioning requires a JSON object body.", "invalid_provisioning_body");
+  }
+  // Absent, non-string and blank organizations now answer with one code. The
+  // blank case was already a 400; the other two fell through to a 500 on the
+  // very same field.
+  if (typeof input.organization !== "string") {
+    invalidProvisioningRequest("Provisioning requires an organization name.", "invalid_provisioning_organization");
+  }
+  // An absent source legitimately defaults to "api" below — /api/sena/provisioning
+  // callers need not name one, and lib/sena/scim.ts always passes "scim"
+  // explicitly. A source the caller did spell out but SENA does not know is
+  // refused rather than rewritten: `source` decides which directory owns the
+  // rows, so a silent fallback strands them under a tag the integration never
+  // reads back and its next sync duplicates every team and membership.
+  if (input.source !== undefined && !validProvisioningSource(input.source)) {
+    invalidProvisioningRequest("Provisioned source is not supported.", "invalid_provisioning_source");
+  }
+  // Read as a boolean, never as truthiness: `"false"` is a caller asking for a
+  // real sync, and answering it 200 with created-counts while writing nothing
+  // lets an integration record the sync as complete.
+  optionalProvisioningBoolean(input.dryRun, "dryRun", "invalid_provisioning_dry_run");
+
+  for (const team of provisioningEntries(input.teams, "teams")) {
+    requireProvisioningString(team.name, "teams[].name", "invalid_provisioning_team");
+    optionalProvisioningString(team.externalId, "teams[].externalId", "invalid_provisioning_team");
+    optionalProvisioningString(team.organization, "teams[].organization", "invalid_provisioning_team");
+    optionalProvisioningString(team.archivedBy, "teams[].archivedBy", "invalid_provisioning_team");
+    // Same reasoning as dryRun: `archived` is applied on === true / === false,
+    // so a stringly-typed flag would retire nothing behind a 200.
+    optionalProvisioningBoolean(team.archived, "teams[].archived", "invalid_provisioning_team");
+  }
+
+  for (const user of provisioningEntries(input.users, "users")) {
+    requireProvisioningString(user.email, "users[].email", "invalid_provisioning_email");
+    optionalProvisioningString(user.externalId, "users[].externalId", "invalid_provisioning_user");
+    optionalProvisioningString(user.name, "users[].name", "invalid_provisioning_user");
+    optionalProvisioningString(user.organization, "users[].organization", "invalid_provisioning_user");
+    if (user.sso !== undefined && user.sso !== null) {
+      if (!provisioningRecord(user.sso)) {
+        invalidProvisioningRequest("Provisioning \"users[].sso\" must be an object.", "invalid_provisioning_body");
+      }
+      optionalProvisioningString(user.sso.provider, "users[].sso.provider", "invalid_provisioning_sso_provider");
+      optionalProvisioningString(user.sso.subject, "users[].sso.subject", "invalid_provisioning_sso_subject");
+    }
+    for (const membership of provisioningEntries(user.memberships, "users[].memberships")) {
+      optionalProvisioningString(membership.teamId, "users[].memberships[].teamId", "invalid_provisioning_membership");
+      optionalProvisioningString(membership.teamExternalId, "users[].memberships[].teamExternalId", "invalid_provisioning_membership");
+      optionalProvisioningString(membership.teamName, "users[].memberships[].teamName", "invalid_provisioning_membership");
+    }
+  }
+
+  return input as SenaEnterpriseProvisioningInput;
+}
+
 function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?: {
   membershipId: string;
   role: SenaEnterpriseRole;
@@ -167,16 +295,104 @@ function activeTeamManagerCount(db: SenaEnterpriseDb, teamId: string, override?:
   }).length;
 }
 
-function recordProvisioningAudit(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">) {
+/**
+ * The last-active-manager guard exists to stop a team being stranded with
+ * nobody who can administer it. A retired team has nobody by construction, so
+ * an archived team is out of the calculation entirely — otherwise retiring a
+ * team whose only manager it owns would be refused rather than applied.
+ */
+function teamIsArchived(db: SenaEnterpriseDb, teamId: string) {
+  return Boolean(db.teams.find((team) => team.id === teamId)?.archived);
+}
+
+function requireActiveTeamManagers(db: SenaEnterpriseDb, teamId: string, error: SenaEnterpriseError, override?: {
+  membershipId: string;
+  role: SenaEnterpriseRole;
+  status: SenaEnterpriseMembership["status"];
+}) {
+  if (teamIsArchived(db, teamId)) return;
+  if (activeTeamManagerCount(db, teamId, override) === 0) throw error;
+}
+
+/**
+ * Retires a team. Every membership still active on it is suspended — not just
+ * the ones the archiving source provisioned — because every reader that decides
+ * "is this team mine" does so through an active membership: the session context
+ * (`contextFromDb`), and therefore team listings and every RBAC check built on
+ * it. A team that vanished from listings but still granted permissions would be
+ * worse than no archival at all.
+ */
+function archiveProvisionedTeam(
+  db: SenaEnterpriseDb,
+  team: SenaEnterpriseTeam,
+  input: SenaEnterpriseProvisioningTeamInput,
+  source: SenaEnterpriseProvisioningSource,
+  syncedAt: string
+) {
+  if (team.archived) return false;
+  const suspended = db.memberships.filter((membership) => membership.teamId === team.id && membership.status === "active");
+  for (const membership of suspended) {
+    membership.status = "suspended";
+    membership.updatedAt = syncedAt;
+  }
+  team.archived = {
+    archivedAt: syncedAt,
+    archivedBy: input.archivedBy?.trim() || `${source}:${team.provisioning?.externalId ?? team.id}`,
+    source,
+    suspendedMembershipIds: suspended.map((membership) => membership.id)
+  };
+  team.updatedAt = syncedAt;
+  return true;
+}
+
+function restoreProvisionedTeam(db: SenaEnterpriseDb, team: SenaEnterpriseTeam, syncedAt: string) {
+  if (!team.archived) return false;
+  const restored = new Set(team.archived.suspendedMembershipIds);
+  for (const membership of db.memberships) {
+    if (!restored.has(membership.id) || membership.status === "active") continue;
+    membership.status = "active";
+    membership.updatedAt = syncedAt;
+  }
+  delete team.archived;
+  team.updatedAt = syncedAt;
+  return true;
+}
+
+type SenaEnterpriseProvisioningAuditEntry = Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">;
+
+type SenaEnterpriseProvisioningCommit = {
+  result: SenaEnterpriseProvisioningResult;
+  /** Null for a dry run: nothing is persisted, so nothing is audited. */
+  audit: SenaEnterpriseProvisioningAuditEntry | null;
+};
+
+function recordProvisioningAudit(entry: SenaEnterpriseProvisioningAuditEntry) {
   recordEnterpriseAudit(entry);
 }
 
-export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisioningInput): SenaEnterpriseProvisioningResult {
-  const source = validProvisioningSource(input.source) ? input.source : "api";
+/**
+ * Applies a provisioning request to an already-read enterprise database and
+ * hands the caller the audit entry to record.
+ *
+ * Persistence is deliberately the caller's job so the same mutation can be
+ * committed against whichever primary state store is configured: the
+ * synchronous file store (`provisionEnterpriseOrganization`) or the async
+ * primary — Postgres under SENA_ENTERPRISE_STATE_STORE=postgres —
+ * (`provisionEnterpriseOrganizationAsync`). A dry run mutates a throwaway copy
+ * of `savedDb`, so a caller that honours `result.dryRun` never persists it.
+ */
+function provisionEnterpriseOrganizationInDb(
+  rawInput: unknown,
+  savedDb: SenaEnterpriseDb
+): SenaEnterpriseProvisioningCommit {
+  // Both entry points funnel through here, so the SCIM bridge and the route get
+  // the same refusals — and the shape is settled before `savedDb` is touched,
+  // so a refused request cannot half-apply.
+  const input = validatedProvisioningInput(rawInput);
+  const source = input.source ?? "api";
   const organization = input.organization.trim();
   if (!organization) throw new SenaEnterpriseError("Provisioning requires an organization name.", 400, "invalid_provisioning_organization");
-  const dryRun = Boolean(input.dryRun);
-  const savedDb = readEnterpriseDb();
+  const dryRun = input.dryRun ?? false;
   const db = dryRun ? dbWorkingCopy(savedDb) : savedDb;
   const syncedAt = now();
   const result: SenaEnterpriseProvisioningResult = {
@@ -204,6 +420,9 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
     if (plan !== "individual" && plan !== "lab" && plan !== "enterprise") {
       throw new SenaEnterpriseError("Provisioned team plan is not supported.", 400, "invalid_provisioning_plan");
     }
+    if (teamInput.defaultRole && !rolePermissions[teamInput.defaultRole]) {
+      throw new SenaEnterpriseError("Provisioned team default role is not supported.", 400, "invalid_provisioning_team_default_role");
+    }
     let team = provisionedTeamByInput(db, source, organization, teamInput);
     let status: "created" | "updated" = "updated";
     if (!team) {
@@ -212,6 +431,7 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
         name,
         plan,
         organization: teamInput.organization?.trim() || organization,
+        defaultRole: teamInput.defaultRole,
         provisioning: provisioningMetadata(source, teamInput.externalId, syncedAt),
         createdAt: syncedAt,
         updatedAt: syncedAt
@@ -223,11 +443,21 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
       team.name = name;
       team.plan = plan;
       team.organization = teamInput.organization?.trim() || organization;
+      if (teamInput.defaultRole) team.defaultRole = teamInput.defaultRole;
       team.provisioning = provisioningMetadata(source, teamInput.externalId ?? team.provisioning?.externalId, syncedAt);
       team.updatedAt = syncedAt;
       result.summary.teamsUpdated += 1;
     }
-    result.teams.push({ id: team.id, externalId: team.provisioning?.externalId, name: team.name, status });
+    // Archival is settled before memberships are applied, so the membership
+    // guards below see the team's final state: a retired team is out of the
+    // manager calculation, and a restored one accepts active members again.
+    let archival: "archived" | "restored" | undefined;
+    if (teamInput.archived === true && archiveProvisionedTeam(db, team, teamInput, source, syncedAt)) {
+      archival = "archived";
+    } else if (teamInput.archived === false && restoreProvisionedTeam(db, team, syncedAt)) {
+      archival = "restored";
+    }
+    result.teams.push({ id: team.id, externalId: team.provisioning?.externalId, name: team.name, status, archival });
   }
 
   const touchedTeamIds = new Set(result.teams.map((team) => team.id));
@@ -283,9 +513,12 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
 
     if (userInput.status === "suspended") {
       for (const membership of db.memberships.filter((candidate) => candidate.userId === user!.id && candidate.status !== "suspended")) {
-        if (activeTeamManagerCount(db, membership.teamId, { membershipId: membership.id, role: membership.role, status: "suspended" }) === 0) {
-          throw new SenaEnterpriseError("Provisioning cannot suspend the last active team manager.", 400, "last_team_manager_required");
-        }
+        requireActiveTeamManagers(
+          db,
+          membership.teamId,
+          new SenaEnterpriseError("Provisioning cannot suspend the last active team manager.", 400, "last_team_manager_required"),
+          { membershipId: membership.id, role: membership.role, status: "suspended" }
+        );
         membership.status = "suspended";
         membership.provisioning = provisioningMetadata(source, membership.provisioning?.externalId ?? `${user.provisioning?.externalId ?? user.id}:${membership.teamId}`, syncedAt);
         membership.updatedAt = syncedAt;
@@ -314,6 +547,12 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
       if (!team) {
         throw new SenaEnterpriseError("Provisioned membership referenced a missing team.", 400, "provisioning_team_missing");
       }
+      // A retired team may still take suspended memberships — that is exactly
+      // what the archiving request writes — but granting active access to it
+      // would resurrect the team for RBAC while it stays hidden from listings.
+      if (team.archived && membershipStatus === "active") {
+        throw new SenaEnterpriseError("Provisioned memberships cannot be added to an archived team.", 400, "provisioning_team_archived");
+      }
       let membership = db.memberships.find((candidate) => candidate.teamId === team.id && candidate.userId === user!.id);
       const change: "created" | "updated" = membership ? "updated" : "created";
       if (!membership) {
@@ -330,9 +569,12 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
         db.memberships.push(membership);
         result.summary.membershipsCreated += 1;
       } else {
-        if (activeTeamManagerCount(db, team.id, { membershipId: membership.id, role: membershipInput.role, status: membershipStatus }) === 0) {
-          throw new SenaEnterpriseError("Provisioning cannot remove the last active team manager.", 400, "last_team_manager_required");
-        }
+        requireActiveTeamManagers(
+          db,
+          team.id,
+          new SenaEnterpriseError("Provisioning cannot remove the last active team manager.", 400, "last_team_manager_required"),
+          { membershipId: membership.id, role: membershipInput.role, status: membershipStatus }
+        );
         membership.role = membershipInput.role;
         membership.status = membershipStatus;
         membership.provisioning = provisioningMetadata(source, membership.provisioning?.externalId ?? `${user.provisioning?.externalId ?? user.id}:${team.provisioning?.externalId ?? team.id}`, syncedAt);
@@ -352,14 +594,17 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
   }
 
   for (const teamId of touchedTeamIds) {
-    if (activeTeamManagerCount(db, teamId) === 0) {
-      throw new SenaEnterpriseError("Provisioned teams require at least one active owner, PI, or manager.", 400, "provisioning_team_manager_required");
-    }
+    requireActiveTeamManagers(
+      db,
+      teamId,
+      new SenaEnterpriseError("Provisioned teams require at least one active owner, PI, or manager.", 400, "provisioning_team_manager_required")
+    );
   }
 
-  if (!dryRun) {
-    writeEnterpriseDb(db);
-    recordProvisioningAudit({
+  if (dryRun) return { result, audit: null };
+  return {
+    result,
+    audit: {
       event: "provisioning.sync",
       teamId: result.teams[0]?.id,
       detail: {
@@ -371,17 +616,70 @@ export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisionin
         usersCreated: result.summary.usersCreated,
         usersUpdated: result.summary.usersUpdated,
         membershipsCreated: result.summary.membershipsCreated,
-        membershipsUpdated: result.summary.membershipsUpdated
+        membershipsUpdated: result.summary.membershipsUpdated,
+        teamsArchived: result.teams.filter((team) => team.archival === "archived").length,
+        teamsRestored: result.teams.filter((team) => team.archival === "restored").length
       }
-    });
+    }
+  };
+}
+
+/**
+ * File-primary provisioning. Unchanged behaviour: read, mutate, write, audit —
+ * all through the synchronous file-backed store. Callers that can await should
+ * prefer provisionEnterpriseOrganizationAsync, which routes the same write to
+ * the configured primary state store.
+ */
+export function provisionEnterpriseOrganization(input: SenaEnterpriseProvisioningInput): SenaEnterpriseProvisioningResult {
+  const db = readEnterpriseDb();
+  const { result, audit } = provisionEnterpriseOrganizationInDb(input, db);
+  if (!result.dryRun) {
+    writeEnterpriseDb(db);
+    if (audit) recordProvisioningAudit(audit);
+  }
+  return result;
+}
+
+/**
+ * Primary-state provisioning: the SCIM and /api/sena/provisioning write path.
+ * With the file store as primary this is byte-for-byte the file behaviour
+ * above; with SENA_ENTERPRISE_STATE_STORE=postgres the provisioned users,
+ * teams, and memberships land in the Postgres primary that login,
+ * registration, and team reads actually consult — instead of a
+ * .sena-enterprise/enterprise-db.json those readers never open.
+ */
+export async function provisionEnterpriseOrganizationAsync(input: SenaEnterpriseProvisioningInput): Promise<SenaEnterpriseProvisioningResult> {
+  const state = await readEnterpriseState();
+  const { result, audit } = provisionEnterpriseOrganizationInDb(input, state.db);
+  if (!result.dryRun) {
+    await writeEnterpriseState(state, state.db);
+    if (audit) await recordEnterpriseAuditAsync(audit);
   }
   return result;
 }
 
 export function listEnterpriseProvisioningDirectory(source: SenaEnterpriseProvisioningSource = "scim"): SenaEnterpriseProvisioningDirectory {
-  const db = readEnterpriseDb();
+  return listEnterpriseProvisioningDirectoryFromDb(readEnterpriseDb(), source);
+}
+
+/** Primary-state twin of listEnterpriseProvisioningDirectory: the SCIM read surface. */
+export async function listEnterpriseProvisioningDirectoryAsync(
+  source: SenaEnterpriseProvisioningSource = "scim"
+): Promise<SenaEnterpriseProvisioningDirectory> {
+  const state = await readEnterpriseState();
+  return listEnterpriseProvisioningDirectoryFromDb(state.db, source);
+}
+
+function listEnterpriseProvisioningDirectoryFromDb(
+  db: SenaEnterpriseDb,
+  source: SenaEnterpriseProvisioningSource
+): SenaEnterpriseProvisioningDirectory {
   const users = db.users.filter((user) => user.provisioning?.source === source);
-  const teams = db.teams.filter((team) => team.provisioning?.source === source);
+  // An archived team is retired: it leaves the directory, and so do the
+  // memberships pointing at it, so a directory read never advertises a group
+  // that a GET would 404 on.
+  const archivedTeamIds = new Set(db.teams.filter((team) => team.archived).map((team) => team.id));
+  const teams = db.teams.filter((team) => team.provisioning?.source === source && !team.archived);
   const teamById = new Map(db.teams.map((team) => [team.id, team]));
   const userById = new Map(db.users.map((user) => [user.id, user]));
   return {
@@ -396,7 +694,11 @@ export function listEnterpriseProvisioningDirectory(source: SenaEnterpriseProvis
       organization: user.organization,
       ssoSubjects: user.ssoIdentities.map((identity) => `${identity.provider}:${identity.subject}`),
       memberships: db.memberships
-        .filter((membership) => membership.userId === user.id && membership.provisioning?.source === source)
+        .filter((membership) => (
+          membership.userId === user.id &&
+          membership.provisioning?.source === source &&
+          !archivedTeamIds.has(membership.teamId)
+        ))
         .map((membership) => {
           const team = teamById.get(membership.teamId);
           return {
@@ -415,6 +717,7 @@ export function listEnterpriseProvisioningDirectory(source: SenaEnterpriseProvis
       name: team.name,
       organization: team.organization,
       plan: team.plan,
+      defaultRole: team.defaultRole,
       members: db.memberships
         .filter((membership) => membership.teamId === team.id && membership.provisioning?.source === source)
         .map((membership) => {
@@ -457,6 +760,11 @@ export type SenaEnterpriseProvisioningDirectory = {
     name: string;
     organization: string;
     plan: SenaEnterpriseTeam["plan"];
+    /**
+     * The team's stored default role, surfaced so a provisioning client can
+     * recover it on a request that does not carry the group's own extension.
+     */
+    defaultRole?: SenaEnterpriseRole;
     members: Array<{
       userId: string;
       userExternalId?: string;

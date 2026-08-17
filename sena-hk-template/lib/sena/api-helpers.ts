@@ -48,6 +48,62 @@ function requestIdFromHeaders(request: Request) {
     randomUUID();
 }
 
+/**
+ * Sentinel a handler stamps on its OWN Response to declare that a non-2xx answer
+ * reports a state rather than a failure — an ops probe answering "this backend is
+ * not configured yet". `observeSenaApiRoute` reads it, forwards it to the recorder
+ * as `informational`, and strips it, so it never reaches the client.
+ *
+ * The name is exported for tests. The name alone is not the marker: see the token
+ * below.
+ */
+export const senaInformationalResponseHeaderName = "x-sena-observed-informational";
+
+/**
+ * The actual marker is this per-process value, minted at module load and never
+ * emitted anywhere — not in a header that leaves the process (it is deleted before
+ * the response goes out), not in a body, not in a log line.
+ *
+ * Two things follow, and both matter:
+ *
+ *   Nothing outside this process can produce it. A client that guesses the header
+ *   name and sends it on a REQUEST is already inert — the declaration is read off
+ *   the Response the handler built, and no route copies request headers into a
+ *   response — but the token means that even a handler that did echo request
+ *   headers could not be tricked into declaring a genuine 5xx informational.
+ *
+ *   Nothing sets it by accident. A stray `"x-sena-observed-informational": "true"`
+ *   in a headers literal does not match, so it is stripped and classified exactly
+ *   as an undeclared response. Declaring intent requires calling the function
+ *   below, which is the only holder of the value.
+ */
+const senaInformationalResponseToken = randomUUID();
+
+/**
+ * Declares a response informational for observability only. It does not change the
+ * status code, the body, or anything the client sees — the sole effect is that
+ * `recordEnterpriseObservedRequest` keeps this response out of the error count.
+ *
+ * Reserved for the answer an endpoint exists to give (a probe reporting an unset
+ * backend). A response that failed at something it attempted must NOT be marked.
+ */
+export function markSenaApiResponseInformational<T extends Response>(response: T): T {
+  response.headers.set(senaInformationalResponseHeaderName, senaInformationalResponseToken);
+  return response;
+}
+
+/**
+ * Reads the declaration and removes the sentinel in one step, so there is no path
+ * on which the header survives into the client's response: it is deleted whenever
+ * present, whether or not the value is ours.
+ */
+function takeInformationalDeclaration(response: Response) {
+  const declared = response.headers.get(senaInformationalResponseHeaderName);
+  if (declared === null) return false;
+  response.headers.delete(senaInformationalResponseHeaderName);
+  return declared === senaInformationalResponseToken;
+}
+
 function applyObservedRequestHeaders(response: Response, sample: SenaEnterpriseObservedRequest) {
   response.headers.set("x-sena-request-id-hash", sample.requestIdHash);
   response.headers.set("x-sena-observed-route", sample.routeId);
@@ -59,19 +115,33 @@ function applyObservedRequestHeaders(response: Response, sample: SenaEnterpriseO
 
 export async function observeSenaApiRoute(
   request: Request,
-  input: { routeId: string },
+  input: {
+    routeId: string;
+    /**
+     * Rewrites the error body for surfaces that owe callers a different envelope
+     * (SCIM clients expect urn:ietf:params:scim:api:messages:2.0:Error). Status and
+     * the observed error code are taken before this runs, so observability is
+     * unaffected by the shape a route chooses to emit.
+     */
+    errorBody?: (body: { error: string; code: string }, status: number) => unknown;
+  },
   handler: () => Promise<Response> | Response
 ) {
   const startedAt = Date.now();
   const requestId = requestIdFromHeaders(request);
   try {
     const response = await handler();
+    // Read from the Response the handler just built, never from `request`: the
+    // declaration is the handler's, and a caller must not be able to reclassify
+    // its own request.
+    const informational = takeInformationalDeclaration(response);
     const sample = recordEnterpriseObservedRequest({
       routeId: input.routeId,
       method: request.method,
       statusCode: response.status,
       durationMs: Date.now() - startedAt,
-      requestId
+      requestId,
+      informational
     });
     emitEnterpriseObservedRequest(sample);
     void mirrorEnterpriseObservedRequestToPostgres(sample);
@@ -89,7 +159,10 @@ export async function observeSenaApiRoute(
     emitEnterpriseObservedRequest(sample);
     void mirrorEnterpriseObservedRequestToPostgres(sample);
     return applyObservedRequestHeaders(
-      NextResponse.json(enterpriseError.body, { status: enterpriseError.status }),
+      NextResponse.json(
+        input.errorBody ? input.errorBody(enterpriseError.body, enterpriseError.status) : enterpriseError.body,
+        { status: enterpriseError.status }
+      ),
       sample
     );
   }
@@ -116,8 +189,25 @@ export async function requireApiSessionForMutation(request: Request): Promise<Se
 function requestClientKey(request: Request, discriminator?: string) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip")?.trim();
-  const userAgent = request.headers.get("user-agent")?.slice(0, 160) || "unknown-agent";
-  return [forwardedFor || realIp || "local", userAgent, discriminator || "anonymous"].join("|");
+  // Every distinct key gets its own counter, so anything an attacker can vary
+  // freely must stay out of it — a User-Agent here let one client mint unlimited
+  // fresh buckets, which is why it was removed.
+  //
+  // The IP component is NOT in that safe category on its own, and saying otherwise
+  // is what this comment used to do. Both headers are client-supplied; the
+  // left-most x-forwarded-for value is only trustworthy when every request reaches
+  // this handler through a proxy that overwrites the header rather than appending
+  // to it. Behind such a proxy (Vercel's edge, an ingress that rewrites XFF) the
+  // key is sound. Deployed with the app directly reachable, a caller can vary
+  // x-forwarded-for per request and split these buckets exactly as a rotated
+  // User-Agent did. Taking the right-most hop instead is not a general fix: which
+  // entry is trustworthy depends on how many proxies are in front, so it would
+  // trade one wrong assumption for another.
+  //
+  // The per-subject backstops are what hold when this assumption does not:
+  // recordFailedLogin on login, and the password-reset and registration subject
+  // budgets. Those are keyed on the account, which an attacker cannot vary.
+  return [forwardedFor || realIp || "local", discriminator || "anonymous"].join("|");
 }
 
 export function enforceAuthRateLimit(request: Request, input: {

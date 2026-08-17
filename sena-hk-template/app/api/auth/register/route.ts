@@ -23,7 +23,9 @@ export async function POST(request: Request) {
       password: String(body.password ?? ""),
       organization: String(body.organization ?? ""),
       plan: body.plan === "individual" || body.plan === "enterprise" ? body.plan : "lab",
-      inviteCode: body.inviteCode ? String(body.inviteCode) : undefined
+      inviteCode: body.inviteCode ? String(body.inviteCode) : undefined,
+      selfDeclaredRole: body.role ? String(body.role) : undefined,
+      productUpdates: body.productUpdates === true
     });
     const response = NextResponse.json(sanitizeEnterpriseContext(result.context), {
       status: 201,

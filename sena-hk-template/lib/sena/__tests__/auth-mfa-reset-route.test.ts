@@ -367,6 +367,10 @@ describe("SENA MFA and password reset production gate headers", () => {
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_APP_URL = "https://sena.example.test";
     process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN = "1";
+    // Token exposure is refused under NODE_ENV=production unless a second explicit
+    // override is set (A4). This case exercises the exposure path itself, so it opts in;
+    // the interlock is covered by auth-abuse-hardening.test.ts.
+    process.env.SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE = "1";
     vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
     vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
 
@@ -424,6 +428,7 @@ describe("SENA MFA and password reset production gate headers", () => {
     } finally {
       vi.unstubAllEnvs();
       delete process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN;
+      delete process.env.SENA_ALLOW_PRODUCTION_PASSWORD_RESET_TOKEN_EXPOSURE;
       delete process.env.SENA_APP_URL;
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

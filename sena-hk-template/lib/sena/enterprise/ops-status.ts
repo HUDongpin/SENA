@@ -74,6 +74,7 @@ export type SenaEnterpriseOpsStatus = {
     nodeEnv: string;
     uptimeSeconds: number;
     opsTokenConfigured: boolean;
+    opsSessionOperatorsConfigured: boolean;
     provisioningTokenConfigured: boolean;
     notificationWebhookConfigured: boolean;
     emailWebhookConfigured: boolean;
@@ -174,6 +175,21 @@ export function enterprisePostgresPublicEvidence(config: SenaEnterprisePostgresC
 
 export function opsTokenConfigured() {
   return Boolean(envValue("SENA_OPS_TOKEN"));
+}
+
+/**
+ * The allowlist that lets a signed-in operator reach the deployment-wide ops
+ * panels while an ops token is configured. Without it the session path fails
+ * closed and those panels are bearer-only, so a production deployment that sets
+ * SENA_OPS_TOKEN and nothing else has working ops routes and no way for an admin
+ * to use them from the workspace.
+ *
+ * The name is repeated from ops-api rather than imported: ops-api pulls in
+ * api-helpers and with it the Next request runtime, which this module is read
+ * from scripts without.
+ */
+export function opsSessionOperatorsConfigured() {
+  return Boolean(envValue("SENA_OPS_SESSION_OPERATOR_EMAILS"));
 }
 
 export function backupAgeSeconds(lastBackupAt?: string) {
@@ -592,6 +608,7 @@ function buildEnterpriseOpsStatus(
       nodeEnv: process.env.NODE_ENV || "development",
       uptimeSeconds: Math.floor(process.uptime()),
       opsTokenConfigured: opsTokenConfigured(),
+      opsSessionOperatorsConfigured: opsSessionOperatorsConfigured(),
       provisioningTokenConfigured: Boolean(envValue("SENA_PROVISIONING_TOKEN")),
       notificationWebhookConfigured,
       emailWebhookConfigured,
@@ -640,7 +657,9 @@ function buildEnterpriseOpsStatus(
     },
     counts: {
       users: db.users.length,
-      teams: db.teams.length,
+      // Excludes archived (retired) teams; they remain in db.teams for audit and backup.
+      teams: db.teams.filter((team) => !team.archived).length,
+      teamsArchived: db.teams.filter((team) => team.archived).length,
       projects: db.projects.length,
       uploads: db.uploads.length,
       importRuns: db.importRuns.length,

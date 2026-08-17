@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { listEnterpriseScimUsers, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  listEnterpriseScimUsers,
+  provisionEnterpriseScimUser,
+  type SenaScimListQuery,
+  type SenaScimProvisioningOptions,
+  scimErrorBody
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -15,19 +21,28 @@ function scimOptions(request: Request): SenaScimProvisioningOptions {
 }
 
 export async function POST(request: Request) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
     const body = await request.json();
-    const bridge = provisionEnterpriseScimUser(body, scimOptions(request));
+    const bridge = await provisionEnterpriseScimUser(body, scimOptions(request));
     return NextResponse.json(bridge.resource, {
       status: bridge.provisioning.summary.usersCreated > 0 ? 201 : 200
     });
   });
 }
 
+function scimListQuery(request: Request): SenaScimListQuery {
+  const url = new URL(request.url);
+  return {
+    filter: url.searchParams.get("filter"),
+    startIndex: url.searchParams.get("startIndex"),
+    count: url.searchParams.get("count")
+  };
+}
+
 export async function GET(request: Request) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users", errorBody: scimErrorBody }, async () => {
     requireProvisioningBearerToken(request);
-    return NextResponse.json(listEnterpriseScimUsers(scimOptions(request).locationBase));
+    return NextResponse.json(await listEnterpriseScimUsers(scimOptions(request).locationBase, scimListQuery(request)));
   });
 }

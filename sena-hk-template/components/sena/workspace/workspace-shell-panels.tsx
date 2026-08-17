@@ -1,5 +1,6 @@
 import type {
   ElementType,
+  MouseEvent as ReactMouseEvent,
   ReactNode
 } from "react";
 import {
@@ -55,13 +56,22 @@ export function formatFusionPlotZoom(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-export function WorkflowRail({ steps, activeId = "workflow-canvas" }: { steps: WorkflowStepState[]; activeId?: string }) {
+export function WorkflowRail({
+  steps,
+  activeId = "workflow-canvas",
+  onStepSelect
+}: {
+  steps: WorkflowStepState[];
+  activeId?: string;
+  onStepSelect?: (stepId: string, event: ReactMouseEvent<HTMLAnchorElement>) => void;
+}) {
   return (
     <nav className="grid gap-2" aria-label="SENA research workflow">
       {steps.map((step, index) => (
         <a
           key={step.id}
           href={step.href}
+          onClick={(event) => onStepSelect?.(step.id, event)}
           className={cn(
             "grid grid-cols-[2.25rem_1fr] items-center gap-3 rounded-lg border p-3 transition hover:border-cyanGlow/60 hover:bg-background/45",
             step.id === activeId

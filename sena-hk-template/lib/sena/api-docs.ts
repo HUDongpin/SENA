@@ -67,30 +67,102 @@ function csrfRequiredForMethod(endpoint: SenaApiEndpoint, method: SenaApiMethod)
   return method !== "GET" && (endpoint.auth === "session" || endpoint.auth === "session-or-ops-bearer");
 }
 
+type OpenApiParameter = {
+  name: string;
+  in: "path" | "query" | "header";
+  required: boolean;
+  schema: Record<string, unknown>;
+  description: string;
+};
+
+const PATH_PARAMETER_DESCRIPTIONS: Record<string, string> = {
+  projectId: "Identifier of the durable SENA project, as returned by GET /api/sena/projects.",
+  resourceId: "SCIM 2.0 resource identifier (the resource's `id`) of the user or group."
+};
+
+/**
+ * OpenAPI 3.1 §4.8.9.1: every template expression in a path MUST correspond to
+ * a path parameter declared on the Path Item and/or on each of its Operations,
+ * and that parameter MUST be `required: true`. Without these, linters error and
+ * generated clients request the literal `%7BprojectId%7D`.
+ */
+function pathParametersFor(path: string): OpenApiParameter[] {
+  return [...path.matchAll(/\{([^}]+)\}/g)].map(([, name]) => ({
+    name,
+    in: "path" as const,
+    required: true,
+    schema: { type: "string" },
+    description: PATH_PARAMETER_DESCRIPTIONS[name] ?? `Value bound to the {${name}} path segment.`
+  }));
+}
+
+function queryParametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenApiParameter[] {
+  return (endpoint.queryParameters ?? [])
+    .filter((parameter) => !parameter.methods || parameter.methods.includes(method))
+    .map((parameter) => ({
+      name: parameter.name,
+      in: "query" as const,
+      required: parameter.required ?? false,
+      schema: {
+        type: "string",
+        ...(parameter.allowedValues ? { enum: parameter.allowedValues } : {}),
+        ...(parameter.defaultValue ? { default: parameter.defaultValue } : {})
+      },
+      description: parameter.description
+    }));
+}
+
+function csrfParametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenApiParameter[] {
+  if (!csrfRequiredForMethod(endpoint, method)) return [];
+  return [{
+    name: "x-sena-csrf-token",
+    in: "header" as const,
+    required: endpoint.auth === "session",
+    schema: { type: "string" },
+    description: "Token returned by GET /api/auth/csrf for cookie-auth browser mutations. Bearer-token ops calls may omit it."
+  }];
+}
+
+/**
+ * One array, built by concatenation rather than by spreading two `parameters`
+ * keys into the same operation object — four operations (PUT/PATCH/DELETE on
+ * /api/sena/projects/{projectId} and POST on its collaboration child) need both
+ * a path parameter and the CSRF header, and a second spread would drop one.
+ */
+function parametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenApiParameter[] {
+  return [
+    ...pathParametersFor(endpoint.path),
+    ...queryParametersFor(endpoint, method),
+    ...csrfParametersFor(endpoint, method)
+  ];
+}
+
+const DEFAULT_REQUEST_BODY_METHODS: SenaApiMethod[] = ["POST", "PUT", "PATCH"];
+
+/**
+ * OpenAPI 3.1 gives `requestBody` no defined semantics on GET, so a GET never
+ * gets one; a DELETE only gets one when the fact says its handler reads a body.
+ */
+function requestBodyDocumented(endpoint: SenaApiEndpoint, method: SenaApiMethod) {
+  if (!endpoint.request) return false;
+  return (endpoint.requestBodyMethods ?? DEFAULT_REQUEST_BODY_METHODS).includes(method);
+}
+
 export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of SENA_API_ENDPOINTS) {
     paths[endpoint.path] ??= {};
     for (const method of endpoint.methods) {
+      const parameters = parametersFor(endpoint, method);
       paths[endpoint.path][method.toLowerCase()] = {
         tags: [SENA_API_GROUPS.find((group) => group.id === endpoint.group)?.title ?? endpoint.group],
         operationId: `${endpoint.id}-${method.toLowerCase()}`,
         summary: endpoint.summary,
         security: securityFor(endpoint.auth),
-        ...(csrfRequiredForMethod(endpoint, method) ? {
-          parameters: [
-            {
-              name: "x-sena-csrf-token",
-              in: "header",
-              required: endpoint.auth === "session",
-              schema: { type: "string" },
-              description: "Token returned by GET /api/auth/csrf for cookie-auth browser mutations. Bearer-token ops calls may omit it."
-            }
-          ]
-        } : {}),
-        ...(endpoint.request ? {
+        ...(parameters.length > 0 ? { parameters } : {}),
+        ...(requestBodyDocumented(endpoint, method) ? {
           requestBody: {
-            required: !["GET", "DELETE"].includes(method),
+            required: method !== "DELETE",
             content: {
               "application/json": { schema: { type: "object", description: endpoint.request } },
               "multipart/form-data": { schema: { type: "object", description: endpoint.request } }

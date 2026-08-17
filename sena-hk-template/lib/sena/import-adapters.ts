@@ -1,4 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type { SenaAnalysisRunInput } from "./analysis-run";
+import { buildSenaStableContentHash } from "./data-contract-audit";
 import { readXlsxWorkbookRows } from "./excel-workbook";
 import {
   buildSenaDatasetFromTables,
@@ -6,6 +8,7 @@ import {
   looksLikeSenaContractJson,
   inferSenaColumnMapping,
   inferSenaTableFromName,
+  isDerivedPlaceholderPerson,
   parseSenaCsv,
   senaDatasetMetadataFromJson,
   type SenaImportRow,
@@ -103,22 +106,45 @@ function columnsFromRows(rows: SenaImportRow[]) {
 }
 
 function datasetToTables(dataset: SenaDataset, name: string): SenaMappedTable[] {
-  // A per-file dataset build is validation scaffolding: its group:"Derived"
-  // placeholders (label === id, minted by addDerivedContractRows) are
-  // reconstruction artifacts, not declarations, and must not round-trip into the
-  // merged pass as declared roster rows — that would seat a pass-1-minted
-  // interaction target on the roster (bypassing the ADR-0010 gate, since a
-  // roster-less file legitimately derives its targets in isolation) and shadow a
-  // real declared row of the same id from another file. The merged pass
-  // re-derives contribution-shaped placeholders identically; only the roster
-  // verdict changes.
-  const declaredPeople = dataset.people.filter((person) => !(person.group === "Derived" && person.label === person.id));
+  // A per-file dataset build is validation scaffolding: the placeholders
+  // addDerivedContractRows mints are reconstruction artifacts, not declarations,
+  // and must not round-trip into the merged pass as declared roster rows — that
+  // would seat a pass-1-minted interaction target on the roster (bypassing the
+  // ADR-0010 gate, since a roster-less file legitimately derives its targets in
+  // isolation) and shadow a real declared row of the same id from another file.
+  // The merged pass re-derives contribution-shaped placeholders identically;
+  // only the roster verdict changes.
+  //
+  // Which rows are placeholders is asked of the minting code, never inferred
+  // from the row's contents. The old group:"Derived"-and-label===id convention
+  // matched an analyst-declared `{"person_id":"P3","group":"Derived"}` just as
+  // well (normalizePeople defaults label to id), so a declared isolate — or one
+  // reachable only as an interaction target — was dropped here with no warning,
+  // and this route reported a smaller N than the browser/JSON route for the
+  // same contract. A declared row survives whatever its group and label.
+  const declaredPeople = dataset.people.filter((person) => !isDerivedPlaceholderPerson(person));
+  // A file contributes only the tables it actually has rows for. Synthesizing an
+  // empty one made buildSenaDatasetFromTables demand its required fields of a
+  // table the analyst never uploaded — zero rows means zero columns, so the
+  // inferred mapping cannot name any field — and inflated
+  // missingTableWarningCount with each phantom. Omitting the table lets the
+  // merged pass emit its "<table> is not uploaded" note instead, the same
+  // disclosure the browser/JSON route gives the same contract.
+  //
+  // The check is not relaxed for zero-row tables generally, and this is the only
+  // place it can be dropped safely: a table reconstructed from a finished
+  // dataset cannot have been header-only, because the columns are recomputed
+  // from the rows. A header-only people.csv/interactions.csv the analyst *did*
+  // upload keeps its real parsed columns on the CSV route and still has its
+  // required fields verified.
+  const uploadedTable = (table: SenaMappedTable["table"], rows: SenaImportRow[]) =>
+    rows.length > 0 ? [rowsToTable(`${name}-${table}`, rows, table)] : [];
   return [
-    rowsToTable(`${name}-people`, declaredPeople as unknown as SenaImportRow[], "people"),
-    rowsToTable(`${name}-interactions`, dataset.interactions as unknown as SenaImportRow[], "interactions"),
-    rowsToTable(`${name}-utterances`, dataset.utterances as unknown as SenaImportRow[], "utterances"),
-    rowsToTable(`${name}-coded_segments`, dataset.coded_segments as unknown as SenaImportRow[], "coded_segments"),
-    rowsToTable(`${name}-codebook`, dataset.codebook as unknown as SenaImportRow[], "codebook")
+    ...uploadedTable("people", declaredPeople as unknown as SenaImportRow[]),
+    ...uploadedTable("interactions", dataset.interactions as unknown as SenaImportRow[]),
+    ...uploadedTable("utterances", dataset.utterances as unknown as SenaImportRow[]),
+    ...uploadedTable("coded_segments", dataset.coded_segments as unknown as SenaImportRow[]),
+    ...uploadedTable("codebook", dataset.codebook as unknown as SenaImportRow[])
   ];
 }
 
@@ -546,7 +572,15 @@ function adaptForumRows(rows: unknown[], name: string): { dataset: SenaDataset; 
     warnings.push("Forum/LMS export was cleaned into utterances and reply interactions, but no tags, codes, or hashtag markers were found.");
   }
 
-  const result = buildSenaDatasetFromTables([peopleTable, interactionTable, utteranceTable, segmentTable, codebookTable]);
+  // Same rule as datasetToTables, at the other place this module synthesizes the
+  // five-table contract: a thread with no replies and no tags produces empty
+  // interaction/segment/codebook tables, and passing those on reported their
+  // required fields missing — a mapping fault the analyst cannot act on and did
+  // not commit. buildSenaDatasetFromTables discloses the absent tables instead.
+  const result = buildSenaDatasetFromTables(
+    [peopleTable, interactionTable, utteranceTable, segmentTable, codebookTable]
+      .filter((table) => table.rows.length > 0)
+  );
   return { dataset: result.dataset, warnings: [...warnings, ...result.warnings] };
 }
 
@@ -841,7 +875,17 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
   // the authoritative placeholder/roster-gate disclosures (ADR-0010 D2). The
   // raw per-file copies stay on `sources` for provenance; dropping them here
   // keeps the combined manifest at exactly one copy of each.
-  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include/;
+  //
+  // "<table> is not uploaded" is the same kind of per-file verdict, and it is
+  // superseded the same way, for all five tables: no producer synthesizes an
+  // empty table any more (neither datasetToTables nor the forum adapter), so
+  // every file now reports the tables it lacks and the merged pass re-decides
+  // each one — emitting it when no file supplied that table, and staying silent
+  // when another file did. Keeping the per-file copies would either duplicate
+  // the merged verdict or assert "not uploaded" about a table a sibling file
+  // plainly uploaded. Files on the plain-CSV route never emit this verdict (one
+  // table per file, no contract pass), so nothing is lost by filtering it.
+  const perFileDerivationVerdicts = /derived a placeholder person from |derived solely from target_person_ids|declared people roster does not include|^(?:people|interactions|utterances|coded_segments|codebook) table is not uploaded/;
   const allWarnings = [...warnings.filter((warning) => !perFileDerivationVerdicts.test(warning)), ...result.warnings];
   result.dataset.warnings = allWarnings;
   return {
@@ -851,4 +895,102 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
     sources,
     cleaningManifest: buildCleaningManifest(sources, allWarnings, result.dataset)
   };
+}
+
+export type SenaImportDataGovernance = SenaAnalysisRunInput["dataGovernance"];
+
+function hasOpaquePersonIds(dataset: SenaDataset) {
+  return dataset.people.length > 0 && dataset.people.every((person) => /^p-\d+$/i.test(person.id));
+}
+
+/**
+ * Derives dataset.metadata (consent, retention, pseudonymization, codebook) from
+ * the governance block an enterprise import request carried.
+ *
+ * Both callers of importSenaEnterpriseFiles apply this before they build a
+ * snapshot: the synchronous import route and the queued-job worker. It lives here
+ * rather than beside either one because library code cannot import from a route
+ * module — and while each held its own copy, the two could drift into persisting
+ * different datasets, and so different projectSnapshotSha256 values, for the same
+ * files and the same dataGovernance block.
+ */
+export function withSenaImportDatasetMetadata(
+  dataset: SenaDataset,
+  dataGovernance: SenaImportDataGovernance | undefined,
+  generatedAt: string
+): SenaDataset {
+  if (dataset.metadata || !dataGovernance || !hasOpaquePersonIds(dataset)) return dataset;
+  const consentScope = dataGovernance.consentScope?.trim();
+  const retentionPolicy = dataGovernance.retentionPolicy?.trim();
+  const irbApprovalId = dataGovernance.irbApprovalId?.trim();
+  if (!consentScope || !retentionPolicy || !irbApprovalId) return dataset;
+
+  return {
+    ...dataset,
+    metadata: {
+      datasetVersion: `enterprise-import-${buildSenaStableContentHash({
+        people: dataset.people.map((person) => person.id),
+        utterances: dataset.utterances.map((utterance) => utterance.id),
+        codedSegments: dataset.coded_segments.map((segment) => segment.segmentId),
+        codebook: dataset.codebook.map((code) => code.id)
+      })}`,
+      consent: {
+        instrument: irbApprovalId,
+        date: dataGovernance.reviewedAt?.slice(0, 10) || generatedAt.slice(0, 10),
+        scope: consentScope
+      },
+      retention: {
+        policy: retentionPolicy
+      },
+      pseudonymization: {
+        personIdPolicy: "opaque",
+        rosterMapping: "not-stored"
+      },
+      codebook: {
+        id: `enterprise-import-codebook-${buildSenaStableContentHash(dataset.codebook.map((code) => code.id))}`,
+        version: "imported-v1",
+        contentHash: buildSenaStableContentHash(dataset.codebook)
+      }
+    }
+  };
+}
+
+export type SenaReliabilityUploadFile = {
+  name: string;
+  bytes: Buffer;
+};
+
+/**
+ * Picks the parser for a reliability upload by extension.
+ *
+ * Shared by the synchronous reliability route and the queued-job worker for the
+ * same reason as withSenaImportDatasetMetadata above: a queued run has to score
+ * the same rows out of the same file the direct run would, and two copies of this
+ * dispatch had already drifted — only one of them rejected legacy .xls, so a
+ * queued .xls was read as CSV and scored as whatever its binary bytes happened to
+ * parse into.
+ */
+export async function readSenaReliabilityUploadRows(
+  file: SenaReliabilityUploadFile
+): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".xlsx")) {
+    const workbook = await readXlsxWorkbookRows(file.bytes);
+    return { rows: workbook.flatMap((sheet) => sheet.rows), warnings: [] };
+  }
+  if (lower.endsWith(".xls")) {
+    throw new Error(`${file.name}: legacy .xls reliability uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before uploading.`);
+  }
+  if (lower.endsWith(".json")) {
+    const parsed = JSON.parse(file.bytes.toString("utf8"));
+    return {
+      rows: Array.isArray(parsed) ? parsed.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)) : [],
+      warnings: []
+    };
+  }
+  const parsed = parseSenaCsv(file.bytes.toString("utf8"));
+  // Ragged-row repairs are recorded per file; the padded empty value cell is
+  // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
+  // instead of being read as an applied code that moves kappa/alpha.
+  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
 }

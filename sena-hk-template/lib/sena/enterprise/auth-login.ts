@@ -67,10 +67,21 @@ function loginEnterpriseUserInDb(
       const challenge = createMfaChallenge(db, user);
       return challenge;
     }
-    verifyMfaChallenge(db, user, {
-      mfaCode: input.mfaCode,
-      mfaChallengeToken: input.mfaChallengeToken
-    });
+    try {
+      verifyMfaChallenge(db, user, {
+        mfaCode: input.mfaCode,
+        mfaChallengeToken: input.mfaChallengeToken
+      });
+    } catch (error) {
+      // Only a rejected code counts toward the lockout — a sealed-secret failure
+      // is a server fault and must not lock the account holder out.
+      if (!(error instanceof SenaEnterpriseError) || error.code !== "invalid_mfa_code") throw error;
+      const failedLockout = recordFailedLogin(db, email, user, "mfa");
+      if (isAuthLockoutActive(failedLockout)) {
+        throw new SenaEnterpriseError("Too many failed login attempts. Try again later.", 429, "auth_locked");
+      }
+      throw error;
+    }
   }
 
   clearFailedLogin(db, email);

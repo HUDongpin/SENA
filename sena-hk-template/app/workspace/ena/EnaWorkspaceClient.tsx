@@ -56,9 +56,22 @@ import {
   enaPlotScaleRange,
   type EnaPlotDisplay
 } from "@/lib/ena/plot-display";
-import { buildEnaPlotModel, buildEnaRunResult, effectiveEnaMinWeight, unitGroupValues } from "@/lib/ena/results";
+import {
+  buildEnaPlotModel,
+  buildEnaRunResult,
+  effectiveEnaMinWeight,
+  enaResultForExport,
+  unitGroupValues
+} from "@/lib/ena/results";
 import { sampleEnaCsv } from "@/lib/ena/sample-data";
-import { cancelEnaAnalysis, runEnaAnalysis, supersedeEnaRun } from "./run-lifecycle";
+import {
+  canPublishEnaResult,
+  cancelEnaAnalysis,
+  enaRunInputFingerprint,
+  isEnaResultStale,
+  runEnaAnalysis,
+  supersedeEnaRun
+} from "./run-lifecycle";
 import type {
   EnaMapping,
   EnaPlotComposition,
@@ -759,6 +772,9 @@ export function EnaWorkspaceClient() {
   const [dataViewOpen, setDataViewOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [result, setResult] = useState<EnaRunResult | null>(null);
+  // What `result` was computed from. Written only by runEnaAnalysis, beside the
+  // result itself, and cleared wherever the result is (FA13-NEW-2).
+  const [resultInputs, setResultInputs] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [csvMessage, setCsvMessage] = useState<string>("Sample lesson-study dataset loaded.");
   const [isRunning, setIsRunning] = useState(false);
@@ -965,6 +981,35 @@ export function EnaWorkspaceClient() {
     }
   }, [result]);
 
+  /*
+    FA13-NEW-2. Everything below reads a frozen run and the live mapping and
+    options side by side — the Methods write-up interleaves them inside single
+    sentences — so the workspace has to know whether the two still describe the
+    same analysis. supersedeRunForInputChange covers the run in flight; this
+    covers the run that already finished, which its guard cannot reach.
+
+    Composition (Group By, minimum edge weight) is not part of the stamp — not
+    because a run bakes in no composition (it bakes one into result.plotModel),
+    but because every surface that shows or states it derives it live: the drawn
+    figure from composedPlotModel, the write-up from activeGroupBy/minWeight,
+    and the JSON export from the drawn model rather than the frozen one. The
+    exclusion and its narrowed justification live in run-lifecycle, where a test
+    can execute them.
+  */
+  const liveInputFingerprint = useMemo(
+    () => enaRunInputFingerprint({ mapping, options }),
+    [mapping, options]
+  );
+
+  const resultProvenance = useMemo(
+    () => ({ hasResult: result !== null, ranWith: resultInputs, live: liveInputFingerprint }),
+    [result, resultInputs, liveInputFingerprint]
+  );
+
+  const resultIsStale = isEnaResultStale(resultProvenance);
+  /** Gate on every artifact that leaves the screen: the exports and the clipboard. */
+  const resultIsPublishable = canPublishEnaResult(resultProvenance);
+
   const methodsWriteUp = useMemo(
     () =>
       buildEnaMethodsWriteUp({
@@ -973,12 +1018,14 @@ export function EnaWorkspaceClient() {
         options,
         groupBy: activeGroupBy,
         minWeight,
-        comparisons: comparisonResults
+        comparisons: comparisonResults,
+        stale: resultIsStale
       }),
-    [result, mapping, options, activeGroupBy, minWeight, comparisonResults]
+    [result, mapping, options, activeGroupBy, minWeight, comparisonResults, resultIsStale]
   );
 
   async function copyMethodsWriteUp() {
+    if (!resultIsPublishable) return;
     try {
       await navigator.clipboard.writeText(methodsWriteUp);
       setMethodsCopied(true);
@@ -1034,10 +1081,12 @@ export function EnaWorkspaceClient() {
     the layer key, subtraction, Compare table and Methods write-up all derive
     from B. Nothing signalled that mismatch and the exports would write it out.
 
-    Composition (Group By, minimum edge weight) is deliberately NOT here: it is
-    rebuilt from whatever set exists, so it follows the controls immediately
-    whichever run lands and cannot go stale. Aborting for it would throw work
-    away for nothing.
+    Composition (Group By, minimum edge weight) is deliberately NOT here: the
+    drawn figure is rebuilt from whatever set exists, so it follows the controls
+    immediately whichever run lands. Aborting for it would throw work away for
+    nothing. (The run does freeze a composition into result.plotModel; what
+    keeps that harmless is that nothing publishes it — the JSON export takes the
+    drawn model. See enaResultForExport and run-lifecycle's stamp docstring.)
 
     The guard keeps a tweak made between runs free — teardown would otherwise
     terminate a healthy idle worker and pay to respawn it on the next Run.
@@ -1057,6 +1106,7 @@ export function EnaWorkspaceClient() {
       setParsed(nextParsed);
       setMapping(nextMapping);
       setResult(null);
+      setResultInputs(null);
       setError(null);
       setCsvMessage(`${sourceLabel}: ${nextParsed.rows.length} rows and ${nextParsed.headers.length} columns loaded.`);
     } catch (csvError) {
@@ -1143,7 +1193,9 @@ export function EnaWorkspaceClient() {
       setIsRunning,
       setProgress,
       setError,
-      setResult
+      setResult,
+      inputFingerprint: liveInputFingerprint,
+      setResultInputs
     });
   }
 
@@ -1156,18 +1208,35 @@ export function EnaWorkspaceClient() {
     });
   }
 
+  // A stale result is still on screen, but it must not become a file on the
+  // researcher's disk that claims to be the analysis the workspace is showing
+  // (FA13-NEW-2). The buttons are held rather than hidden, so the reason stays
+  // visible; `resultIsPublishable` is re-checked here because a disabled
+  // control is a courtesy, not a guarantee.
+  // The figure spec that leaves here is `composedPlotModel` — the one the
+  // renderer is drawing — not `result.plotModel`, which froze Group By and the
+  // minimum edge weight at the moment Run was pressed. Composition is
+  // deliberately outside the staleness stamp because the drawn plot and the
+  // Methods write-up both follow those two controls live; the JSON export was
+  // the one surface that did not, so it shipped a plotModel with no group
+  // traces beside a paragraph reading "Units were grouped by stage". See
+  // enaResultForExport.
   function exportResultJson() {
-    if (!result) return;
-    downloadText("sena-ena-result.json", JSON.stringify(result, null, 2), "application/json");
+    if (!resultIsPublishable || !result) return;
+    downloadText(
+      "sena-ena-result.json",
+      JSON.stringify(enaResultForExport(result, composedPlotModel), null, 2),
+      "application/json"
+    );
   }
 
   function exportPointsCsv() {
-    if (!result) return;
+    if (!resultIsPublishable || !result) return;
     downloadText("sena-ena-points.csv", rowsToCsv(result.set.points), "text/csv;charset=utf-8");
   }
 
   function exportConnectionsCsv() {
-    if (!result) return;
+    if (!resultIsPublishable || !result) return;
     downloadText("sena-ena-connections.csv", rowsToCsv(result.set.connectionCounts), "text/csv;charset=utf-8");
   }
 
@@ -1784,19 +1853,39 @@ export function EnaWorkspaceClient() {
                     <SectionHeading className="mb-0">Theory &amp; Methods</SectionHeading>
                     <GhostButton
                       onClick={copyMethodsWriteUp}
-                      className="px-2 py-1 text-[11px]"
-                      title="Copy the write-up to the clipboard"
+                      className={cn("px-2 py-1 text-[11px]", !resultIsPublishable && "pointer-events-none opacity-40")}
+                      aria-disabled={!resultIsPublishable}
+                      title={
+                        resultIsStale
+                          ? "Re-run jENA first — this model was not fitted from the mapping and options now shown"
+                          : "Copy the write-up to the clipboard"
+                      }
                       data-visual-role="ena-copy-methods"
                     >
                       {methodsCopied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                       {methodsCopied ? "Copied" : "Copy"}
                     </GhostButton>
                   </div>
+                  {/* The paragraph itself is already the refusal when stale
+                      (buildEnaMethodsWriteUp), so a reader cannot mistake it for
+                      a description of the run. This names why, in the same
+                      colour as the plot's banner. */}
+                  {resultIsStale && (
+                    <div
+                      data-visual-role="ena-methods-stale-warning"
+                      className="flex gap-2 rounded border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] font-bold text-amber-600 dark:text-amber-200"
+                    >
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      Write-up withheld — the inputs changed after this model was fitted.
+                    </div>
+                  )}
                   <p className="whitespace-pre-line rounded-lg border border-cardBorder/45 bg-background/35 px-3 py-2.5 text-[11px] font-semibold leading-5 text-foreground/80">
                     {methodsWriteUp}
                   </p>
                   <p className="text-[11px] font-semibold leading-5 text-muted">
-                    Generated from the model that is loaded, not a template — the parameters, counts, and shares are this run&apos;s.
+                    {resultIsStale
+                      ? "A methods section describing something the run did not do is worse than no methods section, so none is offered until the model and the settings agree again."
+                      : "Generated from the model that is loaded, not a template — the parameters, counts, and shares are this run's."}
                   </p>
                 </div>
               )}
@@ -1881,19 +1970,30 @@ export function EnaWorkspaceClient() {
             <GhostButton
               onClick={() => {
                 setResult(null);
+                setResultInputs(null);
                 setError(null);
               }}
             >
               <RotateCcw className="h-4 w-4" /> Clear
             </GhostButton>
-            <GhostButton onClick={exportResultJson} className={cn(!result && "pointer-events-none opacity-40")} title="Download result JSON">
+            <GhostButton
+              onClick={exportResultJson}
+              className={cn(!resultIsPublishable && "pointer-events-none opacity-40")}
+              aria-disabled={!resultIsPublishable}
+              data-visual-role="ena-export-json"
+              title={
+                resultIsStale
+                  ? "Re-run jENA first — the model on screen was not fitted from the current mapping and options"
+                  : "Download result JSON"
+              }
+            >
               <Download className="h-4 w-4" /> JSON
             </GhostButton>
           </div>
         </div>
 
         {/* Alerts strip. */}
-        {(isRunning || validationMessage || error || lowRank || (result?.warnings.length ?? 0) > 0) && (
+        {(isRunning || validationMessage || error || lowRank || resultIsStale || (result?.warnings.length ?? 0) > 0) && (
           <div className="grid gap-2 px-4 pt-3">
             {isRunning && (
               <div className="flex items-center gap-3 rounded border border-cardBorder/50 bg-background/40 px-3 py-2 text-sm font-bold text-foreground">
@@ -1910,6 +2010,21 @@ export function EnaWorkspaceClient() {
             {error && (
               <div className="flex gap-3 rounded border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-600 dark:text-red-200">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+              </div>
+            )}
+            {/* FA13-NEW-2. The plotted model outlived the inputs beside it. It
+                stays on screen — discarding finished work over a stray click
+                would be worse — but it is named as the earlier run, and the
+                exports and the write-up are held until a re-run. */}
+            {resultIsStale && (
+              <div
+                data-visual-role="ena-result-stale-warning"
+                className="flex gap-3 rounded border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-600 dark:text-amber-200"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                The mapping or options changed after this model was fitted, so the plot below is the earlier
+                run — not the settings now shown. Run jENA again to bring them back in step; until then the
+                methods write-up and the exports are held.
               </div>
             )}
             {result?.warnings.map((warning) => (
@@ -1989,10 +2104,30 @@ export function EnaWorkspaceClient() {
             </button>
             {result && (
               <span className="flex gap-1.5 pl-3">
-                <GhostButton onClick={exportPointsCsv} className="px-2 py-1 text-[11px]" title="Download points CSV">
+                <GhostButton
+                  onClick={exportPointsCsv}
+                  className={cn("px-2 py-1 text-[11px]", !resultIsPublishable && "pointer-events-none opacity-40")}
+                  aria-disabled={!resultIsPublishable}
+                  data-visual-role="ena-export-points"
+                  title={
+                    resultIsStale
+                      ? "Re-run jENA first — these points are from the earlier run"
+                      : "Download points CSV"
+                  }
+                >
                   <Download className="h-3 w-3" /> Points
                 </GhostButton>
-                <GhostButton onClick={exportConnectionsCsv} className="px-2 py-1 text-[11px]" title="Download connection counts CSV">
+                <GhostButton
+                  onClick={exportConnectionsCsv}
+                  className={cn("px-2 py-1 text-[11px]", !resultIsPublishable && "pointer-events-none opacity-40")}
+                  aria-disabled={!resultIsPublishable}
+                  data-visual-role="ena-export-connections"
+                  title={
+                    resultIsStale
+                      ? "Re-run jENA first — these counts are from the earlier run"
+                      : "Download connection counts CSV"
+                  }
+                >
                   <Download className="h-3 w-3" /> Connections
                 </GhostButton>
               </span>

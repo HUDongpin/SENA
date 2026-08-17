@@ -302,6 +302,23 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       purpose: "Bearer token for deployment monitors"
     }),
     deploymentEnv({
+      name: "SENA_OPS_SESSION_OPERATOR_EMAILS",
+      category: "ops",
+      // Not secret and not a credential: an identity allowlist, consulted only
+      // after the caller has already authenticated by session.
+      //
+      // Not `required` either, deliberately. Unset is a safe, working state —
+      // the session path fails closed and monitors still reach every ops route
+      // by bearer token. What it costs is the workspace ops panels, which a
+      // signed-in admin can no longer use. That is a degraded surface, not a
+      // blocked deployment, and marking it required would raise the go-live bar
+      // for every existing deployment on the strength of a control added today.
+      required: false,
+      configured: opsStatus.deployment.opsSessionOperatorsConfigured,
+      secret: false,
+      purpose: "Operators allowed to reach the deployment-wide ops panels by session; unset leaves those panels bearer-only, so signed-in admins cannot use them"
+    }),
+    deploymentEnv({
       name: "SENA_PROVISIONING_TOKEN",
       category: "provisioning",
       required: !selfManagedEnterprise,

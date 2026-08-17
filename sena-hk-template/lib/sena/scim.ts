@@ -2,9 +2,14 @@ import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaEnterpriseRole } from "./enterprise/access-control";
 import type { SenaEnterpriseSsoProvider } from "./enterprise";
 import { SenaEnterpriseError } from "./enterprise/errors";
+// The SCIM surface writes and reads through the primary-state pair, so a
+// SCIM-provisioned user lands in whichever store login and team reads actually
+// consult. Under the file primary these are the synchronous behaviour verbatim;
+// under SENA_ENTERPRISE_STATE_STORE=postgres they are the difference between a
+// 201 and a user nobody can see.
 import {
-  listEnterpriseProvisioningDirectory,
-  provisionEnterpriseOrganization,
+  listEnterpriseProvisioningDirectoryAsync,
+  provisionEnterpriseOrganizationAsync,
   type SenaEnterpriseProvisioningDirectory,
   type SenaEnterpriseProvisioningInput,
   type SenaEnterpriseProvisioningMembershipInput,
@@ -32,6 +37,49 @@ export type SenaScimProvisioningOptions = {
   defaultSsoProvider?: SenaEnterpriseSsoProvider;
   locationBase?: string;
 };
+
+// The page ceiling the ServiceProviderConfig advertises as filter.maxResults; a
+// larger `count` is clamped to it rather than honoured, so the advertisement
+// stays true.
+export const scimListMaxResults = 200;
+
+export type SenaScimListQuery = {
+  filter?: string | null;
+  startIndex?: string | number | null;
+  count?: string | number | null;
+};
+
+export const scimSupportedFilterOperators = ["eq"] as const;
+export const scimSupportedUserFilterAttributes = ["id", "userName", "externalId"] as const;
+export const scimSupportedGroupFilterAttributes = ["id", "displayName", "externalId"] as const;
+
+/**
+ * SCIM clients parse errors against the Error message schema, not SENA's own
+ * `{error, code}` envelope, so a conformant IdP shown the internal shape sees an
+ * unparseable body and reports a transport failure rather than the real reason.
+ *
+ * `scimType` is only defined for 400s (RFC 7644 §3.12), and only over a closed
+ * vocabulary — so it is emitted for the codes that genuinely map, and omitted
+ * rather than guessed for everything else. SENA's `code` is preserved as a
+ * non-standard field so existing tooling and the audit trail keep working.
+ */
+const SCIM_ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error";
+
+const SCIM_TYPE_BY_CODE: Record<string, string> = {
+  unsupported_scim_filter: "invalidFilter",
+  invalid_scim_pagination: "invalidValue"
+};
+
+export function scimErrorBody(body: { error: string; code: string }, status: number) {
+  const scimType = status === 400 ? SCIM_TYPE_BY_CODE[body.code] : undefined;
+  return {
+    schemas: [SCIM_ERROR_SCHEMA],
+    status: String(status),
+    ...(scimType ? { scimType } : {}),
+    detail: body.error,
+    senaCode: body.code
+  };
+}
 
 export type SenaScimProvisioningBridgeResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.scimProvisioningBridge;
@@ -186,6 +234,19 @@ function buildProvisioningUserFromScim(resource: JsonRecord, options: SenaScimPr
   };
 }
 
+// SENA has no user-level active flag: GET derives `active` from whether any
+// membership is active (directoryUserToScim), so echoing the request here lets a
+// PATCH answer 200 `active: true` while the GET that follows it answers false —
+// the IdP records success, stops retrying, and the returning employee has no
+// access. The provisioning result is what actually landed, so answer from that.
+// A request that provisioned no membership has no membership status to read and
+// nothing this bridge could have changed, so it still reports what was asked.
+function scimUserResponseActive(resource: JsonRecord, provisioning: SenaEnterpriseProvisioningResult, userId?: string) {
+  const memberships = provisioning.memberships.filter((membership) => membership.userId === userId);
+  if (memberships.length === 0) return resource.active !== false;
+  return memberships.some((membership) => membership.status === "active");
+}
+
 function scimUserResponse(resource: JsonRecord, provisioning: SenaEnterpriseProvisioningResult, options: SenaScimProvisioningOptions) {
   const user = provisioning.users[0];
   const email = scimUserEmail(resource);
@@ -199,7 +260,7 @@ function scimUserResponse(resource: JsonRecord, provisioning: SenaEnterpriseProv
     name: {
       formatted: scimUserName(resource, email)
     },
-    active: resource.active !== false,
+    active: scimUserResponseActive(resource, provisioning, user?.id),
     emails: [{ value: email, primary: true }],
     meta: {
       resourceType: "User",
@@ -217,18 +278,24 @@ function scimUserResponse(resource: JsonRecord, provisioning: SenaEnterpriseProv
   };
 }
 
-function memberUserFromGroupMember(member: JsonRecord, group: JsonRecord, options: SenaScimProvisioningOptions): SenaEnterpriseProvisioningUserInput | undefined {
+// A Group PatchOp only speaks about one group, so a deactivated member must
+// lose that group's membership without being suspended everywhere else. PUT
+// keeps the whole-resource semantics it always had.
+type ScimGroupProvisioningScope = { scopeMemberStatusToGroup?: boolean };
+
+function memberUserFromGroupMember(member: JsonRecord, group: JsonRecord, options: SenaScimProvisioningOptions, scope: ScimGroupProvisioningScope = {}): SenaEnterpriseProvisioningUserInput | undefined {
   const email = asString(member.email) || (asString(member.value).includes("@") ? asString(member.value) : "");
   if (!email.includes("@")) return undefined;
   const groupExtension = extension(group, senaScimGroupExtensionSchema);
   const externalId = asString(member.externalId) || asString(member.value) || email;
   const role = roleFromValue(member.role ?? member.type ?? extension(member, senaScimGroupExtensionSchema).role, roleFromValue(groupExtension.defaultRole, defaultRole(options)));
+  const memberStatus = statusFromActive(member.active);
   return {
     externalId,
     email,
     name: asString(member.display) || email.split("@")[0],
     organization: organizationFromResource(group, options),
-    status: statusFromActive(member.active),
+    status: scope.scopeMemberStatusToGroup ? "active" : memberStatus,
     sso: {
       provider: defaultSsoProvider(options),
       subject: externalId
@@ -237,12 +304,12 @@ function memberUserFromGroupMember(member: JsonRecord, group: JsonRecord, option
       teamExternalId: asString(group.externalId) || asString(group.id) || asString(group.displayName),
       teamName: asString(group.displayName),
       role,
-      status: statusFromActive(member.active)
+      status: memberStatus
     }]
   };
 }
 
-function buildProvisioningInputFromScimGroup(resource: JsonRecord, options: SenaScimProvisioningOptions): SenaEnterpriseProvisioningInput {
+function buildProvisioningInputFromScimGroup(resource: JsonRecord, options: SenaScimProvisioningOptions, scope: ScimGroupProvisioningScope = {}): SenaEnterpriseProvisioningInput {
   const displayName = asString(resource.displayName);
   if (!displayName) {
     throw new SenaEnterpriseError("SCIM Group requires displayName.", 400, "invalid_scim_group_display_name");
@@ -254,7 +321,14 @@ function buildProvisioningInputFromScimGroup(resource: JsonRecord, options: Sena
     organization: organizationFromResource(resource, options),
     plan: groupExtension.plan === "individual" || groupExtension.plan === "lab" || groupExtension.plan === "enterprise"
       ? groupExtension.plan
-      : "enterprise"
+      : "enterprise",
+    // Left undefined when the group does not speak about defaults, so a
+    // membership PatchOp cannot erase the default a POST established.
+    // `archived` is deliberately left undefined too: SENA's team archival is not
+    // wired to SCIM Group DELETE, so no SCIM write may retire or revive a team.
+    defaultRole: asString(groupExtension.defaultRole)
+      ? roleFromValue(groupExtension.defaultRole, defaultRole(options))
+      : undefined
   };
   return {
     source: "scim",
@@ -263,18 +337,18 @@ function buildProvisioningInputFromScimGroup(resource: JsonRecord, options: Sena
     teams: [team],
     users: asArray(resource.members)
       .map(asRecord)
-      .map((member) => memberUserFromGroupMember(member, resource, options))
+      .map((member) => memberUserFromGroupMember(member, resource, options, scope))
       .filter((user): user is SenaEnterpriseProvisioningUserInput => Boolean(user))
   };
 }
 
-export function provisionEnterpriseScimUser(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
+export async function provisionEnterpriseScimUser(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
   const resource = asRecord(resourceInput);
   const user = buildProvisioningUserFromScim(resource, options);
   const teams = dedupeTeams((user.memberships ?? [])
     .map(teamInputFromMembership)
     .filter((team): team is SenaEnterpriseProvisioningTeamInput => Boolean(team)));
-  const provisioning = provisionEnterpriseOrganization({
+  const provisioning = await provisionEnterpriseOrganizationAsync({
     source: "scim",
     organization: user.organization ?? organizationFromResource(resource, options),
     dryRun: Boolean(options.dryRun),
@@ -292,10 +366,9 @@ export function provisionEnterpriseScimUser(resourceInput: unknown, options: Sen
   };
 }
 
-export function provisionEnterpriseScimGroup(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const resource = asRecord(resourceInput);
-  const input = buildProvisioningInputFromScimGroup(resource, options);
-  const provisioning = provisionEnterpriseOrganization(input);
+async function provisionScimGroupResource(resource: JsonRecord, options: SenaScimProvisioningOptions, scope: ScimGroupProvisioningScope): Promise<SenaScimProvisioningBridgeResult> {
+  const input = buildProvisioningInputFromScimGroup(resource, options, scope);
+  const provisioning = await provisionEnterpriseOrganizationAsync(input);
   const group = provisioning.teams[0];
   const id = group?.id ?? asString(resource.id) ?? asString(resource.externalId) ?? asString(resource.displayName);
   const location = options.locationBase ? `${options.locationBase.replace(/\/$/, "")}/Groups/${encodeURIComponent(id)}` : undefined;
@@ -331,6 +404,10 @@ export function provisionEnterpriseScimGroup(resourceInput: unknown, options: Se
   };
 }
 
+export async function provisionEnterpriseScimGroup(resourceInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  return await provisionScimGroupResource(asRecord(resourceInput), options, {});
+}
+
 export function enterpriseScimServiceProviderConfig(
   locationBase?: string,
   extensions: JsonRecord = {}
@@ -344,10 +421,26 @@ export function enterpriseScimServiceProviderConfig(
     documentationUri: "/api/sena/scim/v2/ServiceProviderConfig",
     patch: { supported: true },
     bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
-    filter: { supported: false, maxResults: 0 },
+    filter: { supported: true, maxResults: scimListMaxResults },
     changePassword: { supported: false },
     sort: { supported: false },
     etag: { supported: false },
+    // filter.supported is a single boolean, so it cannot say "eq on three
+    // attributes and nothing else". This block is the narrowing an IdP operator
+    // needs: anything outside it is refused with a 400, never silently ignored.
+    senaFilterSupport: {
+      operators: [...scimSupportedFilterOperators],
+      caseSensitive: false,
+      attributes: {
+        Users: [...scimSupportedUserFilterAttributes],
+        Groups: [...scimSupportedGroupFilterAttributes]
+      },
+      pagination: {
+        startIndex: true,
+        count: true,
+        maxResults: scimListMaxResults
+      }
+    },
     authenticationSchemes: [{
       type: "oauthbearertoken",
       name: "Bearer provisioning token",
@@ -371,14 +464,91 @@ export function enterpriseScimServiceProviderConfig(
   };
 }
 
-function listResponse(resources: JsonRecord[]) {
+function listResponse(resources: JsonRecord[], page?: { totalResults: number; startIndex: number }) {
   return {
     schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
-    totalResults: resources.length,
-    startIndex: 1,
+    // totalResults counts everything that matched the filter; itemsPerPage
+    // counts only what this page carries.
+    totalResults: page?.totalResults ?? resources.length,
+    startIndex: page?.startIndex ?? 1,
     itemsPerPage: resources.length,
     Resources: resources
   };
+}
+
+type ScimFilterAttributes = Record<string, (resource: JsonRecord) => unknown>;
+
+const scimUserFilterAttributes: ScimFilterAttributes = {
+  id: (resource) => resource.id,
+  userName: (resource) => resource.userName,
+  externalId: (resource) => resource.externalId
+};
+
+const scimGroupFilterAttributes: ScimFilterAttributes = {
+  id: (resource) => resource.id,
+  displayName: (resource) => resource.displayName,
+  externalId: (resource) => resource.externalId
+};
+
+const scimFilterPattern = /^\s*(\S+)\s+([A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')\s*$/;
+
+function scimFilterAttributeAccessor(attributes: ScimFilterAttributes, attribute: string, resourceSchema: string) {
+  const schemaPrefix = `${resourceSchema.toLowerCase()}:`;
+  const normalized = attribute.trim().toLowerCase();
+  // Okta and Entra both qualify attributes with the core schema URN in some
+  // configurations: userName and urn:...:2.0:User:userName mean the same thing.
+  const bare = normalized.startsWith(schemaPrefix) ? normalized.slice(schemaPrefix.length) : normalized;
+  return Object.entries(attributes).find(([name]) => name.toLowerCase() === bare)?.[1];
+}
+
+// Silently ignoring a filter is worse than refusing it: the IdP believes the
+// unfiltered directory it got back IS the match set, and reconciles against it.
+function scimFilterPredicate(filter: string, attributes: ScimFilterAttributes, resourceSchema: string) {
+  const parsed = scimFilterPattern.exec(filter);
+  const operator = parsed?.[2]?.toLowerCase();
+  const accessor = parsed ? scimFilterAttributeAccessor(attributes, parsed[1], resourceSchema) : undefined;
+  if (!parsed || !accessor || !scimSupportedFilterOperators.includes(operator as typeof scimSupportedFilterOperators[number])) {
+    throw new SenaEnterpriseError(
+      `Unsupported SCIM filter: ${filter.trim()}. SENA supports ${Object.keys(attributes).join(", ")} with the "eq" operator only.`,
+      400,
+      "unsupported_scim_filter"
+    );
+  }
+  const expected = (parsed[3] ?? parsed[4] ?? "").trim().toLowerCase();
+  return (resource: JsonRecord) => asString(accessor(resource)).toLowerCase() === expected;
+}
+
+function scimPaginationInteger(value: SenaScimListQuery["startIndex"], field: string) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isInteger(parsed)) {
+    throw new SenaEnterpriseError(`SCIM ${field} must be an integer.`, 400, "invalid_scim_pagination");
+  }
+  return parsed;
+}
+
+// RFC 7644 3.4.2.4: startIndex below 1 reads as 1, a negative count reads as 0,
+// and count 0 returns totals with no resources.
+function scimListWindow(resources: JsonRecord[], query?: SenaScimListQuery) {
+  const startIndex = Math.max(1, scimPaginationInteger(query?.startIndex, "startIndex") ?? 1);
+  const requestedCount = scimPaginationInteger(query?.count, "count");
+  const count = Math.min(Math.max(0, requestedCount ?? scimListMaxResults), scimListMaxResults);
+  return {
+    startIndex,
+    resources: resources.slice(startIndex - 1, startIndex - 1 + count)
+  };
+}
+
+function scimListPage(
+  resources: JsonRecord[],
+  query: SenaScimListQuery | undefined,
+  attributes: ScimFilterAttributes,
+  resourceSchema: string
+) {
+  const filter = asString(query?.filter);
+  const matched = filter ? resources.filter(scimFilterPredicate(filter, attributes, resourceSchema)) : resources;
+  const window = scimListWindow(matched, query);
+  return listResponse(window.resources, { totalResults: matched.length, startIndex: window.startIndex });
 }
 
 function directoryUserToScim(user: SenaEnterpriseProvisioningDirectory["users"][number], locationBase?: string): JsonRecord {
@@ -441,11 +611,29 @@ function directoryUserToScimProvisioningPayload(user: SenaEnterpriseProvisioning
 function replaceScimPath(resource: JsonRecord, path: string, value: unknown) {
   const normalizedPath = path.trim().toLowerCase();
   if (normalizedPath === "active") {
-    resource.active = value === false ? false : true;
-    if (value === false) {
+    const activating = value !== false;
+    resource.active = activating;
+    const senaExtension = extension(resource, senaScimUserExtensionSchema);
+    if (!activating) {
       resource.groups = [];
-      const senaExtension = { ...extension(resource, senaScimUserExtensionSchema), memberships: [] };
-      resource[senaScimUserExtensionSchema] = senaExtension;
+      resource[senaScimUserExtensionSchema] = { ...senaExtension, memberships: [] };
+      return;
+    }
+    // `active: true` is what every IdP sends for a returning employee, and it
+    // has to be the real inverse of the suspend above: the payload is rebuilt
+    // from the directory, where DELETE left every membership suspended, so
+    // without restoring them here the re-provision writes `suspended` again and
+    // nothing changes. Restricted to a user whose memberships are ALL suspended
+    // — a user still active somewhere is already active, and resurrecting their
+    // suspended memberships would silently undo a Group PatchOp removal.
+    const memberships = asArray(senaExtension.memberships).map(asRecord);
+    const fullySuspended = memberships.length > 0 &&
+      memberships.every((membership) => membership.active === false || asString(membership.status) === "suspended");
+    if (fullySuspended) {
+      resource[senaScimUserExtensionSchema] = {
+        ...senaExtension,
+        memberships: memberships.map((membership) => ({ ...membership, active: true, status: "active" }))
+      };
     }
     return;
   }
@@ -517,35 +705,344 @@ function directoryGroupToScim(team: SenaEnterpriseProvisioningDirectory["teams"]
     },
     [senaScimGroupExtensionSchema]: {
       organization: team.organization,
-      plan: team.plan
+      plan: team.plan,
+      // Advertised so an IdP operator can read which role their next member
+      // `add` will grant without having to provoke one.
+      defaultRole: team.defaultRole
     }
   };
 }
 
-export function listEnterpriseScimUsers(locationBase?: string) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function listEnterpriseScimUsers(locationBase?: string, query?: SenaScimListQuery) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return {
-    ...listResponse(directory.users.map((user) => directoryUserToScim(user, locationBase))),
+    ...scimListPage(
+      directory.users.map((user) => directoryUserToScim(user, locationBase)),
+      query,
+      scimUserFilterAttributes,
+      scimCoreUserSchema
+    ),
     schemaVersion: SENA_SCHEMA_VERSIONS.scimUsersList,
     directorySchemaVersion: directory.schemaVersion
   };
 }
 
-export function listEnterpriseScimGroups(locationBase?: string) {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+export async function listEnterpriseScimGroups(locationBase?: string, query?: SenaScimListQuery) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
   return {
-    ...listResponse(directory.teams.map((team) => directoryGroupToScim(team, locationBase))),
+    ...scimListPage(
+      directory.teams.map((team) => directoryGroupToScim(team, locationBase)),
+      query,
+      scimGroupFilterAttributes,
+      scimCoreGroupSchema
+    ),
     schemaVersion: SENA_SCHEMA_VERSIONS.scimGroupsList,
     directorySchemaVersion: directory.schemaVersion
   };
 }
 
-export function patchEnterpriseScimUser(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): SenaScimProvisioningBridgeResult {
-  const directory = listEnterpriseProvisioningDirectory("scim");
+function requireDirectoryScimUser(directory: SenaEnterpriseProvisioningDirectory, resourceId: string, operation: string) {
   const user = directory.users.find((candidate) => candidate.id === resourceId || candidate.externalId === resourceId);
   if (!user) {
-    throw new SenaEnterpriseError("SCIM User was not found for PatchOp.", 404, "scim_user_not_found");
+    throw new SenaEnterpriseError(`SCIM User was not found for ${operation}.`, 404, "scim_user_not_found");
   }
+  return user;
+}
+
+export async function getEnterpriseScimUser(resourceId: string, locationBase?: string) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  return directoryUserToScim(requireDirectoryScimUser(directory, resourceId, "GET"), locationBase);
+}
+
+// SCIM DELETE is mapped to a suspend, not an erasure. SENA provisioning is
+// additive, so a hard removal is not expressible, and `active: false` is the
+// deprovisioning transition the rest of this bridge already speaks: the user
+// row, its email, and its audit trail survive while every membership goes
+// suspended.
+export async function deactivateEnterpriseScimUser(resourceId: string, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  const user = requireDirectoryScimUser(directory, resourceId, "DELETE");
+  const payload = directoryUserToScimProvisioningPayload(user);
+  replaceScimPath(payload, "active", false);
+  return await provisionEnterpriseScimUser(payload, options);
+}
+
+export async function patchEnterpriseScimUser(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  const user = requireDirectoryScimUser(directory, resourceId, "PatchOp");
   const patchedResource = applyScimPatchOperations(directoryUserToScimProvisioningPayload(user), patchInput);
-  return provisionEnterpriseScimUser(patchedResource, options);
+  return await provisionEnterpriseScimUser(patchedResource, options);
+}
+
+function directoryGroupToScimProvisioningPayload(
+  team: SenaEnterpriseProvisioningDirectory["teams"][number],
+  directory: SenaEnterpriseProvisioningDirectory
+): JsonRecord {
+  const userById = new Map(directory.users.map((user) => [user.id, user]));
+  return {
+    schemas: [scimCoreGroupSchema, senaScimGroupExtensionSchema],
+    id: team.id,
+    externalId: team.externalId ?? team.id,
+    displayName: team.name,
+    members: team.members.map((member) => {
+      const user = userById.get(member.userId);
+      return {
+        value: member.userExternalId ?? member.userId,
+        email: user?.email ?? "",
+        display: member.display,
+        type: member.role,
+        active: member.status === "active"
+      };
+    }),
+    [senaScimGroupExtensionSchema]: {
+      organization: team.organization,
+      plan: team.plan,
+      // The group's stored default: a membership PatchOp carries no group
+      // extension of its own, so without this a new member added by an IdP
+      // would fall back to the least-privileged role instead of the group's.
+      defaultRole: team.defaultRole
+    }
+  };
+}
+
+// IdPs address a member by whichever id they saw first — the SCIM resource id,
+// the externalId, or the userName — so every reference is resolved through the
+// provisioned directory before it is matched or provisioned.
+type ScimGroupMemberDirectory = {
+  aliasKeys(reference: string): string[];
+  canonicalKey(reference: string): string;
+  member(reference: JsonRecord, fallbackRole: SenaEnterpriseRole): JsonRecord;
+};
+
+function scimGroupMemberDirectory(directory: SenaEnterpriseProvisioningDirectory): ScimGroupMemberDirectory {
+  const index = new Map<string, SenaEnterpriseProvisioningDirectory["users"][number]>();
+  for (const user of directory.users) {
+    for (const alias of [user.id, user.externalId, user.email]) {
+      const key = asString(alias).toLowerCase();
+      if (key) index.set(key, user);
+    }
+  }
+  const lookup = (reference: string) => index.get(reference.trim().toLowerCase());
+  return {
+    aliasKeys(reference) {
+      const user = lookup(reference);
+      if (!user) return [reference.trim().toLowerCase()].filter(Boolean);
+      return [user.id, user.externalId, user.email].map((alias) => asString(alias).toLowerCase()).filter(Boolean);
+    },
+    canonicalKey(reference) {
+      return (lookup(reference)?.id ?? reference.trim()).toLowerCase();
+    },
+    member(reference, fallbackRole) {
+      const raw = asString(reference.value) || asString(reference.email) || asString(reference.display);
+      const user = lookup(raw);
+      const email = asString(reference.email) || user?.email || (raw.includes("@") ? raw : "");
+      if (!email.includes("@")) {
+        throw new SenaEnterpriseError(
+          `SCIM Group member "${raw}" is not a provisioned user.`,
+          400,
+          "scim_group_member_not_found"
+        );
+      }
+      return {
+        value: user?.externalId ?? user?.id ?? raw ?? email,
+        email,
+        display: asString(reference.display) || user?.name || email.split("@")[0],
+        type: roleFromValue(reference.role ?? reference.type, fallbackRole),
+        active: reference.active !== false
+      };
+    }
+  };
+}
+
+// `type` on a Group member is the SCIM resource type ("User") as often as it is
+// a SENA role, and a plain `{value}` carries neither, so "the reference named a
+// role" has to be a stricter question than roleFromValue's fallback answer.
+function explicitMemberRole(reference: JsonRecord): SenaEnterpriseRole | undefined {
+  const normalized = asString(reference.role ?? reference.type).toLowerCase();
+  return enterpriseRoles.includes(normalized as SenaEnterpriseRole) ? normalized as SenaEnterpriseRole : undefined;
+}
+
+function scimGroupMemberKey(member: JsonRecord, members: ScimGroupMemberDirectory) {
+  return members.canonicalKey(asString(member.value) || asString(member.email));
+}
+
+function scimGroupMemberReferences(value: unknown) {
+  if (Array.isArray(value)) return value.map(asRecord);
+  return isRecord(value) ? [value] : [];
+}
+
+function parseScimGroupPatchPath(path: string) {
+  const filtered = /^([^[\]]+)\[\s*value\s+eq\s+["']([^"']+)["']\s*\]$/i.exec(path.trim());
+  if (filtered) return { attribute: filtered[1], filterValue: filtered[2] };
+  if (path.includes("[")) {
+    throw new SenaEnterpriseError(`Unsupported SCIM PatchOp path filter: ${path}`, 400, "unsupported_scim_patch_path");
+  }
+  return { attribute: path, filterValue: undefined };
+}
+
+// Provisioning is additive, so a removed member has to stay in the payload as
+// an inactive entry — dropping it silently would leave the stored membership
+// untouched and the IdP's removal would never land.
+function patchScimGroupMembers(
+  current: JsonRecord[],
+  op: string,
+  value: unknown,
+  filterValue: string | undefined,
+  members: ScimGroupMemberDirectory,
+  fallbackRole: SenaEnterpriseRole
+) {
+  if (op === "remove") {
+    // RFC 7644 3.5.2.2 removes the whole attribute only when the operation
+    // names no value at all. An operation that DID name references — an empty
+    // delta, a `$ref`/`display` member reference RFC 7643 4.2 permits, a value
+    // that trims to nothing — none of which resolved is a broken request, not a
+    // request to deprovision the entire roster: read as one it suspends every
+    // membership behind a 200 the IdP never retries.
+    const namedNoValue = filterValue === undefined && value === undefined;
+    const targets = new Set<string>();
+    for (const reference of [filterValue, ...scimGroupMemberReferences(value).map((entry) => asString(entry.value) || asString(entry.email))]) {
+      for (const alias of members.aliasKeys(asString(reference))) targets.add(alias);
+    }
+    if (targets.size === 0 && !namedNoValue) {
+      throw new SenaEnterpriseError(
+        "SCIM Group PatchOp remove named no resolvable member. Supply members[].value, or omit the value entirely to clear the attribute.",
+        400,
+        "invalid_scim_patch"
+      );
+    }
+    return current.map((member) => {
+      const aliases = members.aliasKeys(asString(member.value) || asString(member.email));
+      const matched = targets.size === 0 || aliases.some((alias) => targets.has(alias));
+      return matched ? { ...member, active: false } : member;
+    });
+  }
+
+  const currentByKey = new Map(current.map((member) => [scimGroupMemberKey(member, members), member]));
+  const incoming = scimGroupMemberReferences(value).map((reference) => {
+    const resolved = filterValue && !asString(reference.value) ? { ...reference, value: filterValue } : reference;
+    const member = members.member(resolved, fallbackRole);
+    const existing = currentByKey.get(scimGroupMemberKey(member, members));
+    // An IdP retry or a full re-sync re-sends members it already added, with a
+    // bare `{value}` or the RFC 7643 4.2 `type: "User"` — neither is an
+    // enterprise role. Rebuilding those entries from the fallback would silently
+    // demote a PI to the default role, so a colliding reference that names no
+    // role SENA recognises merges onto the stored member instead of replacing
+    // it. Only a genuinely new member takes the fallback.
+    if (!existing) return member;
+    return { ...existing, ...member, type: explicitMemberRole(resolved) ?? existing.type };
+  });
+  if (filterValue && incoming.length === 0) {
+    throw new SenaEnterpriseError("SCIM Group PatchOp member operation requires a value.", 400, "invalid_scim_patch");
+  }
+  const incomingKeys = new Set(incoming.map((member) => scimGroupMemberKey(member, members)));
+  const retained = current
+    .filter((member) => !incomingKeys.has(scimGroupMemberKey(member, members)))
+    // A pathless/unfiltered replace is a full member-list replacement: everyone
+    // the IdP left out is no longer a member.
+    .map((member) => (op === "replace" && !filterValue ? { ...member, active: false } : member));
+  return [...retained, ...incoming];
+}
+
+function applyScimGroupPatchAttribute(
+  resource: JsonRecord,
+  attribute: string,
+  op: string,
+  value: unknown,
+  filterValue: string | undefined,
+  members: ScimGroupMemberDirectory,
+  fallbackRole: SenaEnterpriseRole
+) {
+  const normalizedAttribute = attribute.trim().toLowerCase();
+  if (normalizedAttribute === "members") {
+    resource.members = patchScimGroupMembers(asArray(resource.members).map(asRecord), op, value, filterValue, members, fallbackRole);
+    return;
+  }
+  if (normalizedAttribute === "displayname") {
+    if (op === "remove") {
+      throw new SenaEnterpriseError("SCIM Group displayName cannot be removed.", 400, "invalid_scim_group_display_name");
+    }
+    const displayName = asString(value);
+    if (!displayName) {
+      throw new SenaEnterpriseError("SCIM Group requires displayName.", 400, "invalid_scim_group_display_name");
+    }
+    resource.displayName = displayName;
+    return;
+  }
+  throw new SenaEnterpriseError(`Unsupported SCIM PatchOp path: ${attribute}`, 400, "unsupported_scim_patch_path");
+}
+
+function applyScimGroupPatchOperations(
+  resource: JsonRecord,
+  patchInput: unknown,
+  members: ScimGroupMemberDirectory,
+  fallbackRole: SenaEnterpriseRole
+) {
+  const patch = asRecord(patchInput);
+  const operations = asArray(patch.Operations ?? patch.operations).map(asRecord);
+  if (operations.length === 0) {
+    throw new SenaEnterpriseError("SCIM PatchOp requires at least one operation.", 400, "invalid_scim_patch");
+  }
+  for (const operation of operations) {
+    const op = asString(operation.op || "replace").toLowerCase();
+    if (op !== "replace" && op !== "add" && op !== "remove") {
+      throw new SenaEnterpriseError(`Unsupported SCIM PatchOp operation: ${op}`, 400, "unsupported_scim_patch_operation");
+    }
+    const path = asString(operation.path);
+    if (!path) {
+      if (op === "remove") {
+        throw new SenaEnterpriseError("SCIM PatchOp remove requires a path.", 400, "invalid_scim_patch");
+      }
+      for (const [key, entryValue] of Object.entries(asRecord(operation.value))) {
+        applyScimGroupPatchAttribute(resource, key, op, entryValue, undefined, members, fallbackRole);
+      }
+      continue;
+    }
+    const { attribute, filterValue } = parseScimGroupPatchPath(path);
+    applyScimGroupPatchAttribute(resource, attribute, op, operation.value, filterValue, members, fallbackRole);
+  }
+  return resource;
+}
+
+function requireDirectoryScimGroup(directory: SenaEnterpriseProvisioningDirectory, resourceId: string, operation: string) {
+  const team = directory.teams.find((candidate) => candidate.id === resourceId || candidate.externalId === resourceId);
+  if (!team) {
+    throw new SenaEnterpriseError(`SCIM Group was not found for ${operation}.`, 404, "scim_group_not_found");
+  }
+  return team;
+}
+
+export async function getEnterpriseScimGroup(resourceId: string, locationBase?: string) {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  return directoryGroupToScim(requireDirectoryScimGroup(directory, resourceId, "GET"), locationBase);
+}
+
+// Group DELETE is the same suspend as User DELETE, scoped to this group: every
+// membership it provisioned goes suspended while the users themselves stay
+// active elsewhere. The team row survives, and deliberately is NOT archived:
+// team archival suspends every active membership on the team regardless of who
+// provisioned it, so retiring the team here would let an IdP revoke an
+// API-owned owner's access to a team SENA created — and would do it around the
+// `last_team_manager_required` guard rather than through it. So a group whose
+// own manager is the team's last active manager is still refused with
+// `last_team_manager_required` rather than half-applied.
+export async function deactivateEnterpriseScimGroup(resourceId: string, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  const team = requireDirectoryScimGroup(directory, resourceId, "DELETE");
+  const payload = directoryGroupToScimProvisioningPayload(team, directory);
+  payload.members = asArray(payload.members).map(asRecord).map((member) => ({ ...member, active: false }));
+  return await provisionScimGroupResource(payload, options, { scopeMemberStatusToGroup: true });
+}
+
+export async function patchEnterpriseScimGroup(resourceId: string, patchInput: unknown, options: SenaScimProvisioningOptions = {}): Promise<SenaScimProvisioningBridgeResult> {
+  const directory = await listEnterpriseProvisioningDirectoryAsync("scim");
+  const team = requireDirectoryScimGroup(directory, resourceId, "PatchOp");
+  const payload = directoryGroupToScimProvisioningPayload(team, directory);
+  const fallbackRole = roleFromValue(extension(payload, senaScimGroupExtensionSchema).defaultRole, defaultRole(options));
+  const patchedResource = applyScimGroupPatchOperations(
+    payload,
+    patchInput,
+    scimGroupMemberDirectory(directory),
+    fallbackRole
+  );
+  return await provisionScimGroupResource(patchedResource, options, { scopeMemberStatusToGroup: true });
 }

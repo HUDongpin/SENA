@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { patchEnterpriseScimUser, provisionEnterpriseScimUser, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  deactivateEnterpriseScimUser,
+  getEnterpriseScimUser,
+  patchEnterpriseScimUser,
+  provisionEnterpriseScimUser,
+  type SenaScimProvisioningOptions,
+  scimErrorBody
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -22,19 +29,38 @@ async function upsertUser(request: Request, resourceId: string) {
   const resource = typeof body === "object" && body !== null && !Array.isArray(body)
     ? { id: resourceId, ...body }
     : { id: resourceId };
-  const bridge = provisionEnterpriseScimUser(resource, scimOptions(request));
+  const bridge = await provisionEnterpriseScimUser(resource, scimOptions(request));
   return NextResponse.json(bridge.resource);
 }
 
+export async function GET(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    return NextResponse.json(await getEnterpriseScimUser(resourceId, scimOptions(request).locationBase));
+  });
+}
+
+// SCIM DELETE deprovisions by suspending, not by erasing: the user row survives
+// with every membership suspended. RFC 7644 3.6 wants 204 with no body.
+export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    await deactivateEnterpriseScimUser(resourceId, scimOptions(request));
+    return new NextResponse(null, { status: 204 });
+  });
+}
+
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     return await upsertUser(request, resourceId);
   });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-users-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     requireProvisioningBearerToken(request);
     const body = await request.json();
@@ -44,13 +70,13 @@ export async function PATCH(request: Request, { params }: ScimResourceRouteConte
     const isPatchOp = schemas.some((schema: unknown) => String(schema).toLowerCase().includes("patchop")) ||
       (typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray((body as { Operations?: unknown }).Operations));
     if (isPatchOp) {
-      const bridge = patchEnterpriseScimUser(resourceId, body, scimOptions(request));
+      const bridge = await patchEnterpriseScimUser(resourceId, body, scimOptions(request));
       return NextResponse.json(bridge.resource);
     }
     const resource = typeof body === "object" && body !== null && !Array.isArray(body)
       ? { id: resourceId, ...body }
       : { id: resourceId };
-    const bridge = provisionEnterpriseScimUser(resource, scimOptions(request));
+    const bridge = await provisionEnterpriseScimUser(resource, scimOptions(request));
     return NextResponse.json(bridge.resource);
   });
 }

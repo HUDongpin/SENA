@@ -476,6 +476,68 @@ function readUploadBlobBytes(upload: SenaEnterpriseUpload) {
   return storedBytes;
 }
 
+export type SenaEnterpriseUploadContent = {
+  upload: SenaEnterpriseUpload;
+  /** Decrypted plaintext, verified against the registered checksum. In memory only. */
+  bytes: Buffer;
+};
+
+/**
+ * Resolves registered uploads by id and hands back their decrypted bytes.
+ *
+ * This is the only way out of this module for upload content, and it exists so
+ * that the in-repo server job worker can execute run-import and upload-pointer
+ * run-reliability jobs without a second copy of the AES-256-GCM envelope or its
+ * key derivation living somewhere else — a duplicated crypto path silently
+ * diverges the first time the key policy changes. It reuses the same private
+ * uploadBlobAbsolutePath/readUploadBlobBytes helpers the storage verifier uses.
+ *
+ * It is deliberately narrow:
+ * - by id only, never "everything in the team", and never by path;
+ * - scoped to one team, which must be one the caller already holds upload:read
+ *   on, so it cannot widen what the caller could already list;
+ * - an id that is unknown, belongs to another team, has lost its blob, or no
+ *   longer matches its registered checksum raises instead of yielding empty
+ *   bytes. Callers that import "successfully" from nothing are the failure mode
+ *   this guards against.
+ *
+ * Bytes are returned in memory and never written back to disk or logged.
+ */
+export async function readEnterpriseUploadContentsAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId: string; uploadIds: string[] }
+): Promise<SenaEnterpriseUploadContent[]> {
+  requireEnterprisePermission(context, input.teamId, "upload:read");
+  if (input.uploadIds.length === 0) {
+    throw new SenaEnterpriseError("No upload ids were supplied to read.", 400, "upload_ids_required");
+  }
+  const state = await readEnterpriseState();
+  const uploadsById = new Map(state.db.uploads
+    .filter((upload) => upload.teamId === input.teamId)
+    .map((upload) => [upload.id, upload] as const));
+
+  return input.uploadIds.map((uploadId) => {
+    const upload = uploadsById.get(uploadId);
+    if (!upload) {
+      // Covers both "never registered" and "registered to another team": the
+      // caller learns nothing about uploads outside its own team either way.
+      throw new SenaEnterpriseError("Upload was not found for this team.", 404, "upload_not_found");
+    }
+    if (!existsSync(uploadBlobAbsolutePath(upload))) {
+      throw new SenaEnterpriseError("Upload blob is missing from enterprise storage.", 410, "upload_blob_missing");
+    }
+    const bytes = readUploadBlobBytes(upload);
+    if (createHash("sha256").update(bytes).digest("hex") !== upload.sha256) {
+      throw new SenaEnterpriseError(
+        "Upload blob does not match its registered checksum.",
+        409,
+        "upload_blob_checksum_mismatch"
+      );
+    }
+    return { upload, bytes };
+  });
+}
+
 type CreateEnterpriseUploadsInput = {
   teamId: string;
   files: Array<{

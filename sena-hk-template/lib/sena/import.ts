@@ -451,6 +451,48 @@ function uniqueById<T extends { id: string }>(items: T[], label: string, warning
   return uniqueBy(items, label, warnings, (item) => item.id);
 }
 
+/**
+ * Reconstruction placeholders identify themselves here, by object identity, so
+ * no consumer has to infer "machine-minted" from the row's contents. The old
+ * convention (group:"Derived" with label === id) was unusable as a marker: an
+ * analyst who declares `{"person_id":"P3","group":"Derived"}` with no label
+ * produces exactly that shape, because `normalizePeople` defaults label to id.
+ * The enterprise round trip read the convention literally and dropped such a
+ * declared row — silently, since nothing re-derives an isolate or a
+ * target-only id — shrinking N and the S dimension against the very roster
+ * ADR-0010 makes authoritative.
+ *
+ * The marker lives in a WeakSet rather than in a field on SenaPerson because
+ * person rows *are* the analyst-facing artifact: `datasetToTables` hands them
+ * to `columnsFromRows` (Object.keys) as contract import rows, and buildSenaModel
+ * and report.ts spread them into published payloads. Any own property would
+ * surface there as a contract column and a serialized field. A WeakSet is
+ * invisible to Object.keys, spreads, and JSON.stringify alike, so the marker
+ * cannot leak, cannot move fingerprints, and dies with the in-memory dataset.
+ */
+const derivedPlaceholderPeople = new WeakSet<SenaPerson>();
+
+/**
+ * True only for rows this module minted as reconstruction scaffolding. A
+ * declared roster row is never marked, whatever its group or label.
+ */
+export function isDerivedPlaceholderPerson(person: SenaPerson) {
+  return derivedPlaceholderPeople.has(person);
+}
+
+function pushDerivedPlaceholderPerson(dataset: SenaDataset, personId: string): SenaPerson {
+  const person: SenaPerson = {
+    id: personId,
+    label: personId,
+    role: "Participant",
+    group: "Derived",
+    initials: personId.slice(0, 2).toUpperCase()
+  };
+  derivedPlaceholderPeople.add(person);
+  dataset.people.push(person);
+  return person;
+}
+
 function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
   const peopleById = new Map(dataset.people.map((person) => [person.id, person]));
   // Whether the upload declared a people roster at all. A declared roster is
@@ -460,14 +502,7 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
   const hasDeclaredRoster = dataset.people.length > 0;
   for (const utterance of dataset.utterances) {
     if (!peopleById.has(utterance.personId)) {
-      dataset.people.push({
-        id: utterance.personId,
-        label: utterance.personId,
-        role: "Participant",
-        group: "Derived",
-        initials: utterance.personId.slice(0, 2).toUpperCase()
-      });
-      peopleById.set(utterance.personId, dataset.people[dataset.people.length - 1]);
+      peopleById.set(utterance.personId, pushDerivedPlaceholderPerson(dataset, utterance.personId));
       warnings.push(`people table did not include "${utterance.personId}"; derived a placeholder person from utterances.`);
     }
   }
@@ -483,14 +518,7 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
     const derivable = hasDeclaredRoster ? [interaction.source] : [interaction.source, interaction.target];
     for (const personId of derivable) {
       if (!peopleById.has(personId)) {
-        dataset.people.push({
-          id: personId,
-          label: personId,
-          role: "Participant",
-          group: "Derived",
-          initials: personId.slice(0, 2).toUpperCase()
-        });
-        peopleById.set(personId, dataset.people[dataset.people.length - 1]);
+        peopleById.set(personId, pushDerivedPlaceholderPerson(dataset, personId));
         warnings.push(`people table did not include "${personId}"; derived a placeholder person from interactions.`);
       }
     }
@@ -518,14 +546,7 @@ function addDerivedContractRows(dataset: SenaDataset, warnings: string[]) {
     const declared = hasDeclaredRoster ? [segment.personId] : [segment.personId, ...(segment.targetPersonIds ?? [])];
     for (const personId of declared) {
       if (personId && !peopleById.has(personId)) {
-        dataset.people.push({
-          id: personId,
-          label: personId,
-          role: "Participant",
-          group: "Derived",
-          initials: personId.slice(0, 2).toUpperCase()
-        });
-        peopleById.set(personId, dataset.people[dataset.people.length - 1]);
+        peopleById.set(personId, pushDerivedPlaceholderPerson(dataset, personId));
         warnings.push(`people table did not include "${personId}"; derived a placeholder person from coded_segments.`);
         // Derived here and never an author of a segment (nor of an utterance or
         // an interaction — those loops ran first), so the only thing that put

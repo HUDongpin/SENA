@@ -2,30 +2,32 @@
 
 import dynamic from "next/dynamic";
 
+import { SenaWorkspaceShellStage } from "./workspace/workspace-shell-stage";
+
+/**
+ * Stage 2 of the two-stage workspace load (ADR-0011, T7).
+ *
+ * This module is the outer stage: it owns the dynamic import of the analysis
+ * workspace — the component that runs `useSenaFusionWorkspaceMainShellProps` and
+ * therefore reaches `analysis-runtime` → `lib/sena/model` → sna.js/jena-js/SVD —
+ * and renders the chrome-only stage-1 shell until that import resolves.
+ *
+ * The split is a component boundary rather than a nullable `model` threaded down,
+ * because `model` feeds ~54 render-body memos in one hook and hooks cannot be
+ * conditional. Stage 2 is today's component and today's hook, unchanged, mounted
+ * once compute is ready, so every memo still runs unconditionally.
+ *
+ * `SenaWorkspaceShellStage` is imported statically on purpose: as the fallback of
+ * an `ssr: false` dynamic it is prerendered into the route HTML, so the chrome is
+ * painted from the first response instead of waiting on a second JS round trip.
+ * That is only safe because the shell reaches nothing in the analysis graph — see
+ * the rule at the top of workspace-shell-stage.tsx.
+ */
 const SenaFusionWorkspaceClient = dynamic(
   () => import("./SenaFusionWorkspace").then((module) => module.SenaFusionWorkspace),
   {
     ssr: false,
-    loading: () => (
-      <main
-        data-testid="sena-workspace-loading"
-        className="min-h-screen bg-background px-4 py-6 text-foreground sm:px-6 lg:px-8"
-      >
-        <div className="mx-auto flex min-h-[70vh] max-w-6xl items-center justify-center">
-          <div className="w-full max-w-xl rounded-lg border border-cardBorder/45 bg-card/75 p-6 shadow-glow">
-            <div className="h-3 w-32 rounded-full bg-foreground/20" />
-            <div className="mt-5 h-8 w-5/6 rounded-full bg-foreground/15" />
-            <div className="mt-3 h-8 w-3/5 rounded-full bg-foreground/10" />
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              <div className="h-24 rounded-lg border border-cardBorder/35 bg-background/45" />
-              <div className="h-24 rounded-lg border border-cardBorder/35 bg-background/45" />
-              <div className="h-24 rounded-lg border border-cardBorder/35 bg-background/45" />
-            </div>
-            <div className="mt-6 h-64 rounded-lg border border-cardBorder/35 bg-background/35" />
-          </div>
-        </div>
-      </main>
-    )
+    loading: () => <SenaWorkspaceShellStage />
   }
 );
 

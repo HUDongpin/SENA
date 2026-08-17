@@ -50,7 +50,8 @@ function writeUp(minWeight: number) {
     options: defaultEnaOptions,
     groupBy: "",
     minWeight,
-    comparisons: []
+    comparisons: [],
+    stale: false
   });
 }
 

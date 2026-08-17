@@ -4,6 +4,7 @@ import {
   listEnterpriseServerJobs,
   senaEnterpriseServerJobKinds,
   updateEnterpriseServerJobStatus,
+  type SenaEnterpriseServerJobCallerScope,
   type SenaEnterpriseServerJobKind,
   type SenaEnterpriseServerJobStatus,
   type SenaEnterpriseServerJobStatusAction
@@ -12,7 +13,7 @@ import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
-import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
+import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireOpsAccess, requireOpsMutationAccess } from "@/lib/sena/ops-api";
 
 export const runtime = "nodejs";
@@ -50,6 +51,30 @@ function sanitizedLimit(value: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
 }
 
+/**
+ * Session callers are humans in a workspace, so their reach is their own team;
+ * bearer callers are the external job worker, whose whole purpose is to service
+ * every team's queue. Only the session branch gets a caller scope — the queue
+ * layer treats an absent scope as the machine-to-machine path.
+ *
+ * Mirrors the session-mode shape of app/api/sena/ops/native-adapters/route.ts.
+ */
+async function sessionCallerScope(
+  access: { mode: "session" | "bearer" },
+  teamId: string | undefined
+): Promise<SenaEnterpriseServerJobCallerScope | undefined> {
+  if (access.mode !== "session") return undefined;
+  if (!teamId) {
+    throw new SenaEnterpriseError(
+      "Team id is required for session-scoped SENA server job access.",
+      400,
+      "server_job_team_required"
+    );
+  }
+  const context = await requireApiSession();
+  return { teamId, memberships: context.memberships };
+}
+
 function redactedErrorHash(body: { errorHash?: unknown; errorMessage?: unknown }) {
   if (typeof body.errorHash === "string" && /^[a-f0-9]{64}$/i.test(body.errorHash)) {
     return body.errorHash.toLowerCase();
@@ -64,12 +89,14 @@ export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-jobs" }, async () => {
     const access = await requireOpsAccess(request);
     const url = new URL(request.url);
+    const teamId = url.searchParams.get("teamId")?.trim() || undefined;
     const result = await listEnterpriseServerJobs({
       status: maybeStatus(url.searchParams.get("status")),
       kind: maybeKind(url.searchParams.get("kind")),
-      teamId: url.searchParams.get("teamId") || undefined,
+      teamId,
       projectId: url.searchParams.get("projectId") || undefined,
-      limit: sanitizedLimit(url.searchParams.get("limit"))
+      limit: sanitizedLimit(url.searchParams.get("limit")),
+      callerScope: await sessionCallerScope(access, teamId)
     });
     return NextResponse.json({
       ...result,
@@ -99,7 +126,14 @@ export async function POST(request: Request) {
       reason?: unknown;
       force?: unknown;
       uploadWarnings?: unknown;
+      teamId?: unknown;
     };
+    // Session callers declare the team they are acting for (body first, query
+    // fallback); the queue layer then refuses any job that team does not own.
+    const declaredTeamId = (typeof body.teamId === "string" && body.teamId.trim())
+      ? body.teamId.trim()
+      : new URL(request.url).searchParams.get("teamId")?.trim() || undefined;
+    const callerScope = await sessionCallerScope(access, declaredTeamId);
     const action = typeof body.action === "string" && statusActions.has(body.action as SenaEnterpriseServerJobStatusAction)
       ? body.action as SenaEnterpriseServerJobStatusAction
       : undefined;
@@ -123,7 +157,8 @@ export async function POST(request: Request) {
       // — a malformed report must fail loud, not be silently ignored.
       uploadWarnings: body.uploadWarnings === undefined || body.uploadWarnings === null
         ? undefined
-        : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>
+        : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>,
+      callerScope
     });
     await recordEnterpriseAuditAsync({
       event: "ops.server_job.status",

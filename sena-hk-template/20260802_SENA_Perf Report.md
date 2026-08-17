@@ -11,6 +11,26 @@ regresses >2%; otherwise revert and log the negative result. Gates before record
 or the change is reverted. After a landed bundle win, ratchet the corresponding budget in
 `lib/sena/enterprise/performance-budget-artifact.ts`.
 
+**Protocol refinement (2026-08-16, T7 review) — match the criterion to the mechanism.**
+Before setting an acceptance criterion for a change, classify what the change can move,
+and classify what gates the metric. A change that alters **ordering** (code-splitting,
+deferral, two-stage loading, prefetch) cannot move a metric gated by **payload** —
+on a bandwidth-saturated load, time-to-X is wire-bytes ÷ bandwidth, and reordering leaves
+both terms untouched. Only removing bytes from the critical path moves it.
+
+Establish which regime you are in *before* writing the criterion, from the waterfall: if
+the transfer is continuous from first byte to last with no idle gap, the load is
+bandwidth-bound and every ordering change will read as noise. If there is idle to
+reclaim, ordering can win.
+
+This rule exists because T7 was set the criterion "Slow 3G time-to-figure must improve",
+which two-stage loading could never satisfy — the load is saturated end to end (474,476 B
+at an effective 406 kbps, 36 ms seam between waves). It measured −6 ms and a correct,
+working implementation was reverted for failing a test that was impossible by
+construction, while the criterion that mattered — a usable shell during the wait — passed
+with an 8.80 s window. Asking a reordering to do a payload's job wastes the work and,
+worse, produces a false negative that reads as evidence against the right direction.
+
 **Protocol refinement (2026-08-03, loop-command review).** Acceptance is two-tier. Byte
 metrics (deterministic): any measurable improvement above the build-noise floor may land
 when behavior-preserving (calibrate the floor once — build the same commit twice
@@ -440,3 +460,221 @@ strict-evidence flags.
   Load-to-interactive is now 301.9 ms vs the 325.8 ms recorded one iteration earlier.
   Next: T10 (low) or T8 (low); the substantive queue is empty pending Peter's T7 and
   ratchet decisions.
+
+- **2026-08-16 iteration 9 — post-redesign re-baseline, by same-session A/B.** The
+  ledger's runtime numbers all predated the 2026-08-11 fusion merge, so nobody knew
+  whether the redesign had regressed them. P6's 9–31% cross-day drift means a
+  comparison against the 2026-08-03 figures would have been a reading, not a verdict,
+  so all three builds below were built and measured **in one session on one machine
+  against one `node_modules`**, from clean git worktrees pinned to a commit (the main
+  clone carried uncommitted work from a concurrent session).
+
+  Bases chosen deliberately. The first attempt used `28b47f2` — main's parent at the
+  merge — and produced an apparent 17.7 ms improvement. That base **predates the T11
+  double-render fix** (`c4ff7ba`, same day, not an ancestor), so the A/B was crediting
+  the redesign with an unrelated fix: it showed `canvasRemountMs` 18.4 ms, the very
+  thing T11 removed. Re-based to **`cb75e20`, the commit the fusion branch was actually
+  built on**, which contains T11. Recording the discarded attempt because the trap is
+  reusable: "the parent of the merge" is not the same as "the code the branch was
+  written against".
+
+  | | `cb75e20` pre-redesign | `6bbb222` main (redesign) | `18884e1` + remediation |
+  |---|---|---|---|
+  | default surface | A1 canvas | plane-orbit | plane-orbit |
+  | canvasSettled median | **301.9 ms** | — | **301.9 ms** |
+  | canvasRemountMs | 0.0 | — | 0.0 |
+  | plot switch, all views | **29.0 ms** | — | **29.3 ms** |
+  | total-static-js-br | **812,095 B** | **821,600 B** | **824,408 B** |
+
+  **Verdict: the fusion redesign did not regress workspace latency.** `canvasSettled`
+  is identical at 301.9 ms and the plot switch moves +0.3 ms — far inside its own IQR
+  (24.1–35.4 ms base, 24.8–36.2 ms head). This is a like-for-like comparison of what a
+  user actually gets by default, and note the two sides render *different figures*: the
+  plane-orbit surface costs the same as the A1 canvas it replaced.
+
+  **Byte attribution** (the "~10 KB unattributed" the gap review flagged, now measured):
+  redesign **+9,505 B (+1.17%)**, this session's remediation **+2,808 B (+0.35%)** for
+  ~18k lines, total **+12,313 B (+1.52%)** since pre-redesign. Head sits at
+  **824,408 / 852,000 B — 27,592 B (3.24%) headroom**. Shared first-load is unchanged at
+  526.6 KiB (was 526.4), so no framework-floor regression; the compute chunk is 955.9
+  KiB raw (was 923.9). Hot paths unchanged: `buildSenaModel` 31.6 ms @250x against 31.5
+  recorded, `importSenaJsonContract` 6.1 ms, total 52.4 ms.
+
+  **The harness was dead, not stale.** `bench-sena-workspace-latency.mjs` waited on
+  `sena-fusion-canvas`, which ADR-0009 stopped rendering by default on 2026-08-11, so
+  the bench had been timing out for five days — invisible because it had not been run
+  since 2026-08-03. The staleness hid its own cause. Fixed in `960af7f` to match either
+  surface, which is also what made this A/B possible. A measurement tool that silently
+  stops measuring is the same failure class as a test that cannot fail: neither reports
+  anything wrong, both simply stop being evidence.
+
+  **Conditions, disclosed:** Mac16,11, 12 cores; load average 3.0–5.0 throughout, with
+  no competing SENA process (the other node processes on the box were a different
+  project's idle dev server and Playwright daemon, both at 0.0% CPU). 15 cold-load runs
+  per build, fresh context each; 2 warmup + 7 measured per hot-path scale point.
+  `canvasFirst` is ~301.9 ms on every build measured, including the discarded one — that
+  floor is structural, not redesign-related, and remains the open question P8 named.
+
+  Next: unchanged — the substantive queue is still T7 and the ratchet confirmation,
+  both Peter's.
+
+- **2026-08-16 iteration 9 addendum — the flat metric is real work, and it dents P8.**
+  `canvasSettled` read 301.9 ms on *every* build measured, to 0.1 ms, which is a
+  suspicious result for a render metric: a number that cannot move would make "no
+  regression" trivially true rather than meaningful. Checked rather than assumed, by
+  CPU-throttling the same build (5 fresh contexts per rate):
+
+  | CDP throttle | canvas median |
+  |---|---|
+  | 1x | 303.1 ms |
+  | 4x | 649.6 ms |
+  | 8x | 1375.5 ms |
+
+  It moves 4.5x, so the metric is CPU-bound work and iteration 9's verdict stands on a
+  metric that *can* register a regression. First grep for a fixed ~300 ms timer in the
+  workspace mount path found none, which is consistent.
+
+  It is not perfectly linear in the throttle, so the sample decomposes: solving across
+  the 4x→8x leg gives roughly **~180 ms of CPU work plus ~120 ms of fixed
+  (non-CPU) overhead** at 1x. That ~180 ms is almost exactly the residue **P8** named
+  and left open ("all critical-path JS finishes by ~70 ms and long tasks total 71 ms,
+  yet the canvas settles at ~302 ms"). P8 asked for a browser CPU profile; this does not
+  replace one, but it does establish the gap is CPU-bound rather than scheduling or
+  network, which narrows where that profile should look. The remaining ~120 ms is the
+  part a profile still has to explain.
+
+- **2026-08-16 iteration 9, part 2 — P8 attributed, and T7's missing measurement taken.**
+  P8 asked for a browser CPU profile of the 70–302 ms window and had been open since
+  iteration 7. Taken via CDP `Profiler` at a 100 µs sampling interval over a cold load
+  (2,530 samples, 381.8 ms window). Top self-time:
+
+  | self | frame |
+  |---|---|
+  | 78.6 ms | `(program)` — V8 parse/compile |
+  | 25.7 ms | webpack module loader |
+  | 25.6 + 16.4 + 5.3 + 4.2 + 4.2 + 3.8 ms | chunk **2599** |
+  | 24.6 ms | `(idle)` |
+  | 19.4 ms | garbage collector |
+
+  Chunk 2599 is the **955.9 KiB compute chunk** (`sna.js` + `jena-js` + SVD). So the
+  residue is dominated by downloading, parsing and evaluating the eagerly-loaded compute
+  bundle, plus the GC that follows it — not React scheduling, which iteration 7 had
+  listed as the co-equal candidate. **P8's open question is answered: the gap is module
+  evaluation of the compute chunk.**
+
+  That makes **P8 and T7 the same problem**, which neither row previously said. T7
+  proposes deferring exactly this chunk, and its case was recorded as resting on
+  network-constrained users with the note that *"network-throttled measurement is itself
+  out of scope pending Peter's tooling call."* No new tooling was needed — CDP
+  `Network.emulateNetworkConditions` is already available through the pinned Playwright.
+  Measured (3 cold runs each, same build, same session):
+
+  | network | canvas settled |
+  |---|---|
+  | unthrottled | **0.30 s** |
+  | Fast 3G (1.6 Mbps, 150 ms RTT) | **3.06 s** |
+  | Slow 3G (500 kbps, 400 ms RTT) | **9.28 s** |
+
+  ~1,730 KiB of raw JS arrives on open, of which chunk 2599 is 955.9 KiB — 55% of the
+  payload. ~~**for code the first paint does not need**~~ — **struck 2026-08-16, this was
+  false.** 2599 is the *entire workspace client bundle*, not a compute chunk: verified by
+  marker audit, it carries `sena-fusion-plane-orbit`, `workspace-rail-*` and
+  `sena-fusion-canvas` (all first-paint UI) alongside `svd`, `Report Generator`,
+  `enterprise-runtime` and `krippendorff`. Most of it *is* needed for first paint. On a
+  slow connection the workspace is nine seconds from interactive — that part stands, and
+  it is what justified T7.
+
+  **This does not decide T7** — the three options (async model with a loading state, web
+  worker, or decline) remain Peter's, and the choice is a UX judgement, not a
+  measurement. What changes is that the option is no longer being weighed against an
+  unmeasured benefit: the local 14.2 ms download that made T7 look negligible was an
+  artifact of measuring on localhost, and the same chunk costs seconds on a real
+  connection. The ratchet confirmation is likewise unchanged and still Peter's; head
+  sits at 824,408 / 852,000 B.
+
+- **2026-08-16 iteration 9, part 3 — T7 has no decision-free subset. Checked, not assumed.**
+  Before leaving T7 open a fourth time, the cheap possibility was tested: that some of
+  the 955.9 KiB compute chunk is shipped to routes that never use it, which would be
+  pure waste removable without touching anyone's first paint. Measured per route, cold
+  context, counting `/_next/static/*.js` response bytes:
+
+  | route | total JS | compute chunk |
+  |---|---|---|
+  | `/` | 743 KiB | **0** |
+  | `/docs` | 743 KiB | **0** |
+  | `/workspace` | 844 KiB | **0** |
+  | `/workspace/ena` | 840 KiB | **0** |
+  | `/workspace/sena` | 1,873 KiB | **956 KiB** |
+
+  The chunk is already scoped to exactly the one route that uses it — marketing, docs,
+  the workspace preview and even `/workspace/ena` (which runs jENA in its own worker)
+  pull none of it. **There is no waste to reclaim and no "just split it better" option.**
+
+  That closes the last thing an engineer can settle here. Every remaining path — async
+  model with a loading state, or a web worker — changes what a `/workspace/sena` user
+  sees during first paint, because iteration 3 established that every client call site
+  of `buildSenaModel` is a render-body `useMemo` painting the first frame. Choosing
+  between "show a spinner where the figure is" and "show a progressively-filling figure"
+  is a judgement about what a researcher should see while their model builds. It is not
+  a measurement, and this campaign has now supplied every measurement it could:
+  the cost (9.28 s on Slow 3G), the share (55% of on-open JS), the mechanism (module
+  evaluation, per the CPU profile), and the absence of a free alternative (this table).
+
+- **2026-08-16 iteration 9, part 4 — T7 "just preload it in parallel" REJECTED by measurement.**
+  The waterfall showed the compute chunk starting only at **3,300 ms** on Slow 3G,
+  after wave 1 (framework chunks, 475→3,262 ms) had finished, then taking 5.9 s to
+  transfer — so ~2.8 s looked like pure serial idling, recoverable with no UX change at
+  all. `analysis-runtime` is reachable only through a static import inside
+  `SenaFusionWorkspace`, so webpack cannot discover it until that chunk arrives.
+
+  Hypothesis: kicking off `import("./workspace/analysis-runtime")` at module scope in
+  `SenaFusionWorkspaceLoader` (a floating warm-up, `dynamic()` still owning render)
+  would start the fetch in wave 1 and cut ~2.8 s for free.
+
+  **It did not work, and it cost bytes.** Time-to-figure 9.28 s → **9.34 s** (median of
+  3, i.e. unchanged within noise) while `total-static-js-br` rose 824,408 → **832,282 B
+  (+7,874)**. The eager reference changed webpack's chunking rather than parallelising
+  the fetch — chunk 2599 was not even requested under its old identity — so the payload
+  was reorganised, not scheduled earlier. **Reverted;** the tree is back at 824,791 B.
+
+  Recorded because the negative result is the useful part: the obvious cheap fix for the
+  serial waterfall does not exist at this layer, which removes the last "surely there's
+  something free here" objection to T7's framing. A preload hint targeting the emitted
+  chunk URL might still work, but that URL is content-hashed per build, so it needs a
+  build-time manifest lookup rather than a source-level import — a real mechanism, not a
+  one-liner, and it belongs to whichever T7 option is chosen rather than preceding it.
+
+- **2026-08-16 iteration 9, part 5 — T7 landed, and a correction to what this ledger said chunk 2599 is.**
+  Two-stage loading is implemented (ADR-0011, commit `d1e684a`). Chrome paints at
+  **0.6 s** and the figure at **9.4 s**: an **8.80 s window** where a Slow 3G researcher
+  sees their workspace rather than a skeleton. Cost +1,493 B; unthrottled `canvasSettled`
+  301.6 ms against the 301.9 ms baseline; suite 1691, both smokes green, no test changed.
+
+  **Correction — parts 1–4 of this iteration mischaracterised chunk 2599, and so did
+  ADR-0011.** It was described as "the 955.9 KiB compute chunk (`sna.js` + `jena-js` +
+  SVD)" and as "55% of the JS arriving on open **for code the first paint does not
+  need**." The second half is wrong. 2599 is the **entire workspace client bundle** —
+  `sena-fusion-plane-orbit`, `workspace-rail-*`, Report Generator and enterprise-runtime
+  literals all live in it and nowhere else — and most of it genuinely *is* needed for
+  first paint. It was also probed for server-only leakage (SQL, `pg`, `exceljs`, `docx`,
+  `pdf-lib`, `process.env`): zero hits, nothing to reclaim there either. The marker-grep
+  that produced the original label found `sna`/`jena`/`svd` present and stopped, which is
+  how a true observation became a false description.
+
+  **Why time-to-figure did not move, and what would move it.** The Slow 3G load is
+  **bandwidth-saturated end to end**: 474,476 B of JS wire bytes at an effective
+  406 kbps, wave 1 477→3,271 ms and wave 2 3,307→9,181 ms with a 36 ms seam. Time-to-
+  figure ≈ wire bytes ÷ bandwidth. Two-stage loading changes *ordering*; it cannot change
+  *bytes*. Setting "Slow 3G time-to-figure must improve" as an acceptance criterion for
+  it was a miscalibration on my part — it asked a reordering to do a payload's job, and
+  the implementation was briefly reverted for failing a test it could never have passed.
+
+  **The follow-on, which is where the seconds actually are.** The analysis barrel's
+  transitive graph is 31 modules / 704,014 B of source. The fusion figure needs **9 of
+  them / 198,519 B** (`model`, `operators`, `ena-manifest`, `sna-manifest`,
+  `data-contract-audit`, plus `sna.js`/`jena-js`). The other **22 modules / 505,495 B —
+  72% — are reachable only through report and audit builders the figure never reads**
+  (`report.ts` 120,816 B, `review-packet.ts` 74,249 B, `development-plan.ts` 30,124 B, …).
+  They sit on the figure's critical path solely because the hook computes them in
+  render-body `useMemo`s. Getting them off it means splitting that hook — deliberately
+  out of scope for T7, and now the highest-value perf target on the board.

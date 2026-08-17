@@ -16,11 +16,15 @@ import {
   validateEnterprisePassword
 } from "./auth-password";
 import {
+  enforceEnterpriseAuthSubjectRateLimit,
+  enforceEnterpriseAuthSubjectRateLimitAsync
+} from "./auth-security";
+import {
   contextFromDb,
   createSession
 } from "./auth-session";
 import { now } from "./auth-config";
-import { requirePendingInvitationForEmail } from "./auth-invitations";
+import { requireInvitationTeam, requirePendingInvitationForEmail } from "./auth-invitations";
 
 function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
@@ -33,15 +37,30 @@ export type SenaEnterpriseRegistrationInput = {
   organization: string;
   plan?: SenaEnterpriseTeam["plan"];
   inviteCode?: string;
+  // Onboarding context the registrant declares about themselves. It is recorded
+  // with the registration only — membership role stays driven by the invitation
+  // or by workspace ownership, never by anything the registrant can choose.
+  selfDeclaredRole?: string;
+  productUpdates?: boolean;
 };
+
+// Input the registrant controls entirely, checked before anything is spent on
+// their behalf. Running this ahead of the subject rate limit is what keeps a
+// run of password-policy rejections from consuming the address's budget: five
+// weak passwords used to lock the legitimate registrant out of their own
+// address, and let a third party pre-burn a known one.
+function validateEnterpriseRegistrationInput(input: SenaEnterpriseRegistrationInput) {
+  const email = normalizeEmail(input.email);
+  if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required.", 400, "invalid_email");
+  validateEnterprisePassword(input.password, email);
+  return email;
+}
 
 function registerEnterpriseUserInDb(
   db: ReturnType<typeof readEnterpriseDb>,
   input: SenaEnterpriseRegistrationInput
 ) {
-  const email = normalizeEmail(input.email);
-  if (!email.includes("@")) throw new SenaEnterpriseError("A valid email is required.", 400, "invalid_email");
-  validateEnterprisePassword(input.password, email);
+  const email = validateEnterpriseRegistrationInput(input);
 
   if (db.users.some((user) => user.email === email)) {
     throw new SenaEnterpriseError("An account already exists for this email.", 409, "email_exists");
@@ -65,9 +84,7 @@ function registerEnterpriseUserInDb(
   let team: SenaEnterpriseTeam;
   let role: SenaEnterpriseRole;
   if (pendingInvite) {
-    const invitedTeam = db.teams.find((candidate) => candidate.id === pendingInvite.teamId);
-    if (!invitedTeam) throw new SenaEnterpriseError("Invitation team is no longer available.", 410, "invitation_team_missing");
-    team = invitedTeam;
+    team = requireInvitationTeam(db, pendingInvite);
     role = pendingInvite.role;
     pendingInvite.status = "accepted";
     pendingInvite.acceptedAt = timestamp;
@@ -95,7 +112,17 @@ function registerEnterpriseUserInDb(
   });
 
   const session = createSession(db, user.id);
-  appendAudit(db, { event: "auth.register", userId: user.id, teamId: team.id, detail: { plan: team.plan, role } });
+  appendAudit(db, {
+    event: "auth.register",
+    userId: user.id,
+    teamId: team.id,
+    detail: {
+      plan: team.plan,
+      role,
+      selfDeclaredRole: input.selfDeclaredRole?.trim().slice(0, 80) || null,
+      productUpdatesOptIn: input.productUpdates === true
+    }
+  });
   if (pendingInvite) {
     appendAudit(db, {
       event: "team.invite.accept",
@@ -112,6 +139,8 @@ function registerEnterpriseUserInDb(
 }
 
 export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
+  const email = validateEnterpriseRegistrationInput(input);
+  enforceEnterpriseAuthSubjectRateLimit({ bucket: "auth.register", subject: email });
   const db = readEnterpriseDb();
   const result = registerEnterpriseUserInDb(db, input);
   saveDb(db);
@@ -119,6 +148,8 @@ export function registerEnterpriseUser(input: SenaEnterpriseRegistrationInput) {
 }
 
 export async function registerEnterpriseUserAsync(input: SenaEnterpriseRegistrationInput) {
+  const email = validateEnterpriseRegistrationInput(input);
+  await enforceEnterpriseAuthSubjectRateLimitAsync({ bucket: "auth.register", subject: email });
   const state = await readEnterpriseState();
   const result = registerEnterpriseUserInDb(state.db, input);
   await saveEnterpriseState(state, state.db);

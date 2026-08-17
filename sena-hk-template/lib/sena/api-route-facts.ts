@@ -23,6 +23,22 @@ export type SenaApiGroupId =
   | "provisioning"
   | "legacy-ena";
 
+/**
+ * A URL query parameter the route actually reads. Declared as a fact so the
+ * generated OpenAPI document can publish it as an `in: "query"` parameter
+ * instead of leaving it as prose inside a request-body schema description.
+ */
+export type SenaApiQueryParameter = {
+  name: string;
+  /** Methods that read it. Omit when every method of the endpoint does. */
+  methods?: SenaApiMethod[];
+  required?: boolean;
+  description: string;
+  /** Values with defined behaviour, published as the parameter schema's enum. */
+  allowedValues?: string[];
+  defaultValue?: string;
+};
+
 export type SenaApiEndpointFact = {
   id: string;
   group: SenaApiGroupId;
@@ -33,6 +49,13 @@ export type SenaApiEndpointFact = {
   evidenceNoteId?: SenaApiEvidenceNoteId;
   responses: string[];
   actions?: string[];
+  queryParameters?: SenaApiQueryParameter[];
+  /**
+   * Methods whose handler reads a request body, when that differs from the
+   * POST/PUT/PATCH default. GET never carries one (OpenAPI 3.1 gives it no
+   * defined semantics), and a DELETE only carries one when it is listed here.
+   */
+  requestBodyMethods?: SenaApiMethod[];
 };
 
 export const SENA_API_GROUPS: Array<{
@@ -103,6 +126,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "List active sessions for the current user or revoke one, other, or all sessions.",
     evidenceNoteId: "auth-sessions",
+    requestBodyMethods: ["DELETE"],
     responses: ["sena-enterprise-session-list/v1", "sena-enterprise-session-revocation/v1"]
   },
   {
@@ -123,6 +147,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Inspect, enroll, verify, or remove TOTP MFA for the signed-in account.",
     evidenceNoteId: "auth-mfa",
+    requestBodyMethods: ["POST", "DELETE"],
     responses: ["sena-enterprise-mfa-status/v1", "sena-enterprise-mfa-setup/v1"]
   },
   {
@@ -173,6 +198,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "public",
     summary: "Return this machine-readable SENA API contract or OpenAPI 3.1 document.",
     evidenceNoteId: "sena-docs",
+    queryParameters: [
+      {
+        name: "format",
+        methods: ["GET"],
+        required: false,
+        description: "Response format. `openapi` returns the OpenAPI 3.1 document; `json` (the default) returns the sena-api-documentation/v1 contract. Any unrecognised value falls back to the JSON contract.",
+        allowedValues: ["json", "openapi"],
+        defaultValue: "json"
+      }
+    ],
     responses: ["sena-api-documentation/v1", "OpenAPI 3.1"]
   },
   {
@@ -231,6 +266,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Create, accept, or revoke role-aware team invitations.",
     evidenceNoteId: "sena-team-invitations",
+    requestBodyMethods: ["POST", "PATCH", "DELETE"],
     responses: ["sena-team-invitation/v1", "sena-team-invitation-acceptance/v1"]
   },
   {
@@ -633,9 +669,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     id: "sena-scim-user-resource",
     group: "provisioning",
     path: "/api/sena/scim/v2/Users/{resourceId}",
-    methods: ["PUT", "PATCH"],
+    methods: ["GET", "PUT", "PATCH", "DELETE"],
     auth: "scim-bearer",
-    summary: "Replace or patch a SCIM user resource and mapped SENA memberships.",
+    summary: "Read, replace, patch, or deprovision a SCIM user resource and mapped SENA memberships. DELETE suspends rather than erases.",
     evidenceNoteId: "sena-scim-user-resource",
     responses: ["urn:ietf:params:scim:schemas:core:2.0:User"]
   },
@@ -653,9 +689,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     id: "sena-scim-group-resource",
     group: "provisioning",
     path: "/api/sena/scim/v2/Groups/{resourceId}",
-    methods: ["PUT", "PATCH"],
+    methods: ["GET", "PUT", "PATCH", "DELETE"],
     auth: "scim-bearer",
-    summary: "Replace or patch a SCIM group resource and mapped team memberships.",
+    summary: "Read, replace, patch, or deprovision a SCIM group resource and mapped team memberships. DELETE suspends the group's memberships rather than erasing the team.",
     evidenceNoteId: "sena-scim-group-resource",
     responses: ["urn:ietf:params:scim:schemas:core:2.0:Group"]
   }

@@ -2,6 +2,7 @@ import type { WorkspaceDataImportFeedbackPropGroup } from "./workspace-data-impo
 
 export type WorkspaceDataImportFeedbackFieldPropGroup = Pick<WorkspaceDataImportFeedbackPropGroup,
   | "importError"
+  | "importErrorAttempt"
   | "uploadedTables"
   | "warnings"
   | "onTableChange"

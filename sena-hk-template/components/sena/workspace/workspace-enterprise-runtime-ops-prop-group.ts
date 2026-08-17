@@ -2,6 +2,8 @@ import type { WorkspaceEnterpriseRuntimePropGroup } from "./workspace-enterprise
 
 export const workspaceEnterpriseRuntimeOpsPropKeys = [
   "canSubmitAttestation",
+  "goLiveChecklist",
+  "onGoLiveChecklistChange",
   "onExportOpsStatusJson",
   "onExportOpsReadinessJson",
   "onExportDeploymentPackageJson",

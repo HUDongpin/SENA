@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireProvisioningBearerToken } from "@/lib/sena/provisioning-auth";
-import { provisionEnterpriseScimGroup, type SenaScimProvisioningOptions } from "@/lib/sena/scim";
+import {
+  deactivateEnterpriseScimGroup,
+  getEnterpriseScimGroup,
+  patchEnterpriseScimGroup,
+  provisionEnterpriseScimGroup,
+  type SenaScimProvisioningOptions,
+  scimErrorBody
+} from "@/lib/sena/scim";
 
 export const runtime = "nodejs";
 
@@ -22,20 +29,54 @@ async function upsertGroup(request: Request, resourceId: string) {
   const resource = typeof body === "object" && body !== null && !Array.isArray(body)
     ? { id: resourceId, ...body }
     : { id: resourceId };
-  const bridge = provisionEnterpriseScimGroup(resource, scimOptions(request));
+  const bridge = await provisionEnterpriseScimGroup(resource, scimOptions(request));
   return NextResponse.json(bridge.resource);
 }
 
+export async function GET(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    return NextResponse.json(await getEnterpriseScimGroup(resourceId, scimOptions(request).locationBase));
+  });
+}
+
+// SCIM DELETE deprovisions by suspending this group's memberships, not by
+// erasing the team or its users. RFC 7644 3.6 wants 204 with no body.
+export async function DELETE(request: Request, { params }: ScimResourceRouteContext) {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
+    const { resourceId } = await params;
+    requireProvisioningBearerToken(request);
+    await deactivateEnterpriseScimGroup(resourceId, scimOptions(request));
+    return new NextResponse(null, { status: 204 });
+  });
+}
+
 export async function PUT(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
     return await upsertGroup(request, resourceId);
   });
 }
 
 export async function PATCH(request: Request, { params }: ScimResourceRouteContext) {
-  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource" }, async () => {
+  return observeSenaApiRoute(request, { routeId: "sena-scim-groups-resource", errorBody: scimErrorBody }, async () => {
     const { resourceId } = await params;
-    return await upsertGroup(request, resourceId);
+    requireProvisioningBearerToken(request);
+    const body = await request.json();
+    const schemas = typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray(body.schemas)
+      ? body.schemas
+      : [];
+    const isPatchOp = schemas.some((schema: unknown) => String(schema).toLowerCase().includes("patchop")) ||
+      (typeof body === "object" && body !== null && !Array.isArray(body) && Array.isArray((body as { Operations?: unknown }).Operations));
+    if (isPatchOp) {
+      const bridge = await patchEnterpriseScimGroup(resourceId, body, scimOptions(request));
+      return NextResponse.json(bridge.resource);
+    }
+    const resource = typeof body === "object" && body !== null && !Array.isArray(body)
+      ? { id: resourceId, ...body }
+      : { id: resourceId };
+    const bridge = await provisionEnterpriseScimGroup(resource, scimOptions(request));
+    return NextResponse.json(bridge.resource);
   });
 }

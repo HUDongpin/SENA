@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   deliverEnterpriseAuditLog,
+  enterpriseAuditExportMaxEvents,
+  exportEnterpriseAuditLogAsync,
   isEnterpriseAuditEvent,
   listEnterpriseAuditLog,
   listEnterpriseAuditLogAsync,
@@ -54,21 +56,44 @@ export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-governance-audit" }, async () => {
     const context = await requireApiSession();
     const url = new URL(request.url);
-    const result = await listEnterpriseAuditLogAsync(context, {
-      teamId: url.searchParams.get("teamId") || undefined,
+    const teamId = url.searchParams.get("teamId") || undefined;
+    const csv = url.searchParams.get("format") === "csv";
+    const query = {
+      teamId,
       userId: url.searchParams.get("userId") || undefined,
       projectId: url.searchParams.get("projectId") || undefined,
       event: eventParam(url.searchParams.get("event")),
       from: url.searchParams.get("from") || undefined,
-      to: url.searchParams.get("to") || undefined,
-      limit: numberParam(url.searchParams.get("limit")),
-      offset: numberParam(url.searchParams.get("offset"))
-    });
+      to: url.searchParams.get("to") || undefined
+    };
+    // A CSV response is an archival artifact, not a screenful: it carries the
+    // whole scoped set and ignores limit/offset, because a page of an export is
+    // indistinguishable from the export once it is a file on someone's disk.
+    // JSON stays paged.
+    const result = csv
+      ? await exportEnterpriseAuditLogAsync(context, query)
+      : await listEnterpriseAuditLogAsync(context, {
+        ...query,
+        limit: numberParam(url.searchParams.get("limit")),
+        offset: numberParam(url.searchParams.get("offset"))
+      });
     const integrity = url.searchParams.get("integrity") === "1" || url.searchParams.get("integrity") === "true"
-      ? await verifyEnterpriseAuditIntegrityAsync(context, { teamId: url.searchParams.get("teamId") || undefined })
+      ? await verifyEnterpriseAuditIntegrityAsync(context, { teamId })
       : undefined;
 
-    if (url.searchParams.get("format") === "csv") {
+    if (csv) {
+      // Only reachable when the scoped set outgrows the retention cap, which the
+      // file-backed store makes impossible on write and only the Postgres store
+      // can produce. Refuse: a spreadsheet missing its oldest rows looks exactly
+      // like a complete one, and a marker row inside the body is something a CSV
+      // consumer is free to drop.
+      if (result.pagination.nextOffset !== null) {
+        throw new SenaEnterpriseError(
+          `Audit CSV export would be truncated: ${result.pagination.total} scoped events exceed the ${enterpriseAuditExportMaxEvents}-event export cap. Narrow the export with from/to, event, projectId, or userId filters.`,
+          413,
+          "audit_export_truncated"
+        );
+      }
       await recordEnterpriseAuditAsync({
         event: "governance.audit.export",
         userId: context.user.id,
@@ -77,6 +102,8 @@ export async function GET(request: Request) {
           format: "csv",
           events: result.pagination.returned,
           total: result.pagination.total,
+          complete: result.pagination.returned === result.pagination.total,
+          chainHead: integrity?.chain.headHash ?? null,
           filterEvent: result.filters.event ?? null,
           projectId: result.filters.projectId ?? null
         }
@@ -84,7 +111,17 @@ export async function GET(request: Request) {
       return new Response(auditCsv(result.events), {
         headers: {
           "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="sena-enterprise-audit-log.csv"`
+          "content-disposition": `attachment; filename="sena-enterprise-audit-log.csv"`,
+          // The file itself is unchanged CSV; completeness and chain evidence
+          // ride alongside it so an archiver never has to infer either.
+          "x-sena-audit-total": String(result.pagination.total),
+          "x-sena-audit-returned": String(result.pagination.returned),
+          "x-sena-audit-next-offset": "none",
+          ...(integrity ? {
+            "x-sena-audit-chain-head": integrity.chain.headHash,
+            "x-sena-audit-chain-algorithm": integrity.chain.algorithm,
+            "x-sena-audit-integrity-status": integrity.status
+          } : {})
         }
       });
     }

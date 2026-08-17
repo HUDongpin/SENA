@@ -22,6 +22,27 @@ const passwordResetRateLimitWindowSeconds = positiveIntegerEnv("SENA_PASSWORD_RE
 const passwordResetRateLimitMaxRequests = positiveIntegerEnv("SENA_PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS", 5);
 const ssoRateLimitWindowSeconds = positiveIntegerEnv("SENA_SSO_RATE_LIMIT_WINDOW_SECONDS", 5 * 60);
 const ssoRateLimitMaxRequests = positiveIntegerEnv("SENA_SSO_RATE_LIMIT_MAX_REQUESTS", 30);
+const authSubjectRateLimitWindowSeconds = positiveIntegerEnv("SENA_AUTH_SUBJECT_RATE_LIMIT_WINDOW_SECONDS", 15 * 60);
+const authSubjectRateLimitMaxRequests = positiveIntegerEnv("SENA_AUTH_SUBJECT_RATE_LIMIT_MAX_REQUESTS", 5);
+// The password-reset subject bucket is shared by everyone who can name the
+// address, so it must never be exhaustible by the third parties the per-IP
+// limiter already caps. Keeping it a multiple of the per-IP budget leaves the
+// account holder headroom no single caller can consume.
+const passwordResetSubjectRateLimitMaxRequests = positiveIntegerEnv(
+  "SENA_PASSWORD_RESET_SUBJECT_RATE_LIMIT_MAX_REQUESTS",
+  passwordResetRateLimitMaxRequests * 4
+);
+const passwordResetSubjectRateLimitWindowSeconds = positiveIntegerEnv(
+  "SENA_PASSWORD_RESET_SUBJECT_RATE_LIMIT_WINDOW_SECONDS",
+  passwordResetRateLimitWindowSeconds
+);
+
+export function enterprisePasswordResetSubjectRateLimit() {
+  return {
+    limit: passwordResetSubjectRateLimitMaxRequests,
+    windowSeconds: passwordResetSubjectRateLimitWindowSeconds
+  };
+}
 
 export type SenaEnterpriseAuthLockout = {
   id: string;
@@ -88,18 +109,21 @@ export function findAuthLockout(db: SenaEnterpriseDb, email: string) {
   return db.authLockouts.find((lockout) => lockout.emailHash === emailHash);
 }
 
+export type SenaEnterpriseAuthFailureMethod = "password" | "mfa";
+
 export function appendLockedLoginAudit(
   db: SenaEnterpriseDb,
   email: string,
   user: SenaEnterpriseUser | undefined,
-  lockout: SenaEnterpriseAuthLockout
+  lockout: SenaEnterpriseAuthLockout,
+  method: SenaEnterpriseAuthFailureMethod = "password"
 ) {
   appendAudit(db, {
     event: "auth.login.locked",
     userId: user?.id,
     teamId: authLockoutTeamId(db, user),
     detail: {
-      method: "password",
+      method,
       emailHash: lockout.emailHash,
       emailDomain: authEmailDomain(email),
       failedCount: lockout.failedCount,
@@ -108,7 +132,12 @@ export function appendLockedLoginAudit(
   });
 }
 
-export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: SenaEnterpriseUser) {
+export function recordFailedLogin(
+  db: SenaEnterpriseDb,
+  email: string,
+  user?: SenaEnterpriseUser,
+  method: SenaEnterpriseAuthFailureMethod = "password"
+) {
   const timestamp = now();
   const timestampMs = Date.parse(timestamp);
   const emailHash = authEmailHash(email);
@@ -143,7 +172,7 @@ export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: Se
     userId: user?.id,
     teamId: authLockoutTeamId(db, user),
     detail: {
-      method: "password",
+      method,
       emailHash,
       emailDomain,
       failedCount: lockout.failedCount,
@@ -152,7 +181,7 @@ export function recordFailedLogin(db: SenaEnterpriseDb, email: string, user?: Se
     }
   });
   if (isAuthLockoutActive(lockout)) {
-    appendLockedLoginAudit(db, email, user, lockout);
+    appendLockedLoginAudit(db, email, user, lockout, method);
   }
   return lockout;
 }
@@ -167,7 +196,7 @@ export function pruneApiRateLimits(db: SenaEnterpriseDb) {
   return (db.apiRateLimits ?? []).filter((record) => Date.parse(record.expiresAt) > current);
 }
 
-function applyEnterpriseApiRateLimit(db: SenaEnterpriseDb, input: {
+function countEnterpriseApiRateLimit(db: SenaEnterpriseDb, input: {
   bucket: string;
   key: string;
   limit?: number;
@@ -209,33 +238,47 @@ function applyEnterpriseApiRateLimit(db: SenaEnterpriseDb, input: {
   record.limit = limit;
   record.windowSeconds = windowSeconds;
   record.requestCount += 1;
-  if (record.requestCount > limit) {
-    if (record.requestCount === limit + 1) {
-      record.limitedAt = timestamp;
-      appendAudit(db, {
-        event: "security.rate_limit",
-        detail: {
-          bucket,
-          keyHash,
-          requestCount: record.requestCount,
-          limit,
-          windowSeconds,
-          resetAt: record.expiresAt
-        }
-      });
-    }
-    throw new SenaEnterpriseError("Too many requests. Try again after the rate-limit window resets.", 429, "api_rate_limited");
+  const limited = record.requestCount > limit;
+  if (limited && record.requestCount === limit + 1) {
+    record.limitedAt = timestamp;
+    appendAudit(db, {
+      event: "security.rate_limit",
+      detail: {
+        bucket,
+        keyHash,
+        requestCount: record.requestCount,
+        limit,
+        windowSeconds,
+        resetAt: record.expiresAt
+      }
+    });
   }
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseApiRateLimit,
     bucket,
     keyHash,
+    limited,
     requestCount: record.requestCount,
     limit,
     remaining: Math.max(0, limit - record.requestCount),
     resetAt: record.expiresAt
   };
+}
+
+// Callers that reject over-budget requests. Flows where a 429 would itself be
+// the attack use countEnterpriseApiRateLimit through the observe helpers below.
+function applyEnterpriseApiRateLimit(db: SenaEnterpriseDb, input: {
+  bucket: string;
+  key: string;
+  limit?: number;
+  windowSeconds?: number;
+}) {
+  const outcome = countEnterpriseApiRateLimit(db, input);
+  if (outcome.limited) {
+    throw new SenaEnterpriseError("Too many requests. Try again after the rate-limit window resets.", 429, "api_rate_limited");
+  }
+  return outcome;
 }
 
 export function enforceEnterpriseApiRateLimit(input: {
@@ -270,4 +313,45 @@ export async function enforceEnterpriseApiRateLimitAsync(input: {
     await saveEnterpriseState(state, state.db);
     throw error;
   }
+}
+
+export type SenaEnterpriseAuthSubjectRateLimitInput = {
+  bucket: string;
+  subject: string;
+  limit?: number;
+  windowSeconds?: number;
+};
+
+// The per-request limiter is keyed on client IP, which a distributed caller can
+// rotate. Flows that act on a named subject (register, password reset) also need
+// a bucket keyed only on that subject so the account itself stays covered.
+function authSubjectRateLimitInput(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return {
+    bucket: `${input.bucket}.subject`,
+    key: `subject:${input.subject.trim().toLowerCase() || "anonymous"}`,
+    limit: input.limit ?? authSubjectRateLimitMaxRequests,
+    windowSeconds: input.windowSeconds ?? authSubjectRateLimitWindowSeconds
+  };
+}
+
+export function enforceEnterpriseAuthSubjectRateLimit(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return enforceEnterpriseApiRateLimit(authSubjectRateLimitInput(input));
+}
+
+export async function enforceEnterpriseAuthSubjectRateLimitAsync(input: SenaEnterpriseAuthSubjectRateLimitInput) {
+  return enforceEnterpriseApiRateLimitAsync(authSubjectRateLimitInput(input));
+}
+
+// A subject bucket keyed only on the account is shared with everyone who can
+// name that account, so rejecting the over-budget request hands a third party a
+// denial of the holder's own recovery. This variant counts the subject and
+// reports the verdict without throwing: the caller degrades the side effect
+// (suppressing outbound mail) while answering the request unchanged, which also
+// keeps the response free of an account-existence signal. It counts on the
+// caller's own db handle so the decision and the work land in one save.
+export function observeEnterpriseAuthSubjectRateLimitInDb(
+  db: SenaEnterpriseDb,
+  input: SenaEnterpriseAuthSubjectRateLimitInput
+) {
+  return countEnterpriseApiRateLimit(db, authSubjectRateLimitInput(input));
 }

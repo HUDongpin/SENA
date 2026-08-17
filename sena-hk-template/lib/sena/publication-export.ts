@@ -1,9 +1,20 @@
-import { Document, HeadingLevel, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
+import { Document, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
+import {
+  SENA_PUBLICATION_FIGURE_LAYOUT,
+  buildSenaPublicationFigure,
+  buildSenaPublicationFigureSvgDocument,
+  drawSenaPublicationFigureOnPdf,
+  hexToRgb,
+  rasterizeSenaPublicationFigure,
+  renderSenaPublicationFigureSvgGroup,
+  type SenaFigureRasterTarget,
+  type SenaPublicationFigure
+} from "./publication-figure";
 import { buildSenaMarkdownReport } from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { SenaEnterpriseError } from "./enterprise/errors";
@@ -75,6 +86,7 @@ const crcTable = Array.from({ length: 256 }, (_, index) => {
 const font5x7: Record<string, string[]> = {
   " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
   "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
+  ",": ["00000", "00000", "00000", "00000", "01100", "01100", "01000"],
   ".": ["00000", "00000", "00000", "00000", "00000", "01100", "01100"],
   ":": ["00000", "01100", "01100", "00000", "01100", "01100", "00000"],
   "/": ["00001", "00010", "00100", "01000", "10000", "00000", "00000"],
@@ -192,6 +204,89 @@ function drawText(pixels: Buffer, width: number, height: number, text: string, x
   }
 }
 
+/**
+ * Composite one pixel at partial coverage. `fillRect` writes opaque blocks,
+ * which is all a bar chart needed; a figure needs anti-aliased strokes and
+ * discs, and a stroke drawn opaque at its nominal width is a visibly different
+ * mark from the one the SVG draws. The canvas is opaque throughout (the plate
+ * is filled white first), so source-over reduces to a lerp.
+ */
+function blendPixel(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  color: readonly [number, number, number],
+  alpha: number
+) {
+  if (x < 0 || y < 0 || x >= width || y >= height) return;
+  const weight = Math.min(1, Math.max(0, alpha));
+  if (weight <= 0) return;
+  const offset = (y * width + x) * 4;
+  pixels[offset] = Math.round(pixels[offset] + (color[0] - pixels[offset]) * weight);
+  pixels[offset + 1] = Math.round(pixels[offset + 1] + (color[1] - pixels[offset + 1]) * weight);
+  pixels[offset + 2] = Math.round(pixels[offset + 2] + (color[2] - pixels[offset + 2]) * weight);
+  pixels[offset + 3] = 255;
+}
+
+/**
+ * The 5x7 font is uppercase ASCII plus a handful of punctuation marks. Anything
+ * outside it renders as a blank, so the few characters the figure's own strings
+ * carry are folded onto glyphs that exist rather than silently disappearing —
+ * the middot separator and the Greek rho in the co-registration line.
+ */
+function bitmapSafeText(value: string) {
+  return value
+    .replace(/[·•]/g, "-")
+    .replace(/[–—]/g, "-")
+    .replace(/ρ/g, "RHO")
+    .replace(/[^\x20-\x7E]/g, " ");
+}
+
+/** Glyph cell scale for a plane-space font size at a given raster scale. */
+function bitmapGlyphScale(fontSize: number, rasterScale: number) {
+  return Math.max(1, Math.round((fontSize * rasterScale) / 7));
+}
+
+function bitmapTextWidth(text: string, glyphScale: number) {
+  return text.length * 6 * glyphScale;
+}
+
+/**
+ * Raster bindings for `rasterizeSenaPublicationFigure`. The figure module owns
+ * the marks and the coverage maths; this owns the pixel buffer and the font, so
+ * neither has to know about the other.
+ */
+function figureRasterTarget(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  placement: { x: number; y: number; scale: number }
+): SenaFigureRasterTarget {
+  return {
+    width,
+    height,
+    offsetX: placement.x,
+    offsetY: placement.y,
+    scale: placement.scale,
+    blend: (x, y, color, alpha) => blendPixel(pixels, width, height, x, y, color, alpha),
+    text: (value, x, y, fontSize, color, anchor) => {
+      const safe = bitmapSafeText(value);
+      const glyphScale = bitmapGlyphScale(fontSize, placement.scale);
+      const textWidth = bitmapTextWidth(safe, glyphScale);
+      const left = anchor === "end" ? x - textWidth : anchor === "middle" ? x - textWidth / 2 : x;
+      // The figure gives a baseline; the bitmap font draws from the glyph top.
+      drawText(pixels, width, height, safe, left, y - 7 * glyphScale, glyphScale, [
+        color[0],
+        color[1],
+        color[2],
+        255
+      ]);
+    }
+  };
+}
+
 function metricRows(model: SenaModel) {
   return [
     ["People", model.summary.people],
@@ -205,67 +300,140 @@ function metricRows(model: SenaModel) {
   ] as Array<[string, string | number]>;
 }
 
-export function buildSenaPublicationSvg(model: SenaModel, title: string) {
+const PUBLICATION_SUBTITLE =
+  "SENA publication export — canonical ENA plane (jENA projection); summary metrics below the figure.";
+const PUBLICATION_GUARDRAIL =
+  "Guardrail: descriptive analytics; report coding reliability, human review, and method settings with any claim.";
+/**
+ * The PNG's own caveat, drawn on its face. The raster carries the figure's real
+ * geometry but renders text in a 5x7 bitmap font (see `buildSenaPublicationPng`),
+ * so the file says which artifact a paper should actually use.
+ */
+const PUBLICATION_RASTER_NOTE =
+  "Raster export: figure geometry is exact; labels use a bitmap font. Use the SVG for publication.";
+
+/**
+ * The publication figure, dominant, with the summary metrics kept underneath it.
+ *
+ * The figure is `buildSenaPublicationFigure`'s canonical ENA plane rendered by
+ * the shared renderer in `publication-figure.ts`; the metric strip is what this
+ * export used to be in its entirety, demoted to a provenance band because the
+ * counts are still worth carrying beside the plot and cost one row to keep.
+ *
+ * `figure` is threaded rather than recomputed so a package build resolves the
+ * projection once for all six artifacts.
+ */
+export function buildSenaPublicationSvg(
+  model: SenaModel,
+  title: string,
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+) {
+  const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.svg.document;
+  const plate = figure.vector;
   const rows = metricRows(model);
-  const barMax = Math.max(...rows.map(([, value]) => Number(value) || 0), 1);
-  const width = 920;
-  const height = 190 + rows.length * 42;
-  const bars = rows.map(([label, value], index) => {
-    const y = 138 + index * 42;
-    const numeric = Number(value) || 0;
-    const barWidth = Math.max(4, (numeric / barMax) * 440);
-    return `
-      <text x="64" y="${y + 20}" font-size="18" font-weight="700" fill="#1f2937">${escapeXml(label)}</text>
-      <rect x="230" y="${y}" width="${barWidth.toFixed(1)}" height="26" rx="4" fill="#56b09d"/>
-      <text x="${250 + barWidth}" y="${y + 20}" font-size="16" font-weight="700" fill="#334155">${escapeXml(String(value))}</text>`;
-  }).join("\n");
+  const chipWidth = plate.width / rows.length;
+  const metrics = rows.map(([label, value], index) => {
+    const x = plate.x + index * chipWidth;
+    return `<g data-sena-metric="${escapeXml(String(label))}">
+    <text x="${(x + 10).toFixed(1)}" y="946" font-size="10" font-weight="600" fill="#64748b">${escapeXml(String(label))}</text>
+    <text x="${(x + 10).toFixed(1)}" y="962" font-size="14" font-weight="700" fill="#1f2937">${escapeXml(String(value))}</text>
+  </g>`;
+  }).join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="SENA publication summary">
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(`${title} — canonical ENA plane`)}" font-family="Arial, Helvetica, sans-serif">
   <rect width="${width}" height="${height}" fill="#f8fafc"/>
-  <rect x="36" y="32" width="${width - 72}" height="${height - 64}" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-  <text x="64" y="76" font-size="30" font-weight="800" fill="#111827">${escapeXml(title)}</text>
-  <text x="64" y="106" font-size="15" font-weight="600" fill="#64748b">SENA publication export: social, epistemic, bridge, and person-code-pair summary.</text>
-  ${bars}
-  <text x="64" y="${height - 42}" font-size="13" fill="#64748b">Guardrail: descriptive analytics; report coding reliability, human review, and method settings with any claim.</text>
+  <rect x="36" y="32" width="${width - 72}" height="966" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="${plate.x}" y="76" font-size="28" font-weight="800" fill="#111827">${escapeXml(title)}</text>
+  <text x="${plate.x}" y="102" font-size="14" font-weight="600" fill="#64748b">${escapeXml(PUBLICATION_SUBTITLE)}</text>
+  <g data-sena-figure-plate="canonical-ena-plane" transform="translate(${plate.x} ${plate.y}) scale(${plate.scale})">
+${renderSenaPublicationFigureSvgGroup(figure)}
+  </g>
+  <text data-sena-figure-caption="model-definition" x="${plate.x}" y="902" font-size="12" font-weight="700" fill="#64748b">${escapeXml(figure.caption.modelDefinition)}</text>
+  <text data-sena-figure-caption="goodness-of-fit" x="${plate.x}" y="920" font-size="11" font-weight="600" fill="#475569">${escapeXml(figure.caption.goodnessOfFit)}</text>
+  <rect x="${plate.x}" y="930" width="${plate.width}" height="38" rx="6" fill="#f1f5f9"/>
+  ${metrics}
+  <text x="${plate.x}" y="988" font-size="11" fill="#64748b">${escapeXml(PUBLICATION_GUARDRAIL)}</text>
 </svg>`;
 }
 
-export function buildSenaPublicationPng(model: SenaModel, title: string) {
-  const rows = metricRows(model);
-  const barMax = Math.max(...rows.map(([, value]) => Number(value) || 0), 1);
-  const width = 1200;
-  const height = 760;
+/**
+ * The same figure, rasterised.
+ *
+ * WHAT THIS IS AND IS NOT. Every line, disc, and ring below is the figure's own
+ * geometry, drawn by `rasterizeSenaPublicationFigure` with coverage-based
+ * anti-aliasing at 2x — the plot a reader sees here is the plot the SVG draws,
+ * not a summary standing in for it. What is degraded is type: the only font
+ * available in this file set is the 5x7 bitmap above, so labels are uppercase
+ * and unhinted. Rasterising the SVG properly would need `sharp`, which is a
+ * devDependency and is absent from the production export runtime, so the honest
+ * options were a real figure with bitmap labels or no figure at all. The PNG
+ * names the limitation on its own face and points at the SVG.
+ */
+export function buildSenaPublicationPng(
+  model: SenaModel,
+  title: string,
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+) {
+  const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.png.document;
+  const plate = figure.raster;
   const pixels = Buffer.alloc(width * height * 4);
   fillRect(pixels, width, height, 0, 0, width, height, [248, 250, 252, 255]);
-  fillRect(pixels, width, height, 44, 42, width - 88, height - 84, [255, 255, 255, 255]);
-  fillRect(pixels, width, height, 44, 42, width - 88, 2, [203, 213, 225, 255]);
-  fillRect(pixels, width, height, 44, height - 44, width - 88, 2, [203, 213, 225, 255]);
-  fillRect(pixels, width, height, 44, 42, 2, height - 84, [203, 213, 225, 255]);
-  fillRect(pixels, width, height, width - 46, 42, 2, height - 84, [203, 213, 225, 255]);
-  fillRect(pixels, width, height, 72, 84, 12, 86, [86, 176, 157, 255]);
+  fillRect(pixels, width, height, 36, 32, width - 72, height - 96, [255, 255, 255, 255]);
+  fillRect(pixels, width, height, 36, 32, width - 72, 2, [203, 213, 225, 255]);
+  fillRect(pixels, width, height, 36, height - 66, width - 72, 2, [203, 213, 225, 255]);
+  fillRect(pixels, width, height, 36, 32, 2, height - 96, [203, 213, 225, 255]);
+  fillRect(pixels, width, height, width - 38, 32, 2, height - 96, [203, 213, 225, 255]);
 
-  drawText(pixels, width, height, title.slice(0, 42), 104, 78, 5, [17, 24, 39, 255]);
-  drawText(pixels, width, height, "SENA PUBLICATION EXPORT", 108, 130, 3, [71, 85, 105, 255]);
-  drawText(pixels, width, height, "SOCIAL  EPISTEMIC  BRIDGE  G-PAIR SUMMARY", 108, 160, 2, [100, 116, 139, 255]);
+  drawText(pixels, width, height, bitmapSafeText(title).slice(0, 46), plate.x, 60, 5, [17, 24, 39, 255]);
+  drawText(pixels, width, height, bitmapSafeText(PUBLICATION_SUBTITLE), plate.x, 108, 2, [100, 116, 139, 255]);
 
+  // The figure's paper, then the figure. The plate is filled first because the
+  // marks composite onto it.
+  fillRect(pixels, width, height, plate.x, plate.y, plate.width, plate.height, [255, 255, 255, 255]);
+  rasterizeSenaPublicationFigure(figure, figureRasterTarget(pixels, width, height, plate));
+
+  drawText(pixels, width, height, bitmapSafeText(figure.caption.modelDefinition), plate.x, 1200, 2, [100, 116, 139, 255]);
+  drawText(pixels, width, height, bitmapSafeText(figure.caption.goodnessOfFit), plate.x, 1226, 2, [71, 85, 105, 255]);
+
+  const rows = metricRows(model);
+  const chipWidth = plate.width / rows.length;
   rows.forEach(([label, value], index) => {
-    const y = 230 + index * 52;
-    const numeric = Number(value) || 0;
-    const barWidth = Math.max(8, (numeric / barMax) * 570);
-    fillRect(pixels, width, height, 320, y + 5, 600, 26, [226, 232, 240, 255]);
-    fillRect(pixels, width, height, 320, y + 5, barWidth, 26, [86, 176, 157, 255]);
-    fillRect(pixels, width, height, 320, y + 5, 2, 26, [20, 83, 78, 255]);
-    drawText(pixels, width, height, label, 104, y, 3, [31, 41, 55, 255]);
-    drawText(pixels, width, height, String(value), 944, y, 3, [51, 65, 85, 255]);
+    const x = plate.x + index * chipWidth;
+    drawText(pixels, width, height, bitmapSafeText(String(label)), x, 1256, 2, [100, 116, 139, 255]);
+    drawText(pixels, width, height, bitmapSafeText(String(value)), x, 1278, 3, [31, 41, 55, 255]);
   });
 
-  drawText(pixels, width, height, "GUARDRAIL: DESCRIPTIVE ANALYTICS. REPORT CODING RELIABILITY AND HUMAN REVIEW.", 104, 686, 2, [100, 116, 139, 255]);
+  drawText(pixels, width, height, bitmapSafeText(PUBLICATION_GUARDRAIL), plate.x, 1316, 2, [100, 116, 139, 255]);
+  drawText(pixels, width, height, bitmapSafeText(PUBLICATION_RASTER_NOTE), plate.x, 1344, 2, [148, 118, 20, 255]);
   return encodePng(width, height, pixels);
 }
 
-export function buildSenaPublicationHtml(report: SenaReport) {
+/**
+ * The bare figure as a PNG at the plate's own size — the DOCX image fallback,
+ * which needs a raster with no page furniture around it.
+ */
+export function buildSenaPublicationFigurePng(figure: SenaPublicationFigure) {
+  const scale = SENA_PUBLICATION_FIGURE_LAYOUT.png.plate.scale;
+  const width = Math.round(figure.plane.width * scale);
+  const height = Math.round(figure.plane.height * scale);
+  const pixels = Buffer.alloc(width * height * 4);
+  fillRect(pixels, width, height, 0, 0, width, height, [255, 255, 255, 255]);
+  rasterizeSenaPublicationFigure(figure, figureRasterTarget(pixels, width, height, { x: 0, y: 0, scale }));
+  return encodePng(width, height, pixels);
+}
+
+export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublicationFigure) {
   const markdown = buildSenaMarkdownReport(report);
+  // The report's own "Figures" section is prose — node, edge and window counts —
+  // so without this the HTML export is the one publication artifact that names
+  // figures and shows none. Inlined rather than linked: the artifact has to stay
+  // a single self-contained file an author can attach.
+  const figureBlock = figure
+    ? `<figure data-sena-figure="canonical-ena-plane">${
+        buildSenaPublicationFigureSvgDocument(figure).replace(/^<\?xml[^>]*\?>\s*/, "")
+      }<figcaption>${escapeXml(`${figure.caption.modelDefinition}. ${figure.caption.goodnessOfFit}.`)}</figcaption></figure>`
+    : "";
   const body = markdown
     .split("\n")
     .map((line) => {
@@ -289,7 +457,7 @@ export function buildSenaPublicationHtml(report: SenaReport) {
     li { margin: 4px 0; }
   </style>
 </head>
-<body>${body}</body>
+<body>${figureBlock}${body}</body>
 </html>`;
 }
 
@@ -432,7 +600,28 @@ export async function buildSenaPublicationWorkbook(model: SenaModel, report: Sen
   ]);
 }
 
-export async function buildSenaPublicationDocx(model: SenaModel, report: SenaReport) {
+/** Word content width at the default page and margins, in px at 96dpi. */
+const DOCX_FIGURE_WIDTH = 600;
+
+export async function buildSenaPublicationDocx(
+  model: SenaModel,
+  report: SenaReport,
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+) {
+  // Vector first: Word renders the SVG and keeps the figure resolution-free, and
+  // the PNG fallback is what older Word builds (and most converters) fall back
+  // to. `ImageRun`'s svg variant requires the fallback, which is exactly the
+  // right contract here.
+  const figureImage = new ImageRun({
+    type: "svg",
+    data: Buffer.from(buildSenaPublicationFigureSvgDocument(figure), "utf8"),
+    fallback: { type: "png", data: buildSenaPublicationFigurePng(figure) },
+    transformation: {
+      width: DOCX_FIGURE_WIDTH,
+      height: Math.round((DOCX_FIGURE_WIDTH * figure.plane.height) / figure.plane.width)
+    }
+  });
+
   const document = new Document({
     sections: [{
       properties: {},
@@ -441,6 +630,11 @@ export async function buildSenaPublicationDocx(model: SenaModel, report: SenaRep
         new Paragraph({
           children: [new TextRun({ text: "SENA publication report", bold: true }), new TextRun(" generated from the enterprise export API.")]
         }),
+        new Paragraph({ text: "Figure 1. Canonical ENA plane", heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ children: [figureImage] }),
+        new Paragraph({ children: [new TextRun({ text: figure.caption.modelDefinition, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: figure.caption.goodnessOfFit, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: figure.caption.guardrail, size: 18, italics: true })] }),
         new Paragraph({ text: "Summary Metrics", heading: HeadingLevel.HEADING_1 }),
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
@@ -461,7 +655,29 @@ export async function buildSenaPublicationDocx(model: SenaModel, report: SenaRep
   return Buffer.from(await Packer.toBuffer(document));
 }
 
-export async function buildSenaPublicationPdf(model: SenaModel, report: SenaReport) {
+function pdfColor(hex: string) {
+  const [red, green, blue] = hexToRgb(hex);
+  return rgb(red / 255, green / 255, blue / 255);
+}
+
+/**
+ * Helvetica's WinAnsi encoding cannot represent the Greek rho the
+ * co-registration line carries, and pdf-lib throws rather than dropping it.
+ * Fold the figure's few non-Latin marks onto ASCII before they reach the page.
+ */
+function pdfSafeText(value: string) {
+  return value
+    .replace(/ρ/g, "rho")
+    .replace(/[·•]/g, "-")
+    .replace(/[–—]/g, "-")
+    .replace(/[^\x20-\x7E]/g, " ");
+}
+
+export async function buildSenaPublicationPdf(
+  model: SenaModel,
+  report: SenaReport,
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -469,28 +685,82 @@ export async function buildSenaPublicationPdf(model: SenaModel, report: SenaRepo
   const { height } = page.getSize();
   let y = height - 56;
 
-  page.drawText(report.title.slice(0, 82), { x: 48, y, size: 18, font: bold, color: rgb(0.07, 0.1, 0.18) });
-  y -= 32;
-  page.drawText("SENA publication summary", { x: 48, y, size: 11, font, color: rgb(0.35, 0.41, 0.5) });
-  y -= 34;
+  page.drawText(pdfSafeText(report.title).slice(0, 82), { x: 48, y, size: 18, font: bold, color: rgb(0.07, 0.1, 0.18) });
+  y -= 20;
+  page.drawText("SENA publication export - canonical ENA plane", { x: 48, y, size: 10, font, color: rgb(0.35, 0.41, 0.5) });
 
+  // The figure as real vectors. pdf-lib draws lines, circles, and embedded
+  // Helvetica natively, so the PDF carries the same geometry as the SVG with
+  // proper typography rather than an embedded bitmap.
+  const plateWidth = 516;
+  const plateScale = plateWidth / figure.plane.width;
+  const plateTop = y - 18;
+  const plateBottom = plateTop - figure.plane.height * plateScale;
+  page.drawRectangle({
+    x: 48,
+    y: plateBottom,
+    width: plateWidth,
+    height: figure.plane.height * plateScale,
+    color: rgb(1, 1, 1),
+    borderColor: rgb(0.8, 0.84, 0.88),
+    borderWidth: 0.6
+  });
+  drawSenaPublicationFigureOnPdf(figure, {
+    x: 48,
+    top: plateTop,
+    scale: plateScale,
+    drawLine: ({ x1, y1, x2, y2, color, thickness, opacity }) => {
+      page.drawLine({
+        start: { x: x1, y: y1 },
+        end: { x: x2, y: y2 },
+        thickness,
+        color: pdfColor(color),
+        opacity
+      });
+    },
+    drawDisc: ({ x, y: discY, radius, color, borderColor, borderWidth }) => {
+      page.drawCircle({
+        x,
+        y: discY,
+        size: radius,
+        color: pdfColor(color),
+        ...(borderColor ? { borderColor: pdfColor(borderColor), borderWidth: borderWidth ?? 0.5 } : {})
+      });
+    },
+    drawText: ({ text, x, y: textY, size, color, bold: isBold, anchor }) => {
+      const face = isBold ? bold : font;
+      const safe = pdfSafeText(text);
+      const textWidth = face.widthOfTextAtSize(safe, size);
+      const left = anchor === "end" ? x - textWidth : anchor === "middle" ? x - textWidth / 2 : x;
+      page.drawText(safe, { x: left, y: textY, size, font: face, color: pdfColor(color) });
+    }
+  });
+
+  y = plateBottom - 14;
+  page.drawText(pdfSafeText(figure.caption.modelDefinition).slice(0, 128), { x: 48, y, size: 7, font, color: rgb(0.35, 0.41, 0.5) });
+  y -= 11;
+  page.drawText(pdfSafeText(figure.caption.goodnessOfFit).slice(0, 128), { x: 48, y, size: 7, font, color: rgb(0.35, 0.41, 0.5) });
+  y -= 22;
+
+  page.drawText("Summary metrics", { x: 48, y, size: 12, font: bold, color: rgb(0.07, 0.1, 0.18) });
+  y -= 16;
   for (const [metric, value] of metricRows(model)) {
-    page.drawText(metric, { x: 56, y, size: 11, font: bold, color: rgb(0.12, 0.16, 0.22) });
-    page.drawText(String(value), { x: 260, y, size: 11, font, color: rgb(0.12, 0.16, 0.22) });
-    y -= 22;
+    page.drawText(metric, { x: 56, y, size: 9, font: bold, color: rgb(0.12, 0.16, 0.22) });
+    page.drawText(String(value), { x: 200, y, size: 9, font, color: rgb(0.12, 0.16, 0.22) });
+    y -= 12;
   }
 
-  y -= 18;
-  page.drawText("Claim readiness", { x: 48, y, size: 13, font: bold, color: rgb(0.07, 0.1, 0.18) });
+  y -= 10;
+  page.drawText("Claim readiness", { x: 48, y, size: 12, font: bold, color: rgb(0.07, 0.1, 0.18) });
+  y -= 14;
+  page.drawText(pdfSafeText(`${report.claimReadinessGate.status}; ${report.claimReadinessGate.claimUse}`).slice(0, 110), { x: 56, y, size: 9, font, color: rgb(0.12, 0.16, 0.22) });
   y -= 22;
-  page.drawText(`${report.claimReadinessGate.status}; ${report.claimReadinessGate.claimUse}`.slice(0, 95), { x: 56, y, size: 10, font, color: rgb(0.12, 0.16, 0.22) });
-  y -= 36;
-  page.drawText("Guardrail", { x: 48, y, size: 13, font: bold, color: rgb(0.07, 0.1, 0.18) });
-  y -= 22;
+  page.drawText("Guardrail", { x: 48, y, size: 12, font: bold, color: rgb(0.07, 0.1, 0.18) });
+  y -= 14;
   page.drawText("Descriptive analytics only until coding reliability, human review, and method settings are documented.", {
     x: 56,
     y,
-    size: 9,
+    size: 8,
     font,
     color: rgb(0.35, 0.41, 0.5)
   });
@@ -522,31 +792,46 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
   );
 }
 
+/**
+ * The projection the export draws.
+ *
+ * `report.enaManifest` is the projection the report itself was written from, so
+ * taking it rather than recomputing keeps the figure and the report's own ENA
+ * numbers provably the same run — and it is free. A snapshot old enough to
+ * predate the field falls back to computing it from the model's dataset, which
+ * is the same deterministic call `buildSenaReport` makes.
+ */
+function publicationFigureFor(model: SenaModel, report: SenaReport) {
+  const manifest = (report as Partial<SenaReport>).enaManifest;
+  return buildSenaPublicationFigure(model, manifest ? { manifest } : {});
+}
+
 async function buildSingleSenaPublicationExport(
   model: SenaModel,
   report: SenaReport,
   safeTitle: string,
-  format: PackagedPublicationFormat
+  format: PackagedPublicationFormat,
+  figure: SenaPublicationFigure = publicationFigureFor(model, report)
 ): Promise<SenaPublicationExport> {
   if (format === "svg") {
     return {
       filename: `${safeTitle}.svg`,
       contentType: "image/svg+xml; charset=utf-8",
-      body: buildSenaPublicationSvg(model, report.title)
+      body: buildSenaPublicationSvg(model, report.title, figure)
     };
   }
   if (format === "png") {
     return {
       filename: `${safeTitle}.png`,
       contentType: "image/png",
-      body: buildSenaPublicationPng(model, report.title)
+      body: buildSenaPublicationPng(model, report.title, figure)
     };
   }
   if (format === "html") {
     return {
       filename: `${safeTitle}.html`,
       contentType: "text/html; charset=utf-8",
-      body: buildSenaPublicationHtml(report)
+      body: buildSenaPublicationHtml(report, figure)
     };
   }
   if (format === "xlsx") {
@@ -560,13 +845,13 @@ async function buildSingleSenaPublicationExport(
     return {
       filename: `${safeTitle}.docx`,
       contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      body: await buildSenaPublicationDocx(model, report)
+      body: await buildSenaPublicationDocx(model, report, figure)
     };
   }
   return {
     filename: `${safeTitle}.pdf`,
     contentType: "application/pdf",
-    body: await buildSenaPublicationPdf(model, report)
+    body: await buildSenaPublicationPdf(model, report, figure)
   };
 }
 
@@ -577,8 +862,12 @@ export async function buildSenaPublicationPackage(
   snapshot?: SenaProjectSnapshot,
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
 ) {
+  // One projection for all six artifacts: the SVG, PNG, DOCX, and PDF each draw
+  // the same figure, so resolving it once is both cheaper and the guarantee that
+  // the package's four pictures cannot disagree with each other.
+  const figure = publicationFigureFor(model, report);
   const artifacts = await Promise.all(packagedPublicationFormats.map(async (format) => {
-    const exportArtifact = await buildSingleSenaPublicationExport(model, report, safeTitle, format);
+    const exportArtifact = await buildSingleSenaPublicationExport(model, report, safeTitle, format, figure);
     const bytes = bodyBuffer(exportArtifact.body);
     return {
       format,
@@ -636,6 +925,24 @@ export async function buildSenaPublicationPackage(
       "Keep coding reliability, human review, metric provenance, and method settings with publication-facing claims."
     ]
   };
+  // What figure the package's four picture artifacts contain, and how big it is.
+  // Without this the manifest describes six files by size and hash and says
+  // nothing about whether any of them holds a figure at all — which is exactly
+  // how a package of six summary cards passed as a publication package.
+  const figureEvidence = {
+    status: figure.status,
+    figure: figure.figure,
+    title: figure.title,
+    reason: figure.reason,
+    dimensions: figure.dimensions,
+    nodes: figure.nodes.length,
+    edges: figure.edges.length,
+    units: figure.units.length,
+    formats: ["svg", "png", "docx", "pdf"],
+    modelDefinition: figure.caption.modelDefinition,
+    goodnessOfFit: figure.caption.goodnessOfFit,
+    rasterLimitation: PUBLICATION_RASTER_NOTE
+  };
   const verificationCertificate = {
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationVerificationCertificate,
     status: artifactManifest.every((artifact) => artifact.bytes > 0 && artifact.sha256.length === 64) ? "verified" : "needs-review",
@@ -662,6 +969,7 @@ export async function buildSenaPublicationPackage(
     artifactManifest,
     sourceSnapshotEvidence,
     claimEvidence,
+    figureEvidence,
     verificationCertificate,
     enterpriseProjectEvidence
   };
@@ -678,6 +986,7 @@ export async function buildSenaPublicationPackage(
     },
     claimEvidence,
     sourceSnapshotEvidence,
+    figureEvidence,
     enterpriseProjectEvidence,
     artifactManifest,
     verificationCertificate,
