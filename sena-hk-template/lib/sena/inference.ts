@@ -1,15 +1,12 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
+import {
+  validateSenaAnalyticalInputs,
+  type SenaValidatedGroupComparisonMetric
+} from "./analytical-input-validation";
 import type { SenaBuildOptions, SenaDataset, SenaModel, SenaPersonMetrics } from "./types";
 
-export type SenaGroupComparisonMetric =
-  | "bridgeScore"
-  | "epistemicContribution"
-  | "epistemicDiversity"
-  | "socialStrength"
-  | "socialDegree"
-  | "conceptBrokerage"
-  | "alignment";
+export type SenaGroupComparisonMetric = SenaValidatedGroupComparisonMetric;
 
 export type SenaEffectSizeStatus =
   | "estimable"
@@ -96,6 +93,54 @@ export type SenaGroupComparisonSuiteResult = {
 };
 
 export type SenaGroupComparisonValidationResult = SenaGroupComparisonResult | SenaGroupComparisonSuiteResult;
+
+export type SenaGroupComparisonEffectSizeV1 = {
+  cohenD: number;
+  hedgesG: number;
+  pooledStandardDeviation: number;
+};
+
+export type SenaGroupComparisonResultV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.groupComparison;
+  metric: SenaGroupComparisonMetric;
+  groupField: "group" | "role";
+  groupA: string;
+  groupB: string;
+  nA: number;
+  nB: number;
+  meanA: number;
+  meanB: number;
+  observedDifference: number;
+  effectSize: SenaGroupComparisonEffectSizeV1;
+  permutation: SenaGroupComparisonResult["permutation"];
+  bootstrap: SenaGroupComparisonResult["bootstrap"];
+  diagnostics: SenaGroupComparisonResult["diagnostics"];
+  guardrail: string;
+};
+
+export type SenaGroupComparisonSuiteEntryV1 = SenaGroupComparisonResultV1 & {
+  comparisonId: string;
+  holmRank: number;
+  holmAdjustedP: number;
+  significantAtAlpha: boolean;
+};
+
+export type SenaGroupComparisonSuiteResultV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite;
+  alpha: number;
+  correction: "holm";
+  comparisonCount: number;
+  significantHolmCount: number;
+  primary: SenaGroupComparisonSuiteEntryV1;
+  comparisons: SenaGroupComparisonSuiteEntryV1[];
+  diagnostics: SenaGroupComparisonSuiteResult["diagnostics"];
+  guardrail: string;
+};
+
+export type SenaGroupComparisonValidationReadModel =
+  | SenaGroupComparisonValidationResult
+  | SenaGroupComparisonResultV1
+  | SenaGroupComparisonSuiteResultV1;
 
 export type SenaGroupComparisonSpec = {
   groupField?: "group" | "role";
@@ -184,7 +229,7 @@ export function buildSenaGroupComparisonEffectSize(
     status: "estimable",
     cohenD: round(cohenD),
     hedgesG: round(hedgesG),
-    pooledStandardDeviation: round(pooledStandardDeviation),
+    pooledStandardDeviation,
     reason: "Cohen d and Hedges g are estimable from two groups with at least two observations and positive pooled standard deviation."
   };
 }
@@ -234,6 +279,11 @@ export function buildSenaGroupComparison(input: {
   seed?: number;
   bootstrapIterations?: number;
 }): SenaGroupComparisonResult {
+  validateSenaAnalyticalInputs({
+    dataset: input.dataset,
+    buildOptions: input.buildOptions,
+    groupComparison: input
+  });
   const model = buildSenaModel(input.dataset, input.buildOptions ?? {});
   const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
@@ -248,7 +298,7 @@ export function buildSenaGroupComparison(input: {
   const effectSize = buildSenaGroupComparisonEffectSize(a, b);
   const combined = [...a, ...b];
   const nA = a.length;
-  const iterations = Math.max(100, Math.min(10000, Math.round(input.iterations ?? 1000)));
+  const iterations = input.iterations ?? 1000;
   const seed = input.seed ?? 20260611;
   const random = seededRandom(seed);
   const samples = Array.from({ length: iterations }, () => {
@@ -260,7 +310,7 @@ export function buildSenaGroupComparison(input: {
     return mean(shuffled.slice(0, nA)) - mean(shuffled.slice(nA));
   });
   const pTwoSided = (samples.filter((sample) => Math.abs(sample) >= Math.abs(observedDifference)).length + 1) / (samples.length + 1);
-  const bootstrapIterations = Math.max(100, Math.min(10000, Math.round(input.bootstrapIterations ?? iterations)));
+  const bootstrapIterations = input.bootstrapIterations ?? iterations;
   const bootstrapSeed = seed + 7919;
   const bootstrapRandom = seededRandom(bootstrapSeed);
   const bootstrapSamples = Array.from({ length: bootstrapIterations }, () => (
@@ -317,11 +367,6 @@ function comparisonId(result: SenaGroupComparisonResult) {
   ].join(":");
 }
 
-function normalizeAlpha(value: number | undefined) {
-  if (!Number.isFinite(value)) return 0.05;
-  return Math.max(0.001, Math.min(0.5, Number(value)));
-}
-
 export function buildSenaGroupComparisonSuite(input: {
   dataset: SenaDataset;
   buildOptions?: Partial<SenaBuildOptions>;
@@ -333,10 +378,12 @@ export function buildSenaGroupComparisonSuite(input: {
   bootstrapIterations?: number;
   alpha?: number;
 }): SenaGroupComparisonSuiteResult {
-  if (input.comparisons.length === 0) {
-    throw new Error("At least one group-comparison specification is required.");
-  }
-  const alpha = normalizeAlpha(input.alpha);
+  validateSenaAnalyticalInputs({
+    dataset: input.dataset,
+    buildOptions: input.buildOptions,
+    groupComparison: input
+  });
+  const alpha = input.alpha ?? 0.05;
   const comparisons = input.comparisons.map((comparison, index) => buildSenaGroupComparison({
     dataset: input.dataset,
     buildOptions: input.buildOptions,
@@ -428,8 +475,9 @@ function normalizeSenaGroupComparisonResult(value: unknown): SenaGroupComparison
   if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) {
     throw new Error("SENA group comparison uses an unsupported schemaVersion.");
   }
+  const legacy = value as unknown as SenaGroupComparisonResultV1;
   return {
-    ...(value as unknown as SenaGroupComparisonResult),
+    ...legacy,
     schemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
     sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparison,
     effectSize: normalizeLegacyEffectSize(value.effectSize)
@@ -461,7 +509,7 @@ function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupC
 }
 
 export function normalizeSenaGroupComparisonValidationResult(
-  value: unknown
+  value: SenaGroupComparisonValidationReadModel
 ): SenaGroupComparisonValidationResult {
   if (!isRecord(value)) throw new Error("SENA group-comparison validation result must be an object.");
   if (

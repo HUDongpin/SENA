@@ -17,11 +17,21 @@ function sameStrings(left: string[], right: string[]) {
 }
 
 function finiteMatrix(values: number[][]) {
-  return values.every((row) => row.every(Number.isFinite));
+  return Array.isArray(values) && values.every((row) => (
+    Array.isArray(row) && row.every((value) => typeof value === "number" && Number.isFinite(value))
+  ));
 }
 
 function nonnegativeMatrix(values: number[][]) {
-  return values.every((row) => row.every((value) => Number.isFinite(value) && value >= 0));
+  return Array.isArray(values) && values.every((row) => (
+    Array.isArray(row) && row.every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0)
+  ));
+}
+
+function exactMatrixShape(values: number[][], rows: number, columns: number) {
+  return Array.isArray(values) && values.length === rows && values.every((row) => (
+    Array.isArray(row) && row.length === columns
+  ));
 }
 
 function stableNumber(value: number) {
@@ -30,19 +40,19 @@ function stableNumber(value: number) {
 }
 
 function stableMatrix(values: number[][]) {
-  return values.map((row) => row.map(stableNumber));
+  return values.map((row) => Array.isArray(row) ? row.map(stableNumber) : []);
 }
 
 function matrixTotal(values: number[][]) {
   const total = values.reduce((sum, row) => (
-    sum + row.reduce((rowSum, value) => rowSum + (Number.isFinite(value) ? value : 0), 0)
+    sum + (Array.isArray(row) ? row.reduce((rowSum, value) => rowSum + (Number.isFinite(value) ? value : 0), 0) : 0)
   ), 0);
   return stableNumber(total) as number;
 }
 
 function matrixNonZero(values: number[][]) {
   return values.reduce((count, row) => (
-    count + row.filter((value) => Number.isFinite(value) && Math.abs(value) > 0).length
+    count + (Array.isArray(row) ? row.filter((value) => Number.isFinite(value) && Math.abs(value) > 0).length : 0)
   ), 0);
 }
 
@@ -225,15 +235,28 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
   const codePairCount = (codeCount * Math.max(0, codeCount - 1)) / 2;
   const fusionSize = peopleCount + codeCount;
 
-  const dimensionsPass = sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
+  const matrixShapesPass = exactMatrixShape(model.matrices.S.raw, peopleCount, peopleCount) &&
+    exactMatrixShape(model.matrices.S.normalized, peopleCount, peopleCount) &&
+    exactMatrixShape(model.matrices.W.raw, codeCount, codeCount) &&
+    exactMatrixShape(model.matrices.W.normalized, codeCount, codeCount) &&
+    exactMatrixShape(model.matrices.B.raw, peopleCount, codeCount) &&
+    exactMatrixShape(model.matrices.B.normalized, peopleCount, codeCount) &&
+    exactMatrixShape(model.matrices.B_PC.raw, peopleCount, codeCount) &&
+    exactMatrixShape(model.matrices.B_PC.normalized, peopleCount, codeCount) &&
+    exactMatrixShape(model.matrices.B_CP.raw, codeCount, peopleCount) &&
+    exactMatrixShape(model.matrices.B_CP.normalized, codeCount, peopleCount) &&
+    exactMatrixShape(model.matrices.G.raw, peopleCount, codePairCount) &&
+    exactMatrixShape(model.matrices.G.normalized, peopleCount, codePairCount) &&
+    exactMatrixShape(fusion, fusionSize, fusionSize);
+  const dimensionsPass = peopleCount > 0 && codeCount > 0 &&
+    sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
     sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels) &&
     sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) &&
     sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels) &&
     sameStrings(model.matrices.W.labels, model.matrices.B_CP.rowLabels) &&
     sameStrings(model.matrices.S.labels, model.matrices.B_CP.columnLabels) &&
     sameStrings(expectedLabels, model.matrices.fusion.labels) &&
-    fusion.length === fusionSize &&
-    fusion.every((row) => row.length === fusionSize);
+    matrixShapesPass;
 
   const auditedMatrices = [
     ["S.raw", model.matrices.S.raw],
@@ -250,9 +273,9 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
     ["G.normalized", model.matrices.G.normalized],
     ["A_fusion.values", fusion]
   ] as const;
-  const allFinite = auditedMatrices.every(([, values]) => finiteMatrix(values)) &&
+  const allFinite = dimensionsPass && auditedMatrices.every(([, values]) => finiteMatrix(values)) &&
     [options.alpha, options.beta, options.gamma].every(Number.isFinite);
-  const allNonnegative = auditedMatrices.every(([, values]) => nonnegativeMatrix(values)) &&
+  const allNonnegative = dimensionsPass && auditedMatrices.every(([, values]) => nonnegativeMatrix(values)) &&
     [options.alpha, options.beta, options.gamma].every((value) => Number.isFinite(value) && value >= 0);
 
   const socialDelta = maxDeltaForBlock({

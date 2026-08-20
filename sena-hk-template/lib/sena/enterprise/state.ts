@@ -2,8 +2,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import { normalizeSenaGroupComparisonValidationResult } from "../inference";
-import { normalizeSenaReliabilityDashboard } from "../reliability";
+import {
+  normalizeSenaGroupComparisonValidationResult,
+  type SenaGroupComparisonValidationReadModel
+} from "../inference";
+import {
+  normalizeSenaReliabilityDashboard,
+  type SenaReliabilityDashboardReadModel
+} from "../reliability";
 import { SenaEnterpriseError } from "./errors";
 import type {
   SenaEnterpriseAnalysisRun,
@@ -188,6 +194,19 @@ export type SenaEnterpriseDb = {
   auditLog: SenaEnterpriseAuditLogEntry[];
 };
 
+export type SenaEnterpriseReliabilityRunReadModel = Omit<SenaEnterpriseReliabilityRun, "dashboard"> & {
+  dashboard: SenaReliabilityDashboardReadModel;
+};
+
+export type SenaEnterpriseValidationRunReadModel = Omit<SenaEnterpriseValidationRun, "result"> & {
+  result: SenaGroupComparisonValidationReadModel;
+};
+
+export type SenaEnterpriseDbReadModel = Omit<SenaEnterpriseDb, "reliabilityRuns" | "validationRuns"> & {
+  reliabilityRuns: SenaEnterpriseReliabilityRunReadModel[];
+  validationRuns: SenaEnterpriseValidationRunReadModel[];
+};
+
 const standardSessionDays = 7;
 const sessionDays = standardSessionDays;
 const dbLockTimeoutMs = positiveIntegerEnv("SENA_ENTERPRISE_DB_LOCK_TIMEOUT_MS", 5000);
@@ -337,7 +356,7 @@ function pruneApiRateLimits(db: SenaEnterpriseDb) {
   return (db.apiRateLimits ?? []).filter((record) => Date.parse(record.expiresAt) > current);
 }
 
-export function normalizeEnterpriseDb(db: SenaEnterpriseDb): SenaEnterpriseDb {
+export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterpriseDb {
   return {
     ...db,
     sessions: (db.sessions ?? []).map((session) => ({
@@ -584,8 +603,8 @@ export type SenaFileEnterpriseStateStoreOptions = {
   lockTimeoutMs?: number;
   lockPollMs?: number;
   createEmptyDb: () => SenaEnterpriseDb;
-  validateDb?: (db: SenaEnterpriseDb) => void;
-  normalizeDb?: (db: SenaEnterpriseDb) => SenaEnterpriseDb;
+  validateDb?: (db: SenaEnterpriseDbReadModel) => void;
+  normalizeDb?: (db: SenaEnterpriseDbReadModel) => SenaEnterpriseDbReadModel;
   pruneBeforeSave?: (db: SenaEnterpriseDb) => SenaEnterpriseDb;
   lockTimeoutError?: () => Error;
 };
@@ -704,7 +723,9 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const lockPath = `${dbPath}.lock`;
   const timeoutMs = options.lockTimeoutMs ?? 5000;
   const pollMs = options.lockPollMs ?? 25;
-  const normalizeDb = options.normalizeDb ?? ((db: SenaEnterpriseDb) => db);
+  const normalizeDb = (db: SenaEnterpriseDbReadModel) => normalizeEnterpriseDb(
+    options.normalizeDb ? options.normalizeDb(db) : db
+  );
   const pruneBeforeSave = options.pruneBeforeSave ?? ((db: SenaEnterpriseDb) => db);
 
   const write = (db: SenaEnterpriseDb) => {
@@ -750,7 +771,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       return db;
     }
 
-    const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb;
+    const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDbReadModel;
     options.validateDb?.(parsed);
     return normalizeDb(parsed);
   };
@@ -857,7 +878,6 @@ function createEnterpriseFileStateStore() {
         throw new SenaEnterpriseError("Unsupported SENA enterprise database schema.", 500, "unsupported_enterprise_db");
       }
     },
-    normalizeDb: normalizeEnterpriseDb,
     pruneBeforeSave: pruneEnterpriseDbBeforeSave,
     lockTimeoutError: () => new SenaEnterpriseError("Timed out waiting for SENA enterprise database write lock.", 503, "enterprise_db_lock_timeout")
   });

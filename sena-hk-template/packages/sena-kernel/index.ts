@@ -16,6 +16,7 @@ export { buildSenaModel, scopeSenaDatasetToWindow } from "../../lib/sena/model";
 export {
   buildSenaAnalysisProvenanceEnvelope,
   buildSenaAnalysisRun,
+  resolveSenaAnalysisRunSource,
   type SenaAnalysisRunInput,
   type SenaAnalysisRunSourceKind
 } from "../../lib/sena/analysis-run";

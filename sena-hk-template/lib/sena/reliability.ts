@@ -62,6 +62,43 @@ export type SenaReliabilityDashboard = {
   warnings: string[];
 };
 
+export type SenaPairwiseKappaV1 = {
+  coderA: string;
+  coderB: string;
+  units: number;
+  observedAgreement: number;
+  expectedAgreement: number;
+  kappa: number;
+};
+
+export type SenaCodeReliabilityDiagnosticV1 = {
+  codeId: string;
+  unitCount: number;
+  positiveAssignments: number;
+  disagreementCount: number;
+  agreementRate: number;
+  coderPositiveRates: Record<string, number>;
+  pairwiseCohenKappa: SenaPairwiseKappaV1[];
+};
+
+export type SenaReliabilityDashboardV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  coderCount: number;
+  itemCount: number;
+  codeCount: number;
+  binaryUnitCount: number;
+  pairwiseCohenKappa: SenaPairwiseKappaV1[];
+  codeDiagnostics: SenaCodeReliabilityDiagnosticV1[];
+  meanPairwiseKappa: number;
+  krippendorffAlphaNominal: number;
+  disagreementCount: number;
+  adjudicationQueue: SenaReliabilityDisagreement[];
+  interpretation: string;
+  warnings: string[];
+};
+
+export type SenaReliabilityDashboardReadModel = SenaReliabilityDashboard | SenaReliabilityDashboardV1;
+
 function scalar(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -479,11 +516,13 @@ export function buildSenaReliabilityDashboard(
   const valuesByUnit = buildUnitRows(unitKeys, coders, annotations, missingCells);
 
   const pairwiseCohenKappa: SenaPairwiseKappa[] = [];
+  const rawPairwiseKappas: number[] = [];
   for (let i = 0; i < coders.length; i += 1) {
     for (let j = i + 1; j < coders.length; j += 1) {
       const coderA = coders[i];
       const coderB = coders[j];
       const stats = cohenKappa(valuesByUnit.map((unit) => unit[coderA]), valuesByUnit.map((unit) => unit[coderB]));
+      if (stats.kappa !== null) rawPairwiseKappas.push(stats.kappa);
       pairwiseCohenKappa.push({
         coderA,
         coderB,
@@ -520,12 +559,10 @@ export function buildSenaReliabilityDashboard(
         : pairwiseStatuses.every((status) => status === "estimable")
           ? "estimable"
           : "legacy-ambiguous";
-  const estimablePairwiseKappas = pairwiseCohenKappa
-    .map((entry) => entry.kappa)
-    .filter((value): value is number => value !== null);
-  const meanPairwiseKappa = meanPairwiseKappaStatus === "estimable"
-    ? round(mean(estimablePairwiseKappas))
+  const rawMeanPairwiseKappa = meanPairwiseKappaStatus === "estimable"
+    ? mean(rawPairwiseKappas)
     : null;
+  const meanPairwiseKappa = rawMeanPairwiseKappa === null ? null : round(rawMeanPairwiseKappa);
   const alphaEstimate = krippendorffAlphaNominal(valuesByUnit, coders);
   const alpha = roundNullable(alphaEstimate.value);
   if (alphaEstimate.status !== "estimable") {
@@ -534,8 +571,8 @@ export function buildSenaReliabilityDashboard(
   const claimEligibility = buildSenaReliabilityClaimEligibility({
     coderCount: coders.length,
     pairwiseStatuses,
-    meanPairwiseKappa,
-    krippendorffAlphaNominal: alpha,
+    meanPairwiseKappa: rawMeanPairwiseKappa,
+    krippendorffAlphaNominal: alphaEstimate.value,
     krippendorffAlphaNominalStatus: alphaEstimate.status
   });
   const status = aggregateReliabilityStatus(coders.length, pairwiseStatuses, alphaEstimate.status);
@@ -544,7 +581,7 @@ export function buildSenaReliabilityDashboard(
     ? "Reliability cannot be interpreted until at least two coders are uploaded."
     : claimEligibility.eligible
       ? "The machine reliability thresholds are met; human adjudication coverage and study-specific sign-off remain external evidence."
-      : meanPairwiseKappa !== null && alpha !== null && meanPairwiseKappa >= 0.6 && alpha >= 0.6
+      : rawMeanPairwiseKappa !== null && alphaEstimate.value !== null && rawMeanPairwiseKappa >= 0.6 && alphaEstimate.value >= 0.6
         ? "Reliability evidence is moderate; adjudicate disagreements before publication-facing claims."
         : status === "estimable"
           ? "Reliability evidence needs review before SENA graph patterns are treated as research claims."
@@ -597,7 +634,9 @@ export function isCurrentSenaReliabilityDashboard(value: unknown): value is Sena
   return isRecord(value) && value.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
 }
 
-export function normalizeSenaReliabilityDashboard(value: unknown): SenaReliabilityDashboard {
+export function normalizeSenaReliabilityDashboard(
+  value: SenaReliabilityDashboardReadModel
+): SenaReliabilityDashboard {
   if (!isRecord(value)) throw new Error("SENA reliability dashboard must be an object.");
   if (isCurrentSenaReliabilityDashboard(value)) {
     return {
@@ -609,7 +648,7 @@ export function normalizeSenaReliabilityDashboard(value: unknown): SenaReliabili
     throw new Error("SENA reliability dashboard uses an unsupported schemaVersion.");
   }
 
-  const legacy = value as unknown as SenaReliabilityDashboard;
+  const legacy = value as unknown as SenaReliabilityDashboardV1;
   const pairwiseCohenKappa = Array.isArray(value.pairwiseCohenKappa)
     ? value.pairwiseCohenKappa.map(normalizeLegacyPairwiseKappa)
     : [];

@@ -110,6 +110,19 @@ describe("SENA analytical input validation v2", () => {
     );
   });
 
+  it.each([
+    ["d", { d: 2.5 }, "buildOptions.d"],
+    ["moving-window size", { temporal: { mode: "moving-window", movingWindowSize: 2.5 } }, "buildOptions.temporal.movingWindowSize"],
+    ["moving-window step", { temporal: { mode: "moving-window", movingWindowStep: 1.5 } }, "buildOptions.temporal.movingWindowStep"],
+    ["turn-window radius", { temporal: { mode: "turn-window", turnWindowRadius: 0.5 } }, "buildOptions.temporal.turnWindowRadius"]
+  ] as const)("rejects fractional %s instead of rounding it", (_label, options, path) => {
+    expectValidationIssue(
+      () => buildSenaModel(datasetCopy(), options as Partial<SenaBuildOptions>),
+      path,
+      "integer-range"
+    );
+  });
+
   it("keeps zero weights valid, including an all-three-zero construction", () => {
     const dataset = datasetCopy();
     dataset.interactions[0].weight = 0;

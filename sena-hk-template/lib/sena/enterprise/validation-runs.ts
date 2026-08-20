@@ -31,10 +31,11 @@ import {
   type SenaGroupComparisonValidationResult
 } from "../inference";
 import { importSenaJsonContract } from "../import";
+import { validateSenaAnalyticalInputs } from "../analytical-input-validation";
 import { senaRuntimeProvenance } from "../runtime-constants";
 import { importSenaProjectSnapshot } from "../snapshot";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import type { SenaBuildOptions, SenaRuntimeProvenance } from "../types";
+import type { SenaBuildOptions, SenaDataset, SenaRuntimeProvenance } from "../types";
 
 export type SenaEnterpriseValidationRunStatus = "pending-review" | "approved" | "rejected";
 
@@ -915,57 +916,93 @@ export async function buildEnterpriseValidationRunReviewResponseWithPostgresMirr
   };
 }
 
-const groupComparisonMetrics = new Set<SenaGroupComparisonMetric>([
-  "bridgeScore",
-  "epistemicContribution",
-  "epistemicDiversity",
-  "socialStrength",
-  "socialDegree",
-  "conceptBrokerage",
-  "alignment"
-]);
-
 const defaultGroupComparisonMetric: SenaGroupComparisonMetric = "socialStrength";
 
-function isGroupComparisonMetric(value: unknown): value is SenaGroupComparisonMetric {
-  return groupComparisonMetrics.has(value as SenaGroupComparisonMetric);
-}
-
 function groupComparisonMetricValue(value: unknown): SenaGroupComparisonMetric {
-  return isGroupComparisonMetric(value) ? value : defaultGroupComparisonMetric;
+  return value === undefined ? defaultGroupComparisonMetric : value as SenaGroupComparisonMetric;
 }
 
 function parseGroupComparisonMetricList(value: unknown, fallback: unknown) {
-  const candidates = Array.isArray(value) ? value : [value ?? fallback];
-  const parsed = candidates
-    .filter(isGroupComparisonMetric)
+  const candidates = Array.isArray(value) ? value : [fallback ?? defaultGroupComparisonMetric];
+  return (candidates as SenaGroupComparisonMetric[])
     .filter((metric, index, list) => list.indexOf(metric) === index);
-  return parsed.length > 0 ? parsed : [defaultGroupComparisonMetric];
 }
 
 function parseGroupComparisonSpecs(body: Record<string, unknown>): SenaGroupComparisonSpec[] {
   if (Array.isArray(body.comparisons)) {
-    return body.comparisons
-      .filter((comparison): comparison is Record<string, unknown> => typeof comparison === "object" && comparison !== null && !Array.isArray(comparison))
-      .map((comparison): SenaGroupComparisonSpec => ({
-        groupField: comparison.groupField === "role" ? "role" : "group",
-        groupA: String(comparison.groupA ?? ""),
-        groupB: String(comparison.groupB ?? ""),
-        metric: groupComparisonMetricValue(comparison.metric)
-      }))
-      .filter((comparison) => comparison.groupA && comparison.groupB && comparison.groupA !== comparison.groupB)
-      .slice(0, 40);
+    const defaultGroupField = (body.groupField ?? "group") as "group" | "role";
+    const defaultMetric = groupComparisonMetricValue(body.metric);
+    return body.comparisons.map((comparison): SenaGroupComparisonSpec => {
+      const record = comparison as Record<string, unknown>;
+      return {
+        groupField: (record.groupField ?? defaultGroupField) as "group" | "role",
+        groupA: record.groupA as string,
+        groupB: record.groupB as string,
+        metric: (record.metric ?? defaultMetric) as SenaGroupComparisonMetric
+      };
+    });
   }
 
-  const groupA = String(body.groupA ?? "");
-  const groupB = String(body.groupB ?? "");
-  const groupField = body.groupField === "role" ? "role" : "group";
+  const groupA = body.groupA as string;
+  const groupB = body.groupB as string;
+  const groupField = (body.groupField ?? "group") as "group" | "role";
   return parseGroupComparisonMetricList(body.metrics, body.metric).map((metric) => ({
     groupField,
     groupA,
     groupB,
     metric
   }));
+}
+
+export type SenaResolvedEnterpriseGroupComparisonInput = {
+  projectId?: string;
+  project: SenaEnterpriseProject | null;
+  snapshot: ReturnType<typeof importSenaProjectSnapshot> | null;
+  dataset: SenaDataset;
+  buildOptions?: Partial<SenaBuildOptions>;
+  comparisons: SenaGroupComparisonSpec[];
+  defaultGroupField: "group" | "role";
+  defaultMetric: SenaGroupComparisonMetric;
+  iterations: number;
+  bootstrapIterations: number;
+  seed: number;
+  alpha: number;
+  suite: boolean;
+};
+
+export function resolveEnterpriseGroupComparisonInput(
+  body: Record<string, unknown>,
+  project: SenaEnterpriseProject | null
+): SenaResolvedEnterpriseGroupComparisonInput {
+  const projectId = body.projectId ? String(body.projectId) : undefined;
+  const snapshot = body.snapshot
+    ? importSenaProjectSnapshot(body.snapshot)
+    : project?.snapshot
+      ? importSenaProjectSnapshot(project.snapshot)
+      : null;
+  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
+  const effectiveBuildOptions = snapshot?.reproducibility.buildOptions ?? body.buildOptions;
+  validateSenaAnalyticalInputs({
+    dataset,
+    buildOptions: effectiveBuildOptions,
+    groupComparison: body
+  });
+  const iterations = (body.iterations ?? 1000) as number;
+  return {
+    projectId,
+    project,
+    snapshot,
+    dataset,
+    buildOptions: effectiveBuildOptions as Partial<SenaBuildOptions> | undefined,
+    comparisons: parseGroupComparisonSpecs(body),
+    defaultGroupField: (body.groupField ?? "group") as "group" | "role",
+    defaultMetric: groupComparisonMetricValue(body.metric),
+    iterations,
+    bootstrapIterations: (body.bootstrapIterations ?? iterations) as number,
+    seed: (body.seed ?? 20260611) as number,
+    alpha: (body.alpha ?? 0.05) as number,
+    suite: (body.suite ?? false) as boolean
+  };
 }
 
 function parseEnterpriseValidationParityEvidence(value: unknown): SenaEnterpriseValidationParityEvidenceInput | undefined {
@@ -991,36 +1028,29 @@ export function buildEnterpriseGroupComparisonValidationResponse(
 ) {
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? (adapters.getProject ?? getEnterpriseProject)(context, projectId) : null;
-  const snapshot = body.snapshot ? importSenaProjectSnapshot(body.snapshot) : project?.snapshot ?? null;
-  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
-  const comparisons = parseGroupComparisonSpecs(body);
-  const buildOptions = snapshot?.reproducibility.buildOptions ?? (
-    typeof body.buildOptions === "object" && body.buildOptions !== null && !Array.isArray(body.buildOptions)
-      ? body.buildOptions as Partial<SenaBuildOptions>
-      : undefined
-  );
-  const result = comparisons.length <= 1 && body.suite !== true
+  const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+  const result = resolved.comparisons.length <= 1 && !resolved.suite
     ? buildSenaGroupComparison({
-      dataset,
-      buildOptions,
-      groupField: comparisons[0]?.groupField ?? (body.groupField === "role" ? "role" : "group"),
-      groupA: comparisons[0]?.groupA ?? String(body.groupA ?? ""),
-      groupB: comparisons[0]?.groupB ?? String(body.groupB ?? ""),
-      metric: comparisons[0]?.metric ?? groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000)
+      dataset: resolved.dataset,
+      buildOptions: resolved.buildOptions,
+      groupField: resolved.comparisons[0].groupField,
+      groupA: resolved.comparisons[0].groupA,
+      groupB: resolved.comparisons[0].groupB,
+      metric: resolved.comparisons[0].metric,
+      iterations: resolved.iterations,
+      seed: resolved.seed,
+      bootstrapIterations: resolved.bootstrapIterations
     })
     : buildSenaGroupComparisonSuite({
-      dataset,
-      buildOptions,
-      comparisons,
-      defaultGroupField: body.groupField === "role" ? "role" : "group",
-      defaultMetric: groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000),
-      alpha: Number(body.alpha ?? 0.05)
+      dataset: resolved.dataset,
+      buildOptions: resolved.buildOptions,
+      comparisons: resolved.comparisons,
+      defaultGroupField: resolved.defaultGroupField,
+      defaultMetric: resolved.defaultMetric,
+      iterations: resolved.iterations,
+      seed: resolved.seed,
+      bootstrapIterations: resolved.bootstrapIterations,
+      alpha: resolved.alpha
     });
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = (adapters.createValidationRun ?? createEnterpriseValidationRun)(context, {
@@ -1056,36 +1086,29 @@ export async function buildEnterpriseGroupComparisonValidationResponseWithPostgr
 ) {
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-  const snapshot = body.snapshot ? importSenaProjectSnapshot(body.snapshot) : project?.snapshot ?? null;
-  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
-  const comparisons = parseGroupComparisonSpecs(body);
-  const buildOptions = snapshot?.reproducibility.buildOptions ?? (
-    typeof body.buildOptions === "object" && body.buildOptions !== null && !Array.isArray(body.buildOptions)
-      ? body.buildOptions as Partial<SenaBuildOptions>
-      : undefined
-  );
-  const result = comparisons.length <= 1 && body.suite !== true
+  const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+  const result = resolved.comparisons.length <= 1 && !resolved.suite
     ? buildSenaGroupComparison({
-      dataset,
-      buildOptions,
-      groupField: comparisons[0]?.groupField ?? (body.groupField === "role" ? "role" : "group"),
-      groupA: comparisons[0]?.groupA ?? String(body.groupA ?? ""),
-      groupB: comparisons[0]?.groupB ?? String(body.groupB ?? ""),
-      metric: comparisons[0]?.metric ?? groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000)
+      dataset: resolved.dataset,
+      buildOptions: resolved.buildOptions,
+      groupField: resolved.comparisons[0].groupField,
+      groupA: resolved.comparisons[0].groupA,
+      groupB: resolved.comparisons[0].groupB,
+      metric: resolved.comparisons[0].metric,
+      iterations: resolved.iterations,
+      seed: resolved.seed,
+      bootstrapIterations: resolved.bootstrapIterations
     })
     : buildSenaGroupComparisonSuite({
-      dataset,
-      buildOptions,
-      comparisons,
-      defaultGroupField: body.groupField === "role" ? "role" : "group",
-      defaultMetric: groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000),
-      alpha: Number(body.alpha ?? 0.05)
+      dataset: resolved.dataset,
+      buildOptions: resolved.buildOptions,
+      comparisons: resolved.comparisons,
+      defaultGroupField: resolved.defaultGroupField,
+      defaultMetric: resolved.defaultMetric,
+      iterations: resolved.iterations,
+      seed: resolved.seed,
+      bootstrapIterations: resolved.bootstrapIterations,
+      alpha: resolved.alpha
     });
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = await createEnterpriseValidationRunWithPostgresMirrorAsync(context, {

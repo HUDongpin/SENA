@@ -33,6 +33,7 @@ export { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime
 export {
   buildSenaAnalysisProvenanceEnvelope,
   buildSenaAnalysisRun,
+  resolveSenaAnalysisRunSource,
   type SenaAnalysisRunInput,
   type SenaAnalysisRunSourceKind
 } from "./analysis-run";
@@ -136,9 +137,11 @@ export {
 } from "./schema-registry";
 export {
   SenaInputValidationError,
+  SENA_GROUP_COMPARISON_METRICS,
   validateSenaAnalyticalInputs,
   type SenaInputValidationIssue,
-  type SenaInputValidationRule
+  type SenaInputValidationRule,
+  type SenaValidatedGroupComparisonMetric
 } from "./analytical-input-validation";
 export {
   buildSenaDemoVerificationCompatibilityAudit,
@@ -187,10 +190,14 @@ export {
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
   type SenaCodeReliabilityDiagnostic,
+  type SenaCodeReliabilityDiagnosticV1,
   type SenaCoderAnnotation,
   type SenaPairwiseKappa,
+  type SenaPairwiseKappaV1,
   type SenaReliabilityClaimEligibility,
   type SenaReliabilityDashboard,
+  type SenaReliabilityDashboardReadModel,
+  type SenaReliabilityDashboardV1,
   type SenaReliabilityDisagreement,
   type SenaReliabilityEstimationStatus
 } from "./reliability";
@@ -202,11 +209,16 @@ export {
   normalizeSenaGroupComparisonValidationResult,
   type SenaEffectSizeStatus,
   type SenaGroupComparisonEffectSize,
+  type SenaGroupComparisonEffectSizeV1,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
+  type SenaGroupComparisonResultV1,
   type SenaGroupComparisonSpec,
   type SenaGroupComparisonSuiteEntry,
+  type SenaGroupComparisonSuiteEntryV1,
   type SenaGroupComparisonSuiteResult,
+  type SenaGroupComparisonSuiteResultV1,
+  type SenaGroupComparisonValidationReadModel,
   type SenaGroupComparisonValidationResult
 } from "./inference";
 export type {

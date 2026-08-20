@@ -106,6 +106,20 @@ describe("SENA worked-example golden operators", () => {
     }
   );
 
+  it.each([
+    ["negative S", { S: [[-1]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }],
+    ["NaN W", { S: [[0]], W: [[Number.NaN]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }],
+    ["negative B_PC", { S: [[0]], W: [[0]], B: [[-1]], alpha: 1, beta: 1, gamma: 1 }],
+    ["NaN B_CP", { S: [[0]], W: [[0]], B: [[0]], Bcp: [[Number.NaN]], alpha: 1, beta: 1, gamma: 1 }],
+    ["negative alpha", { S: [[0]], W: [[0]], B: [[0]], alpha: -1, beta: 1, gamma: 1 }],
+    ["infinite gamma", { S: [[0]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: Number.POSITIVE_INFINITY }]
+  ] satisfies Array<[string, SenaFusionAdjacencyInput]>) (
+    "rejects %s at the exported fusion kernel boundary",
+    (_, input) => {
+      expect(() => buildSenaFusionAdjacency(input)).toThrow(/finite and nonnegative/);
+    }
+  );
+
   it("T2 computes the worked-example typed fused degree vector", () => {
     senaDegreeVector(workedExampleFusion).forEach((degree, index) => {
       expect(degree).toBeCloseTo(workedExampleFusedDegrees[index], 12);

@@ -4,7 +4,10 @@ import {
   buildSenaGroupComparisonEffectSize,
   buildSenaGroupComparisonSuite,
   isCurrentSenaGroupComparisonValidationResult,
-  normalizeSenaGroupComparisonValidationResult
+  normalizeSenaGroupComparisonValidationResult,
+  type SenaGroupComparisonResultV1,
+  type SenaGroupComparisonSuiteResultV1,
+  type SenaGroupComparisonValidationReadModel
 } from "../inference";
 import { SENA_LEGACY_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
@@ -22,6 +25,80 @@ function emptyMetricDataset(groups: string[]): SenaDataset {
     coded_segments: [],
     codebook: []
   };
+}
+
+function historicalGroupComparisonV1(): SenaGroupComparisonResultV1 {
+  return {
+    schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparison,
+    metric: "socialStrength",
+    groupField: "group",
+    groupA: "A",
+    groupB: "B",
+    nA: 2,
+    nB: 2,
+    meanA: 0,
+    meanB: 0,
+    observedDifference: 0,
+    effectSize: { cohenD: 0, hedgesG: 0, pooledStandardDeviation: 0 },
+    permutation: {
+      iterations: 100,
+      seed: 20260611,
+      pTwoSided: 1,
+      nullLower: 0,
+      nullUpper: 0,
+      samplesPreview: [0]
+    },
+    bootstrap: {
+      iterations: 100,
+      seed: 20268530,
+      meanDifferenceLower: 0,
+      meanDifferenceUpper: 0,
+      samplesPreview: [0]
+    },
+    diagnostics: {
+      totalPeople: 4,
+      comparedPeople: 4,
+      minGroupSize: 2,
+      balancedDesign: true,
+      smallSample: true,
+      metricScale: "person-metric"
+    },
+    guardrail: "Historical v1 fixture."
+  };
+}
+
+function historicalGroupComparisonSuiteV1(): SenaGroupComparisonSuiteResultV1 {
+  const comparison = {
+    ...historicalGroupComparisonV1(),
+    comparisonId: "group:a:vs:b:socialStrength",
+    holmRank: 1,
+    holmAdjustedP: 1,
+    significantAtAlpha: false
+  };
+  return {
+    schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite,
+    alpha: 0.05,
+    correction: "holm",
+    comparisonCount: 1,
+    significantHolmCount: 0,
+    primary: comparison,
+    comparisons: [comparison],
+    diagnostics: {
+      metrics: ["socialStrength"],
+      groupPairs: [{ groupField: "group", groupA: "A", groupB: "B" }],
+      minGroupSize: 2,
+      smallSampleComparisons: 1,
+      preregistrationEvidence: "required-before-claim"
+    },
+    guardrail: "Historical v1 suite fixture."
+  };
+}
+
+function expectInputIssue(run: () => unknown, path: string, rule: string) {
+  expect(run).toThrowError(expect.objectContaining({
+    name: "SenaInputValidationError",
+    issues: expect.arrayContaining([expect.objectContaining({ path, rule })])
+  }));
 }
 
 describe("SENA group-comparison effect-size v2", () => {
@@ -95,8 +172,44 @@ describe("SENA group-comparison effect-size v2", () => {
     expect(() => buildSenaGroupComparisonEffectSize([1, Number.POSITIVE_INFINITY], [0, 1])).toThrow(/finite/i);
   });
 
-  it("classifies legacy v1 d=0/g=0/SD=0 as ambiguous and never current", () => {
-    const current = buildSenaGroupComparison({
+  it.each([
+    ["metric", { metric: "not-a-metric" }, "metric", "supported-value"],
+    ["group field", { groupField: "cohort" }, "groupField", "supported-value"],
+    ["iterations string", { iterations: "100" }, "iterations", "integer-range"],
+    ["fractional iterations", { iterations: 100.5 }, "iterations", "integer-range"],
+    ["low bootstrap iterations", { bootstrapIterations: 99 }, "bootstrapIterations", "integer-range"],
+    ["fractional seed", { seed: 2.5 }, "seed", "integer-range"],
+    ["empty group A", { groupA: "" }, "groupA", "nonempty-string"],
+    ["identical groups", { groupA: "A", groupB: "A" }, "groupB", "distinct-values"]
+  ] as const)("rejects an invalid direct group-comparison %s control", (_label, override, path, rule) => {
+    expectInputIssue(() => buildSenaGroupComparison({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      groupA: "A",
+      groupB: "B",
+      metric: "socialStrength",
+      iterations: 100,
+      bootstrapIterations: 100,
+      ...override
+    } as never), path, rule);
+  });
+
+  it.each([
+    ["alpha below range", { alpha: -1 }, "alpha", "finite-range"],
+    ["empty comparisons", { comparisons: [] }, "comparisons", "nonempty-array"],
+    ["invalid comparison metric", { comparisons: [{ groupA: "A", groupB: "B", metric: "typo" }] }, "comparisons[0].metric", "supported-value"]
+  ] as const)("rejects an invalid direct group-comparison suite %s control", (_label, override, path, rule) => {
+    expectInputIssue(() => buildSenaGroupComparisonSuite({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      comparisons: [{ groupA: "A", groupB: "B", metric: "socialStrength" }],
+      iterations: 100,
+      bootstrapIterations: 100,
+      ...override
+    } as never), path, rule);
+  });
+
+  it("preserves a tiny positive pooled SD so an estimable v2 result remains current after JSON", () => {
+    const effectSize = buildSenaGroupComparisonEffectSize([0, 1e-5], [0, 2e-5]);
+    const result = buildSenaGroupComparison({
       dataset: emptyMetricDataset(["A", "A", "B", "B"]),
       groupA: "A",
       groupB: "B",
@@ -104,16 +217,15 @@ describe("SENA group-comparison effect-size v2", () => {
       iterations: 100,
       bootstrapIterations: 100
     });
-    const legacy = {
-      ...current,
-      schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparison,
-      sourceSchemaVersion: undefined,
-      effectSize: {
-        cohenD: 0,
-        hedgesG: 0,
-        pooledStandardDeviation: 0
-      }
-    } as unknown;
+    const written = JSON.parse(JSON.stringify({ ...result, effectSize })) as unknown;
+
+    expect(effectSize.status).toBe("estimable");
+    expect(effectSize.pooledStandardDeviation).toBeGreaterThan(0);
+    expect(isCurrentSenaGroupComparisonValidationResult(written)).toBe(true);
+  });
+
+  it("classifies legacy v1 d=0/g=0/SD=0 as ambiguous and never current", () => {
+    const legacy: SenaGroupComparisonValidationReadModel = historicalGroupComparisonV1();
 
     const normalized = normalizeSenaGroupComparisonValidationResult(legacy);
 
@@ -128,7 +240,7 @@ describe("SENA group-comparison effect-size v2", () => {
       })
     }));
     expect(isCurrentSenaGroupComparisonValidationResult(normalized)).toBe(false);
-    expect((legacy as { schemaVersion: string }).schemaVersion).toBe("sena-group-comparison/v1");
+    expect(legacy.schemaVersion).toBe("sena-group-comparison/v1");
   });
 
   it("does not accept a v2 label without the v2 effect-size discriminator as current evidence", () => {
@@ -153,29 +265,7 @@ describe("SENA group-comparison effect-size v2", () => {
   });
 
   it("normalizes every legacy suite comparison as ambiguous without rewriting persistence", () => {
-    const current = buildSenaGroupComparisonSuite({
-      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
-      comparisons: [{ groupA: "A", groupB: "B", metric: "socialStrength" }],
-      iterations: 100,
-      bootstrapIterations: 100
-    });
-    const stripComparison = (comparison: typeof current.primary) => ({
-      ...comparison,
-      schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparison,
-      sourceSchemaVersion: undefined,
-      effectSize: {
-        cohenD: 0,
-        hedgesG: 0,
-        pooledStandardDeviation: 0
-      }
-    });
-    const legacy = {
-      ...current,
-      schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite,
-      sourceSchemaVersion: undefined,
-      primary: stripComparison(current.primary),
-      comparisons: current.comparisons.map(stripComparison)
-    } as unknown;
+    const legacy: SenaGroupComparisonValidationReadModel = historicalGroupComparisonSuiteV1();
 
     const normalized = normalizeSenaGroupComparisonValidationResult(legacy);
 
@@ -183,7 +273,7 @@ describe("SENA group-comparison effect-size v2", () => {
     expect(normalized.sourceSchemaVersion).toBe("sena-group-comparison-suite/v1");
     expect("comparisons" in normalized && normalized.comparisons.every((comparison) => comparison.effectSize.status === "legacy-ambiguous")).toBe(true);
     expect(isCurrentSenaGroupComparisonValidationResult(normalized)).toBe(false);
-    expect((legacy as { schemaVersion: string }).schemaVersion).toBe("sena-group-comparison-suite/v1");
+    expect(legacy.schemaVersion).toBe("sena-group-comparison-suite/v1");
   });
 
   it("serializes all zero-variance results without NaN or Infinity", () => {

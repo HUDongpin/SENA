@@ -1332,8 +1332,8 @@ function buildTemporalWindows(dataset: SenaDataset, settings: SenaTemporalOption
   }
 
   if (settings.mode === "moving-window") {
-    const size = Math.max(1, Math.round(settings.movingWindowSize));
-    const step = Math.max(1, Math.round(settings.movingWindowStep));
+    const size = settings.movingWindowSize;
+    const step = settings.movingWindowStep;
     const windows: SenaTemporalWindow[] = [];
     for (let startIndex = 0; startIndex < turns.length; startIndex += step) {
       const selectedTurns = turns.slice(startIndex, startIndex + size);
@@ -1355,7 +1355,7 @@ function buildTemporalWindows(dataset: SenaDataset, settings: SenaTemporalOption
     return normalizeTemporalWindows(windows);
   }
 
-  const radius = Math.max(0, Math.round(settings.turnWindowRadius));
+  const radius = settings.turnWindowRadius;
   const windows = turns.map((turn, index) => {
     const startTurn = turn - radius;
     const endTurn = turn + radius;
@@ -1556,7 +1556,7 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
     deg_convention: buildOptions.deg_convention ?? defaultOptions.deg_convention,
     delta: buildOptions.delta ?? defaultOptions.delta,
     Phi: buildOptions.Phi ?? defaultOptions.Phi,
-    d: Math.floor(buildOptions.d ?? defaultOptions.d),
+    d: buildOptions.d ?? defaultOptions.d,
     seed: buildOptions.seed ?? defaultOptions.seed,
     undirectedSocial: buildOptions.undirectedSocial ?? direction === "undirected",
     temporal: {

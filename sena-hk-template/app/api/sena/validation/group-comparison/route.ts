@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import {
   buildEnterpriseValidationRunListResponseAsync,
   buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync,
-  buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync
+  buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync,
+  resolveEnterpriseGroupComparisonInput
 } from "@/lib/sena/enterprise/validation-runs";
 import {
   requireEnterprisePermission
@@ -23,7 +24,6 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
-import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
 
 export const runtime = "nodejs";
 
@@ -43,21 +43,22 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
-    validateSenaAnalyticalInputs({ dataset: body.dataset, buildOptions: body.buildOptions });
-    if (shouldQueueServerJob(request, body)) {
-      const projectId = body.projectId ? String(body.projectId) : undefined;
-      const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+    const projectId = body.projectId ? String(body.projectId) : undefined;
+    const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+    const queued = shouldQueueServerJob(request, body);
+    const queue = queued ? serverJobQueueStatus() : null;
+    if (queued && !projectId && !queue?.inlinePayloadAllowed) {
+      throw new SenaEnterpriseError(
+        "Queued validation jobs require projectId unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
+        400,
+        "validation_queue_source_required"
+      );
+    }
+    const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+    if (queued && queue) {
       const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "analysis:run");
-      const queue = serverJobQueueStatus();
-      if (!projectId && !queue.inlinePayloadAllowed) {
-        throw new SenaEnterpriseError(
-          "Queued validation jobs require projectId unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
-          400,
-          "validation_queue_source_required"
-        );
-      }
-      const comparisonCount = Array.isArray(body.comparisons) ? body.comparisons.length : 1;
+      const comparisonCount = resolved.comparisons.length;
       const job = await enqueueEnterpriseServerJob({
         kind: "validation",
         teamId,
@@ -68,17 +69,17 @@ export async function POST(request: Request) {
           teamId,
           projectId,
           projectVersion: project?.currentVersion,
-          groupField: body.groupField ? String(body.groupField) : undefined,
-          groupA: body.groupA ? String(body.groupA) : undefined,
-          groupB: body.groupB ? String(body.groupB) : undefined,
-          metric: body.metric ? String(body.metric) : undefined,
+          groupField: resolved.defaultGroupField,
+          groupA: body.comparisons === undefined ? resolved.comparisons[0].groupA : undefined,
+          groupB: body.comparisons === undefined ? resolved.comparisons[0].groupB : undefined,
+          metric: resolved.defaultMetric,
           metrics: body.metrics,
-          comparisons: body.comparisons,
-          suite: body.suite === true,
-          iterations: body.iterations,
-          bootstrapIterations: body.bootstrapIterations,
-          alpha: body.alpha,
-          seed: body.seed,
+          comparisons: body.comparisons === undefined ? undefined : resolved.comparisons,
+          suite: resolved.suite,
+          iterations: resolved.iterations,
+          bootstrapIterations: resolved.bootstrapIterations,
+          alpha: resolved.alpha,
+          seed: resolved.seed,
           preregistrationNote: body.preregistrationNote,
           methodNote: body.methodNote,
           parityEvidence: body.parityEvidence,

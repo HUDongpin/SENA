@@ -161,8 +161,17 @@ function assertMatrixShape(
   columns: number,
   label: "S" | "W" | "B_PC" | "B_CP"
 ) {
-  if (matrix.length !== rows || matrix.some((row) => row.length !== columns)) {
+  if (!Array.isArray(matrix) || matrix.length !== rows || matrix.some((row) => !Array.isArray(row) || row.length !== columns)) {
     throw new Error(`SENA fusion adjacency requires ${label} to have dimensions ${rows} x ${columns}.`);
+  }
+}
+
+function assertFiniteNonnegativeMatrix(
+  matrix: number[][],
+  label: "S" | "W" | "B_PC" | "B_CP"
+) {
+  if (matrix.some((row) => row.some((value) => !Number.isFinite(value) || value < 0))) {
+    throw new Error(`SENA fusion adjacency requires every ${label} value to be finite and nonnegative.`);
   }
 }
 
@@ -284,6 +293,13 @@ export function buildSenaFusionAdjacency({ S, W, B, Bcp, alpha, beta, gamma }: S
   assertMatrixShape(W, codeCount, codeCount, "W");
   assertMatrixShape(B, peopleCount, codeCount, "B_PC");
   if (Bcp) assertMatrixShape(Bcp, codeCount, peopleCount, "B_CP");
+  assertFiniteNonnegativeMatrix(S, "S");
+  assertFiniteNonnegativeMatrix(W, "W");
+  assertFiniteNonnegativeMatrix(B, "B_PC");
+  if (Bcp) assertFiniteNonnegativeMatrix(Bcp, "B_CP");
+  if ([alpha, beta, gamma].some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new Error("SENA fusion adjacency requires alpha, beta, and gamma to be finite and nonnegative.");
+  }
   const fusion = Array.from({ length: peopleCount + codeCount }, () => (
     Array.from({ length: peopleCount + codeCount }, () => 0)
   ));

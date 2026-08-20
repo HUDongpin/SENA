@@ -8,7 +8,7 @@ import {
   getEnterpriseProjectAsync,
   updateEnterpriseProjectAsync
 } from "@/lib/sena/enterprise/team-project";
-import { buildSenaAnalysisRun } from "@sena/kernel";
+import { buildSenaAnalysisRun, resolveSenaAnalysisRunSource } from "@sena/kernel";
 import { requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { requireEnterprisePermission } from "@/lib/sena/enterprise/access-control";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
@@ -51,8 +51,13 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-analyze" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as SenaAnalysisApiBody;
-    validateSenaAnalyticalInputs({ dataset: body.dataset, buildOptions: body.buildOptions });
     const sourceProject = body.projectId ? await getEnterpriseProjectAsync(context, String(body.projectId)) : null;
+    const runInput = buildSenaAnalysisRunRequestInput({ body, sourceProject });
+    const effectiveSource = resolveSenaAnalysisRunSource(runInput);
+    validateSenaAnalyticalInputs({
+      dataset: effectiveSource.dataset,
+      buildOptions: effectiveSource.buildOptions
+    });
     const teamId = resolveSenaAnalysisTeamId({
       body,
       sourceProject,
@@ -102,7 +107,7 @@ export async function POST(request: Request) {
         headers: serverJobHeaders(job)
       });
     }
-    const run = buildSenaAnalysisRun(buildSenaAnalysisRunRequestInput({ body, sourceProject }));
+    const run = buildSenaAnalysisRun(runInput);
     const persist = body.persist === true;
     const updateExistingProject = persist && sourceProject && body.updateProject !== false;
     const persistedProject = persist

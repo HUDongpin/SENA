@@ -427,8 +427,8 @@ describe("SENA advisory model defaults", () => {
       groupField: "role",
       groupA: "teacher",
       groupB: "student",
-      iterations: 10,
-      bootstrapIterations: 10,
+      iterations: 100,
+      bootstrapIterations: 100,
       seed: 7
     });
     const optionsSource = readFileSync(join(process.cwd(), "components/sena/workspace/enterprise-options.ts"), "utf8");

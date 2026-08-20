@@ -148,7 +148,7 @@ describe("SENA validation group-comparison route", () => {
     }
   }, validationRouteTestTimeoutMs);
 
-  it("defaults malformed validation metrics to typed social strength", async () => {
+  it("rejects malformed validation metrics instead of silently defaulting to social strength", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-default-metric-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -199,13 +199,17 @@ describe("SENA validation group-comparison route", () => {
         })
       }));
       const body = await response.json() as {
-        metric?: string;
-        validationRun?: { id?: string; status?: string };
+        error?: string;
+        code?: string;
+        issues?: Array<{ path: string; rule: string }>;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.metric).toBe("socialStrength");
-      expect(body.validationRun?.status).toBe("pending-review");
+      expect(response.status).toBe(400);
+      expect(body).toEqual({
+        error: "SENA analytical inputs violate the numeric domain.",
+        code: "invalid_sena_numeric_domain",
+        issues: [{ path: "metric", rule: "supported-value" }]
+      });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

@@ -47,7 +47,8 @@ export function enterpriseErrorResponse(error: unknown) {
     return {
       body: {
         error: "SENA analytical inputs violate the numeric domain.",
-        code: "invalid_sena_numeric_domain"
+        code: "invalid_sena_numeric_domain",
+        issues: error.issues.map(({ path, rule }) => ({ path, rule }))
       },
       status: 400
     };

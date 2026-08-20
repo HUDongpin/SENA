@@ -1,6 +1,12 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { normalizeSenaGroupComparisonValidationResult } from "./inference";
-import { normalizeSenaReliabilityDashboard } from "./reliability";
+import {
+  normalizeSenaGroupComparisonValidationResult,
+  type SenaGroupComparisonValidationReadModel
+} from "./inference";
+import {
+  normalizeSenaReliabilityDashboard,
+  type SenaReliabilityDashboardReadModel
+} from "./reliability";
 import { senaProductionPostureFrom } from "./enterprise/auth-config";
 import { createHash, randomBytes } from "node:crypto";
 import { Pool, type PoolConfig } from "pg";
@@ -99,7 +105,11 @@ export type SenaEnterprisePostgresProbeStep = {
   errorHash?: string;
 };
 
-export type SenaEnterprisePostgresSchemaStatementKind = "table" | "index" | "unique-index";
+export type SenaEnterprisePostgresSchemaStatementKind =
+  | "table"
+  | "index"
+  | "unique-index"
+  | "alter-column-nullability";
 
 export type SenaEnterprisePostgresSchemaContract = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterprisePostgresSchemaContract;
@@ -512,6 +522,17 @@ function postgresSchemaStatementMetadata(sql: string) {
     };
   }
 
+  const nullabilityMatch = sql.match(
+    /^ALTER TABLE "[^"]+"\."([^"]+)" ALTER COLUMN "?([a-z0-9_]+)"? DROP NOT NULL$/i
+  );
+  if (nullabilityMatch) {
+    return {
+      kind: "alter-column-nullability" as const,
+      name: `${nullabilityMatch[2]}:drop-not-null`,
+      tableName: nullabilityMatch[1]
+    };
+  }
+
   throw new SenaEnterprisePostgresError(
     "Unsupported SENA enterprise Postgres schema statement.",
     500,
@@ -520,6 +541,9 @@ function postgresSchemaStatementMetadata(sql: string) {
 }
 
 function postgresSchemaHasDestructiveDdl(sql: string) {
+  if (/^ALTER TABLE "[^"]+"\."[^"]+" ALTER COLUMN "?[a-z0-9_]+"? DROP NOT NULL$/i.test(sql)) {
+    return false;
+  }
   return /\b(DROP|TRUNCATE|ALTER\s+TABLE\s+[^;]+\s+DROP)\b/i.test(sql);
 }
 
@@ -590,7 +614,7 @@ export async function buildEnterprisePostgresSchemaContract(input: {
     evidence: [
       "schemaContractSource=enterprisePostgresAdapterEnsureSchema",
       "schemaContractSqlValues=hashed",
-      "migrationMode=create-table-if-not-exists|create-index-if-not-exists",
+      "migrationMode=create-table-if-not-exists|alter-column-nullability|create-index-if-not-exists",
       `schemaContractStatus=${status}`,
       `schemaContractTables=${tableStatements.length}`,
       `schemaContractProductionTables=${productionTableCount}`,
@@ -1029,7 +1053,9 @@ function normalizeStoredAnalysisRun(row: Record<string, unknown>): SenaEnterpris
 }
 
 function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterpriseReliabilityRun {
-  const payload = normalizeStoredJson<SenaEnterpriseReliabilityRun>(row.payload);
+  const payload = normalizeStoredJson<Omit<SenaEnterpriseReliabilityRun, "dashboard"> & {
+    dashboard: SenaReliabilityDashboardReadModel;
+  }>(row.payload);
   const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
   return {
     ...payload,
@@ -1042,7 +1068,9 @@ function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterp
 }
 
 function normalizeStoredValidationRun(row: Record<string, unknown>): SenaEnterpriseValidationRun {
-  const payload = normalizeStoredJson<SenaEnterpriseValidationRun>(row.payload);
+  const payload = normalizeStoredJson<Omit<SenaEnterpriseValidationRun, "result"> & {
+    result: SenaGroupComparisonValidationReadModel;
+  }>(row.payload);
   return {
     ...payload,
     result: normalizeSenaGroupComparisonValidationResult(payload.result),

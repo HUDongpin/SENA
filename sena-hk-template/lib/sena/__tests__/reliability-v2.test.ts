@@ -4,7 +4,9 @@ import {
   buildSenaReliabilityDashboard,
   normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
-  type SenaCoderAnnotation
+  type SenaCoderAnnotation,
+  type SenaReliabilityDashboardReadModel,
+  type SenaReliabilityDashboardV1
 } from "../reliability";
 import { SENA_LEGACY_SCHEMA_VERSIONS } from "../schema-registry";
 import { buildSenaCodingReliabilityGate } from "../report";
@@ -17,6 +19,40 @@ function annotations(valuesByCoder: Record<string, boolean[]>): SenaCoderAnnotat
     codeId: "Evidence",
     value
   })));
+}
+
+function historicalReliabilityDashboardV1(): SenaReliabilityDashboardV1 {
+  const pair = {
+    coderA: "c1",
+    coderB: "c2",
+    units: 2,
+    observedAgreement: 1,
+    expectedAgreement: 0.5,
+    kappa: 1
+  };
+  return {
+    schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard,
+    coderCount: 2,
+    itemCount: 2,
+    codeCount: 1,
+    binaryUnitCount: 2,
+    pairwiseCohenKappa: [pair],
+    codeDiagnostics: [{
+      codeId: "Evidence",
+      unitCount: 2,
+      positiveAssignments: 2,
+      disagreementCount: 0,
+      agreementRate: 1,
+      coderPositiveRates: { c1: 0.5, c2: 0.5 },
+      pairwiseCohenKappa: [pair]
+    }],
+    meanPairwiseKappa: 1,
+    krippendorffAlphaNominal: 1,
+    disagreementCount: 0,
+    adjudicationQueue: [],
+    interpretation: "Historical v1 fixture.",
+    warnings: []
+  };
 }
 
 describe("SENA coding reliability v2", () => {
@@ -125,19 +161,29 @@ describe("SENA coding reliability v2", () => {
     expect(at.eligible).toBe(true);
   });
 
+  it("uses raw reliability estimates for eligibility even when display rounding yields 0.8000", () => {
+    const coder1 = [
+      ...Array<boolean>(53).fill(true),
+      ...Array<boolean>(65).fill(false),
+      ...Array<boolean>(5).fill(true),
+      ...Array<boolean>(8).fill(false)
+    ];
+    const coder2 = [
+      ...Array<boolean>(53).fill(true),
+      ...Array<boolean>(65).fill(false),
+      ...Array<boolean>(5).fill(false),
+      ...Array<boolean>(8).fill(true)
+    ];
+    const dashboard = buildSenaReliabilityDashboard(annotations({ c1: coder1, c2: coder2 }));
+
+    expect(dashboard.pairwiseCohenKappa[0].kappa).toBe(0.8);
+    expect(dashboard.meanPairwiseKappa).toBe(0.8);
+    expect(dashboard.claimEligibility.eligible).toBe(false);
+    expect(dashboard.claimEligibility.blockers).toContain("mean-pairwise-kappa-at-least-0.80");
+  });
+
   it("normalizes v1 dashboards as legacy-ambiguous and never current-eligible", () => {
-    const current = buildSenaReliabilityDashboard(annotations({ c1: [true, false], c2: [true, false] }));
-    const legacy = {
-      ...current,
-      schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard,
-      pairwiseCohenKappa: current.pairwiseCohenKappa.map(({ status: _status, ...pair }) => pair),
-      codeDiagnostics: current.codeDiagnostics.map((diagnostic) => ({
-        ...diagnostic,
-        pairwiseCohenKappa: diagnostic.pairwiseCohenKappa.map(({ status: _status, ...pair }) => pair)
-      })),
-      meanPairwiseKappa: 0,
-      krippendorffAlphaNominal: 0
-    } as unknown;
+    const legacy: SenaReliabilityDashboardReadModel = historicalReliabilityDashboardV1();
 
     const normalized = normalizeSenaReliabilityDashboard(legacy);
 

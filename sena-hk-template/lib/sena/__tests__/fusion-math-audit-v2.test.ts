@@ -45,4 +45,22 @@ describe("SENA fusion math audit v2", () => {
       status: "review"
     }));
   });
+
+  it.each([
+    ["empty S.raw", (model: SenaModel) => { model.matrices.S.raw = []; }],
+    ["ragged B_PC.raw", (model: SenaModel) => { model.matrices.B_PC.raw[0].pop(); }],
+    ["extra W.normalized row", (model: SenaModel) => { model.matrices.W.normalized.push([...model.matrices.W.normalized[0]]); }],
+    ["extra A_fusion row", (model: SenaModel) => { model.matrices.fusion.values.push([...model.matrices.fusion.values[0]]); }]
+  ] as const)("rejects %s instead of accepting a vacuous or partial matrix shape", (_label, tamper) => {
+    const model = modelCopy();
+    tamper(model);
+
+    const audit = buildSenaFusionMathAudit(model);
+
+    expect(audit.status).toBe("needs-review");
+    expect(audit.items).toContainEqual(expect.objectContaining({
+      id: "labels-and-dimensions",
+      status: "review"
+    }));
+  });
 });
