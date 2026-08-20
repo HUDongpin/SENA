@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSenaReliabilityClaimEligibility,
   buildSenaReliabilityDashboard,
+  isCurrentSenaReliabilityDashboard,
   normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
   type SenaCoderAnnotation,
@@ -9,8 +10,14 @@ import {
   type SenaReliabilityDashboardV1
 } from "../reliability";
 import { SENA_LEGACY_SCHEMA_VERSIONS } from "../schema-registry";
-import { buildSenaCodingReliabilityGate } from "../report";
+import {
+  buildSenaCodingReliabilityGate,
+  isCurrentSenaCodingReliabilityGate,
+  normalizeSenaCodingReliabilityGate
+} from "../report";
 import { buildEnterpriseReliabilityRunHeaders } from "../enterprise/reliability-runs";
+import { emptyEnterpriseDb, normalizeEnterpriseDb } from "../enterprise/state";
+import { createEnterprisePostgresReliabilityRunAdapter } from "../enterprise-postgres";
 
 function annotations(valuesByCoder: Record<string, boolean[]>): SenaCoderAnnotation[] {
   return Object.entries(valuesByCoder).flatMap(([coderId, values]) => values.map((value, index) => ({
@@ -52,6 +59,37 @@ function historicalReliabilityDashboardV1(): SenaReliabilityDashboardV1 {
     adjudicationQueue: [],
     interpretation: "Historical v1 fixture.",
     warnings: []
+  };
+}
+
+function storedReliabilityRun(dashboard: ReturnType<typeof buildSenaReliabilityDashboard>) {
+  return {
+    id: "rel_semantic_boundary",
+    teamId: "team_semantic_boundary",
+    userId: "user_semantic_boundary",
+    status: "pending-review" as const,
+    reviewer: "Semantic boundary reviewer",
+    fileCount: 1,
+    annotationCount: 4,
+    coderCount: dashboard.coderCount,
+    itemCount: dashboard.itemCount,
+    codeCount: dashboard.codeCount,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    disagreementCount: dashboard.disagreementCount,
+    inputFiles: [{ name: "ratings.csv", size: 1, sha256: "a".repeat(64) }],
+    dashboard,
+    adjudicationCoverage: {
+      schemaVersion: "sena-reliability-adjudication-coverage/v1" as const,
+      queuedDisagreements: 0,
+      resolvedDisagreements: 0,
+      unresolvedDisagreements: 0,
+      coverageRate: 1,
+      decisions: { include: 0, exclude: 0, revise: 0 },
+      updatedAt: "2026-08-21T00:00:00.000Z"
+    },
+    reviewPatch: {},
+    createdAt: "2026-08-21T00:00:00.000Z"
   };
 }
 
@@ -178,8 +216,16 @@ describe("SENA coding reliability v2", () => {
 
     expect(dashboard.pairwiseCohenKappa[0].kappa).toBe(0.8);
     expect(dashboard.meanPairwiseKappa).toBe(0.8);
+    expect(dashboard.claimEligibilityInputs.meanPairwiseKappa).toBeGreaterThan(0.7999);
+    expect(dashboard.claimEligibilityInputs.meanPairwiseKappa).toBeLessThan(0.8);
     expect(dashboard.claimEligibility.eligible).toBe(false);
     expect(dashboard.claimEligibility.blockers).toContain("mean-pairwise-kappa-at-least-0.80");
+
+    const gate = buildSenaCodingReliabilityGate({
+      codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
+    }, "2026-08-21T00:00:00.000Z");
+    expect(gate.machineClaimEligibility.eligible).toBe(false);
+    expect(gate.machineClaimEligibility.blockers).toContain("mean-pairwise-kappa-at-least-0.80");
   });
 
   it("normalizes v1 dashboards as legacy-ambiguous and never current-eligible", () => {
@@ -234,6 +280,137 @@ describe("SENA coding reliability v2", () => {
     }, "2026-08-21T00:00:00.000Z");
     expect(documentationOnly.machineClaimEligibility.eligible).toBe(false);
     expect(documentationOnly.machineClaimEligibility.status).toBe("legacy-ambiguous");
+  });
+
+  it.each([
+    {
+      label: "null estimates",
+      mutate: (dashboard: ReturnType<typeof buildSenaReliabilityDashboard>) => {
+        dashboard.meanPairwiseKappaStatus = "single-observed-category";
+        dashboard.meanPairwiseKappa = null;
+        dashboard.krippendorffAlphaNominalStatus = "single-observed-category";
+        dashboard.krippendorffAlphaNominal = null;
+      }
+    },
+    {
+      label: "below-threshold estimates",
+      mutate: (dashboard: ReturnType<typeof buildSenaReliabilityDashboard>) => {
+        dashboard.meanPairwiseKappa = 0.79;
+        dashboard.krippendorffAlphaNominal = 0.79;
+      }
+    },
+    {
+      label: "an unestimable pair",
+      mutate: (dashboard: ReturnType<typeof buildSenaReliabilityDashboard>) => {
+        dashboard.pairwiseCohenKappa[0].status = "insufficient-pairable-units";
+        dashboard.pairwiseCohenKappa[0].observedAgreement = null;
+        dashboard.pairwiseCohenKappa[0].expectedAgreement = null;
+        dashboard.pairwiseCohenKappa[0].kappa = null;
+      }
+    }
+  ])("rejects a current-v2 dashboard whose eligible claim contradicts $label", ({ mutate }) => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    mutate(dashboard);
+    dashboard.claimEligibility = {
+      ...dashboard.claimEligibility,
+      eligible: true,
+      checks: {
+        minimumCoders: true,
+        allPairwiseKappaEstimable: true,
+        krippendorffAlphaEstimable: true,
+        meanPairwiseKappaAtThreshold: true,
+        krippendorffAlphaAtThreshold: true
+      },
+      blockers: []
+    };
+
+    expect(isCurrentSenaReliabilityDashboard(dashboard)).toBe(false);
+    expect(() => normalizeSenaReliabilityDashboard(dashboard)).toThrow(/semantic|eligibility|reliability dashboard/i);
+  });
+
+  it("recomputes a gate from canonical raw machine fields and rejects a forged eligible flag", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    const review = reliabilityDashboardToReview(dashboard, "Reliability reviewer");
+    if (!review.machineEvidence) throw new Error("expected machine evidence");
+    review.machineEvidence.meanPairwiseKappaStatus = "single-observed-category";
+    review.machineEvidence.meanPairwiseKappa = null;
+    review.machineEvidence.krippendorffAlphaNominalStatus = "single-observed-category";
+    review.machineEvidence.krippendorffAlphaNominal = null;
+    review.machineEvidence.allPairwiseKappaEstimable = false;
+    review.machineEvidence.claimEligibility = {
+      ...review.machineEvidence.claimEligibility,
+      eligible: true,
+      checks: {
+        minimumCoders: true,
+        allPairwiseKappaEstimable: true,
+        krippendorffAlphaEstimable: true,
+        meanPairwiseKappaAtThreshold: true,
+        krippendorffAlphaAtThreshold: true
+      },
+      blockers: []
+    };
+
+    const gate = buildSenaCodingReliabilityGate({ codingReliability: review }, "2026-08-21T00:00:00.000Z");
+    expect(gate.machineClaimEligibility.eligible).toBe(false);
+    expect(gate.machineClaimEligibility.blockers).toContain(
+      "invalid-or-contradictory-current-v2-reliability-evidence"
+    );
+    expect(gate.review.machineEvidence).toBeUndefined();
+  });
+
+  it("rejects a semantically forged v2 gate at current and normalized read boundaries", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    const gate = buildSenaCodingReliabilityGate({
+      codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
+    }, "2026-08-21T00:00:00.000Z");
+    gate.machineClaimEligibility = {
+      ...gate.machineClaimEligibility,
+      eligible: true,
+      checks: {
+        ...gate.machineClaimEligibility.checks,
+        meanPairwiseKappaAtThreshold: false
+      },
+      blockers: ["mean-pairwise-kappa-at-least-0.80"]
+    };
+
+    expect(isCurrentSenaCodingReliabilityGate(gate)).toBe(false);
+    expect(() => normalizeSenaCodingReliabilityGate(gate)).toThrow(/semantic|eligibility|coding reliability gate/i);
+  });
+
+  it("rejects forged dashboard eligibility at file-state and Postgres read boundaries", async () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    dashboard.claimEligibility = {
+      ...dashboard.claimEligibility,
+      eligible: true,
+      checks: { ...dashboard.claimEligibility.checks, meanPairwiseKappaAtThreshold: false },
+      blockers: ["mean-pairwise-kappa-at-least-0.80"]
+    };
+    const run = storedReliabilityRun(dashboard);
+    const db = emptyEnterpriseDb();
+    db.reliabilityRuns = [run];
+
+    expect(() => normalizeEnterpriseDb(db)).toThrow(/semantic|eligibility|reliability dashboard/i);
+
+    const adapter = createEnterprisePostgresReliabilityRunAdapter({
+      query: async <T>(sql: string) => ({
+        rows: /SELECT \*/i.test(sql)
+          ? [{ payload: run, created_at: run.createdAt }] as T[]
+          : [] as T[]
+      })
+    });
+    await expect(adapter.listReliabilityRuns()).rejects.toThrow(/semantic|eligibility|reliability dashboard/i);
   });
 
   it("omits score headers when reliability estimates are null", () => {

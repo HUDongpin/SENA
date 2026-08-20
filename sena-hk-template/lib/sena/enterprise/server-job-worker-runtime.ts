@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run";
-import { buildSenaAnalysisRunRequestInput } from "../analysis-api";
+import { buildSenaAnalysisRunRequestInput, sanitizeSenaClientCodingReliability } from "../analysis-api";
 import {
   SenaInputValidationError,
   type SenaInputValidationIssue
@@ -269,7 +269,7 @@ async function executeImportJob(
     title,
     activeTemporalWindowId: optionalString(payload.activeTemporalWindowId),
     includeRuntimeBundle: payload.includeRuntimeBundle === true,
-    codingReliability: payload.codingReliability as SenaAnalysisRunInput["codingReliability"],
+    codingReliability: sanitizeSenaClientCodingReliability(payload.codingReliability),
     dataGovernance
   });
   const persistedProject = await createEnterpriseProjectAsync(context, {

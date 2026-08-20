@@ -300,6 +300,14 @@ export type SenaReliabilityClaimEligibility = {
   };
 };
 
+export type SenaReliabilityClaimEligibilityInputs = {
+  coderCount: number;
+  pairwiseKappaStatuses: SenaReliabilityEstimationStatus[];
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominal: number | null;
+};
+
 export type SenaCodingReliabilityMachineEvidence = {
   dashboardSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
@@ -309,6 +317,7 @@ export type SenaCodingReliabilityMachineEvidence = {
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
   krippendorffAlphaNominal: number | null;
   allPairwiseKappaEstimable: boolean;
+  claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
   claimEligibility: SenaReliabilityClaimEligibility;
 };
 

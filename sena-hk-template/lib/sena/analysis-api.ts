@@ -45,6 +45,12 @@ function optionalNumber(value: unknown) {
   return value === undefined ? undefined : Number(value);
 }
 
+export function sanitizeSenaClientCodingReliability(value: unknown): SenaAnalysisRunInput["codingReliability"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const { machineEvidence: _untrustedMachineEvidence, ...documentation } = value as Record<string, unknown>;
+  return documentation as SenaAnalysisRunInput["codingReliability"];
+}
+
 function analysisSource(body: SenaAnalysisApiBody, sourceProject: SenaAnalysisApiProjectSource | null) {
   if (sourceProject) return "project";
   if (body.snapshot && body.dataset) return "mixed";
@@ -75,7 +81,7 @@ export function buildSenaAnalysisRunRequestInput(input: {
     activeTemporalWindowId: optionalString(body.activeTemporalWindowId),
     includeRuntimeBundle: body.includeRuntimeBundle === true,
     humanReview: body.humanReview as SenaAnalysisRunInput["humanReview"],
-    codingReliability: body.codingReliability as SenaAnalysisRunInput["codingReliability"],
+    codingReliability: sanitizeSenaClientCodingReliability(body.codingReliability),
     dataGovernance: body.dataGovernance as SenaAnalysisRunInput["dataGovernance"]
   };
 }
@@ -108,7 +114,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
       buildOptions: body.buildOptions,
       includeRuntimeBundle,
       humanReview: body.humanReview,
-      codingReliability: body.codingReliability,
+      codingReliability: sanitizeSenaClientCodingReliability(body.codingReliability),
       dataGovernance: body.dataGovernance,
       persist,
       updateProject,

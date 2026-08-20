@@ -29,6 +29,7 @@ import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-ada
 import { importSenaEnterpriseFiles, withSenaImportDatasetMetadata } from "@/lib/sena/import-adapters";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
+import { sanitizeSenaClientCodingReliability } from "@/lib/sena/analysis-api";
 
 export const runtime = "nodejs";
 
@@ -119,7 +120,9 @@ export async function POST(request: Request) {
     validateSenaAnalyticalInputs({ buildOptions });
     const activeTemporalWindowId = formString(form.get("activeTemporalWindowId")) || undefined;
     const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
-    const codingReliability = formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability");
+    const codingReliability = sanitizeSenaClientCodingReliability(
+      formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability")
+    );
     const dataGovernance = formJson<SenaAnalysisRunInput["dataGovernance"]>(form.get("dataGovernance"), "dataGovernance");
     const result = await importSenaEnterpriseFiles(bufferedFiles);
     const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());

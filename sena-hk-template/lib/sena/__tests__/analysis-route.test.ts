@@ -41,6 +41,31 @@ function analysisRouteSnapshot() {
   });
 }
 
+function forgedClientCodingReliability() {
+  return {
+    status: "documented",
+    reviewer: "Untrusted client",
+    codingScheme: "Client supplied",
+    unitOfCoding: "item-code units",
+    coderCount: 2,
+    agreementMetric: "kappa and alpha",
+    agreementValue: "1",
+    adjudicationNotes: "Client supplied",
+    limitations: "Client supplied",
+    machineEvidence: {
+      dashboardSchemaVersion: "sena-coding-reliability-dashboard/v2",
+      sourceSchemaVersion: "sena-coding-reliability-dashboard/v2",
+      status: "estimable",
+      meanPairwiseKappaStatus: "estimable",
+      meanPairwiseKappa: 1,
+      krippendorffAlphaNominalStatus: "estimable",
+      krippendorffAlphaNominal: 1,
+      allPairwiseKappaEstimable: true,
+      claimEligibility: { eligible: true }
+    }
+  };
+}
+
 describe("SENA analyze route", () => {
   it("persists an analysis run with project and artifact provenance headers", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-analysis-route-"));
@@ -80,6 +105,7 @@ describe("SENA analyze route", () => {
           title: "Route Persisted Analysis",
           description: "Created by the analysis route test.",
           snapshot: analysisRouteSnapshot(),
+          codingReliability: forgedClientCodingReliability(),
           persist: true,
           includeRuntimeBundle: true
         })
@@ -124,6 +150,12 @@ describe("SENA analyze route", () => {
           id?: string;
           currentVersion?: number;
         };
+        report?: {
+          codingReliabilityGate?: {
+            machineClaimEligibility?: { eligible?: boolean; blockers?: string[] };
+            review?: { machineEvidence?: unknown };
+          };
+        };
       };
       expect(body.schemaVersion).toBe("sena-analysis-run/v1");
       expect(body.provenanceEnvelope).toEqual(expect.objectContaining({
@@ -157,6 +189,10 @@ describe("SENA analyze route", () => {
       expect(response.headers.get("x-sena-report-sha256")).toBe(body.enterpriseAnalysisRun?.artifactFingerprints?.reportSha256);
       expect(response.headers.get("x-sena-project-snapshot-sha256")).toBe(body.enterpriseAnalysisRun?.artifactFingerprints?.projectSnapshotSha256);
       expect(response.headers.get("x-sena-runtime-bundle-sha256")).toBe(body.enterpriseAnalysisRun?.artifactFingerprints?.runtimeBundleSha256);
+      expect(body.report?.codingReliabilityGate?.machineClaimEligibility?.eligible).toBe(false);
+      expect(body.report?.codingReliabilityGate?.machineClaimEligibility?.blockers)
+        .toContain("current-v2-reliability-dashboard-required");
+      expect(body.report?.codingReliabilityGate?.review?.machineEvidence).toBeUndefined();
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
@@ -218,6 +254,7 @@ describe("SENA analyze route", () => {
         body: JSON.stringify({
           projectId: project.id,
           queue: true,
+          codingReliability: forgedClientCodingReliability(),
           includeRuntimeBundle: true
         })
       }));
@@ -329,6 +366,7 @@ describe("SENA analyze route", () => {
           action?: string;
           projectId?: string;
           includeRuntimeBundle?: boolean;
+          codingReliability?: { machineEvidence?: unknown };
           inlineSnapshot?: unknown;
           inlineDataset?: unknown;
         };
@@ -348,6 +386,7 @@ describe("SENA analyze route", () => {
       }));
       expect(queuePayload.workerPayload?.inlineSnapshot).toBeUndefined();
       expect(queuePayload.workerPayload?.inlineDataset).toBeUndefined();
+      expect(queuePayload.workerPayload?.codingReliability?.machineEvidence).toBeUndefined();
       expect(queuePayload.delivery).toEqual(expect.objectContaining({
         payloadSha256: body.payloadSha256,
         secretConfigured: true

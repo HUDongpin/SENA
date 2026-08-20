@@ -62,6 +62,10 @@ import { senaRuntimeProvenance } from "./runtime-constants";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
+import {
+  deriveSenaReliabilityClaimEligibility,
+  isSemanticallyValidSenaReliabilityMachineEvidence
+} from "./reliability";
 
 export type SenaReportOptions = {
   title?: string;
@@ -1077,7 +1081,7 @@ function validReliabilityGateBase(record: Record<string, unknown>) {
     typeof review?.reviewedAt === "string" &&
     typeof review?.codingScheme === "string" &&
     typeof review?.unitOfCoding === "string" &&
-    Number.isInteger(review?.coderCount) &&
+    Number.isInteger(review?.coderCount) && Number(review?.coderCount) >= 0 &&
     typeof review?.agreementMetric === "string" &&
     typeof review?.agreementValue === "string" &&
     typeof review?.adjudicationNotes === "string" &&
@@ -1118,7 +1122,7 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
     "insufficient-coders",
     "legacy-ambiguous"
   ].includes(String(machine.status));
-  return typeof machine.eligible === "boolean" &&
+  const structurallyValid = typeof machine.eligible === "boolean" &&
     validStatus &&
     stringArray(machine.blockers) &&
     Boolean(threshold) &&
@@ -1138,6 +1142,45 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
     typeof adjudication?.disclosure === "string" &&
     (machine.dashboardSchemaVersion === null || typeof machine.dashboardSchemaVersion === "string") &&
     (machine.sourceSchemaVersion === null || typeof machine.sourceSchemaVersion === "string");
+  if (!structurallyValid) return false;
+
+  const review = reliabilityGateRecord(record.review);
+  const reviewMachineEvidence = review?.machineEvidence;
+  const allChecksPass = [
+    checks?.minimumCoders,
+    checks?.allPairwiseKappaEstimable,
+    checks?.krippendorffAlphaEstimable,
+    checks?.meanPairwiseKappaAtThreshold,
+    checks?.krippendorffAlphaAtThreshold
+  ].every((entry) => entry === true);
+  if (machine.eligible !== (allChecksPass && (machine.blockers as string[]).length === 0)) return false;
+
+  if (reviewMachineEvidence !== undefined) {
+    if (!isSemanticallyValidSenaReliabilityMachineEvidence(reviewMachineEvidence)) return false;
+    const expected = deriveSenaReliabilityClaimEligibility(reviewMachineEvidence.claimEligibilityInputs);
+    return machine.eligible === expected.eligible &&
+      machine.status === reviewMachineEvidence.status &&
+      machine.dashboardSchemaVersion === reviewMachineEvidence.dashboardSchemaVersion &&
+      machine.sourceSchemaVersion === reviewMachineEvidence.sourceSchemaVersion &&
+      JSON.stringify(machine.threshold) === JSON.stringify(expected.threshold) &&
+      JSON.stringify(machine.checks) === JSON.stringify(expected.checks) &&
+      JSON.stringify(machine.blockers) === JSON.stringify(expected.blockers);
+  }
+
+  return machine.eligible === false &&
+    machine.status === "legacy-ambiguous" &&
+    [
+      checks?.minimumCoders,
+      checks?.allPairwiseKappaEstimable,
+      checks?.krippendorffAlphaEstimable,
+      checks?.meanPairwiseKappaAtThreshold,
+      checks?.krippendorffAlphaAtThreshold
+    ].every((entry) => entry === false) &&
+    (machine.blockers as string[]).some((blocker) =>
+      blocker === "current-v2-reliability-dashboard-required" ||
+      blocker === "invalid-or-contradictory-current-v2-reliability-evidence" ||
+      blocker === "current-v2-reliability-evidence-required"
+    );
 }
 
 export function isCurrentSenaCodingReliabilityGate(value: unknown): value is SenaCodingReliabilityGate {
@@ -1197,6 +1240,13 @@ export function buildSenaCodingReliabilityGate(
   options: SenaReportOptions = {},
   generatedAt = options.generatedAt ?? new Date().toISOString()
 ): SenaCodingReliabilityGate {
+  const suppliedMachineEvidence = options.codingReliability?.machineEvidence;
+  const validMachineEvidence = isSemanticallyValidSenaReliabilityMachineEvidence(suppliedMachineEvidence)
+    ? {
+      ...structuredClone(suppliedMachineEvidence),
+      claimEligibility: deriveSenaReliabilityClaimEligibility(suppliedMachineEvidence.claimEligibilityInputs)
+    }
+    : undefined;
   const review: SenaCodingReliabilityReview = {
     status: options.codingReliability?.status ?? "not-documented",
     reviewer: options.codingReliability?.reviewer?.trim() ?? "",
@@ -1208,14 +1258,14 @@ export function buildSenaCodingReliabilityGate(
     agreementValue: options.codingReliability?.agreementValue?.trim() || pendingReliabilityText,
     adjudicationNotes: options.codingReliability?.adjudicationNotes?.trim() || pendingReliabilityText,
     limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText,
-    machineEvidence: options.codingReliability?.machineEvidence
+    machineEvidence: validMachineEvidence
   };
   const machineEvidence = review.machineEvidence;
   const currentMachineEvidence = machineEvidence?.dashboardSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
     machineEvidence.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   const machineClaimEligibility: SenaCodingReliabilityGate["machineClaimEligibility"] = currentMachineEvidence
     ? {
-      ...machineEvidence.claimEligibility,
+      ...deriveSenaReliabilityClaimEligibility(machineEvidence.claimEligibilityInputs),
       status: machineEvidence.status,
       dashboardSchemaVersion: machineEvidence.dashboardSchemaVersion,
       sourceSchemaVersion: machineEvidence.sourceSchemaVersion
@@ -1234,7 +1284,9 @@ export function buildSenaCodingReliabilityGate(
         meanPairwiseKappaAtThreshold: false,
         krippendorffAlphaAtThreshold: false
       },
-      blockers: ["current-v2-reliability-dashboard-required"],
+      blockers: [suppliedMachineEvidence
+        ? "invalid-or-contradictory-current-v2-reliability-evidence"
+        : "current-v2-reliability-dashboard-required"],
       adjudication: {
         status: "external-not-evaluated",
         disclosure: "Machine eligibility cannot infer adjudication coverage or human sign-off; those remain external evidence."

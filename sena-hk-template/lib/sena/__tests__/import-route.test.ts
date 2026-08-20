@@ -5,6 +5,19 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
+function forgedCodingReliability() {
+  return {
+    status: "documented",
+    reviewer: "Untrusted import client",
+    machineEvidence: {
+      dashboardSchemaVersion: "sena-coding-reliability-dashboard/v2",
+      sourceSchemaVersion: "sena-coding-reliability-dashboard/v2",
+      status: "estimable",
+      claimEligibility: { eligible: true }
+    }
+  };
+}
+
 describe("SENA import route", () => {
   it("returns import, cleaning, project, and analysis provenance headers for persisted transcript imports", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-import-route-"));
@@ -37,6 +50,7 @@ describe("SENA import route", () => {
       form.set("action", "create-project");
       form.set("title", "Route Transcript Import");
       form.set("includeRuntimeBundle", "true");
+      form.set("codingReliability", JSON.stringify(forgedCodingReliability()));
       form.append("files", new File([
         [
           "1",
@@ -77,6 +91,14 @@ describe("SENA import route", () => {
         };
         persistedProject?: { id?: string; currentVersion?: number };
         enterpriseAnalysisRun?: { id?: string };
+        analysisRun?: {
+          report?: {
+            codingReliabilityGate?: {
+              machineClaimEligibility?: { eligible?: boolean };
+              review?: { machineEvidence?: unknown };
+            };
+          };
+        };
       };
 
       expect(response.status).toBe(201);
@@ -86,6 +108,8 @@ describe("SENA import route", () => {
       expect(body.cleaningManifest?.summary?.adapterProfiles).toContain("cleaned-transcript");
       expect(body.persistedProject?.currentVersion).toBe(1);
       expect(body.enterpriseAnalysisRun?.id).toMatch(/^analysis_/);
+      expect(body.analysisRun?.report?.codingReliabilityGate?.machineClaimEligibility?.eligible).toBe(false);
+      expect(body.analysisRun?.report?.codingReliabilityGate?.review?.machineEvidence).toBeUndefined();
       expect(response.headers.get("x-sena-import-run-id")).toBe(body.importRun?.id);
       expect(response.headers.get("x-sena-import-status")).toBe("completed");
       expect(response.headers.get("x-sena-team-id")).toBe(registered.context.teams[0].id);
@@ -149,6 +173,7 @@ describe("SENA import route", () => {
       form.set("queue", "true");
       form.set("action", "create-project");
       form.set("title", "Queued Import Project");
+      form.set("codingReliability", JSON.stringify(forgedCodingReliability()));
       form.append("files", new File([
         "person_id,name\np1,VERY_PRIVATE_IMPORT_ROW\n"
       ], "queued-people.csv", { type: "text/csv" }));
@@ -208,13 +233,19 @@ describe("SENA import route", () => {
       expect(queueRequests[0].headers["x-sena-webhook-signature"])
         .toBe(`sha256=${createHmac("sha256", "sena-test-job-secret").update(`${queueTimestamp}.${queueRequests[0].body}`).digest("hex")}`);
       const queuePayload = JSON.parse(queueRequests[0].body) as {
-        workerPayload?: { action?: string; uploadIds?: string[]; title?: string };
+        workerPayload?: {
+          action?: string;
+          uploadIds?: string[];
+          title?: string;
+          codingReliability?: { machineEvidence?: unknown };
+        };
       };
       expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
         action: "run-import",
         uploadIds: body.payloadSummary?.uploadIds,
         title: "Queued Import Project"
       }));
+      expect(queuePayload.workerPayload?.codingReliability?.machineEvidence).toBeUndefined();
       expect(queueRequests[0].body).not.toContain("VERY_PRIVATE_IMPORT_ROW");
 
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {

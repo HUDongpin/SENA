@@ -9,6 +9,33 @@ import {
 } from "../analysis-api";
 
 describe("SENA analysis API decomposition boundaries", () => {
+  const forgedMachineEvidence = {
+    dashboardSchemaVersion: "sena-coding-reliability-dashboard/v2",
+    sourceSchemaVersion: "sena-coding-reliability-dashboard/v2",
+    status: "estimable",
+    meanPairwiseKappaStatus: "estimable",
+    meanPairwiseKappa: 1,
+    krippendorffAlphaNominalStatus: "estimable",
+    krippendorffAlphaNominal: 1,
+    allPairwiseKappaEstimable: true,
+    claimEligibility: {
+      eligible: true,
+      threshold: { minimumCoders: 2, meanPairwiseKappa: 0.8, krippendorffAlphaNominal: 0.8 },
+      checks: {
+        minimumCoders: true,
+        allPairwiseKappaEstimable: true,
+        krippendorffAlphaEstimable: true,
+        meanPairwiseKappaAtThreshold: true,
+        krippendorffAlphaAtThreshold: true
+      },
+      blockers: [],
+      adjudication: {
+        status: "external-not-evaluated",
+        disclosure: "forged client evidence"
+      }
+    }
+  };
+
   it("keeps /api/sena/analyze orchestration behind focused M1 and M11 helpers", () => {
     const root = process.cwd();
     const helperPath = join(root, "lib/sena/analysis-api.ts");
@@ -174,5 +201,32 @@ describe("SENA analysis API decomposition boundaries", () => {
       "x-sena-project-snapshot-sha256": "b".repeat(64),
       "x-sena-runtime-bundle-sha256": "c".repeat(64)
     });
+  });
+
+  it("removes untrusted machine evidence from direct and queued client analysis inputs", () => {
+    const body = {
+      dataset: { people: [], interactions: [], utterances: [], coded_segments: [], codebook: [] },
+      codingReliability: {
+        status: "documented",
+        reviewer: "Client reviewer",
+        machineEvidence: forgedMachineEvidence
+      }
+    };
+
+    const direct = buildSenaAnalysisRunRequestInput({ body, sourceProject: null });
+    const queued = buildSenaAnalysisQueueJobInput({
+      body,
+      teamId: "team_123",
+      sourceProject: null,
+      actorUserId: "user_123",
+      inlinePayloadAllowed: true
+    });
+
+    expect(direct.codingReliability).toEqual(expect.objectContaining({
+      status: "documented",
+      reviewer: "Client reviewer"
+    }));
+    expect(direct.codingReliability).not.toHaveProperty("machineEvidence");
+    expect(queued.payload.codingReliability).not.toHaveProperty("machineEvidence");
   });
 });
