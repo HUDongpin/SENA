@@ -16,6 +16,7 @@ import {
   buildSenaAnalysisConfigHash,
   buildSenaDatasetContentHash
 } from "./data-contract-audit";
+import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
 import {
   buildSenaFusionAdjacency,
   findSenaIsolatedVertices,
@@ -1546,27 +1547,6 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
   const direction = buildOptions.direction ?? (
     buildOptions.undirectedSocial === true ? "undirected" : defaultOptions.direction
   );
-  if (buildOptions.undirectedSocial !== undefined && buildOptions.direction !== undefined) {
-    const socialDirection = buildOptions.undirectedSocial ? "undirected" : "directed";
-    if (socialDirection !== buildOptions.direction) {
-      throw new Error("SENA buildOptions.direction conflicts with buildOptions.undirectedSocial.");
-    }
-  }
-  if (buildOptions.deg_convention !== undefined && buildOptions.deg_convention !== "row-sum") {
-    throw new Error("SENA buildOptions.deg_convention currently supports only row-sum.");
-  }
-  if (buildOptions.Phi !== undefined && buildOptions.Phi !== "classical_mds") {
-    throw new Error("SENA buildOptions.Phi currently supports classical_mds for the analysis provenance envelope.");
-  }
-  if (buildOptions.delta !== undefined && buildOptions.delta !== "shortest_path_reciprocal_weight") {
-    throw new Error("SENA buildOptions.delta currently supports shortest_path_reciprocal_weight for classical_mds.");
-  }
-  if (buildOptions.d !== undefined && (!Number.isFinite(buildOptions.d) || buildOptions.d < 1)) {
-    throw new Error("SENA buildOptions.d must be a positive finite number.");
-  }
-  if (buildOptions.seed !== undefined && !Number.isFinite(buildOptions.seed)) {
-    throw new Error("SENA buildOptions.seed must be a finite number.");
-  }
 
   return {
     ...defaultOptions,
@@ -1587,6 +1567,7 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
 }
 
 export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaBuildOptions> = {}): SenaModel {
+  validateSenaAnalyticalInputs({ dataset, buildOptions });
   const options = resolveBuildOptions(buildOptions);
   const personIndex = idIndex(dataset.people, "person");
   const codeIndex = idIndex(dataset.codebook, "code");

@@ -23,6 +23,7 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as Record<string, unknown>;
+    validateSenaAnalyticalInputs({ dataset: body.dataset, buildOptions: body.buildOptions });
     if (shouldQueueServerJob(request, body)) {
       const projectId = body.projectId ? String(body.projectId) : undefined;
       const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;

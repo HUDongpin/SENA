@@ -5,7 +5,7 @@ import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { hasCompatibleSenaSchemaVersion, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
   getSenaReviewPacketContentKey,
   listSenaReviewPacketArtifacts,
@@ -720,6 +720,18 @@ function assertSchemaRecord(value: unknown, context: string, schemaVersion: stri
   return record;
 }
 
+function assertCompatibleSchemaRecord(
+  value: unknown,
+  context: string,
+  key: Parameters<typeof hasCompatibleSenaSchemaVersion>[1]
+): Record<string, unknown> {
+  const record = asRecord(value, context);
+  if (!hasCompatibleSenaSchemaVersion(record, key)) {
+    throw new Error(`${context} must use a current or explicitly supported legacy schemaVersion.`);
+  }
+  return record;
+}
+
 function assertArray(value: unknown, context: string): asserts value is unknown[] {
   if (!Array.isArray(value)) {
     throw new Error(`${context} must be an array.`);
@@ -894,7 +906,7 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   assertSchemaRecord(contents.temporalRuntimeTrace, "review packet.contents.temporalRuntimeTrace", "sena-temporal-runtime-trace/v1");
   assertSchemaRecord(contents.dataContractAudit, "review packet.contents.dataContractAudit", "sena-data-contract-audit/v1");
   assertSchemaRecord(contents.runtimeConsistencyAudit, "review packet.contents.runtimeConsistencyAudit", "sena-runtime-consistency/v1");
-  const fusionMathAudit = assertSchemaRecord(contents.fusionMathAudit, "review packet.contents.fusionMathAudit", "sena-fusion-math-audit/v1");
+  const fusionMathAudit = assertCompatibleSchemaRecord(contents.fusionMathAudit, "review packet.contents.fusionMathAudit", "fusionMathAudit");
   assertArray(fusionMathAudit.matrixFingerprints, "review packet.contents.fusionMathAudit.matrixFingerprints");
   fusionMathAudit.matrixFingerprints.forEach((item, index) => {
     const fingerprint = asRecord(item, `review packet.contents.fusionMathAudit.matrixFingerprints.${index}`);

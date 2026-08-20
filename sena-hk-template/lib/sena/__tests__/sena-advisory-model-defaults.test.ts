@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { buildSenaAnalysisProvenanceEnvelope, buildSenaAnalysisRun } from "../analysis-run";
+import { SenaInputValidationError } from "../analytical-input-validation";
 import { buildSenaAnalysisConfigHash, buildSenaDataContractAudit, buildSenaDatasetContentHash } from "../data-contract-audit";
 import { buildSenaGroupComparison } from "../inference";
 import { buildSenaModel } from "../model";
@@ -228,10 +229,19 @@ describe("SENA advisory model defaults", () => {
   });
 
   it("rejects conflicting legacy and declared social direction options", () => {
-    expect(() => buildSenaModel(directedDataset, {
-      direction: "directed",
-      undirectedSocial: true
-    })).toThrow("buildOptions.direction conflicts with buildOptions.undirectedSocial");
+    try {
+      buildSenaModel(directedDataset, {
+        direction: "directed",
+        undirectedSocial: true
+      });
+      throw new Error("Expected analytical input validation to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SenaInputValidationError);
+      expect((error as SenaInputValidationError).issues).toContainEqual({
+        path: "buildOptions.direction",
+        rule: "consistent-direction"
+      });
+    }
   });
 
   it("binds analysis config declarations into the reproducibility hash", () => {

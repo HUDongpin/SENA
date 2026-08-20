@@ -1,4 +1,5 @@
 import type { SenaActorType, SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
+import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
 
 export type SenaImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
 
@@ -126,6 +127,10 @@ function parseNumber(value: string, fallback: number, warnings: string[], contex
   if (Number.isFinite(parsed)) return parsed;
   warnings.push(`${context} has non-numeric value "${value}"; using ${fallback}.`);
   return fallback;
+}
+
+function parseAnalyticalNumber(value: string, fallback: number) {
+  return value.length === 0 ? fallback : Number(value);
 }
 
 /**
@@ -319,7 +324,7 @@ function normalizeInteractions(rows: SenaImportRow[], mapping: SenaColumnMapping
     return [{
       source,
       target,
-      weight: parseNumber(readField(row, mapping, "weight"), 1, warnings, `interactions row ${index + 1} weight`),
+      weight: parseAnalyticalNumber(readField(row, mapping, "weight"), 1),
       channel: readField(row, mapping, "channel") || "interaction",
       stage: readField(row, mapping, "stage") || "Unstaged",
       turnIndex: turnIndex ? parseNumber(turnIndex, index + 1, warnings, `interactions row ${index + 1} turnIndex`) : undefined,
@@ -428,7 +433,7 @@ function normalizeSegments(
       codes,
       targetPersonIds: targetPersonIds.length > 0 ? targetPersonIds : undefined,
       confidence: readField(row, mapping, "confidence")
-        ? parseNumber(readField(row, mapping, "confidence"), 1, warnings, `coded_segments row ${index + 1} confidence`)
+        ? parseAnalyticalNumber(readField(row, mapping, "confidence"), 1)
         : undefined
     }];
   });
@@ -744,6 +749,7 @@ export function buildSenaDatasetFromTables(tables: SenaMappedTable[]): SenaImpor
   addDerivedContractRows(dataset, warnings);
   const flaggedLegacyValues = warnLegacyMultiValueCells(dataset, legacyCells, warnings);
   warnDelimiterBearingIds(dataset, warnings, flaggedLegacyValues);
+  validateSenaAnalyticalInputs({ dataset });
   return { dataset, warnings };
 }
 

@@ -1,3 +1,11 @@
+export const SENA_LEGACY_SCHEMA_VERSIONS = {
+  codingReliabilityDashboard: "sena-coding-reliability-dashboard/v1",
+  codingReliabilityGate: "sena-coding-reliability-gate/v1",
+  fusionMathAudit: "sena-fusion-math-audit/v1",
+  groupComparison: "sena-group-comparison/v1",
+  groupComparisonSuite: "sena-group-comparison-suite/v1"
+} as const;
+
 export const SENA_SCHEMA_VERSIONS = {
   activeWindowBrief: "sena-active-window-brief/v1",
   analysisProvenanceEnvelope: "sena-analysis-provenance-envelope/v1",
@@ -144,7 +152,7 @@ export const SENA_SCHEMA_VERSIONS = {
   expertReviewResponse: "sena-expert-review-response/v1",
   formalInferenceReadiness: "sena-formal-inference-readiness/v1",
   fusionMathAuditArtifact: "sena-fusion-math-audit-artifact/v1",
-  fusionMathAudit: "sena-fusion-math-audit/v1",
+  fusionMathAudit: "sena-fusion-math-audit/v2",
   goLiveCloseoutCheck: "sena-go-live-closeout-check/v1",
   groupComparisonSuite: "sena-group-comparison-suite/v1",
   groupComparison: "sena-group-comparison/v1",
@@ -220,8 +228,11 @@ export const SENA_SCHEMA_VERSIONS = {
 
 export type SenaSchemaVersionKey = keyof typeof SENA_SCHEMA_VERSIONS;
 export type SenaSchemaVersion = (typeof SENA_SCHEMA_VERSIONS)[SenaSchemaVersionKey];
+export type SenaLegacySchemaVersionKey = keyof typeof SENA_LEGACY_SCHEMA_VERSIONS;
+export type SenaLegacySchemaVersion = (typeof SENA_LEGACY_SCHEMA_VERSIONS)[SenaLegacySchemaVersionKey];
 
 const senaSchemaVersionSet = new Set<string>(Object.values(SENA_SCHEMA_VERSIONS));
+const senaLegacySchemaVersions = SENA_LEGACY_SCHEMA_VERSIONS as Partial<Record<SenaSchemaVersionKey, SenaLegacySchemaVersion>>;
 
 export function getSenaSchemaVersion(key: SenaSchemaVersionKey): SenaSchemaVersion {
   return SENA_SCHEMA_VERSIONS[key];
@@ -254,6 +265,18 @@ export function hasSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
     value !== null &&
     !Array.isArray(value) &&
     (value as { schemaVersion?: unknown }).schemaVersion === SENA_SCHEMA_VERSIONS[key]
+  );
+}
+
+export function hasCompatibleSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): value is { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] | SenaLegacySchemaVersion } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
+  const legacySchemaVersion = senaLegacySchemaVersions[key];
+  return schemaVersion === SENA_SCHEMA_VERSIONS[key] || (
+    legacySchemaVersion !== undefined && schemaVersion === legacySchemaVersion
   );
 }
 

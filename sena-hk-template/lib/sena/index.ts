@@ -129,10 +129,17 @@ export {
   getSenaSchemaVersion,
   isSenaSchemaVersion,
   listSenaSchemaVersions,
+  SENA_LEGACY_SCHEMA_VERSIONS,
   SENA_SCHEMA_VERSIONS,
   type SenaSchemaVersion,
   type SenaSchemaVersionKey
 } from "./schema-registry";
+export {
+  SenaInputValidationError,
+  validateSenaAnalyticalInputs,
+  type SenaInputValidationIssue,
+  type SenaInputValidationRule
+} from "./analytical-input-validation";
 export {
   buildSenaDemoVerificationCompatibilityAudit,
   buildSenaDemoVerification,

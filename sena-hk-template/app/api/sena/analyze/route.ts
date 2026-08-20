@@ -29,6 +29,7 @@ import {
   resolveSenaAnalysisTeamId,
   type SenaAnalysisApiBody
 } from "@/lib/sena/analysis-api";
+import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-analyze" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const body = await request.json() as SenaAnalysisApiBody;
+    validateSenaAnalyticalInputs({ dataset: body.dataset, buildOptions: body.buildOptions });
     const sourceProject = body.projectId ? await getEnterpriseProjectAsync(context, String(body.projectId)) : null;
     const teamId = resolveSenaAnalysisTeamId({
       body,

@@ -20,6 +20,10 @@ function finiteMatrix(values: number[][]) {
   return values.every((row) => row.every(Number.isFinite));
 }
 
+function nonnegativeMatrix(values: number[][]) {
+  return values.every((row) => row.every((value) => Number.isFinite(value) && value >= 0));
+}
+
 function stableNumber(value: number) {
   if (!Number.isFinite(value)) return String(value);
   return Number((Object.is(value, -0) ? 0 : value).toPrecision(15));
@@ -231,14 +235,25 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
     fusion.length === fusionSize &&
     fusion.every((row) => row.length === fusionSize);
 
-  const allFinite = finiteMatrix(model.matrices.S.normalized) &&
-    finiteMatrix(model.matrices.W.normalized) &&
-    finiteMatrix(model.matrices.B.normalized) &&
-    finiteMatrix(model.matrices.B_PC.normalized) &&
-    finiteMatrix(model.matrices.B_CP.normalized) &&
-    finiteMatrix(model.matrices.G.normalized) &&
-    finiteMatrix(fusion) &&
+  const auditedMatrices = [
+    ["S.raw", model.matrices.S.raw],
+    ["S.normalized", model.matrices.S.normalized],
+    ["W.raw", model.matrices.W.raw],
+    ["W.normalized", model.matrices.W.normalized],
+    ["B.raw", model.matrices.B.raw],
+    ["B.normalized", model.matrices.B.normalized],
+    ["B_PC.raw", model.matrices.B_PC.raw],
+    ["B_PC.normalized", model.matrices.B_PC.normalized],
+    ["B_CP.raw", model.matrices.B_CP.raw],
+    ["B_CP.normalized", model.matrices.B_CP.normalized],
+    ["G.raw", model.matrices.G.raw],
+    ["G.normalized", model.matrices.G.normalized],
+    ["A_fusion.values", fusion]
+  ] as const;
+  const allFinite = auditedMatrices.every(([, values]) => finiteMatrix(values)) &&
     [options.alpha, options.beta, options.gamma].every(Number.isFinite);
+  const allNonnegative = auditedMatrices.every(([, values]) => nonnegativeMatrix(values)) &&
+    [options.alpha, options.beta, options.gamma].every((value) => Number.isFinite(value) && value >= 0);
 
   const socialDelta = maxDeltaForBlock({
     rows: peopleCount,
@@ -296,15 +311,17 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       allFinite,
       "alpha, beta, gamma and every S/W/B/B_PC/B_CP/G/A_fusion value are finite numbers",
       `alpha=${options.alpha}, beta=${options.beta}, gamma=${options.gamma}`,
-      [
-        `S=${model.matrices.S.normalized.length} rows`,
-        `W=${model.matrices.W.normalized.length} rows`,
-        `B=${model.matrices.B.normalized.length} rows`,
-        `B_PC=${model.matrices.B_PC.normalized.length} rows`,
-        `B_CP=${model.matrices.B_CP.normalized.length} rows`,
-        `G=${model.matrices.G.normalized.length} rows`,
-        `A_fusion=${fusion.length} rows`
-      ]
+      auditedMatrices.map(([label, values]) => `${label}=${values.length} rows`)
+    ),
+    item(
+      "nonnegative-values",
+      "Nonnegative weights and matrix values",
+      allNonnegative,
+      "alpha, beta, gamma and every raw/normalized S/W/B/B_PC/B_CP/G and A_fusion value are finite and nonnegative",
+      `alpha=${options.alpha}, beta=${options.beta}, gamma=${options.gamma}`,
+      auditedMatrices.map(([label, values]) => (
+        `${label}=${nonnegativeMatrix(values) ? "nonnegative" : "contains invalid or negative values"}`
+      ))
     ),
     item(
       "social-block",

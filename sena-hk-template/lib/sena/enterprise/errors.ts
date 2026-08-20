@@ -1,3 +1,5 @@
+import { SenaInputValidationError } from "../analytical-input-validation";
+
 export class SenaEnterpriseError extends Error {
   constructor(
     message: string,
@@ -41,6 +43,15 @@ function describeUnexpectedError(error: unknown) {
 }
 
 export function enterpriseErrorResponse(error: unknown) {
+  if (error instanceof SenaInputValidationError) {
+    return {
+      body: {
+        error: "SENA analytical inputs violate the numeric domain.",
+        code: "invalid_sena_numeric_domain"
+      },
+      status: 400
+    };
+  }
   if (error instanceof SenaEnterpriseError) {
     return {
       body: { error: error.message, code: error.code },

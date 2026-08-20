@@ -935,7 +935,7 @@ async function verifyPilotAssetLinks(page, url) {
     manifest.exportArtifactSchemas?.["sena-metric-provenance.json"] !== "sena-metric-provenance/v1") {
     throw new Error("Pilot manifest has stale metric-provenance export artifact metadata.");
   }
-  if (manifest.exportArtifactSchemas?.["sena-fusion-math-audit.json"] !== "sena-fusion-math-audit/v1") {
+  if (manifest.exportArtifactSchemas?.["sena-fusion-math-audit.json"] !== "sena-fusion-math-audit/v2") {
     throw new Error("Pilot manifest has stale fusion-math audit schema.");
   }
   if (manifest.exportArtifactSchemas?.["sena-runtime-consistency-audit.json"] !== "sena-runtime-consistency/v1") {
@@ -1302,7 +1302,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   }
 
   const fusionMathAudit = runtimeBundle.fusionMathAudit;
-  if (fusionMathAudit?.schemaVersion !== "sena-fusion-math-audit/v1") {
+  if (fusionMathAudit?.schemaVersion !== "sena-fusion-math-audit/v2") {
     throw new Error("Runtime bundle is missing the archived fusion math audit.");
   }
   if (fusionMathAudit.status !== "verified") {

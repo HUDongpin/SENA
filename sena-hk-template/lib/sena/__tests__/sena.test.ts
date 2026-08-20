@@ -62,6 +62,7 @@ import {
   senaPilotSampleAssets,
   senaPilotSampleCsvAssets,
   senaPilotTemplateAssets,
+  SenaInputValidationError,
   snaRuntimeDependencySpec,
   snaRuntimeVersion,
   scopeSenaDatasetToWindow,
@@ -120,7 +121,7 @@ import {
   submitEnterprisePlatformDecisionReviewAction,
   syncEnterpriseDatabaseAction
 } from "../../../components/sena/workspace/enterprise-ops-actions";
-import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
 import {
   buildSenaWorkspaceApiUrl,
@@ -545,9 +546,7 @@ describe("SENA model builder", () => {
     expect(trace.transitions[0]?.interpretationGuardrail).toContain("not causal evidence");
   });
 
-  it("keeps temporal trace matrix totals finite when an interaction weight is not finite", () => {
-    // Guard parity with fusion-math matrixTotal: one NaN interaction weight
-    // must not poison every per-window total and transition delta.
+  it("rejects a temporal trace when an interaction weight is not finite", () => {
     const dataset = {
       ...exampleSenaContract,
       interactions: exampleSenaContract.interactions.map((interaction, index) => (
@@ -555,19 +554,9 @@ describe("SENA model builder", () => {
       ))
     };
 
-    const trace = buildSenaTemporalRuntimeTrace(dataset, {}, {
+    expect(() => buildSenaTemporalRuntimeTrace(dataset, {}, {
       generatedAt: "2026-08-02T00:00:00.000Z"
-    });
-
-    expect(trace.windows.length).toBeGreaterThan(0);
-    for (const entry of trace.windows) {
-      expect(Number.isFinite(entry.sena.matrixTotals.S)).toBe(true);
-      expect(Number.isFinite(entry.sena.matrixTotals.fusion)).toBe(true);
-    }
-    for (const transition of trace.transitions) {
-      expect(Number.isFinite(transition.delta.S)).toBe(true);
-      expect(Number.isFinite(transition.delta.fusion)).toBe(true);
-    }
+    })).toThrowError(SenaInputValidationError);
   });
 
   it("returns an empty temporal runtime trace for an empty dataset", () => {
@@ -742,12 +731,13 @@ describe("SENA model builder", () => {
       "import-and-model-warnings"
     ]);
     expect(buildSenaDataContractAudit(model.dataset, { modelWarnings: model.summary.warnings })).toEqual(report.dataContractAudit);
-    expect(report.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v1");
+    expect(report.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v2");
     expect(report.fusionMathAudit.status).toBe("verified");
     expect(report.fusionMathAudit.reviewNeeded).toBe(0);
     expect(report.fusionMathAudit.items.map((item) => item.id)).toEqual([
       "labels-and-dimensions",
       "finite-values",
+      "nonnegative-values",
       "social-block",
       "bridge-block",
       "bridge-cp-block",
@@ -1224,8 +1214,10 @@ describe("SENA model builder", () => {
         }
       ]
     };
-    const brokenModel = buildSenaModel(brokenDataset);
-    const brokenAudit = buildSenaDataContractAudit(brokenModel.dataset, { modelWarnings: brokenModel.summary.warnings });
+    expect(() => buildSenaModel(brokenDataset)).toThrowError(SenaInputValidationError);
+    const brokenAudit = buildSenaDataContractAudit(brokenDataset, {
+      modelWarnings: ["Analytical numeric-domain validation failed before model construction."]
+    });
 
     expect(validAudit.status).toBe("valid");
     expect(validAudit.items.every((item) => item.status === "pass")).toBe(true);
@@ -3978,6 +3970,18 @@ describe("SENA model builder", () => {
     expect(importedPacket.contents.claimReadinessGate.schemaVersion).toBe("sena-claim-readiness-gate/v1");
     expect(importedPacket.contents.demoVerificationCompatibilityAudit.schemaVersion).toBe("sena-demo-verification-compatibility/v1");
     expect(importedPacket.contents.productionPageContract.schemaVersion).toBe("sena-production-page-contract/v1");
+
+    const legacyFusionAuditPacket = {
+      ...packet,
+      contents: {
+        ...packet.contents,
+        fusionMathAudit: {
+          ...packet.contents.fusionMathAudit,
+          schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit
+        }
+      }
+    };
+    expect(isSenaReviewPacket(legacyFusionAuditPacket)).toBe(true);
   });
 
   it("rejects malformed review packets before workspace recognition", () => {
@@ -4413,7 +4417,7 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("## Runtime Consistency Audit");
     expect(markdown).toContain("sena-runtime-consistency/v1");
     expect(markdown).toContain("## Fusion Math Audit");
-    expect(markdown).toContain("sena-fusion-math-audit/v1");
+    expect(markdown).toContain("sena-fusion-math-audit/v2");
     expect(markdown).toContain("## Pilot Readiness Audit");
     expect(markdown).toContain("sena-pilot-readiness/v1");
     expect(markdown).toContain("## Claim Readiness Gate");
@@ -4766,7 +4770,7 @@ describe("SENA model builder", () => {
       })),
       coded_segments: exampleSenaContract.coded_segments.map((segment, index) => ({
         ...segment,
-        confidence: index === 0 ? 10_000 : segment.confidence ?? 1
+        confidence: index === 0 ? 1 : segment.confidence ?? 1
       }))
     }, { normalization: "log-max" });
 

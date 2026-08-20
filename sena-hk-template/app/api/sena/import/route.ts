@@ -28,6 +28,7 @@ import {
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
 import { importSenaEnterpriseFiles, withSenaImportDatasetMetadata } from "@/lib/sena/import-adapters";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
 
 export const runtime = "nodejs";
 
@@ -115,6 +116,7 @@ export async function POST(request: Request) {
     const action = formString(form.get("action"));
     const shouldCreateProject = action === "create-project" || formBoolean(form.get("persistProject"));
     const buildOptions = formJson<SenaAnalysisRunInput["buildOptions"]>(form.get("buildOptions"), "buildOptions");
+    validateSenaAnalyticalInputs({ buildOptions });
     const activeTemporalWindowId = formString(form.get("activeTemporalWindowId")) || undefined;
     const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
     const codingReliability = formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability");
