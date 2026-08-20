@@ -327,7 +327,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Run or queue single/suite group comparisons with permutation p values, bootstrap intervals, Holm correction, preregistration plan fingerprints, validation parity evidence, and formal inference readiness manifests that can inherit project-linked analysis-run walkthrough hashes.",
     evidenceNoteId: "sena-validation-group-comparison",
-    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v1", "sena-group-comparison-suite/v1", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1", "sena-enterprise-server-job/v1"]
+    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v2", "sena-group-comparison-suite/v2", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1", "sena-enterprise-server-job/v1"]
   },
   {
     id: "sena-validation-expert-review",

@@ -1,4 +1,4 @@
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import type { SenaBuildOptions, SenaDataset, SenaModel, SenaPersonMetrics } from "./types";
 
@@ -11,8 +11,24 @@ export type SenaGroupComparisonMetric =
   | "conceptBrokerage"
   | "alignment";
 
+export type SenaEffectSizeStatus =
+  | "estimable"
+  | "insufficient-sample"
+  | "zero-variance-equal"
+  | "zero-variance-separated"
+  | "legacy-ambiguous";
+
+export type SenaGroupComparisonEffectSize = {
+  status: SenaEffectSizeStatus;
+  cohenD: number | null;
+  hedgesG: number | null;
+  pooledStandardDeviation: number | null;
+  reason: string;
+};
+
 export type SenaGroupComparisonResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparison;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparison | typeof SENA_LEGACY_SCHEMA_VERSIONS.groupComparison;
   metric: SenaGroupComparisonMetric;
   groupField: "group" | "role";
   groupA: string;
@@ -22,11 +38,7 @@ export type SenaGroupComparisonResult = {
   meanA: number;
   meanB: number;
   observedDifference: number;
-  effectSize: {
-    cohenD: number;
-    hedgesG: number;
-    pooledStandardDeviation: number;
-  };
+  effectSize: SenaGroupComparisonEffectSize;
   permutation: {
     iterations: number;
     seed: number;
@@ -62,6 +74,7 @@ export type SenaGroupComparisonSuiteEntry = SenaGroupComparisonResult & {
 
 export type SenaGroupComparisonSuiteResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparisonSuite;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparisonSuite | typeof SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite;
   alpha: number;
   correction: "holm";
   comparisonCount: number;
@@ -107,6 +120,73 @@ function sampleVariance(values: number[]) {
   if (values.length < 2) return 0;
   const average = mean(values);
   return values.reduce((sum, value) => sum + ((value - average) ** 2), 0) / (values.length - 1);
+}
+
+function assertFiniteEffectSizeObservations(values: number[], group: "A" | "B") {
+  const invalidIndex = values.findIndex((value) => !Number.isFinite(value));
+  if (invalidIndex >= 0) {
+    throw new Error(`Group ${group} effect-size observation at index ${invalidIndex} must be finite.`);
+  }
+}
+
+export function buildSenaGroupComparisonEffectSize(
+  valuesA: number[],
+  valuesB: number[]
+): SenaGroupComparisonEffectSize {
+  assertFiniteEffectSizeObservations(valuesA, "A");
+  assertFiniteEffectSizeObservations(valuesB, "B");
+  if (valuesA.length < 2 || valuesB.length < 2) {
+    return {
+      status: "insufficient-sample",
+      cohenD: null,
+      hedgesG: null,
+      pooledStandardDeviation: null,
+      reason: "At least two observations per group are required for a standardized effect size."
+    };
+  }
+
+  const observedDifference = mean(valuesA) - mean(valuesB);
+  const varianceA = sampleVariance(valuesA);
+  const varianceB = sampleVariance(valuesB);
+  const pooledVarianceDenominator = valuesA.length + valuesB.length - 2;
+  const pooledVariance = (
+    ((valuesA.length - 1) * varianceA) + ((valuesB.length - 1) * varianceB)
+  ) / pooledVarianceDenominator;
+  const pooledStandardDeviation = Math.sqrt(pooledVariance);
+  if (!Number.isFinite(observedDifference) || !Number.isFinite(pooledStandardDeviation)) {
+    throw new Error("SENA group-comparison effect-size calculation must remain finite.");
+  }
+  if (pooledStandardDeviation === 0) {
+    return observedDifference === 0
+      ? {
+        status: "zero-variance-equal",
+        cohenD: null,
+        hedgesG: null,
+        pooledStandardDeviation: 0,
+        reason: "Both groups are constant with equal means; a standardized effect size is undefined."
+      }
+      : {
+        status: "zero-variance-separated",
+        cohenD: null,
+        hedgesG: null,
+        pooledStandardDeviation: 0,
+        reason: "Both groups are constant with different means; separation is complete but a standardized effect size is undefined."
+      };
+  }
+
+  const cohenD = observedDifference / pooledStandardDeviation;
+  const hedgesCorrection = 1 - (3 / ((4 * (valuesA.length + valuesB.length)) - 9));
+  const hedgesG = cohenD * hedgesCorrection;
+  if (![cohenD, hedgesG].every(Number.isFinite)) {
+    throw new Error("SENA group-comparison standardized effect sizes must remain finite.");
+  }
+  return {
+    status: "estimable",
+    cohenD: round(cohenD),
+    hedgesG: round(hedgesG),
+    pooledStandardDeviation: round(pooledStandardDeviation),
+    reason: "Cohen d and Hedges g are estimable from two groups with at least two observations and positive pooled standard deviation."
+  };
 }
 
 function quantile(values: number[], q: number) {
@@ -165,15 +245,7 @@ export function buildSenaGroupComparison(input: {
   }
 
   const observedDifference = mean(a) - mean(b);
-  const varianceA = sampleVariance(a);
-  const varianceB = sampleVariance(b);
-  const pooledVarianceDenominator = a.length + b.length - 2;
-  const pooledStandardDeviation = pooledVarianceDenominator > 0
-    ? Math.sqrt((((a.length - 1) * varianceA) + ((b.length - 1) * varianceB)) / pooledVarianceDenominator)
-    : 0;
-  const cohenD = pooledStandardDeviation === 0 ? 0 : observedDifference / pooledStandardDeviation;
-  const hedgesCorrectionDenominator = (4 * (a.length + b.length)) - 9;
-  const hedgesCorrection = hedgesCorrectionDenominator > 0 ? 1 - (3 / hedgesCorrectionDenominator) : 1;
+  const effectSize = buildSenaGroupComparisonEffectSize(a, b);
   const combined = [...a, ...b];
   const nA = a.length;
   const iterations = Math.max(100, Math.min(10000, Math.round(input.iterations ?? 1000)));
@@ -197,6 +269,7 @@ export function buildSenaGroupComparison(input: {
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
     metric,
     groupField,
     groupA: input.groupA,
@@ -206,11 +279,7 @@ export function buildSenaGroupComparison(input: {
     meanA: round(mean(a)),
     meanB: round(mean(b)),
     observedDifference: round(observedDifference),
-    effectSize: {
-      cohenD: round(cohenD),
-      hedgesG: round(cohenD * hedgesCorrection),
-      pooledStandardDeviation: round(pooledStandardDeviation)
-    },
+    effectSize,
     permutation: {
       iterations,
       seed,
@@ -309,6 +378,7 @@ export function buildSenaGroupComparisonSuite(input: {
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.groupComparisonSuite,
     alpha,
     correction: "holm",
     comparisonCount: entries.length,
@@ -324,4 +394,116 @@ export function buildSenaGroupComparisonSuite(input: {
     },
     guardrail: "Suite-level group comparison controls family-wise error with Holm adjustment, but it remains descriptive validation support until paired with preregistration, domain review, and a study-specific inferential model."
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function finiteOrNull(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeLegacyEffectSize(value: unknown): SenaGroupComparisonEffectSize {
+  const effectSize = isRecord(value) ? value : {};
+  return {
+    status: "legacy-ambiguous",
+    cohenD: finiteOrNull(effectSize.cohenD),
+    hedgesG: finiteOrNull(effectSize.hedgesG),
+    pooledStandardDeviation: finiteOrNull(effectSize.pooledStandardDeviation),
+    reason: "Legacy v1 effect-size values used ambiguous insufficient-sample and zero-variance conventions; the original finite values are preserved but are not current estimable evidence."
+  };
+}
+
+function normalizeSenaGroupComparisonResult(value: unknown): SenaGroupComparisonResult {
+  if (!isRecord(value)) throw new Error("SENA group comparison must be an object.");
+  if (value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison) {
+    return {
+      ...(value as unknown as SenaGroupComparisonResult),
+      sourceSchemaVersion: value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
+        ? SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
+        : SENA_SCHEMA_VERSIONS.groupComparison
+    };
+  }
+  if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) {
+    throw new Error("SENA group comparison uses an unsupported schemaVersion.");
+  }
+  return {
+    ...(value as unknown as SenaGroupComparisonResult),
+    schemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparison,
+    effectSize: normalizeLegacyEffectSize(value.effectSize)
+  };
+}
+
+function isCurrentEffectSize(value: unknown): value is SenaGroupComparisonEffectSize {
+  if (!isRecord(value) || typeof value.reason !== "string") return false;
+  if (value.status === "estimable") {
+    return typeof value.cohenD === "number" && Number.isFinite(value.cohenD) &&
+      typeof value.hedgesG === "number" && Number.isFinite(value.hedgesG) &&
+      typeof value.pooledStandardDeviation === "number" && Number.isFinite(value.pooledStandardDeviation) &&
+      value.pooledStandardDeviation > 0;
+  }
+  if (value.status === "insufficient-sample") {
+    return value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === null;
+  }
+  if (value.status === "zero-variance-equal" || value.status === "zero-variance-separated") {
+    return value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === 0;
+  }
+  return false;
+}
+
+function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupComparisonResult {
+  return isRecord(value) &&
+    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+    isCurrentEffectSize(value.effectSize);
+}
+
+export function normalizeSenaGroupComparisonValidationResult(
+  value: unknown
+): SenaGroupComparisonValidationResult {
+  if (!isRecord(value)) throw new Error("SENA group-comparison validation result must be an object.");
+  if (
+    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison ||
+    value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
+  ) {
+    return normalizeSenaGroupComparisonResult(value);
+  }
+  if (
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
+    value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
+  ) {
+    throw new Error("SENA group-comparison validation result uses an unsupported schemaVersion.");
+  }
+
+  const sourceSchemaVersion = value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite ||
+    value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
+    ? SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
+    : SENA_SCHEMA_VERSIONS.groupComparisonSuite;
+  const comparisons = Array.isArray(value.comparisons)
+    ? value.comparisons.map((comparison) => normalizeSenaGroupComparisonResult(comparison) as SenaGroupComparisonSuiteEntry)
+    : [];
+  const primary = normalizeSenaGroupComparisonResult(value.primary) as SenaGroupComparisonSuiteEntry;
+  return {
+    ...(value as unknown as SenaGroupComparisonSuiteResult),
+    schemaVersion: SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+    sourceSchemaVersion,
+    primary,
+    comparisons
+  };
+}
+
+export function isCurrentSenaGroupComparisonValidationResult(
+  value: unknown
+): value is SenaGroupComparisonValidationResult {
+  if (isCurrentSenaGroupComparisonResult(value)) {
+    return true;
+  }
+  return isRecord(value) &&
+    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
+    isCurrentSenaGroupComparisonResult(value.primary) &&
+    Array.isArray(value.comparisons) &&
+    value.comparisons.every(isCurrentSenaGroupComparisonResult);
 }

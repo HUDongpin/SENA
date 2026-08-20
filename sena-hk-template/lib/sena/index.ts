@@ -196,7 +196,12 @@ export {
 } from "./reliability";
 export {
   buildSenaGroupComparison,
+  buildSenaGroupComparisonEffectSize,
   buildSenaGroupComparisonSuite,
+  isCurrentSenaGroupComparisonValidationResult,
+  normalizeSenaGroupComparisonValidationResult,
+  type SenaEffectSizeStatus,
+  type SenaGroupComparisonEffectSize,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,

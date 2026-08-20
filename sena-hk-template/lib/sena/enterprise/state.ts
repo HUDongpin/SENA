@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { normalizeSenaGroupComparisonValidationResult } from "../inference";
 import { normalizeSenaReliabilityDashboard } from "../reliability";
 import { SenaEnterpriseError } from "./errors";
 import type {
@@ -434,12 +435,16 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDb): SenaEnterpriseDb {
         adjudicationCoverage: buildReliabilityAdjudicationCoverage(normalizedRun, db.adjudications ?? [])
       };
     }),
-    validationRuns: (db.validationRuns ?? []).map((run) => ({
-      ...run,
-      status: run.status ?? "pending-review",
-      preregistrationNote: run.preregistrationNote ?? "",
-      methodNote: run.methodNote ?? run.result?.guardrail ?? ""
-    })),
+    validationRuns: (db.validationRuns ?? []).map((run) => {
+      const result = normalizeSenaGroupComparisonValidationResult(run.result);
+      return {
+        ...run,
+        result,
+        status: run.status ?? "pending-review",
+        preregistrationNote: run.preregistrationNote ?? "",
+        methodNote: run.methodNote ?? result.guardrail ?? ""
+      };
+    }),
     projects: (db.projects ?? []).map((project) => ({
       ...project,
       currentVersion: project.currentVersion ?? 1

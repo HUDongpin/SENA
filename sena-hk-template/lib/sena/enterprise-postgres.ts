@@ -1,4 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { normalizeSenaGroupComparisonValidationResult } from "./inference";
 import { normalizeSenaReliabilityDashboard } from "./reliability";
 import { senaProductionPostureFrom } from "./enterprise/auth-config";
 import { createHash, randomBytes } from "node:crypto";
@@ -1044,6 +1045,7 @@ function normalizeStoredValidationRun(row: Record<string, unknown>): SenaEnterpr
   const payload = normalizeStoredJson<SenaEnterpriseValidationRun>(row.payload);
   return {
     ...payload,
+    result: normalizeSenaGroupComparisonValidationResult(payload.result),
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };

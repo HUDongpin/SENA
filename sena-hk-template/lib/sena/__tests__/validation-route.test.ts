@@ -123,7 +123,7 @@ describe("SENA validation group-comparison route", () => {
           };
         };
       };
-      expect(body.schemaVersion).toBe("sena-group-comparison-suite/v1");
+      expect(body.schemaVersion).toBe("sena-group-comparison-suite/v2");
       expect(body.comparisonCount).toBe(3);
       expect(body.correction).toBe("holm");
       expect(body.validationRun?.projectId).toBe(project.id);

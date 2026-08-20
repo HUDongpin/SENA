@@ -713,7 +713,7 @@ export function getEnterpriseGovernanceStatus(input: {
         `validationRuns=${db.validationRuns.length}`,
         `approved=${db.validationRuns.filter((run) => run.status === "approved").length}`,
         `pending=${db.validationRuns.filter((run) => run.status === "pending-review").length}`,
-        "schema=sena-group-comparison/v1|sena-group-comparison-suite/v1",
+        "schema=sena-group-comparison/v2|sena-group-comparison-suite/v2",
         "method=permutation-two-sided|bootstrap-ci|effect-size",
         "multipleComparison=holm",
         ...validationRunRegistryRuntime.evidence,

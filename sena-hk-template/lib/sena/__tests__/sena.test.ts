@@ -3270,7 +3270,7 @@ describe("SENA model builder", () => {
 
   it("exposes Holm-corrected validation suites from the workspace controls", async () => {
     const recorder = createJsonFetchRecorder({
-      schemaVersion: "sena-group-comparison-suite/v1",
+      schemaVersion: "sena-group-comparison-suite/v2",
       metric: "suite",
       groupA: "coach",
       groupB: "teacher",

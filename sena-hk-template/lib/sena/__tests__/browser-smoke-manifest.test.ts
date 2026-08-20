@@ -386,7 +386,7 @@ describe("SENA browser smoke manifest", () => {
       "/api/sena/validation/claim-package"
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.schemaVersions).toEqual(expect.arrayContaining([
-      "sena-group-comparison-suite/v1",
+      "sena-group-comparison-suite/v2",
       "sena-validation-run-review/v1",
       "sena-expert-review-response/v1",
       "sena-enterprise-claim-evidence-package/v1"

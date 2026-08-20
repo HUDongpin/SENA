@@ -4013,11 +4013,13 @@ describe("SENA enterprise runtime", () => {
       groupB: "Curriculum designer",
       iterations: 100
     });
-    expect(comparison.schemaVersion).toBe("sena-group-comparison/v1");
+    expect(comparison.schemaVersion).toBe("sena-group-comparison/v2");
     expect(comparison.permutation.pTwoSided).toBeGreaterThan(0);
     expect(comparison.effectSize).toEqual(expect.objectContaining({
-      cohenD: expect.any(Number),
-      hedgesG: expect.any(Number)
+      status: "insufficient-sample",
+      cohenD: null,
+      hedgesG: null,
+      pooledStandardDeviation: null
     }));
     expect(comparison.bootstrap.meanDifferenceLower).toBeLessThanOrEqual(comparison.bootstrap.meanDifferenceUpper);
     const validationRun = enterprise.createEnterpriseValidationRun(registered.context, {
@@ -4074,7 +4076,7 @@ describe("SENA enterprise runtime", () => {
       bootstrapIterations: 100,
       alpha: 0.05
     });
-    expect(comparisonSuite.schemaVersion).toBe("sena-group-comparison-suite/v1");
+    expect(comparisonSuite.schemaVersion).toBe("sena-group-comparison-suite/v2");
     expect(comparisonSuite.correction).toBe("holm");
     expect(comparisonSuite.comparisonCount).toBe(3);
     expect(comparisonSuite.comparisons.map((entry) => entry.holmRank)).toEqual([1, 2, 3]);
@@ -4094,7 +4096,7 @@ describe("SENA enterprise runtime", () => {
     });
     expect(validationSuiteRun.comparisonCount).toBe(3);
     expect(validationSuiteRun.minHolmAdjustedP).toBeGreaterThanOrEqual(0);
-    expect(validationSuiteRun.result.schemaVersion).toBe("sena-group-comparison-suite/v1");
+    expect(validationSuiteRun.result.schemaVersion).toBe("sena-group-comparison-suite/v2");
     expect(validationSuiteRun.parityEvidence).toEqual(expect.objectContaining({
       schemaVersion: "sena-validation-parity-evidence/v1",
       status: "ready-for-review",
@@ -4116,7 +4118,7 @@ describe("SENA enterprise runtime", () => {
         status: "model-referenced",
         preregistrationPlanHash: validationSuiteRun.preregistrationPlan?.planHash,
         studySpecificInferenceReference: "prereg:lesson-study-holm-model-v1",
-        resultSchemaVersion: "sena-group-comparison-suite/v1",
+        resultSchemaVersion: "sena-group-comparison-suite/v2",
         correction: "holm",
         comparisonCount: 3,
         checks: expect.arrayContaining([

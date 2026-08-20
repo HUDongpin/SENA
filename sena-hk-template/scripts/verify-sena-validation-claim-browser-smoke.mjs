@@ -211,7 +211,7 @@ async function createValidationSuite(page, csrf, projectId) {
       }
     })
   });
-  if (created.status !== 200 || created.body?.schemaVersion !== "sena-group-comparison-suite/v1") {
+  if (created.status !== 200 || created.body?.schemaVersion !== "sena-group-comparison-suite/v2") {
     throw new Error(`Validation suite failed: ${JSON.stringify(created)}.`);
   }
   if (created.body?.comparisonCount !== 3 || created.body?.correction !== "holm") {
