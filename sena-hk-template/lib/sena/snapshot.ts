@@ -1,6 +1,7 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaReport, type SenaReportOptions } from "./report";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
+import { normalizeSenaReportStatisticalLeaves } from "./statistical-leaf-read";
 import type {
   SenaDataset,
   SenaDemoVerificationCheck,
@@ -202,7 +203,7 @@ function assertBuildOptions(value: unknown) {
   assertFiniteNumber(temporal.turnWindowRadius, "project snapshot buildOptions.temporal.turnWindowRadius");
 }
 
-function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProjectSnapshot {
+function assertSenaProjectSnapshot(value: unknown): void {
   const root = asRecord(value, "project snapshot");
   if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.projectSnapshot) {
     throw new Error("JSON is not a SENA project snapshot.");
@@ -255,12 +256,24 @@ function assertSenaProjectSnapshot(value: unknown): asserts value is SenaProject
 export function importSenaProjectSnapshot(source: string | unknown): SenaProjectSnapshot {
   const value = typeof source === "string" ? JSON.parse(source) : source;
   assertSenaProjectSnapshot(value);
-  return value;
+  const normalized = structuredClone(value) as Record<string, unknown>;
+  normalized.report = normalizeSenaReportStatisticalLeaves(
+    normalized.report,
+    "project snapshot.report"
+  ).report;
+  return normalized as SenaProjectSnapshot;
 }
 
 export function isSenaProjectSnapshot(value: unknown): value is SenaProjectSnapshot {
   try {
     assertSenaProjectSnapshot(value);
+    const root = asRecord(value, "project snapshot");
+    const report = asRecord(root.report, "project snapshot.report");
+    const fusionMathAudit = asRecord(report.fusionMathAudit, "project snapshot.report.fusionMathAudit");
+    const codingReliabilityGate = asRecord(report.codingReliabilityGate, "project snapshot.report.codingReliabilityGate");
+    if (fusionMathAudit.schemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
+      codingReliabilityGate.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate) return false;
+    normalizeSenaReportStatisticalLeaves(report, "project snapshot.report");
     return true;
   } catch {
     return false;

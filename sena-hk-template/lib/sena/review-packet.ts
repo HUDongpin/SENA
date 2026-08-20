@@ -3,14 +3,19 @@ import {
   buildSenaMarkdownReport,
   buildSenaMetricProvenanceArtifact,
   buildSenaPairContributionReportArtifact,
-  buildSenaSnaReportArtifact,
-  normalizeSenaCodingReliabilityGate
+  buildSenaSnaReportArtifact
 } from "./report";
 import { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
 import { buildSenaMethodProtocol } from "./method-protocol";
 import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
-import { normalizeSenaFusionMathAudit } from "./fusion-math";
+import {
+  normalizeSenaReportStatisticalLeaves,
+  normalizeSenaRuntimeBundleStatisticalLeaves,
+  normalizeSenaStatisticalLeafHolder,
+  reconcileSenaStatisticalReadiness,
+  type SenaStatisticalLeafReadState
+} from "./statistical-leaf-read";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
 import { hasCompatibleSenaSchemaVersion, SENA_SCHEMA_VERSIONS } from "./schema-registry";
@@ -879,29 +884,131 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   assertStringArray(root.reviewGuardrails, `${context}.reviewGuardrails`, 1);
 }
 
-function statisticalContractHolders(contents: Record<string, unknown>) {
-  const reportJson = asRecord(contents.reportJson, "review packet.contents.reportJson");
-  const runtimeBundle = asRecord(contents.runtimeBundle, "review packet.contents.runtimeBundle");
-  const runtimeReport = asRecord(runtimeBundle.report, "review packet.contents.runtimeBundle.report");
-  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
-  const snapshotReport = asRecord(projectSnapshot.report, "review packet.contents.projectSnapshot.report");
-  return [contents, reportJson, runtimeBundle, runtimeReport, snapshotReport];
+function mergeStatisticalReadStates(states: SenaStatisticalLeafReadState[]): SenaStatisticalLeafReadState {
+  const legacyFusionMath = states.some((state) => state.legacyFusionMath);
+  const legacyCodingReliability = states.some((state) => state.legacyCodingReliability);
+  return {
+    legacyFusionMath,
+    legacyCodingReliability,
+    needsCurrentEvidence: legacyFusionMath || legacyCodingReliability
+  };
 }
 
 function assertStatisticalContractCompatibility(contents: Record<string, unknown>) {
-  statisticalContractHolders(contents).forEach((holder) => {
-    normalizeSenaFusionMathAudit(holder.fusionMathAudit);
-    normalizeSenaCodingReliabilityGate(holder.codingReliabilityGate);
-  });
+  normalizeSenaStatisticalLeafHolder(structuredClone(contents), "review packet.contents");
+  normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
+  normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
+  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
+  normalizeSenaReportStatisticalLeaves(projectSnapshot.report, "review packet.contents.projectSnapshot.report");
 }
 
 function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPacket {
   const normalized = structuredClone(value) as SenaReviewPacket;
   const contents = asRecord(normalized.contents, "review packet.contents");
-  statisticalContractHolders(contents).forEach((holder) => {
-    holder.fusionMathAudit = normalizeSenaFusionMathAudit(holder.fusionMathAudit);
-    holder.codingReliabilityGate = normalizeSenaCodingReliabilityGate(holder.codingReliabilityGate);
+  const directState = normalizeSenaStatisticalLeafHolder(contents, "review packet.contents");
+  const reportResult = normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
+  contents.reportJson = reportResult.report;
+  const runtimeResult = normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
+  contents.runtimeBundle = runtimeResult.runtimeBundle;
+  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
+  const snapshotReportResult = normalizeSenaReportStatisticalLeaves(
+    projectSnapshot.report,
+    "review packet.contents.projectSnapshot.report"
+  );
+  projectSnapshot.report = snapshotReportResult.report;
+
+  const state = mergeStatisticalReadStates([
+    directState,
+    reportResult.state,
+    runtimeResult.state,
+    snapshotReportResult.state
+  ]);
+  if (!state.needsCurrentEvidence) return normalized;
+
+  const runtimeBundle = runtimeResult.runtimeBundle;
+  const report = reportResult.report;
+  const readiness = reconcileSenaStatisticalReadiness(runtimeBundle.pilotReadinessAudit, state);
+  runtimeBundle.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  runtimeBundle.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  runtimeBundle.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  contents.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  contents.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  snapshotReportResult.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  snapshotReportResult.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  contents.reportMarkdown = buildSenaMarkdownReport(report);
+
+  normalized.summary.fusionMathStatus = "needs-review";
+  normalized.summary.codingReliabilityStatus = "review";
+  normalized.summary.pilotReadinessStatus = "needs-review";
+  normalized.summary.claimReadinessStatus = "exploratory";
+  normalized.summary.reportCompletenessStatus = "needs-review";
+
+  const statisticalSchemas = new Map([
+    ["sena-fusion-math-audit.json", SENA_SCHEMA_VERSIONS.fusionMathAudit],
+    ["sena-coding-reliability-gate.json", SENA_SCHEMA_VERSIONS.codingReliabilityGate]
+  ]);
+  normalized.artifactManifest = normalized.artifactManifest.map((artifact) => ({
+    ...artifact,
+    schemaVersion: statisticalSchemas.get(artifact.filename) ?? artifact.schemaVersion
+  }));
+  for (const [filename, schemaVersion] of statisticalSchemas) {
+    normalized.contents.pilotPackageManifest.exportArtifactSchemas[filename] = schemaVersion;
+  }
+  normalized.contents.pilotPackageManifest.sampleDataset.expectedRuntime.fusionMathAudit = "needs-review";
+
+  normalized.contents.methodProtocol.auditSummary.fusionMath = {
+    schemaVersion: normalized.contents.fusionMathAudit.schemaVersion,
+    status: "needs-review",
+    passed: normalized.contents.fusionMathAudit.passed,
+    reviewNeeded: normalized.contents.fusionMathAudit.reviewNeeded
+  };
+  normalized.contents.methodProtocol.runtimeHandoffs = normalized.contents.methodProtocol.runtimeHandoffs.map((handoff) => (
+    handoff.id === "fusion-math"
+      ? { ...handoff, status: "review", summary: "Current v2 fusion evidence is required after legacy restore normalization." }
+      : handoff
+  ));
+  normalized.contents.developmentPlan.currentGate.pilotReadinessStatus = "needs-review";
+  normalized.contents.developmentPlan.currentGate.readyItems = normalized.contents.developmentPlan.currentGate.readyItems
+    .filter((item) => item !== "fusion-math" && item !== "coding-reliability");
+  normalized.contents.developmentPlan.currentGate.reviewItems = Array.from(new Set([
+    ...normalized.contents.developmentPlan.currentGate.reviewItems,
+    ...(state.legacyFusionMath ? ["fusion-math"] : []),
+    ...(state.legacyCodingReliability ? ["coding-reliability"] : [])
+  ]));
+  normalized.contents.demoWalkthrough.summary.pilotReadinessStatus = "needs-review";
+  normalized.contents.demoVerification.summary.pilotReadinessStatus = "needs-review";
+
+  const rebuiltAudit = buildSenaReviewPacketAudit({
+    schemaVersion: normalized.schemaVersion,
+    analysisWindow: normalized.analysisWindow,
+    artifactManifest: normalized.artifactManifest,
+    contents: normalized.contents,
+    reviewGuardrails: normalized.reviewGuardrails,
+    summary: normalized.summary
   });
+  const legacyItem: SenaReviewPacketAuditItem = {
+    id: "legacy-statistical-contracts",
+    label: "Legacy statistical contract evidence",
+    status: "review",
+    expected: "Current v2 fusion and reliability evidence at every restored holder",
+    actual: [
+      state.legacyFusionMath ? "fusion-math-audit/v1 normalized in memory" : null,
+      state.legacyCodingReliability ? "coding-reliability-gate/v1 normalized in memory" : null
+    ].filter(Boolean).join("; "),
+    evidence: [
+      `legacyFusionMath=${state.legacyFusionMath}`,
+      `legacyCodingReliability=${state.legacyCodingReliability}`,
+      "claimUse=exploratory-only"
+    ]
+  };
+  rebuiltAudit.items = [...rebuiltAudit.items.filter((item) => item.id !== legacyItem.id), legacyItem];
+  rebuiltAudit.passed = rebuiltAudit.items.filter((item) => item.status === "pass").length;
+  rebuiltAudit.reviewNeeded = rebuiltAudit.items.length - rebuiltAudit.passed;
+  rebuiltAudit.status = "needs-review";
+  normalized.reviewPacketAudit = rebuiltAudit;
   return normalized;
 }
 

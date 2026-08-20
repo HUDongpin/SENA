@@ -33,6 +33,16 @@ export {
 export { importSenaProjectSnapshotFromHandoff } from "./project-handoff";
 export { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
 export {
+  importSenaReport,
+  importSenaRuntimeBundle,
+  isSenaReport,
+  isSenaRuntimeBundle,
+  normalizeSenaReportStatisticalLeaves,
+  normalizeSenaRuntimeBundleStatisticalLeaves,
+  reconcileSenaStatisticalReadiness,
+  type SenaStatisticalLeafReadState
+} from "./statistical-leaf-read";
+export {
   buildSenaAnalysisProvenanceEnvelope,
   buildSenaAnalysisRun,
   resolveSenaAnalysisRunSource,
