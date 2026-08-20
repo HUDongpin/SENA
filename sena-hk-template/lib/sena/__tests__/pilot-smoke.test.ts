@@ -133,7 +133,7 @@ describe("SENA research pilot smoke", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.handoffChecks).toContain("coding-reliability-gate");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.matrixCoverage.some((entry) => entry.startsWith("A_fusion="))).toBe(true);
     expect(bundle.artifactEvidence.every((artifact) => artifact.status === "ready")).toBe(true);
-    expect(bundle.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(bundle.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(bundle.codingReliabilityGate.status).toBe("ready");
     expect(bundle.claimReadinessGate.schemaVersion).toBe("sena-claim-readiness-gate/v1");
     expect(bundle.claimReadinessGate.status).toBe("ready");

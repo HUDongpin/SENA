@@ -23,6 +23,10 @@ type EnterpriseExpertClaimScope = "exploratory-only" | "claim-ready-with-limits"
 type EnterpriseExpertReviewStatus = "approved" | "changes-requested" | "rejected";
 type EnterpriseAdjudicationDecision = "include" | "exclude" | "revise";
 
+function reliabilityScoreLabel(value: number | null) {
+  return value === null ? "not estimable" : String(value);
+}
+
 export type EnterpriseCollaborationProjectPanelProps = {
   activeEnterpriseProjectId: string;
   busy: boolean;
@@ -260,7 +264,7 @@ export function EnterpriseCollaborationProjectPanel({
         {latestEnterpriseReliabilityRun && (
           <div className="grid gap-2 rounded-lg border border-cardBorder/35 bg-background/35 p-2 text-xs font-semibold leading-5 text-muted">
             <div>
-              Reliability: {latestEnterpriseReliabilityRun.reviewer} · {latestEnterpriseReliabilityRun.status} · kappa {latestEnterpriseReliabilityRun.meanPairwiseKappa} · alpha {latestEnterpriseReliabilityRun.krippendorffAlphaNominal}
+              Reliability: {latestEnterpriseReliabilityRun.reviewer} · {latestEnterpriseReliabilityRun.status} · kappa {reliabilityScoreLabel(latestEnterpriseReliabilityRun.meanPairwiseKappa)} · alpha {reliabilityScoreLabel(latestEnterpriseReliabilityRun.krippendorffAlphaNominal)}
             </div>
             {latestEnterpriseReliabilityRun.adjudicationCoverage && (
               <div data-testid="enterprise-reliability-adjudication-coverage" className="rounded-md border border-cardBorder/30 bg-background/35 px-2 py-1">
@@ -443,7 +447,7 @@ export function EnterpriseCollaborationProjectPanel({
               <div className="grid gap-2 md:grid-cols-3">
                 <div className="rounded-md border border-cardBorder/30 bg-background/35 px-2 py-1">
                   Reliability: {enterpriseClaimPackage.summary.reliability}
-                  {enterpriseClaimPackage.evidence.reliability ? ` · kappa ${enterpriseClaimPackage.evidence.reliability.meanPairwiseKappa} · alpha ${enterpriseClaimPackage.evidence.reliability.krippendorffAlphaNominal}` : ""}
+                  {enterpriseClaimPackage.evidence.reliability ? ` · kappa ${reliabilityScoreLabel(enterpriseClaimPackage.evidence.reliability.meanPairwiseKappa)} · alpha ${reliabilityScoreLabel(enterpriseClaimPackage.evidence.reliability.krippendorffAlphaNominal)}` : ""}
                 </div>
                 <div className="rounded-md border border-cardBorder/30 bg-background/35 px-2 py-1">
                   Validation: {enterpriseClaimPackage.summary.validation}

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { normalizeSenaReliabilityDashboard } from "../reliability";
 import { SenaEnterpriseError } from "./errors";
 import type {
   SenaEnterpriseAnalysisRun,
@@ -420,8 +421,12 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDb): SenaEnterpriseDb {
     serverJobs: db.serverJobs ?? [],
     expertReviews: db.expertReviews ?? [],
     reliabilityRuns: (db.reliabilityRuns ?? []).map((run) => {
+      const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
       const normalizedRun = {
         ...run,
+        dashboard,
+        meanPairwiseKappa: dashboard.meanPairwiseKappa,
+        krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
         status: run.status ?? (run.disagreementCount > 0 ? "pending-adjudication" : "pending-review")
       };
       return {

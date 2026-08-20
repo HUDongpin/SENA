@@ -1,4 +1,4 @@
-import type { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 export type SenaLayer = "social" | "concept" | "bridge";
 
@@ -272,6 +272,46 @@ export type SenaReportHumanReview = {
   nextActions: string;
 };
 
+export type SenaReliabilityEstimationStatus =
+  | "estimable"
+  | "insufficient-pairable-units"
+  | "single-observed-category"
+  | "insufficient-coders"
+  | "legacy-ambiguous";
+
+export type SenaReliabilityClaimEligibility = {
+  eligible: boolean;
+  threshold: {
+    minimumCoders: 2;
+    meanPairwiseKappa: 0.8;
+    krippendorffAlphaNominal: 0.8;
+  };
+  checks: {
+    minimumCoders: boolean;
+    allPairwiseKappaEstimable: boolean;
+    krippendorffAlphaEstimable: boolean;
+    meanPairwiseKappaAtThreshold: boolean;
+    krippendorffAlphaAtThreshold: boolean;
+  };
+  blockers: string[];
+  adjudication: {
+    status: "external-not-evaluated";
+    disclosure: string;
+  };
+};
+
+export type SenaCodingReliabilityMachineEvidence = {
+  dashboardSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  status: SenaReliabilityEstimationStatus;
+  meanPairwiseKappaStatus: SenaReliabilityEstimationStatus;
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominal: number | null;
+  allPairwiseKappaEstimable: boolean;
+  claimEligibility: SenaReliabilityClaimEligibility;
+};
+
 export type SenaCodingReliabilityReview = {
   status: "not-documented" | "documented";
   reviewer: string;
@@ -283,6 +323,7 @@ export type SenaCodingReliabilityReview = {
   agreementValue: string;
   adjudicationNotes: string;
   limitations: string;
+  machineEvidence?: SenaCodingReliabilityMachineEvidence;
 };
 
 export type SenaDataGovernanceMetadata = {
@@ -304,6 +345,11 @@ export type SenaCodingReliabilityGate = {
   status: "ready" | "review";
   claimUse: "coding-reliability-documented" | "coding-reliability-needed";
   review: SenaCodingReliabilityReview;
+  machineClaimEligibility: SenaReliabilityClaimEligibility & {
+    status: SenaReliabilityEstimationStatus;
+    dashboardSchemaVersion: string | null;
+    sourceSchemaVersion: string | null;
+  };
   requiredEvidence: string[];
   evidence: string[];
   blockers: string[];

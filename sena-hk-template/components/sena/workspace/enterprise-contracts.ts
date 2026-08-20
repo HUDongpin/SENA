@@ -566,8 +566,8 @@ export type EnterpriseCollaborationState = {
     reviewer: string;
     coderCount: number;
     itemCount: number;
-    meanPairwiseKappa: number;
-    krippendorffAlphaNominal: number;
+    meanPairwiseKappa: number | null;
+    krippendorffAlphaNominal: number | null;
     disagreementCount: number;
     adjudicationCoverage?: {
       schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
@@ -658,7 +658,7 @@ export type EnterpriseClaimEvidencePackage = {
   blockers: string[];
   warnings: string[];
   evidence: {
-    reliability?: { runId: string; meanPairwiseKappa: number; krippendorffAlphaNominal: number; adjudications: number };
+    reliability?: { runId: string; meanPairwiseKappa: number | null; krippendorffAlphaNominal: number | null; adjudications: number };
     validation?: { runId: string; analysis: string; comparisonCount: number; preregistrationPlanHash?: string; parityEvidence?: EnterpriseValidationParityEvidence; suiteCorrection?: "holm" };
     expertReview?: { reviewId: string; claimScope: "exploratory-only" | "claim-ready-with-limits" | "not-claim-ready"; reviewerName: string };
   };

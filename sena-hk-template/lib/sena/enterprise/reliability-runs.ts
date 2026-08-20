@@ -60,8 +60,8 @@ export type SenaEnterpriseReliabilityRun = {
   coderCount: number;
   itemCount: number;
   codeCount: number;
-  meanPairwiseKappa: number;
-  krippendorffAlphaNominal: number;
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominal: number | null;
   disagreementCount: number;
   inputFiles: Array<{
     name: string;
@@ -587,8 +587,8 @@ export function buildEnterpriseReliabilityRunHeaders(run: SenaEnterpriseReliabil
     ...(run.projectId ? { "x-sena-project-id": run.projectId } : {}),
     "x-sena-reliability-coverage-rate": String(run.adjudicationCoverage.coverageRate),
     "x-sena-unresolved-disagreements": String(run.adjudicationCoverage.unresolvedDisagreements),
-    "x-sena-mean-pairwise-kappa": String(run.meanPairwiseKappa),
-    "x-sena-krippendorff-alpha": String(run.krippendorffAlphaNominal)
+    ...(run.meanPairwiseKappa === null ? {} : { "x-sena-mean-pairwise-kappa": String(run.meanPairwiseKappa) }),
+    ...(run.krippendorffAlphaNominal === null ? {} : { "x-sena-krippendorff-alpha": String(run.krippendorffAlphaNominal) })
   };
 }
 

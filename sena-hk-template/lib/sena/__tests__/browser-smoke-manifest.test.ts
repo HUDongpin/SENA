@@ -359,7 +359,7 @@ describe("SENA browser smoke manifest", () => {
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.reliability.schemaVersions).toEqual(expect.arrayContaining([
       "sena-reliability-json-request/v1",
-      "sena-coding-reliability-dashboard/v1",
+      "sena-coding-reliability-dashboard/v2",
       "sena-reliability-adjudication-response/v1",
       "sena-reliability-run-review/v1"
     ]));

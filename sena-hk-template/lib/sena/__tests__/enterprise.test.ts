@@ -4224,7 +4224,7 @@ describe("SENA enterprise runtime", () => {
     expect(claimPackage.evidence.expertReview?.claimScope).toBe("claim-ready-with-limits");
     expect(claimPackage.guardrails).toContain("Claim readiness is limited to the approved project evidence in this package and does not replace study-level preregistration or institutional review.");
     expect(claimPackage.artifacts.map((artifact: { schemaVersion: string }) => artifact.schemaVersion)).toEqual(expect.arrayContaining([
-      "sena-coding-reliability-dashboard/v1",
+      "sena-coding-reliability-dashboard/v2",
       "sena-validation-preregistration-plan/v1",
       "sena-validation-parity-evidence/v1",
       "sena-formal-inference-readiness/v1",
@@ -4266,7 +4266,7 @@ describe("SENA enterprise runtime", () => {
     const codingRows = publicationRows("Coding reliability");
     expect(codingRows).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        schemaVersion: "sena-coding-reliability-gate/v1",
+        schemaVersion: "sena-coding-reliability-gate/v2",
         status: snapshot.report.codingReliabilityGate.status,
         reviewer: snapshot.report.codingReliabilityGate.review.reviewer
       })

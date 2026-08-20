@@ -51,6 +51,9 @@ export class RouteMemoryPostgres {
     if (/CREATE INDEX IF NOT EXISTS/i.test(normalizedSql) || /CREATE UNIQUE INDEX IF NOT EXISTS/i.test(normalizedSql)) {
       return { rows: [], rowCount: 0 };
     }
+    if (/ALTER TABLE .* ALTER COLUMN .* DROP NOT NULL/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
     if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
       return {
         rows: this.state ? [{ revision: this.state.revision, payload: this.state.payload }] : [],

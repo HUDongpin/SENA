@@ -182,7 +182,7 @@ async function createReliabilityRun(page, csrf, teamId, projectId) {
   if (result.body?.requestSchemaVersion !== "sena-reliability-json-request/v1") {
     throw new Error(`Reliability run did not use JSON request schema: ${JSON.stringify(result.body)}.`);
   }
-  if (result.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v1") {
+  if (result.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v2") {
     throw new Error(`Reliability dashboard missing expected schema: ${JSON.stringify(result.body?.dashboard)}.`);
   }
   if ((result.body?.dashboard?.disagreementCount ?? 0) <= 0) {

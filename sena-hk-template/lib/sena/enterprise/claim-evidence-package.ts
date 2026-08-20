@@ -114,8 +114,8 @@ export type SenaEnterpriseClaimEvidencePackage = {
       coderCount: number;
       itemCount: number;
       codeCount: number;
-      meanPairwiseKappa: number;
-      krippendorffAlphaNominal: number;
+      meanPairwiseKappa: number | null;
+      krippendorffAlphaNominal: number | null;
       disagreementCount: number;
       adjudications: number;
       adjudicationCoverage: SenaEnterpriseReliabilityAdjudicationCoverage;
@@ -364,7 +364,7 @@ function buildEnterpriseClaimEvidencePackageFromDb(
   if (approvedReliability) {
     artifacts.push({
       id: "reliability-dashboard",
-      schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+      schemaVersion: approvedReliability.dashboard.sourceSchemaVersion,
       sourceId: approvedReliability.id,
       status: approvedReliability.status
     });

@@ -1,4 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { normalizeSenaReliabilityDashboard } from "./reliability";
 import { senaProductionPostureFrom } from "./enterprise/auth-config";
 import { createHash, randomBytes } from "node:crypto";
 import { Pool, type PoolConfig } from "pg";
@@ -1028,8 +1029,12 @@ function normalizeStoredAnalysisRun(row: Record<string, unknown>): SenaEnterpris
 
 function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterpriseReliabilityRun {
   const payload = normalizeStoredJson<SenaEnterpriseReliabilityRun>(row.payload);
+  const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
   return {
     ...payload,
+    dashboard,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
@@ -1726,8 +1731,8 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
         coder_count integer NOT NULL,
         item_count integer NOT NULL,
         code_count integer NOT NULL,
-        mean_pairwise_kappa double precision NOT NULL,
-        krippendorff_alpha_nominal double precision NOT NULL,
+        mean_pairwise_kappa double precision,
+        krippendorff_alpha_nominal double precision,
         disagreement_count integer NOT NULL,
         adjudication_coverage_rate double precision NOT NULL,
         unresolved_disagreements integer NOT NULL,
@@ -1737,6 +1742,8 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
         updated_at timestamptz NOT NULL DEFAULT now()
       )
     `);
+    await input.query(`ALTER TABLE ${tableRef} ALTER COLUMN mean_pairwise_kappa DROP NOT NULL`);
+    await input.query(`ALTER TABLE ${tableRef} ALTER COLUMN krippendorff_alpha_nominal DROP NOT NULL`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${teamIndex} ON ${tableRef} (team_id, created_at DESC)`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${projectIndex} ON ${tableRef} (project_id, created_at DESC) WHERE project_id IS NOT NULL`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${statusIndex} ON ${tableRef} (status, created_at DESC)`);

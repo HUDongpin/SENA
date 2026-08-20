@@ -694,7 +694,7 @@ export function getEnterpriseGovernanceStatus(input: {
         `pending=${db.reliabilityRuns.filter((run) => run.status === "pending-review" || run.status === "pending-adjudication").length}`,
         `reliabilityAdjudications=${db.adjudications.filter((record) => record.reliabilityRunId).length}`,
         ...reliabilityRunRegistryRuntime.evidence,
-        "dashboard=sena-coding-reliability-dashboard/v1",
+        "dashboard=sena-coding-reliability-dashboard/v2",
         "adjudicationCoverage=sena-reliability-adjudication-coverage/v1",
         `latestAdjudicationCoverage=${db.reliabilityRuns[0]?.adjudicationCoverage?.coverageRate ?? "missing"}`,
         `latestUnresolvedDisagreements=${db.reliabilityRuns[0]?.adjudicationCoverage?.unresolvedDisagreements ?? "missing"}`,

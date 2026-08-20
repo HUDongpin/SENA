@@ -180,14 +180,19 @@ export {
 } from "./import";
 export {
   buildSenaReliabilityDashboard,
+  buildSenaReliabilityClaimEligibility,
+  isCurrentSenaReliabilityDashboard,
+  normalizeSenaReliabilityDashboard,
   parseCoderAnnotationsCsv,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
   type SenaCodeReliabilityDiagnostic,
   type SenaCoderAnnotation,
   type SenaPairwiseKappa,
+  type SenaReliabilityClaimEligibility,
   type SenaReliabilityDashboard,
-  type SenaReliabilityDisagreement
+  type SenaReliabilityDisagreement,
+  type SenaReliabilityEstimationStatus
 } from "./reliability";
 export {
   buildSenaGroupComparison,

@@ -942,7 +942,7 @@ async function verifyPilotAssetLinks(page, url) {
     throw new Error("Pilot manifest has stale runtime-consistency audit schema.");
   }
   if (!manifest.exportArtifacts?.includes("sena-coding-reliability-gate.json") ||
-    manifest.exportArtifactSchemas?.["sena-coding-reliability-gate.json"] !== "sena-coding-reliability-gate/v1") {
+    manifest.exportArtifactSchemas?.["sena-coding-reliability-gate.json"] !== "sena-coding-reliability-gate/v2") {
     throw new Error("Pilot manifest has stale coding-reliability gate export artifact metadata.");
   }
   const handoffChecks = manifest.handoffChecks ?? [];
@@ -1611,7 +1611,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Report JSON is missing the claim-readiness gate.");
   }
   assertTextIncludes(reportJson.claimReadinessGate?.claimUse ?? "", "exploratory-only", "report JSON claim readiness");
-  if (reportJson.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v1") {
+  if (reportJson.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v2") {
     throw new Error("Report JSON is missing the coding-reliability gate.");
   }
   assertTextIncludes(reportJson.codingReliabilityGate?.claimUse ?? "", "coding-reliability-needed", "report JSON coding reliability");
@@ -1665,7 +1665,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     page,
     /Export reliability gate/i,
     "sena-coding-reliability-gate.json",
-    "sena-coding-reliability-gate/v1"
+    "sena-coding-reliability-gate/v2"
   );
   assertTextIncludes(codingReliabilityGate.claimUse ?? "", "coding-reliability-needed", "coding reliability gate export");
   if (codingReliabilityGate.status !== reportJson.codingReliabilityGate.status) {
@@ -1851,7 +1851,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
   if (reviewPacket.contents?.claimReadinessGate?.schemaVersion !== "sena-claim-readiness-gate/v1") {
     throw new Error("Review packet is missing embedded claim-readiness gate.");
   }
-  if (reviewPacket.contents?.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v1") {
+  if (reviewPacket.contents?.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v2") {
     throw new Error("Review packet is missing embedded coding-reliability gate.");
   }
   const pilotPackageHandoff = reviewPacket.reviewPacketAudit?.items?.find((item) => item.id === "pilot-package-manifest");

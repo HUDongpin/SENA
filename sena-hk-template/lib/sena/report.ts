@@ -1069,8 +1069,42 @@ export function buildSenaCodingReliabilityGate(
     agreementMetric: options.codingReliability?.agreementMetric?.trim() || pendingReliabilityText,
     agreementValue: options.codingReliability?.agreementValue?.trim() || pendingReliabilityText,
     adjudicationNotes: options.codingReliability?.adjudicationNotes?.trim() || pendingReliabilityText,
-    limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText
+    limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText,
+    machineEvidence: options.codingReliability?.machineEvidence
   };
+  const machineEvidence = review.machineEvidence;
+  const currentMachineEvidence = machineEvidence?.dashboardSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    machineEvidence.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  const machineClaimEligibility: SenaCodingReliabilityGate["machineClaimEligibility"] = currentMachineEvidence
+    ? {
+      ...machineEvidence.claimEligibility,
+      status: machineEvidence.status,
+      dashboardSchemaVersion: machineEvidence.dashboardSchemaVersion,
+      sourceSchemaVersion: machineEvidence.sourceSchemaVersion
+    }
+    : {
+      eligible: false,
+      threshold: {
+        minimumCoders: 2,
+        meanPairwiseKappa: 0.8,
+        krippendorffAlphaNominal: 0.8
+      },
+      checks: {
+        minimumCoders: false,
+        allPairwiseKappaEstimable: false,
+        krippendorffAlphaEstimable: false,
+        meanPairwiseKappaAtThreshold: false,
+        krippendorffAlphaAtThreshold: false
+      },
+      blockers: ["current-v2-reliability-dashboard-required"],
+      adjudication: {
+        status: "external-not-evaluated",
+        disclosure: "Machine eligibility cannot infer adjudication coverage or human sign-off; those remain external evidence."
+      },
+      status: "legacy-ambiguous",
+      dashboardSchemaVersion: machineEvidence?.dashboardSchemaVersion ?? null,
+      sourceSchemaVersion: machineEvidence?.sourceSchemaVersion ?? null
+    };
   const requiredEvidence = [
     "documented status",
     "named reliability reviewer",
@@ -1100,6 +1134,7 @@ export function buildSenaCodingReliabilityGate(
     status,
     claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
     review,
+    machineClaimEligibility,
     requiredEvidence,
     evidence: [
       `status=${review.status}`,
@@ -1109,6 +1144,9 @@ export function buildSenaCodingReliabilityGate(
       `coderCount=${review.coderCount}`,
       `agreementMetric=${review.agreementMetric !== pendingReliabilityText ? review.agreementMetric : "missing"}`,
       `agreementValue=${review.agreementValue !== pendingReliabilityText ? review.agreementValue : "missing"}`,
+      `machineEligibility=${machineClaimEligibility.eligible ? "eligible" : "ineligible"}`,
+      `machineStatus=${machineClaimEligibility.status}`,
+      `machineSourceSchema=${machineClaimEligibility.sourceSchemaVersion ?? "missing"}`,
       `adjudication=${review.adjudicationNotes !== pendingReliabilityText ? "present" : "missing"}`,
       `limitations=${review.limitations !== pendingReliabilityText ? "present" : "missing"}`
     ],
@@ -1116,6 +1154,8 @@ export function buildSenaCodingReliabilityGate(
     guardrail: "SENA graph patterns remain exploratory until coding reliability evidence is documented and reviewed with the study context.",
     notes: [
       "This standalone report gate records the reviewed reliability evidence attached to the current export.",
+      "The documentation gate status is not the machine claim-eligibility result; PR-B claim aggregation must consume machineClaimEligibility explicitly.",
+      machineClaimEligibility.adjudication.disclosure,
       "Use the enterprise reliability workflow for raw multi-coder files, Cohen kappa, Krippendorff alpha, code-level diagnostics, adjudication history, and reviewer sign-off before publication-facing claims."
     ]
   };
@@ -2212,6 +2252,8 @@ function codingReliabilityGateToMarkdown(gate: SenaCodingReliabilityGate) {
     `| Coder count | ${gate.review.coderCount} |`,
     `| Agreement metric | ${markdownCell(gate.review.agreementMetric)} |`,
     `| Agreement value | ${markdownCell(gate.review.agreementValue)} |`,
+    `| Machine eligibility | ${gate.machineClaimEligibility.eligible ? "eligible" : "ineligible"} (${gate.machineClaimEligibility.status}) |`,
+    `| Machine evidence schema | ${markdownCell(gate.machineClaimEligibility.sourceSchemaVersion ?? "Not available")} |`,
     `| Adjudication notes | ${markdownCell(gate.review.adjudicationNotes)} |`,
     `| Limitations | ${markdownCell(gate.review.limitations)} |`,
     "",

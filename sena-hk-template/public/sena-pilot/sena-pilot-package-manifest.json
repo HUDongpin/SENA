@@ -79,7 +79,7 @@
     "sena-temporal-runtime-trace.json": "sena-temporal-runtime-trace/v1",
     "sena-evidence-ledger.json": "sena-evidence-ledger/v1",
     "sena-pilot-readiness-audit.json": "sena-pilot-readiness/v1",
-    "sena-coding-reliability-gate.json": "sena-coding-reliability-gate/v1",
+    "sena-coding-reliability-gate.json": "sena-coding-reliability-gate/v2",
     "sena-claim-readiness-gate.json": "sena-claim-readiness-gate/v1",
     "sena-review-packet.json": "sena-review-packet/v1",
     "sena-analysis-report.json": "sena-report/v1",

@@ -699,7 +699,7 @@ describe("SENA model builder", () => {
     expect(report.completenessAudit.items.map((item) => item.id)).toContain("data-governance");
     expect(report.completenessAudit.items.find((item) => item.id === "runtime-api-surface")?.evidence).toContain("jena-api-surface:pass");
     expect(report.completenessAudit.items.find((item) => item.id === "runtime-api-surface")?.evidence).toContain("jsna-api-surface:pass");
-    expect(report.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(report.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(report.codingReliabilityGate.status).toBe("ready");
     expect(markdown).toContain("## Coding Reliability Gate");
     expect(report.completenessAudit.items.every((item) => item.status === "pass")).toBe(true);
@@ -2072,7 +2072,7 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Coding reliability");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Data governance");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Exploratory until coding reliability, data governance");
-    expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate/v1");
+    expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate/v2");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate.json");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("Coding reliability evidence");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "research-artifact-exports")?.requiredText).toContain("Export metric provenance");
@@ -2620,7 +2620,7 @@ describe("SENA model builder", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=13");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=13");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.handoffChecks).toContain("pilot-asset-integrity");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.matrixCoverage).toContain(`claimUse=${bundle.codingReliabilityGate.claimUse}`);
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.handoffChecks).toContain("coding-reliability-gate");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.matrixCoverage).toContain(`A_fusion=${model.matrices.fusion.labels.length}`);
@@ -3903,7 +3903,7 @@ describe("SENA model builder", () => {
       "metric-provenance"
     ]);
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-visual-grammar.json"]).toBe("sena-visual-grammar/v1");
-    expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"]).toBe("sena-coding-reliability-gate/v1");
+    expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"]).toBe("sena-coding-reliability-gate/v2");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-claim-readiness-gate.json"]).toBe("sena-claim-readiness-gate/v1");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-sna-report.json"]).toBe("sena-sna-report/v1");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-metric-provenance.json"]).toBe("sena-metric-provenance/v1");
@@ -3966,7 +3966,7 @@ describe("SENA model builder", () => {
     expect(importedPacket.contents.pairContributionReportArtifact.schemaVersion).toBe("sena-person-code-pair-g-report/v1");
     expect(importedPacket.contents.pilotPackageManifest.schemaVersion).toBe("sena-pilot-package-manifest/v1");
     expect(importedPacket.contents.developmentPlan.schemaVersion).toBe("sena-development-plan/v1");
-    expect(importedPacket.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(importedPacket.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(importedPacket.contents.claimReadinessGate.schemaVersion).toBe("sena-claim-readiness-gate/v1");
     expect(importedPacket.contents.demoVerificationCompatibilityAudit.schemaVersion).toBe("sena-demo-verification-compatibility/v1");
     expect(importedPacket.contents.productionPageContract.schemaVersion).toBe("sena-production-page-contract/v1");
@@ -3978,6 +3978,10 @@ describe("SENA model builder", () => {
         fusionMathAudit: {
           ...packet.contents.fusionMathAudit,
           schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit
+        },
+        codingReliabilityGate: {
+          ...packet.contents.codingReliabilityGate,
+          schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
         }
       }
     };
@@ -4424,7 +4428,7 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("sena-claim-readiness-gate/v1");
     expect(markdown).toContain("Exploratory until coding reliability, data governance");
     expect(markdown).toContain("## Coding Reliability Gate");
-    expect(markdown).toContain("sena-coding-reliability-gate/v1");
+    expect(markdown).toContain("sena-coding-reliability-gate/v2");
     expect(markdown).toContain("## Report Completeness Audit");
     expect(markdown).toContain("- Overall status:");
     expect(markdown).toContain("## Validation");

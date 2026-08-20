@@ -231,7 +231,7 @@
       "label": "Coding reliability gate",
       "requiredText": [
         "Coding reliability gate",
-        "sena-coding-reliability-gate/v1",
+        "sena-coding-reliability-gate/v2",
         "sena-coding-reliability-gate.json",
         "coding-reliability-needed",
         "Coding reliability evidence",

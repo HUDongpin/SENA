@@ -925,7 +925,7 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   const developmentPlan = assertSchemaRecord(contents.developmentPlan, "review packet.contents.developmentPlan", "sena-development-plan/v1");
   assertArray(developmentPlan.runtimeParityEvidence, "review packet.contents.developmentPlan.runtimeParityEvidence");
   assertSchemaRecord(contents.pilotReadinessAudit, "review packet.contents.pilotReadinessAudit", "sena-pilot-readiness/v1");
-  assertSchemaRecord(contents.codingReliabilityGate, "review packet.contents.codingReliabilityGate", "sena-coding-reliability-gate/v1");
+  assertCompatibleSchemaRecord(contents.codingReliabilityGate, "review packet.contents.codingReliabilityGate", "codingReliabilityGate");
   assertSchemaRecord(contents.claimReadinessGate, "review packet.contents.claimReadinessGate", "sena-claim-readiness-gate/v1");
   assertSchemaRecord(contents.demoWalkthrough, "review packet.contents.demoWalkthrough", "sena-demo-walkthrough/v1");
   assertSchemaRecord(contents.demoVerification, "review packet.contents.demoVerification", "sena-demo-verification/v1");

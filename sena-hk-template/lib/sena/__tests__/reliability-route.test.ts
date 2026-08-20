@@ -106,8 +106,8 @@ describe("SENA reliability route", () => {
         dashboard?: {
           schemaVersion?: string;
           disagreementCount?: number;
-          meanPairwiseKappa?: number;
-          krippendorffAlphaNominal?: number;
+          meanPairwiseKappa?: number | null;
+          krippendorffAlphaNominal?: number | null;
         };
         reliabilityRun?: {
           id?: string;
@@ -118,7 +118,7 @@ describe("SENA reliability route", () => {
       };
       expect(body.schemaVersion).toBe("sena-reliability-response/v1");
       expect(body.requestSchemaVersion).toBe("sena-reliability-json-request/v1");
-      expect(body.dashboard?.schemaVersion).toBe("sena-coding-reliability-dashboard/v1");
+      expect(body.dashboard?.schemaVersion).toBe("sena-coding-reliability-dashboard/v2");
       expect(body.dashboard?.disagreementCount).toBe(2);
       expect(body.reliabilityRun?.projectId).toBe(project.id);
       expect(body.reliabilityRun?.status).toBe("pending-adjudication");
