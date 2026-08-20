@@ -3985,7 +3985,8 @@ describe("SENA model builder", () => {
         }
       }
     };
-    expect(isSenaReviewPacket(legacyFusionAuditPacket)).toBe(true);
+    expect(isSenaReviewPacket(legacyFusionAuditPacket)).toBe(false);
+    expect(() => importSenaReviewPacket(legacyFusionAuditPacket)).toThrow(/genuine seven-item v1 contract/i);
   });
 
   it("rejects malformed review packets before workspace recognition", () => {

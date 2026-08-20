@@ -333,6 +333,7 @@ describe("SENA analytical input HTTP errors", () => {
         [{ iterations: "100" }, { path: "iterations", rule: "integer-range" }],
         [{ bootstrapIterations: 100.5 }, { path: "bootstrapIterations", rule: "integer-range" }],
         [{ seed: -1 }, { path: "seed", rule: "integer-range" }],
+        [{ seed: 0x100000000 }, { path: "seed", rule: "integer-range" }],
         [{ alpha: 0, suite: true }, { path: "alpha", rule: "finite-range" }],
         [{ suite: "true" }, { path: "suite", rule: "boolean" }]
       ] as const;
@@ -354,6 +355,97 @@ describe("SENA analytical input HTTP errors", () => {
         await expectNumericDomainError(response, "not-present-in-response", issue);
       }
       expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      context.cleanup();
+    }
+  }, routeTimeoutMs);
+
+  it("rejects seed 2^32 on the synchronous group-comparison path", async () => {
+    vi.resetModules();
+    const context = await authenticatedRouteContext("sena-invalid-validation-seed-sync-");
+    try {
+      const route = await import("../../../app/api/sena/validation/group-comparison/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-sena-csrf-token": context.csrf },
+        body: JSON.stringify({
+          teamId: context.registered.context.teams[0].id,
+          dataset: lessonStudySenaContract,
+          groupField: "group",
+          groupA: "Experimental",
+          groupB: "Control",
+          iterations: 100,
+          bootstrapIterations: 100,
+          seed: 0x100000000
+        })
+      }));
+
+      await expectNumericDomainError(response, "4294967296", {
+        path: "seed",
+        rule: "integer-range"
+      });
+    } finally {
+      context.cleanup();
+    }
+  }, routeTimeoutMs);
+
+  it("preflights queued import adapters before upload, job, fetch, or audit side effects", async () => {
+    vi.resetModules();
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const context = await authenticatedRouteContext("sena-invalid-import-queue-preflight-");
+    try {
+      const form = new FormData();
+      form.set("teamId", context.registered.context.teams[0].id);
+      form.set("queue", "true");
+      form.append("files", new File([
+        [
+          "source,target,weight,channel,stage,turn_index,evidence",
+          "p1,p2,-76543,reply,Teach,1,private-negative-marker",
+          "p2,p1,NaN,reply,Teach,2,private-nan-marker",
+          "p1,p2,Infinity,reply,Teach,3,private-infinity-marker"
+        ].join("\n")
+      ], "invalid-interactions.csv", { type: "text/csv" }));
+      form.append("files", new File([
+        [
+          "segment_id,utterance_id,person_id,target_person_ids,unit_id,stanza_id,stage,turn_index,text,codes,confidence",
+          "s1,u1,p1,,u1,st1,Teach,1,private confidence marker,question,1.5"
+        ].join("\n")
+      ], "invalid-coded_segments.csv", { type: "text/csv" }));
+
+      const route = await import("../../../app/api/sena/import/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/import", {
+        method: "POST",
+        headers: { "x-sena-csrf-token": context.csrf, prefer: "respond-async" },
+        body: form
+      }));
+
+      expect(response.status).toBe(400);
+      const body = await response.json() as {
+        error?: string;
+        code?: string;
+        issues?: Array<{ path: string; rule: string }>;
+      };
+      expect(body).toEqual({
+        error: "SENA analytical inputs violate the numeric domain.",
+        code: "invalid_sena_numeric_domain",
+        issues: expect.arrayContaining([
+          { path: "dataset.interactions[0].weight", rule: "finite-nonnegative" },
+          { path: "dataset.interactions[1].weight", rule: "finite-nonnegative" },
+          { path: "dataset.interactions[2].weight", rule: "finite-nonnegative" },
+          { path: "dataset.coded_segments[0].confidence", rule: "finite-probability" }
+        ])
+      });
+      expect(JSON.stringify(body)).not.toMatch(/76543|private|Infinity|NaN/);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(context.enterprise.listEnterpriseUploads(context.registered.context, context.registered.context.teams[0].id)).toEqual([]);
+      expect(context.enterprise.listEnterpriseImportRuns(context.registered.context, context.registered.context.teams[0].id)).toEqual([]);
+      expect(context.enterprise.listEnterpriseAuditLog(context.registered.context, { event: "import.queue", limit: 5 }).events).toEqual([]);
+      const queue = await import("../enterprise/server-job-queue");
+      expect((await queue.listEnterpriseServerJobs({ teamId: context.registered.context.teams[0].id })).jobs).toEqual([]);
     } finally {
       context.cleanup();
     }

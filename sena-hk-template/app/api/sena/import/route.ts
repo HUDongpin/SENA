@@ -121,6 +121,9 @@ export async function POST(request: Request) {
     const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
     const codingReliability = formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability");
     const dataGovernance = formJson<SenaAnalysisRunInput["dataGovernance"]>(form.get("dataGovernance"), "dataGovernance");
+    const result = await importSenaEnterpriseFiles(bufferedFiles);
+    const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
+    validateSenaAnalyticalInputs({ dataset, buildOptions });
 
     if (shouldQueueServerJob(request, { queue: formBoolean(form.get("queue")) })) {
       const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
@@ -129,9 +132,10 @@ export async function POST(request: Request) {
           name: file.name,
           contentType: file.contentType,
           bytes: file.bytes
-          // No warningCount: the external run-import worker is the parser, so
-          // the registry must not assert a clean parse it never performed
-          // (2026-08-01 report H10; same rule as the queued reliability route).
+          // The preflight parse is validation-only. The external run-import
+          // worker re-reads the registered bytes and owns the persisted warning
+          // count, so enqueue still does not publish preflight warnings as the
+          // completed import result (same custody rule as queued reliability).
         }))
       });
       const queue = serverJobQueueStatus();
@@ -190,8 +194,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await importSenaEnterpriseFiles(bufferedFiles);
-    const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
     const sourceByName = new Map(result.sources.map((source) => [source.name, source]));
     const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,

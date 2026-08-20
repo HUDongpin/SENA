@@ -1,4 +1,5 @@
 import type { SenaNormalization } from "./types";
+import { validateSenaFusionAdjacencyInputs } from "./analytical-input-validation";
 
 export type SenaAdmissibleNormalization = Extract<SenaNormalization, "max" | "frobenius" | "log1p-max">;
 
@@ -155,26 +156,6 @@ function zeroSquareMatrix(size: number) {
   return Array.from({ length: size }, () => Array.from({ length: size }, () => 0));
 }
 
-function assertMatrixShape(
-  matrix: number[][],
-  rows: number,
-  columns: number,
-  label: "S" | "W" | "B_PC" | "B_CP"
-) {
-  if (!Array.isArray(matrix) || matrix.length !== rows || matrix.some((row) => !Array.isArray(row) || row.length !== columns)) {
-    throw new Error(`SENA fusion adjacency requires ${label} to have dimensions ${rows} x ${columns}.`);
-  }
-}
-
-function assertFiniteNonnegativeMatrix(
-  matrix: number[][],
-  label: "S" | "W" | "B_PC" | "B_CP"
-) {
-  if (matrix.some((row) => row.some((value) => !Number.isFinite(value) || value < 0))) {
-    throw new Error(`SENA fusion adjacency requires every ${label} value to be finite and nonnegative.`);
-  }
-}
-
 function sumMatrices(matrices: number[][][]) {
   const size = matrices[0]?.length ?? 0;
   const total = zeroSquareMatrix(size);
@@ -287,19 +268,9 @@ export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization)
 }
 
 export function buildSenaFusionAdjacency({ S, W, B, Bcp, alpha, beta, gamma }: SenaFusionAdjacencyInput) {
+  validateSenaFusionAdjacencyInputs({ S, W, B, Bcp, alpha, beta, gamma });
   const peopleCount = S.length;
   const codeCount = W.length;
-  assertMatrixShape(S, peopleCount, peopleCount, "S");
-  assertMatrixShape(W, codeCount, codeCount, "W");
-  assertMatrixShape(B, peopleCount, codeCount, "B_PC");
-  if (Bcp) assertMatrixShape(Bcp, codeCount, peopleCount, "B_CP");
-  assertFiniteNonnegativeMatrix(S, "S");
-  assertFiniteNonnegativeMatrix(W, "W");
-  assertFiniteNonnegativeMatrix(B, "B_PC");
-  if (Bcp) assertFiniteNonnegativeMatrix(Bcp, "B_CP");
-  if ([alpha, beta, gamma].some((value) => !Number.isFinite(value) || value < 0)) {
-    throw new Error("SENA fusion adjacency requires alpha, beta, and gamma to be finite and nonnegative.");
-  }
   const fusion = Array.from({ length: peopleCount + codeCount }, () => (
     Array.from({ length: peopleCount + codeCount }, () => 0)
   ));

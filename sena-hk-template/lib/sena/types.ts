@@ -342,6 +342,7 @@ export type SenaDataGovernanceMetadata = {
 
 export type SenaCodingReliabilityGate = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityGate;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityGate | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
   status: "ready" | "review";
   claimUse: "coding-reliability-documented" | "coding-reliability-needed";
   review: SenaCodingReliabilityReview;
@@ -356,6 +357,22 @@ export type SenaCodingReliabilityGate = {
   guardrail: string;
   notes: string[];
 };
+
+export type SenaCodingReliabilityReviewV1 = Omit<SenaCodingReliabilityReview, "machineEvidence">;
+
+export type SenaCodingReliabilityGateV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
+  status: "ready" | "review";
+  claimUse: "coding-reliability-documented" | "coding-reliability-needed";
+  review: SenaCodingReliabilityReviewV1;
+  requiredEvidence: string[];
+  evidence: string[];
+  blockers: string[];
+  guardrail: string;
+  notes: string[];
+};
+
+export type SenaCodingReliabilityGateReadModel = SenaCodingReliabilityGate | SenaCodingReliabilityGateV1;
 
 export type SenaReportEvidenceSnippet = SenaEvidenceSnippet & {
   source: "social-edge" | "concept-edge" | "bridge-edge" | "pair-contribution" | "temporal-window";
@@ -844,10 +861,12 @@ export type SenaMatrixFingerprint = {
   rowLabels: string[];
   columnLabels: string[];
   pairIds?: string[];
+  pairDescriptors?: SenaCodePair[];
 };
 
 export type SenaFusionMathAudit = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAudit;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAudit | typeof SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
   status: "verified" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -855,6 +874,20 @@ export type SenaFusionMathAudit = {
   matrixFingerprints: SenaMatrixFingerprint[];
   notes: string[];
 };
+
+export type SenaMatrixFingerprintV1 = Omit<SenaMatrixFingerprint, "pairDescriptors">;
+
+export type SenaFusionMathAuditV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
+  status: "verified" | "needs-review";
+  passed: number;
+  reviewNeeded: number;
+  items: SenaFusionMathAuditItem[];
+  matrixFingerprints: SenaMatrixFingerprintV1[];
+  notes: string[];
+};
+
+export type SenaFusionMathAuditReadModel = SenaFusionMathAudit | SenaFusionMathAuditV1;
 
 export type SenaFusionMathAuditArtifact = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAuditArtifact;

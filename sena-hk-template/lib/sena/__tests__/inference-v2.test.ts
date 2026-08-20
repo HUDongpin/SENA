@@ -102,6 +102,53 @@ function expectInputIssue(run: () => unknown, path: string, rule: string) {
 }
 
 describe("SENA group-comparison effect-size v2", () => {
+  it("uses the canonical uint32 seed domain and reports the actual derived bootstrap seed", () => {
+    const dataset = emptyMetricDataset(["A", "A", "B", "B"]);
+    const zero = buildSenaGroupComparison({
+      dataset,
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 0
+    });
+    const maximum = buildSenaGroupComparison({
+      dataset,
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 0xffffffff
+    });
+
+    expect(zero.permutation.seed).toBe(0);
+    expect(maximum.permutation.seed).toBe(0xffffffff);
+    expect(maximum.bootstrap.seed).toBe(7918);
+    expectInputIssue(() => buildSenaGroupComparison({
+      dataset,
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 0x100000000
+    }), "seed", "integer-range");
+  });
+
+  it("derives and reports a canonical uint32 seed for suite item 40", () => {
+    const comparison = { groupA: "A", groupB: "B", metric: "socialStrength" as const };
+    const suite = buildSenaGroupComparisonSuite({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      comparisons: Array.from({ length: 40 }, () => ({ ...comparison })),
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 0xffffffff
+    });
+
+    expect(suite.comparisons).toHaveLength(40);
+    expect(suite.comparisons[39].permutation.seed).toBe(3938);
+    expect(suite.comparisons[39].bootstrap.seed).toBe(11857);
+  });
+
   it("reports an insufficient sample when either group has fewer than two observations", () => {
     const effectSize = buildSenaGroupComparisonEffectSize([2], [1, 2]);
     const result = buildSenaGroupComparison({

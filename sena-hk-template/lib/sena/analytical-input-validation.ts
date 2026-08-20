@@ -15,7 +15,8 @@ export type SenaInputValidationRule =
   | "nonempty-string"
   | "distinct-values"
   | "boolean"
-  | "consistent-direction";
+  | "consistent-direction"
+  | "matrix-shape";
 
 export type SenaInputValidationIssue = {
   path: string;
@@ -32,6 +33,18 @@ export class SenaInputValidationError extends Error {
   }
 }
 
+export const SENA_CANONICAL_UINT32_MAX = 0xffffffff;
+
+export type SenaFusionAdjacencyValidationInput = {
+  S: unknown;
+  W: unknown;
+  B: unknown;
+  Bcp?: unknown;
+  alpha: unknown;
+  beta: unknown;
+  gamma: unknown;
+};
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -42,6 +55,50 @@ function isOneOf(value: unknown, values: readonly unknown[]) {
 
 function isNonemptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function collectFiniteNonnegativeMatrixIssues(
+  value: unknown,
+  path: "S" | "W" | "B_PC" | "B_CP",
+  rows: number,
+  columns: number,
+  issues: SenaInputValidationIssue[]
+) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== rows ||
+    value.some((row) => !Array.isArray(row) || row.length !== columns)
+  ) {
+    issues.push({ path, rule: "matrix-shape" });
+  }
+  if (!Array.isArray(value)) return;
+  value.forEach((row, rowIndex) => {
+    if (!Array.isArray(row)) return;
+    row.forEach((cell, columnIndex) => {
+      if (!isFiniteNumber(cell) || cell < 0) {
+        issues.push({ path: `${path}[${rowIndex}][${columnIndex}]`, rule: "finite-nonnegative" });
+      }
+    });
+  });
+}
+
+export function validateSenaFusionAdjacencyInputs(input: SenaFusionAdjacencyValidationInput): void {
+  const issues: SenaInputValidationIssue[] = [];
+  const peopleCount = Array.isArray(input.S) ? input.S.length : 0;
+  const codeCount = Array.isArray(input.W) ? input.W.length : 0;
+  collectFiniteNonnegativeMatrixIssues(input.S, "S", peopleCount, peopleCount, issues);
+  collectFiniteNonnegativeMatrixIssues(input.W, "W", codeCount, codeCount, issues);
+  collectFiniteNonnegativeMatrixIssues(input.B, "B_PC", peopleCount, codeCount, issues);
+  if (input.Bcp !== undefined) {
+    collectFiniteNonnegativeMatrixIssues(input.Bcp, "B_CP", codeCount, peopleCount, issues);
+  }
+  for (const field of ["alpha", "beta", "gamma"] as const) {
+    const value = input[field];
+    if (!isFiniteNumber(value) || value < 0) {
+      issues.push({ path: field, rule: "finite-nonnegative" });
+    }
+  }
+  if (issues.length > 0) throw new SenaInputValidationError(issues);
 }
 
 export const SENA_GROUP_COMPARISON_METRICS = [
@@ -132,7 +189,7 @@ function validateGroupComparisonControls(
 
   validateIntegerRange(controls.iterations, "iterations", 100, 10_000);
   validateIntegerRange(controls.bootstrapIterations, "bootstrapIterations", 100, 10_000);
-  validateIntegerRange(controls.seed, "seed", 0, Number.MAX_SAFE_INTEGER);
+  validateIntegerRange(controls.seed, "seed", 0, SENA_CANONICAL_UINT32_MAX);
   if (
     controls.alpha !== undefined &&
     (!isFiniteNumber(controls.alpha) || controls.alpha < 0.001 || controls.alpha > 0.5)

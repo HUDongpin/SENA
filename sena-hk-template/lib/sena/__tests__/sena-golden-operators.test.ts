@@ -93,30 +93,36 @@ describe("SENA worked-example golden operators", () => {
   });
 
   it.each([
-    ["S", { S: [[0, 1]], W: [[0]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }],
-    ["W", { S: [[0]], W: [[0, 1]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }],
-    ["B rows", { S: [[0]], W: [[0]], B: [], alpha: 1, beta: 1, gamma: 1 }],
-    ["B columns", { S: [[0]], W: [[0]], B: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }],
-    ["B_CP rows", { S: [[0]], W: [[0]], B: [[1]], Bcp: [], alpha: 1, beta: 1, gamma: 1 }],
-    ["B_CP columns", { S: [[0]], W: [[0]], B: [[1]], Bcp: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }]
-  ] satisfies Array<[string, SenaFusionAdjacencyInput]>) (
+    ["S", { S: [[0, 1]], W: [[0]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }, "S"],
+    ["W", { S: [[0]], W: [[0, 1]], B: [[1]], alpha: 1, beta: 1, gamma: 1 }, "W"],
+    ["B rows", { S: [[0]], W: [[0]], B: [], alpha: 1, beta: 1, gamma: 1 }, "B_PC"],
+    ["B columns", { S: [[0]], W: [[0]], B: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }, "B_PC"],
+    ["B_CP rows", { S: [[0]], W: [[0]], B: [[1]], Bcp: [], alpha: 1, beta: 1, gamma: 1 }, "B_CP"],
+    ["B_CP columns", { S: [[0]], W: [[0]], B: [[1]], Bcp: [[1, 2]], alpha: 1, beta: 1, gamma: 1 }, "B_CP"]
+  ] satisfies Array<[string, SenaFusionAdjacencyInput, string]>) (
     "rejects malformed %s dimensions instead of silently filling missing cells",
-    (_, input) => {
-      expect(() => buildSenaFusionAdjacency(input)).toThrow(/SENA fusion adjacency requires/);
+    (_, input, path) => {
+      expect(() => buildSenaFusionAdjacency(input)).toThrowError(expect.objectContaining({
+        name: "SenaInputValidationError",
+        issues: expect.arrayContaining([{ path, rule: "matrix-shape" }])
+      }));
     }
   );
 
   it.each([
-    ["negative S", { S: [[-1]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }],
-    ["NaN W", { S: [[0]], W: [[Number.NaN]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }],
-    ["negative B_PC", { S: [[0]], W: [[0]], B: [[-1]], alpha: 1, beta: 1, gamma: 1 }],
-    ["NaN B_CP", { S: [[0]], W: [[0]], B: [[0]], Bcp: [[Number.NaN]], alpha: 1, beta: 1, gamma: 1 }],
-    ["negative alpha", { S: [[0]], W: [[0]], B: [[0]], alpha: -1, beta: 1, gamma: 1 }],
-    ["infinite gamma", { S: [[0]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: Number.POSITIVE_INFINITY }]
-  ] satisfies Array<[string, SenaFusionAdjacencyInput]>) (
+    ["negative S", { S: [[-1]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }, "S[0][0]"],
+    ["NaN W", { S: [[0]], W: [[Number.NaN]], B: [[0]], alpha: 1, beta: 1, gamma: 1 }, "W[0][0]"],
+    ["negative B_PC", { S: [[0]], W: [[0]], B: [[-1]], alpha: 1, beta: 1, gamma: 1 }, "B_PC[0][0]"],
+    ["NaN B_CP", { S: [[0]], W: [[0]], B: [[0]], Bcp: [[Number.NaN]], alpha: 1, beta: 1, gamma: 1 }, "B_CP[0][0]"],
+    ["negative alpha", { S: [[0]], W: [[0]], B: [[0]], alpha: -1, beta: 1, gamma: 1 }, "alpha"],
+    ["infinite gamma", { S: [[0]], W: [[0]], B: [[0]], alpha: 1, beta: 1, gamma: Number.POSITIVE_INFINITY }, "gamma"]
+  ] satisfies Array<[string, SenaFusionAdjacencyInput, string]>) (
     "rejects %s at the exported fusion kernel boundary",
-    (_, input) => {
-      expect(() => buildSenaFusionAdjacency(input)).toThrow(/finite and nonnegative/);
+    (_, input, path) => {
+      expect(() => buildSenaFusionAdjacency(input)).toThrowError(expect.objectContaining({
+        name: "SenaInputValidationError",
+        issues: expect.arrayContaining([{ path, rule: "finite-nonnegative" }])
+      }));
     }
   );
 

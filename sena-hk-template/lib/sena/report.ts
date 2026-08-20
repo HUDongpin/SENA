@@ -4,6 +4,8 @@ import type {
   SenaActiveWindowComparison,
   SenaClaimReadinessGate,
   SenaCodingReliabilityGate,
+  SenaCodingReliabilityGateReadModel,
+  SenaCodingReliabilityGateV1,
   SenaCodingReliabilityReview,
   SenaDataContractAudit,
   SenaDataGovernanceMetadata,
@@ -57,7 +59,7 @@ import { buildSenaAttributionWordingCopy } from "./attribution-wording";
 import { buildSenaJenaConceptPairHandoffRows } from "./jena-handoff";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
 import { senaRuntimeProvenance } from "./runtime-constants";
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
 
@@ -1055,6 +1057,142 @@ export function buildSenaReportCompletenessAudit({
   };
 }
 
+function reliabilityGateRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validReliabilityGateBase(record: Record<string, unknown>) {
+  const review = reliabilityGateRecord(record.review);
+  return (record.status === "ready" || record.status === "review") &&
+    (record.claimUse === "coding-reliability-documented" || record.claimUse === "coding-reliability-needed") &&
+    Boolean(review) &&
+    (review?.status === "documented" || review?.status === "not-documented") &&
+    typeof review?.reviewer === "string" &&
+    typeof review?.reviewedAt === "string" &&
+    typeof review?.codingScheme === "string" &&
+    typeof review?.unitOfCoding === "string" &&
+    Number.isInteger(review?.coderCount) &&
+    typeof review?.agreementMetric === "string" &&
+    typeof review?.agreementValue === "string" &&
+    typeof review?.adjudicationNotes === "string" &&
+    typeof review?.limitations === "string" &&
+    stringArray(record.requiredEvidence) &&
+    stringArray(record.evidence) &&
+    stringArray(record.blockers) &&
+    typeof record.guardrail === "string" &&
+    stringArray(record.notes);
+}
+
+function isGenuineSenaCodingReliabilityGateV1(value: unknown): value is SenaCodingReliabilityGateV1 {
+  const record = reliabilityGateRecord(value);
+  if (!record) return false;
+  const review = reliabilityGateRecord(record?.review);
+  return record.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate &&
+    validReliabilityGateBase(record) &&
+    review?.machineEvidence === undefined &&
+    record.machineClaimEligibility === undefined;
+}
+
+function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCodingReliabilityGate {
+  const record = reliabilityGateRecord(value);
+  if (!record || record.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate || !validReliabilityGateBase(record)) return false;
+  if (
+    record.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate &&
+    record.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+  ) return false;
+  const machine = reliabilityGateRecord(record.machineClaimEligibility);
+  if (!machine) return false;
+  const threshold = reliabilityGateRecord(machine.threshold);
+  const checks = reliabilityGateRecord(machine.checks);
+  const adjudication = reliabilityGateRecord(machine.adjudication);
+  const validStatus = [
+    "estimable",
+    "insufficient-pairable-units",
+    "single-observed-category",
+    "insufficient-coders",
+    "legacy-ambiguous"
+  ].includes(String(machine.status));
+  return typeof machine.eligible === "boolean" &&
+    validStatus &&
+    stringArray(machine.blockers) &&
+    Boolean(threshold) &&
+    threshold?.minimumCoders === 2 &&
+    threshold?.meanPairwiseKappa === 0.8 &&
+    threshold?.krippendorffAlphaNominal === 0.8 &&
+    Boolean(checks) &&
+    [
+      checks?.minimumCoders,
+      checks?.allPairwiseKappaEstimable,
+      checks?.krippendorffAlphaEstimable,
+      checks?.meanPairwiseKappaAtThreshold,
+      checks?.krippendorffAlphaAtThreshold
+    ].every((entry) => typeof entry === "boolean") &&
+    Boolean(adjudication) &&
+    adjudication?.status === "external-not-evaluated" &&
+    typeof adjudication?.disclosure === "string" &&
+    (machine.dashboardSchemaVersion === null || typeof machine.dashboardSchemaVersion === "string") &&
+    (machine.sourceSchemaVersion === null || typeof machine.sourceSchemaVersion === "string");
+}
+
+export function isCurrentSenaCodingReliabilityGate(value: unknown): value is SenaCodingReliabilityGate {
+  return isSenaCodingReliabilityGateV2ReadModel(value) &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate;
+}
+
+export function normalizeSenaCodingReliabilityGate(
+  value: SenaCodingReliabilityGateReadModel | unknown
+): SenaCodingReliabilityGate {
+  if (isSenaCodingReliabilityGateV2ReadModel(value)) return structuredClone(value);
+  if (!isGenuineSenaCodingReliabilityGateV1(value)) {
+    throw new Error("SENA coding reliability gate must be a complete v2 contract or the genuine v1 contract without machine eligibility.");
+  }
+  const blocker = "current-v2-reliability-evidence-required";
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate,
+    status: "review",
+    claimUse: "coding-reliability-needed",
+    review: structuredClone(value.review),
+    machineClaimEligibility: {
+      eligible: false,
+      threshold: {
+        minimumCoders: 2,
+        meanPairwiseKappa: 0.8,
+        krippendorffAlphaNominal: 0.8
+      },
+      checks: {
+        minimumCoders: false,
+        allPairwiseKappaEstimable: false,
+        krippendorffAlphaEstimable: false,
+        meanPairwiseKappaAtThreshold: false,
+        krippendorffAlphaAtThreshold: false
+      },
+      blockers: [blocker],
+      adjudication: {
+        status: "external-not-evaluated",
+        disclosure: "Historical v1 gate evidence cannot establish current machine eligibility; adjudication and human sign-off remain external evidence."
+      },
+      status: "legacy-ambiguous",
+      dashboardSchemaVersion: null,
+      sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+    },
+    requiredEvidence: [...value.requiredEvidence],
+    evidence: [...value.evidence, `sourceSchemaVersion=${SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate}`, "machineEligibility=ineligible"],
+    blockers: Array.from(new Set([...value.blockers, blocker])),
+    guardrail: value.guardrail,
+    notes: [
+      ...value.notes,
+      "Normalized in memory from coding-reliability-gate/v1; current v2 machine eligibility evidence is required."
+    ]
+  };
+}
+
 export function buildSenaCodingReliabilityGate(
   options: SenaReportOptions = {},
   generatedAt = options.generatedAt ?? new Date().toISOString()
@@ -1131,6 +1269,7 @@ export function buildSenaCodingReliabilityGate(
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
     status,
     claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
     review,

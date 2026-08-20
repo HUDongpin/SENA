@@ -1,6 +1,7 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type { SenaAnalysisRunInput } from "./analysis-run";
 import { buildSenaStableContentHash } from "./data-contract-audit";
+import { SenaInputValidationError } from "./analytical-input-validation";
 import { readXlsxWorkbookRows } from "./excel-workbook";
 import {
   buildSenaDatasetFromTables,
@@ -800,6 +801,7 @@ export async function importSenaEnterpriseFiles(files: UploadLike[]): Promise<Se
         try {
           contract = importSenaJsonContract(parsedJson);
         } catch (error) {
+          if (error instanceof SenaInputValidationError) throw error;
           throw new Error(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
         }
         if (contract.dataset.metadata) datasetMetadata = contract.dataset.metadata;

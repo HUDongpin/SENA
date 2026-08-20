@@ -334,8 +334,8 @@ describe("SENA in-repo server job worker runtime", () => {
       body: JSON.stringify(fixture.index.lessonStudySenaContract)
     }]);
     const uploadIds = uploads.map((upload) => upload.id);
-    // The queueing route deliberately leaves warningCount unset: nothing has
-    // parsed the file yet. The worker is the parser, so it must report.
+    // The queueing route deliberately leaves warningCount unset: preflight is
+    // validation-only, while the worker owns the authoritative persisted count.
     expect(uploads[0].warningCount).toBeUndefined();
 
     const payload = {
@@ -389,6 +389,53 @@ describe("SENA in-repo server job worker runtime", () => {
 
     const registeredUploads = await fixture.importAnalysis.listEnterpriseUploadsAsync(fixture.context, fixture.teamId);
     expect(registeredUploads.find((upload) => upload.id === uploadIds[0])?.warningCount).toBe(0);
+  });
+
+  it("returns stable sanitized numeric issues when a queued import bypasses route preflight", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const invalidDataset = structuredClone(fixture.index.lessonStudySenaContract);
+    invalidDataset.interactions[0].weight = -54321;
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-invalid-import.json",
+      contentType: "application/json",
+      body: JSON.stringify(invalidDataset)
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const payload = {
+      action: "run-import",
+      teamId: fixture.teamId,
+      uploadIds,
+      persistProject: false,
+      includeRuntimeBundle: false
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "import",
+      teamId: fixture.teamId,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        fileCount: 1,
+        uploadIds,
+        persist: false,
+        includeRuntimeBundle: false,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.errorCode).toBe("invalid_sena_numeric_domain");
+    expect(outcome.issues).toEqual([{
+      path: "dataset.interactions[0].weight",
+      rule: "finite-nonnegative"
+    }]);
+    expect(JSON.stringify(outcome)).not.toContain("-54321");
+    expect(await fixture.importAnalysis.listEnterpriseImportRunsAsync(fixture.context, fixture.teamId)).toEqual([]);
   });
 
   it("executes a queued reliability job from its registered upload blobs", async () => {

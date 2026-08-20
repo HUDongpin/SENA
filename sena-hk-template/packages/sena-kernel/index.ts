@@ -63,6 +63,15 @@ export {
   type SenaSymmetricEigenDecomposition
 } from "../../lib/sena/operators";
 export { buildSenaTemporalRuntimeTrace, type SenaTemporalRuntimeTraceOptions } from "../../lib/sena/temporal-runtime";
+export {
+  SenaInputValidationError,
+  SENA_CANONICAL_UINT32_MAX,
+  validateSenaAnalyticalInputs,
+  validateSenaFusionAdjacencyInputs,
+  type SenaFusionAdjacencyValidationInput,
+  type SenaInputValidationIssue,
+  type SenaInputValidationRule
+} from "../../lib/sena/analytical-input-validation";
 export type {
   SenaBuildOptions,
   SenaDataset,

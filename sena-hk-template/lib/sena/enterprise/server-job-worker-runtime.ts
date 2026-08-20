@@ -2,6 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run";
 import { buildSenaAnalysisRunRequestInput } from "../analysis-api";
 import {
+  SenaInputValidationError,
+  type SenaInputValidationIssue
+} from "../analytical-input-validation";
+import {
   importSenaEnterpriseFiles,
   readSenaReliabilityUploadRows,
   withSenaImportDatasetMetadata
@@ -97,6 +101,7 @@ export type SenaServerJobWorkerOutcome = {
   retryable?: boolean;
   errorCode?: string;
   errorHash?: string;
+  issues?: SenaInputValidationIssue[];
   skipReason?: string;
   result?: SenaServerJobWorkerResult;
 };
@@ -125,8 +130,15 @@ function workerRunId() {
 }
 
 function errorCodeOf(error: unknown) {
+  if (error instanceof SenaInputValidationError) return "invalid_sena_numeric_domain";
   if (error instanceof SenaEnterpriseError) return error.code;
   return "server_job_worker_execution_failed";
+}
+
+function errorIssuesOf(error: unknown) {
+  return error instanceof SenaInputValidationError
+    ? error.issues.map(({ path, rule }) => ({ path, rule }))
+    : undefined;
 }
 
 function errorHashOf(error: unknown) {
@@ -194,9 +206,9 @@ function importAdapterFile(content: SenaEnterpriseUploadContent) {
 }
 
 /**
- * H10: the queueing routes leave warningCount unset on purpose, because at
- * enqueue time nothing has parsed the file yet and 0 would assert a clean parse
- * that never happened. This worker is that parser, so it reports what it saw.
+ * H10: the queueing routes leave warningCount unset on purpose. Import enqueue
+ * now performs a non-persistent validation preflight, but this worker remains
+ * the authoritative parser of the registered bytes and reports what it saw.
  */
 async function reportUploadParseWarnings(
   teamId: string,
@@ -537,6 +549,7 @@ export async function runEnterpriseServerJob(input: {
       // hash of the message (the message itself may quote user data).
       const errorCode = errorCodeOf(error);
       const errorHash = errorHashOf(error);
+      const issues = errorIssuesOf(error);
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-failed",
@@ -555,7 +568,8 @@ export async function runEnterpriseServerJob(input: {
         attempts: update.job.lifecycle.attempts,
         retryable: update.job.lifecycle.retryable,
         errorCode,
-        errorHash
+        errorHash,
+        issues
       };
     }
   } finally {

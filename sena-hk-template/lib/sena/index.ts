@@ -7,6 +7,8 @@ export {
   buildSenaActiveWindowBrief,
   buildSenaEvidenceLedger,
   buildSenaCodingReliabilityGate,
+  isCurrentSenaCodingReliabilityGate,
+  normalizeSenaCodingReliabilityGate,
   buildSenaEnaReportArtifact,
   buildSenaMarkdownReport,
   buildSenaMetricProvenanceArtifact,
@@ -54,7 +56,14 @@ export {
   snaRuntimeVersion
 } from "./runtime-constants";
 export { buildSenaAnalysisConfigHash, buildSenaDataContractAudit, buildSenaDataContractAuditArtifact, buildSenaDatasetContentHash, buildSenaStableContentHash, type SenaDataContractAuditArtifactOptions, type SenaDataContractAuditOptions } from "./data-contract-audit";
-export { buildSenaFusionMathAudit, buildSenaFusionMathAuditArtifact, buildSenaMatrixFingerprints, type SenaFusionMathAuditArtifactOptions } from "./fusion-math";
+export {
+  buildSenaFusionMathAudit,
+  buildSenaFusionMathAuditArtifact,
+  buildSenaMatrixFingerprints,
+  isCurrentSenaFusionMathAudit,
+  normalizeSenaFusionMathAudit,
+  type SenaFusionMathAuditArtifactOptions
+} from "./fusion-math";
 export {
   buildSenaFusionAdjacency,
   senaAttributionOperatorDiagnostics,
@@ -138,7 +147,10 @@ export {
 export {
   SenaInputValidationError,
   SENA_GROUP_COMPARISON_METRICS,
+  SENA_CANONICAL_UINT32_MAX,
   validateSenaAnalyticalInputs,
+  validateSenaFusionAdjacencyInputs,
+  type SenaFusionAdjacencyValidationInput,
   type SenaInputValidationIssue,
   type SenaInputValidationRule,
   type SenaValidatedGroupComparisonMetric
@@ -232,7 +244,10 @@ export type {
   SenaClaimReadinessGate,
   SenaClaimReadinessGateItem,
   SenaCodingReliabilityGate,
+  SenaCodingReliabilityGateReadModel,
+  SenaCodingReliabilityGateV1,
   SenaCodingReliabilityReview,
+  SenaCodingReliabilityReviewV1,
   SenaCodedSegment,
   SenaDataContractAudit,
   SenaDataContractAuditArtifact,
@@ -255,8 +270,11 @@ export type {
   SenaEvidenceSource,
   SenaFusionLayerTotals,
   SenaFusionMathAudit,
+  SenaFusionMathAuditReadModel,
+  SenaFusionMathAuditV1,
   SenaFusionMathAuditArtifact,
   SenaFusionMathAuditItem,
+  SenaMatrixFingerprintV1,
   SenaLayer,
   SenaLayoutMode,
   SenaJenaConceptPairHandoffRow,

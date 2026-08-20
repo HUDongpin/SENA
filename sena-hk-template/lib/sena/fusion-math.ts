@@ -1,9 +1,27 @@
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import type { SenaFusionMathAudit, SenaFusionMathAuditArtifact, SenaFusionMathAuditItem, SenaMatrixFingerprint, SenaModel, SenaTemporalWindow } from "./types";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type {
+  SenaFusionMathAudit,
+  SenaFusionMathAuditArtifact,
+  SenaFusionMathAuditItem,
+  SenaFusionMathAuditReadModel,
+  SenaFusionMathAuditV1,
+  SenaMatrixFingerprint,
+  SenaModel,
+  SenaTemporalWindow
+} from "./types";
 
 const defaultTolerance = 1e-9;
 const fusionFormula = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 const matrixFingerprintAlgorithm = "sena-stable-fnv1a32/v1" as const;
+const fusionAuditV1ItemIds = [
+  "labels-and-dimensions",
+  "finite-values",
+  "social-block",
+  "bridge-block",
+  "bridge-cp-block",
+  "concept-block",
+  "g-pair-coverage"
+] as const;
 
 export type SenaFusionMathAuditArtifactOptions = {
   title?: string;
@@ -71,6 +89,7 @@ function matrixFingerprint({
   rowLabels,
   columnLabels,
   pairIds,
+  pairDescriptors,
   raw,
   normalized,
   values
@@ -80,6 +99,7 @@ function matrixFingerprint({
   rowLabels: string[];
   columnLabels: string[];
   pairIds?: string[];
+  pairDescriptors?: SenaMatrixFingerprint["pairDescriptors"];
   raw?: number[][];
   normalized?: number[][];
   values?: number[][];
@@ -89,6 +109,7 @@ function matrixFingerprint({
     rowLabels,
     columnLabels,
     pairIds,
+    pairDescriptors,
     raw: raw ? stableMatrix(raw) : undefined,
     normalized: normalized ? stableMatrix(normalized) : undefined,
     values: values ? stableMatrix(values) : undefined
@@ -116,7 +137,8 @@ function matrixFingerprint({
     },
     rowLabels,
     columnLabels,
-    pairIds
+    pairIds,
+    pairDescriptors
   };
 }
 
@@ -168,6 +190,7 @@ export function buildSenaMatrixFingerprints(model: SenaModel): SenaMatrixFingerp
       rowLabels: model.matrices.G.rowLabels,
       columnLabels: model.matrices.G.columnLabels,
       pairIds: model.matrices.G.pairIds,
+      pairDescriptors: model.matrices.G.pairs,
       raw: model.matrices.G.raw,
       normalized: model.matrices.G.normalized
     }),
@@ -179,6 +202,138 @@ export function buildSenaMatrixFingerprints(model: SenaModel): SenaMatrixFingerp
       values: model.matrices.fusion.values
     })
   ];
+}
+
+function auditRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function validFusionAuditItems(value: unknown) {
+  return Array.isArray(value) && value.every((candidate) => {
+    const item = auditRecord(candidate);
+    return Boolean(item) &&
+      typeof item?.id === "string" &&
+      typeof item?.label === "string" &&
+      (item?.status === "pass" || item?.status === "review") &&
+      typeof item?.expected === "string" &&
+      typeof item?.actual === "string" &&
+      Array.isArray(item?.detail) &&
+      item.detail.every((entry) => typeof entry === "string");
+  });
+}
+
+function validFusionFingerprints(value: unknown, requirePairDescriptors: boolean) {
+  if (!Array.isArray(value) || value.length !== 7) return false;
+  const expectedIds = ["S", "W", "B", "B_PC", "B_CP", "G", "A_fusion"];
+  return value.every((candidate, index) => {
+    const fingerprint = auditRecord(candidate);
+    if (!fingerprint || fingerprint.id !== expectedIds[index]) return false;
+    if (
+      typeof fingerprint.label !== "string" ||
+      typeof fingerprint.shape !== "string" ||
+      fingerprint.checksumAlgorithm !== matrixFingerprintAlgorithm ||
+      typeof fingerprint.checksum !== "string" ||
+      !/^0x[a-f0-9]{8}$/.test(fingerprint.checksum) ||
+      !Array.isArray(fingerprint.rowLabels) || !fingerprint.rowLabels.every((entry) => typeof entry === "string") ||
+      !Array.isArray(fingerprint.columnLabels) || !fingerprint.columnLabels.every((entry) => typeof entry === "string") ||
+      !Array.isArray(fingerprint.valueKinds) ||
+      !fingerprint.valueKinds.every((entry) => entry === "raw" || entry === "normalized" || entry === "values") ||
+      !auditRecord(fingerprint.totals) ||
+      !auditRecord(fingerprint.nonZero)
+    ) return false;
+    if (fingerprint.id !== "G") {
+      return fingerprint.pairIds === undefined && fingerprint.pairDescriptors === undefined;
+    }
+    if (!Array.isArray(fingerprint.pairIds) || !fingerprint.pairIds.every((entry) => typeof entry === "string")) return false;
+    if (fingerprint.pairIds.length !== (fingerprint.columnLabels as string[]).length) return false;
+    if (!requirePairDescriptors) return fingerprint.pairDescriptors === undefined;
+    if (!Array.isArray(fingerprint.pairDescriptors) || fingerprint.pairDescriptors.length !== fingerprint.pairIds.length) return false;
+    return new Set(fingerprint.pairDescriptors.map((candidatePair) => auditRecord(candidatePair)?.id)).size === fingerprint.pairDescriptors.length &&
+      fingerprint.pairDescriptors.every((candidatePair, pairIndex) => {
+      const pair = auditRecord(candidatePair);
+      return Boolean(pair) &&
+        [pair?.id, pair?.codeA, pair?.codeB, pair?.label].every((entry) => typeof entry === "string") &&
+        pair?.id === (fingerprint.pairIds as string[])[pairIndex] &&
+        pair?.label === (fingerprint.columnLabels as string[])[pairIndex];
+      });
+  });
+}
+
+function validFusionAuditBase(record: Record<string, unknown>) {
+  if (!validFusionAuditItems(record.items)) return false;
+  const items = record.items as SenaFusionMathAuditItem[];
+  const passed = items.filter((entry) => entry.status === "pass").length;
+  const reviewNeeded = items.length - passed;
+  return (record.status === "verified" || record.status === "needs-review") &&
+    Number.isInteger(record.passed) && (record.passed as number) >= 0 &&
+    Number.isInteger(record.reviewNeeded) && (record.reviewNeeded as number) >= 0 &&
+    record.passed === passed &&
+    record.reviewNeeded === reviewNeeded &&
+    record.status === (reviewNeeded === 0 ? "verified" : "needs-review") &&
+    Array.isArray(record.notes) && record.notes.every((entry) => typeof entry === "string");
+}
+
+function isGenuineSenaFusionMathAuditV1(value: unknown): value is SenaFusionMathAuditV1 {
+  const record = auditRecord(value);
+  if (!record || record.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit || !validFusionAuditBase(record)) return false;
+  const itemIds = (record.items as SenaFusionMathAuditItem[]).map((entry) => entry.id);
+  return itemIds.length === fusionAuditV1ItemIds.length &&
+    itemIds.every((id, index) => id === fusionAuditV1ItemIds[index]) &&
+    validFusionFingerprints(record.matrixFingerprints, false);
+}
+
+function isSenaFusionMathAuditV2ReadModel(value: unknown): value is SenaFusionMathAudit {
+  const record = auditRecord(value);
+  if (!record || record.schemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit || !validFusionAuditBase(record)) return false;
+  if (
+    record.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit &&
+    record.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit
+  ) return false;
+  const items = record.items as SenaFusionMathAuditItem[];
+  if (items.filter((entry) => entry.id === "nonnegative-values").length !== 1) return false;
+  return validFusionFingerprints(
+    record.matrixFingerprints,
+    record.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit
+  );
+}
+
+export function isCurrentSenaFusionMathAudit(value: unknown): value is SenaFusionMathAudit {
+  return isSenaFusionMathAuditV2ReadModel(value) &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit;
+}
+
+export function normalizeSenaFusionMathAudit(value: SenaFusionMathAuditReadModel | unknown): SenaFusionMathAudit {
+  if (isSenaFusionMathAuditV2ReadModel(value)) return structuredClone(value);
+  if (!isGenuineSenaFusionMathAuditV1(value)) {
+    throw new Error("SENA fusion math audit must be a complete v2 contract or the genuine seven-item v1 contract.");
+  }
+  const nonnegativeReview: SenaFusionMathAuditItem = {
+    id: "nonnegative-values",
+    label: "Nonnegative weights and matrix values",
+    status: "review",
+    expected: "Current v2 evidence that all fusion weights and raw/normalized/fused values are finite and nonnegative",
+    actual: "Historical v1 did not audit the nonnegative value domain.",
+    detail: ["current-v2-fusion-nonnegative-evidence-required"]
+  };
+  const finiteIndex = value.items.findIndex((entry) => entry.id === "finite-values");
+  const items = value.items.map((entry) => structuredClone(entry));
+  items.splice(finiteIndex + 1, 0, nonnegativeReview);
+  const passed = items.filter((entry) => entry.status === "pass").length;
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit,
+    status: "needs-review",
+    passed,
+    reviewNeeded: items.length - passed,
+    items,
+    matrixFingerprints: structuredClone(value.matrixFingerprints),
+    notes: [
+      ...value.notes,
+      "Normalized in memory from fusion-math-audit/v1; nonnegative-value evidence remains unproven and cannot be treated as current v2 verification."
+    ]
+  };
 }
 
 function maxDeltaForBlock({
@@ -306,9 +461,23 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
     actualAt: (row, column) => fusion[peopleCount + row]?.[peopleCount + column] ?? Number.NaN
   });
 
+  const pairDescriptorsPass = Array.isArray(model.matrices.G.pairs) &&
+    model.matrices.G.pairs.length === codePairCount &&
+    new Set(model.matrices.G.pairs.map((pair) => pair.id)).size === codePairCount &&
+    model.matrices.G.pairs.every((pair, index) => {
+      const report = model.pairReport[index];
+      return Boolean(report) &&
+        pair.id === model.matrices.G.pairIds[index] &&
+        pair.label === model.matrices.G.columnLabels[index] &&
+        pair.id === report.id &&
+        pair.codeA === report.codeA &&
+        pair.codeB === report.codeB &&
+        pair.label === report.label;
+    });
   const gPass = model.matrices.G.rowLabels.length === peopleCount &&
     model.matrices.G.columnLabels.length === codePairCount &&
     model.matrices.G.pairIds.length === codePairCount &&
+    pairDescriptorsPass &&
     model.matrices.G.raw.length === peopleCount &&
     model.matrices.G.raw.every((row) => row.length === codePairCount) &&
     model.pairReport.length === codePairCount;
@@ -395,7 +564,8 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
       [
         "G is not a block inside A_fusion; it explains who was associated with windows containing ENA-style code-pair links.",
         `pairIds=${model.matrices.G.pairIds.length}`,
-        `pairs=${model.matrices.G.pairs.length}`
+        `pairs=${model.matrices.G.pairs.length}`,
+        `pairDescriptorsAligned=${pairDescriptorsPass}`
       ]
     )
   ];
@@ -406,6 +576,7 @@ export function buildSenaFusionMathAudit(model: SenaModel, tolerance = defaultTo
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit,
     status: reviewNeeded === 0 ? "verified" : "needs-review",
     passed,
     reviewNeeded,

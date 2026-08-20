@@ -157,6 +157,10 @@ function seededRandom(seed: number) {
   };
 }
 
+function addCanonicalUint32(seed: number, increment: number) {
+  return (seed + increment) >>> 0;
+}
+
 function mean(values: number[]) {
   return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -311,7 +315,7 @@ export function buildSenaGroupComparison(input: {
   });
   const pTwoSided = (samples.filter((sample) => Math.abs(sample) >= Math.abs(observedDifference)).length + 1) / (samples.length + 1);
   const bootstrapIterations = input.bootstrapIterations ?? iterations;
-  const bootstrapSeed = seed + 7919;
+  const bootstrapSeed = addCanonicalUint32(seed, 7919);
   const bootstrapRandom = seededRandom(bootstrapSeed);
   const bootstrapSamples = Array.from({ length: bootstrapIterations }, () => (
     resampleMean(a, bootstrapRandom) - resampleMean(b, bootstrapRandom)
@@ -392,7 +396,7 @@ export function buildSenaGroupComparisonSuite(input: {
     groupB: comparison.groupB,
     metric: comparison.metric ?? input.defaultMetric ?? "socialStrength",
     iterations: input.iterations,
-    seed: (input.seed ?? 20260611) + (index * 101),
+    seed: addCanonicalUint32(input.seed ?? 20260611, index * 101),
     bootstrapIterations: input.bootstrapIterations
   }));
   const entries = comparisons.map<SenaGroupComparisonSuiteEntry>((comparison) => ({

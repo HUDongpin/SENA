@@ -1,8 +1,16 @@
-import { buildSenaEnaReportArtifact, buildSenaMarkdownReport, buildSenaMetricProvenanceArtifact, buildSenaPairContributionReportArtifact, buildSenaSnaReportArtifact } from "./report";
+import {
+  buildSenaEnaReportArtifact,
+  buildSenaMarkdownReport,
+  buildSenaMetricProvenanceArtifact,
+  buildSenaPairContributionReportArtifact,
+  buildSenaSnaReportArtifact,
+  normalizeSenaCodingReliabilityGate
+} from "./report";
 import { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
 import { buildSenaMethodProtocol } from "./method-protocol";
 import { buildSenaProjectSnapshot } from "./snapshot";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
+import { normalizeSenaFusionMathAudit } from "./fusion-math";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
 import { hasCompatibleSenaSchemaVersion, SENA_SCHEMA_VERSIONS } from "./schema-registry";
@@ -871,7 +879,33 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   assertStringArray(root.reviewGuardrails, `${context}.reviewGuardrails`, 1);
 }
 
-function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPacket {
+function statisticalContractHolders(contents: Record<string, unknown>) {
+  const reportJson = asRecord(contents.reportJson, "review packet.contents.reportJson");
+  const runtimeBundle = asRecord(contents.runtimeBundle, "review packet.contents.runtimeBundle");
+  const runtimeReport = asRecord(runtimeBundle.report, "review packet.contents.runtimeBundle.report");
+  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
+  const snapshotReport = asRecord(projectSnapshot.report, "review packet.contents.projectSnapshot.report");
+  return [contents, reportJson, runtimeBundle, runtimeReport, snapshotReport];
+}
+
+function assertStatisticalContractCompatibility(contents: Record<string, unknown>) {
+  statisticalContractHolders(contents).forEach((holder) => {
+    normalizeSenaFusionMathAudit(holder.fusionMathAudit);
+    normalizeSenaCodingReliabilityGate(holder.codingReliabilityGate);
+  });
+}
+
+function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPacket {
+  const normalized = structuredClone(value) as SenaReviewPacket;
+  const contents = asRecord(normalized.contents, "review packet.contents");
+  statisticalContractHolders(contents).forEach((holder) => {
+    holder.fusionMathAudit = normalizeSenaFusionMathAudit(holder.fusionMathAudit);
+    holder.codingReliabilityGate = normalizeSenaCodingReliabilityGate(holder.codingReliabilityGate);
+  });
+  return normalized;
+}
+
+function assertSenaReviewPacket(value: unknown): void {
   const root = assertSchemaRecord(value, "review packet", "sena-review-packet/v1");
   assertString(root.title, "review packet.title");
   assertString(root.generatedAt, "review packet.generatedAt");
@@ -931,15 +965,16 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   assertSchemaRecord(contents.demoVerification, "review packet.contents.demoVerification", "sena-demo-verification/v1");
   assertSchemaRecord(contents.demoVerificationCompatibilityAudit, "review packet.contents.demoVerificationCompatibilityAudit", "sena-demo-verification-compatibility/v1");
   assertSchemaRecord(contents.productionPageContract, "review packet.contents.productionPageContract", "sena-production-page-contract/v1");
+  assertStatisticalContractCompatibility(contents);
 }
 
 export function importSenaReviewPacket(source: string | unknown): SenaReviewPacket {
   const value = typeof source === "string" ? JSON.parse(source) : source;
   assertSenaReviewPacket(value);
-  return value;
+  return normalizeReviewPacketStatisticalContracts(value);
 }
 
-export function isSenaReviewPacket(value: unknown): value is SenaReviewPacket {
+export function isSenaReviewPacket(value: unknown): boolean {
   try {
     assertSenaReviewPacket(value);
     return true;

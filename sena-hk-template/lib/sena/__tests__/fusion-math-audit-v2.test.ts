@@ -63,4 +63,37 @@ describe("SENA fusion math audit v2", () => {
       status: "review"
     }));
   });
+
+  it.each([
+    ["empty descriptors", (model: SenaModel) => { model.matrices.G.pairs = []; }],
+    ["short descriptors", (model: SenaModel) => { model.matrices.G.pairs.pop(); }],
+    ["extra descriptors", (model: SenaModel) => {
+      model.matrices.G.pairs.push({ ...model.matrices.G.pairs[0], id: "extra-pair" });
+    }],
+    ["reordered descriptors", (model: SenaModel) => {
+      [model.matrices.G.pairs[0], model.matrices.G.pairs[1]] = [model.matrices.G.pairs[1], model.matrices.G.pairs[0]];
+    }],
+    ["duplicate descriptors", (model: SenaModel) => {
+      model.matrices.G.pairs[1] = { ...model.matrices.G.pairs[0] };
+    }],
+    ["mismatched descriptor", (model: SenaModel) => {
+      model.matrices.G.pairs[0] = { ...model.matrices.G.pairs[0], label: "tampered pair label" };
+    }]
+  ] as const)("rejects G %s and binds pair descriptors into the G fingerprint", (_label, tamper) => {
+    const baseline = modelCopy();
+    const baselineChecksum = buildSenaFusionMathAudit(baseline).matrixFingerprints
+      .find((fingerprint) => fingerprint.id === "G")?.checksum;
+    const model = modelCopy();
+    tamper(model);
+
+    const audit = buildSenaFusionMathAudit(model);
+    const tamperedChecksum = audit.matrixFingerprints.find((fingerprint) => fingerprint.id === "G")?.checksum;
+
+    expect(audit.status).toBe("needs-review");
+    expect(audit.items).toContainEqual(expect.objectContaining({
+      id: "g-pair-coverage",
+      status: "review"
+    }));
+    expect(tamperedChecksum).not.toBe(baselineChecksum);
+  });
 });
