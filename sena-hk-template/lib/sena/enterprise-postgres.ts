@@ -83,7 +83,7 @@ export class SenaEnterpriseStoredIntegrityError extends Error {
   readonly issues: SenaEnterpriseStoredIntegrityIssue[];
 
   constructor(issue: SenaEnterpriseStoredIntegrityIssue) {
-    super("Stored enterprise evidence failed canonical reliability-dashboard, group-comparison, or project-binding integrity validation.");
+    super("Stored enterprise evidence failed canonical reliability dashboard (reliability-dashboard), group-comparison, or project-binding integrity validation.");
     this.name = "SenaEnterpriseStoredIntegrityError";
     this.issues = [issue];
   }
