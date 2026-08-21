@@ -277,7 +277,7 @@ function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
   })).sort((left, right) => (
     left.coderId.localeCompare(right.coderId) ||
     left.itemId.localeCompare(right.itemId) ||
-    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
+    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
   ));
 }
 
@@ -1478,9 +1478,13 @@ function isValidSenaReliabilityDerivationEvidence(value: unknown): value is Sena
     ))) return false;
   const annotations = canonicalAnnotationCoverage(value.annotations as SenaCoderAnnotation[]);
   const skippedCells = canonicalSkippedCellCoverage(value.skippedCells as SenaSkippedCoderCell[]);
-  const annotationKeys = annotations.map((entry) => `${entry.coderId}\u0000${entry.itemId}\u0000${entry.codeId}`);
+  const annotationKeys = annotations.map((entry) => canonicalTupleKey([
+    entry.coderId,
+    entry.itemId,
+    entry.codeId
+  ]));
   const skippedKeys = skippedCells.flatMap((entry) => entry.codeIds.map((codeId) => (
-    `${entry.coderId}\u0000${entry.itemId}\u0000${codeId}`
+    canonicalTupleKey([entry.coderId, entry.itemId, codeId])
   )));
   return new Set(annotationKeys).size === annotationKeys.length &&
     new Set(skippedKeys).size === skippedKeys.length &&
