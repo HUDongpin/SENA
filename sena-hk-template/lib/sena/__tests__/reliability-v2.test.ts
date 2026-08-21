@@ -216,6 +216,9 @@ describe("SENA coding reliability v2", () => {
 
     expect(dashboard.pairwiseCohenKappa[0].kappa).toBe(0.8);
     expect(dashboard.meanPairwiseKappa).toBe(0.8);
+    expect(dashboard.pairwiseCohenKappa[0].raw.kappa).toBe(dashboard.claimEligibilityInputs.meanPairwiseKappa);
+    expect(dashboard.pairwiseCohenKappa[0].raw.kappa).toBeGreaterThan(0.7999);
+    expect(dashboard.pairwiseCohenKappa[0].raw.kappa).toBeLessThan(0.8);
     expect(dashboard.claimEligibilityInputs.meanPairwiseKappa).toBeGreaterThan(0.7999);
     expect(dashboard.claimEligibilityInputs.meanPairwiseKappa).toBeLessThan(0.8);
     expect(dashboard.claimEligibility.eligible).toBe(false);
@@ -224,8 +227,67 @@ describe("SENA coding reliability v2", () => {
     const gate = buildSenaCodingReliabilityGate({
       codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
     }, "2026-08-21T00:00:00.000Z");
+    expect(gate.review.machineEvidence?.pairwiseCohenKappa[0].raw.kappa)
+      .toBe(dashboard.pairwiseCohenKappa[0].raw.kappa);
     expect(gate.machineClaimEligibility.eligible).toBe(false);
     expect(gate.machineClaimEligibility.blockers).toContain("mean-pairwise-kappa-at-least-0.80");
+  });
+
+  it("persists canonical raw pair and alpha estimates and rejects a coherent forged summary", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    const pair = dashboard.pairwiseCohenKappa[0] as typeof dashboard.pairwiseCohenKappa[number] & {
+      raw?: { observedAgreement: number | null; expectedAgreement: number | null; kappa: number | null };
+    };
+    const persisted = dashboard as typeof dashboard & {
+      coderIds?: string[];
+      krippendorffAlphaNominalRaw?: number | null;
+    };
+
+    expect(persisted.coderIds).toEqual(["c1", "c2"]);
+    expect(pair.raw).toEqual({ observedAgreement: 1, expectedAgreement: 0.5, kappa: 1 });
+    expect(persisted.krippendorffAlphaNominalRaw).toBe(1);
+
+    pair.raw = { observedAgreement: 0.6, expectedAgreement: 0.5, kappa: 0.2 };
+    pair.observedAgreement = 0.6;
+    pair.expectedAgreement = 0.5;
+    pair.kappa = 0.2;
+    expect(() => normalizeSenaReliabilityDashboard(dashboard)).toThrow(/raw|semantic|eligibility|reliability dashboard/i);
+  });
+
+  it("requires exactly one unordered pair for every coder in the declared coder universe", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false],
+      c3: [true, false]
+    }));
+    dashboard.pairwiseCohenKappa[2] = {
+      ...dashboard.pairwiseCohenKappa[2],
+      coderA: "c2",
+      coderB: "c4"
+    };
+
+    expect(() => normalizeSenaReliabilityDashboard(dashboard)).toThrow(/coder|pair|semantic|reliability dashboard/i);
+  });
+
+  it("requires a null alpha value whenever alpha is not estimable", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, true],
+      c2: [true, true]
+    }));
+    dashboard.krippendorffAlphaNominal = 0.8;
+    dashboard.claimEligibilityInputs.krippendorffAlphaNominal = 0.8;
+    dashboard.claimEligibility = buildSenaReliabilityClaimEligibility({
+      coderCount: dashboard.coderCount,
+      pairwiseStatuses: dashboard.claimEligibilityInputs.pairwiseKappaStatuses,
+      meanPairwiseKappa: null,
+      krippendorffAlphaNominal: 0.8,
+      krippendorffAlphaNominalStatus: "single-observed-category"
+    });
+
+    expect(() => normalizeSenaReliabilityDashboard(dashboard)).toThrow(/alpha|semantic|reliability dashboard/i);
   });
 
   it("normalizes v1 dashboards as legacy-ambiguous and never current-eligible", () => {
@@ -386,17 +448,22 @@ describe("SENA coding reliability v2", () => {
     expect(() => normalizeSenaCodingReliabilityGate(gate)).toThrow(/semantic|eligibility|coding reliability gate/i);
   });
 
-  it("rejects forged dashboard eligibility at file-state and Postgres read boundaries", async () => {
+  it("rejects a coherent raw-pair/mean forgery at file-state and Postgres read boundaries", async () => {
     const dashboard = buildSenaReliabilityDashboard(annotations({
       c1: [true, false],
       c2: [true, false]
     }));
-    dashboard.claimEligibility = {
-      ...dashboard.claimEligibility,
-      eligible: true,
-      checks: { ...dashboard.claimEligibility.checks, meanPairwiseKappaAtThreshold: false },
-      blockers: ["mean-pairwise-kappa-at-least-0.80"]
+    dashboard.pairwiseCohenKappa[0].raw = {
+      observedAgreement: 0.6,
+      expectedAgreement: 0.5,
+      kappa: 0.2
     };
+    dashboard.pairwiseCohenKappa[0].observedAgreement = 0.6;
+    dashboard.pairwiseCohenKappa[0].expectedAgreement = 0.5;
+    dashboard.pairwiseCohenKappa[0].kappa = 0.2;
+    expect(dashboard.meanPairwiseKappa).toBe(1);
+    expect(dashboard.claimEligibilityInputs.meanPairwiseKappa).toBe(1);
+    expect(dashboard.claimEligibility.eligible).toBe(true);
     const run = storedReliabilityRun(dashboard);
     const db = emptyEnterpriseDb();
     db.reliabilityRuns = [run];

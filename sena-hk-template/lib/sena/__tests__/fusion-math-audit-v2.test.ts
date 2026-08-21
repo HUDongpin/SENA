@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSenaFusionMathAudit } from "../fusion-math";
+import { buildSenaFusionMathAudit, normalizeSenaFusionMathAudit } from "../fusion-math";
 import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
 import type { SenaModel } from "../types";
@@ -11,6 +11,22 @@ function modelCopy(): SenaModel {
 describe("SENA fusion math audit v2", () => {
   it("emits the v2 audit contract while keeping the artifact envelope separate", () => {
     expect(buildSenaFusionMathAudit(modelCopy()).schemaVersion).toBe("sena-fusion-math-audit/v2");
+  });
+
+  it.each([
+    ["deleted", (items: ReturnType<typeof buildSenaFusionMathAudit>["items"]) => items.slice(1)],
+    ["duplicated", (items: ReturnType<typeof buildSenaFusionMathAudit>["items"]) => [...items, structuredClone(items[0])]],
+    ["unknown substitution", (items: ReturnType<typeof buildSenaFusionMathAudit>["items"]) => items.map((item, index) => (
+      index === 0 ? { ...item, id: "unknown-proof-obligation" } : item
+    ))]
+  ])("rejects a current-v2 audit with a %s proof obligation even when counts agree", (_label, mutate) => {
+    const audit = buildSenaFusionMathAudit(modelCopy());
+    audit.items = mutate(audit.items);
+    audit.passed = audit.items.filter((item) => item.status === "pass").length;
+    audit.reviewNeeded = audit.items.length - audit.passed;
+    audit.status = audit.reviewNeeded === 0 ? "verified" : "needs-review";
+
+    expect(() => normalizeSenaFusionMathAudit(audit)).toThrow(/proof|eight|fusion math audit/i);
   });
 
   it.each([

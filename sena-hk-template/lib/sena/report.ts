@@ -63,7 +63,7 @@ import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-regi
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
 import {
-  deriveSenaReliabilityClaimEligibility,
+  deriveSenaReliabilityMachineClaimEligibility,
   isSemanticallyValidSenaReliabilityMachineEvidence
 } from "./reliability";
 
@@ -1155,9 +1155,28 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
   ].every((entry) => entry === true);
   if (machine.eligible !== (allChecksPass && (machine.blockers as string[]).length === 0)) return false;
 
+  if (record.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate) {
+    return record.status === "review" &&
+      record.claimUse === "coding-reliability-needed" &&
+      reviewMachineEvidence === undefined &&
+      machine.eligible === false &&
+      machine.status === "legacy-ambiguous" &&
+      machine.dashboardSchemaVersion === null &&
+      machine.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate &&
+      [
+        checks?.minimumCoders,
+        checks?.allPairwiseKappaEstimable,
+        checks?.krippendorffAlphaEstimable,
+        checks?.meanPairwiseKappaAtThreshold,
+        checks?.krippendorffAlphaAtThreshold
+      ].every((entry) => entry === false) &&
+      JSON.stringify(machine.blockers) === JSON.stringify(["current-v2-reliability-evidence-required"]) &&
+      (record.blockers as string[]).includes("current-v2-reliability-evidence-required");
+  }
+
   if (reviewMachineEvidence !== undefined) {
     if (!isSemanticallyValidSenaReliabilityMachineEvidence(reviewMachineEvidence)) return false;
-    const expected = deriveSenaReliabilityClaimEligibility(reviewMachineEvidence.claimEligibilityInputs);
+    const expected = deriveSenaReliabilityMachineClaimEligibility(reviewMachineEvidence);
     return machine.eligible === expected.eligible &&
       machine.status === reviewMachineEvidence.status &&
       machine.dashboardSchemaVersion === reviewMachineEvidence.dashboardSchemaVersion &&
@@ -1244,7 +1263,7 @@ export function buildSenaCodingReliabilityGate(
   const validMachineEvidence = isSemanticallyValidSenaReliabilityMachineEvidence(suppliedMachineEvidence)
     ? {
       ...structuredClone(suppliedMachineEvidence),
-      claimEligibility: deriveSenaReliabilityClaimEligibility(suppliedMachineEvidence.claimEligibilityInputs)
+      claimEligibility: deriveSenaReliabilityMachineClaimEligibility(suppliedMachineEvidence)
     }
     : undefined;
   const review: SenaCodingReliabilityReview = {
@@ -1265,7 +1284,7 @@ export function buildSenaCodingReliabilityGate(
     machineEvidence.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   const machineClaimEligibility: SenaCodingReliabilityGate["machineClaimEligibility"] = currentMachineEvidence
     ? {
-      ...deriveSenaReliabilityClaimEligibility(machineEvidence.claimEligibilityInputs),
+      ...deriveSenaReliabilityMachineClaimEligibility(machineEvidence),
       status: machineEvidence.status,
       dashboardSchemaVersion: machineEvidence.dashboardSchemaVersion,
       sourceSchemaVersion: machineEvidence.sourceSchemaVersion

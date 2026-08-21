@@ -22,6 +22,16 @@ const fusionAuditV1ItemIds = [
   "concept-block",
   "g-pair-coverage"
 ] as const;
+const fusionAuditV2ItemIds = [
+  "labels-and-dimensions",
+  "finite-values",
+  "nonnegative-values",
+  "social-block",
+  "bridge-block",
+  "bridge-cp-block",
+  "concept-block",
+  "g-pair-coverage"
+] as const;
 
 export type SenaFusionMathAuditArtifactOptions = {
   title?: string;
@@ -292,7 +302,15 @@ function isSenaFusionMathAuditV2ReadModel(value: unknown): value is SenaFusionMa
     record.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit
   ) return false;
   const items = record.items as SenaFusionMathAuditItem[];
-  if (items.filter((entry) => entry.id === "nonnegative-values").length !== 1) return false;
+  const itemIds = items.map((entry) => entry.id).sort();
+  if (!sameStrings(itemIds, [...fusionAuditV2ItemIds].sort())) return false;
+  if (record.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit) {
+    const nonnegative = items.find((entry) => entry.id === "nonnegative-values");
+    if (record.status !== "needs-review" ||
+      (record.reviewNeeded as number) < 1 ||
+      nonnegative?.status !== "review" ||
+      !nonnegative.detail.includes("current-v2-fusion-nonnegative-evidence-required")) return false;
+  }
   return validFusionFingerprints(
     record.matrixFingerprints,
     record.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit

@@ -4,8 +4,14 @@ import { normalizeSenaCodingReliabilityGate } from "./report";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import type {
   SenaClaimReadinessGate,
+  SenaCodingReliabilityGate,
+  SenaDemoVerification,
+  SenaDemoWalkthrough,
+  SenaDevelopmentPlan,
+  SenaFusionMathAudit,
   SenaPilotReadinessAudit,
   SenaReport,
+  SenaReportCompletenessAudit,
   SenaRuntimeBundle
 } from "./types";
 
@@ -30,23 +36,46 @@ function parseSource(source: string | unknown) {
 
 function markPilotReadinessForStatisticalReview(
   value: SenaPilotReadinessAudit,
-  state: SenaStatisticalLeafReadState
+  state: SenaStatisticalLeafReadState,
+  completenessAudit?: SenaReportCompletenessAudit
 ): SenaPilotReadinessAudit {
   const audit = structuredClone(value);
-  const reasons = new Map<string, string>();
+  const reasons = new Map<string, { reason: string; blocker: string }>();
   if (state.legacyFusionMath) {
-    reasons.set("fusion-math", "Historical v1 fusion evidence does not prove the current v2 nonnegative-value contract.");
+    reasons.set("fusion-math", {
+      reason: "Historical v1 fusion evidence does not prove the current v2 nonnegative-value contract.",
+      blocker: "current-v2-fusion-nonnegative-evidence-required"
+    });
   }
   if (state.legacyCodingReliability) {
-    reasons.set("coding-reliability", "Historical v1 reliability evidence cannot establish current v2 machine eligibility.");
+    reasons.set("coding-reliability", {
+      reason: "Historical v1 reliability evidence cannot establish current v2 machine eligibility.",
+      blocker: "current-v2-reliability-evidence-required"
+    });
   }
   audit.items = audit.items.map((item) => {
-    const reason = reasons.get(item.id);
-    return reason ? {
+    if (item.id === "report-completeness" && completenessAudit?.status === "needs-review") {
+      return {
+        ...item,
+        status: "review" as const,
+        summary: `${completenessAudit.passed} report checks passed; ${completenessAudit.reviewNeeded} need review`,
+        evidence: completenessAudit.items.flatMap((entry) => [
+          `${entry.label}: ${entry.status}`,
+          ...entry.evidence.filter((evidence) => evidence.startsWith("current-v2-"))
+        ]),
+        nextAction: "Resolve every normalized report-completeness review item before treating this restored artifact as ready."
+      };
+    }
+    const invalidation = reasons.get(item.id);
+    return invalidation ? {
       ...item,
       status: "review" as const,
-      summary: reason,
-      evidence: Array.from(new Set([...item.evidence, "legacy-statistical-contract-normalized", reason])),
+      summary: invalidation.reason,
+      evidence: [
+        "legacy-statistical-contract-normalized",
+        invalidation.blocker,
+        invalidation.reason
+      ],
       nextAction: "Attach current v2 statistical evidence before treating this restored artifact as ready."
     } : item;
   });
@@ -65,10 +94,11 @@ function markPilotReadinessForStatisticalReview(
 
 function invalidatedReadiness(
   pilotReadinessAudit: SenaPilotReadinessAudit,
-  state: SenaStatisticalLeafReadState
+  state: SenaStatisticalLeafReadState,
+  completenessAudit?: SenaReportCompletenessAudit
 ): { pilotReadinessAudit: SenaPilotReadinessAudit; claimReadinessGate: SenaClaimReadinessGate } {
   const normalizedPilot = state.needsCurrentEvidence
-    ? markPilotReadinessForStatisticalReview(pilotReadinessAudit, state)
+    ? markPilotReadinessForStatisticalReview(pilotReadinessAudit, state, completenessAudit)
     : structuredClone(pilotReadinessAudit);
   return {
     pilotReadinessAudit: normalizedPilot,
@@ -80,9 +110,237 @@ function invalidatedReadiness(
 
 export function reconcileSenaStatisticalReadiness(
   pilotReadinessAudit: SenaPilotReadinessAudit,
-  state: SenaStatisticalLeafReadState
+  state: SenaStatisticalLeafReadState,
+  completenessAudit?: SenaReportCompletenessAudit
 ): { pilotReadinessAudit: SenaPilotReadinessAudit; claimReadinessGate: SenaClaimReadinessGate } {
-  return invalidatedReadiness(pilotReadinessAudit, state);
+  return invalidatedReadiness(pilotReadinessAudit, state, completenessAudit);
+}
+
+function reconcileReportCompleteness(
+  value: SenaReportCompletenessAudit,
+  fusionMathAudit: SenaFusionMathAudit,
+  codingReliabilityGate: SenaCodingReliabilityGate,
+  state: SenaStatisticalLeafReadState
+): SenaReportCompletenessAudit {
+  const audit = structuredClone(value);
+  audit.items = audit.items.map((item) => {
+    if (item.id === "fusion-math-audit" && state.legacyFusionMath) {
+      return {
+        ...item,
+        status: "review" as const,
+        summary: `${fusionMathAudit.passed} formula checks passed; ${fusionMathAudit.reviewNeeded} need review`,
+        evidence: [
+          "current-v2-fusion-nonnegative-evidence-required",
+          ...fusionMathAudit.items.map((entry) => `${entry.label}: ${entry.status}`)
+        ]
+      };
+    }
+    if (item.id === "coding-reliability" && state.legacyCodingReliability) {
+      return {
+        ...item,
+        status: "review" as const,
+        summary: "Current v2 coding-reliability machine evidence is required.",
+        evidence: [
+          `sourceSchemaVersion=${codingReliabilityGate.sourceSchemaVersion}`,
+          `machineEligibility=${codingReliabilityGate.machineClaimEligibility.eligible ? "eligible" : "ineligible"}`,
+          ...codingReliabilityGate.machineClaimEligibility.blockers
+        ]
+      };
+    }
+    return item;
+  });
+  const passed = audit.items.filter((item) => item.status === "pass").length;
+  return {
+    ...audit,
+    status: passed === audit.items.length ? "complete" : "needs-review",
+    passed,
+    reviewNeeded: audit.items.length - passed,
+    notes: Array.from(new Set([
+      ...audit.notes,
+      "Restored completeness is reconciled from normalized statistical leaves before readiness is evaluated."
+    ]))
+  };
+}
+
+export function reconcileSenaReportStatisticalSurfaces(
+  report: SenaReport,
+  state: SenaStatisticalLeafReadState
+): SenaReport {
+  if (!state.needsCurrentEvidence) return report;
+  report.completenessAudit = reconcileReportCompleteness(
+    report.completenessAudit,
+    report.fusionMathAudit,
+    report.codingReliabilityGate,
+    state
+  );
+  const readiness = invalidatedReadiness(report.pilotReadinessAudit, state, report.completenessAudit);
+  report.pilotReadinessAudit = readiness.pilotReadinessAudit;
+  report.claimReadinessGate = readiness.claimReadinessGate;
+  return report;
+}
+
+function reconcileDemoWalkthrough(
+  value: SenaDemoWalkthrough,
+  pilotReadinessAudit: SenaPilotReadinessAudit
+) {
+  const readiness = new Map(pilotReadinessAudit.items.map((item) => [item.id, item.status]));
+  value.steps = value.steps.map((step) => {
+    const dependenciesReady = step.readinessItemIds.every((id) => readiness.get(id) === "ready");
+    const status = step.status === "ready" && dependenciesReady ? "ready" as const : "review" as const;
+    return {
+      ...step,
+      status,
+      evidence: dependenciesReady
+        ? step.evidence
+        : normalizedReadinessEvidence(pilotReadinessAudit, step.readinessItemIds)
+    };
+  });
+  const readySteps = value.steps.filter((step) => step.status === "ready").length;
+  value.summary = {
+    ...value.summary,
+    totalSteps: value.steps.length,
+    readySteps,
+    reviewSteps: value.steps.length - readySteps,
+    pilotReadinessStatus: pilotReadinessAudit.status
+  };
+}
+
+const verificationReadinessIds: Record<string, string[]> = {
+  "sample-import": ["data-contract", "model-json-export"],
+  "weights-and-formula": ["fusion-model", "model-json-export", "fusion-math"],
+  "layout-switching": ["fusion-model", "model-json-export"],
+  "evidence-inspection": ["evidence-ledger"],
+  "temporal-runtime": ["method-validation"],
+  "report-exports": ["report-completeness", "coding-reliability", "data-governance", "human-review"]
+};
+
+function normalizedReadinessEvidence(
+  pilotReadinessAudit: SenaPilotReadinessAudit,
+  readinessItemIds: string[]
+) {
+  return Array.from(new Set([
+    "legacy-statistical-dependent-evidence-invalidated",
+    ...readinessItemIds.flatMap((id) => {
+      const item = pilotReadinessAudit.items.find((candidate) => candidate.id === id);
+      return item
+        ? [
+          `${item.label}: ${item.status}`,
+          item.summary,
+          ...item.evidence.filter((evidence) =>
+            evidence === "legacy-statistical-contract-normalized" || evidence.startsWith("current-v2-"))
+        ]
+        : [`${id}: missing`];
+    })
+  ]));
+}
+
+function reconcileDemoVerification(
+  value: SenaDemoVerification,
+  pilotReadinessAudit: SenaPilotReadinessAudit
+) {
+  const readiness = new Map(pilotReadinessAudit.items.map((item) => [item.id, item.status]));
+  value.checks = value.checks.map((check) => {
+    const dependencies = verificationReadinessIds[check.id];
+    const dependenciesReady = Boolean(dependencies) && dependencies.every((id) => readiness.get(id) === "ready");
+    if (check.status === "pass" && dependenciesReady) return check;
+    return {
+      ...check,
+      status: "review" as const,
+      observedEvidence: normalizedReadinessEvidence(pilotReadinessAudit, dependencies ?? []),
+      manualReview: {
+        status: "pending" as const,
+        reviewer: "",
+        verifiedAt: "",
+        notes: "Prior verification is invalidated until every normalized readiness dependency is current-ready."
+      }
+    };
+  });
+  const automatedPass = value.checks.filter((check) => check.status === "pass").length;
+  value.summary = {
+    ...value.summary,
+    totalChecks: value.checks.length,
+    automatedPass,
+    automatedReview: value.checks.length - automatedPass,
+    manualPending: value.checks.filter((check) => check.manualReview.status === "pending").length,
+    manualPassed: value.checks.filter((check) => check.manualReview.status === "passed").length,
+    manualFailed: value.checks.filter((check) => check.manualReview.status === "failed").length,
+    pilotReadinessStatus: pilotReadinessAudit.status
+  };
+}
+
+function reconcileDevelopmentPlan(
+  value: SenaDevelopmentPlan,
+  pilotReadinessAudit: SenaPilotReadinessAudit,
+  demoWalkthrough: SenaDemoWalkthrough,
+  demoVerification: SenaDemoVerification,
+  state: SenaStatisticalLeafReadState
+) {
+  value.currentGate = {
+    pilotReadinessStatus: pilotReadinessAudit.status,
+    automatedVerification: {
+      totalChecks: demoVerification.summary.totalChecks,
+      passed: demoVerification.summary.automatedPass,
+      review: demoVerification.summary.automatedReview,
+      manualPending: demoVerification.summary.manualPending,
+      manualPassed: demoVerification.summary.manualPassed,
+      manualFailed: demoVerification.summary.manualFailed
+    },
+    readyItems: pilotReadinessAudit.items.filter((item) => item.status === "ready").map((item) => item.id),
+    reviewItems: pilotReadinessAudit.items.filter((item) => item.status === "review").map((item) => item.id)
+  };
+  const walkthroughStatus = new Map(demoWalkthrough.steps.map((step) => [step.id, step.status]));
+  value.workflowAnchors = value.workflowAnchors.map((anchor) => ({
+    ...anchor,
+    status: walkthroughStatus.get(anchor.id) ?? "review"
+  }));
+  if (pilotReadinessAudit.status !== "ready" || demoVerification.summary.automatedReview > 0) {
+    value.deliveryCandidate.status = "pre-candidate";
+    value.nextStage.status = "verification-required";
+  }
+  value.phases = value.phases.map((phase) => {
+    const dependencies = phase.id === "runtime-foundation" && state.legacyFusionMath
+      ? ["fusion-math"]
+      : phase.id === "research-validation" && state.needsCurrentEvidence
+        ? ["fusion-math", "coding-reliability"]
+        : [];
+    if (dependencies.length === 0) return phase;
+    return {
+      ...phase,
+      status: phase.status === "complete" ? "active" as const : phase.status,
+      evidence: normalizedReadinessEvidence(pilotReadinessAudit, dependencies)
+    };
+  });
+  value.notes = Array.from(new Set([
+    ...value.notes,
+    "Legacy-dependent plan evidence was invalidated and rebuilt from normalized current readiness items."
+  ]));
+}
+
+export function reconcileSenaRuntimeBundleStatisticalSurfaces(
+  runtimeBundle: SenaRuntimeBundle,
+  state: SenaStatisticalLeafReadState
+) {
+  if (!state.needsCurrentEvidence) return runtimeBundle;
+  reconcileSenaReportStatisticalSurfaces(runtimeBundle.report, state);
+  const readiness = invalidatedReadiness(
+    runtimeBundle.pilotReadinessAudit,
+    state,
+    runtimeBundle.report.completenessAudit
+  );
+  runtimeBundle.pilotReadinessAudit = readiness.pilotReadinessAudit;
+  runtimeBundle.claimReadinessGate = readiness.claimReadinessGate;
+  runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  runtimeBundle.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  reconcileDemoWalkthrough(runtimeBundle.demoWalkthrough, runtimeBundle.pilotReadinessAudit);
+  reconcileDemoVerification(runtimeBundle.demoVerification, runtimeBundle.pilotReadinessAudit);
+  reconcileDevelopmentPlan(
+    runtimeBundle.developmentPlan,
+    runtimeBundle.pilotReadinessAudit,
+    runtimeBundle.demoWalkthrough,
+    runtimeBundle.demoVerification,
+    state
+  );
+  return runtimeBundle;
 }
 
 export function normalizeSenaStatisticalLeafHolder(
@@ -112,12 +370,7 @@ export function normalizeSenaReportStatisticalLeaves(
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
   const state = normalizeSenaStatisticalLeafHolder(report, context);
-  if (state.needsCurrentEvidence) {
-    const pilotReadinessAudit = report.pilotReadinessAudit as SenaPilotReadinessAudit;
-    const readiness = invalidatedReadiness(pilotReadinessAudit, state);
-    report.pilotReadinessAudit = readiness.pilotReadinessAudit;
-    report.claimReadinessGate = readiness.claimReadinessGate;
-  }
+  reconcileSenaReportStatisticalSurfaces(report as SenaReport, state);
   return { report: report as SenaReport, state };
 }
 
@@ -138,12 +391,7 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
     needsCurrentEvidence: bundleState.needsCurrentEvidence || normalizedReport.state.needsCurrentEvidence
   };
   if (state.needsCurrentEvidence) {
-    const readiness = invalidatedReadiness(runtimeBundle.pilotReadinessAudit as SenaPilotReadinessAudit, state);
-    runtimeBundle.pilotReadinessAudit = readiness.pilotReadinessAudit;
-    runtimeBundle.claimReadinessGate = readiness.claimReadinessGate;
-    const report = runtimeBundle.report as SenaReport;
-    report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
-    report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+    reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle as SenaRuntimeBundle, state);
 
     if (Array.isArray(runtimeBundle.artifactEvidence)) {
       runtimeBundle.artifactEvidence = runtimeBundle.artifactEvidence.map((entry) => {
@@ -155,10 +403,6 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
         }
         return entry;
       });
-    }
-    if (runtimeBundle.developmentPlan && typeof runtimeBundle.developmentPlan === "object") {
-      const developmentPlan = runtimeBundle.developmentPlan as SenaRuntimeBundle["developmentPlan"];
-      developmentPlan.currentGate.pilotReadinessStatus = "needs-review";
     }
   }
   return { runtimeBundle: runtimeBundle as SenaRuntimeBundle, state };

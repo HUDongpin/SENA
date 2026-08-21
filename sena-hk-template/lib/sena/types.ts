@@ -308,13 +308,31 @@ export type SenaReliabilityClaimEligibilityInputs = {
   krippendorffAlphaNominal: number | null;
 };
 
+export type SenaReliabilityPairEstimate = {
+  coderA: string;
+  coderB: string;
+  units: number;
+  status: SenaReliabilityEstimationStatus;
+  raw: {
+    observedAgreement: number | null;
+    expectedAgreement: number | null;
+    kappa: number | null;
+  };
+  observedAgreement: number | null;
+  expectedAgreement: number | null;
+  kappa: number | null;
+};
+
 export type SenaCodingReliabilityMachineEvidence = {
   dashboardSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
   status: SenaReliabilityEstimationStatus;
+  coderIds: string[];
+  pairwiseCohenKappa: SenaReliabilityPairEstimate[];
   meanPairwiseKappaStatus: SenaReliabilityEstimationStatus;
   meanPairwiseKappa: number | null;
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
   krippendorffAlphaNominal: number | null;
   allPairwiseKappaEstimable: boolean;
   claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;

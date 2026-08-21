@@ -170,6 +170,98 @@ describe("review-packet statistical contract compatibility", () => {
       .toBe("needs-review");
   });
 
+  it("reconciles every legacy-dependent completeness, plan, walkthrough, and verification surface", () => {
+    const { packet } = packetWithGenuine14bb306StatisticalLeaves();
+    const report = importSenaReport(JSON.stringify(packet.contents.reportJson));
+    const bundle = importSenaRuntimeBundle(JSON.stringify(packet.contents.runtimeBundle));
+    const snapshot = importSenaProjectSnapshot(JSON.stringify(packet.contents.projectSnapshot));
+    const imported = importSenaReviewPacket(JSON.stringify(packet));
+
+    const assertReport = (candidate: typeof report) => {
+      const fusionCompleteness = candidate.completenessAudit.items.find((item) => item.id === "fusion-math-audit");
+      const reliabilityCompleteness = candidate.completenessAudit.items.find((item) => item.id === "coding-reliability");
+      const fusionReadiness = candidate.pilotReadinessAudit.items.find((item) => item.id === "fusion-math");
+      const completenessReadiness = candidate.pilotReadinessAudit.items.find((item) => item.id === "report-completeness");
+      expect(fusionCompleteness).toEqual(expect.objectContaining({
+        status: "review",
+        summary: "7 formula checks passed; 1 need review"
+      }));
+      expect(reliabilityCompleteness).toEqual(expect.objectContaining({ status: "review" }));
+      expect(candidate.completenessAudit.passed)
+        .toBe(candidate.completenessAudit.items.filter((item) => item.status === "pass").length);
+      expect(candidate.completenessAudit.reviewNeeded)
+        .toBe(candidate.completenessAudit.items.filter((item) => item.status === "review").length);
+      expect(fusionReadiness).toEqual(expect.objectContaining({
+        status: "review",
+        summary: expect.stringContaining("current v2")
+      }));
+      expect(completenessReadiness).toEqual(expect.objectContaining({ status: "review" }));
+      expect(candidate.pilotReadinessAudit.passed)
+        .toBe(candidate.pilotReadinessAudit.items.filter((item) => item.status === "ready").length);
+      expect(candidate.pilotReadinessAudit.reviewNeeded)
+        .toBe(candidate.pilotReadinessAudit.items.filter((item) => item.status === "review").length);
+      expect(candidate.codingReliabilityGate.machineClaimEligibility).toEqual(expect.objectContaining({
+        eligible: false,
+        status: "legacy-ambiguous",
+        blockers: ["current-v2-reliability-evidence-required"]
+      }));
+    };
+
+    for (const candidate of [
+      report,
+      bundle.report,
+      snapshot.report,
+      imported.contents.reportJson,
+      imported.contents.runtimeBundle.report,
+      imported.contents.projectSnapshot.report
+    ]) assertReport(candidate);
+
+    const assertRuntimeDerivedSurfaces = (candidate: typeof bundle) => {
+      const readyIds = candidate.pilotReadinessAudit.items.filter((item) => item.status === "ready").map((item) => item.id);
+      const reviewIds = candidate.pilotReadinessAudit.items.filter((item) => item.status === "review").map((item) => item.id);
+      expect(candidate.developmentPlan.currentGate.readyItems).toEqual(readyIds);
+      expect(candidate.developmentPlan.currentGate.reviewItems).toEqual(reviewIds);
+      expect(candidate.developmentPlan.currentGate.automatedVerification).toEqual(expect.objectContaining({
+        totalChecks: candidate.demoVerification.summary.totalChecks,
+        passed: candidate.demoVerification.summary.automatedPass,
+        review: candidate.demoVerification.summary.automatedReview
+      }));
+      expect(candidate.demoWalkthrough.steps.find((step) => step.id === "model-builder")?.status).toBe("review");
+      expect(candidate.demoWalkthrough.summary.readySteps)
+        .toBe(candidate.demoWalkthrough.steps.filter((step) => step.status === "ready").length);
+      expect(candidate.demoWalkthrough.summary.reviewSteps)
+        .toBe(candidate.demoWalkthrough.steps.filter((step) => step.status === "review").length);
+      expect(candidate.demoVerification.checks.find((check) => check.id === "weights-and-formula")?.status).toBe("review");
+      expect(candidate.demoVerification.summary.automatedPass)
+        .toBe(candidate.demoVerification.checks.filter((check) => check.status === "pass").length);
+      expect(candidate.demoVerification.summary.automatedReview)
+        .toBe(candidate.demoVerification.checks.filter((check) => check.status === "review").length);
+      const normalizedDependentEvidence = [
+        ...(candidate.demoWalkthrough.steps.find((step) => step.id === "model-builder")?.evidence ?? []),
+        ...(candidate.demoWalkthrough.steps.find((step) => step.id === "report")?.evidence ?? []),
+        ...(candidate.demoVerification.checks.find((check) => check.id === "weights-and-formula")?.observedEvidence ?? []),
+        ...(candidate.demoVerification.checks.find((check) => check.id === "report-exports")?.observedEvidence ?? []),
+        ...candidate.developmentPlan.phases.flatMap((phase) => phase.evidence)
+      ].join("\n");
+      expect(normalizedDependentEvidence).toContain("current-v2-fusion-nonnegative-evidence-required");
+      expect(normalizedDependentEvidence).toContain("current-v2-reliability-evidence-required");
+      expect(normalizedDependentEvidence).not.toMatch(/Fusion equation audit: (?:pass|ready)/);
+      expect(normalizedDependentEvidence).not.toContain("Fusion labels and dimensions: pass");
+      expect(candidate.developmentPlan.phases.find((phase) => phase.id === "runtime-foundation")?.status)
+        .not.toBe("complete");
+    };
+
+    assertRuntimeDerivedSurfaces(bundle);
+    assertRuntimeDerivedSurfaces(imported.contents.runtimeBundle);
+    expect(imported.contents.developmentPlan.currentGate).toEqual(imported.contents.runtimeBundle.developmentPlan.currentGate);
+    expect(imported.contents.demoWalkthrough.summary).toEqual(imported.contents.runtimeBundle.demoWalkthrough.summary);
+    expect(imported.contents.demoVerification.summary).toEqual(imported.contents.runtimeBundle.demoVerification.summary);
+    expect(imported.summary.reportCompletenessStatus).toBe(imported.contents.reportJson.completenessAudit.status);
+    expect(imported.contents.reportMarkdown).toContain("current-v2-fusion-nonnegative-evidence-required");
+    expect(imported.contents.reportMarkdown).not.toContain("7 formula checks passed; 0 need review");
+    expect(JSON.stringify(imported)).not.toContain("\"fusionMathStatus\":\"verified\"");
+  });
+
   it("propagates a legacy leaf in any nested holder to every readiness surface", () => {
     const { auditV1, gateV1 } = packetWithGenuine14bb306StatisticalLeaves();
     const dashboard = buildSenaReliabilityDashboard([
@@ -243,6 +335,131 @@ describe("review-packet statistical contract compatibility", () => {
     expect(() => importSenaReviewPacket(malformedAudit)).toThrow(/fusion math audit/i);
     expect(isSenaReviewPacket(malformedGate)).toBe(false);
     expect(() => importSenaReviewPacket(malformedGate)).toThrow(/coding reliability gate/i);
+  });
+
+  it("rejects a source-v1 fusion wrapper that is tampered back to verified after JSON serialization", () => {
+    const { auditV1 } = packetWithGenuine14bb306StatisticalLeaves();
+    const normalized = fusionMath.normalizeSenaFusionMathAudit(auditV1);
+    const forged = JSON.parse(JSON.stringify(normalized)) as typeof normalized;
+    const nonnegative = forged.items.find((item) => item.id === "nonnegative-values");
+    if (!nonnegative) throw new Error("expected normalized nonnegative proof obligation");
+    nonnegative.status = "pass";
+    nonnegative.actual = "forged current pass";
+    nonnegative.detail = ["forged-current-v2-evidence"];
+    forged.passed = forged.items.length;
+    forged.reviewNeeded = 0;
+    forged.status = "verified";
+
+    expect(() => fusionMath.normalizeSenaFusionMathAudit(forged)).toThrow(/source|legacy|nonnegative|fusion math audit/i);
+  });
+
+  it("rejects a source-v1 reliability wrapper carrying a coherent current eligible block", () => {
+    const { gateV1 } = packetWithGenuine14bb306StatisticalLeaves();
+    const legacy = reportRuntime.normalizeSenaCodingReliabilityGate(gateV1);
+    const dashboard = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+      { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+    ]);
+    const current = reportRuntime.buildSenaCodingReliabilityGate({
+      codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
+    }, "2026-08-21T00:00:00.000Z");
+    const forged = JSON.parse(JSON.stringify(legacy)) as typeof legacy;
+    forged.review.machineEvidence = structuredClone(current.review.machineEvidence);
+    forged.machineClaimEligibility = structuredClone(current.machineClaimEligibility);
+    forged.status = "ready";
+    forged.claimUse = "coding-reliability-documented";
+
+    expect(() => reportRuntime.normalizeSenaCodingReliabilityGate(forged)).toThrow(/source|legacy|eligibility|coding reliability gate/i);
+  });
+
+  it("rejects proof-obligation substitution at every public fusion reader", () => {
+    const packet = buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+      generatedAt: "2026-08-21T00:00:00.000Z"
+    });
+    const forge = <T,>(value: T): T => {
+      const forged = structuredClone(value) as T;
+      const audit = asRecord(forged);
+      const items = audit.items as JsonRecord[];
+      items[0].id = "substituted-proof-obligation";
+      return forged;
+    };
+
+    expect(() => fusionMath.normalizeSenaFusionMathAudit(forge(packet.contents.fusionMathAudit))).toThrow(/fusion math audit/i);
+
+    const report = structuredClone(packet.contents.reportJson);
+    report.fusionMathAudit = forge(report.fusionMathAudit);
+    expect(() => importSenaReport(report)).toThrow(/fusion math audit/i);
+
+    const bundle = structuredClone(packet.contents.runtimeBundle);
+    bundle.fusionMathAudit = forge(bundle.fusionMathAudit);
+    expect(() => importSenaRuntimeBundle(bundle)).toThrow(/fusion math audit/i);
+
+    const nestedBundle = structuredClone(packet.contents.runtimeBundle);
+    nestedBundle.report.fusionMathAudit = forge(nestedBundle.report.fusionMathAudit);
+    expect(() => importSenaRuntimeBundle(nestedBundle)).toThrow(/fusion math audit/i);
+
+    const snapshot = structuredClone(packet.contents.projectSnapshot);
+    snapshot.report.fusionMathAudit = forge(snapshot.report.fusionMathAudit);
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/fusion math audit/i);
+
+    const reviewPacket = structuredClone(packet);
+    reviewPacket.contents.fusionMathAudit = forge(reviewPacket.contents.fusionMathAudit);
+    expect(() => importSenaReviewPacket(reviewPacket)).toThrow(/fusion math audit/i);
+  });
+
+  it("derives gate eligibility from canonical raw pairs at every public statistical reader", () => {
+    const dashboard = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+      { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+    ]);
+    const packet = buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
+    });
+    const forge = <T,>(value: T): T => {
+      const forged = structuredClone(value) as T;
+      const gate = asRecord(forged);
+      const machineEvidence = asRecord(asRecord(gate.review).machineEvidence);
+      machineEvidence.coderIds = structuredClone(dashboard.coderIds);
+      machineEvidence.pairwiseCohenKappa = structuredClone(dashboard.pairwiseCohenKappa);
+      machineEvidence.krippendorffAlphaNominalRaw = dashboard.krippendorffAlphaNominalRaw;
+      const pair = (machineEvidence.pairwiseCohenKappa as JsonRecord[])[0];
+      pair.raw = { observedAgreement: 0.6, expectedAgreement: 0.5, kappa: 0.2 };
+      pair.observedAgreement = 0.6;
+      pair.expectedAgreement = 0.5;
+      pair.kappa = 0.2;
+      expect(machineEvidence.meanPairwiseKappa).toBe(1);
+      expect(asRecord(machineEvidence.claimEligibilityInputs).meanPairwiseKappa).toBe(1);
+      expect(asRecord(machineEvidence.claimEligibility).eligible).toBe(true);
+      return forged;
+    };
+
+    expect(() => reportRuntime.normalizeSenaCodingReliabilityGate(forge(packet.contents.codingReliabilityGate)))
+      .toThrow(/raw|semantic|eligibility|coding reliability gate/i);
+
+    const report = structuredClone(packet.contents.reportJson);
+    report.codingReliabilityGate = forge(report.codingReliabilityGate);
+    expect(() => importSenaReport(report)).toThrow(/raw|semantic|eligibility|coding reliability gate/i);
+
+    const bundle = structuredClone(packet.contents.runtimeBundle);
+    bundle.codingReliabilityGate = forge(bundle.codingReliabilityGate);
+    expect(() => importSenaRuntimeBundle(bundle)).toThrow(/raw|semantic|eligibility|coding reliability gate/i);
+
+    const nestedBundle = structuredClone(packet.contents.runtimeBundle);
+    nestedBundle.report.codingReliabilityGate = forge(nestedBundle.report.codingReliabilityGate);
+    expect(() => importSenaRuntimeBundle(nestedBundle)).toThrow(/raw|semantic|eligibility|coding reliability gate/i);
+
+    const snapshot = structuredClone(packet.contents.projectSnapshot);
+    snapshot.report.codingReliabilityGate = forge(snapshot.report.codingReliabilityGate);
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/raw|semantic|eligibility|coding reliability gate/i);
+
+    const reviewPacket = structuredClone(packet);
+    reviewPacket.contents.codingReliabilityGate = forge(reviewPacket.contents.codingReliabilityGate);
+    expect(() => importSenaReviewPacket(reviewPacket)).toThrow(/raw|semantic|eligibility|coding reliability gate/i);
   });
 
   it.each([

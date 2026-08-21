@@ -5,7 +5,8 @@ import type {
   SenaCodingReliabilityReview,
   SenaReliabilityClaimEligibility,
   SenaReliabilityClaimEligibilityInputs,
-  SenaReliabilityEstimationStatus
+  SenaReliabilityEstimationStatus,
+  SenaReliabilityPairEstimate
 } from "./types";
 
 export type { SenaReliabilityClaimEligibility, SenaReliabilityEstimationStatus } from "./types";
@@ -17,15 +18,7 @@ export type SenaCoderAnnotation = {
   value: boolean;
 };
 
-export type SenaPairwiseKappa = {
-  coderA: string;
-  coderB: string;
-  units: number;
-  status: SenaReliabilityEstimationStatus;
-  observedAgreement: number | null;
-  expectedAgreement: number | null;
-  kappa: number | null;
-};
+export type SenaPairwiseKappa = SenaReliabilityPairEstimate;
 
 export type SenaReliabilityDisagreement = {
   itemId: string;
@@ -48,6 +41,7 @@ export type SenaReliabilityDashboard = {
   sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
   status: SenaReliabilityEstimationStatus;
   coderCount: number;
+  coderIds: string[];
   itemCount: number;
   codeCount: number;
   binaryUnitCount: number;
@@ -56,6 +50,7 @@ export type SenaReliabilityDashboard = {
   meanPairwiseKappaStatus: SenaReliabilityEstimationStatus;
   meanPairwiseKappa: number | null;
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
   krippendorffAlphaNominal: number | null;
   claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
   claimEligibility: SenaReliabilityClaimEligibility;
@@ -205,7 +200,7 @@ function roundNullable(value: number | null, digits = 4) {
   return value === null || !Number.isFinite(value) ? null : Number(value.toFixed(digits));
 }
 
-function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>): Omit<SenaPairwiseKappa, "coderA" | "coderB"> {
+function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>): Omit<SenaPairwiseKappa, "coderA" | "coderB" | "raw"> {
   const length = Math.min(a.length, b.length);
   let units = 0;
   let agree = 0;
@@ -413,6 +408,11 @@ function buildCodeDiagnostics(
           coderB,
           units: stats.units,
           status: stats.status,
+          raw: {
+            observedAgreement: stats.observedAgreement,
+            expectedAgreement: stats.expectedAgreement,
+            kappa: stats.kappa
+          },
           observedAgreement: roundNullable(stats.observedAgreement),
           expectedAgreement: roundNullable(stats.expectedAgreement),
           kappa: roundNullable(stats.kappa)
@@ -578,6 +578,59 @@ function isSemanticallyConsistentEligibilityInputs(input: SenaReliabilityClaimEl
   return input.meanPairwiseKappa === null;
 }
 
+function canonicalReliabilityInputs(value: {
+  coderIds: string[];
+  pairwiseCohenKappa: SenaPairwiseKappa[];
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
+}): SenaReliabilityClaimEligibilityInputs | null {
+  const coderIds = value.coderIds;
+  if (coderIds.some((coderId) => coderId.length === 0) ||
+    new Set(coderIds).size !== coderIds.length ||
+    !sameStringArray(coderIds, [...coderIds].sort()) ||
+    !value.pairwiseCohenKappa.every(isValidPairwiseKappa)) return null;
+  const actualPairKeys = value.pairwiseCohenKappa
+    .map((pair) => [pair.coderA, pair.coderB].sort().join("::"))
+    .sort();
+  if (!sameStringArray(actualPairKeys, expectedPairKeys(coderIds))) return null;
+  const pairwiseKappaStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
+  const allPairsEstimable = pairwiseKappaStatuses.length > 0 &&
+    pairwiseKappaStatuses.every((status) => status === "estimable");
+  const meanPairwiseKappa = allPairsEstimable
+    ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
+    : null;
+  const alphaIsEstimable = value.krippendorffAlphaNominalStatus === "estimable";
+  if (alphaIsEstimable
+    ? value.krippendorffAlphaNominalRaw === null || value.krippendorffAlphaNominalRaw < -1 || value.krippendorffAlphaNominalRaw > 1
+    : value.krippendorffAlphaNominalRaw !== null) return null;
+  return {
+    coderCount: coderIds.length,
+    pairwiseKappaStatuses,
+    meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw
+  };
+}
+
+function sameEligibilityInputs(
+  left: SenaReliabilityClaimEligibilityInputs,
+  right: SenaReliabilityClaimEligibilityInputs
+) {
+  return left.coderCount === right.coderCount &&
+    sameStringArray(left.pairwiseKappaStatuses, right.pairwiseKappaStatuses) &&
+    sameNullableNumber(left.meanPairwiseKappa, right.meanPairwiseKappa) &&
+    left.krippendorffAlphaNominalStatus === right.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(left.krippendorffAlphaNominal, right.krippendorffAlphaNominal);
+}
+
+export function deriveSenaReliabilityMachineClaimEligibility(
+  value: SenaCodingReliabilityMachineEvidence
+): SenaReliabilityClaimEligibility {
+  const inputs = canonicalReliabilityInputs(value);
+  if (!inputs) throw new Error("SENA reliability machine evidence lacks canonical raw pair or alpha estimates.");
+  return deriveSenaReliabilityClaimEligibility(inputs);
+}
+
 export function isSemanticallyValidSenaReliabilityMachineEvidence(
   value: unknown
 ): value is SenaCodingReliabilityMachineEvidence {
@@ -586,42 +639,63 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
     (value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
       value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard) ||
     !isReliabilityEstimationStatus(value.status) ||
+    !Array.isArray(value.coderIds) ||
+    !value.coderIds.every((coderId) => typeof coderId === "string") ||
+    !Array.isArray(value.pairwiseCohenKappa) ||
     !isReliabilityEstimationStatus(value.meanPairwiseKappaStatus) ||
     !finiteNumberOrNull(value.meanPairwiseKappa) ||
     !isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
     !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
     typeof value.allPairwiseKappaEstimable !== "boolean" ||
     !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
     !isClaimEligibility(value.claimEligibility)) return false;
 
-  const inputs = value.claimEligibilityInputs;
-  if (value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard && (
+  const canonicalInputs = canonicalReliabilityInputs(value as unknown as {
+    coderIds: string[];
+    pairwiseCohenKappa: SenaPairwiseKappa[];
+    krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+    krippendorffAlphaNominalRaw: number | null;
+  });
+  if (!canonicalInputs || !sameEligibilityInputs(value.claimEligibilityInputs, canonicalInputs)) return false;
+  const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  if (currentSource && (
     value.status === "legacy-ambiguous" ||
     value.meanPairwiseKappaStatus === "legacy-ambiguous" ||
     value.krippendorffAlphaNominalStatus === "legacy-ambiguous" ||
-    inputs.pairwiseKappaStatuses.some((status) => status === "legacy-ambiguous")
+    canonicalInputs.pairwiseKappaStatuses.some((status) => status === "legacy-ambiguous")
   )) return false;
-  const expected = deriveSenaReliabilityClaimEligibility(inputs);
+  const expected = deriveSenaReliabilityClaimEligibility(canonicalInputs);
   const expectedStatus = aggregateReliabilityStatus(
-    inputs.coderCount,
-    inputs.pairwiseKappaStatuses,
-    inputs.krippendorffAlphaNominalStatus
+    canonicalInputs.coderCount,
+    canonicalInputs.pairwiseKappaStatuses,
+    canonicalInputs.krippendorffAlphaNominalStatus
   );
-  const expectedMeanStatus = inputs.coderCount < 2
+  const expectedMeanStatus = canonicalInputs.coderCount < 2
     ? "insufficient-coders"
-    : inputs.pairwiseKappaStatuses.length === 0 || inputs.pairwiseKappaStatuses.some((status) => status === "insufficient-pairable-units")
+    : canonicalInputs.pairwiseKappaStatuses.length === 0 || canonicalInputs.pairwiseKappaStatuses.some((status) => status === "insufficient-pairable-units")
       ? "insufficient-pairable-units"
-      : inputs.pairwiseKappaStatuses.some((status) => status === "single-observed-category")
+      : canonicalInputs.pairwiseKappaStatuses.some((status) => status === "single-observed-category")
         ? "single-observed-category"
-        : inputs.pairwiseKappaStatuses.every((status) => status === "estimable")
+        : canonicalInputs.pairwiseKappaStatuses.every((status) => status === "estimable")
           ? "estimable"
           : "legacy-ambiguous";
-  return isSemanticallyConsistentEligibilityInputs(inputs) &&
+  const legacySourceValid = !currentSource &&
+    value.status === "legacy-ambiguous" &&
+    value.meanPairwiseKappaStatus === "legacy-ambiguous" &&
+    value.meanPairwiseKappa === null &&
+    value.krippendorffAlphaNominalStatus === "legacy-ambiguous" &&
+    value.krippendorffAlphaNominalRaw === null &&
+    value.krippendorffAlphaNominal === null &&
+    value.claimEligibility.eligible === false &&
+    value.claimEligibility.blockers.includes("current-v2-estimates-required");
+  if (legacySourceValid) return true;
+  return currentSource && isSemanticallyConsistentEligibilityInputs(canonicalInputs) &&
     value.status === expectedStatus &&
     value.meanPairwiseKappaStatus === expectedMeanStatus &&
-    sameNullableNumber(value.meanPairwiseKappa, roundNullable(inputs.meanPairwiseKappa)) &&
-    value.krippendorffAlphaNominalStatus === inputs.krippendorffAlphaNominalStatus &&
-    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(inputs.krippendorffAlphaNominal)) &&
+    sameNullableNumber(value.meanPairwiseKappa, roundNullable(canonicalInputs.meanPairwiseKappa)) &&
+    value.krippendorffAlphaNominalStatus === canonicalInputs.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(canonicalInputs.krippendorffAlphaNominal)) &&
     value.allPairwiseKappaEstimable === expected.checks.allPairwiseKappaEstimable &&
     sameClaimEligibility(value.claimEligibility, expected);
 }
@@ -684,6 +758,11 @@ export function buildSenaReliabilityDashboard(
         coderB,
         units: stats.units,
         status: stats.status,
+        raw: {
+          observedAgreement: stats.observedAgreement,
+          expectedAgreement: stats.expectedAgreement,
+          kappa: stats.kappa
+        },
         observedAgreement: roundNullable(stats.observedAgreement),
         expectedAgreement: roundNullable(stats.expectedAgreement),
         kappa: roundNullable(stats.kappa)
@@ -755,6 +834,7 @@ export function buildSenaReliabilityDashboard(
     sourceSchemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
     status,
     coderCount: coders.length,
+    coderIds: coders,
     itemCount: items.length,
     codeCount: codes.length,
     binaryUnitCount: unitKeys.length,
@@ -763,6 +843,7 @@ export function buildSenaReliabilityDashboard(
     meanPairwiseKappaStatus,
     meanPairwiseKappa,
     krippendorffAlphaNominalStatus: alphaEstimate.status,
+    krippendorffAlphaNominalRaw: alphaEstimate.value,
     krippendorffAlphaNominal: alpha,
     claimEligibilityInputs,
     claimEligibility,
@@ -788,32 +869,81 @@ function normalizeLegacyPairwiseKappa(value: unknown): SenaPairwiseKappa {
     coderB: typeof pair.coderB === "string" ? pair.coderB : "unknown-coder-b",
     units: typeof pair.units === "number" && Number.isFinite(pair.units) ? Math.max(0, Math.trunc(pair.units)) : 0,
     status: "legacy-ambiguous",
+    raw: {
+      observedAgreement: null,
+      expectedAgreement: null,
+      kappa: null
+    },
     observedAgreement: finiteOrNull(pair.observedAgreement),
     expectedAgreement: finiteOrNull(pair.expectedAgreement),
     kappa: finiteOrNull(pair.kappa)
   };
 }
 
+function approximatelyEqual(left: number, right: number, tolerance = 1e-12) {
+  return Math.abs(left - right) <= tolerance * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function inClosedUnitInterval(value: number) {
+  return value >= 0 && value <= 1;
+}
+
 function isValidPairwiseKappa(value: unknown) {
+  const raw = isRecord(value) && isRecord(value.raw) ? value.raw : null;
   if (!isRecord(value) ||
     typeof value.coderA !== "string" ||
     typeof value.coderB !== "string" ||
     !Number.isInteger(value.units) || Number(value.units) < 0 ||
     !isReliabilityEstimationStatus(value.status) ||
+    !raw ||
+    !finiteNumberOrNull(raw.observedAgreement) ||
+    !finiteNumberOrNull(raw.expectedAgreement) ||
+    !finiteNumberOrNull(raw.kappa) ||
     !finiteNumberOrNull(value.observedAgreement) ||
     !finiteNumberOrNull(value.expectedAgreement) ||
     !finiteNumberOrNull(value.kappa)) return false;
   if (value.status === "estimable") {
-    return Number(value.units) >= 2 &&
-      typeof value.observedAgreement === "number" &&
-      typeof value.expectedAgreement === "number" &&
-      typeof value.kappa === "number";
+    if (Number(value.units) < 2 ||
+      typeof raw.observedAgreement !== "number" ||
+      typeof raw.expectedAgreement !== "number" ||
+      typeof raw.kappa !== "number" ||
+      typeof value.observedAgreement !== "number" ||
+      typeof value.expectedAgreement !== "number" ||
+      typeof value.kappa !== "number") return false;
+    if (!inClosedUnitInterval(raw.observedAgreement) ||
+      !inClosedUnitInterval(raw.expectedAgreement) ||
+      raw.expectedAgreement >= 1 ||
+      raw.kappa < -1 || raw.kappa > 1) return false;
+    const expectedKappa = (raw.observedAgreement - raw.expectedAgreement) / (1 - raw.expectedAgreement);
+    return approximatelyEqual(raw.kappa, expectedKappa) &&
+      value.observedAgreement === roundNullable(raw.observedAgreement) &&
+      value.expectedAgreement === roundNullable(raw.expectedAgreement) &&
+      value.kappa === roundNullable(raw.kappa);
   }
   if (value.status === "insufficient-pairable-units" || value.status === "insufficient-coders") {
-    return value.observedAgreement === null && value.expectedAgreement === null && value.kappa === null;
+    return raw.observedAgreement === null && raw.expectedAgreement === null && raw.kappa === null &&
+      value.observedAgreement === null && value.expectedAgreement === null && value.kappa === null;
   }
-  if (value.status === "legacy-ambiguous") return true;
-  return value.kappa === null;
+  if (value.status === "legacy-ambiguous") {
+    return raw.observedAgreement === null && raw.expectedAgreement === null && raw.kappa === null;
+  }
+  return Number(value.units) >= 2 &&
+    typeof raw.observedAgreement === "number" && raw.observedAgreement === 1 &&
+    typeof raw.expectedAgreement === "number" && raw.expectedAgreement === 1 &&
+    raw.kappa === null &&
+    value.observedAgreement === roundNullable(raw.observedAgreement) &&
+    value.expectedAgreement === roundNullable(raw.expectedAgreement) &&
+    value.kappa === null;
+}
+
+function expectedPairKeys(coderIds: string[]) {
+  const keys: string[] = [];
+  for (let left = 0; left < coderIds.length; left += 1) {
+    for (let right = left + 1; right < coderIds.length; right += 1) {
+      keys.push([coderIds[left], coderIds[right]].sort().join("::"));
+    }
+  }
+  return keys.sort();
 }
 
 function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaReliabilityDashboard {
@@ -823,21 +953,37 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
       value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard) ||
     !isReliabilityEstimationStatus(value.status) ||
     !Number.isInteger(value.coderCount) || Number(value.coderCount) < 0 ||
+    !Array.isArray(value.coderIds) ||
+    !value.coderIds.every((coderId) => typeof coderId === "string" && coderId.length > 0) ||
     !Array.isArray(value.pairwiseCohenKappa) ||
     !value.pairwiseCohenKappa.every(isValidPairwiseKappa) ||
     !isReliabilityEstimationStatus(value.meanPairwiseKappaStatus) ||
     !finiteNumberOrNull(value.meanPairwiseKappa) ||
     !isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
     !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
     !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
     !isClaimEligibility(value.claimEligibility)) return false;
 
   const inputs = value.claimEligibilityInputs;
+  const coderIds = value.coderIds as string[];
   const pairwiseStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
-  const pairKeys = value.pairwiseCohenKappa.map((pair) => [pair.coderA, pair.coderB].sort().join("::"));
-  if (pairKeys.some((key) => key.split("::")[0] === key.split("::")[1]) ||
-    new Set(pairKeys).size !== pairKeys.length) return false;
-  const expected = deriveSenaReliabilityClaimEligibility(inputs);
+  const pairKeys = value.pairwiseCohenKappa.map((pair) => [pair.coderA, pair.coderB].sort().join("::")).sort();
+  const canonicalPairKeys = expectedPairKeys(coderIds);
+  if (new Set(coderIds).size !== coderIds.length ||
+    coderIds.length !== value.coderCount ||
+    !sameStringArray(pairKeys, canonicalPairKeys)) return false;
+  const rawMeanPairwiseKappa = pairwiseStatuses.length > 0 && pairwiseStatuses.every((status) => status === "estimable")
+    ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
+    : null;
+  const canonicalInputs: SenaReliabilityClaimEligibilityInputs = {
+    coderCount: coderIds.length,
+    pairwiseKappaStatuses: pairwiseStatuses,
+    meanPairwiseKappa: rawMeanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw
+  };
+  const expected = deriveSenaReliabilityClaimEligibility(canonicalInputs);
   const expectedStatus = aggregateReliabilityStatus(
     Number(value.coderCount),
     pairwiseStatuses,
@@ -854,9 +1000,13 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
           : "legacy-ambiguous";
   const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   const legacySourceValid = !currentSource &&
+    value.coderIds.length === value.coderCount &&
     value.status === "legacy-ambiguous" &&
     value.meanPairwiseKappaStatus === "legacy-ambiguous" &&
+    value.meanPairwiseKappa === null &&
     value.krippendorffAlphaNominalStatus === "legacy-ambiguous" &&
+    value.krippendorffAlphaNominalRaw === null &&
+    value.krippendorffAlphaNominal === null &&
     value.claimEligibility.eligible === false &&
     value.claimEligibility.blockers.includes("current-v2-estimates-required");
   if (legacySourceValid) return true;
@@ -866,14 +1016,19 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     value.krippendorffAlphaNominalStatus === "legacy-ambiguous" ||
     pairwiseStatuses.some((status) => status === "legacy-ambiguous")) return false;
 
-  return inputs.coderCount === value.coderCount &&
+  return inputs.coderCount === canonicalInputs.coderCount &&
     sameStringArray(inputs.pairwiseKappaStatuses, pairwiseStatuses) &&
+    sameNullableNumber(inputs.meanPairwiseKappa, canonicalInputs.meanPairwiseKappa) &&
+    inputs.krippendorffAlphaNominalStatus === canonicalInputs.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(inputs.krippendorffAlphaNominal, canonicalInputs.krippendorffAlphaNominal) &&
     value.status === expectedStatus &&
     value.meanPairwiseKappaStatus === expectedMeanStatus &&
-    sameNullableNumber(value.meanPairwiseKappa, roundNullable(inputs.meanPairwiseKappa)) &&
-    value.krippendorffAlphaNominalStatus === inputs.krippendorffAlphaNominalStatus &&
-    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(inputs.krippendorffAlphaNominal)) &&
-    isSemanticallyConsistentEligibilityInputs(inputs) &&
+    sameNullableNumber(value.meanPairwiseKappa, roundNullable(canonicalInputs.meanPairwiseKappa)) &&
+    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(value.krippendorffAlphaNominalRaw)) &&
+    (value.krippendorffAlphaNominalStatus === "estimable"
+      ? typeof value.krippendorffAlphaNominalRaw === "number" && value.krippendorffAlphaNominalRaw >= -1 && value.krippendorffAlphaNominalRaw <= 1
+      : value.krippendorffAlphaNominalRaw === null && value.krippendorffAlphaNominal === null) &&
+    isSemanticallyConsistentEligibilityInputs(canonicalInputs) &&
     sameClaimEligibility(value.claimEligibility, expected);
 }
 
@@ -908,17 +1063,20 @@ export function normalizeSenaReliabilityDashboard(
         : []
     })) as SenaCodeReliabilityDiagnostic[]
     : [];
-  const meanPairwiseKappa = finiteOrNull(value.meanPairwiseKappa);
-  const alpha = finiteOrNull(value.krippendorffAlphaNominal);
+  const coderCount = typeof value.coderCount === "number" && Number.isFinite(value.coderCount) ? Math.max(0, Math.trunc(value.coderCount)) : 0;
+  const pairCoderIds = Array.from(new Set(pairwiseCohenKappa.flatMap((pair) => [pair.coderA, pair.coderB]))).sort();
+  const coderIds = Array.from({ length: coderCount }, (_, index) => pairCoderIds[index] ?? `legacy-coder-${index + 1}`);
+  const meanPairwiseKappa = null;
+  const alpha = null;
   const legacyEligibility = buildSenaReliabilityClaimEligibility({
-    coderCount: typeof value.coderCount === "number" ? value.coderCount : 0,
+    coderCount,
     pairwiseStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
     meanPairwiseKappa,
     krippendorffAlphaNominal: alpha,
     krippendorffAlphaNominalStatus: "legacy-ambiguous"
   });
   const claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs = {
-    coderCount: typeof value.coderCount === "number" && Number.isFinite(value.coderCount) ? Math.max(0, Math.trunc(value.coderCount)) : 0,
+    coderCount,
     pairwiseKappaStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
     meanPairwiseKappa,
     krippendorffAlphaNominalStatus: "legacy-ambiguous",
@@ -930,11 +1088,13 @@ export function normalizeSenaReliabilityDashboard(
     schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
     sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard,
     status: "legacy-ambiguous",
+    coderIds,
     pairwiseCohenKappa,
     codeDiagnostics,
     meanPairwiseKappaStatus: "legacy-ambiguous",
     meanPairwiseKappa,
     krippendorffAlphaNominalStatus: "legacy-ambiguous",
+    krippendorffAlphaNominalRaw: null,
     krippendorffAlphaNominal: alpha,
     claimEligibilityInputs,
     claimEligibility: {
@@ -970,9 +1130,12 @@ export function reliabilityDashboardToReview(
       dashboardSchemaVersion: dashboard.schemaVersion,
       sourceSchemaVersion: dashboard.sourceSchemaVersion,
       status: dashboard.status,
+      coderIds: structuredClone(dashboard.coderIds),
+      pairwiseCohenKappa: structuredClone(dashboard.pairwiseCohenKappa),
       meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
       meanPairwiseKappa: dashboard.meanPairwiseKappa,
       krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+      krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
       krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
       allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 && dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
       claimEligibilityInputs: structuredClone(dashboard.claimEligibilityInputs),
