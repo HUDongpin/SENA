@@ -3934,6 +3934,8 @@ describe("SENA enterprise runtime", () => {
       reviewer: "Enterprise test",
       fileCount: 1,
       annotationCount: parsedReliability.annotations.length,
+      annotations: parsedReliability.annotations,
+      skippedCells: parsedReliability.skippedCells,
       inputFiles: [{ name: "coder-ratings.csv", size: 128, sha256: "a".repeat(64) }],
       dashboard: reliability,
       reviewPatch: reliabilityReview

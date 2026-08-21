@@ -4,7 +4,9 @@ import {
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
-  type SenaReliabilityDashboard
+  type SenaCoderAnnotation,
+  type SenaReliabilityDashboard,
+  type SenaSkippedCoderCell
 } from "./reliability";
 import type { SenaCodingReliabilityReview } from "./types";
 import type { SenaImportRow } from "./import";
@@ -13,6 +15,7 @@ export type SenaReliabilityJsonRequest = {
   schemaVersion?: typeof SENA_SCHEMA_VERSIONS.reliabilityJsonRequest;
   teamId?: unknown;
   projectId?: unknown;
+  projectVersion?: unknown;
   reviewer?: unknown;
   sourceName?: unknown;
   annotations?: unknown;
@@ -26,9 +29,12 @@ export type SenaPreparedReliabilityRunInput = {
   source: "json-annotations";
   teamId?: string;
   projectId?: string;
+  projectVersion?: number;
   reviewer: string;
   fileCount: number;
   annotationCount: number;
+  annotations: SenaCoderAnnotation[];
+  skippedCells: SenaSkippedCoderCell[];
   inputFiles: Array<{ name: string; size: number; sha256: string }>;
   dashboard: SenaReliabilityDashboard;
   reviewPatch: Partial<SenaCodingReliabilityReview>;
@@ -110,9 +116,12 @@ export function prepareSenaReliabilityJsonRequest(
     source: "json-annotations",
     teamId: scalar(payload.teamId) || undefined,
     projectId: scalar(payload.projectId) || undefined,
+    projectVersion: Number.isInteger(payload.projectVersion) ? Number(payload.projectVersion) : undefined,
     reviewer,
     fileCount: Math.max(1, sources.length),
     annotationCount: parsed.annotations.length,
+    annotations: parsed.annotations,
+    skippedCells: parsed.skippedCells,
     inputFiles: (sources.length > 0 ? sources : [{ name: "reliability-json-annotations.json", rows: [] }])
       .map((source) => sourceSummary(source.name, source.rows)),
     dashboard: dashboardWithWarnings,

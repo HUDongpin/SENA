@@ -25,6 +25,7 @@ import {
 import {
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,
+  normalizeSenaGroupComparisonValidationResult,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,
@@ -607,6 +608,10 @@ function createEnterpriseValidationRunInDb(
   input: CreateEnterpriseValidationRunInput,
   db: ReturnType<typeof readEnterpriseDb>
 ) {
+  input = {
+    ...input,
+    result: normalizeSenaGroupComparisonValidationResult(input.result)
+  };
   requireEnterprisePermission(context, input.teamId, "analysis:run");
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");

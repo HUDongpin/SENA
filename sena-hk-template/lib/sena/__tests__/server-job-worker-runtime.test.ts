@@ -194,11 +194,14 @@ describe("SENA in-repo server job worker runtime", () => {
   it("executes a queued reliability job from the inline annotation payload", async () => {
     const fixture = await workerFixture({ inlinePayload: true });
     enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
 
     const payload = {
       action: "run-reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
       uploadIds: [],
       reviewer: "Worker Runtime Reviewer",
       sourceName: "worker-runtime-reliability.json",
@@ -212,6 +215,8 @@ describe("SENA in-repo server job worker runtime", () => {
       payload,
       payloadSummary: {
         source: "dataset",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
         uploadIds: [],
         annotationCount: reliabilityAnnotations.length,
         hasInlineSnapshot: false,
@@ -232,6 +237,52 @@ describe("SENA in-repo server job worker runtime", () => {
       teamId: fixture.teamId
     });
     expect(runs.map((run) => run.id)).toContain(outcome.result?.reliabilityRunId);
+  });
+
+  it("rejects a queued reliability job after its bound project revision changes", async () => {
+    const fixture = await workerFixture({ inlinePayload: true });
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds: [],
+      reviewer: "Stale Worker Runtime Reviewer",
+      sourceName: "worker-runtime-stale-reliability.json",
+      inlineAnnotations: reliabilityAnnotations
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "dataset",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: payload.snapshotFingerprint,
+        uploadIds: [],
+        annotationCount: reliabilityAnnotations.length,
+        hasInlineSnapshot: false,
+        hasInlineDataset: true,
+        payloadValuesExcluded: true
+      }
+    });
+    await fixture.enterprise.updateEnterpriseProjectAsync(fixture.context, fixture.project.id, {
+      expectedVersion: fixture.project.currentVersion,
+      snapshot: structuredClone(fixture.snapshot)
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.errorCode).toBe("server_job_worker_reliability_project_binding_changed");
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual([]);
   });
 
   it("records a failing payload as failed with its error code and hash instead of dropping it", async () => {
@@ -441,6 +492,7 @@ describe("SENA in-repo server job worker runtime", () => {
   it("executes a queued reliability job from its registered upload blobs", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
 
     const uploads = await fixture.registerUploads([{
       name: "worker-runtime-reliability.csv",
@@ -454,6 +506,8 @@ describe("SENA in-repo server job worker runtime", () => {
       action: "run-reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
       uploadIds,
       reviewer: "Worker Runtime Reviewer"
     };

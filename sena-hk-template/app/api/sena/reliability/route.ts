@@ -30,9 +30,11 @@ import {
 } from "@/lib/sena/enterprise/server-job-queue";
 import { readSenaReliabilityUploadRows } from "@/lib/sena/import-adapters";
 import {
+  bindSenaReliabilityAnnotationsToProject,
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
-  reliabilityDashboardToReview
+  reliabilityDashboardToReview,
+  senaReliabilitySnapshotFingerprint
 } from "@/lib/sena/reliability";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
@@ -88,6 +90,23 @@ export async function POST(request: Request) {
         const queue = serverJobQueueStatus();
         const uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
         const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
+        const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
+        if (project && Array.isArray(body.annotations)) {
+          const parsedInline = parseCoderAnnotationsFromRows(body.annotations as Record<string, unknown>[]);
+          try {
+            bindSenaReliabilityAnnotationsToProject(parsedInline.annotations, {
+              projectId: project.id,
+              projectVersion: project.currentVersion,
+              snapshot: project.snapshot
+            });
+          } catch {
+            throw new SenaEnterpriseError(
+              "Queued reliability annotations do not match the current project snapshot.",
+              400,
+              "reliability_project_binding_invalid"
+            );
+          }
+        }
         if (uploadIds.length === 0 && !queue.inlinePayloadAllowed) {
           throw new SenaEnterpriseError(
             "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
@@ -104,6 +123,8 @@ export async function POST(request: Request) {
             action: "run-reliability",
             teamId,
             projectId,
+            projectVersion: project?.currentVersion,
+            snapshotFingerprint,
             uploadIds,
             reviewer: body.reviewer ? String(body.reviewer) : context.user.name,
             sourceName: body.sourceName ? String(body.sourceName) : undefined,
@@ -113,6 +134,7 @@ export async function POST(request: Request) {
           payloadSummary: {
             source: uploadIds.length > 0 ? "upload" : "dataset",
             projectVersion: project?.currentVersion,
+            snapshotFingerprint,
             uploadIds,
             annotationCount,
             fileCount: uploadIds.length || (body.sourceName ? 1 : undefined),
@@ -171,6 +193,7 @@ export async function POST(request: Request) {
       });
       const queue = serverJobQueueStatus();
       const uploadIds = uploads.map((upload) => upload.id);
+      const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
       const job = await enqueueEnterpriseServerJob({
         kind: "reliability",
         teamId,
@@ -180,12 +203,15 @@ export async function POST(request: Request) {
           action: "run-reliability",
           teamId,
           projectId,
+          projectVersion: project?.currentVersion,
+          snapshotFingerprint,
           uploadIds,
           reviewer: String(form.get("reviewer") || context.user.name)
         },
         payloadSummary: {
           source: "upload",
           projectVersion: project?.currentVersion,
+          snapshotFingerprint,
           uploadIds,
           fileCount: uploads.length,
           hasInlineSnapshot: false,
@@ -236,6 +262,8 @@ export async function POST(request: Request) {
       reviewer,
       fileCount: bufferedFiles.length,
       annotationCount: parsed.annotations.length,
+      annotations: parsed.annotations,
+      skippedCells: parsed.skippedCells,
       inputFiles: bufferedFiles.map(fileSummary),
       dashboard: dashboardWithWarnings,
       reviewPatch

@@ -4,6 +4,7 @@ import {
   type SenaGroupComparisonValidationReadModel
 } from "./inference";
 import {
+  isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
   type SenaReliabilityDashboardReadModel
 } from "./reliability";
@@ -1057,6 +1058,11 @@ function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterp
     dashboard: SenaReliabilityDashboardReadModel;
   }>(row.payload);
   const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
+  if (payload.projectId && (!isValidSenaReliabilityProjectBinding(payload.projectBinding) ||
+    JSON.stringify(payload.projectBinding) !== JSON.stringify(dashboard.projectBinding) ||
+    payload.projectBinding.projectId !== payload.projectId)) {
+    throw new Error("Stored Postgres reliability run project binding is missing or contradictory.");
+  }
   return {
     ...payload,
     dashboard,

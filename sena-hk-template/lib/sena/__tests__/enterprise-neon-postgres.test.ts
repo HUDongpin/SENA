@@ -1041,6 +1041,8 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       reviewer: "Claim Reliability Reviewer",
       fileCount: 1,
       annotationCount: parsed.annotations.length,
+      annotations: parsed.annotations,
+      skippedCells: parsed.skippedCells,
       inputFiles: [{ name: "claim-ratings.csv", size: 128, sha256: "c".repeat(64) }],
       dashboard,
       reviewPatch: reliabilityDashboardToReview(dashboard, "Claim Reliability Reviewer")
@@ -1270,6 +1272,8 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       reviewer: "Collaboration Reliability Reviewer",
       fileCount: 1,
       annotationCount: parsed.annotations.length,
+      annotations: parsed.annotations,
+      skippedCells: parsed.skippedCells,
       inputFiles: [{ name: "collaboration-ratings.csv", size: 128, sha256: "d".repeat(64) }],
       dashboard,
       reviewPatch: reliabilityDashboardToReview(dashboard, "Collaboration Reliability Reviewer")

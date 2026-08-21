@@ -242,8 +242,11 @@ export function validateSenaAnalyticalInputs(input: {
     if (options.d !== undefined && (!Number.isSafeInteger(options.d) || options.d < 1)) {
       add("buildOptions.d", "integer-range");
     }
-    if (options.seed !== undefined && !isFiniteNumber(options.seed)) {
-      add("buildOptions.seed", "finite");
+    if (
+      options.seed !== undefined &&
+      (!Number.isSafeInteger(options.seed) || options.seed < 0 || options.seed > SENA_CANONICAL_UINT32_MAX)
+    ) {
+      add("buildOptions.seed", "integer-range");
     }
     if (options.undirectedSocial !== undefined && typeof options.undirectedSocial !== "boolean") {
       add("buildOptions.undirectedSocial", "boolean");

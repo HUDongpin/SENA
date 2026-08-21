@@ -289,6 +289,7 @@ describe("SENA reliability route", () => {
           fileCount?: number;
           uploadIds?: string[];
           projectVersion?: number;
+          snapshotFingerprint?: string;
         };
         worker?: { expectedAction?: string; payloadDelivery?: string };
         delivery?: { webhookStatus?: string; httpStatus?: number };
@@ -303,6 +304,7 @@ describe("SENA reliability route", () => {
         fileCount: 1,
         projectVersion: project.currentVersion
       }));
+      expect(body.payloadSummary?.snapshotFingerprint).toMatch(/^0x[a-f0-9]{8}$/);
       expect(body.payloadSummary?.uploadIds).toHaveLength(1);
       expect(body.worker).toEqual(expect.objectContaining({
         expectedAction: "run-reliability",
@@ -320,11 +322,20 @@ describe("SENA reliability route", () => {
       expect(queueRequests[0].headers["x-sena-webhook-signature"])
         .toBe(`sha256=${createHmac("sha256", "sena-test-job-secret").update(`${queueTimestamp}.${queueRequests[0].body}`).digest("hex")}`);
       const queuePayload = JSON.parse(queueRequests[0].body) as {
-        workerPayload?: { action?: string; projectId?: string; uploadIds?: string[]; reviewer?: string };
+        workerPayload?: {
+          action?: string;
+          projectId?: string;
+          projectVersion?: number;
+          snapshotFingerprint?: string;
+          uploadIds?: string[];
+          reviewer?: string;
+        };
       };
       expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
         action: "run-reliability",
         projectId: project.id,
+        projectVersion: project.currentVersion,
+        snapshotFingerprint: body.payloadSummary?.snapshotFingerprint,
         uploadIds: body.payloadSummary?.uploadIds,
         reviewer: "Queued Reliability Reviewer"
       }));

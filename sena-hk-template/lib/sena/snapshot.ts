@@ -1,4 +1,10 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
+import {
+  normalizeSenaFusionMathAudit,
+  type SenaFusionMathAuditEvidence
+} from "./fusion-math";
+import { assertSenaReliabilityProjectBindingMatchesSnapshot } from "./reliability";
 import { buildSenaReport, type SenaReportOptions } from "./report";
 import { buildSenaTemporalRuntimeTrace } from "./temporal-runtime";
 import { normalizeSenaReportStatisticalLeaves } from "./statistical-leaf-read";
@@ -256,11 +262,31 @@ function assertSenaProjectSnapshot(value: unknown): void {
 export function importSenaProjectSnapshot(source: string | unknown): SenaProjectSnapshot {
   const value = typeof source === "string" ? JSON.parse(source) : source;
   assertSenaProjectSnapshot(value);
+  const validated = value as SenaProjectSnapshot;
+  validateSenaAnalyticalInputs({
+    dataset: validated.dataset,
+    buildOptions: validated.reproducibility.buildOptions
+  });
   const normalized = structuredClone(value) as Record<string, unknown>;
-  normalized.report = normalizeSenaReportStatisticalLeaves(
+  const normalizedReport = normalizeSenaReportStatisticalLeaves(
     normalized.report,
     "project snapshot.report"
   ).report;
+  const analysis = asRecord(normalized.analysis, "project snapshot.analysis");
+  const reproducibility = asRecord(normalized.reproducibility, "project snapshot.reproducibility");
+  normalizeSenaFusionMathAudit(normalizedReport.fusionMathAudit, {
+    matrices: analysis.matrices as SenaFusionMathAuditEvidence["matrices"],
+    options: reproducibility.buildOptions as SenaFusionMathAuditEvidence["options"],
+    pairReport: analysis.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+  });
+  const projectBinding = normalizedReport.codingReliabilityGate.review.machineEvidence?.projectBinding;
+  if (projectBinding) {
+    assertSenaReliabilityProjectBindingMatchesSnapshot(
+      projectBinding,
+      normalized as unknown as SenaProjectSnapshot
+    );
+  }
+  normalized.report = normalizedReport;
   return normalized as SenaProjectSnapshot;
 }
 
@@ -268,12 +294,27 @@ export function isSenaProjectSnapshot(value: unknown): value is SenaProjectSnaps
   try {
     assertSenaProjectSnapshot(value);
     const root = asRecord(value, "project snapshot");
+    const reproducibility = asRecord(root.reproducibility, "project snapshot.reproducibility");
+    validateSenaAnalyticalInputs({
+      dataset: root.dataset,
+      buildOptions: reproducibility.buildOptions
+    });
     const report = asRecord(root.report, "project snapshot.report");
     const fusionMathAudit = asRecord(report.fusionMathAudit, "project snapshot.report.fusionMathAudit");
     const codingReliabilityGate = asRecord(report.codingReliabilityGate, "project snapshot.report.codingReliabilityGate");
     if (fusionMathAudit.schemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
       codingReliabilityGate.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate) return false;
-    normalizeSenaReportStatisticalLeaves(report, "project snapshot.report");
+    const normalizedReport = normalizeSenaReportStatisticalLeaves(report, "project snapshot.report").report;
+    const analysis = asRecord(root.analysis, "project snapshot.analysis");
+    normalizeSenaFusionMathAudit(normalizedReport.fusionMathAudit, {
+      matrices: analysis.matrices as SenaFusionMathAuditEvidence["matrices"],
+      options: reproducibility.buildOptions as SenaFusionMathAuditEvidence["options"],
+      pairReport: analysis.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+    });
+    const projectBinding = normalizedReport.codingReliabilityGate.review.machineEvidence?.projectBinding;
+    if (projectBinding) {
+      assertSenaReliabilityProjectBindingMatchesSnapshot(projectBinding, value as SenaProjectSnapshot);
+    }
     return true;
   } catch {
     return false;

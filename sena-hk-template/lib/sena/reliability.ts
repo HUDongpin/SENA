@@ -3,10 +3,12 @@ import { parseSenaCsv, type SenaImportRow } from "./import";
 import type {
   SenaCodingReliabilityMachineEvidence,
   SenaCodingReliabilityReview,
+  SenaProjectSnapshot,
   SenaReliabilityClaimEligibility,
   SenaReliabilityClaimEligibilityInputs,
   SenaReliabilityEstimationStatus,
-  SenaReliabilityPairEstimate
+  SenaReliabilityPairEstimate,
+  SenaReliabilityProjectBinding
 } from "./types";
 
 export type { SenaReliabilityClaimEligibility, SenaReliabilityEstimationStatus } from "./types";
@@ -58,6 +60,7 @@ export type SenaReliabilityDashboard = {
   adjudicationQueue: SenaReliabilityDisagreement[];
   interpretation: string;
   warnings: string[];
+  projectBinding?: SenaReliabilityProjectBinding;
 };
 
 export type SenaPairwiseKappaV1 = {
@@ -96,6 +99,215 @@ export type SenaReliabilityDashboardV1 = {
 };
 
 export type SenaReliabilityDashboardReadModel = SenaReliabilityDashboard | SenaReliabilityDashboardV1;
+
+export type SenaReliabilityProjectBindingIssue = {
+  path: string;
+  code: "unknown-item" | "unknown-code" | "duplicate-cell" | "invalid-project-context" | "binding-mismatch";
+};
+
+export class SenaReliabilityProjectBindingError extends Error {
+  readonly issues: SenaReliabilityProjectBindingIssue[];
+
+  constructor(issues: SenaReliabilityProjectBindingIssue[]) {
+    super("SENA reliability annotations do not match the current project snapshot.");
+    this.name = "SenaReliabilityProjectBindingError";
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+
+  toJSON() {
+    return { name: this.name, message: this.message, issues: this.issues };
+  }
+}
+
+function stableBindingValue(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableBindingValue).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableBindingValue(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function reliabilityBindingHash(value: unknown) {
+  const text = stableBindingValue(value);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `0x${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function sortedUnique(values: string[]) {
+  return Array.from(new Set(values)).sort();
+}
+
+function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
+  return annotations.map((annotation) => ({ ...annotation })).sort((left, right) => (
+    left.coderId.localeCompare(right.coderId) ||
+    left.itemId.localeCompare(right.itemId) ||
+    left.codeId.localeCompare(right.codeId) ||
+    Number(left.value) - Number(right.value)
+  ));
+}
+
+export function senaReliabilitySnapshotFingerprint(snapshot: SenaProjectSnapshot) {
+  return reliabilityBindingHash({
+    schemaVersion: snapshot.schemaVersion,
+    dataset: snapshot.dataset,
+    buildOptions: snapshot.reproducibility.buildOptions
+  });
+}
+
+export function bindSenaReliabilityAnnotationsToProject(
+  annotations: SenaCoderAnnotation[],
+  project: {
+    projectId: string;
+    projectVersion: number;
+    snapshot: SenaProjectSnapshot;
+  }
+): { annotations: SenaCoderAnnotation[]; binding: SenaReliabilityProjectBinding } {
+  const issues: SenaReliabilityProjectBindingIssue[] = [];
+  if (!project.projectId.trim() || !Number.isInteger(project.projectVersion) || project.projectVersion < 1) {
+    issues.push({ path: "project", code: "invalid-project-context" });
+  }
+  const codebookUniverse = project.snapshot.dataset.codebook
+    .map((code) => ({ id: code.id, label: code.label }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const exactCodes = new Map(codebookUniverse.map((code) => [code.id, code.id]));
+  const aliases = new Map<string, string | null>();
+  for (const code of codebookUniverse) {
+    for (const alias of [code.id.toLowerCase(), code.label.trim().toLowerCase()]) {
+      if (!alias) continue;
+      const existing = aliases.get(alias);
+      aliases.set(alias, existing === undefined || existing === code.id ? code.id : null);
+    }
+  }
+  const itemUniverse = [
+    ...project.snapshot.dataset.utterances.map((item) => ({ id: item.id, kind: "utterance" as const })),
+    ...project.snapshot.dataset.coded_segments.map((item) => ({ id: item.segmentId, kind: "coded-segment" as const }))
+  ].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
+  const itemIds = new Set(itemUniverse.map((item) => item.id));
+  const canonical: SenaCoderAnnotation[] = [];
+  const cells = new Set<string>();
+  annotations.forEach((annotation, index) => {
+    if (!itemIds.has(annotation.itemId)) {
+      issues.push({ path: `annotations.${index}.itemId`, code: "unknown-item" });
+    }
+    const canonicalCode = exactCodes.get(annotation.codeId) ?? aliases.get(annotation.codeId.trim().toLowerCase());
+    if (!canonicalCode) {
+      issues.push({ path: `annotations.${index}.codeId`, code: "unknown-code" });
+      return;
+    }
+    const normalized = { ...annotation, codeId: canonicalCode };
+    const cell = `${normalized.coderId}\u0000${normalized.itemId}\u0000${normalized.codeId}`;
+    if (cells.has(cell)) {
+      issues.push({ path: `annotations.${index}`, code: "duplicate-cell" });
+    }
+    cells.add(cell);
+    canonical.push(normalized);
+  });
+  if (issues.length > 0) throw new SenaReliabilityProjectBindingError(issues);
+
+  const annotationCoverage = canonicalAnnotationCoverage(canonical);
+  const codebookIds = codebookUniverse.map((entry) => entry.id);
+  const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
+  const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
+  const annotatedItemIds = sortedUnique(annotationCoverage.map((entry) => entry.itemId));
+  const annotatedCodeIds = sortedUnique(annotationCoverage.map((entry) => entry.codeId));
+  return {
+    annotations: canonical,
+    binding: {
+      status: "bound-current-project",
+      hashAlgorithm: "sena-stable-fnv1a32/v1",
+      projectId: project.projectId,
+      projectVersion: project.projectVersion,
+      snapshotFingerprint: senaReliabilitySnapshotFingerprint(project.snapshot),
+      codebookUniverseHash: reliabilityBindingHash(codebookUniverse),
+      itemUniverseHash: reliabilityBindingHash(itemUniverse),
+      coderCoverageHash: reliabilityBindingHash(coderIds),
+      annotationCoverageHash: reliabilityBindingHash(annotationCoverage),
+      annotatedItemCoverageHash: reliabilityBindingHash(annotatedItemIds),
+      annotatedCodeCoverageHash: reliabilityBindingHash(annotatedCodeIds),
+      codebookUniverse,
+      itemUniverse,
+      annotationCoverage,
+      codebookIds,
+      itemUniverseIds,
+      annotatedItemIds,
+      annotatedCodeIds,
+      coderIds,
+      annotationCount: annotationCoverage.length
+    }
+  };
+}
+
+export function isValidSenaReliabilityProjectBinding(value: unknown): value is SenaReliabilityProjectBinding {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const binding = value as Partial<SenaReliabilityProjectBinding>;
+  if (binding.status !== "bound-current-project" || binding.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
+    typeof binding.projectId !== "string" || binding.projectId.length === 0 ||
+    !Number.isInteger(binding.projectVersion) || Number(binding.projectVersion) < 1 ||
+    !Array.isArray(binding.codebookUniverse) || !binding.codebookUniverse.every((entry) => (
+      entry && typeof entry.id === "string" && typeof entry.label === "string"
+    )) ||
+    !Array.isArray(binding.itemUniverse) || !binding.itemUniverse.every((entry) => (
+      entry && typeof entry.id === "string" && (entry.kind === "utterance" || entry.kind === "coded-segment")
+    )) ||
+    !Array.isArray(binding.annotationCoverage) || !binding.annotationCoverage.every((entry) => (
+      entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
+      typeof entry.codeId === "string" && typeof entry.value === "boolean"
+    )) ||
+    ![binding.codebookIds, binding.itemUniverseIds, binding.annotatedItemIds, binding.annotatedCodeIds, binding.coderIds]
+      .every((entry) => Array.isArray(entry) && entry.every((item) => typeof item === "string")) ||
+    !Number.isInteger(binding.annotationCount) || Number(binding.annotationCount) < 0) return false;
+  const codebookUniverse = [...binding.codebookUniverse].sort((left, right) => left.id.localeCompare(right.id));
+  const itemUniverse = [...binding.itemUniverse].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
+  const annotationCoverage = canonicalAnnotationCoverage(binding.annotationCoverage);
+  const codebookIds = codebookUniverse.map((entry) => entry.id);
+  const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
+  const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
+  const annotatedItemIds = sortedUnique(annotationCoverage.map((entry) => entry.itemId));
+  const annotatedCodeIds = sortedUnique(annotationCoverage.map((entry) => entry.codeId));
+  const exactArray = (left: unknown, right: string[]) => JSON.stringify(left) === JSON.stringify(right);
+  const knownCodes = new Set(codebookIds);
+  const knownItems = new Set(itemUniverseIds);
+  return typeof binding.snapshotFingerprint === "string" && /^0x[a-f0-9]{8}$/.test(binding.snapshotFingerprint) &&
+    binding.codebookUniverseHash === reliabilityBindingHash(codebookUniverse) &&
+    binding.itemUniverseHash === reliabilityBindingHash(itemUniverse) &&
+    binding.coderCoverageHash === reliabilityBindingHash(coderIds) &&
+    binding.annotationCoverageHash === reliabilityBindingHash(annotationCoverage) &&
+    binding.annotatedItemCoverageHash === reliabilityBindingHash(annotatedItemIds) &&
+    binding.annotatedCodeCoverageHash === reliabilityBindingHash(annotatedCodeIds) &&
+    exactArray(binding.codebookIds, codebookIds) && exactArray(binding.itemUniverseIds, itemUniverseIds) &&
+    exactArray(binding.coderIds, coderIds) && exactArray(binding.annotatedItemIds, annotatedItemIds) &&
+    exactArray(binding.annotatedCodeIds, annotatedCodeIds) &&
+    binding.annotationCount === annotationCoverage.length &&
+    annotationCoverage.every((entry) => knownCodes.has(entry.codeId) && knownItems.has(entry.itemId));
+}
+
+export function assertSenaReliabilityProjectBindingMatchesSnapshot(
+  binding: SenaReliabilityProjectBinding,
+  snapshot: SenaProjectSnapshot,
+  expected?: { projectId?: string; projectVersion?: number }
+) {
+  if (!isValidSenaReliabilityProjectBinding(binding) ||
+    (expected?.projectId !== undefined && binding.projectId !== expected.projectId) ||
+    (expected?.projectVersion !== undefined && binding.projectVersion !== expected.projectVersion)) {
+    throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+  }
+  const rebuilt = bindSenaReliabilityAnnotationsToProject(binding.annotationCoverage, {
+    projectId: binding.projectId,
+    projectVersion: binding.projectVersion,
+    snapshot
+  }).binding;
+  if (JSON.stringify(rebuilt) !== JSON.stringify(binding)) {
+    throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+  }
+}
 
 function scalar(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -649,7 +861,12 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
     !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
     typeof value.allPairwiseKappaEstimable !== "boolean" ||
     !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
-    !isClaimEligibility(value.claimEligibility)) return false;
+    !isClaimEligibility(value.claimEligibility) ||
+    (value.projectBindingRequired !== undefined && value.projectBindingRequired !== true) ||
+    (value.projectBinding !== undefined && (
+      value.projectBindingRequired !== true || !isValidSenaReliabilityProjectBinding(value.projectBinding)
+    )) ||
+    (value.projectBindingRequired === true && value.projectBinding === undefined)) return false;
 
   const canonicalInputs = canonicalReliabilityInputs(value as unknown as {
     coderIds: string[];
@@ -658,6 +875,8 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
     krippendorffAlphaNominalRaw: number | null;
   });
   if (!canonicalInputs || !sameEligibilityInputs(value.claimEligibilityInputs, canonicalInputs)) return false;
+  if (value.projectBinding !== undefined &&
+    JSON.stringify(value.projectBinding.coderIds) !== JSON.stringify(value.coderIds)) return false;
   const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   if (currentSource && (
     value.status === "legacy-ambiguous" ||
@@ -717,7 +936,10 @@ function aggregateReliabilityStatus(
 
 export function buildSenaReliabilityDashboard(
   annotations: SenaCoderAnnotation[],
-  options: { skippedCells?: SenaSkippedCoderCell[] } = {}
+  options: {
+    skippedCells?: SenaSkippedCoderCell[];
+    projectBinding?: SenaReliabilityProjectBinding;
+  } = {}
 ): SenaReliabilityDashboard {
   const warnings: string[] = [];
   const skippedCells = options.skippedCells ?? [];
@@ -725,6 +947,16 @@ export function buildSenaReliabilityDashboard(
   const coders = Array.from(new Set(annotations.map((annotation) => annotation.coderId))).sort();
   const items = Array.from(new Set(annotations.map((annotation) => annotation.itemId))).sort();
   const codes = Array.from(new Set(annotations.map((annotation) => annotation.codeId))).sort();
+  if (options.projectBinding) {
+    const coverage = canonicalAnnotationCoverage(annotations);
+    if (!isValidSenaReliabilityProjectBinding(options.projectBinding) ||
+      options.projectBinding.annotationCoverageHash !== reliabilityBindingHash(coverage) ||
+      JSON.stringify(options.projectBinding.coderIds) !== JSON.stringify(coders) ||
+      JSON.stringify(options.projectBinding.annotatedItemIds) !== JSON.stringify(items) ||
+      JSON.stringify(options.projectBinding.annotatedCodeIds) !== JSON.stringify(codes)) {
+      throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+    }
+  }
   const unitKeys = items.flatMap((itemId) => codes.map((codeId) => `${itemId}::${codeId}`));
 
   if (coders.length < 2) warnings.push("At least two coders are required for reliability statistics.");
@@ -850,7 +1082,8 @@ export function buildSenaReliabilityDashboard(
     disagreementCount: adjudicationQueue.length,
     adjudicationQueue: adjudicationQueue.slice(0, 200),
     interpretation,
-    warnings
+    warnings,
+    projectBinding: options.projectBinding ? structuredClone(options.projectBinding) : undefined
   };
 }
 
@@ -963,7 +1196,8 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
     !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
     !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
-    !isClaimEligibility(value.claimEligibility)) return false;
+    !isClaimEligibility(value.claimEligibility) ||
+    (value.projectBinding !== undefined && !isValidSenaReliabilityProjectBinding(value.projectBinding))) return false;
 
   const inputs = value.claimEligibilityInputs;
   const coderIds = value.coderIds as string[];
@@ -973,6 +1207,14 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
   if (new Set(coderIds).size !== coderIds.length ||
     coderIds.length !== value.coderCount ||
     !sameStringArray(pairKeys, canonicalPairKeys)) return false;
+  if (value.projectBinding !== undefined && (
+    JSON.stringify(value.projectBinding.coderIds) !== JSON.stringify(coderIds) ||
+    value.projectBinding.annotatedItemIds.length !== Number(value.itemCount) ||
+    value.projectBinding.annotatedCodeIds.length !== Number(value.codeCount) ||
+    JSON.stringify(value.projectBinding.annotatedCodeIds) !== JSON.stringify(
+      (value.codeDiagnostics as SenaCodeReliabilityDiagnostic[]).map((entry) => entry.codeId).sort()
+    )
+  )) return false;
   const rawMeanPairwiseKappa = pairwiseStatuses.length > 0 && pairwiseStatuses.every((status) => status === "estimable")
     ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
     : null;
@@ -1139,7 +1381,9 @@ export function reliabilityDashboardToReview(
       krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
       allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 && dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
       claimEligibilityInputs: structuredClone(dashboard.claimEligibilityInputs),
-      claimEligibility: dashboard.claimEligibility
+      claimEligibility: dashboard.claimEligibility,
+      projectBindingRequired: dashboard.projectBinding ? true : undefined,
+      projectBinding: dashboard.projectBinding ? structuredClone(dashboard.projectBinding) : undefined
     }
   };
 }

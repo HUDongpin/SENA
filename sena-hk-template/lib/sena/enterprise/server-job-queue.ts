@@ -259,6 +259,7 @@ export type SenaEnterpriseServerJobWorkerHeartbeat = {
 export type SenaEnterpriseServerJobPayloadSummary = {
   source: SenaEnterpriseServerJobSource;
   projectVersion?: number;
+  snapshotFingerprint?: string;
   format?: string;
   fileCount?: number;
   uploadIds?: string[];

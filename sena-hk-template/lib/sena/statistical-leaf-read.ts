@@ -1,4 +1,7 @@
-import { normalizeSenaFusionMathAudit } from "./fusion-math";
+import {
+  normalizeSenaFusionMathAudit,
+  type SenaFusionMathAuditEvidence
+} from "./fusion-math";
 import { buildSenaClaimReadinessGate } from "./pilot-readiness";
 import { normalizeSenaCodingReliabilityGate } from "./report";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
@@ -345,9 +348,10 @@ export function reconcileSenaRuntimeBundleStatisticalSurfaces(
 
 export function normalizeSenaStatisticalLeafHolder(
   holder: JsonRecord,
-  context: string
+  context: string,
+  fusionEvidence?: SenaFusionMathAuditEvidence
 ): SenaStatisticalLeafReadState {
-  const fusionMathAudit = normalizeSenaFusionMathAudit(holder.fusionMathAudit);
+  const fusionMathAudit = normalizeSenaFusionMathAudit(holder.fusionMathAudit, fusionEvidence);
   const codingReliabilityGate = normalizeSenaCodingReliabilityGate(holder.codingReliabilityGate);
   holder.fusionMathAudit = fusionMathAudit;
   holder.codingReliabilityGate = codingReliabilityGate;
@@ -361,6 +365,26 @@ export function normalizeSenaStatisticalLeafHolder(
   };
 }
 
+function reportFusionEvidence(holder: JsonRecord, context: string): SenaFusionMathAuditEvidence {
+  const parameters = asRecord(holder.parameters, `${context}.parameters`);
+  return {
+    matrices: holder.matrices as SenaFusionMathAuditEvidence["matrices"],
+    options: parameters.buildOptions as SenaFusionMathAuditEvidence["options"],
+    pairReport: holder.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+  };
+}
+
+function runtimeFusionEvidence(holder: JsonRecord, context: string): SenaFusionMathAuditEvidence {
+  const parameters = asRecord(holder.parameters, `${context}.parameters`);
+  const runtimes = asRecord(holder.runtimes, `${context}.runtimes`);
+  const sena = asRecord(runtimes.sena, `${context}.runtimes.sena`);
+  return {
+    matrices: sena.matrices as SenaFusionMathAuditEvidence["matrices"],
+    options: parameters.buildOptions as SenaFusionMathAuditEvidence["options"],
+    pairReport: sena.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+  };
+}
+
 export function normalizeSenaReportStatisticalLeaves(
   value: unknown,
   context = "SENA report"
@@ -369,7 +393,7 @@ export function normalizeSenaReportStatisticalLeaves(
   if (report.schemaVersion !== SENA_SCHEMA_VERSIONS.report) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
-  const state = normalizeSenaStatisticalLeafHolder(report, context);
+  const state = normalizeSenaStatisticalLeafHolder(report, context, reportFusionEvidence(report, context));
   reconcileSenaReportStatisticalSurfaces(report as SenaReport, state);
   return { report: report as SenaReport, state };
 }
@@ -382,7 +406,11 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
   if (runtimeBundle.schemaVersion !== SENA_SCHEMA_VERSIONS.runtimeBundle) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
-  const bundleState = normalizeSenaStatisticalLeafHolder(runtimeBundle, context);
+  const bundleState = normalizeSenaStatisticalLeafHolder(
+    runtimeBundle,
+    context,
+    runtimeFusionEvidence(runtimeBundle, context)
+  );
   const normalizedReport = normalizeSenaReportStatisticalLeaves(runtimeBundle.report, `${context}.report`);
   runtimeBundle.report = normalizedReport.report;
   const state = {

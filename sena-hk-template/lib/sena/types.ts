@@ -323,6 +323,34 @@ export type SenaReliabilityPairEstimate = {
   kappa: number | null;
 };
 
+export type SenaReliabilityProjectBinding = {
+  status: "bound-current-project";
+  hashAlgorithm: "sena-stable-fnv1a32/v1";
+  projectId: string;
+  projectVersion: number;
+  snapshotFingerprint: string;
+  codebookUniverseHash: string;
+  itemUniverseHash: string;
+  coderCoverageHash: string;
+  annotationCoverageHash: string;
+  annotatedItemCoverageHash: string;
+  annotatedCodeCoverageHash: string;
+  codebookUniverse: Array<{ id: string; label: string }>;
+  itemUniverse: Array<{ id: string; kind: "utterance" | "coded-segment" }>;
+  annotationCoverage: Array<{
+    coderId: string;
+    itemId: string;
+    codeId: string;
+    value: boolean;
+  }>;
+  codebookIds: string[];
+  itemUniverseIds: string[];
+  annotatedItemIds: string[];
+  annotatedCodeIds: string[];
+  coderIds: string[];
+  annotationCount: number;
+};
+
 export type SenaCodingReliabilityMachineEvidence = {
   dashboardSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
   sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
@@ -337,6 +365,8 @@ export type SenaCodingReliabilityMachineEvidence = {
   allPairwiseKappaEstimable: boolean;
   claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
   claimEligibility: SenaReliabilityClaimEligibility;
+  projectBindingRequired?: true;
+  projectBinding?: SenaReliabilityProjectBinding;
 };
 
 export type SenaCodingReliabilityReview = {

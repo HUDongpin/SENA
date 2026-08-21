@@ -135,10 +135,10 @@ describe("SENA group-comparison effect-size v2", () => {
   });
 
   it("derives and reports a canonical uint32 seed for suite item 40", () => {
-    const comparison = { groupA: "A", groupB: "B", metric: "socialStrength" as const };
+    const groups = ["A", ...Array.from({ length: 40 }, (_, index) => `B${index + 1}`)];
     const suite = buildSenaGroupComparisonSuite({
-      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
-      comparisons: Array.from({ length: 40 }, () => ({ ...comparison })),
+      dataset: emptyMetricDataset(groups),
+      comparisons: groups.slice(1).map((groupB) => ({ groupA: "A", groupB, metric: "socialStrength" as const })),
       iterations: 100,
       bootstrapIterations: 100,
       seed: 0xffffffff
@@ -264,7 +264,13 @@ describe("SENA group-comparison effect-size v2", () => {
       iterations: 100,
       bootstrapIterations: 100
     });
-    const written = JSON.parse(JSON.stringify({ ...result, effectSize })) as unknown;
+    const written = JSON.parse(JSON.stringify({
+      ...result,
+      meanA: 0.000005,
+      meanB: 0.00001,
+      observedDifference: -0.000005,
+      effectSize
+    })) as unknown;
 
     expect(effectSize.status).toBe("estimable");
     expect(effectSize.pooledStandardDeviation).toBeGreaterThan(0);

@@ -13,7 +13,8 @@ import {
 import {
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
-  reliabilityDashboardToReview
+  reliabilityDashboardToReview,
+  senaReliabilitySnapshotFingerprint
 } from "../reliability";
 import { contextFromDb, type SenaEnterpriseSession, type SenaEnterpriseSessionContext } from "./auth-session";
 import { SenaEnterpriseError } from "./errors";
@@ -326,9 +327,12 @@ async function executeReliabilityUploadsJob(
   const response = await buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
     teamId,
     projectId: optionalString(payload.projectId) ?? job.projectId,
+    projectVersion: typeof payload.projectVersion === "number" ? payload.projectVersion : undefined,
     reviewer,
     fileCount: contents.length,
     annotationCount: parsed.annotations.length,
+    annotations: parsed.annotations,
+    skippedCells: parsed.skippedCells,
     // upload.sha256 is the checksum of exactly these plaintext bytes; the
     // reader refuses to return content that no longer matches it.
     inputFiles: contents.map((content) => ({
@@ -417,6 +421,21 @@ async function executeReliabilityJob(
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext
 ): Promise<SenaServerJobWorkerResult> {
+  const projectId = optionalString(payload.projectId) ?? job.projectId;
+  if (projectId) {
+    const project = await getEnterpriseProjectAsync(context, projectId);
+    const projectVersion = payload.projectVersion;
+    const snapshotFingerprint = optionalString(payload.snapshotFingerprint);
+    if (!Number.isInteger(projectVersion) || !snapshotFingerprint ||
+      project.currentVersion !== projectVersion ||
+      senaReliabilitySnapshotFingerprint(project.snapshot) !== snapshotFingerprint) {
+      throw new SenaEnterpriseError(
+        "The SENA project binding changed after this reliability job was queued.",
+        409,
+        "server_job_worker_reliability_project_binding_changed"
+      );
+    }
+  }
   const uploadIds = uploadPointers(payload);
   // Upload pointers are the default queued shape (inline annotations exist only
   // where SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD is set), so they win when both
@@ -439,6 +458,7 @@ async function executeReliabilityJob(
   const response = await buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync(context, {
     teamId: job.teamId,
     projectId: optionalString(payload.projectId) ?? job.projectId,
+    projectVersion: payload.projectVersion,
     reviewer: payload.reviewer,
     sourceName: payload.sourceName,
     annotations

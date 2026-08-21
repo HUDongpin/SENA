@@ -462,6 +462,8 @@ describe("SENA enterprise go-live production release", () => {
         reviewer: "Institution reviewer",
         fileCount: 1,
         annotationCount: reliabilityAnnotations.annotations.length,
+        annotations: reliabilityAnnotations.annotations,
+        skippedCells: reliabilityAnnotations.skippedCells,
         inputFiles: [{ name: "coder-ratings.csv", size: 128, sha256: "1".repeat(64) }],
         dashboard: reliability,
         reviewPatch: reliabilityDashboardToReview(reliability, "Institution reviewer")

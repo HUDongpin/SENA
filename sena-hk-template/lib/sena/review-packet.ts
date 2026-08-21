@@ -7,7 +7,8 @@ import {
 } from "./report";
 import { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
 import { buildSenaMethodProtocol } from "./method-protocol";
-import { buildSenaProjectSnapshot } from "./snapshot";
+import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "./snapshot";
+import type { SenaFusionMathAuditEvidence } from "./fusion-math";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
 import {
   normalizeSenaReportStatisticalLeaves,
@@ -896,18 +897,40 @@ function mergeStatisticalReadStates(states: SenaStatisticalLeafReadState[]): Sen
   };
 }
 
+function reviewPacketFusionEvidence(
+  contents: Record<string, unknown>,
+  context: string
+): SenaFusionMathAuditEvidence {
+  const runtimeBundle = asRecord(contents.runtimeBundle, `${context}.runtimeBundle`);
+  const parameters = asRecord(runtimeBundle.parameters, `${context}.runtimeBundle.parameters`);
+  const runtimes = asRecord(runtimeBundle.runtimes, `${context}.runtimeBundle.runtimes`);
+  const sena = asRecord(runtimes.sena, `${context}.runtimeBundle.runtimes.sena`);
+  return {
+    matrices: sena.matrices as SenaFusionMathAuditEvidence["matrices"],
+    options: parameters.buildOptions as SenaFusionMathAuditEvidence["options"],
+    pairReport: sena.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+  };
+}
+
 function assertStatisticalContractCompatibility(contents: Record<string, unknown>) {
-  normalizeSenaStatisticalLeafHolder(structuredClone(contents), "review packet.contents");
+  normalizeSenaStatisticalLeafHolder(
+    structuredClone(contents),
+    "review packet.contents",
+    reviewPacketFusionEvidence(contents, "review packet.contents")
+  );
   normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
   normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
-  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
-  normalizeSenaReportStatisticalLeaves(projectSnapshot.report, "review packet.contents.projectSnapshot.report");
+  importSenaProjectSnapshot(contents.projectSnapshot);
 }
 
 function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPacket {
   const normalized = structuredClone(value) as SenaReviewPacket;
   const contents = asRecord(normalized.contents, "review packet.contents");
-  const directState = normalizeSenaStatisticalLeafHolder(contents, "review packet.contents");
+  const directState = normalizeSenaStatisticalLeafHolder(
+    contents,
+    "review packet.contents",
+    reviewPacketFusionEvidence(contents, "review packet.contents")
+  );
   const reportResult = normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
   contents.reportJson = reportResult.report;
   const runtimeResult = normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
@@ -917,6 +940,9 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
     projectSnapshot.report,
     "review packet.contents.projectSnapshot.report"
   );
+  const snapshotForValidation = structuredClone(projectSnapshot);
+  snapshotForValidation.report = snapshotReportResult.report;
+  importSenaProjectSnapshot(snapshotForValidation);
   projectSnapshot.report = snapshotReportResult.report;
 
   const state = mergeStatisticalReadStates([

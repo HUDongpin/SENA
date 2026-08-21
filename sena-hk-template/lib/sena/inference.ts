@@ -1,6 +1,7 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import {
+  SENA_GROUP_COMPARISON_METRICS,
   validateSenaAnalyticalInputs,
   type SenaValidatedGroupComparisonMetric
 } from "./analytical-input-validation";
@@ -330,9 +331,9 @@ export function buildSenaGroupComparison(input: {
     groupB: input.groupB,
     nA: a.length,
     nB: b.length,
-    meanA: round(mean(a)),
-    meanB: round(mean(b)),
-    observedDifference: round(observedDifference),
+    meanA: mean(a),
+    meanB: mean(b),
+    observedDifference,
     effectSize,
     permutation: {
       iterations,
@@ -406,6 +407,9 @@ export function buildSenaGroupComparisonSuite(input: {
     holmAdjustedP: 1,
     significantAtAlpha: false
   }));
+  if (new Set(entries.map((entry) => entry.comparisonId)).size !== entries.length) {
+    throw new Error("SENA group-comparison suite specifications must define a unique comparison universe.");
+  }
   const sorted = [...entries].sort((a, b) => a.permutation.pTwoSided - b.permutation.pTwoSided);
   let previousAdjusted = 0;
   sorted.forEach((entry, index) => {
@@ -466,18 +470,132 @@ function normalizeLegacyEffectSize(value: unknown): SenaGroupComparisonEffectSiz
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value > 0;
+}
+
+function isCanonicalUint32(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value >= 0 && value <= 0xffffffff;
+}
+
+function approximatelyEqual(left: number, right: number, tolerance = 1e-12) {
+  return Math.abs(left - right) <= tolerance * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function isFinitePreview(value: unknown, iterations: number, legacy: boolean) {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    (legacy ? value.length <= Math.min(20, iterations) : value.length === Math.min(20, iterations)) &&
+    value.every(isFiniteNumber);
+}
+
+function isCanonicalPermutation(value: unknown, legacy: boolean) {
+  if (!isRecord(value) || !isPositiveInteger(value.iterations) || value.iterations < 100) return false;
+  return isCanonicalUint32(value.seed) &&
+    isFiniteNumber(value.pTwoSided) && value.pTwoSided >= 0 && value.pTwoSided <= 1 &&
+    isFiniteNumber(value.nullLower) && isFiniteNumber(value.nullUpper) && value.nullLower <= value.nullUpper &&
+    isFinitePreview(value.samplesPreview, value.iterations, legacy);
+}
+
+function isCanonicalBootstrap(value: unknown, legacy: boolean) {
+  if (!isRecord(value) || !isPositiveInteger(value.iterations) || value.iterations < 100) return false;
+  return isCanonicalUint32(value.seed) &&
+    isFiniteNumber(value.meanDifferenceLower) && isFiniteNumber(value.meanDifferenceUpper) &&
+    value.meanDifferenceLower <= value.meanDifferenceUpper &&
+    isFinitePreview(value.samplesPreview, value.iterations, legacy);
+}
+
+function isCanonicalCommonComparison(value: Record<string, unknown>, legacy: boolean) {
+  if (!SENA_GROUP_COMPARISON_METRICS.includes(value.metric as SenaGroupComparisonMetric)) return false;
+  if (value.groupField !== "group" && value.groupField !== "role") return false;
+  if (typeof value.groupA !== "string" || value.groupA.trim().length === 0) return false;
+  if (typeof value.groupB !== "string" || value.groupB.trim().length === 0 || value.groupA === value.groupB) return false;
+  if (!isPositiveInteger(value.nA) || !isPositiveInteger(value.nB)) return false;
+  if (!isFiniteNumber(value.meanA) || !isFiniteNumber(value.meanB) || !isFiniteNumber(value.observedDifference)) return false;
+  const differenceTolerance = legacy ? 0.00011 : 1e-12;
+  if (!approximatelyEqual(value.observedDifference, value.meanA - value.meanB, differenceTolerance)) return false;
+  if (!isCanonicalPermutation(value.permutation, legacy) || !isCanonicalBootstrap(value.bootstrap, legacy)) return false;
+  if (!isRecord(value.diagnostics)) return false;
+  const comparedPeople = value.nA + value.nB;
+  const minGroupSize = Math.min(value.nA, value.nB);
+  if (!Number.isSafeInteger(value.diagnostics.totalPeople) || (value.diagnostics.totalPeople as number) < comparedPeople) return false;
+  if (value.diagnostics.comparedPeople !== comparedPeople || value.diagnostics.minGroupSize !== minGroupSize) return false;
+  if (value.diagnostics.balancedDesign !== (value.nA === value.nB)) return false;
+  if (value.diagnostics.smallSample !== (minGroupSize < 5) || value.diagnostics.metricScale !== "person-metric") return false;
+  return typeof value.guardrail === "string" && value.guardrail.trim().length > 0;
+}
+
+function isCurrentEffectSize(
+  value: unknown,
+  nA: number,
+  nB: number,
+  observedDifference: number
+): value is SenaGroupComparisonEffectSize {
+  if (!isRecord(value) || typeof value.reason !== "string" || value.reason.trim().length === 0) return false;
+  const insufficient = nA < 2 || nB < 2;
+  if (value.status === "insufficient-sample") {
+    return insufficient && value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === null;
+  }
+  if (insufficient) return false;
+  if (value.status === "zero-variance-equal" || value.status === "zero-variance-separated") {
+    const equalMeans = observedDifference === 0;
+    return value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === 0 &&
+      (value.status === "zero-variance-equal" ? equalMeans : !equalMeans);
+  }
+  if (value.status !== "estimable" || !isFiniteNumber(value.cohenD) || !isFiniteNumber(value.hedgesG) ||
+    !isFiniteNumber(value.pooledStandardDeviation) || value.pooledStandardDeviation <= 0) return false;
+  const unroundedD = observedDifference / value.pooledStandardDeviation;
+  const hedgesCorrection = 1 - (3 / ((4 * (nA + nB)) - 9));
+  return value.cohenD === round(unroundedD) && value.hedgesG === round(unroundedD * hedgesCorrection);
+}
+
+function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupComparisonResult {
+  return isRecord(value) &&
+    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+    isCanonicalCommonComparison(value, false) &&
+    isCurrentEffectSize(value.effectSize, value.nA as number, value.nB as number, value.observedDifference as number);
+}
+
+function isLegacyV1EffectSize(value: unknown) {
+  return isRecord(value) &&
+    isFiniteNumber(value.cohenD) &&
+    isFiniteNumber(value.hedgesG) &&
+    isFiniteNumber(value.pooledStandardDeviation);
+}
+
+function isNormalizedLegacyComparison(value: unknown): value is SenaGroupComparisonResult {
+  return isRecord(value) &&
+    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+    value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison &&
+    isCanonicalCommonComparison(value, true) &&
+    isRecord(value.effectSize) && value.effectSize.status === "legacy-ambiguous" &&
+    isFiniteNumber(value.effectSize.cohenD) && isFiniteNumber(value.effectSize.hedgesG) &&
+    isFiniteNumber(value.effectSize.pooledStandardDeviation) &&
+    typeof value.effectSize.reason === "string" && value.effectSize.reason.length > 0;
+}
+
 function normalizeSenaGroupComparisonResult(value: unknown): SenaGroupComparisonResult {
   if (!isRecord(value)) throw new Error("SENA group comparison must be an object.");
   if (value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison) {
-    return {
-      ...(value as unknown as SenaGroupComparisonResult),
-      sourceSchemaVersion: value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
-        ? SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
-        : SENA_SCHEMA_VERSIONS.groupComparison
-    };
+    if (isCurrentSenaGroupComparisonResult(value) || isNormalizedLegacyComparison(value)) {
+      return value as unknown as SenaGroupComparisonResult;
+    }
+    throw new Error("SENA group comparison v2 evidence is internally inconsistent.");
   }
   if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) {
     throw new Error("SENA group comparison uses an unsupported schemaVersion.");
+  }
+  if (
+    (value.sourceSchemaVersion !== undefined && value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) ||
+    !isCanonicalCommonComparison(value, true) ||
+    !isLegacyV1EffectSize(value.effectSize)
+  ) {
+    throw new Error("SENA group comparison legacy v1 evidence is internally inconsistent.");
   }
   const legacy = value as unknown as SenaGroupComparisonResultV1;
   return {
@@ -488,28 +606,79 @@ function normalizeSenaGroupComparisonResult(value: unknown): SenaGroupComparison
   };
 }
 
-function isCurrentEffectSize(value: unknown): value is SenaGroupComparisonEffectSize {
-  if (!isRecord(value) || typeof value.reason !== "string") return false;
-  if (value.status === "estimable") {
-    return typeof value.cohenD === "number" && Number.isFinite(value.cohenD) &&
-      typeof value.hedgesG === "number" && Number.isFinite(value.hedgesG) &&
-      typeof value.pooledStandardDeviation === "number" && Number.isFinite(value.pooledStandardDeviation) &&
-      value.pooledStandardDeviation > 0;
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
   }
-  if (value.status === "insufficient-sample") {
-    return value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === null;
-  }
-  if (value.status === "zero-variance-equal" || value.status === "zero-variance-separated") {
-    return value.cohenD === null && value.hedgesG === null && value.pooledStandardDeviation === 0;
-  }
-  return false;
+  return JSON.stringify(value);
 }
 
-function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupComparisonResult {
-  return isRecord(value) &&
-    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
-    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
-    isCurrentEffectSize(value.effectSize);
+function sameStringSet(value: unknown, expected: string[]) {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return false;
+  return stableJson([...new Set(value)].sort()) === stableJson([...new Set(expected)].sort()) && value.length === expected.length;
+}
+
+function isCanonicalSuiteStructure(
+  value: Record<string, unknown>,
+  comparisons: SenaGroupComparisonSuiteEntry[],
+  alpha: number
+) {
+  if (comparisons.length === 0 || value.comparisonCount !== comparisons.length) return false;
+  const ids = comparisons.map((entry) => entry.comparisonId);
+  if (new Set(ids).size !== comparisons.length || comparisons.some((entry) => entry.comparisonId !== comparisonId(entry))) return false;
+  const ranked = [...comparisons].sort((left, right) => left.holmRank - right.holmRank);
+  if (ranked.some((entry, index) => entry.holmRank !== index + 1)) return false;
+  if (ranked.some((entry, index) => index > 0 && entry.permutation.pTwoSided < ranked[index - 1].permutation.pTwoSided)) return false;
+  let previousAdjusted = 0;
+  for (let index = 0; index < ranked.length; index += 1) {
+    const entry = ranked[index];
+    const adjusted = Math.max(previousAdjusted, Math.min(1, entry.permutation.pTwoSided * (ranked.length - index)));
+    if (entry.holmAdjustedP !== round(adjusted) || entry.significantAtAlpha !== (adjusted <= alpha)) return false;
+    previousAdjusted = adjusted;
+  }
+  if (value.significantHolmCount !== ranked.filter((entry) => entry.significantAtAlpha).length) return false;
+  if (!isRecord(value.primary) || stableJson(value.primary) !== stableJson(ranked[0])) return false;
+  if (!isRecord(value.diagnostics)) return false;
+  const expectedMetrics = Array.from(new Set(comparisons.map((entry) => entry.metric))).sort();
+  if (!sameStringSet(value.diagnostics.metrics, expectedMetrics)) return false;
+  if (!Array.isArray(value.diagnostics.groupPairs)) return false;
+  const expectedPairs = Array.from(new Set(comparisons.map((entry) => `${entry.groupField}:${entry.groupA}:${entry.groupB}`))).sort();
+  const actualPairs = value.diagnostics.groupPairs.map((pair) => isRecord(pair) &&
+    (pair.groupField === "group" || pair.groupField === "role") &&
+    typeof pair.groupA === "string" && typeof pair.groupB === "string"
+    ? `${pair.groupField}:${pair.groupA}:${pair.groupB}`
+    : "");
+  if (actualPairs.includes("") || !sameStringSet(actualPairs, expectedPairs)) return false;
+  if (value.diagnostics.minGroupSize !== Math.min(...comparisons.map((entry) => entry.diagnostics.minGroupSize))) return false;
+  if (value.diagnostics.smallSampleComparisons !== comparisons.filter((entry) => entry.diagnostics.smallSample).length) return false;
+  return value.diagnostics.preregistrationEvidence === "required-before-claim";
+}
+
+function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult {
+  if (!isRecord(value) || value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+    value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+    !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
+    typeof value.guardrail !== "string" || value.guardrail.trim().length === 0 || !Array.isArray(value.comparisons) ||
+    !value.comparisons.every(isCurrentSenaGroupComparisonResult)) return false;
+  return isCanonicalSuiteStructure(
+    value,
+    value.comparisons as SenaGroupComparisonSuiteEntry[],
+    value.alpha
+  );
+}
+
+function isNormalizedLegacySuite(value: unknown): value is SenaGroupComparisonSuiteResult {
+  if (!isRecord(value) || value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+    value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite ||
+    !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
+    typeof value.guardrail !== "string" || value.guardrail.trim().length === 0 || !Array.isArray(value.comparisons) ||
+    !value.comparisons.every(isNormalizedLegacyComparison)) return false;
+  return isCanonicalSuiteStructure(
+    value,
+    value.comparisons as SenaGroupComparisonSuiteEntry[],
+    value.alpha
+  );
 }
 
 export function normalizeSenaGroupComparisonValidationResult(
@@ -528,22 +697,33 @@ export function normalizeSenaGroupComparisonValidationResult(
   ) {
     throw new Error("SENA group-comparison validation result uses an unsupported schemaVersion.");
   }
-
-  const sourceSchemaVersion = value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite ||
-    value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
-    ? SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
-    : SENA_SCHEMA_VERSIONS.groupComparisonSuite;
+  if (value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite) {
+    if (isCurrentSuite(value) || isNormalizedLegacySuite(value)) {
+      return value as unknown as SenaGroupComparisonSuiteResult;
+    }
+    throw new Error("SENA group-comparison suite v2 evidence is internally inconsistent.");
+  }
+  if (
+    (value as unknown as Record<string, unknown>).sourceSchemaVersion !== undefined &&
+    (value as unknown as Record<string, unknown>).sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite
+  ) {
+    throw new Error("SENA group-comparison suite legacy source is contradictory.");
+  }
   const comparisons = Array.isArray(value.comparisons)
     ? value.comparisons.map((comparison) => normalizeSenaGroupComparisonResult(comparison) as SenaGroupComparisonSuiteEntry)
     : [];
   const primary = normalizeSenaGroupComparisonResult(value.primary) as SenaGroupComparisonSuiteEntry;
-  return {
+  const normalized = {
     ...(value as unknown as SenaGroupComparisonSuiteResult),
     schemaVersion: SENA_SCHEMA_VERSIONS.groupComparisonSuite,
-    sourceSchemaVersion,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite,
     primary,
     comparisons
   };
+  if (!isNormalizedLegacySuite(normalized)) {
+    throw new Error("SENA group-comparison suite legacy evidence is internally inconsistent.");
+  }
+  return normalized;
 }
 
 export function isCurrentSenaGroupComparisonValidationResult(
@@ -552,10 +732,5 @@ export function isCurrentSenaGroupComparisonValidationResult(
   if (isCurrentSenaGroupComparisonResult(value)) {
     return true;
   }
-  return isRecord(value) &&
-    value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
-    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
-    isCurrentSenaGroupComparisonResult(value.primary) &&
-    Array.isArray(value.comparisons) &&
-    value.comparisons.every(isCurrentSenaGroupComparisonResult);
+  return isCurrentSuite(value);
 }

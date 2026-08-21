@@ -4276,17 +4276,24 @@ describe("SENA model builder", () => {
   });
 
   it("imports legacy v1 snapshots whose buildOptions predate the analysis-config declarations", () => {
-    const snapshot = buildSenaProjectSnapshot(buildSenaModel(exampleSenaContract), {
-      generatedAt: "2026-06-08T02:10:00.000Z"
-    });
-    const legacy = JSON.parse(JSON.stringify(snapshot));
-    legacy.reproducibility.buildOptions = {
+    const snapshot = buildSenaProjectSnapshot(buildSenaModel(exampleSenaContract, {
       alpha: 0.72,
       beta: 0.64,
       gamma: 0.86,
       normalization: "max",
-      undirectedSocial: true,
-      temporal: legacy.reproducibility.buildOptions.temporal
+      undirectedSocial: true
+    }), {
+      generatedAt: "2026-06-08T02:10:00.000Z"
+    });
+    const legacy = JSON.parse(JSON.stringify(snapshot));
+    const legacyBuildOptions = legacy.reproducibility.buildOptions;
+    legacy.reproducibility.buildOptions = {
+      alpha: legacyBuildOptions.alpha,
+      beta: legacyBuildOptions.beta,
+      gamma: legacyBuildOptions.gamma,
+      normalization: legacyBuildOptions.normalization,
+      undirectedSocial: legacyBuildOptions.undirectedSocial,
+      temporal: legacyBuildOptions.temporal
     };
 
     const imported = importSenaProjectSnapshot(JSON.stringify(legacy));
