@@ -7,12 +7,10 @@ import {
 } from "../analytical-input-validation";
 import {
   importSenaEnterpriseFiles,
-  readSenaReliabilityUploadRows,
   withSenaImportDatasetMetadata
 } from "../import-adapters";
 import {
   buildSenaReliabilityDashboard,
-  parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
   senaReliabilitySnapshotFingerprint
 } from "../reliability";
@@ -30,6 +28,7 @@ import {
   type SenaEnterpriseUploadContent
 } from "./import-analysis";
 import { now } from "./ops-runtime";
+import { readEnterpriseReliabilityUploadPointers } from "./reliability-upload-reader";
 import {
   buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync,
   buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync
@@ -298,18 +297,6 @@ async function executeImportJob(
   };
 }
 
-/**
- * Presents a decrypted upload to the shared reliability row reader in the shape
- * the synchronous route hands it a buffered multipart file.
- *
- * The name is upload.originalName for the same reason importAdapterFile uses it:
- * the raw multipart filename is not persisted, so that is the name the reader
- * dispatches on and the name its warnings are prefixed with.
- */
-function reliabilityUploadFile(content: SenaEnterpriseUploadContent) {
-  return { name: content.upload.originalName, bytes: content.bytes };
-}
-
 async function executeReliabilityUploadsJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
@@ -318,11 +305,10 @@ async function executeReliabilityUploadsJob(
   reviewer: string
 ): Promise<SenaServerJobWorkerResult> {
   const teamId = optionalString(payload.teamId) ?? job.teamId;
-  const contents = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds });
-  const parsedFiles = await Promise.all(contents.map((content) => readSenaReliabilityUploadRows(reliabilityUploadFile(content))));
-  const rows = parsedFiles.flatMap((file) => file.rows);
-  const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
-  const parsed = parseCoderAnnotationsFromRows(rows);
+  const { contents, parsedFiles, fileWarnings, parsed } = await readEnterpriseReliabilityUploadPointers(
+    context,
+    { teamId, uploadIds }
+  );
   const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
   const dashboardWithWarnings = {
     ...dashboard,

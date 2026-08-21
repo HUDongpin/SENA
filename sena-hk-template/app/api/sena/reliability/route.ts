@@ -10,6 +10,7 @@ import {
 import {
   createEnterpriseUploadsWithPostgresMirrorAsync
 } from "@/lib/sena/enterprise/import-analysis";
+import { readEnterpriseReliabilityUploadPointers } from "@/lib/sena/enterprise/reliability-upload-reader";
 import {
   requireEnterprisePermission
 } from "@/lib/sena/enterprise/access-control";
@@ -129,6 +130,26 @@ export async function POST(request: Request) {
                 projectVersion: project.currentVersion,
                 snapshot: project.snapshot,
                 skippedCells: parsedInline.skippedCells
+              });
+            } catch {
+              throw new SenaEnterpriseError(
+                "Queued reliability annotations do not match the current project snapshot.",
+                400,
+                "reliability_project_binding_invalid"
+              );
+            }
+          }
+        }
+        if (uploadIds.length > 0) {
+          const pointerInput = await readEnterpriseReliabilityUploadPointers(context, { teamId, uploadIds });
+          preflightSenaReliabilityAnnotations(pointerInput.parsed.annotations);
+          if (project) {
+            try {
+              bindSenaReliabilityAnnotationsToProject(pointerInput.parsed.annotations, {
+                projectId: project.id,
+                projectVersion: project.currentVersion,
+                snapshot: project.snapshot,
+                skippedCells: pointerInput.parsed.skippedCells
               });
             } catch {
               throw new SenaEnterpriseError(
