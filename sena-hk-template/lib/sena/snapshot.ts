@@ -1,7 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
-  SenaInputValidationError,
-  validateSenaAnalyticalInputs
+  validateSenaProjectSnapshotCanonicalInputs
 } from "./analytical-input-validation";
 import {
   normalizeSenaFusionMathAudit,
@@ -264,28 +263,17 @@ function assertSenaProjectSnapshot(value: unknown): void {
 
 export function importSenaProjectSnapshot(source: string | unknown): SenaProjectSnapshot {
   const value = typeof source === "string" ? JSON.parse(source) : source;
-  assertSenaProjectSnapshot(value);
-  const validated = value as SenaProjectSnapshot;
-  validateSenaAnalyticalInputs({
-    dataset: validated.dataset,
-    buildOptions: validated.reproducibility.buildOptions
-  });
-  if (validated.source.sourceDataset !== undefined) {
-    try {
-      validateSenaAnalyticalInputs({
-        dataset: validated.source.sourceDataset,
-        buildOptions: validated.reproducibility.buildOptions
-      });
-    } catch (error) {
-      if (!(error instanceof SenaInputValidationError)) throw error;
-      throw new SenaInputValidationError(error.issues.map((issue) => ({
-        ...issue,
-        path: issue.path.startsWith("dataset")
-          ? `source.sourceDataset${issue.path.slice("dataset".length)}`
-          : issue.path
-      })));
-    }
+  const root = asRecord(value, "project snapshot");
+  if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.projectSnapshot) {
+    throw new Error("JSON is not a SENA project snapshot.");
   }
+  const reproducibilityInput = asRecord(root.reproducibility, "project snapshot.reproducibility");
+  validateSenaProjectSnapshotCanonicalInputs({
+    dataset: root.dataset,
+    source: root.source,
+    buildOptions: reproducibilityInput.buildOptions
+  });
+  assertSenaProjectSnapshot(value);
   const normalized = structuredClone(value) as Record<string, unknown>;
   const normalizedReport = normalizeSenaReportStatisticalLeaves(
     normalized.report,
@@ -311,20 +299,15 @@ export function importSenaProjectSnapshot(source: string | unknown): SenaProject
 
 export function isSenaProjectSnapshot(value: unknown): value is SenaProjectSnapshot {
   try {
-    assertSenaProjectSnapshot(value);
     const root = asRecord(value, "project snapshot");
+    if (root.schemaVersion !== SENA_SCHEMA_VERSIONS.projectSnapshot) return false;
     const reproducibility = asRecord(root.reproducibility, "project snapshot.reproducibility");
-    validateSenaAnalyticalInputs({
+    validateSenaProjectSnapshotCanonicalInputs({
       dataset: root.dataset,
+      source: root.source,
       buildOptions: reproducibility.buildOptions
     });
-    const source = asRecord(root.source, "project snapshot.source");
-    if (source.sourceDataset !== undefined) {
-      validateSenaAnalyticalInputs({
-        dataset: source.sourceDataset,
-        buildOptions: reproducibility.buildOptions
-      });
-    }
+    assertSenaProjectSnapshot(value);
     const report = asRecord(root.report, "project snapshot.report");
     const fusionMathAudit = asRecord(report.fusionMathAudit, "project snapshot.report.fusionMathAudit");
     const codingReliabilityGate = asRecord(report.codingReliabilityGate, "project snapshot.report.codingReliabilityGate");

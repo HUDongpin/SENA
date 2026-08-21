@@ -56,6 +56,29 @@ function invalidSourceSnapshot(): SenaProjectSnapshot {
   return snapshot;
 }
 
+type Round9InvalidSnapshotKind =
+  | "null-person"
+  | "nan-confidence"
+  | "missing-person-reference"
+  | "count-mismatch"
+  | "infinite-active-window"
+  | "null-code";
+
+function round9InvalidSnapshot(kind: Round9InvalidSnapshotKind): SenaProjectSnapshot {
+  const snapshot = validSnapshot();
+  if (kind === "null-person") snapshot.dataset.people[0] = null as never;
+  if (kind === "nan-confidence") snapshot.dataset.coded_segments[0].confidence = Number.NaN;
+  if (kind === "missing-person-reference") snapshot.dataset.utterances[0].personId = "round9-missing-person";
+  if (kind === "count-mismatch") snapshot.source.sourceDatasetCounts.people += 1;
+  if (kind === "infinite-active-window") {
+    snapshot.source.activeTemporalWindow = structuredClone(snapshot.analysis.temporal.windows[0]);
+    if (!snapshot.source.activeTemporalWindow) throw new Error("fixture active temporal window missing");
+    snapshot.source.activeTemporalWindow.startTurn = JSON.parse("1e309") as number;
+  }
+  if (kind === "null-code") snapshot.dataset.codebook[0] = null as never;
+  return snapshot;
+}
+
 function registeredOwner() {
   return registerEnterpriseUser({
     name: "Round8 Project Owner",
@@ -73,6 +96,15 @@ function assertSanitizedInputError(error: unknown) {
     expect.objectContaining({ path: expect.stringContaining("source.sourceDataset.interactions") })
   ]));
   expect(JSON.stringify(validationError)).not.toContain("-7");
+}
+
+function assertRound9SanitizedInputError(error: unknown, issue: { path: string; rule: string }) {
+  expect(error).toBeInstanceOf(SenaInputValidationError);
+  const validationError = error as SenaInputValidationError;
+  expect(validationError.issues).toContainEqual(issue);
+  expect(JSON.stringify(validationError)).not.toContain("round9-missing-person");
+  expect(JSON.stringify(validationError)).not.toContain("Infinity");
+  expect(JSON.stringify(validationError)).not.toContain("NaN");
 }
 
 function rawState() {
@@ -200,5 +232,99 @@ describe("enterprise project canonical snapshot boundaries", () => {
     const error = await captureError(() => readEnterpriseDb());
 
     assertSanitizedInputError(error);
+  });
+
+  it.each([
+    ["sync", false, "null-person", { path: "dataset.people[0]", rule: "object" }],
+    ["async", true, "nan-confidence", { path: "dataset.coded_segments[0].confidence", rule: "finite-probability" }]
+  ] as const)("Round 9 validates %s create before any state side effect", async (_label, asynchronous, kind, issue) => {
+    const registered = registeredOwner();
+    const before = rawState();
+    const input = {
+      teamId: registered.context.teams[0].id,
+      title: "Round 9 invalid create",
+      snapshot: round9InvalidSnapshot(kind)
+    };
+
+    const error = await captureError(() => asynchronous
+      ? createEnterpriseProjectAsync(registered.context, input)
+      : createEnterpriseProject(registered.context, input));
+
+    assertRound9SanitizedInputError(error, issue);
+    expect(rawState()).toBe(before);
+  });
+
+  it.each([
+    ["sync", false, "missing-person-reference", { path: "dataset.utterances[0].personId", rule: "reference" }],
+    ["async", true, "count-mismatch", { path: "source.sourceDatasetCounts.people", rule: "count-match" }]
+  ] as const)("Round 9 validates %s update before metadata, revision, audit, or state mutation", async (_label, asynchronous, kind, issue) => {
+    const registered = registeredOwner();
+    const project = createEnterpriseProject(registered.context, {
+      teamId: registered.context.teams[0].id,
+      title: "Round 9 valid update source",
+      snapshot: validSnapshot()
+    });
+    const before = rawState();
+    const input = {
+      expectedVersion: project.currentVersion,
+      title: "Must not persist",
+      snapshot: round9InvalidSnapshot(kind)
+    };
+
+    const error = await captureError(() => asynchronous
+      ? updateEnterpriseProjectAsync(registered.context, project.id, input)
+      : updateEnterpriseProject(registered.context, project.id, input));
+
+    assertRound9SanitizedInputError(error, issue);
+    expect(rawState()).toBe(before);
+  });
+
+  it.each([
+    ["sync", false, "infinite-active-window", { path: "source.activeTemporalWindow.startTurn", rule: "integer-range" }],
+    ["async", true, "null-code", { path: "dataset.codebook[0]", rule: "object" }]
+  ] as const)("Round 9 validates a corrupted %s revision before restore mutation", async (_label, asynchronous, kind, issue) => {
+    const registered = registeredOwner();
+    const project = createEnterpriseProject(registered.context, {
+      teamId: registered.context.teams[0].id,
+      title: "Round 9 revision source",
+      snapshot: validSnapshot()
+    });
+    updateEnterpriseProject(registered.context, project.id, {
+      expectedVersion: 1,
+      snapshot: validSnapshot()
+    });
+    const db = readEnterpriseDb();
+    const target = db.projectRevisions.find((revision) => revision.projectId === project.id && revision.version === 1);
+    if (!target) throw new Error("target revision missing");
+    target.snapshot = round9InvalidSnapshot(kind);
+    writeEnterpriseDb(db);
+    const before = rawState();
+
+    const error = await captureError(() => asynchronous
+      ? restoreEnterpriseProjectRevisionAsync(registered.context, project.id, { version: 1, expectedVersion: 2 })
+      : restoreEnterpriseProjectRevision(registered.context, project.id, { version: 1, expectedVersion: 2 }));
+
+    assertRound9SanitizedInputError(error, issue);
+    expect(rawState()).toBe(before);
+  });
+
+  it("Round 9 fails closed on a malformed row while normalizing file-backed state", async () => {
+    const registered = registeredOwner();
+    const project = createEnterpriseProject(registered.context, {
+      teamId: registered.context.teams[0].id,
+      title: "Round 9 file-state source",
+      snapshot: validSnapshot()
+    });
+    const db = readEnterpriseDb();
+    const stored = db.projects.find((candidate) => candidate.id === project.id);
+    if (!stored) throw new Error("stored project missing");
+    stored.snapshot = round9InvalidSnapshot("null-person");
+    writeEnterpriseDb(db);
+    const before = rawState();
+
+    const error = await captureError(() => readEnterpriseDb());
+
+    assertRound9SanitizedInputError(error, { path: "dataset.people[0]", rule: "object" });
+    expect(rawState()).toBe(before);
   });
 });

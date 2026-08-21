@@ -16,7 +16,9 @@ export type SenaInputValidationRule =
   | "distinct-values"
   | "boolean"
   | "consistent-direction"
-  | "matrix-shape";
+  | "matrix-shape"
+  | "reference"
+  | "count-match";
 
 export type SenaInputValidationIssue = {
   path: string;
@@ -26,8 +28,14 @@ export type SenaInputValidationIssue = {
 export class SenaInputValidationError extends Error {
   readonly issues: SenaInputValidationIssue[];
 
-  constructor(issues: SenaInputValidationIssue[]) {
-    super(`Invalid SENA analytical inputs: ${issues.map((issue) => `${issue.path} (${issue.rule})`).join(", ")}.`);
+  constructor(issues: SenaInputValidationIssue[], options: { messagePathPrefix?: string } = {}) {
+    const displayIssue = (issue: SenaInputValidationIssue) => {
+      const path = `${options.messagePathPrefix ?? ""}${issue.path}`;
+      return issue.rule === "supported-value"
+        ? `${path} is not supported (${issue.rule})`
+        : `${path} (${issue.rule})`;
+    };
+    super(`Invalid SENA analytical inputs: ${issues.map(displayIssue).join(", ")}.`);
     this.name = "SenaInputValidationError";
     this.issues = issues.map((issue) => ({ ...issue }));
   }
@@ -55,6 +63,395 @@ function isOneOf(value: unknown, values: readonly unknown[]) {
 
 function isNonemptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function collectSenaDatasetContractIssues(
+  value: unknown,
+  path: string,
+  issues: SenaInputValidationIssue[]
+) {
+  const add = (issuePath: string, rule: SenaInputValidationRule) => issues.push({ path: issuePath, rule });
+  if (!isRecord(value)) {
+    add(path, "object");
+    return;
+  }
+
+  const table = (name: "people" | "interactions" | "utterances" | "coded_segments" | "codebook") => {
+    const candidate = value[name];
+    if (!Array.isArray(candidate)) {
+      add(`${path}.${name}`, "array");
+      return [] as unknown[];
+    }
+    return candidate;
+  };
+  const people = table("people");
+  const interactions = table("interactions");
+  const utterances = table("utterances");
+  const codedSegments = table("coded_segments");
+  const codebook = table("codebook");
+
+  const requiredString = (record: Record<string, unknown>, field: string, rowPath: string) => {
+    if (!isNonemptyString(record[field])) add(`${rowPath}.${field}`, "nonempty-string");
+  };
+  const optionalString = (record: Record<string, unknown>, field: string, rowPath: string) => {
+    if (record[field] !== undefined && !isNonemptyString(record[field])) add(`${rowPath}.${field}`, "nonempty-string");
+  };
+  const integer = (record: Record<string, unknown>, field: string, rowPath: string, optional = false) => {
+    if (optional && record[field] === undefined) return;
+    if (!Number.isSafeInteger(record[field]) || (record[field] as number) < 0) {
+      add(`${rowPath}.${field}`, "integer-range");
+    }
+  };
+  const registerId = (
+    record: Record<string, unknown>,
+    field: string,
+    rowPath: string,
+    seen: Set<string>
+  ) => {
+    requiredString(record, field, rowPath);
+    if (!isNonemptyString(record[field])) return;
+    const id = (record[field] as string).trim();
+    if (seen.has(id)) add(`${rowPath}.${field}`, "distinct-values");
+    seen.add(id);
+  };
+
+  const personIds = new Set<string>();
+  people.forEach((row, index) => {
+    const rowPath = `${path}.people[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    registerId(row, "id", rowPath, personIds);
+    for (const field of ["label", "role", "group"]) requiredString(row, field, rowPath);
+    optionalString(row, "initials", rowPath);
+    if (row.actorType !== undefined && !isOneOf(row.actorType, ["human", "ai_agent"])) {
+      add(`${rowPath}.actorType`, "supported-value");
+    }
+  });
+
+  const codeIds = new Set<string>();
+  codebook.forEach((row, index) => {
+    const rowPath = `${path}.codebook[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    registerId(row, "id", rowPath, codeIds);
+    for (const field of ["label", "family", "description", "color"]) requiredString(row, field, rowPath);
+  });
+
+  const utteranceIds = new Set<string>();
+  utterances.forEach((row, index) => {
+    const rowPath = `${path}.utterances[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    registerId(row, "id", rowPath, utteranceIds);
+    for (const field of ["personId", "unitId", "stanzaId", "stage", "text"]) requiredString(row, field, rowPath);
+    optionalString(row, "timestamp", rowPath);
+    integer(row, "turnIndex", rowPath);
+  });
+
+  const segmentIds = new Set<string>();
+  codedSegments.forEach((row, index) => {
+    const rowPath = `${path}.coded_segments[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    registerId(row, "segmentId", rowPath, segmentIds);
+    if (isNonemptyString(row.segmentId) && utteranceIds.has(row.segmentId.trim())) {
+      add(`${rowPath}.segmentId`, "distinct-values");
+    }
+    for (const field of ["utteranceId", "personId", "unitId", "stanzaId", "stage", "text"]) {
+      requiredString(row, field, rowPath);
+    }
+    integer(row, "turnIndex", rowPath);
+    if (!Array.isArray(row.codes)) {
+      add(`${rowPath}.codes`, "array");
+    } else {
+      if (row.codes.length === 0) add(`${rowPath}.codes`, "nonempty-array");
+      const seenCodes = new Set<string>();
+      row.codes.forEach((code, codeIndex) => {
+        const codePath = `${rowPath}.codes[${codeIndex}]`;
+        if (!isNonemptyString(code)) {
+          add(codePath, "nonempty-string");
+          return;
+        }
+        const codeId = code.trim();
+        if (seenCodes.has(codeId)) add(codePath, "distinct-values");
+        seenCodes.add(codeId);
+      });
+    }
+    if (row.targetPersonIds !== undefined) {
+      if (!Array.isArray(row.targetPersonIds)) {
+        add(`${rowPath}.targetPersonIds`, "array");
+      } else {
+        const seenTargets = new Set<string>();
+        row.targetPersonIds.forEach((target, targetIndex) => {
+          const targetPath = `${rowPath}.targetPersonIds[${targetIndex}]`;
+          if (!isNonemptyString(target)) {
+            add(targetPath, "nonempty-string");
+            return;
+          }
+          const targetId = target.trim();
+          if (seenTargets.has(targetId)) add(targetPath, "distinct-values");
+          seenTargets.add(targetId);
+        });
+      }
+    }
+    if (row.confidence !== undefined &&
+      (!isFiniteNumber(row.confidence) || row.confidence < 0 || row.confidence > 1)) {
+      add(`${rowPath}.confidence`, "finite-probability");
+    }
+  });
+
+  interactions.forEach((row, index) => {
+    const rowPath = `${path}.interactions[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    for (const field of ["source", "target", "channel", "stage", "evidence"]) requiredString(row, field, rowPath);
+    integer(row, "turnIndex", rowPath, true);
+    if (row.weight !== undefined && (!isFiniteNumber(row.weight) || row.weight < 0)) {
+      add(`${rowPath}.weight`, "finite-nonnegative");
+    }
+  });
+
+  interactions.forEach((row, index) => {
+    if (!isRecord(row)) return;
+    for (const field of ["source", "target"]) {
+      if (isNonemptyString(row[field]) && !personIds.has((row[field] as string).trim())) {
+        add(`${path}.interactions[${index}].${field}`, "reference");
+      }
+    }
+  });
+  utterances.forEach((row, index) => {
+    if (isRecord(row) && isNonemptyString(row.personId) && !personIds.has(row.personId.trim())) {
+      add(`${path}.utterances[${index}].personId`, "reference");
+    }
+  });
+  codedSegments.forEach((row, index) => {
+    if (!isRecord(row)) return;
+    const rowPath = `${path}.coded_segments[${index}]`;
+    if (isNonemptyString(row.utteranceId) && !utteranceIds.has(row.utteranceId.trim())) {
+      add(`${rowPath}.utteranceId`, "reference");
+    }
+    if (isNonemptyString(row.personId) && !personIds.has(row.personId.trim())) {
+      add(`${rowPath}.personId`, "reference");
+    }
+    if (Array.isArray(row.targetPersonIds)) {
+      row.targetPersonIds.forEach((target, targetIndex) => {
+        if (isNonemptyString(target) && !personIds.has(target.trim())) {
+          add(`${rowPath}.targetPersonIds[${targetIndex}]`, "reference");
+        }
+      });
+    }
+    if (Array.isArray(row.codes)) {
+      row.codes.forEach((code, codeIndex) => {
+        if (isNonemptyString(code) && !codeIds.has(code.trim())) {
+          add(`${rowPath}.codes[${codeIndex}]`, "reference");
+        }
+      });
+    }
+  });
+
+  if (value.warnings !== undefined) {
+    if (!Array.isArray(value.warnings)) {
+      add(`${path}.warnings`, "array");
+    } else {
+      value.warnings.forEach((warning, index) => {
+        if (!isNonemptyString(warning)) add(`${path}.warnings[${index}]`, "nonempty-string");
+      });
+    }
+  }
+}
+
+function collectSenaSnapshotSourceIssues(
+  sourceValue: unknown,
+  authoritativeDatasetValue: unknown,
+  issues: SenaInputValidationIssue[]
+) {
+  const add = (path: string, rule: SenaInputValidationRule) => issues.push({ path, rule });
+  if (!isRecord(sourceValue)) {
+    add("source", "object");
+    return;
+  }
+  const dataset = isRecord(authoritativeDatasetValue) ? authoritativeDatasetValue : undefined;
+  const counts = sourceValue.sourceDatasetCounts;
+  const countFields = [
+    ["people", "people"],
+    ["interactions", "interactions"],
+    ["utterances", "utterances"],
+    ["codedSegments", "coded_segments"],
+    ["codes", "codebook"]
+  ] as const;
+  if (!isRecord(counts)) {
+    add("source.sourceDatasetCounts", "object");
+  } else {
+    for (const [countField, tableField] of countFields) {
+      const count = counts[countField];
+      const countPath = `source.sourceDatasetCounts.${countField}`;
+      if (!Number.isSafeInteger(count) || (count as number) < 0) {
+        add(countPath, "integer-range");
+      } else if (dataset && Array.isArray(dataset[tableField]) && count !== dataset[tableField].length) {
+        add(countPath, "count-match");
+      }
+    }
+  }
+
+  const window = sourceValue.activeTemporalWindow;
+  if (window === null) return;
+  if (!isRecord(window)) {
+    add("source.activeTemporalWindow", "object");
+    return;
+  }
+  for (const field of ["id", "label"]) {
+    if (!isNonemptyString(window[field])) add(`source.activeTemporalWindow.${field}`, "nonempty-string");
+  }
+  if (!isOneOf(window.mode, ["stage", "moving-window", "turn-window"])) {
+    add("source.activeTemporalWindow.mode", "supported-value");
+  }
+  for (const field of ["index", "startTurn", "endTurn", "interactionCount", "segmentCount"]) {
+    if (!Number.isSafeInteger(window[field]) || (window[field] as number) < 0) {
+      add(`source.activeTemporalWindow.${field}`, "integer-range");
+    }
+  }
+  if (window.centerTurn !== undefined &&
+    (!Number.isSafeInteger(window.centerTurn) || (window.centerTurn as number) < 0)) {
+    add("source.activeTemporalWindow.centerTurn", "integer-range");
+  }
+  if (Number.isSafeInteger(window.startTurn) && Number.isSafeInteger(window.endTurn) &&
+    (window.startTurn as number) > (window.endTurn as number)) {
+    add("source.activeTemporalWindow.endTurn", "finite-range");
+  }
+  if (Number.isSafeInteger(window.centerTurn) && Number.isSafeInteger(window.startTurn) &&
+    Number.isSafeInteger(window.endTurn) &&
+    ((window.centerTurn as number) < (window.startTurn as number) ||
+      (window.centerTurn as number) > (window.endTurn as number))) {
+    add("source.activeTemporalWindow.centerTurn", "finite-range");
+  }
+
+  const referenceIds = {
+    utteranceIds: new Set(
+      Array.isArray(dataset?.utterances)
+        ? dataset.utterances.flatMap((row) => isRecord(row) && isNonemptyString(row.id) ? [row.id.trim()] : [])
+        : []
+    ),
+    segmentIds: new Set(
+      Array.isArray(dataset?.coded_segments)
+        ? dataset.coded_segments.flatMap((row) => isRecord(row) && isNonemptyString(row.segmentId) ? [row.segmentId.trim()] : [])
+        : []
+    )
+  };
+  for (const field of ["stages", "utteranceIds", "segmentIds"] as const) {
+    if (!Array.isArray(window[field])) {
+      add(`source.activeTemporalWindow.${field}`, "array");
+      continue;
+    }
+    const seen = new Set<string>();
+    window[field].forEach((entry, index) => {
+      const entryPath = `source.activeTemporalWindow.${field}[${index}]`;
+      if (!isNonemptyString(entry)) {
+        add(entryPath, "nonempty-string");
+        return;
+      }
+      const id = entry.trim();
+      if (seen.has(id)) add(entryPath, "distinct-values");
+      seen.add(id);
+      if (field !== "stages" && !referenceIds[field].has(id)) add(entryPath, "reference");
+    });
+  }
+  if (Array.isArray(window.segmentIds) && Number.isSafeInteger(window.segmentCount) &&
+    window.segmentCount !== window.segmentIds.length) {
+    add("source.activeTemporalWindow.segmentCount", "count-match");
+  }
+
+  for (const field of ["rawSocialConnectivity", "rawConceptConnectivity", "rawBridgeIntegration"]) {
+    if (!isFiniteNumber(window[field]) || (window[field] as number) < 0) {
+      add(`source.activeTemporalWindow.${field}`, "finite-nonnegative");
+    }
+  }
+  for (const field of ["socialConnectivity", "conceptConnectivity", "bridgeIntegration"]) {
+    if (!isFiniteNumber(window[field]) || (window[field] as number) < 0 || (window[field] as number) > 1) {
+      add(`source.activeTemporalWindow.${field}`, "finite-range");
+    }
+  }
+  if (!Array.isArray(window.evidence)) add("source.activeTemporalWindow.evidence", "array");
+  if (!Array.isArray(window.topCodes)) {
+    add("source.activeTemporalWindow.topCodes", "array");
+  } else {
+    window.topCodes.forEach((entry, index) => {
+      const entryPath = `source.activeTemporalWindow.topCodes[${index}]`;
+      if (!isRecord(entry)) {
+        add(entryPath, "object");
+        return;
+      }
+      for (const field of ["id", "label"]) {
+        if (!isNonemptyString(entry[field])) add(`${entryPath}.${field}`, "nonempty-string");
+      }
+      if (!isFiniteNumber(entry.weight) || entry.weight < 0) add(`${entryPath}.weight`, "finite-nonnegative");
+    });
+  }
+}
+
+function deduplicatedIssues(issues: SenaInputValidationIssue[]) {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.path}\u0000${issue.rule}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Strict project-snapshot input boundary. Model construction keeps its legacy
+ * warning semantics for unknown references; persisted/restored snapshots do
+ * not, because they are the canonical source for later machine evidence.
+ */
+export function validateSenaProjectSnapshotCanonicalInputs(input: {
+  dataset: unknown;
+  source: unknown;
+  buildOptions: unknown;
+}): void {
+  const issues: SenaInputValidationIssue[] = [];
+  try {
+    validateSenaAnalyticalInputs({ dataset: input.dataset, buildOptions: input.buildOptions });
+  } catch (error) {
+    if (!(error instanceof SenaInputValidationError)) throw error;
+    issues.push(...error.issues);
+  }
+  collectSenaDatasetContractIssues(input.dataset, "dataset", issues);
+
+  const source = isRecord(input.source) ? input.source : undefined;
+  const authoritativeDataset = source?.sourceDataset ?? input.dataset;
+  if (source?.sourceDataset !== undefined) {
+    try {
+      validateSenaAnalyticalInputs({ dataset: source.sourceDataset, buildOptions: input.buildOptions });
+    } catch (error) {
+      if (!(error instanceof SenaInputValidationError)) throw error;
+      issues.push(...error.issues.map((issue) => ({
+        ...issue,
+        path: issue.path.startsWith("dataset")
+          ? `source.sourceDataset${issue.path.slice("dataset".length)}`
+          : issue.path
+      })));
+    }
+    collectSenaDatasetContractIssues(source.sourceDataset, "source.sourceDataset", issues);
+  }
+  collectSenaSnapshotSourceIssues(input.source, authoritativeDataset, issues);
+  const deduplicated = deduplicatedIssues(issues);
+  if (deduplicated.length > 0) {
+    throw new SenaInputValidationError(deduplicated, { messagePathPrefix: "project snapshot." });
+  }
 }
 
 function collectFiniteNonnegativeMatrixIssues(

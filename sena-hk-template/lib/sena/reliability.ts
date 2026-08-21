@@ -129,6 +129,9 @@ export class SenaReliabilityProjectBindingError extends Error {
 }
 
 function stableBindingValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return `{"$senaNonFinite":${JSON.stringify(Number.isNaN(value) ? "NaN" : value > 0 ? "Infinity" : "-Infinity")}}`;
+  }
   if (Array.isArray(value)) return `[${value.map(stableBindingValue).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
