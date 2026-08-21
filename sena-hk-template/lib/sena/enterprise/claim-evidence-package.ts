@@ -33,6 +33,7 @@ import type {
   SenaEnterpriseReliabilityRunStatus
 } from "./reliability-runs";
 import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
+import { buildEnterpriseReliabilityAdjudicationCoverage } from "./reliability-integrity";
 import type {
   SenaEnterpriseValidationParityEvidence,
   SenaEnterpriseValidationPreregistrationPlan,
@@ -275,7 +276,12 @@ function buildEnterpriseClaimEvidencePackageFromDb(
   const currentRevision = db.projectRevisions.find((revision) => (
     revision.projectId === project.id && revision.version === project.currentVersion
   ));
-  const projectReliabilityRuns = db.reliabilityRuns.filter((run) => run.projectId === project.id);
+  const projectReliabilityRuns = db.reliabilityRuns
+    .filter((run) => run.projectId === project.id)
+    .map((run) => ({
+      ...run,
+      adjudicationCoverage: buildEnterpriseReliabilityAdjudicationCoverage(run, project, db.adjudications)
+    }));
   const projectValidationRuns = db.validationRuns.filter((run) => run.projectId === project.id);
   const projectExpertReviews = db.expertReviews.filter((review) => review.projectId === project.id);
   const approvedReliability = latestByTimestamp(projectReliabilityRuns.filter((run) => run.status === "approved"));
@@ -476,7 +482,11 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
     if (evidenceSource.reliabilityRuns === "postgres-table") {
       const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
       pools.push(pool);
-      reliabilityRuns = await adapter.listReliabilityRuns({ projectId: input.projectId, limit: 1000 });
+      reliabilityRuns = await adapter.listReliabilityRuns({
+        projectId: input.projectId,
+        project: db.projects.find((candidate) => candidate.id === input.projectId),
+        limit: 1000
+      });
     }
     if (evidenceSource.validationRuns === "postgres-table") {
       const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});

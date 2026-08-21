@@ -4,7 +4,6 @@ import {
   type SenaGroupComparisonValidationReadModel
 } from "./inference";
 import {
-  isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
   type SenaReliabilityDashboardReadModel
 } from "./reliability";
@@ -63,11 +62,32 @@ import {
   supportedPostgresUrlEnvNamesLabel
 } from "./enterprise/postgres-url-env";
 import type { SenaEnterpriseDb } from "./enterprise/state";
+import { assertEnterpriseReliabilityRunCurrentProject } from "./enterprise/reliability-integrity";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
   values?: unknown[]
 ) => Promise<{ rows: T[]; rowCount?: number | null }>;
+
+export type SenaEnterpriseStoredIntegrityIssue = {
+  path: string;
+  rule: "row-payload-mismatch" | "current-project-source-required" | "current-project-binding-mismatch";
+};
+
+/**
+ * A deliberately value-free error for persisted SQL/payload integrity failures.
+ * Callers may safely serialize `issues`; neither the SQL value nor the embedded
+ * payload value is retained in the error.
+ */
+export class SenaEnterpriseStoredIntegrityError extends Error {
+  readonly issues: SenaEnterpriseStoredIntegrityIssue[];
+
+  constructor(issue: SenaEnterpriseStoredIntegrityIssue) {
+    super("Stored enterprise evidence failed canonical semantic dashboard or project-binding integrity validation.");
+    this.name = "SenaEnterpriseStoredIntegrityError";
+    this.issues = [issue];
+  }
+}
 
 export type SenaEnterprisePostgresConfig = {
   mode: "postgres" | "file";
@@ -961,6 +981,67 @@ function roundTripJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function canonicalStoredJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => canonicalStoredJson(entry));
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalStoredJson(entry)])
+    );
+  }
+  return value;
+}
+
+function storedValuesMatch(rowValue: unknown, payloadValue: unknown) {
+  if (payloadValue === null || payloadValue === undefined) {
+    return rowValue === null || rowValue === undefined;
+  }
+  if (typeof payloadValue === "number") {
+    return Number.isFinite(payloadValue) &&
+      ((typeof rowValue === "number" && Number.isFinite(rowValue) && rowValue === payloadValue) ||
+        (typeof rowValue === "string" && rowValue.trim().length > 0 && Number(rowValue) === payloadValue));
+  }
+  if (typeof payloadValue === "string" || typeof payloadValue === "boolean") {
+    return rowValue === payloadValue;
+  }
+  try {
+    return JSON.stringify(canonicalStoredJson(rowValue)) === JSON.stringify(canonicalStoredJson(payloadValue));
+  } catch {
+    return false;
+  }
+}
+
+function storedDatesMatch(rowValue: unknown, payloadValue: unknown) {
+  if (payloadValue === null || payloadValue === undefined) {
+    return rowValue === null || rowValue === undefined;
+  }
+  try {
+    return storedDateToIso(rowValue) === storedDateToIso(payloadValue);
+  } catch {
+    return false;
+  }
+}
+
+function storedIntegrityFailure(
+  path: string,
+  rule: SenaEnterpriseStoredIntegrityIssue["rule"] = "row-payload-mismatch"
+): never {
+  throw new SenaEnterpriseStoredIntegrityError({ path, rule });
+}
+
+function assertStoredField(
+  row: Record<string, unknown>,
+  column: string,
+  payloadValue: unknown,
+  options: { date?: boolean } = {}
+) {
+  const matches = options.date
+    ? storedDatesMatch(row[column], payloadValue)
+    : storedValuesMatch(row[column], payloadValue);
+  if (!matches) storedIntegrityFailure(`row.${column}`);
+}
+
 function normalizeStoredDb(value: unknown): SenaEnterpriseDb {
   const db = typeof value === "string" ? JSON.parse(value) as SenaEnterpriseDb : value as SenaEnterpriseDb;
   if (!db || typeof db !== "object" || db.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseDb) {
@@ -1054,17 +1135,68 @@ function normalizeStoredAnalysisRun(row: Record<string, unknown>): SenaEnterpris
   };
 }
 
-function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterpriseReliabilityRun {
+type SenaEnterpriseReliabilityProjectSource = {
+  id: string;
+  teamId: string;
+  currentVersion: number;
+  snapshot: SenaProjectSnapshot;
+};
+
+type SenaEnterpriseReliabilityReadContext = {
+  project?: SenaEnterpriseReliabilityProjectSource;
+  expectedProjectId?: string;
+  expectedTeamId?: string;
+  expectedTeamIds?: string[];
+  expectedStatus?: SenaEnterpriseReliabilityRunStatus;
+};
+
+function normalizeStoredReliabilityRun(
+  row: Record<string, unknown>,
+  context: SenaEnterpriseReliabilityReadContext = {}
+): SenaEnterpriseReliabilityRun {
   const payload = normalizeStoredJson<Omit<SenaEnterpriseReliabilityRun, "dashboard"> & {
     dashboard: SenaReliabilityDashboardReadModel;
   }>(row.payload);
-  const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
-  if (payload.projectId && (!isValidSenaReliabilityProjectBinding(payload.projectBinding) ||
-    JSON.stringify(payload.projectBinding) !== JSON.stringify(dashboard.projectBinding) ||
-    payload.projectBinding.projectId !== payload.projectId)) {
-    throw new Error("Stored Postgres reliability run project binding is missing or contradictory.");
+
+  const rowFields: Array<[string, unknown, { date?: boolean }?]> = [
+    ["id", payload.id],
+    ["team_id", payload.teamId],
+    ["project_id", payload.projectId],
+    ["user_id", payload.userId],
+    ["status", payload.status],
+    ["reviewed_by", payload.reviewedBy],
+    ["reviewed_at", payload.reviewedAt, { date: true }],
+    ["reviewer", payload.reviewer],
+    ["file_count", payload.fileCount],
+    ["annotation_count", payload.annotationCount],
+    ["coder_count", payload.coderCount],
+    ["item_count", payload.itemCount],
+    ["code_count", payload.codeCount],
+    ["mean_pairwise_kappa", payload.meanPairwiseKappa],
+    ["krippendorff_alpha_nominal", payload.krippendorffAlphaNominal],
+    ["disagreement_count", payload.disagreementCount],
+    ["adjudication_coverage_rate", payload.adjudicationCoverage?.coverageRate],
+    ["unresolved_disagreements", payload.adjudicationCoverage?.unresolvedDisagreements],
+    ["input_files", payload.inputFiles],
+    ["created_at", payload.createdAt, { date: true }]
+  ];
+  rowFields.forEach(([column, value, options]) => assertStoredField(row, column, value, options));
+
+  if (context.expectedProjectId !== undefined && payload.projectId !== context.expectedProjectId) {
+    storedIntegrityFailure("row.project_id");
   }
-  return {
+  if (context.expectedTeamId !== undefined && payload.teamId !== context.expectedTeamId) {
+    storedIntegrityFailure("row.team_id");
+  }
+  if (context.expectedTeamIds !== undefined && !context.expectedTeamIds.includes(payload.teamId)) {
+    storedIntegrityFailure("row.team_id");
+  }
+  if (context.expectedStatus !== undefined && payload.status !== context.expectedStatus) {
+    storedIntegrityFailure("row.status");
+  }
+
+  const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
+  const normalized: SenaEnterpriseReliabilityRun = {
     ...payload,
     dashboard,
     meanPairwiseKappa: dashboard.meanPairwiseKappa,
@@ -1072,6 +1204,19 @@ function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterp
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
+  if (payload.projectId) {
+    if (!context.project) {
+      storedIntegrityFailure("payload.projectBinding", "current-project-source-required");
+    }
+    try {
+      assertEnterpriseReliabilityRunCurrentProject(normalized, context.project);
+    } catch {
+      storedIntegrityFailure("payload.projectBinding", "current-project-binding-mismatch");
+    }
+  } else if (context.project) {
+    storedIntegrityFailure("row.project_id");
+  }
+  return normalized;
 }
 
 type SenaEnterpriseValidationProjectSource = {
@@ -1116,8 +1261,44 @@ function normalizeStoredExpertReview(row: Record<string, unknown>): SenaEnterpri
   };
 }
 
-function normalizeStoredAdjudication(row: Record<string, unknown>): SenaEnterpriseAdjudicationRecord {
+type SenaEnterpriseAdjudicationReadContext = {
+  expectedProjectId?: string;
+  expectedReliabilityRunId?: string;
+  expectedTeamId?: string;
+  expectedTeamIds?: string[];
+};
+
+function normalizeStoredAdjudication(
+  row: Record<string, unknown>,
+  context: SenaEnterpriseAdjudicationReadContext = {}
+): SenaEnterpriseAdjudicationRecord {
   const payload = normalizeStoredJson<SenaEnterpriseAdjudicationRecord>(row.payload);
+  const rowFields: Array<[string, unknown, { date?: boolean }?]> = [
+    ["id", payload.id],
+    ["project_id", payload.projectId],
+    ["team_id", payload.teamId],
+    ["reliability_run_id", payload.reliabilityRunId],
+    ["item_id", payload.itemId],
+    ["code_id", payload.codeId],
+    ["decision", payload.decision],
+    ["reviewer_id", payload.reviewerId],
+    ["coder_values", payload.coderValues],
+    ["created_at", payload.createdAt, { date: true }]
+  ];
+  rowFields.forEach(([column, value, options]) => assertStoredField(row, column, value, options));
+  if (context.expectedProjectId !== undefined && payload.projectId !== context.expectedProjectId) {
+    storedIntegrityFailure("row.project_id");
+  }
+  if (context.expectedReliabilityRunId !== undefined &&
+    payload.reliabilityRunId !== context.expectedReliabilityRunId) {
+    storedIntegrityFailure("row.reliability_run_id");
+  }
+  if (context.expectedTeamId !== undefined && payload.teamId !== context.expectedTeamId) {
+    storedIntegrityFailure("row.team_id");
+  }
+  if (context.expectedTeamIds !== undefined && !context.expectedTeamIds.includes(payload.teamId)) {
+    storedIntegrityFailure("row.team_id");
+  }
   return {
     ...payload,
     createdAt: storedDateToIso(payload.createdAt)
@@ -1912,6 +2093,7 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
     teamIds?: string[];
     teamId?: string;
     projectId?: string;
+    project?: SenaEnterpriseReliabilityProjectSource;
     status?: SenaEnterpriseReliabilityRunStatus;
     limit?: number;
   } = {}) {
@@ -1942,7 +2124,13 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
       ORDER BY created_at DESC, id DESC
       LIMIT $${values.length}
     `, values);
-    return result.rows.map((row) => normalizeStoredReliabilityRun(row));
+    return result.rows.map((row) => normalizeStoredReliabilityRun(row, {
+      project: inputFilters.project,
+      expectedProjectId: inputFilters.projectId,
+      expectedTeamId: inputFilters.teamId,
+      expectedTeamIds: inputFilters.teamIds,
+      expectedStatus: inputFilters.status
+    }));
   }
 
   return {
@@ -2494,7 +2682,12 @@ export function createEnterprisePostgresAdjudicationAdapter(input: {
       ORDER BY created_at DESC, id DESC
       LIMIT $${values.length}
     `, values);
-    return result.rows.map((row) => normalizeStoredAdjudication(row));
+    return result.rows.map((row) => normalizeStoredAdjudication(row, {
+      expectedProjectId: inputFilters.projectId,
+      expectedReliabilityRunId: inputFilters.reliabilityRunId,
+      expectedTeamId: inputFilters.teamId,
+      expectedTeamIds: inputFilters.teamIds
+    }));
   }
 
   return {

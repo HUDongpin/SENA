@@ -2182,17 +2182,19 @@ describe("SENA enterprise runtime", () => {
       body: "Reviewer note on the fusion canvas.",
       target: { kind: "project", label: "Whole project" }
     });
-    enterprise.createEnterpriseAdjudicationRecord(activeReviewer.context, project.id, {
+    // Free-form adjudications were an invalid legacy fixture: current records
+    // must target a canonical disagreement from a current reliability run.
+    expect(() => enterprise.createEnterpriseAdjudicationRecord(activeReviewer.context, project.id, {
       itemId: "u1",
       codeId: "Evidence",
       decision: "include",
       notes: "Reviewer adjudicated the Evidence code."
-    });
+    })).toThrow(/reliability run|required|canonical adjudication/i);
     const collaboration = enterprise.listEnterpriseProjectCollaboration(registered.context, project.id);
     expect(collaboration.revisions.map((revision: { version: number }) => revision.version)).toEqual([2, 1]);
     expect(collaboration.presence).toHaveLength(1);
     expect(collaboration.comments[0].body).toContain("Reviewer note");
-    expect(collaboration.adjudications[0].decision).toBe("include");
+    expect(collaboration.adjudications).toHaveLength(0);
     const commentNotifications = enterprise.listEnterpriseNotifications(registered.context, { kind: "project.comment" });
     expect(commentNotifications.notifications.some((notification: { projectId?: string; detail: Record<string, unknown> }) => (
       notification.projectId === project.id && notification.detail.commentId === comment.id
@@ -2217,12 +2219,12 @@ describe("SENA enterprise runtime", () => {
       expect(pubSubDelivery.provider.mode).toBe("webhook");
       expect(pubSubDelivery.provider.endpointHash).toHaveLength(64);
       expect(pubSubDelivery.provider.secretConfigured).toBe(true);
-      expect(pubSubDelivery.summary.delivered).toBeGreaterThanOrEqual(4);
+      expect(pubSubDelivery.summary.delivered).toBeGreaterThanOrEqual(3);
       expect(pubSubDelivery.events.every((event: { deliveryStatus: string }) => event.deliveryStatus === "delivered")).toBe(true);
     } finally {
       globalThis.fetch = originalWebhookFetch;
     }
-    expect(pubSubRequests.length).toBeGreaterThanOrEqual(4);
+    expect(pubSubRequests.length).toBeGreaterThanOrEqual(3);
     expect(pubSubRequests[0].url).toBe("https://pubsub.example.test/sena/collaboration");
     expect(pubSubRequests[0].headers["x-sena-webhook-event"]).toBe("collaboration.publish");
     expect(pubSubRequests[0].headers["x-sena-project-id"]).toBe(project.id);
@@ -2234,7 +2236,7 @@ describe("SENA enterprise runtime", () => {
       delivery: { endpointHash: string; attempt: number; maxAttempts: number };
     });
     expect(pubSubPayloads.every((payload) => payload.schemaVersion === "sena-enterprise-collaboration-pubsub-webhook/v1")).toBe(true);
-    expect(pubSubPayloads.map((payload) => payload.event.kind)).toEqual(expect.arrayContaining(["presence", "comment", "comment.resolve", "adjudication"]));
+    expect(pubSubPayloads.map((payload) => payload.event.kind)).toEqual(expect.arrayContaining(["presence", "comment", "comment.resolve"]));
     expect(pubSubPayloads.every((payload) => payload.event.projectId === project.id)).toBe(true);
     expect(pubSubPayloads.every((payload) => payload.delivery.endpointHash.length === 64)).toBe(true);
     expect(pubSubPayloads.every((payload) => payload.delivery.maxAttempts === 2)).toBe(true);
@@ -2258,7 +2260,7 @@ describe("SENA enterprise runtime", () => {
     expect(governance.checks.find((check: { id: string }) => check.id === "audit-log")?.evidence).toContain("webhookProvider=webhook");
     expect(governance.checks.find((check: { id: string }) => check.id === "audit-log")?.evidence).toContain("retentionDays=3650");
     expect(governance.counts.projectRevisions).toBe(2);
-    expect(governance.counts.collaborationEvents).toBeGreaterThanOrEqual(4);
+    expect(governance.counts.collaborationEvents).toBeGreaterThanOrEqual(3);
     expect(governance.counts.notifications).toBeGreaterThan(0);
     expect(governance.checks.find((check: { id: string }) => check.id === "persistence")?.evidence)
       .toContain("optimisticConcurrency=currentVersion/expectedVersion");
@@ -2273,7 +2275,7 @@ describe("SENA enterprise runtime", () => {
     expect(governance.checks.find((check: { id: string }) => check.id === "collaboration-governance")?.evidence)
       .toContain("pubsubWebhookSchema=sena-enterprise-collaboration-pubsub-webhook/v1");
     expect(governance.checks.find((check: { id: string }) => check.id === "collaboration-governance")?.evidence)
-      .toContain("pubsubDeliverEvents=4");
+      .toContain("pubsubDeliverEvents=3");
     const securityPosture = enterprise.getEnterpriseSecurityPosture();
     expect(securityPosture.schemaVersion).toBe("sena-enterprise-security-posture/v1");
     expect(["ready", "review", "blocked"]).toContain(securityPosture.status);
@@ -2586,7 +2588,7 @@ describe("SENA enterprise runtime", () => {
     expect(opsStatus.storage.dbBackupBytes).toBeGreaterThan(0);
     expect(opsStatus.backup.status).toBe("fresh");
     expect(opsStatus.counts.projects).toBeGreaterThan(0);
-    expect(opsStatus.counts.collaborationEvents).toBeGreaterThanOrEqual(4);
+    expect(opsStatus.counts.collaborationEvents).toBeGreaterThanOrEqual(3);
     expect(opsStatus.counts.provisionedUsers).toBe(5);
     const opsMetrics = enterprise.buildEnterpriseOpsMetrics(opsStatus);
     expect(opsMetrics).toContain("sena_enterprise_ready");

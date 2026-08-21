@@ -26,6 +26,49 @@ const envNames = [
   "SENA_OBJECT_STORAGE_WEBHOOK_SECRET"
 ];
 
+function reliabilitySqlRow(payload: Record<string, unknown>) {
+  const coverage = payload.adjudicationCoverage as Record<string, unknown>;
+  return {
+    id: payload.id,
+    team_id: payload.teamId,
+    project_id: payload.projectId ?? null,
+    user_id: payload.userId,
+    status: payload.status,
+    reviewed_by: payload.reviewedBy ?? null,
+    reviewed_at: payload.reviewedAt ?? null,
+    reviewer: payload.reviewer,
+    file_count: payload.fileCount,
+    annotation_count: payload.annotationCount,
+    coder_count: payload.coderCount,
+    item_count: payload.itemCount,
+    code_count: payload.codeCount,
+    mean_pairwise_kappa: payload.meanPairwiseKappa,
+    krippendorff_alpha_nominal: payload.krippendorffAlphaNominal,
+    disagreement_count: payload.disagreementCount,
+    adjudication_coverage_rate: coverage.coverageRate,
+    unresolved_disagreements: coverage.unresolvedDisagreements,
+    input_files: payload.inputFiles,
+    payload,
+    created_at: payload.createdAt
+  };
+}
+
+function adjudicationSqlRow(payload: Record<string, unknown>) {
+  return {
+    id: payload.id,
+    project_id: payload.projectId,
+    team_id: payload.teamId,
+    reliability_run_id: payload.reliabilityRunId,
+    item_id: payload.itemId,
+    code_id: payload.codeId,
+    decision: payload.decision,
+    reviewer_id: payload.reviewerId,
+    coder_values: payload.coderValues,
+    payload,
+    created_at: payload.createdAt
+  };
+}
+
 describe("SENA enterprise Neon Postgres readiness", () => {
   let enterpriseDbDir: string | undefined;
 
@@ -951,7 +994,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(reliabilityPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => reliabilitySqlRow(payload)),
               rowCount: reliabilityPayloads.size
             };
           }
@@ -975,7 +1018,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(adjudicationPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => adjudicationSqlRow(payload)),
               rowCount: adjudicationPayloads.size
             };
           }
@@ -1030,7 +1073,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     };
     const parsed = parseCoderAnnotationsFromRows([
       { coder_id: "c1", item_id: "u1", code_id: "Question", value: "1" },
-      { coder_id: "c2", item_id: "u1", code_id: "Question", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Question", value: "0" },
       { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "0" },
       { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
     ]);
@@ -1047,17 +1090,17 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       dashboard,
       reviewPatch: reliabilityDashboardToReview(dashboard, "Claim Reliability Reviewer")
     });
-    await enterprise.reviewEnterpriseReliabilityRunWithPostgresMirror(registered.context, reliabilityRun.id, {
-      status: "approved",
-      notes: "No disagreements remain for the claim evidence package."
-    });
     const adjudication = await enterprise.createEnterpriseAdjudicationRecordWithPostgresMirror(registered.context, project.id, {
       reliabilityRunId: reliabilityRun.id,
       itemId: "u1",
-      codeId: "Question",
+      codeId: "question",
       decision: "include",
       notes: "Indexed adjudication evidence for claim package.",
-      coderValues: { c1: true, c2: true }
+      coderValues: { c1: true, c2: false }
+    });
+    await enterprise.reviewEnterpriseReliabilityRunWithPostgresMirror(registered.context, reliabilityRun.id, {
+      status: "approved",
+      notes: "The canonical disagreement is bound and resolved for the claim evidence package."
     });
 
     const comparison = buildSenaGroupComparison({
@@ -1195,7 +1238,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(reliabilityPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => reliabilitySqlRow(payload)),
               rowCount: reliabilityPayloads.size
             };
           }
@@ -1219,7 +1262,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(adjudicationPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => adjudicationSqlRow(payload)),
               rowCount: adjudicationPayloads.size
             };
           }
@@ -1279,7 +1322,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     const resolvedComment = await enterprise.resolveEnterpriseProjectCommentWithPostgresMirror(registered.context, project.id, comment.id);
     const parsed = parseCoderAnnotationsFromRows([
       { coder_id: "c1", item_id: "u1", code_id: "Question", value: "1" },
-      { coder_id: "c2", item_id: "u1", code_id: "Question", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Question", value: "0" },
       { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "0" },
       { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
     ]);
@@ -1296,17 +1339,17 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       dashboard,
       reviewPatch: reliabilityDashboardToReview(dashboard, "Collaboration Reliability Reviewer")
     });
-    await enterprise.reviewEnterpriseReliabilityRunWithPostgresMirror(registered.context, reliabilityRun.id, {
-      status: "approved",
-      notes: "Collaboration evidence approved."
-    });
     const adjudication = await enterprise.createEnterpriseAdjudicationRecordWithPostgresMirror(registered.context, project.id, {
       reliabilityRunId: reliabilityRun.id,
       itemId: "u1",
-      codeId: "Question",
+      codeId: "question",
       decision: "include",
       notes: "Indexed adjudication evidence for collaboration.",
-      coderValues: { c1: true, c2: true }
+      coderValues: { c1: true, c2: false }
+    });
+    await enterprise.reviewEnterpriseReliabilityRunWithPostgresMirror(registered.context, reliabilityRun.id, {
+      status: "approved",
+      notes: "The canonical collaboration disagreement is bound and resolved."
     });
 
     const comparison = buildSenaGroupComparison({

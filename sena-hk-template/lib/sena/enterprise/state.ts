@@ -12,6 +12,10 @@ import {
   type SenaReliabilityDashboardReadModel
 } from "../reliability";
 import { SenaEnterpriseError } from "./errors";
+import {
+  assertEnterpriseReliabilityAdjudicationRecord,
+  buildEnterpriseReliabilityAdjudicationCoverage
+} from "./reliability-integrity";
 import type {
   SenaEnterpriseAnalysisRun,
   SenaEnterpriseImportRun,
@@ -258,51 +262,6 @@ export function emptyEnterpriseDb(): SenaEnterpriseDb {
   };
 }
 
-function roundedCoverageRate(resolved: number, queued: number) {
-  if (queued === 0) return 1;
-  return Number((resolved / queued).toFixed(4));
-}
-
-function reliabilityDisagreementKey(itemId: string, codeId: string) {
-  return `${itemId}::${codeId}`;
-}
-
-function buildReliabilityAdjudicationCoverage(
-  run: Pick<SenaEnterpriseReliabilityRun, "id" | "createdAt" | "reviewedAt" | "dashboard">,
-  adjudications: SenaEnterpriseAdjudicationRecord[]
-): SenaEnterpriseReliabilityAdjudicationCoverage {
-  const queueKeys = new Set((run.dashboard.adjudicationQueue ?? []).map((disagreement) => (
-    reliabilityDisagreementKey(disagreement.itemId, disagreement.codeId)
-  )));
-  const latestByDisagreement = new Map<string, SenaEnterpriseAdjudicationRecord>();
-  adjudications
-    .filter((record) => record.reliabilityRunId === run.id)
-    .filter((record) => queueKeys.has(reliabilityDisagreementKey(record.itemId, record.codeId)))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .forEach((record) => {
-      latestByDisagreement.set(reliabilityDisagreementKey(record.itemId, record.codeId), record);
-    });
-
-  const decisions = { include: 0, exclude: 0, revise: 0 };
-  let updatedAt = run.reviewedAt ?? run.createdAt;
-  for (const record of latestByDisagreement.values()) {
-    decisions[record.decision] += 1;
-    if (record.createdAt.localeCompare(updatedAt) > 0) updatedAt = record.createdAt;
-  }
-
-  const queuedDisagreements = queueKeys.size;
-  const resolvedDisagreements = latestByDisagreement.size;
-  return {
-    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
-    queuedDisagreements,
-    resolvedDisagreements,
-    unresolvedDisagreements: Math.max(queuedDisagreements - resolvedDisagreements, 0),
-    coverageRate: roundedCoverageRate(resolvedDisagreements, queuedDisagreements),
-    decisions,
-    updatedAt
-  };
-}
-
 function isReleaseVerificationStatus(status: string): status is SenaEnterpriseReleaseVerificationEvidence["status"] {
   return status === "passed" || status === "failed" || status === "not-run";
 }
@@ -384,6 +343,79 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     ...revision,
     ...normalizedProjectSnapshotFields(revision.snapshot)
   }));
+  const adjudications = db.adjudications ?? [];
+  const reliabilityProjectByRunId = new Map<string, SenaEnterpriseProject>();
+  const reliabilityRuns = (db.reliabilityRuns ?? []).map((run) => {
+    const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+    const normalizedRun: SenaEnterpriseReliabilityRun = {
+      ...run,
+      dashboard,
+      projectBinding: dashboard.projectBinding,
+      annotationCount: dashboard.derivationEvidence?.annotations.length ?? run.annotationCount,
+      coderCount: dashboard.coderCount,
+      itemCount: dashboard.itemCount,
+      codeCount: dashboard.codeCount,
+      meanPairwiseKappa: dashboard.meanPairwiseKappa,
+      krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+      disagreementCount: dashboard.disagreementCount,
+      status: run.status ?? (dashboard.disagreementCount > 0 ? "pending-adjudication" : "pending-review")
+    };
+    const project = normalizedRun.projectId
+      ? projects.find((candidate) => candidate.id === normalizedRun.projectId)
+      : undefined;
+    if (normalizedRun.projectId && !project) {
+      throw new SenaEnterpriseError(
+        "Stored project-bound reliability run has no current project.",
+        409,
+        "reliability_stored_project_missing"
+      );
+    }
+    const bindingVersion = normalizedRun.projectBinding?.projectVersion;
+    const historicalRevision = project && bindingVersion !== project.currentVersion
+      ? projectRevisions.find((revision) => (
+        revision.projectId === project.id && revision.version === bindingVersion
+      ))
+      : undefined;
+    const coverageProject = project && bindingVersion === project.currentVersion
+      ? project
+      : project && historicalRevision
+        ? { ...project, currentVersion: historicalRevision.version, snapshot: historicalRevision.snapshot }
+        : undefined;
+    if (project && !coverageProject) {
+      throw new SenaEnterpriseError(
+        "Stored reliability run cannot be bound to a current or retained project revision.",
+        409,
+        "reliability_stored_project_binding_invalid"
+      );
+    }
+    if (coverageProject) reliabilityProjectByRunId.set(normalizedRun.id, coverageProject);
+    const adjudicationCoverage = coverageProject
+      ? buildEnterpriseReliabilityAdjudicationCoverage(normalizedRun, coverageProject, adjudications)
+      : {
+        schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
+        queuedDisagreements: dashboard.adjudicationQueue.length,
+        resolvedDisagreements: 0,
+        unresolvedDisagreements: dashboard.adjudicationQueue.length,
+        coverageRate: dashboard.adjudicationQueue.length === 0 ? 1 : 0,
+        decisions: { include: 0, exclude: 0, revise: 0 },
+        updatedAt: normalizedRun.reviewedAt ?? normalizedRun.createdAt
+      };
+    return { ...normalizedRun, adjudicationCoverage };
+  });
+  for (const record of adjudications) {
+    const run = record.reliabilityRunId
+      ? reliabilityRuns.find((candidate) => candidate.id === record.reliabilityRunId)
+      : undefined;
+    const project = run ? reliabilityProjectByRunId.get(run.id) : undefined;
+    if (!run || !project) {
+      throw new SenaEnterpriseError(
+        "Stored adjudication is not bound to a current project reliability run.",
+        409,
+        "reliability_adjudication_binding_invalid"
+      );
+    }
+    assertEnterpriseReliabilityAdjudicationRecord(run, project, record);
+  }
   return {
     ...db,
     sessions: (db.sessions ?? []).map((session) => ({
@@ -394,7 +426,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     projectRevisions,
     projectComments: db.projectComments ?? [],
     projectPresence: db.projectPresence ?? [],
-    adjudications: db.adjudications ?? [],
+    adjudications,
     collaborationEvents: (db.collaborationEvents ?? []).map((event) => ({
       ...event,
       detail: event.detail ?? {},
@@ -467,20 +499,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     analysisRuns: db.analysisRuns ?? [],
     serverJobs: db.serverJobs ?? [],
     expertReviews: db.expertReviews ?? [],
-    reliabilityRuns: (db.reliabilityRuns ?? []).map((run) => {
-      const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
-      const normalizedRun = {
-        ...run,
-        dashboard,
-        meanPairwiseKappa: dashboard.meanPairwiseKappa,
-        krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
-        status: run.status ?? (run.disagreementCount > 0 ? "pending-adjudication" : "pending-review")
-      };
-      return {
-        ...normalizedRun,
-        adjudicationCoverage: buildReliabilityAdjudicationCoverage(normalizedRun, db.adjudications ?? [])
-      };
-    }),
+    reliabilityRuns,
     validationRuns: (db.validationRuns ?? []).map((run) => {
       const project = run.projectId
         ? projects.find((candidate) => candidate.id === run.projectId)
