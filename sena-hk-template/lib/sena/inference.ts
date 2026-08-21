@@ -6,7 +6,10 @@ import {
   buildSenaStableContentHash
 } from "./data-contract-audit";
 import {
+  SENA_GROUP_COMPARISON_MAX_ITERATIONS,
+  SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS,
   SENA_GROUP_COMPARISON_METRICS,
+  SENA_GROUP_COMPARISON_MIN_ITERATIONS,
   validateSenaAnalyticalInputs,
   type SenaValidatedGroupComparisonMetric
 } from "./analytical-input-validation";
@@ -648,7 +651,9 @@ function isFinitePreview(value: unknown, iterations: number, legacy: boolean) {
 }
 
 function isCanonicalPermutation(value: unknown, legacy: boolean) {
-  if (!isRecord(value) || !isPositiveInteger(value.iterations) || value.iterations < 100) return false;
+  if (!isRecord(value) || !isPositiveInteger(value.iterations) ||
+    value.iterations < SENA_GROUP_COMPARISON_MIN_ITERATIONS ||
+    (!legacy && value.iterations > SENA_GROUP_COMPARISON_MAX_ITERATIONS)) return false;
   return isCanonicalUint32(value.seed) &&
     isFiniteNumber(value.pTwoSided) && value.pTwoSided >= 0 && value.pTwoSided <= 1 &&
     isFiniteNumber(value.nullLower) && isFiniteNumber(value.nullUpper) && value.nullLower <= value.nullUpper &&
@@ -656,7 +661,9 @@ function isCanonicalPermutation(value: unknown, legacy: boolean) {
 }
 
 function isCanonicalBootstrap(value: unknown, legacy: boolean) {
-  if (!isRecord(value) || !isPositiveInteger(value.iterations) || value.iterations < 100) return false;
+  if (!isRecord(value) || !isPositiveInteger(value.iterations) ||
+    value.iterations < SENA_GROUP_COMPARISON_MIN_ITERATIONS ||
+    (!legacy && value.iterations > SENA_GROUP_COMPARISON_MAX_ITERATIONS)) return false;
   return isCanonicalUint32(value.seed) &&
     isFiniteNumber(value.meanDifferenceLower) && isFiniteNumber(value.meanDifferenceUpper) &&
     value.meanDifferenceLower <= value.meanDifferenceUpper &&
@@ -926,6 +933,8 @@ function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult
     value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
     !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
     value.guardrail !== groupComparisonSuiteGuardrail || !Array.isArray(value.comparisons) ||
+    value.comparisons.length === 0 ||
+    value.comparisons.length > SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS ||
     !value.comparisons.every(isCurrentSenaGroupComparisonResult)) return false;
   return isCanonicalSuiteStructure(
     value,

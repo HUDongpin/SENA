@@ -1224,6 +1224,8 @@ type SenaEnterpriseValidationProjectSource = {
   snapshot: SenaProjectSnapshot;
 };
 
+export const SENA_POSTGRES_VALIDATION_LIST_REPLAY_LIMIT = 100;
+
 type SenaEnterpriseValidationReadContext = {
   project?: SenaEnterpriseValidationProjectSource;
   expectedProjectId?: string;
@@ -2415,7 +2417,10 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
     }
     if (inputFilters.projectId) clauses.push(`project_id = ${add(inputFilters.projectId)}`);
     if (inputFilters.status) clauses.push(`status = ${add(inputFilters.status)}`);
-    const limit = Math.max(1, Math.min(inputFilters.limit ?? 500, 5000));
+    const limit = Math.max(1, Math.min(
+      inputFilters.limit ?? SENA_POSTGRES_VALIDATION_LIST_REPLAY_LIMIT,
+      SENA_POSTGRES_VALIDATION_LIST_REPLAY_LIMIT
+    ));
     values.push(limit);
     const result = await input.query<Record<string, unknown>>(`
       SELECT *
@@ -2424,7 +2429,7 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
       ORDER BY created_at DESC, id DESC
       LIMIT $${values.length}
     `, values);
-    return result.rows.map((row) => normalizeStoredValidationRun(row, {
+    return result.rows.slice(0, limit).map((row) => normalizeStoredValidationRun(row, {
       project: inputFilters.project,
       expectedProjectId: inputFilters.projectId,
       expectedTeamId: inputFilters.teamId,

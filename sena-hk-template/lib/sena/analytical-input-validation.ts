@@ -508,6 +508,10 @@ export const SENA_GROUP_COMPARISON_METRICS = [
   "alignment"
 ] as const;
 
+export const SENA_GROUP_COMPARISON_MIN_ITERATIONS = 100;
+export const SENA_GROUP_COMPARISON_MAX_ITERATIONS = 10_000;
+export const SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS = 40;
+
 export type SenaValidatedGroupComparisonMetric = typeof SENA_GROUP_COMPARISON_METRICS[number];
 
 function validateGroupComparisonControls(
@@ -570,7 +574,9 @@ function validateGroupComparisonControls(
     add("comparisons", "array");
   } else {
     if (controls.comparisons.length === 0) add("comparisons", "nonempty-array");
-    if (controls.comparisons.length > 40) add("comparisons", "array-range");
+    if (controls.comparisons.length > SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS) {
+      add("comparisons", "array-range");
+    }
     controls.comparisons.forEach((comparison, index) => {
       const path = `comparisons[${index}]`;
       if (typeof comparison !== "object" || comparison === null || Array.isArray(comparison)) {
@@ -584,8 +590,18 @@ function validateGroupComparisonControls(
     });
   }
 
-  validateIntegerRange(controls.iterations, "iterations", 100, 10_000);
-  validateIntegerRange(controls.bootstrapIterations, "bootstrapIterations", 100, 10_000);
+  validateIntegerRange(
+    controls.iterations,
+    "iterations",
+    SENA_GROUP_COMPARISON_MIN_ITERATIONS,
+    SENA_GROUP_COMPARISON_MAX_ITERATIONS
+  );
+  validateIntegerRange(
+    controls.bootstrapIterations,
+    "bootstrapIterations",
+    SENA_GROUP_COMPARISON_MIN_ITERATIONS,
+    SENA_GROUP_COMPARISON_MAX_ITERATIONS
+  );
   validateIntegerRange(controls.seed, "seed", 0, SENA_CANONICAL_UINT32_MAX);
   if (
     controls.alpha !== undefined &&
