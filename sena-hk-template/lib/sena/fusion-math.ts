@@ -408,7 +408,7 @@ function validCurrentFusionAuditItems(items: SenaFusionMathAuditItem[], fingerpr
   for (const [id, expected, weightDetail, blockShape] of blockRules) {
     const block = byId.get(id);
     if (!block || typeof block.maxDelta !== "number" || !Number.isFinite(block.maxDelta) || block.maxDelta < 0 ||
-      typeof block.tolerance !== "number" || !Number.isFinite(block.tolerance) || block.tolerance <= 0 ||
+      block.tolerance !== defaultTolerance ||
       block.expected !== expected || block.actual !== `max delta ${block.maxDelta}` ||
       !sameStrings(block.detail, [weightDetail, `block=${blockShape}`]) ||
       block.status !== (block.maxDelta <= block.tolerance ? "pass" : "review")) return false;
@@ -492,8 +492,7 @@ export function normalizeSenaFusionMathAudit(
       }
       let expected: SenaFusionMathAudit;
       try {
-        const tolerance = value.items.find((entry) => entry.id === "social-block")?.tolerance ?? defaultTolerance;
-        expected = buildSenaFusionMathAudit(evidence, tolerance);
+        expected = buildSenaFusionMathAudit(evidence);
       } catch {
         throw new Error("SENA fusion math audit evidence could not be recomputed from the canonical matrices.");
       }
@@ -579,6 +578,9 @@ function item(
 }
 
 export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tolerance = defaultTolerance): SenaFusionMathAudit {
+  if (tolerance !== defaultTolerance) {
+    throw new Error("SENA current-v2 fusion math audits require the canonical 1e-9 tolerance.");
+  }
   const peopleCount = model.matrices.S.labels.length;
   const codeCount = model.matrices.W.labels.length;
   const fusion = model.matrices.fusion.values;

@@ -202,6 +202,9 @@ export type SenaGroupComparisonSpec = {
   metric?: SenaGroupComparisonMetric;
 };
 
+const groupComparisonGuardrail = "Permutation and bootstrap group comparison is descriptive SENA validation support. Use a study-specific preregistered inferential model before making publication or assessment claims.";
+const groupComparisonSuiteGuardrail = "Suite-level group comparison controls family-wise error with Holm adjustment, but it remains descriptive validation support until paired with preregistration, domain review, and a study-specific inferential model.";
+
 function seededRandom(seed: number) {
   let state = seed >>> 0;
   return () => {
@@ -315,16 +318,6 @@ function metricValue(metrics: SenaPersonMetrics, metric: SenaGroupComparisonMetr
   return metrics[metric];
 }
 
-function actorRows(model: SenaModel, groupField: "group" | "role", metric: SenaGroupComparisonMetric) {
-  return model.nodes
-    .filter((node) => node.kind === "person")
-    .map((node) => ({
-      id: node.id,
-      group: node[groupField],
-      value: metricValue(node.metrics, metric)
-    }));
-}
-
 function canonicalMetricUniverse(model: SenaModel, metric: SenaGroupComparisonMetric) {
   return model.nodes
     .filter((node) => node.kind === "person")
@@ -389,6 +382,79 @@ function buildSenaGroupComparisonSourceEvidence(input: {
   };
 }
 
+function computeSenaGroupComparisonDeterministicFields(input: {
+  metricUniverse: SenaGroupComparisonSourceEvidence["metricUniverse"];
+  groupField: "group" | "role";
+  groupA: string;
+  groupB: string;
+  permutationIterations: number;
+  permutationSeed: number;
+  bootstrapIterations: number;
+}) {
+  const a = input.metricUniverse
+    .filter((row) => row[input.groupField] === input.groupA)
+    .map((row) => row.value);
+  const b = input.metricUniverse
+    .filter((row) => row[input.groupField] === input.groupB)
+    .map((row) => row.value);
+  if (a.length === 0 || b.length === 0) {
+    throw new Error(`Both groups must contain at least one person for ${input.groupField} comparison.`);
+  }
+
+  const observedDifference = mean(a) - mean(b);
+  const effectSize = buildSenaGroupComparisonEffectSize(a, b);
+  const combined = [...a, ...b];
+  const random = seededRandom(input.permutationSeed);
+  const permutationSamples = Array.from({ length: input.permutationIterations }, () => {
+    const shuffled = [...combined];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(random() * (index + 1));
+      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
+    }
+    return mean(shuffled.slice(0, a.length)) - mean(shuffled.slice(a.length));
+  });
+  const pTwoSided = (
+    permutationSamples.filter((sample) => Math.abs(sample) >= Math.abs(observedDifference)).length + 1
+  ) / (permutationSamples.length + 1);
+  const bootstrapSeed = addCanonicalUint32(input.permutationSeed, 7919);
+  const bootstrapRandom = seededRandom(bootstrapSeed);
+  const bootstrapSamples = Array.from({ length: input.bootstrapIterations }, () => (
+    resampleMean(a, bootstrapRandom) - resampleMean(b, bootstrapRandom)
+  ));
+
+  return {
+    nA: a.length,
+    nB: b.length,
+    meanA: mean(a),
+    meanB: mean(b),
+    observedDifference,
+    effectSize,
+    permutation: {
+      iterations: input.permutationIterations,
+      seed: input.permutationSeed,
+      pTwoSided: round(pTwoSided),
+      nullLower: round(quantile(permutationSamples, 0.025)),
+      nullUpper: round(quantile(permutationSamples, 0.975)),
+      samplesPreview: permutationSamples.slice(0, 20).map((sample) => round(sample))
+    },
+    bootstrap: {
+      iterations: input.bootstrapIterations,
+      seed: bootstrapSeed,
+      meanDifferenceLower: round(quantile(bootstrapSamples, 0.025)),
+      meanDifferenceUpper: round(quantile(bootstrapSamples, 0.975)),
+      samplesPreview: bootstrapSamples.slice(0, 20).map((sample) => round(sample))
+    },
+    diagnostics: {
+      totalPeople: input.metricUniverse.length,
+      comparedPeople: a.length + b.length,
+      minGroupSize: Math.min(a.length, b.length),
+      balancedDesign: a.length === b.length,
+      smallSample: Math.min(a.length, b.length) < 5,
+      metricScale: "person-metric" as const
+    }
+  };
+}
+
 export function buildSenaGroupComparison(input: {
   dataset: SenaDataset;
   buildOptions?: Partial<SenaBuildOptions>;
@@ -408,7 +474,6 @@ export function buildSenaGroupComparison(input: {
   const model = buildSenaModel(input.dataset, input.buildOptions ?? {});
   const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
-  const rows = actorRows(model, groupField, metric);
   const sourceEvidence = buildSenaGroupComparisonSourceEvidence({
     dataset: input.dataset,
     model,
@@ -417,38 +482,18 @@ export function buildSenaGroupComparison(input: {
     groupA: input.groupA,
     groupB: input.groupB
   });
-  const a = sourceEvidence.metricUniverse
-    .filter((row) => row[groupField] === input.groupA)
-    .map((row) => row.value);
-  const b = sourceEvidence.metricUniverse
-    .filter((row) => row[groupField] === input.groupB)
-    .map((row) => row.value);
-  if (a.length === 0 || b.length === 0) {
-    throw new Error(`Both groups must contain at least one person for ${groupField} comparison.`);
-  }
-
-  const observedDifference = mean(a) - mean(b);
-  const effectSize = buildSenaGroupComparisonEffectSize(a, b);
-  const combined = [...a, ...b];
-  const nA = a.length;
   const iterations = input.iterations ?? 1000;
   const seed = input.seed ?? 20260611;
-  const random = seededRandom(seed);
-  const samples = Array.from({ length: iterations }, () => {
-    const shuffled = [...combined];
-    for (let index = shuffled.length - 1; index > 0; index -= 1) {
-      const swap = Math.floor(random() * (index + 1));
-      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
-    }
-    return mean(shuffled.slice(0, nA)) - mean(shuffled.slice(nA));
-  });
-  const pTwoSided = (samples.filter((sample) => Math.abs(sample) >= Math.abs(observedDifference)).length + 1) / (samples.length + 1);
   const bootstrapIterations = input.bootstrapIterations ?? iterations;
-  const bootstrapSeed = addCanonicalUint32(seed, 7919);
-  const bootstrapRandom = seededRandom(bootstrapSeed);
-  const bootstrapSamples = Array.from({ length: bootstrapIterations }, () => (
-    resampleMean(a, bootstrapRandom) - resampleMean(b, bootstrapRandom)
-  ));
+  const deterministic = computeSenaGroupComparisonDeterministicFields({
+    metricUniverse: sourceEvidence.metricUniverse,
+    groupField,
+    groupA: input.groupA,
+    groupB: input.groupB,
+    permutationIterations: iterations,
+    permutationSeed: seed,
+    bootstrapIterations
+  });
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.groupComparison,
@@ -457,37 +502,17 @@ export function buildSenaGroupComparison(input: {
     groupField,
     groupA: input.groupA,
     groupB: input.groupB,
-    nA: a.length,
-    nB: b.length,
-    meanA: mean(a),
-    meanB: mean(b),
-    observedDifference,
-    effectSize,
+    nA: deterministic.nA,
+    nB: deterministic.nB,
+    meanA: deterministic.meanA,
+    meanB: deterministic.meanB,
+    observedDifference: deterministic.observedDifference,
+    effectSize: deterministic.effectSize,
     sourceEvidence,
-    permutation: {
-      iterations,
-      seed,
-      pTwoSided: round(pTwoSided),
-      nullLower: round(quantile(samples, 0.025)),
-      nullUpper: round(quantile(samples, 0.975)),
-      samplesPreview: samples.slice(0, 20).map((sample) => round(sample))
-    },
-    bootstrap: {
-      iterations: bootstrapIterations,
-      seed: bootstrapSeed,
-      meanDifferenceLower: round(quantile(bootstrapSamples, 0.025)),
-      meanDifferenceUpper: round(quantile(bootstrapSamples, 0.975)),
-      samplesPreview: bootstrapSamples.slice(0, 20).map((sample) => round(sample))
-    },
-    diagnostics: {
-      totalPeople: rows.length,
-      comparedPeople: a.length + b.length,
-      minGroupSize: Math.min(a.length, b.length),
-      balancedDesign: a.length === b.length,
-      smallSample: Math.min(a.length, b.length) < 5,
-      metricScale: "person-metric"
-    },
-    guardrail: "Permutation and bootstrap group comparison is descriptive SENA validation support. Use a study-specific preregistered inferential model before making publication or assessment claims."
+    permutation: deterministic.permutation,
+    bootstrap: deterministic.bootstrap,
+    diagnostics: deterministic.diagnostics,
+    guardrail: groupComparisonGuardrail
   };
 }
 
@@ -576,7 +601,7 @@ export function buildSenaGroupComparisonSuite(input: {
       smallSampleComparisons: entries.filter((entry) => entry.diagnostics.smallSample).length,
       preregistrationEvidence: "required-before-claim"
     },
-    guardrail: "Suite-level group comparison controls family-wise error with Holm adjustment, but it remains descriptive validation support until paired with preregistration, domain review, and a study-specific inferential model."
+    guardrail: groupComparisonSuiteGuardrail
   };
 }
 
@@ -762,20 +787,35 @@ function isCanonicalGroupComparisonSourceEvidence(
   const { evidenceHash: _evidenceHash, ...evidenceBody } = value;
   if (value.evidenceHash !== buildSenaStableContentHash(evidenceBody)) return false;
 
-  const expectedEffectSize = buildSenaGroupComparisonEffectSize(valuesA, valuesB);
-  const submittedEffectSize = comparison.effectSize;
-  return comparison.nA === valuesA.length && comparison.nB === valuesB.length &&
-    isFiniteNumber(comparison.meanA) && approximatelyEqual(comparison.meanA, mean(valuesA)) &&
-    isFiniteNumber(comparison.meanB) && approximatelyEqual(comparison.meanB, mean(valuesB)) &&
-    isFiniteNumber(comparison.observedDifference) &&
-    approximatelyEqual(comparison.observedDifference, mean(valuesA) - mean(valuesB)) &&
-    isRecord(submittedEffectSize) &&
-    submittedEffectSize.status === expectedEffectSize.status &&
-    sameStatisticNumber(submittedEffectSize.cohenD, expectedEffectSize.cohenD) &&
-    sameStatisticNumber(submittedEffectSize.hedgesG, expectedEffectSize.hedgesG) &&
-    sameStatisticNumber(submittedEffectSize.pooledStandardDeviation, expectedEffectSize.pooledStandardDeviation) &&
-    submittedEffectSize.reason === expectedEffectSize.reason &&
-    isRecord(comparison.diagnostics) && comparison.diagnostics.totalPeople === metricUniverse.length;
+  const permutation = comparison.permutation as SenaGroupComparisonResult["permutation"];
+  const bootstrap = comparison.bootstrap as SenaGroupComparisonResult["bootstrap"];
+  let expected;
+  try {
+    expected = computeSenaGroupComparisonDeterministicFields({
+      metricUniverse: metricUniverse as SenaGroupComparisonSourceEvidence["metricUniverse"],
+      groupField,
+      groupA: comparison.groupA as string,
+      groupB: comparison.groupB as string,
+      permutationIterations: permutation.iterations,
+      permutationSeed: permutation.seed,
+      bootstrapIterations: bootstrap.iterations
+    });
+  } catch {
+    return false;
+  }
+  const submitted = {
+    nA: comparison.nA,
+    nB: comparison.nB,
+    meanA: comparison.meanA,
+    meanB: comparison.meanB,
+    observedDifference: comparison.observedDifference,
+    effectSize: comparison.effectSize,
+    permutation,
+    bootstrap,
+    diagnostics: comparison.diagnostics
+  };
+  return comparison.guardrail === groupComparisonGuardrail &&
+    stableJson(submitted) === stableJson(expected);
 }
 
 function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupComparisonResult {
@@ -811,7 +851,7 @@ function normalizeSenaGroupComparisonResult(value: unknown): SenaGroupComparison
     if (isCurrentSenaGroupComparisonResult(value) || isNormalizedLegacyComparison(value)) {
       return value as unknown as SenaGroupComparisonResult;
     }
-    throw new Error("SENA group comparison v2 evidence is internally inconsistent.");
+    throw new Error("SENA group-comparison v2 deterministic permutation/bootstrap evidence is internally inconsistent.");
   }
   if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) {
     throw new Error("SENA group comparison uses an unsupported schemaVersion.");
@@ -885,7 +925,7 @@ function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult
   if (!isRecord(value) || value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
     value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
     !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
-    typeof value.guardrail !== "string" || value.guardrail.trim().length === 0 || !Array.isArray(value.comparisons) ||
+    value.guardrail !== groupComparisonSuiteGuardrail || !Array.isArray(value.comparisons) ||
     !value.comparisons.every(isCurrentSenaGroupComparisonResult)) return false;
   return isCanonicalSuiteStructure(
     value,
@@ -959,7 +999,7 @@ export function normalizeSenaGroupComparisonValidationResult(
     if (isCurrentSuite(value) || isNormalizedLegacySuite(value)) {
       return bindSource(value as unknown as SenaGroupComparisonSuiteResult);
     }
-    throw new Error("SENA group-comparison suite v2 evidence is internally inconsistent.");
+    throw new Error("SENA group-comparison suite v2 deterministic leaf or Holm evidence is internally inconsistent.");
   }
   if (
     (value as unknown as Record<string, unknown>).sourceSchemaVersion !== undefined &&

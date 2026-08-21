@@ -69,6 +69,40 @@ function adjudicationSqlRow(payload: Record<string, unknown>) {
   };
 }
 
+function validationSqlRow(payload: Record<string, unknown>) {
+  const result = payload.result as Record<string, unknown>;
+  const preregistrationPlan = payload.preregistrationPlan as Record<string, unknown> | undefined;
+  const parityEvidence = payload.parityEvidence as Record<string, unknown> | undefined;
+  const formalInference = parityEvidence?.formalInference as Record<string, unknown> | undefined;
+  return {
+    id: payload.id,
+    team_id: payload.teamId,
+    project_id: payload.projectId ?? null,
+    user_id: payload.userId,
+    status: payload.status,
+    reviewer_id: payload.reviewerId ?? null,
+    reviewed_at: payload.reviewedAt ?? null,
+    metric: payload.metric,
+    group_field: payload.groupField,
+    group_a: payload.groupA,
+    group_b: payload.groupB,
+    iterations: payload.iterations,
+    seed: payload.seed,
+    p_two_sided: payload.pTwoSided,
+    comparison_count: payload.comparisonCount ?? 1,
+    min_holm_adjusted_p: payload.minHolmAdjustedP ?? null,
+    significant_holm_count: payload.significantHolmCount ?? null,
+    observed_difference: payload.observedDifference,
+    result_schema_version: result.schemaVersion,
+    preregistration_plan_hash: preregistrationPlan?.planHash ?? null,
+    parity_evidence_status: parityEvidence?.status ?? null,
+    parity_evidence_hash: parityEvidence?.validationRunHash ?? null,
+    formal_inference_status: formalInference?.status ?? null,
+    payload,
+    created_at: payload.createdAt
+  };
+}
+
 describe("SENA enterprise Neon Postgres readiness", () => {
   let enterpriseDbDir: string | undefined;
 
@@ -1002,7 +1036,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(validationPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => validationSqlRow(payload)),
               rowCount: validationPayloads.size
             };
           }
@@ -1246,7 +1280,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             return {
               rows: Array.from(validationPayloads.values())
                 .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .map((payload) => validationSqlRow(payload)),
               rowCount: validationPayloads.size
             };
           }

@@ -83,7 +83,7 @@ export class SenaEnterpriseStoredIntegrityError extends Error {
   readonly issues: SenaEnterpriseStoredIntegrityIssue[];
 
   constructor(issue: SenaEnterpriseStoredIntegrityIssue) {
-    super("Stored enterprise evidence failed canonical semantic dashboard or project-binding integrity validation.");
+    super("Stored enterprise evidence failed canonical reliability-dashboard, group-comparison, or project-binding integrity validation.");
     this.name = "SenaEnterpriseStoredIntegrityError";
     this.issues = [issue];
   }
@@ -1224,28 +1224,104 @@ type SenaEnterpriseValidationProjectSource = {
   snapshot: SenaProjectSnapshot;
 };
 
+type SenaEnterpriseValidationReadContext = {
+  project?: SenaEnterpriseValidationProjectSource;
+  expectedProjectId?: string;
+  expectedTeamId?: string;
+  expectedTeamIds?: string[];
+  expectedStatus?: SenaEnterpriseValidationRunStatus;
+};
+
 function normalizeStoredValidationRun(
   row: Record<string, unknown>,
-  project?: SenaEnterpriseValidationProjectSource,
-  expectedProjectId?: string
+  context: SenaEnterpriseValidationReadContext = {}
 ): SenaEnterpriseValidationRun {
   const payload = normalizeStoredJson<Omit<SenaEnterpriseValidationRun, "result"> & {
     result: SenaGroupComparisonValidationReadModel;
   }>(row.payload);
-  const storedProjectId = typeof row.project_id === "string" ? row.project_id : undefined;
-  if ((expectedProjectId !== undefined && payload.projectId !== expectedProjectId) ||
-    (storedProjectId !== undefined && payload.projectId !== storedProjectId)) {
-    throw new Error("Stored Postgres validation run project binding is missing or contradictory.");
+  const rowFields: Array<[string, unknown, { date?: boolean }?]> = [
+    ["id", payload.id],
+    ["team_id", payload.teamId],
+    ["project_id", payload.projectId],
+    ["user_id", payload.userId],
+    ["status", payload.status],
+    ["reviewer_id", payload.reviewerId],
+    ["reviewed_at", payload.reviewedAt, { date: true }],
+    ["metric", payload.metric],
+    ["group_field", payload.groupField],
+    ["group_a", payload.groupA],
+    ["group_b", payload.groupB],
+    ["iterations", payload.iterations],
+    ["seed", payload.seed],
+    ["p_two_sided", payload.pTwoSided],
+    ["comparison_count", payload.comparisonCount ?? 1],
+    ["min_holm_adjusted_p", payload.minHolmAdjustedP],
+    ["significant_holm_count", payload.significantHolmCount],
+    ["observed_difference", payload.observedDifference],
+    ["result_schema_version", payload.result?.schemaVersion],
+    ["preregistration_plan_hash", payload.preregistrationPlan?.planHash],
+    ["parity_evidence_status", payload.parityEvidence?.status],
+    ["parity_evidence_hash", payload.parityEvidence?.validationRunHash],
+    ["formal_inference_status", payload.parityEvidence?.formalInference.status],
+    ["created_at", payload.createdAt, { date: true }]
+  ];
+  rowFields.forEach(([column, value, options]) => assertStoredField(row, column, value, options));
+
+  const projectIds = [context.expectedProjectId, context.project?.id, payload.projectId]
+    .filter((value): value is string => value !== undefined);
+  if (projectIds.length > 0) {
+    if (projectIds.length !== 3 || new Set(projectIds).size !== 1 ||
+      typeof row.project_id !== "string" || row.project_id !== projectIds[0]) {
+      storedIntegrityFailure("row.project_id", "current-project-binding-mismatch");
+    }
+  } else if (row.project_id !== null && row.project_id !== undefined) {
+    storedIntegrityFailure("row.project_id");
   }
-  if (payload.projectId && (!project || project.id !== payload.projectId)) {
-    throw new Error("Stored Postgres validation run requires its current project snapshot source.");
+  if (context.expectedTeamId !== undefined && payload.teamId !== context.expectedTeamId) {
+    storedIntegrityFailure("row.team_id");
+  }
+  if (context.expectedTeamIds !== undefined && !context.expectedTeamIds.includes(payload.teamId)) {
+    storedIntegrityFailure("row.team_id");
+  }
+  if (context.expectedStatus !== undefined && payload.status !== context.expectedStatus) {
+    storedIntegrityFailure("row.status");
+  }
+
+  const result = normalizeSenaGroupComparisonValidationResult(payload.result, context.project ? {
+    dataset: context.project.snapshot.dataset,
+    buildOptions: context.project.snapshot.reproducibility.buildOptions
+  } : undefined);
+  const primary = result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+    ? result.primary
+    : result;
+  const derived = {
+    metric: primary.metric,
+    groupField: primary.groupField,
+    groupA: primary.groupA,
+    groupB: primary.groupB,
+    iterations: primary.permutation.iterations,
+    seed: primary.permutation.seed,
+    pTwoSided: primary.permutation.pTwoSided,
+    comparisonCount: result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+      ? result.comparisonCount
+      : 1,
+    minHolmAdjustedP: result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+      ? Math.min(...result.comparisons.map((entry) => entry.holmAdjustedP))
+      : undefined,
+    significantHolmCount: result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+      ? result.significantHolmCount
+      : undefined,
+    observedDifference: primary.observedDifference
+  };
+  for (const [key, expected] of Object.entries(derived)) {
+    if (!storedValuesMatch(payload[key as keyof typeof payload], expected)) {
+      storedIntegrityFailure(`payload.${key}`);
+    }
   }
   return {
     ...payload,
-    result: normalizeSenaGroupComparisonValidationResult(payload.result, project ? {
-      dataset: project.snapshot.dataset,
-      buildOptions: project.snapshot.reproducibility.buildOptions
-    } : undefined),
+    ...derived,
+    result,
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
@@ -2348,11 +2424,13 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
       ORDER BY created_at DESC, id DESC
       LIMIT $${values.length}
     `, values);
-    return result.rows.map((row) => normalizeStoredValidationRun(
-      row,
-      inputFilters.project,
-      inputFilters.projectId
-    ));
+    return result.rows.map((row) => normalizeStoredValidationRun(row, {
+      project: inputFilters.project,
+      expectedProjectId: inputFilters.projectId,
+      expectedTeamId: inputFilters.teamId,
+      expectedTeamIds: inputFilters.teamIds,
+      expectedStatus: inputFilters.status
+    }));
   }
 
   return {

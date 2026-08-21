@@ -54,9 +54,63 @@ function suite(dataset: SenaDataset) {
   });
 }
 
-function adapterFor(payload: unknown) {
+function adapterFor(input: {
+  projectId?: string;
+  createdAt: string;
+  result: ReturnType<typeof suite>;
+}) {
+  const primary = input.result.primary;
+  const payload = {
+    id: "validation-round8",
+    teamId: "team-round8",
+    projectId: input.projectId,
+    userId: "user-round8",
+    status: "pending-review",
+    preregistrationNote: "Round8 project source fixture.",
+    methodNote: "Round8 project source fixture.",
+    metric: primary.metric,
+    groupField: primary.groupField,
+    groupA: primary.groupA,
+    groupB: primary.groupB,
+    iterations: primary.permutation.iterations,
+    seed: primary.permutation.seed,
+    pTwoSided: primary.permutation.pTwoSided,
+    comparisonCount: input.result.comparisonCount,
+    minHolmAdjustedP: Math.min(...input.result.comparisons.map((entry) => entry.holmAdjustedP)),
+    significantHolmCount: input.result.significantHolmCount,
+    observedDifference: primary.observedDifference,
+    result: input.result,
+    createdAt: input.createdAt
+  };
+  const row = {
+    id: payload.id,
+    team_id: payload.teamId,
+    project_id: payload.projectId ?? null,
+    user_id: payload.userId,
+    status: payload.status,
+    reviewer_id: null,
+    reviewed_at: null,
+    metric: payload.metric,
+    group_field: payload.groupField,
+    group_a: payload.groupA,
+    group_b: payload.groupB,
+    iterations: payload.iterations,
+    seed: payload.seed,
+    p_two_sided: payload.pTwoSided,
+    comparison_count: payload.comparisonCount,
+    min_holm_adjusted_p: payload.minHolmAdjustedP,
+    significant_holm_count: payload.significantHolmCount,
+    observed_difference: payload.observedDifference,
+    result_schema_version: payload.result.schemaVersion,
+    preregistration_plan_hash: null,
+    parity_evidence_status: null,
+    parity_evidence_hash: null,
+    formal_inference_status: null,
+    payload,
+    created_at: payload.createdAt
+  };
   const query = (async (sql: string) => ({
-    rows: sql.includes("SELECT *") ? [{ payload }] : []
+    rows: sql.includes("SELECT *") ? [row] : []
   })) as SenaEnterprisePostgresQuery;
   return createEnterprisePostgresValidationRunAdapter({ query });
 }
