@@ -351,6 +351,29 @@ describe("review-packet statistical contract compatibility", () => {
     forged.status = "verified";
 
     expect(() => fusionMath.normalizeSenaFusionMathAudit(forged)).toThrow(/source|legacy|nonnegative|fusion math audit/i);
+
+    const carrier = buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+      generatedAt: "2026-08-21T00:00:00.000Z"
+    });
+    const report = structuredClone(carrier.contents.reportJson);
+    report.fusionMathAudit = structuredClone(forged);
+    expect(() => importSenaReport(report)).toThrow(/fusion math audit/i);
+
+    const runtime = structuredClone(carrier.contents.runtimeBundle);
+    runtime.fusionMathAudit = structuredClone(forged);
+    expect(() => importSenaRuntimeBundle(runtime)).toThrow(/fusion math audit/i);
+
+    const nestedRuntime = structuredClone(carrier.contents.runtimeBundle);
+    nestedRuntime.report.fusionMathAudit = structuredClone(forged);
+    expect(() => importSenaRuntimeBundle(nestedRuntime)).toThrow(/fusion math audit/i);
+
+    const snapshot = structuredClone(carrier.contents.projectSnapshot);
+    snapshot.report.fusionMathAudit = structuredClone(forged);
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/fusion math audit/i);
+
+    const reviewPacket = structuredClone(carrier);
+    reviewPacket.contents.fusionMathAudit = structuredClone(forged);
+    expect(() => importSenaReviewPacket(reviewPacket)).toThrow(/fusion math audit/i);
   });
 
   it("rejects a source-v1 reliability wrapper carrying a coherent current eligible block", () => {
@@ -372,6 +395,29 @@ describe("review-packet statistical contract compatibility", () => {
     forged.claimUse = "coding-reliability-documented";
 
     expect(() => reportRuntime.normalizeSenaCodingReliabilityGate(forged)).toThrow(/source|legacy|eligibility|coding reliability gate/i);
+
+    const carrier = buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+      generatedAt: "2026-08-21T00:00:00.000Z"
+    });
+    const report = structuredClone(carrier.contents.reportJson);
+    report.codingReliabilityGate = structuredClone(forged);
+    expect(() => importSenaReport(report)).toThrow(/coding reliability gate/i);
+
+    const runtime = structuredClone(carrier.contents.runtimeBundle);
+    runtime.codingReliabilityGate = structuredClone(forged);
+    expect(() => importSenaRuntimeBundle(runtime)).toThrow(/coding reliability gate/i);
+
+    const nestedRuntime = structuredClone(carrier.contents.runtimeBundle);
+    nestedRuntime.report.codingReliabilityGate = structuredClone(forged);
+    expect(() => importSenaRuntimeBundle(nestedRuntime)).toThrow(/coding reliability gate/i);
+
+    const snapshot = structuredClone(carrier.contents.projectSnapshot);
+    snapshot.report.codingReliabilityGate = structuredClone(forged);
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/coding reliability gate/i);
+
+    const reviewPacket = structuredClone(carrier);
+    reviewPacket.contents.codingReliabilityGate = structuredClone(forged);
+    expect(() => importSenaReviewPacket(reviewPacket)).toThrow(/coding reliability gate/i);
   });
 
   it("rejects proof-obligation substitution at every public fusion reader", () => {
