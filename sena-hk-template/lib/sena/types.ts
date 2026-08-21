@@ -292,6 +292,7 @@ export type SenaReliabilityClaimEligibility = {
     krippendorffAlphaEstimable: boolean;
     meanPairwiseKappaAtThreshold: boolean;
     krippendorffAlphaAtThreshold: boolean;
+    noUnresolvedDisagreements: boolean;
   };
   blockers: string[];
   adjudication: {
@@ -306,6 +307,7 @@ export type SenaReliabilityClaimEligibilityInputs = {
   meanPairwiseKappa: number | null;
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
   krippendorffAlphaNominal: number | null;
+  unresolvedDisagreementCount: number;
 };
 
 export type SenaReliabilityPairEstimate = {
@@ -368,6 +370,7 @@ export type SenaCodingReliabilityMachineEvidence = {
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
   krippendorffAlphaNominalRaw: number | null;
   krippendorffAlphaNominal: number | null;
+  unresolvedDisagreementCount: number;
   allPairwiseKappaEstimable: boolean;
   claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
   claimEligibility: SenaReliabilityClaimEligibility;

@@ -6,6 +6,7 @@ import {
   buildSenaFusionMathAudit,
   buildSenaMarkdownReport,
   buildSenaModel,
+  buildSenaReliabilityDashboard,
   buildSenaReport,
   buildSenaReviewPacket,
   buildSenaRuntimeBundle,
@@ -13,7 +14,8 @@ import {
   importSenaJsonContract,
   importSenaProjectSnapshotFromHandoff,
   importSenaReviewPacket,
-  lessonStudySampleUrl
+  lessonStudySampleUrl,
+  reliabilityDashboardToReview
 } from "../index";
 
 function readPublicHref(href: string) {
@@ -21,17 +23,15 @@ function readPublicHref(href: string) {
   return readFileSync(new URL(`../../../public${href}`, import.meta.url), "utf8");
 }
 
-const documentedCodingReliability = {
-  status: "documented" as const,
-  reviewer: "Pilot smoke reliability",
-  codingScheme: "SENA lesson-study codebook v1",
-  unitOfCoding: "coded_segments",
-  coderCount: 2,
-  agreementMetric: "Cohen kappa",
-  agreementValue: "0.82",
-  adjudicationNotes: "Pilot smoke assumes adjudicated sample coding for export-chain verification.",
-  limitations: "Smoke-test reliability evidence is deterministic fixture metadata."
-};
+const documentedCodingReliability = reliabilityDashboardToReview(
+  buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+  ]),
+  "Pilot smoke reliability"
+);
 
 const documentedDataGovernance = {
   irbApprovalId: "EDUHK-SENA-PILOT-SMOKE",

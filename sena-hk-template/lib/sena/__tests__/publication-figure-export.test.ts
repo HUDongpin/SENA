@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildSenaModel,
   buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
   importSenaJsonContract,
-  lessonStudySenaContract
+  lessonStudySenaContract,
+  reliabilityDashboardToReview
 } from "../index";
 import { buildSenaPublicationFigure } from "../publication-figure";
 import {
@@ -33,17 +35,12 @@ function publicationSnapshot(dataset: SenaDataset, title: string) {
       limitations: "Fixture only.",
       nextActions: "None."
     },
-    codingReliability: {
-      status: "documented",
-      reviewer: "Publication figure test",
-      codingScheme: "Fixture codebook",
-      unitOfCoding: "coded_segments",
-      coderCount: 2,
-      agreementMetric: "Cohen kappa",
-      agreementValue: "kappa=1",
-      adjudicationNotes: "No disagreements in fixture.",
-      limitations: "Fixture only."
-    },
+    codingReliability: reliabilityDashboardToReview(buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+      { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+      { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+    ]), "Publication figure test"),
     dataGovernance: {
       irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
       consentScope: "Synthetic publication export fixture only.",

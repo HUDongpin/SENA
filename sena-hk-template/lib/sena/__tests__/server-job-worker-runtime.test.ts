@@ -61,7 +61,7 @@ const parityDataGovernance = {
   reviewedAt: "2026-08-10T00:00:00.000Z"
 };
 
-async function workerFixture(options: { inlinePayload?: boolean } = {}) {
+async function workerFixture(options: { inlinePayload?: boolean; scopedSource?: boolean } = {}) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-job-worker-runtime-"));
   process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
   process.env.SENA_JOB_QUEUE_ADAPTER = "local";
@@ -86,7 +86,12 @@ async function workerFixture(options: { inlinePayload?: boolean } = {}) {
   const teamId = registered.context.teams[0].id;
 
   const imported = index.importSenaJsonContract(index.lessonStudySenaContract);
-  const model = index.buildSenaModel(imported.dataset);
+  const analysisDataset = options.scopedSource ? {
+    ...structuredClone(imported.dataset),
+    utterances: imported.dataset.utterances.slice(0, 1),
+    coded_segments: imported.dataset.coded_segments.filter((segment) => segment.utteranceId === "u1")
+  } : imported.dataset;
+  const model = index.buildSenaModel(analysisDataset);
   const snapshot = index.buildSenaProjectSnapshot(model, {
     title: "Worker Runtime Source",
     generatedAt: "2026-08-15T00:00:00.000Z",
@@ -192,7 +197,7 @@ describe("SENA in-repo server job worker runtime", () => {
   });
 
   it("executes a queued reliability job from the inline annotation payload", async () => {
-    const fixture = await workerFixture({ inlinePayload: true });
+    const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
     enterpriseDbDir = fixture.enterpriseDbDir;
     const reliability = await import("../reliability");
 

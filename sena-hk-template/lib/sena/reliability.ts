@@ -154,10 +154,15 @@ function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
   ));
 }
 
+export function senaReliabilityAuthoritativeDataset(snapshot: SenaProjectSnapshot) {
+  return snapshot.source.sourceDataset ?? snapshot.dataset;
+}
+
 export function senaReliabilitySnapshotFingerprint(snapshot: SenaProjectSnapshot) {
   return reliabilityBindingHash({
     schemaVersion: snapshot.schemaVersion,
-    dataset: snapshot.dataset,
+    dataset: senaReliabilityAuthoritativeDataset(snapshot),
+    activeTemporalWindow: snapshot.source.activeTemporalWindow,
     buildOptions: snapshot.reproducibility.buildOptions
   });
 }
@@ -175,7 +180,8 @@ export function bindSenaReliabilityAnnotationsToProject(
   if (!project.projectId.trim() || !Number.isInteger(project.projectVersion) || project.projectVersion < 1) {
     issues.push({ path: "project", code: "invalid-project-context" });
   }
-  const codebookUniverse = project.snapshot.dataset.codebook
+  const authoritativeDataset = senaReliabilityAuthoritativeDataset(project.snapshot);
+  const codebookUniverse = authoritativeDataset.codebook
     .map((code) => ({ id: code.id, label: code.label }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const exactCodes = new Map(codebookUniverse.map((code) => [code.id, code.id]));
@@ -188,8 +194,8 @@ export function bindSenaReliabilityAnnotationsToProject(
     }
   }
   const itemUniverse = [
-    ...project.snapshot.dataset.utterances.map((item) => ({ id: item.id, kind: "utterance" as const })),
-    ...project.snapshot.dataset.coded_segments.map((item) => ({ id: item.segmentId, kind: "coded-segment" as const }))
+    ...authoritativeDataset.utterances.map((item) => ({ id: item.id, kind: "utterance" as const })),
+    ...authoritativeDataset.coded_segments.map((item) => ({ id: item.segmentId, kind: "coded-segment" as const }))
   ].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
   const itemIds = new Set(itemUniverse.map((item) => item.id));
   const canonical: SenaCoderAnnotation[] = [];
@@ -693,20 +699,23 @@ export function buildSenaReliabilityClaimEligibility(input: {
   meanPairwiseKappa: number | null;
   krippendorffAlphaNominal: number | null;
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  unresolvedDisagreementCount: number;
 }): SenaReliabilityClaimEligibility {
   const checks = {
     minimumCoders: input.coderCount >= 2,
     allPairwiseKappaEstimable: input.pairwiseStatuses.length > 0 && input.pairwiseStatuses.every((status) => status === "estimable"),
     krippendorffAlphaEstimable: input.krippendorffAlphaNominalStatus === "estimable",
     meanPairwiseKappaAtThreshold: input.meanPairwiseKappa !== null && input.meanPairwiseKappa >= 0.8,
-    krippendorffAlphaAtThreshold: input.krippendorffAlphaNominal !== null && input.krippendorffAlphaNominal >= 0.8
+    krippendorffAlphaAtThreshold: input.krippendorffAlphaNominal !== null && input.krippendorffAlphaNominal >= 0.8,
+    noUnresolvedDisagreements: input.unresolvedDisagreementCount === 0
   };
   const blockers = [
     checks.minimumCoders ? null : "minimum-two-coders",
     checks.allPairwiseKappaEstimable ? null : "all-pairwise-kappa-estimable",
     checks.krippendorffAlphaEstimable ? null : "krippendorff-alpha-estimable",
     checks.meanPairwiseKappaAtThreshold ? null : "mean-pairwise-kappa-at-least-0.80",
-    checks.krippendorffAlphaAtThreshold ? null : "krippendorff-alpha-at-least-0.80"
+    checks.krippendorffAlphaAtThreshold ? null : "krippendorff-alpha-at-least-0.80",
+    checks.noUnresolvedDisagreements ? null : "unresolved-reliability-disagreements"
   ].filter((blocker): blocker is string => blocker !== null);
 
   return {
@@ -720,7 +729,9 @@ export function buildSenaReliabilityClaimEligibility(input: {
     blockers,
     adjudication: {
       status: "external-not-evaluated",
-      disclosure: "Machine eligibility evaluates estimability and score thresholds only; human adjudication coverage and sign-off are external evidence and are not inferred here."
+      disclosure: checks.noUnresolvedDisagreements
+        ? "No unresolved disagreement is present in the canonical reliability queue; human sign-off remains external evidence."
+        : `${input.unresolvedDisagreementCount} canonical reliability disagreement(s) remain unresolved in machine evidence; external approval cannot override this blocker without bound resolution evidence.`
     }
   };
 }
@@ -759,6 +770,7 @@ function sameClaimEligibility(left: SenaReliabilityClaimEligibility, right: Sena
     left.checks.krippendorffAlphaEstimable === right.checks.krippendorffAlphaEstimable &&
     left.checks.meanPairwiseKappaAtThreshold === right.checks.meanPairwiseKappaAtThreshold &&
     left.checks.krippendorffAlphaAtThreshold === right.checks.krippendorffAlphaAtThreshold &&
+    left.checks.noUnresolvedDisagreements === right.checks.noUnresolvedDisagreements &&
     sameStringArray(left.blockers, right.blockers) &&
     left.adjudication.status === right.adjudication.status &&
     typeof left.adjudication.disclosure === "string";
@@ -779,7 +791,8 @@ function isClaimEligibility(value: unknown): value is SenaReliabilityClaimEligib
       checks?.allPairwiseKappaEstimable,
       checks?.krippendorffAlphaEstimable,
       checks?.meanPairwiseKappaAtThreshold,
-      checks?.krippendorffAlphaAtThreshold
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
     ].every((entry) => typeof entry === "boolean") &&
     Array.isArray(value.blockers) && value.blockers.every((entry) => typeof entry === "string") &&
     adjudication?.status === "external-not-evaluated" &&
@@ -798,7 +811,8 @@ export function isSenaReliabilityClaimEligibilityInputs(
     value.pairwiseKappaStatuses.every(isReliabilityEstimationStatus) &&
     finiteNumberOrNull(value.meanPairwiseKappa) &&
     isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) &&
-    finiteNumberOrNull(value.krippendorffAlphaNominal);
+    finiteNumberOrNull(value.krippendorffAlphaNominal) &&
+    Number.isInteger(value.unresolvedDisagreementCount) && Number(value.unresolvedDisagreementCount) >= 0;
 }
 
 export function deriveSenaReliabilityClaimEligibility(
@@ -809,7 +823,8 @@ export function deriveSenaReliabilityClaimEligibility(
     pairwiseStatuses: input.pairwiseKappaStatuses,
     meanPairwiseKappa: input.meanPairwiseKappa,
     krippendorffAlphaNominal: input.krippendorffAlphaNominal,
-    krippendorffAlphaNominalStatus: input.krippendorffAlphaNominalStatus
+    krippendorffAlphaNominalStatus: input.krippendorffAlphaNominalStatus,
+    unresolvedDisagreementCount: input.unresolvedDisagreementCount
   });
 }
 
@@ -835,6 +850,7 @@ function canonicalReliabilityInputs(value: {
   pairwiseCohenKappa: SenaPairwiseKappa[];
   krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
   krippendorffAlphaNominalRaw: number | null;
+  unresolvedDisagreementCount: number;
 }): SenaReliabilityClaimEligibilityInputs | null {
   const coderIds = value.coderIds;
   if (coderIds.some((coderId) => coderId.length === 0) ||
@@ -852,15 +868,17 @@ function canonicalReliabilityInputs(value: {
     ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
     : null;
   const alphaIsEstimable = value.krippendorffAlphaNominalStatus === "estimable";
-  if (alphaIsEstimable
+  if (!Number.isInteger(value.unresolvedDisagreementCount) || value.unresolvedDisagreementCount < 0 ||
+    (alphaIsEstimable
     ? value.krippendorffAlphaNominalRaw === null || value.krippendorffAlphaNominalRaw < -1 || value.krippendorffAlphaNominalRaw > 1
-    : value.krippendorffAlphaNominalRaw !== null) return null;
+    : value.krippendorffAlphaNominalRaw !== null)) return null;
   return {
     coderCount: coderIds.length,
     pairwiseKappaStatuses,
     meanPairwiseKappa,
     krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
-    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw,
+    unresolvedDisagreementCount: value.unresolvedDisagreementCount
   };
 }
 
@@ -872,7 +890,8 @@ function sameEligibilityInputs(
     sameStringArray(left.pairwiseKappaStatuses, right.pairwiseKappaStatuses) &&
     sameNullableNumber(left.meanPairwiseKappa, right.meanPairwiseKappa) &&
     left.krippendorffAlphaNominalStatus === right.krippendorffAlphaNominalStatus &&
-    sameNullableNumber(left.krippendorffAlphaNominal, right.krippendorffAlphaNominal);
+    sameNullableNumber(left.krippendorffAlphaNominal, right.krippendorffAlphaNominal) &&
+    left.unresolvedDisagreementCount === right.unresolvedDisagreementCount;
 }
 
 export function deriveSenaReliabilityMachineClaimEligibility(
@@ -913,6 +932,7 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
     pairwiseCohenKappa: SenaPairwiseKappa[];
     krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
     krippendorffAlphaNominalRaw: number | null;
+    unresolvedDisagreementCount: number;
   });
   if (!canonicalInputs || !sameEligibilityInputs(value.claimEligibilityInputs, canonicalInputs)) return false;
   if (value.projectBinding !== undefined &&
@@ -1084,14 +1104,16 @@ export function buildSenaReliabilityDashboard(
     pairwiseStatuses,
     meanPairwiseKappa: rawMeanPairwiseKappa,
     krippendorffAlphaNominal: alphaEstimate.value,
-    krippendorffAlphaNominalStatus: alphaEstimate.status
+    krippendorffAlphaNominalStatus: alphaEstimate.status,
+    unresolvedDisagreementCount: adjudicationQueue.length
   });
   const claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs = {
     coderCount: coders.length,
     pairwiseKappaStatuses: pairwiseStatuses,
     meanPairwiseKappa: rawMeanPairwiseKappa,
     krippendorffAlphaNominalStatus: alphaEstimate.status,
-    krippendorffAlphaNominal: alphaEstimate.value
+    krippendorffAlphaNominal: alphaEstimate.value,
+    unresolvedDisagreementCount: adjudicationQueue.length
   };
   const status = aggregateReliabilityStatus(coders.length, pairwiseStatuses, alphaEstimate.status);
   const codeDiagnostics = buildCodeDiagnostics(items, codes, coders, annotations, missingCells);
@@ -1204,6 +1226,7 @@ function reliabilityMachineDerivedProjection(value: SenaCodingReliabilityMachine
     krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
     krippendorffAlphaNominalRaw: value.krippendorffAlphaNominalRaw,
     krippendorffAlphaNominal: value.krippendorffAlphaNominal,
+    unresolvedDisagreementCount: value.unresolvedDisagreementCount,
     allPairwiseKappaEstimable: value.allPairwiseKappaEstimable,
     claimEligibilityInputs: value.claimEligibilityInputs,
     claimEligibility: value.claimEligibility
@@ -1220,6 +1243,7 @@ function dashboardMachineDerivedProjection(dashboard: SenaReliabilityDashboard) 
     krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
     krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
     krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    unresolvedDisagreementCount: dashboard.disagreementCount,
     allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 &&
       dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
     claimEligibilityInputs: dashboard.claimEligibilityInputs,
@@ -1349,12 +1373,27 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     !isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) ||
     !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
     !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
+    !Number.isInteger(value.disagreementCount) || Number(value.disagreementCount) < 0 ||
+    !Array.isArray(value.adjudicationQueue) ||
     !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
     !isClaimEligibility(value.claimEligibility) ||
     (value.projectBinding !== undefined && !isValidSenaReliabilityProjectBinding(value.projectBinding))) return false;
 
   const inputs = value.claimEligibilityInputs;
   const coderIds = value.coderIds as string[];
+  const adjudicationQueue = value.adjudicationQueue as unknown[];
+  const adjudicationKeys = adjudicationQueue.map((candidate) => {
+    if (!isRecord(candidate) || typeof candidate.itemId !== "string" || candidate.itemId.length === 0 ||
+      typeof candidate.codeId !== "string" || candidate.codeId.length === 0 || !isRecord(candidate.values)) return "";
+    const entries = Object.entries(candidate.values);
+    if (entries.length < 2 || entries.some(([coderId, decision]) => (
+      !coderIds.includes(coderId) || typeof decision !== "boolean"
+    )) || new Set(entries.map(([, decision]) => decision)).size < 2) return "";
+    return `${candidate.itemId}\u0000${candidate.codeId}`;
+  });
+  if (adjudicationQueue.length !== Number(value.disagreementCount) ||
+    adjudicationKeys.some((key) => key.length === 0) ||
+    new Set(adjudicationKeys).size !== adjudicationKeys.length) return false;
   const pairwiseStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
   const pairKeys = value.pairwiseCohenKappa.map((pair) => [pair.coderA, pair.coderB].sort().join("::")).sort();
   const canonicalPairKeys = expectedPairKeys(coderIds);
@@ -1377,7 +1416,8 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     pairwiseKappaStatuses: pairwiseStatuses,
     meanPairwiseKappa: rawMeanPairwiseKappa,
     krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
-    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw,
+    unresolvedDisagreementCount: Number(value.disagreementCount)
   };
   const expected = deriveSenaReliabilityClaimEligibility(canonicalInputs);
   const expectedStatus = aggregateReliabilityStatus(
@@ -1419,6 +1459,7 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     sameNullableNumber(inputs.meanPairwiseKappa, canonicalInputs.meanPairwiseKappa) &&
     inputs.krippendorffAlphaNominalStatus === canonicalInputs.krippendorffAlphaNominalStatus &&
     sameNullableNumber(inputs.krippendorffAlphaNominal, canonicalInputs.krippendorffAlphaNominal) &&
+    inputs.unresolvedDisagreementCount === canonicalInputs.unresolvedDisagreementCount &&
     value.status === expectedStatus &&
     value.meanPairwiseKappaStatus === expectedMeanStatus &&
     sameNullableNumber(value.meanPairwiseKappa, roundNullable(canonicalInputs.meanPairwiseKappa)) &&
@@ -1471,14 +1512,20 @@ export function normalizeSenaReliabilityDashboard(
     pairwiseStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
     meanPairwiseKappa,
     krippendorffAlphaNominal: alpha,
-    krippendorffAlphaNominalStatus: "legacy-ambiguous"
+    krippendorffAlphaNominalStatus: "legacy-ambiguous",
+    unresolvedDisagreementCount: Number.isInteger(legacy.disagreementCount)
+      ? Math.max(0, legacy.disagreementCount)
+      : 0
   });
   const claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs = {
     coderCount,
     pairwiseKappaStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
     meanPairwiseKappa,
     krippendorffAlphaNominalStatus: "legacy-ambiguous",
-    krippendorffAlphaNominal: alpha
+    krippendorffAlphaNominal: alpha,
+    unresolvedDisagreementCount: Number.isInteger(legacy.disagreementCount)
+      ? Math.max(0, legacy.disagreementCount)
+      : 0
   };
 
   return {
@@ -1535,6 +1582,7 @@ export function reliabilityDashboardToReview(
       krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
       krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
       krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+      unresolvedDisagreementCount: dashboard.disagreementCount,
       allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 && dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
       claimEligibilityInputs: structuredClone(dashboard.claimEligibilityInputs),
       claimEligibility: dashboard.claimEligibility,

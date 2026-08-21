@@ -13,9 +13,14 @@ import {
 
 const reliabilityRouteTestTimeoutMs = 30_000;
 
-function reliabilityRouteSnapshot() {
+function reliabilityRouteSnapshot(scoped = false) {
   const imported = importSenaJsonContract(lessonStudySenaContract);
-  const model = buildSenaModel(imported.dataset);
+  const analysisDataset = scoped ? {
+    ...structuredClone(imported.dataset),
+    utterances: imported.dataset.utterances.slice(0, 1),
+    coded_segments: imported.dataset.coded_segments.filter((segment) => segment.utteranceId === "u1")
+  } : imported.dataset;
+  const model = buildSenaModel(analysisDataset);
   return buildSenaProjectSnapshot(model, {
     title: "Route Reliability Project",
     generatedAt: "2026-06-13T00:00:00.000Z",
@@ -134,6 +139,82 @@ describe("SENA reliability route", () => {
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, reliabilityRouteTestTimeoutMs);
+
+  it("preflights queued inline annotations against the authoritative full source", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-authoritative-queue-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+    vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Authoritative Queue Reviewer",
+        email: "authoritative-queue@example.edu",
+        password: "sena-secure-123",
+        organization: "Authoritative Queue Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Scoped queued reliability project",
+        snapshot: reliabilityRouteSnapshot(true)
+      });
+      const route = await import("../../../app/api/sena/reliability/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          teamId: project.teamId,
+          projectId: project.id,
+          reviewer: registered.context.user.name,
+          annotations: [
+            { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "1" },
+            { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
+          ]
+        })
+      }));
+      const body = await response.json() as {
+        status?: string;
+        payloadSummary?: { snapshotFingerprint?: string; annotationCount?: number };
+      };
+
+      expect(response.status).toBe(202);
+      expect(body.status).toBe("queued");
+      expect(body.payloadSummary?.annotationCount).toBe(2);
+      expect(body.payloadSummary?.snapshotFingerprint).toMatch(/^0x[a-f0-9]{8}$/);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_URL;
+      delete process.env.SENA_JOB_QUEUE_SECRET;
+      delete process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.unstubAllGlobals();
       vi.resetModules();
     }
   }, reliabilityRouteTestTimeoutMs);
@@ -450,6 +531,9 @@ describe("SENA reliability route", () => {
           projectId?: string;
           status?: string;
           adjudicationCoverage?: { unresolvedDisagreements?: number };
+          dashboard?: {
+            claimEligibility?: { eligible?: boolean; blockers?: string[] };
+          };
         };
       };
       const reliabilityRunId = createBody.reliabilityRun?.id;
@@ -459,6 +543,9 @@ describe("SENA reliability route", () => {
       expect(createBody.reliabilityRun?.projectId).toBe(project.id);
       expect(createBody.reliabilityRun?.status).toBe("pending-adjudication");
       expect(createBody.reliabilityRun?.adjudicationCoverage?.unresolvedDisagreements).toBe(1);
+      expect(createBody.reliabilityRun?.dashboard?.claimEligibility?.eligible).toBe(false);
+      expect(createBody.reliabilityRun?.dashboard?.claimEligibility?.blockers)
+        .toContain("unresolved-reliability-disagreements");
       expect(pg.state?.payload.reliabilityRuns.map((run) => run.id)).toContain(reliabilityRunId);
       expect(pg.reliabilityRuns.map((run) => run.id)).toContain(reliabilityRunId);
 
@@ -486,7 +573,11 @@ describe("SENA reliability route", () => {
         adjudication?: {
           summary?: { unresolvedDisagreements?: number };
           adjudications?: Array<{ id?: string; reliabilityRunId?: string }>;
-          reliabilityRun?: { id?: string; status?: string };
+          reliabilityRun?: {
+            id?: string;
+            status?: string;
+            dashboard?: { claimEligibility?: { eligible?: boolean; blockers?: string[] } };
+          };
         };
       };
       const adjudicationId = adjudicationBody.adjudication?.adjudications?.[0]?.id;
@@ -497,6 +588,9 @@ describe("SENA reliability route", () => {
       expect(pg.state?.payload.adjudications.map((record) => record.id)).toContain(adjudicationId);
       expect(pg.adjudications.map((record) => record.id)).toContain(adjudicationId);
       expect(pg.state?.payload.reliabilityRuns.find((run) => run.id === reliabilityRunId)?.adjudicationCoverage.unresolvedDisagreements).toBe(0);
+      expect(adjudicationBody.adjudication?.reliabilityRun?.dashboard?.claimEligibility?.eligible).toBe(false);
+      expect(adjudicationBody.adjudication?.reliabilityRun?.dashboard?.claimEligibility?.blockers)
+        .toContain("unresolved-reliability-disagreements");
 
       const reviewResponse = await route.PATCH(new Request("https://sena.example.test/api/sena/reliability", {
         method: "PATCH",
@@ -511,11 +605,18 @@ describe("SENA reliability route", () => {
         })
       }));
       const reviewBody = await reviewResponse.json() as {
-        reliabilityRun?: { id?: string; status?: string };
+        reliabilityRun?: {
+          id?: string;
+          status?: string;
+          dashboard?: { claimEligibility?: { eligible?: boolean; blockers?: string[] } };
+        };
       };
 
       expect(reviewResponse.status).toBe(200);
       expect(reviewBody.reliabilityRun?.status).toBe("approved");
+      expect(reviewBody.reliabilityRun?.dashboard?.claimEligibility?.eligible).toBe(false);
+      expect(reviewBody.reliabilityRun?.dashboard?.claimEligibility?.blockers)
+        .toContain("unresolved-reliability-disagreements");
       expect(pg.state?.payload.reliabilityRuns.find((run) => run.id === reliabilityRunId)?.status).toBe("approved");
       expect(pg.reliabilityRuns.find((run) => run.id === reliabilityRunId)?.status).toBe("approved");
 

@@ -100,6 +100,12 @@ function requireCompletedLogin<T extends { mfaRequired?: true } | { context: unk
 function sampleSnapshot() {
   const imported = importSenaJsonContract(lessonStudySenaContract);
   const model = buildSenaModel(imported.dataset);
+  const reliability = buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+  ]);
   return buildSenaProjectSnapshot(model, {
     title: "Enterprise Test Snapshot",
     generatedAt: "2026-06-11T00:00:00.000Z",
@@ -111,17 +117,7 @@ function sampleSnapshot() {
       limitations: "Fixture only.",
       nextActions: "Continue validation."
     },
-    codingReliability: {
-      status: "documented",
-      reviewer: "Enterprise test",
-      codingScheme: "Fixture codebook",
-      unitOfCoding: "coded_segments",
-      coderCount: 2,
-      agreementMetric: "Cohen kappa; Krippendorff alpha",
-      agreementValue: "kappa=1; alpha=1",
-      adjudicationNotes: "No disagreements in fixture.",
-      limitations: "Fixture only."
-    },
+    codingReliability: reliabilityDashboardToReview(reliability, "Enterprise test"),
     dataGovernance: {
       irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
       consentScope: "Synthetic publication export fixture only.",

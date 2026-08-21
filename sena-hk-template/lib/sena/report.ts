@@ -1135,7 +1135,8 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
       checks?.allPairwiseKappaEstimable,
       checks?.krippendorffAlphaEstimable,
       checks?.meanPairwiseKappaAtThreshold,
-      checks?.krippendorffAlphaAtThreshold
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
     ].every((entry) => typeof entry === "boolean") &&
     Boolean(adjudication) &&
     adjudication?.status === "external-not-evaluated" &&
@@ -1151,9 +1152,14 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
     checks?.allPairwiseKappaEstimable,
     checks?.krippendorffAlphaEstimable,
     checks?.meanPairwiseKappaAtThreshold,
-    checks?.krippendorffAlphaAtThreshold
+    checks?.krippendorffAlphaAtThreshold,
+    checks?.noUnresolvedDisagreements
   ].every((entry) => entry === true);
   if (machine.eligible !== (allChecksPass && (machine.blockers as string[]).length === 0)) return false;
+  if (!machine.eligible && (
+    record.status !== "review" ||
+    record.claimUse !== "coding-reliability-needed"
+  )) return false;
 
   if (record.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate) {
     return record.status === "review" &&
@@ -1168,7 +1174,8 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
         checks?.allPairwiseKappaEstimable,
         checks?.krippendorffAlphaEstimable,
         checks?.meanPairwiseKappaAtThreshold,
-        checks?.krippendorffAlphaAtThreshold
+        checks?.krippendorffAlphaAtThreshold,
+        checks?.noUnresolvedDisagreements
       ].every((entry) => entry === false) &&
       JSON.stringify(machine.blockers) === JSON.stringify(["current-v2-reliability-evidence-required"]) &&
       (record.blockers as string[]).includes("current-v2-reliability-evidence-required");
@@ -1183,7 +1190,11 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
       machine.sourceSchemaVersion === reviewMachineEvidence.sourceSchemaVersion &&
       JSON.stringify(machine.threshold) === JSON.stringify(expected.threshold) &&
       JSON.stringify(machine.checks) === JSON.stringify(expected.checks) &&
-      JSON.stringify(machine.blockers) === JSON.stringify(expected.blockers);
+      JSON.stringify(machine.blockers) === JSON.stringify(expected.blockers) &&
+      (expected.eligible || (
+        record.status === "review" &&
+        record.claimUse === "coding-reliability-needed"
+      ));
   }
 
   return machine.eligible === false &&
@@ -1193,7 +1204,8 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
       checks?.allPairwiseKappaEstimable,
       checks?.krippendorffAlphaEstimable,
       checks?.meanPairwiseKappaAtThreshold,
-      checks?.krippendorffAlphaAtThreshold
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
     ].every((entry) => entry === false) &&
     (machine.blockers as string[]).some((blocker) =>
       blocker === "current-v2-reliability-dashboard-required" ||
@@ -1233,7 +1245,8 @@ export function normalizeSenaCodingReliabilityGate(
         allPairwiseKappaEstimable: false,
         krippendorffAlphaEstimable: false,
         meanPairwiseKappaAtThreshold: false,
-        krippendorffAlphaAtThreshold: false
+        krippendorffAlphaAtThreshold: false,
+        noUnresolvedDisagreements: false
       },
       blockers: [blocker],
       adjudication: {
@@ -1301,7 +1314,8 @@ export function buildSenaCodingReliabilityGate(
         allPairwiseKappaEstimable: false,
         krippendorffAlphaEstimable: false,
         meanPairwiseKappaAtThreshold: false,
-        krippendorffAlphaAtThreshold: false
+        krippendorffAlphaAtThreshold: false,
+        noUnresolvedDisagreements: false
       },
       blockers: [suppliedMachineEvidence
         ? "invalid-or-contradictory-current-v2-reliability-evidence"
@@ -1336,7 +1350,7 @@ export function buildSenaCodingReliabilityGate(
     review.adjudicationNotes !== pendingReliabilityText ? null : "Adjudication notes are missing.",
     review.limitations !== pendingReliabilityText ? null : "Reliability limitations are missing."
   ].filter((blocker): blocker is string => Boolean(blocker));
-  const status = blockers.length === 0 ? "ready" : "review";
+  const status = blockers.length === 0 && machineClaimEligibility.eligible ? "ready" : "review";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
@@ -1364,7 +1378,7 @@ export function buildSenaCodingReliabilityGate(
     guardrail: "SENA graph patterns remain exploratory until coding reliability evidence is documented and reviewed with the study context.",
     notes: [
       "This standalone report gate records the reviewed reliability evidence attached to the current export.",
-      "The documentation gate status is not the machine claim-eligibility result; PR-B claim aggregation must consume machineClaimEligibility explicitly.",
+      "The gate remains in review unless both documentation and canonical machine claim-eligibility checks pass; human sign-off cannot override unresolved canonical disagreements.",
       machineClaimEligibility.adjudication.disclosure,
       "Use the enterprise reliability workflow for raw multi-coder files, Cohen kappa, Krippendorff alpha, code-level diagnostics, adjudication history, and reviewer sign-off before publication-facing claims."
     ]

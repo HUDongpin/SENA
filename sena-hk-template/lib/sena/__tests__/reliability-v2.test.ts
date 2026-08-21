@@ -185,14 +185,16 @@ describe("SENA coding reliability v2", () => {
       pairwiseStatuses: ["estimable"],
       meanPairwiseKappa: 0.7999,
       krippendorffAlphaNominal: 0.8,
-      krippendorffAlphaNominalStatus: "estimable"
+      krippendorffAlphaNominalStatus: "estimable",
+      unresolvedDisagreementCount: 0
     });
     const at = buildSenaReliabilityClaimEligibility({
       coderCount: 2,
       pairwiseStatuses: ["estimable"],
       meanPairwiseKappa: 0.8,
       krippendorffAlphaNominal: 0.8,
-      krippendorffAlphaNominalStatus: "estimable"
+      krippendorffAlphaNominalStatus: "estimable",
+      unresolvedDisagreementCount: 0
     });
 
     expect(below.eligible).toBe(false);
@@ -284,7 +286,8 @@ describe("SENA coding reliability v2", () => {
       pairwiseStatuses: dashboard.claimEligibilityInputs.pairwiseKappaStatuses,
       meanPairwiseKappa: null,
       krippendorffAlphaNominal: 0.8,
-      krippendorffAlphaNominalStatus: "single-observed-category"
+      krippendorffAlphaNominalStatus: "single-observed-category",
+      unresolvedDisagreementCount: 0
     });
 
     expect(() => normalizeSenaReliabilityDashboard(dashboard)).toThrow(/alpha|semantic|reliability dashboard/i);
@@ -384,7 +387,8 @@ describe("SENA coding reliability v2", () => {
         allPairwiseKappaEstimable: true,
         krippendorffAlphaEstimable: true,
         meanPairwiseKappaAtThreshold: true,
-        krippendorffAlphaAtThreshold: true
+        krippendorffAlphaAtThreshold: true,
+        noUnresolvedDisagreements: true
       },
       blockers: []
     };
@@ -413,7 +417,8 @@ describe("SENA coding reliability v2", () => {
         allPairwiseKappaEstimable: true,
         krippendorffAlphaEstimable: true,
         meanPairwiseKappaAtThreshold: true,
-        krippendorffAlphaAtThreshold: true
+        krippendorffAlphaAtThreshold: true,
+        noUnresolvedDisagreements: true
       },
       blockers: []
     };

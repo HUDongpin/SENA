@@ -7,8 +7,10 @@ import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 import {
   buildSenaModel,
   buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
   importSenaJsonContract,
-  lessonStudySenaContract
+  lessonStudySenaContract,
+  reliabilityDashboardToReview
 } from "../index";
 
 const publicationExportRouteTestTimeoutMs = 30_000;
@@ -27,17 +29,12 @@ function routeSnapshot() {
       limitations: "Fixture only.",
       nextActions: "Verify projectId export handoff."
     },
-    codingReliability: {
-      status: "documented",
-      reviewer: "Route test",
-      codingScheme: "Fixture codebook",
-      unitOfCoding: "coded_segments",
-      coderCount: 2,
-      agreementMetric: "Cohen kappa; Krippendorff alpha",
-      agreementValue: "kappa=1; alpha=1",
-      adjudicationNotes: "Fixture agreement.",
-      limitations: "Fixture only."
-    },
+    codingReliability: reliabilityDashboardToReview(buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+      { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+      { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+    ]), "Route test"),
     dataGovernance: {
       irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
       consentScope: "Synthetic route export fixture only.",

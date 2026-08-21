@@ -26,6 +26,7 @@ import {
   buildSenaModel,
   buildSenaPairContributionReportArtifact,
   buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
   buildSenaReport,
   buildSenaReportCompletenessAudit,
   buildSenaReviewPacket,
@@ -55,6 +56,7 @@ import {
   senaPilotAssetIntegrity,
   parseSenaCsv,
   readableEdgeStrokeWidth,
+  reliabilityDashboardToReview,
   senaRuntimeProvenance,
   senaPilotHandoffChecks,
   senaPilotPackageManifestAsset,
@@ -236,17 +238,15 @@ async function testEnterpriseJsonHeaders() {
   };
 }
 
-const documentedCodingReliability = {
-  status: "documented" as const,
-  reviewer: "Reliability lead",
-  codingScheme: "SENA lesson-study codebook v1",
-  unitOfCoding: "coded_segments",
-  coderCount: 2,
-  agreementMetric: "Cohen kappa",
-  agreementValue: "0.82",
-  adjudicationNotes: "Disagreements were adjudicated before the pilot export.",
-  limitations: "Reliability evidence is documented for the pilot sample only."
-};
+const documentedCodingReliability = reliabilityDashboardToReview(
+  buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+  ]),
+  "Reliability lead"
+);
 
 const documentedDataGovernance = {
   irbApprovalId: "EDUHK-SENA-2026-014",
