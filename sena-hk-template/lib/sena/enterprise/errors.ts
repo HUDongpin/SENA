@@ -1,4 +1,5 @@
 import { SenaInputValidationError } from "../analytical-input-validation";
+import { SenaReliabilityUniverseLimitError } from "../reliability";
 
 export class SenaEnterpriseError extends Error {
   constructor(
@@ -43,6 +44,16 @@ function describeUnexpectedError(error: unknown) {
 }
 
 export function enterpriseErrorResponse(error: unknown) {
+  if (error instanceof SenaReliabilityUniverseLimitError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, rule, actual, maximum }) => ({ path, rule, actual, maximum }))
+      },
+      status: error.status
+    };
+  }
   if (error instanceof SenaInputValidationError) {
     return {
       body: {

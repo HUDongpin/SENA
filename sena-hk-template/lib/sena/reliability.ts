@@ -114,6 +114,105 @@ export type SenaReliabilityProjectBindingIssue = {
   code: "unknown-item" | "unknown-code" | "duplicate-cell" | "invalid-project-context" | "binding-mismatch" | "derived-metrics-mismatch";
 };
 
+/**
+ * Reliability is defined over the complete item-by-code universe, including
+ * observed false cells. These caps bound that declared semantics before any
+ * cartesian-product or value-row allocation can occur.
+ */
+export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
+  binaryUnits: 50_000,
+  assignmentCells: 200_000
+});
+
+export type SenaReliabilityUniverseLimitIssue = {
+  path: "annotations";
+  rule: string;
+  actual: number | "safe-integer-overflow";
+  maximum: number;
+};
+
+export class SenaReliabilityUniverseLimitError extends Error {
+  readonly name = "SenaReliabilityUniverseLimitError";
+  readonly status = 400;
+  readonly code = "reliability_universe_limit_exceeded";
+  readonly issues: SenaReliabilityUniverseLimitIssue[];
+
+  constructor(issues: SenaReliabilityUniverseLimitIssue[]) {
+    super("SENA coding-reliability input exceeds the supported analysis universe.");
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      status: this.status,
+      code: this.code,
+      issues: this.issues
+    };
+  }
+}
+
+function safeCardinalityProduct(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0) return null;
+  if (left !== 0 && right > Math.floor(Number.MAX_SAFE_INTEGER / left)) return null;
+  return left * right;
+}
+
+export function assertSenaReliabilityUniverseWithinLimits(input: {
+  itemCount: number;
+  codeCount: number;
+  coderCount: number;
+}) {
+  const binaryUnits = safeCardinalityProduct(input.itemCount, input.codeCount);
+  const assignmentCells = binaryUnits === null
+    ? null
+    : safeCardinalityProduct(binaryUnits, input.coderCount);
+  const issues: SenaReliabilityUniverseLimitIssue[] = [];
+  if (binaryUnits === null || binaryUnits > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) {
+    issues.push({
+      path: "annotations",
+      rule: `binary-unit-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits}`,
+      actual: binaryUnits ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits
+    });
+  } else if (
+    assignmentCells === null
+    || assignmentCells > SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
+  ) {
+    issues.push({
+      path: "annotations",
+      rule: `assignment-cell-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells}`,
+      actual: assignmentCells ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
+    });
+  }
+  if (issues.length > 0) throw new SenaReliabilityUniverseLimitError(issues);
+  return { binaryUnits, assignmentCells };
+}
+
+export function preflightSenaReliabilityAnnotations(annotations: readonly SenaCoderAnnotation[]) {
+  const coderIds = new Set<string>();
+  const itemIds = new Set<string>();
+  const codeIds = new Set<string>();
+  for (const annotation of annotations) {
+    coderIds.add(annotation.coderId);
+    itemIds.add(annotation.itemId);
+    codeIds.add(annotation.codeId);
+  }
+  const cardinality = assertSenaReliabilityUniverseWithinLimits({
+    itemCount: itemIds.size,
+    codeCount: codeIds.size,
+    coderCount: coderIds.size
+  });
+  return {
+    coders: Array.from(coderIds).sort(),
+    items: Array.from(itemIds).sort(),
+    codes: Array.from(codeIds).sort(),
+    ...cardinality
+  };
+}
+
 export class SenaReliabilityProjectBindingError extends Error {
   readonly issues: SenaReliabilityProjectBindingIssue[];
 
@@ -178,7 +277,7 @@ function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
   })).sort((left, right) => (
     left.coderId.localeCompare(right.coderId) ||
     left.itemId.localeCompare(right.itemId) ||
-    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
+    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
   ));
 }
 
@@ -345,7 +444,7 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
   })).sort((left, right) => (
     left.coderId.localeCompare(right.coderId) ||
     left.itemId.localeCompare(right.itemId) ||
-    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
+    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
   ));
   const codebookIds = codebookUniverse.map((entry) => entry.id);
   const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
@@ -1090,12 +1189,12 @@ export function buildSenaReliabilityDashboard(
 ): SenaReliabilityDashboard {
   const warnings: string[] = [];
   const skippedCells = options.skippedCells ?? [];
+  const { coders, items, codes } = preflightSenaReliabilityAnnotations(annotations);
+  const itemSet = new Set(items);
+  const codeSet = new Set(codes);
   const derivationEvidence = buildReliabilityDerivationEvidence(annotations, skippedCells);
   const annotationIndex = buildAnnotationIndex(annotations);
   const missingCells = buildMissingCellIndex(skippedCells);
-  const coders = Array.from(new Set(annotations.map((annotation) => annotation.coderId))).sort();
-  const items = Array.from(new Set(annotations.map((annotation) => annotation.itemId))).sort();
-  const codes = Array.from(new Set(annotations.map((annotation) => annotation.codeId))).sort();
   if (options.projectBinding) {
     const coverage = canonicalAnnotationCoverage(annotations);
     if (!isValidSenaReliabilityProjectBinding(options.projectBinding) ||
@@ -1116,8 +1215,6 @@ export function buildSenaReliabilityDashboard(
   // Count only cells actually excluded: a recorded decision beats a skip, and
   // a skipped cell whose item or code never entered the unit universe excludes
   // nothing. Distinct cells; the per-row warnings disclose each skipped row.
-  const itemSet = new Set(items);
-  const codeSet = new Set(codes);
   let excludedCellCount = 0;
   for (const [coderId, byItem] of missingCells) {
     for (const [itemId, missingCodeIds] of byItem) {

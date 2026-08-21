@@ -33,6 +33,7 @@ import {
   bindSenaReliabilityAnnotationsToProject,
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
+  preflightSenaReliabilityAnnotations,
   reliabilityDashboardToReview,
   senaReliabilitySnapshotFingerprint
 } from "@/lib/sena/reliability";
@@ -118,21 +119,24 @@ export async function POST(request: Request) {
         let uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
         const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
         const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
-        if (project && Array.isArray(body.annotations)) {
+        if (Array.isArray(body.annotations)) {
           const parsedInline = parseCoderAnnotationsFromRows(body.annotations as Record<string, unknown>[]);
-          try {
-            bindSenaReliabilityAnnotationsToProject(parsedInline.annotations, {
-              projectId: project.id,
-              projectVersion: project.currentVersion,
-              snapshot: project.snapshot,
-              skippedCells: parsedInline.skippedCells
-            });
-          } catch {
-            throw new SenaEnterpriseError(
-              "Queued reliability annotations do not match the current project snapshot.",
-              400,
-              "reliability_project_binding_invalid"
-            );
+          preflightSenaReliabilityAnnotations(parsedInline.annotations);
+          if (project) {
+            try {
+              bindSenaReliabilityAnnotationsToProject(parsedInline.annotations, {
+                projectId: project.id,
+                projectVersion: project.currentVersion,
+                snapshot: project.snapshot,
+                skippedCells: parsedInline.skippedCells
+              });
+            } catch {
+              throw new SenaEnterpriseError(
+                "Queued reliability annotations do not match the current project snapshot.",
+                400,
+                "reliability_project_binding_invalid"
+              );
+            }
           }
         }
         // The local queue has no webhook body to deliver later. Store JSON
@@ -237,6 +241,10 @@ export async function POST(request: Request) {
       const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
       const teamId = String(form.get("teamId") || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "reliability:adjudicate");
+      const parsedForPreflight = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
+      const preflightRows = parsedForPreflight.flatMap((file) => file.rows);
+      const preflightAnnotations = parseCoderAnnotationsFromRows(preflightRows);
+      preflightSenaReliabilityAnnotations(preflightAnnotations.annotations);
       const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
         teamId,
         files: bufferedFiles.map((file) => ({
