@@ -336,14 +336,29 @@ function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
 }
 
 function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
-  return skippedCells.map((cell) => ({
-    coderId: cell.coderId,
-    itemId: cell.itemId,
-    codeIds: sortedUnique(cell.codeIds)
-  })).sort((left, right) => (
+  const byCoder = new Map<string, Map<string, Set<string>>>();
+  for (const cell of skippedCells) {
+    let byItem = byCoder.get(cell.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      byCoder.set(cell.coderId, byItem);
+    }
+    let codeIds = byItem.get(cell.itemId);
+    if (!codeIds) {
+      codeIds = new Set();
+      byItem.set(cell.itemId, codeIds);
+    }
+    for (const codeId of cell.codeIds) codeIds.add(codeId);
+  }
+  const coverage: SenaSkippedCoderCell[] = [];
+  for (const [coderId, byItem] of byCoder) {
+    for (const [itemId, codeIds] of byItem) {
+      coverage.push({ coderId, itemId, codeIds: sortedUnique(Array.from(codeIds)) });
+    }
+  }
+  return coverage.sort((left, right) => (
     left.coderId.localeCompare(right.coderId) ||
-    left.itemId.localeCompare(right.itemId) ||
-    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
+    left.itemId.localeCompare(right.itemId)
   ));
 }
 
@@ -504,14 +519,7 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
   const codebookUniverse = [...binding.codebookUniverse].sort((left, right) => left.id.localeCompare(right.id));
   const itemUniverse = [...binding.itemUniverse].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
   const annotationCoverage = canonicalAnnotationCoverage(binding.annotationCoverage);
-  const skippedCellCoverage = [...binding.skippedCellCoverage].map((entry) => ({
-    ...entry,
-    codeIds: sortedUnique(entry.codeIds)
-  })).sort((left, right) => (
-    left.coderId.localeCompare(right.coderId) ||
-    left.itemId.localeCompare(right.itemId) ||
-    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
-  ));
+  const skippedCellCoverage = canonicalSkippedCellCoverage(binding.skippedCellCoverage);
   const codebookIds = codebookUniverse.map((entry) => entry.id);
   const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
   const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));

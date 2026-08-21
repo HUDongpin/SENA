@@ -64,8 +64,11 @@ describe("Round12 NUL-safe reliability tuples", () => {
     expect(forward.derivationEvidence?.skippedCellCoverageHash).toBe(
       reverse.derivationEvidence?.skippedCellCoverageHash
     );
-    expect(forward.derivationEvidence?.skippedCells[0].codeIds).toEqual(["a", "b"]);
-    expect(forward.derivationEvidence?.skippedCells[1].codeIds).toEqual(["a\u0000b"]);
+    expect(forward.derivationEvidence?.skippedCells).toEqual([{
+      coderId: "coder-a",
+      itemId: "u1",
+      codeIds: ["a", "a\u0000b", "b"]
+    }]);
     expect(normalizeSenaReliabilityDashboard(forward)).toEqual(forward);
   });
 
@@ -96,7 +99,10 @@ describe("Round12 NUL-safe reliability tuples", () => {
     expect(isValidSenaReliabilityProjectBinding(binding)).toBe(true);
 
     const tampered = structuredClone(binding);
-    tampered.skippedCellCoverage.reverse();
+    tampered.skippedCellCoverage = [
+      { coderId: "coder-a", itemId: "u1", codeIds: ["a", "b"] },
+      { coderId: "coder-a", itemId: "u1", codeIds: ["a\u0000b"] }
+    ];
     tampered.skippedCellCoverageHash = bindingHash(tampered.skippedCellCoverage);
 
     expect(isValidSenaReliabilityProjectBinding(tampered)).toBe(false);
