@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { importSenaProjectSnapshot } from "../snapshot";
 import {
   normalizeSenaGroupComparisonValidationResult,
   type SenaGroupComparisonValidationReadModel
@@ -356,7 +357,33 @@ function pruneApiRateLimits(db: SenaEnterpriseDb) {
   return (db.apiRateLimits ?? []).filter((record) => Date.parse(record.expiresAt) > current);
 }
 
+function normalizedProjectSnapshotFields(snapshotValue: SenaEnterpriseProject["snapshot"]) {
+  const snapshot = importSenaProjectSnapshot(snapshotValue);
+  const source = snapshot.source.sourceDataset ?? snapshot.dataset;
+  return {
+    snapshot,
+    datasetCounts: {
+      people: source.people.length,
+      interactions: source.interactions.length,
+      utterances: source.utterances.length,
+      codedSegments: source.coded_segments.length,
+      codes: source.codebook.length
+    },
+    activeWindowLabel: snapshot.source.activeTemporalWindow?.label ?? "Full conversation",
+    claimUse: snapshot.report.claimReadinessGate.claimUse
+  };
+}
+
 export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterpriseDb {
+  const projects = (db.projects ?? []).map((project) => ({
+    ...project,
+    ...normalizedProjectSnapshotFields(project.snapshot),
+    currentVersion: project.currentVersion ?? 1
+  }));
+  const projectRevisions = (db.projectRevisions ?? []).map((revision) => ({
+    ...revision,
+    ...normalizedProjectSnapshotFields(revision.snapshot)
+  }));
   return {
     ...db,
     sessions: (db.sessions ?? []).map((session) => ({
@@ -364,7 +391,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       sessionProfile: session.sessionProfile ?? "standard",
       ttlDays: session.ttlDays ?? sessionDays
     })),
-    projectRevisions: db.projectRevisions ?? [],
+    projectRevisions,
     projectComments: db.projectComments ?? [],
     projectPresence: db.projectPresence ?? [],
     adjudications: db.adjudications ?? [],
@@ -456,7 +483,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     }),
     validationRuns: (db.validationRuns ?? []).map((run) => {
       const project = run.projectId
-        ? (db.projects ?? []).find((candidate) => candidate.id === run.projectId)
+        ? projects.find((candidate) => candidate.id === run.projectId)
         : undefined;
       const result = normalizeSenaGroupComparisonValidationResult(
         run.result,
@@ -473,10 +500,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
         methodNote: run.methodNote ?? result.guardrail ?? ""
       };
     }),
-    projects: (db.projects ?? []).map((project) => ({
-      ...project,
-      currentVersion: project.currentVersion ?? 1
-    }))
+    projects
   };
 }
 

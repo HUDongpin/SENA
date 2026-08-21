@@ -213,6 +213,13 @@ describe("SENA group-comparison actual-source sufficiency", () => {
 
   it("uses the current project snapshot as the file-state holder source", () => {
     const dataset = estimableMetricDataset();
+    dataset.codebook = [{
+      id: "evidence",
+      label: "Evidence",
+      family: "fixture",
+      description: "Keeps the project snapshot fusion contract canonical.",
+      color: "#2563eb"
+    }];
     const substituted = buildSenaGroupComparison({
       dataset: alternateMetricDataset(),
       groupA: "A",

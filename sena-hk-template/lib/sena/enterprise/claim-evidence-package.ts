@@ -481,7 +481,11 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
     if (evidenceSource.validationRuns === "postgres-table") {
       const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
       pools.push(pool);
-      validationRuns = await adapter.listValidationRuns({ projectId: input.projectId, limit: 1000 });
+      validationRuns = await adapter.listValidationRuns({
+        projectId: input.projectId,
+        project: db.projects.find((candidate) => candidate.id === input.projectId),
+        limit: 1000
+      });
     }
     if (evidenceSource.expertReviews === "postgres-table") {
       const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});

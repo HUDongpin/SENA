@@ -52,6 +52,7 @@ import type {
   SenaEnterpriseServerJobStatus
 } from "./enterprise/server-job-queue";
 import type { SenaEnterpriseObservedRequest } from "./enterprise/ops-observability";
+import type { SenaProjectSnapshot } from "./types";
 import {
   productionEvidenceTimestampConfigured,
   productionEvidenceTimestampEvidenceValue
@@ -1073,13 +1074,33 @@ function normalizeStoredReliabilityRun(row: Record<string, unknown>): SenaEnterp
   };
 }
 
-function normalizeStoredValidationRun(row: Record<string, unknown>): SenaEnterpriseValidationRun {
+type SenaEnterpriseValidationProjectSource = {
+  id: string;
+  snapshot: SenaProjectSnapshot;
+};
+
+function normalizeStoredValidationRun(
+  row: Record<string, unknown>,
+  project?: SenaEnterpriseValidationProjectSource,
+  expectedProjectId?: string
+): SenaEnterpriseValidationRun {
   const payload = normalizeStoredJson<Omit<SenaEnterpriseValidationRun, "result"> & {
     result: SenaGroupComparisonValidationReadModel;
   }>(row.payload);
+  const storedProjectId = typeof row.project_id === "string" ? row.project_id : undefined;
+  if ((expectedProjectId !== undefined && payload.projectId !== expectedProjectId) ||
+    (storedProjectId !== undefined && payload.projectId !== storedProjectId)) {
+    throw new Error("Stored Postgres validation run project binding is missing or contradictory.");
+  }
+  if (payload.projectId && (!project || project.id !== payload.projectId)) {
+    throw new Error("Stored Postgres validation run requires its current project snapshot source.");
+  }
   return {
     ...payload,
-    result: normalizeSenaGroupComparisonValidationResult(payload.result),
+    result: normalizeSenaGroupComparisonValidationResult(payload.result, project ? {
+      dataset: project.snapshot.dataset,
+      buildOptions: project.snapshot.reproducibility.buildOptions
+    } : undefined),
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
@@ -2110,6 +2131,7 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
     projectId?: string;
     status?: SenaEnterpriseValidationRunStatus;
     limit?: number;
+    project?: SenaEnterpriseValidationProjectSource;
   } = {}) {
     await ensureSchema();
     const values: unknown[] = [];
@@ -2138,7 +2160,11 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
       ORDER BY created_at DESC, id DESC
       LIMIT $${values.length}
     `, values);
-    return result.rows.map((row) => normalizeStoredValidationRun(row));
+    return result.rows.map((row) => normalizeStoredValidationRun(
+      row,
+      inputFilters.project,
+      inputFilters.projectId
+    ));
   }
 
   return {

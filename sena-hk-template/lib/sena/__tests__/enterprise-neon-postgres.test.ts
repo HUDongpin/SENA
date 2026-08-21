@@ -1134,6 +1134,24 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     }));
     expect(JSON.stringify(claimPackage)).not.toContain("super-secret");
     expect(JSON.stringify(claimPackage)).not.toContain("example.neon.tech");
+
+    const alternateClaimDataset = structuredClone(lessonStudySenaContract);
+    alternateClaimDataset.interactions[0].weight = 30;
+    const alternateClaimResult = buildSenaGroupComparison({
+      dataset: alternateClaimDataset,
+      groupField: "role",
+      groupA: "Lead teacher",
+      groupB: "Curriculum designer",
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+    validationPayloads.set(validationRun.id, {
+      ...validationPayloads.get(validationRun.id),
+      result: alternateClaimResult
+    });
+    await expect(enterprise.getEnterpriseClaimEvidencePackageWithPostgresEvidence(registered.context, {
+      projectId: project.id
+    })).rejects.toThrow(/group-comparison|project|source|evidence/i);
   });
 
   it("loads project collaboration evidence from indexed Postgres reliability validation expert review and adjudication tables", async () => {
@@ -1375,5 +1393,24 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     }));
     expect(JSON.stringify(collaboration)).not.toContain("super-secret");
     expect(JSON.stringify(collaboration)).not.toContain("example.neon.tech");
+
+    const alternateCollaborationDataset = structuredClone(lessonStudySenaContract);
+    alternateCollaborationDataset.interactions[0].weight = 30;
+    const alternateCollaborationResult = buildSenaGroupComparison({
+      dataset: alternateCollaborationDataset,
+      groupField: "role",
+      groupA: "Lead teacher",
+      groupB: "Curriculum designer",
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+    validationPayloads.set(validationRun.id, {
+      ...validationPayloads.get(validationRun.id),
+      result: alternateCollaborationResult
+    });
+    await expect(enterprise.listEnterpriseProjectCollaborationWithPostgresEvidence(
+      registered.context,
+      project.id
+    )).rejects.toThrow(/group-comparison|project|source|evidence/i);
   });
 });

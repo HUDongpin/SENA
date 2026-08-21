@@ -826,7 +826,11 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
       ? (() => {
         const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
         pools.push(pool);
-        return adapter.listValidationRuns({ projectId, limit: 1000 });
+        return adapter.listValidationRuns({
+          projectId,
+          project: db.projects.find((candidate) => candidate.id === projectId),
+          limit: 1000
+        });
       })()
       : Promise.resolve(db.validationRuns);
     const expertReviewsPromise = source.expertReviews === "postgres-table"

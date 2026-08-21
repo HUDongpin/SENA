@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,6 +44,7 @@ async function authenticatedRouteContext(prefix: string) {
     registered,
     csrf: csrf.token,
     enterprise,
+    enterpriseDbDir,
     cleanup: () => rmSync(enterpriseDbDir, { recursive: true, force: true })
   };
 }
@@ -463,8 +464,20 @@ describe("SENA analytical input HTTP errors", () => {
       const project = context.enterprise.createEnterpriseProject(context.registered.context, {
         teamId: context.registered.context.teams[0].id,
         title: "Stale analytical source",
-        snapshot: snapshotWithNegativeAlpha()
+        snapshot: buildSenaProjectSnapshot(buildSenaModel(structuredClone(lessonStudySenaContract)), {
+          title: "Initially valid analytical source",
+          generatedAt: "2026-08-21T00:00:00.000Z",
+          sourceDataset: structuredClone(lessonStudySenaContract)
+        })
       });
+      const dbPath = path.join(context.enterpriseDbDir, "enterprise-db.json");
+      const db = JSON.parse(readFileSync(dbPath, "utf8")) as {
+        projects: Array<{ id: string; snapshot: ReturnType<typeof snapshotWithNegativeAlpha> }>;
+      };
+      const stored = db.projects.find((candidate) => candidate.id === project.id);
+      if (!stored) throw new Error("persisted project fixture missing");
+      stored.snapshot.reproducibility.buildOptions.alpha = -4321;
+      writeFileSync(dbPath, JSON.stringify(db, null, 2), "utf8");
       const analyzeRoute = await import("../../../app/api/sena/analyze/route");
       const validationRoute = await import("../../../app/api/sena/validation/group-comparison/route");
       const analyzeResponse = await analyzeRoute.POST(new Request("https://sena.example.test/api/sena/analyze", {
