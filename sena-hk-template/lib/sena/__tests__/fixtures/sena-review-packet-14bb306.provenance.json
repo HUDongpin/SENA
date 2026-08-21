@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "sena-historical-fixture-provenance/v1",
+  "fixture": {
+    "path": "lib/sena/__tests__/fixtures/sena-review-packet-14bb306.json.br.b64",
+    "encoding": "brotli+base64",
+    "payloadSha256": "e43c07b81f7d6bd409d9d1c4fcc1ce26dfd6d3cb84be4b5c5ff61c87fddae6c9",
+    "utf8Bytes": 2450487,
+    "jsonCharacters": 2431543
+  },
+  "source": {
+    "baseCommit": "14bb3067adc7df6c985785d57d62a54761839555",
+    "repositorySubdirectory": "sena-hk-template",
+    "dataset": {
+      "modulePath": "lib/sena/pilot-assets.ts",
+      "exportName": "lessonStudySenaContract",
+      "canonicalSerialization": "JSON.stringify",
+      "sha256": "ca12ef432ced9635f1d415cc7488e699ca437f7a32dc55d11663ba0c901ce8c9",
+      "utf8Bytes": 8989,
+      "recordCounts": {
+        "people": 4,
+        "interactions": 8,
+        "utterances": 10,
+        "coded_segments": 10,
+        "codebook": 7
+      }
+    },
+    "buildOptions": {
+      "canonicalSerialization": "JSON.stringify",
+      "sha256": "47376030ccb3a495df69c370aec11f67266179958b4a5202733cb851e316479b",
+      "utf8Bytes": 324,
+      "value": {
+        "alpha": 1,
+        "beta": 1,
+        "gamma": 1,
+        "normalization": "max",
+        "bridgeWeightRule": "count",
+        "direction": "directed",
+        "deg_convention": "row-sum",
+        "delta": "shortest_path_reciprocal_weight",
+        "Phi": "classical_mds",
+        "d": 2,
+        "seed": 0,
+        "undirectedSocial": false,
+        "temporal": {
+          "mode": "stage",
+          "movingWindowSize": 3,
+          "movingWindowStep": 1,
+          "turnWindowRadius": 1
+        }
+      }
+    }
+  },
+  "generation": {
+    "generatedAt": "2026-08-21T00:00:00.000Z",
+    "command": "npm run sena:fixture:verify",
+    "nodeVersion": "v24.15.0",
+    "v8Version": "13.6.233.17-node.48",
+    "brotliVersion": "1.2.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "packageLock": {
+      "path": "package-lock.json",
+      "sha256": "832a49ed5e719d5a9b55b5e7567d81d56203f96bac4ffee6739b1ee7bdb68666",
+      "utf8Bytes": 336460
+    },
+    "packages": {
+      "jena-js": "0.6.2",
+      "sna.js": "0.4.0",
+      "vite": "8.1.4",
+      "vitest": "4.1.10",
+      "typescript": "5.9.3"
+    }
+  }
+}

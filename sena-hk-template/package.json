@@ -14,6 +14,7 @@
     "sena:pilot:browser-smoke": "node scripts/verify-sena-browser-smoke.mjs",
     "sena:ena:browser-smoke": "node scripts/verify-sena-ena-browser-smoke.mjs",
     "sena:pilot:verify": "node scripts/verify-sena-pilot.mjs",
+    "sena:fixture:verify": "node scripts/verify-sena-14bb306-fixture.mjs",
     "sena:figures:human-concept": "vite-node scripts/generate-sena-human-concept-publication-figures.ts",
     "sena:performance:check": "vite-node scripts/verify-sena-performance-path.ts",
     "sena:performance:source-custody": "vite-node scripts/prepare-sena-performance-source-custody.ts",
