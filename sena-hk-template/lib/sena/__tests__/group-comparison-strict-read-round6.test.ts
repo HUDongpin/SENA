@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSenaGroupComparison,
-  buildSenaGroupComparisonEffectSize,
   buildSenaGroupComparisonSuite,
   isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult
@@ -28,29 +27,36 @@ function emptyMetricDataset(groups: string[]): SenaDataset {
   };
 }
 
+function estimableMetricDataset(): SenaDataset {
+  const dataset = emptyMetricDataset([
+    "A", "A", "A", "B", "B", "B",
+    "support", "support", "support", "support", "support"
+  ]);
+  dataset.interactions = [
+    ["p1", "p7", 1],
+    ["p2", "p8", 2],
+    ["p3", "p9", 3],
+    ["p5", "p10", 1],
+    ["p6", "p11", 2]
+  ].map(([source, target, weight]) => ({
+    source: String(source),
+    target: String(target),
+    weight: Number(weight),
+    channel: "round6-fixture",
+    stage: "analysis",
+    evidence: `${source}-${target}`
+  }));
+  return dataset;
+}
+
 function currentEstimableResult() {
-  const result = buildSenaGroupComparison({
-    dataset: emptyMetricDataset(["A", "A", "A", "B", "B", "B"]),
+  return buildSenaGroupComparison({
+    dataset: estimableMetricDataset(),
     groupA: "A",
     groupB: "B",
     iterations: 100,
     bootstrapIterations: 100
   });
-  return {
-    ...result,
-    meanA: 2,
-    meanB: 1,
-    observedDifference: 1,
-    effectSize: buildSenaGroupComparisonEffectSize([1, 2, 3], [0, 1, 2]),
-    diagnostics: {
-      ...result.diagnostics,
-      totalPeople: 6,
-      comparedPeople: 6,
-      minGroupSize: 3,
-      balancedDesign: true,
-      smallSample: true
-    }
-  };
 }
 
 function currentSuite() {

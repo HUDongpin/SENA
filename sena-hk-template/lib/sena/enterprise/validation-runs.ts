@@ -624,6 +624,15 @@ function createEnterpriseValidationRunInDb(
     }
     requireEnterprisePermission(context, project.teamId, "analysis:run");
   }
+  if (project) {
+    input = {
+      ...input,
+      result: normalizeSenaGroupComparisonValidationResult(input.result, {
+        dataset: project.snapshot.dataset,
+        buildOptions: project.snapshot.reproducibility.buildOptions
+      })
+    };
+  }
   const summary = validationRunSummary(input.result);
   const primary = summary.primary;
   const preregistrationPlan = buildValidationPreregistrationPlan({

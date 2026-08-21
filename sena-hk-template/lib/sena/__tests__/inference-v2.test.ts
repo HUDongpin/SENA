@@ -256,24 +256,38 @@ describe("SENA group-comparison effect-size v2", () => {
 
   it("preserves a tiny positive pooled SD so an estimable v2 result remains current after JSON", () => {
     const effectSize = buildSenaGroupComparisonEffectSize([0, 1e-5], [0, 2e-5]);
+    const dataset = emptyMetricDataset(["A", "A", "B", "B", "support", "support"]);
+    dataset.interactions = [
+      {
+        source: "p2",
+        target: "p5",
+        weight: 1e-5,
+        channel: "tiny-effect",
+        stage: "analysis",
+        evidence: "tiny-a"
+      },
+      {
+        source: "p4",
+        target: "p6",
+        weight: 2e-5,
+        channel: "tiny-effect",
+        stage: "analysis",
+        evidence: "tiny-b"
+      }
+    ];
     const result = buildSenaGroupComparison({
-      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      dataset,
       groupA: "A",
       groupB: "B",
       metric: "socialStrength",
       iterations: 100,
       bootstrapIterations: 100
     });
-    const written = JSON.parse(JSON.stringify({
-      ...result,
-      meanA: 0.000005,
-      meanB: 0.00001,
-      observedDifference: -0.000005,
-      effectSize
-    })) as unknown;
+    const written = JSON.parse(JSON.stringify(result)) as unknown;
 
     expect(effectSize.status).toBe("estimable");
     expect(effectSize.pooledStandardDeviation).toBeGreaterThan(0);
+    expect(result.effectSize).toEqual(effectSize);
     expect(isCurrentSenaGroupComparisonValidationResult(written)).toBe(true);
   });
 

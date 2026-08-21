@@ -1,11 +1,22 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import {
+  buildSenaAnalysisConfigHash,
+  buildSenaDatasetContentHash,
+  buildSenaStableContentHash
+} from "./data-contract-audit";
+import {
   SENA_GROUP_COMPARISON_METRICS,
   validateSenaAnalyticalInputs,
   type SenaValidatedGroupComparisonMetric
 } from "./analytical-input-validation";
-import type { SenaBuildOptions, SenaDataset, SenaModel, SenaPersonMetrics } from "./types";
+import type {
+  SenaBuildOptions,
+  SenaDataset,
+  SenaModel,
+  SenaPersonMetrics,
+  SenaResolvedBuildOptions
+} from "./types";
 
 export type SenaGroupComparisonMetric = SenaValidatedGroupComparisonMetric;
 
@@ -24,6 +35,41 @@ export type SenaGroupComparisonEffectSize = {
   reason: string;
 };
 
+export type SenaGroupComparisonSufficientStatistics = {
+  n: number;
+  sum: number;
+  sumSquares: number;
+  mean: number;
+  unbiasedVariance: number | null;
+};
+
+export type SenaGroupComparisonSourceEvidence = {
+  status: "bound-current-source";
+  hashAlgorithm: "sena-stable-fnv1a32/v1";
+  datasetContentHash: string;
+  analysisConfig: SenaResolvedBuildOptions;
+  analysisConfigHash: string;
+  groupDefinition: {
+    metric: SenaGroupComparisonMetric;
+    groupField: "group" | "role";
+    groupA: string;
+    groupB: string;
+  };
+  groupDefinitionHash: string;
+  metricUniverse: Array<{
+    personId: string;
+    group: string;
+    role: string;
+    value: number;
+  }>;
+  metricUniverseHash: string;
+  sufficientStatistics: {
+    groupA: SenaGroupComparisonSufficientStatistics;
+    groupB: SenaGroupComparisonSufficientStatistics;
+  };
+  evidenceHash: string;
+};
+
 export type SenaGroupComparisonResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparison;
   sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.groupComparison | typeof SENA_LEGACY_SCHEMA_VERSIONS.groupComparison;
@@ -37,6 +83,7 @@ export type SenaGroupComparisonResult = {
   meanB: number;
   observedDifference: number;
   effectSize: SenaGroupComparisonEffectSize;
+  sourceEvidence?: SenaGroupComparisonSourceEvidence;
   permutation: {
     iterations: number;
     seed: number;
@@ -142,6 +189,11 @@ export type SenaGroupComparisonValidationReadModel =
   | SenaGroupComparisonValidationResult
   | SenaGroupComparisonResultV1
   | SenaGroupComparisonSuiteResultV1;
+
+export type SenaGroupComparisonSourceContext = {
+  dataset: SenaDataset;
+  buildOptions?: Partial<SenaBuildOptions>;
+};
 
 export type SenaGroupComparisonSpec = {
   groupField?: "group" | "role";
@@ -273,6 +325,70 @@ function actorRows(model: SenaModel, groupField: "group" | "role", metric: SenaG
     }));
 }
 
+function canonicalMetricUniverse(model: SenaModel, metric: SenaGroupComparisonMetric) {
+  return model.nodes
+    .filter((node) => node.kind === "person")
+    .map((node) => ({
+      personId: node.id,
+      group: node.group,
+      role: node.role,
+      value: metricValue(node.metrics, metric)
+    }))
+    .sort((left, right) => left.personId.localeCompare(right.personId));
+}
+
+function sufficientStatistics(values: number[]): SenaGroupComparisonSufficientStatistics {
+  return {
+    n: values.length,
+    sum: values.reduce((total, value) => total + value, 0),
+    sumSquares: values.reduce((total, value) => total + (value ** 2), 0),
+    mean: mean(values),
+    unbiasedVariance: values.length < 2 ? null : sampleVariance(values)
+  };
+}
+
+function buildSenaGroupComparisonSourceEvidence(input: {
+  dataset: SenaDataset;
+  model: SenaModel;
+  metric: SenaGroupComparisonMetric;
+  groupField: "group" | "role";
+  groupA: string;
+  groupB: string;
+}): SenaGroupComparisonSourceEvidence {
+  const groupDefinition = {
+    metric: input.metric,
+    groupField: input.groupField,
+    groupA: input.groupA,
+    groupB: input.groupB
+  };
+  const metricUniverse = canonicalMetricUniverse(input.model, input.metric);
+  const valuesA = metricUniverse
+    .filter((entry) => entry[input.groupField] === input.groupA)
+    .map((entry) => entry.value);
+  const valuesB = metricUniverse
+    .filter((entry) => entry[input.groupField] === input.groupB)
+    .map((entry) => entry.value);
+  const evidenceBody = {
+    status: "bound-current-source" as const,
+    hashAlgorithm: "sena-stable-fnv1a32/v1" as const,
+    datasetContentHash: buildSenaDatasetContentHash(input.dataset),
+    analysisConfig: structuredClone(input.model.options),
+    analysisConfigHash: buildSenaAnalysisConfigHash(input.model.options),
+    groupDefinition,
+    groupDefinitionHash: buildSenaStableContentHash(groupDefinition),
+    metricUniverse,
+    metricUniverseHash: buildSenaStableContentHash(metricUniverse),
+    sufficientStatistics: {
+      groupA: sufficientStatistics(valuesA),
+      groupB: sufficientStatistics(valuesB)
+    }
+  };
+  return {
+    ...evidenceBody,
+    evidenceHash: buildSenaStableContentHash(evidenceBody)
+  };
+}
+
 export function buildSenaGroupComparison(input: {
   dataset: SenaDataset;
   buildOptions?: Partial<SenaBuildOptions>;
@@ -293,8 +409,20 @@ export function buildSenaGroupComparison(input: {
   const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
   const rows = actorRows(model, groupField, metric);
-  const a = rows.filter((row) => row.group === input.groupA).map((row) => row.value);
-  const b = rows.filter((row) => row.group === input.groupB).map((row) => row.value);
+  const sourceEvidence = buildSenaGroupComparisonSourceEvidence({
+    dataset: input.dataset,
+    model,
+    metric,
+    groupField,
+    groupA: input.groupA,
+    groupB: input.groupB
+  });
+  const a = sourceEvidence.metricUniverse
+    .filter((row) => row[groupField] === input.groupA)
+    .map((row) => row.value);
+  const b = sourceEvidence.metricUniverse
+    .filter((row) => row[groupField] === input.groupB)
+    .map((row) => row.value);
   if (a.length === 0 || b.length === 0) {
     throw new Error(`Both groups must contain at least one person for ${groupField} comparison.`);
   }
@@ -335,6 +463,7 @@ export function buildSenaGroupComparison(input: {
     meanB: mean(b),
     observedDifference,
     effectSize,
+    sourceEvidence,
     permutation: {
       iterations,
       seed,
@@ -553,12 +682,109 @@ function isCurrentEffectSize(
   return value.cohenD === round(unroundedD) && value.hedgesG === round(unroundedD * hedgesCorrection);
 }
 
+function isCanonicalAnalysisConfig(value: unknown): value is SenaResolvedBuildOptions {
+  if (!isRecord(value) || !isRecord(value.temporal)) return false;
+  const requiredKeys = [
+    "alpha", "beta", "gamma", "normalization", "bridgeWeightRule", "direction",
+    "deg_convention", "delta", "Phi", "d", "seed", "undirectedSocial", "temporal"
+  ];
+  if (!requiredKeys.every((key) => Object.hasOwn(value, key))) return false;
+  try {
+    validateSenaAnalyticalInputs({
+      dataset: { people: [], interactions: [], utterances: [], coded_segments: [], codebook: [] },
+      buildOptions: value as unknown as Partial<SenaBuildOptions>
+    });
+    return Number.isInteger(value.temporal.movingWindowSize) && Number(value.temporal.movingWindowSize) > 0 &&
+      Number.isInteger(value.temporal.movingWindowStep) && Number(value.temporal.movingWindowStep) > 0 &&
+      Number.isInteger(value.temporal.turnWindowRadius) && Number(value.temporal.turnWindowRadius) >= 0;
+  } catch {
+    return false;
+  }
+}
+
+function sameStatisticNumber(left: unknown, right: number | null) {
+  if (right === null) return left === null;
+  return isFiniteNumber(left) && approximatelyEqual(left, right);
+}
+
+function isCanonicalSufficientStatistics(
+  value: unknown,
+  expected: SenaGroupComparisonSufficientStatistics
+) {
+  return isRecord(value) &&
+    value.n === expected.n &&
+    sameStatisticNumber(value.sum, expected.sum) &&
+    sameStatisticNumber(value.sumSquares, expected.sumSquares) &&
+    sameStatisticNumber(value.mean, expected.mean) &&
+    sameStatisticNumber(value.unbiasedVariance, expected.unbiasedVariance);
+}
+
+function isCanonicalGroupComparisonSourceEvidence(
+  value: unknown,
+  comparison: Record<string, unknown>
+): value is SenaGroupComparisonSourceEvidence {
+  if (!isRecord(value) || value.status !== "bound-current-source" ||
+    value.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
+    typeof value.datasetContentHash !== "string" || !/^0x[a-f0-9]{8}$/.test(value.datasetContentHash) ||
+    !isCanonicalAnalysisConfig(value.analysisConfig) ||
+    value.analysisConfigHash !== buildSenaAnalysisConfigHash(value.analysisConfig) ||
+    !isRecord(value.groupDefinition) ||
+    value.groupDefinition.metric !== comparison.metric ||
+    value.groupDefinition.groupField !== comparison.groupField ||
+    value.groupDefinition.groupA !== comparison.groupA ||
+    value.groupDefinition.groupB !== comparison.groupB ||
+    value.groupDefinitionHash !== buildSenaStableContentHash(value.groupDefinition) ||
+    !Array.isArray(value.metricUniverse) || value.metricUniverse.length === 0 ||
+    !isRecord(value.sufficientStatistics) ||
+    typeof value.evidenceHash !== "string") return false;
+
+  const metricUniverse = value.metricUniverse;
+  if (!metricUniverse.every((entry) => isRecord(entry) &&
+    typeof entry.personId === "string" && entry.personId.length > 0 &&
+    typeof entry.group === "string" && typeof entry.role === "string" &&
+    isFiniteNumber(entry.value))) return false;
+  const personIds = metricUniverse.map((entry) => (entry as { personId: string }).personId);
+  if (new Set(personIds).size !== personIds.length ||
+    JSON.stringify(personIds) !== JSON.stringify([...personIds].sort()) ||
+    value.metricUniverseHash !== buildSenaStableContentHash(metricUniverse)) return false;
+
+  const groupField = comparison.groupField as "group" | "role";
+  const valuesA = metricUniverse
+    .filter((entry) => (entry as Record<string, unknown>)[groupField] === comparison.groupA)
+    .map((entry) => (entry as { value: number }).value);
+  const valuesB = metricUniverse
+    .filter((entry) => (entry as Record<string, unknown>)[groupField] === comparison.groupB)
+    .map((entry) => (entry as { value: number }).value);
+  if (valuesA.length === 0 || valuesB.length === 0 ||
+    !isCanonicalSufficientStatistics(value.sufficientStatistics.groupA, sufficientStatistics(valuesA)) ||
+    !isCanonicalSufficientStatistics(value.sufficientStatistics.groupB, sufficientStatistics(valuesB))) return false;
+
+  const { evidenceHash: _evidenceHash, ...evidenceBody } = value;
+  if (value.evidenceHash !== buildSenaStableContentHash(evidenceBody)) return false;
+
+  const expectedEffectSize = buildSenaGroupComparisonEffectSize(valuesA, valuesB);
+  const submittedEffectSize = comparison.effectSize;
+  return comparison.nA === valuesA.length && comparison.nB === valuesB.length &&
+    isFiniteNumber(comparison.meanA) && approximatelyEqual(comparison.meanA, mean(valuesA)) &&
+    isFiniteNumber(comparison.meanB) && approximatelyEqual(comparison.meanB, mean(valuesB)) &&
+    isFiniteNumber(comparison.observedDifference) &&
+    approximatelyEqual(comparison.observedDifference, mean(valuesA) - mean(valuesB)) &&
+    isRecord(submittedEffectSize) &&
+    submittedEffectSize.status === expectedEffectSize.status &&
+    sameStatisticNumber(submittedEffectSize.cohenD, expectedEffectSize.cohenD) &&
+    sameStatisticNumber(submittedEffectSize.hedgesG, expectedEffectSize.hedgesG) &&
+    sameStatisticNumber(submittedEffectSize.pooledStandardDeviation, expectedEffectSize.pooledStandardDeviation) &&
+    submittedEffectSize.reason === expectedEffectSize.reason &&
+    isRecord(comparison.diagnostics) && comparison.diagnostics.totalPeople === metricUniverse.length;
+}
+
 function isCurrentSenaGroupComparisonResult(value: unknown): value is SenaGroupComparisonResult {
   return isRecord(value) &&
     value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
     value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
     isCanonicalCommonComparison(value, false) &&
-    isCurrentEffectSize(value.effectSize, value.nA as number, value.nB as number, value.observedDifference as number);
+    isCurrentEffectSize(value.effectSize, value.nA as number, value.nB as number, value.observedDifference as number) &&
+    isCanonicalGroupComparisonSourceEvidence(value.sourceEvidence, value);
 }
 
 function isLegacyV1EffectSize(value: unknown) {
@@ -681,15 +907,47 @@ function isNormalizedLegacySuite(value: unknown): value is SenaGroupComparisonSu
   );
 }
 
+export function assertSenaGroupComparisonValidationResultMatchesSource(
+  value: SenaGroupComparisonValidationResult,
+  source: SenaGroupComparisonSourceContext
+) {
+  const comparisons = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+    ? value.comparisons
+    : [value];
+  const currentComparisons = comparisons.filter((comparison) =>
+    comparison.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison
+  );
+  if (currentComparisons.length === 0) return;
+  const model = buildSenaModel(source.dataset, source.buildOptions ?? {});
+  for (const comparison of currentComparisons) {
+    const expected = buildSenaGroupComparisonSourceEvidence({
+      dataset: source.dataset,
+      model,
+      metric: comparison.metric,
+      groupField: comparison.groupField,
+      groupA: comparison.groupA,
+      groupB: comparison.groupB
+    });
+    if (stableJson(comparison.sourceEvidence) !== stableJson(expected)) {
+      throw new Error("SENA group-comparison source evidence does not match the holder dataset, model configuration, and group definition.");
+    }
+  }
+}
+
 export function normalizeSenaGroupComparisonValidationResult(
-  value: SenaGroupComparisonValidationReadModel
+  value: SenaGroupComparisonValidationReadModel,
+  source?: SenaGroupComparisonSourceContext
 ): SenaGroupComparisonValidationResult {
+  const bindSource = (normalized: SenaGroupComparisonValidationResult) => {
+    if (source) assertSenaGroupComparisonValidationResultMatchesSource(normalized, source);
+    return normalized;
+  };
   if (!isRecord(value)) throw new Error("SENA group-comparison validation result must be an object.");
   if (
     value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison ||
     value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
   ) {
-    return normalizeSenaGroupComparisonResult(value);
+    return bindSource(normalizeSenaGroupComparisonResult(value));
   }
   if (
     value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
@@ -699,7 +957,7 @@ export function normalizeSenaGroupComparisonValidationResult(
   }
   if (value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite) {
     if (isCurrentSuite(value) || isNormalizedLegacySuite(value)) {
-      return value as unknown as SenaGroupComparisonSuiteResult;
+      return bindSource(value as unknown as SenaGroupComparisonSuiteResult);
     }
     throw new Error("SENA group-comparison suite v2 evidence is internally inconsistent.");
   }
@@ -723,7 +981,7 @@ export function normalizeSenaGroupComparisonValidationResult(
   if (!isNormalizedLegacySuite(normalized)) {
     throw new Error("SENA group-comparison suite legacy evidence is internally inconsistent.");
   }
-  return normalized;
+  return bindSource(normalized);
 }
 
 export function isCurrentSenaGroupComparisonValidationResult(

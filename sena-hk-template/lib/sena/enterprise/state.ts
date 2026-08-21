@@ -455,7 +455,16 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       };
     }),
     validationRuns: (db.validationRuns ?? []).map((run) => {
-      const result = normalizeSenaGroupComparisonValidationResult(run.result);
+      const project = run.projectId
+        ? (db.projects ?? []).find((candidate) => candidate.id === run.projectId)
+        : undefined;
+      const result = normalizeSenaGroupComparisonValidationResult(
+        run.result,
+        project ? {
+          dataset: project.snapshot.dataset,
+          buildOptions: project.snapshot.reproducibility.buildOptions
+        } : undefined
+      );
       return {
         ...run,
         result,
