@@ -333,6 +333,7 @@ export type SenaReliabilityProjectBinding = {
   itemUniverseHash: string;
   coderCoverageHash: string;
   annotationCoverageHash: string;
+  skippedCellCoverageHash: string;
   annotatedItemCoverageHash: string;
   annotatedCodeCoverageHash: string;
   codebookUniverse: Array<{ id: string; label: string }>;
@@ -342,6 +343,11 @@ export type SenaReliabilityProjectBinding = {
     itemId: string;
     codeId: string;
     value: boolean;
+  }>;
+  skippedCellCoverage: Array<{
+    coderId: string;
+    itemId: string;
+    codeIds: string[];
   }>;
   codebookIds: string[];
   itemUniverseIds: string[];

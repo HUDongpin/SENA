@@ -97,7 +97,8 @@ export async function POST(request: Request) {
             bindSenaReliabilityAnnotationsToProject(parsedInline.annotations, {
               projectId: project.id,
               projectVersion: project.currentVersion,
-              snapshot: project.snapshot
+              snapshot: project.snapshot,
+              skippedCells: parsedInline.skippedCells
             });
           } catch {
             throw new SenaEnterpriseError(

@@ -102,7 +102,7 @@ export type SenaReliabilityDashboardReadModel = SenaReliabilityDashboard | SenaR
 
 export type SenaReliabilityProjectBindingIssue = {
   path: string;
-  code: "unknown-item" | "unknown-code" | "duplicate-cell" | "invalid-project-context" | "binding-mismatch";
+  code: "unknown-item" | "unknown-code" | "duplicate-cell" | "invalid-project-context" | "binding-mismatch" | "derived-metrics-mismatch";
 };
 
 export class SenaReliabilityProjectBindingError extends Error {
@@ -168,6 +168,7 @@ export function bindSenaReliabilityAnnotationsToProject(
     projectId: string;
     projectVersion: number;
     snapshot: SenaProjectSnapshot;
+    skippedCells?: SenaSkippedCoderCell[];
   }
 ): { annotations: SenaCoderAnnotation[]; binding: SenaReliabilityProjectBinding } {
   const issues: SenaReliabilityProjectBindingIssue[] = [];
@@ -213,6 +214,25 @@ export function bindSenaReliabilityAnnotationsToProject(
   if (issues.length > 0) throw new SenaReliabilityProjectBindingError(issues);
 
   const annotationCoverage = canonicalAnnotationCoverage(canonical);
+  const skippedCellCoverage = (project.skippedCells ?? []).map((cell, index) => {
+    if (!itemIds.has(cell.itemId)) {
+      issues.push({ path: `skippedCells.${index}.itemId`, code: "unknown-item" });
+    }
+    const codeIds = sortedUnique(cell.codeIds.map((codeId, codeIndex) => {
+      const canonicalCode = exactCodes.get(codeId) ?? aliases.get(codeId.trim().toLowerCase());
+      if (!canonicalCode) {
+        issues.push({ path: `skippedCells.${index}.codeIds.${codeIndex}`, code: "unknown-code" });
+        return "";
+      }
+      return canonicalCode;
+    }).filter(Boolean));
+    return { coderId: cell.coderId, itemId: cell.itemId, codeIds };
+  }).sort((left, right) => (
+    left.coderId.localeCompare(right.coderId) ||
+    left.itemId.localeCompare(right.itemId) ||
+    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
+  ));
+  if (issues.length > 0) throw new SenaReliabilityProjectBindingError(issues);
   const codebookIds = codebookUniverse.map((entry) => entry.id);
   const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
   const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
@@ -230,11 +250,13 @@ export function bindSenaReliabilityAnnotationsToProject(
       itemUniverseHash: reliabilityBindingHash(itemUniverse),
       coderCoverageHash: reliabilityBindingHash(coderIds),
       annotationCoverageHash: reliabilityBindingHash(annotationCoverage),
+      skippedCellCoverageHash: reliabilityBindingHash(skippedCellCoverage),
       annotatedItemCoverageHash: reliabilityBindingHash(annotatedItemIds),
       annotatedCodeCoverageHash: reliabilityBindingHash(annotatedCodeIds),
       codebookUniverse,
       itemUniverse,
       annotationCoverage,
+      skippedCellCoverage,
       codebookIds,
       itemUniverseIds,
       annotatedItemIds,
@@ -261,12 +283,24 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
       entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
       typeof entry.codeId === "string" && typeof entry.value === "boolean"
     )) ||
+    !Array.isArray(binding.skippedCellCoverage) || !binding.skippedCellCoverage.every((entry) => (
+      entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
+      Array.isArray(entry.codeIds) && entry.codeIds.every((codeId) => typeof codeId === "string")
+    )) ||
     ![binding.codebookIds, binding.itemUniverseIds, binding.annotatedItemIds, binding.annotatedCodeIds, binding.coderIds]
       .every((entry) => Array.isArray(entry) && entry.every((item) => typeof item === "string")) ||
     !Number.isInteger(binding.annotationCount) || Number(binding.annotationCount) < 0) return false;
   const codebookUniverse = [...binding.codebookUniverse].sort((left, right) => left.id.localeCompare(right.id));
   const itemUniverse = [...binding.itemUniverse].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
   const annotationCoverage = canonicalAnnotationCoverage(binding.annotationCoverage);
+  const skippedCellCoverage = [...binding.skippedCellCoverage].map((entry) => ({
+    ...entry,
+    codeIds: sortedUnique(entry.codeIds)
+  })).sort((left, right) => (
+    left.coderId.localeCompare(right.coderId) ||
+    left.itemId.localeCompare(right.itemId) ||
+    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
+  ));
   const codebookIds = codebookUniverse.map((entry) => entry.id);
   const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
   const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
@@ -280,13 +314,18 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
     binding.itemUniverseHash === reliabilityBindingHash(itemUniverse) &&
     binding.coderCoverageHash === reliabilityBindingHash(coderIds) &&
     binding.annotationCoverageHash === reliabilityBindingHash(annotationCoverage) &&
+    binding.skippedCellCoverageHash === reliabilityBindingHash(skippedCellCoverage) &&
     binding.annotatedItemCoverageHash === reliabilityBindingHash(annotatedItemIds) &&
     binding.annotatedCodeCoverageHash === reliabilityBindingHash(annotatedCodeIds) &&
     exactArray(binding.codebookIds, codebookIds) && exactArray(binding.itemUniverseIds, itemUniverseIds) &&
     exactArray(binding.coderIds, coderIds) && exactArray(binding.annotatedItemIds, annotatedItemIds) &&
     exactArray(binding.annotatedCodeIds, annotatedCodeIds) &&
     binding.annotationCount === annotationCoverage.length &&
-    annotationCoverage.every((entry) => knownCodes.has(entry.codeId) && knownItems.has(entry.itemId));
+    annotationCoverage.every((entry) => knownCodes.has(entry.codeId) && knownItems.has(entry.itemId)) &&
+    stableBindingValue(binding.skippedCellCoverage) === stableBindingValue(skippedCellCoverage) &&
+    skippedCellCoverage.every((entry) => (
+      knownItems.has(entry.itemId) && entry.codeIds.every((codeId) => knownCodes.has(codeId))
+    ));
 }
 
 export function assertSenaReliabilityProjectBindingMatchesSnapshot(
@@ -302,7 +341,8 @@ export function assertSenaReliabilityProjectBindingMatchesSnapshot(
   const rebuilt = bindSenaReliabilityAnnotationsToProject(binding.annotationCoverage, {
     projectId: binding.projectId,
     projectVersion: binding.projectVersion,
-    snapshot
+    snapshot,
+    skippedCells: binding.skippedCellCoverage
   }).binding;
   if (JSON.stringify(rebuilt) !== JSON.stringify(binding)) {
     throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
@@ -878,6 +918,10 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
   if (value.projectBinding !== undefined &&
     JSON.stringify(value.projectBinding.coderIds) !== JSON.stringify(value.coderIds)) return false;
   const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  if (currentSource && value.projectBinding !== undefined &&
+    !matchesProjectBoundMachineEvidenceDerivedMetrics(
+      value as unknown as SenaCodingReliabilityMachineEvidence
+    )) return false;
   if (currentSource && (
     value.status === "legacy-ambiguous" ||
     value.meanPairwiseKappaStatus === "legacy-ambiguous" ||
@@ -1087,6 +1131,116 @@ export function buildSenaReliabilityDashboard(
   };
 }
 
+function reliabilityDashboardDerivedProjection(dashboard: SenaReliabilityDashboard) {
+  return {
+    status: dashboard.status,
+    coderCount: dashboard.coderCount,
+    coderIds: dashboard.coderIds,
+    itemCount: dashboard.itemCount,
+    codeCount: dashboard.codeCount,
+    binaryUnitCount: dashboard.binaryUnitCount,
+    pairwiseCohenKappa: dashboard.pairwiseCohenKappa,
+    codeDiagnostics: dashboard.codeDiagnostics,
+    meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    claimEligibilityInputs: dashboard.claimEligibilityInputs,
+    claimEligibility: dashboard.claimEligibility,
+    disagreementCount: dashboard.disagreementCount,
+    adjudicationQueue: dashboard.adjudicationQueue,
+    interpretation: dashboard.interpretation
+  };
+}
+
+function sameReliabilityDashboardDerivedMetrics(
+  submitted: SenaReliabilityDashboard,
+  expected: SenaReliabilityDashboard
+) {
+  return stableBindingValue(reliabilityDashboardDerivedProjection(submitted)) ===
+    stableBindingValue(reliabilityDashboardDerivedProjection(expected));
+}
+
+export function assertSenaReliabilityDashboardMatchesAnnotations(
+  dashboard: SenaReliabilityDashboard,
+  annotations: SenaCoderAnnotation[],
+  options: { skippedCells?: SenaSkippedCoderCell[] } = {}
+) {
+  const expected = buildSenaReliabilityDashboard(annotations, options);
+  if (!sameReliabilityDashboardDerivedMetrics(dashboard, expected)) {
+    throw new SenaReliabilityProjectBindingError([
+      { path: "dashboard", code: "derived-metrics-mismatch" }
+    ]);
+  }
+}
+
+function canonicalDashboardFromProjectBinding(binding: SenaReliabilityProjectBinding) {
+  return buildSenaReliabilityDashboard(binding.annotationCoverage, {
+    skippedCells: binding.skippedCellCoverage,
+    projectBinding: binding
+  });
+}
+
+function matchesProjectBoundDashboardDerivedMetrics(dashboard: SenaReliabilityDashboard) {
+  if (!dashboard.projectBinding) return true;
+  try {
+    return sameReliabilityDashboardDerivedMetrics(
+      dashboard,
+      canonicalDashboardFromProjectBinding(dashboard.projectBinding)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function reliabilityMachineDerivedProjection(value: SenaCodingReliabilityMachineEvidence) {
+  return {
+    status: value.status,
+    coderIds: value.coderIds,
+    pairwiseCohenKappa: value.pairwiseCohenKappa,
+    meanPairwiseKappaStatus: value.meanPairwiseKappaStatus,
+    meanPairwiseKappa: value.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: value.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominal,
+    allPairwiseKappaEstimable: value.allPairwiseKappaEstimable,
+    claimEligibilityInputs: value.claimEligibilityInputs,
+    claimEligibility: value.claimEligibility
+  };
+}
+
+function dashboardMachineDerivedProjection(dashboard: SenaReliabilityDashboard) {
+  return {
+    status: dashboard.status,
+    coderIds: dashboard.coderIds,
+    pairwiseCohenKappa: dashboard.pairwiseCohenKappa,
+    meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 &&
+      dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
+    claimEligibilityInputs: dashboard.claimEligibilityInputs,
+    claimEligibility: dashboard.claimEligibility
+  };
+}
+
+function matchesProjectBoundMachineEvidenceDerivedMetrics(
+  evidence: SenaCodingReliabilityMachineEvidence
+) {
+  if (!evidence.projectBinding) return true;
+  try {
+    return stableBindingValue(reliabilityMachineDerivedProjection(evidence)) ===
+      stableBindingValue(dashboardMachineDerivedProjection(
+        canonicalDashboardFromProjectBinding(evidence.projectBinding)
+      ));
+  } catch {
+    return false;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1241,6 +1395,8 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
           ? "estimable"
           : "legacy-ambiguous";
   const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  if (currentSource && value.projectBinding !== undefined &&
+    !matchesProjectBoundDashboardDerivedMetrics(value as unknown as SenaReliabilityDashboard)) return false;
   const legacySourceValid = !currentSource &&
     value.coderIds.length === value.coderCount &&
     value.status === "legacy-ambiguous" &&

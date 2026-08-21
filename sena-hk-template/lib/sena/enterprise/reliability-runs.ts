@@ -23,6 +23,7 @@ import {
 } from "./notifications-delivery";
 import {
   bindSenaReliabilityAnnotationsToProject,
+  assertSenaReliabilityDashboardMatchesAnnotations,
   buildSenaReliabilityDashboard,
   isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
@@ -266,10 +267,16 @@ function createEnterpriseReliabilityRunInDb(
         "reliability_project_annotations_required"
       );
     }
+    assertSenaReliabilityDashboardMatchesAnnotations(
+      input.dashboard,
+      input.annotations,
+      { skippedCells: input.skippedCells }
+    );
     const bound = bindSenaReliabilityAnnotationsToProject(input.annotations, {
       projectId: project.id,
       projectVersion: project.currentVersion,
-      snapshot: project.snapshot
+      snapshot: project.snapshot,
+      skippedCells: input.skippedCells
     });
     projectBinding = bound.binding;
     const rebuilt = buildSenaReliabilityDashboard(bound.annotations, {
