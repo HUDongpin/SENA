@@ -41,6 +41,10 @@ import {
   buildEnterpriseReliabilityAdjudicationCoverage
 } from "./reliability-integrity";
 import {
+  parseSenaReliabilityAdjudicationDecision,
+  type SenaReliabilityAdjudicationDecision
+} from "./reliability-adjudication-decision";
+import {
   enterpriseValidationRunRegistryRuntime
 } from "./validation-runs";
 import type {
@@ -174,7 +178,7 @@ export type SenaEnterpriseAdjudicationRecord = {
   reliabilityRunId?: string;
   itemId: string;
   codeId: string;
-  decision: "include" | "exclude" | "revise";
+  decision: SenaReliabilityAdjudicationDecision;
   reviewerId: string;
   notes: string;
   coderValues: Record<string, boolean>;
@@ -1117,6 +1121,7 @@ function createEnterpriseAdjudicationRecordInDb(context: SenaEnterpriseSessionCo
   notes?: string;
   coderValues?: Record<string, boolean>;
 }, db: SenaEnterpriseDb) {
+  const decision = parseSenaReliabilityAdjudicationDecision(input.decision);
   const project = requireProjectPermissionFromDb(db, context, projectId, "reliability:adjudicate");
   if (!input.reliabilityRunId) {
     throw new SenaEnterpriseError(
@@ -1140,7 +1145,7 @@ function createEnterpriseAdjudicationRecordInDb(context: SenaEnterpriseSessionCo
     reliabilityRunId: reliabilityRun.id,
     itemId: input.itemId.trim(),
     codeId: input.codeId.trim(),
-    decision: input.decision,
+    decision,
     reviewerId: context.user.id,
     notes: input.notes?.trim() ?? "",
     coderValues: input.coderValues ?? {},

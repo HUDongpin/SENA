@@ -42,6 +42,7 @@ import {
   assertEnterpriseReliabilityRunCurrentProject,
   buildEnterpriseReliabilityAdjudicationCoverage
 } from "./reliability-integrity";
+import { parseSenaReliabilityAdjudicationDecision } from "./reliability-adjudication-decision";
 
 export type SenaEnterpriseReliabilityRunStatus = "pending-review" | "pending-adjudication" | "approved" | "rejected";
 
@@ -371,6 +372,7 @@ function createEnterpriseReliabilityAdjudicationsInDb(
   input: CreateEnterpriseReliabilityAdjudicationsInput,
   db: ReturnType<typeof readEnterpriseDb>
 ): SenaEnterpriseReliabilityAdjudicationResult {
+  const decision = parseSenaReliabilityAdjudicationDecision(input.decision);
   const run = db.reliabilityRuns.find((candidate) => candidate.id === runId);
   if (!run) throw new SenaEnterpriseError("Reliability run was not found.", 404, "reliability_run_not_found");
   if (!run.projectId) {
@@ -384,9 +386,6 @@ function createEnterpriseReliabilityAdjudicationsInDb(
   requireEnterprisePermission(context, run.teamId, "reliability:adjudicate");
   const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
 
-  const decision = input.decision === "include" || input.decision === "exclude" || input.decision === "revise"
-    ? input.decision
-    : "revise";
   const queueLimit = Math.min(
     Math.max(Math.trunc(input.limit ?? dashboard.adjudicationQueue.length), 1),
     dashboard.adjudicationQueue.length
@@ -743,9 +742,7 @@ export function buildEnterpriseReliabilityAdjudicationResponse(
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown },
   adjudicate: typeof createEnterpriseReliabilityAdjudications = createEnterpriseReliabilityAdjudications
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
   const adjudication: SenaEnterpriseReliabilityAdjudicationResult = adjudicate(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
@@ -764,9 +761,7 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown }
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
   const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirror(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
@@ -785,9 +780,7 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown }
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
   const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsync(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
