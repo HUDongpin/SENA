@@ -88,7 +88,7 @@ export async function POST(request: Request) {
         const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
         requireEnterprisePermission(context, teamId, "reliability:adjudicate");
         const queue = serverJobQueueStatus();
-        const uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
+        let uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
         const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
         const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
         if (project && Array.isArray(body.annotations)) {
@@ -108,19 +108,43 @@ export async function POST(request: Request) {
             );
           }
         }
-        if (uploadIds.length === 0 && !queue.inlinePayloadAllowed) {
+        // The local queue has no webhook body to deliver later. Store JSON
+        // annotations through the existing encrypted upload registry and keep
+        // only the opaque pointer in the job receipt, so its polling worker can
+        // reproduce the exact payload hash without persisting coder values.
+        if (queue.mode === "local" && uploadIds.length === 0 && Array.isArray(body.annotations)) {
+          const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+            teamId,
+            files: [{
+              name: "queued-reliability-annotations.json",
+              contentType: "application/json",
+              bytes: Buffer.from(JSON.stringify(body.annotations), "utf8"),
+              importProfile: "reliability"
+            }]
+          });
+          uploadIds = uploads.map((upload) => upload.id);
+        }
+        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !Array.isArray(body.annotations))) {
           throw new SenaEnterpriseError(
             "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
             400,
             "reliability_queue_source_required"
           );
         }
+        const canonicalPointerPayload = {
+          action: "run-reliability",
+          teamId,
+          projectId,
+          projectVersion: project?.currentVersion,
+          snapshotFingerprint,
+          uploadIds
+        };
         const job = await enqueueEnterpriseServerJob({
           kind: "reliability",
           teamId,
           projectId,
           actorUserId: context.user.id,
-          payload: {
+          payload: queue.mode === "local" ? canonicalPointerPayload : {
             action: "run-reliability",
             teamId,
             projectId,
@@ -140,7 +164,7 @@ export async function POST(request: Request) {
             annotationCount,
             fileCount: uploadIds.length || (body.sourceName ? 1 : undefined),
             hasInlineSnapshot: false,
-            hasInlineDataset: Array.isArray(body.annotations),
+            hasInlineDataset: queue.mode === "local" ? false : Array.isArray(body.annotations),
             payloadValuesExcluded: true
           },
           queue
@@ -195,12 +219,20 @@ export async function POST(request: Request) {
       const queue = serverJobQueueStatus();
       const uploadIds = uploads.map((upload) => upload.id);
       const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
+      const canonicalPointerPayload = {
+        action: "run-reliability",
+        teamId,
+        projectId,
+        projectVersion: project?.currentVersion,
+        snapshotFingerprint,
+        uploadIds
+      };
       const job = await enqueueEnterpriseServerJob({
         kind: "reliability",
         teamId,
         projectId,
         actorUserId: context.user.id,
-        payload: {
+        payload: queue.mode === "local" ? canonicalPointerPayload : {
           action: "run-reliability",
           teamId,
           projectId,

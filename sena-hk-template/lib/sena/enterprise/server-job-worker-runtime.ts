@@ -650,6 +650,27 @@ function reproduceImportPayload(job: SenaEnterpriseServerJob): Record<string, un
   };
 }
 
+/**
+ * Rebuilds the only reliability shape accepted by the local polling queue.
+ *
+ * The annotations themselves remain in the encrypted upload store. The job
+ * receipt keeps only its opaque upload ids plus the immutable project binding,
+ * which is enough to reproduce and hash-check the worker payload without
+ * persisting coder values in the public server-job record.
+ */
+function reproduceReliabilityPayload(job: SenaEnterpriseServerJob): Record<string, unknown> | undefined {
+  const uploadIds = job.payloadSummary.uploadIds ?? [];
+  if (uploadIds.length === 0) return undefined;
+  return {
+    action: "run-reliability",
+    teamId: job.teamId,
+    projectId: job.projectId,
+    projectVersion: job.payloadSummary.projectVersion,
+    snapshotFingerprint: job.payloadSummary.snapshotFingerprint,
+    uploadIds
+  };
+}
+
 async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
   const context = await workerSessionContext(job).catch(() => null);
   if (!context) return undefined;
@@ -657,7 +678,9 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
     ? await reproduceAnalysisPayload(job, context)
     : job.kind === "import"
       ? reproduceImportPayload(job)
-      : undefined;
+      : job.kind === "reliability"
+        ? reproduceReliabilityPayload(job)
+        : undefined;
   if (!candidate) return undefined;
   return stableServerJobPayloadSha256(candidate) === job.payloadSha256 ? candidate : undefined;
 }

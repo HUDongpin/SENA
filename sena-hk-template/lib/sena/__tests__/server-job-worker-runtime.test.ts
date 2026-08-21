@@ -8,7 +8,9 @@ const envNames = [
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
-  "SENA_JOB_QUEUE_MAX_ATTEMPTS"
+  "SENA_JOB_QUEUE_MAX_ATTEMPTS",
+  "SENA_JOB_QUEUE_URL",
+  "SENA_JOB_QUEUE_SECRET"
 ];
 
 const reliabilityAnnotations = [
@@ -144,6 +146,7 @@ describe("SENA in-repo server job worker runtime", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       enterpriseDbDir = undefined;
     }
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
@@ -200,6 +203,13 @@ describe("SENA in-repo server job worker runtime", () => {
     const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
     enterpriseDbDir = fixture.enterpriseDbDir;
     const reliability = await import("../reliability");
+    // Inline annotations are an externally delivered webhook shape. The local
+    // polling queue intentionally rejects them because its public job record
+    // never stores raw coder values and therefore cannot reproduce their hash.
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-worker-runtime-test-secret";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
 
     const payload = {
       action: "run-reliability",
@@ -245,19 +255,23 @@ describe("SENA in-repo server job worker runtime", () => {
   });
 
   it("rejects a queued reliability job after its bound project revision changes", async () => {
-    const fixture = await workerFixture({ inlinePayload: true });
+    const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
     const reliability = await import("../reliability");
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-stale-reliability.csv",
+      contentType: "text/csv",
+      body: reliabilityCsv,
+      importProfile: "reliability"
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
     const payload = {
       action: "run-reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
       projectVersion: fixture.project.currentVersion,
       snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
-      uploadIds: [],
-      reviewer: "Stale Worker Runtime Reviewer",
-      sourceName: "worker-runtime-stale-reliability.json",
-      inlineAnnotations: reliabilityAnnotations
+      uploadIds
     };
     const job = await fixture.queue.enqueueEnterpriseServerJob({
       kind: "reliability",
@@ -266,13 +280,13 @@ describe("SENA in-repo server job worker runtime", () => {
       actorUserId: fixture.context.user.id,
       payload,
       payloadSummary: {
-        source: "dataset",
+        source: "upload",
         projectVersion: fixture.project.currentVersion,
         snapshotFingerprint: payload.snapshotFingerprint,
-        uploadIds: [],
+        uploadIds,
         annotationCount: reliabilityAnnotations.length,
         hasInlineSnapshot: false,
-        hasInlineDataset: true,
+        hasInlineDataset: false,
         payloadValuesExcluded: true
       }
     });
@@ -513,8 +527,7 @@ describe("SENA in-repo server job worker runtime", () => {
       projectId: fixture.project.id,
       projectVersion: fixture.project.currentVersion,
       snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
-      uploadIds,
-      reviewer: "Worker Runtime Reviewer"
+      uploadIds
     };
     const job = await fixture.queue.enqueueEnterpriseServerJob({
       kind: "reliability",
@@ -525,6 +538,7 @@ describe("SENA in-repo server job worker runtime", () => {
       payloadSummary: {
         source: "upload",
         projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
         uploadIds,
         fileCount: uploadIds.length,
         hasInlineSnapshot: false,

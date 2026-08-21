@@ -1013,6 +1013,26 @@ function serverJobWithoutDelivery(input: {
     queue
   });
 
+  if (queue.mode === "local" && input.kind === "reliability") {
+    const uploadIds = input.payloadSummary.uploadIds ?? [];
+    const reproduciblePayload = {
+      action: "run-reliability",
+      teamId: input.teamId,
+      projectId: input.projectId,
+      projectVersion: input.payloadSummary.projectVersion,
+      snapshotFingerprint: input.payloadSummary.snapshotFingerprint,
+      uploadIds
+    };
+    if (uploadIds.length === 0 ||
+      stableServerJobPayloadSha256(input.payload) !== stableServerJobPayloadSha256(reproduciblePayload)) {
+      throw new SenaEnterpriseError(
+        "Local reliability jobs must use a canonical stored upload-pointer payload that the polling worker can reproduce.",
+        400,
+        "server_job_local_payload_not_reproducible"
+      );
+    }
+  }
+
   const queuedAt = now();
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJob,

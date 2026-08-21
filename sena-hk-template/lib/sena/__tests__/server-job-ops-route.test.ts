@@ -342,17 +342,25 @@ describe("SENA server job ops route", () => {
     ] as const;
 
     for (const kind of jobKinds) {
+      const projectId = `project_${kind.replace(/-/g, "_")}`;
+      const reliabilityPayload = {
+        action: "run-reliability",
+        teamId: registered.context.teams[0].id,
+        projectId,
+        uploadIds: ["upload_ops_route_reliability"]
+      };
       await enterprise.enqueueEnterpriseServerJob({
         kind,
         teamId: registered.context.teams[0].id,
-        projectId: `project_${kind.replace(/-/g, "_")}`,
+        projectId,
         actorUserId: registered.context.user.id,
-        payload: {
+        payload: kind === "reliability" ? reliabilityPayload : {
           action: `run-${kind}`,
-          projectId: `project_${kind.replace(/-/g, "_")}`
+          projectId
         },
         payloadSummary: {
           source: "project",
+          uploadIds: kind === "reliability" ? reliabilityPayload.uploadIds : undefined,
           hasInlineSnapshot: false,
           hasInlineDataset: false,
           payloadValuesExcluded: true
