@@ -143,6 +143,10 @@ function stableBindingValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function canonicalTupleKey(parts: readonly string[]) {
+  return parts.map((part) => `${part.length}:${part}`).join("");
+}
+
 function reliabilityBindingHash(value: unknown) {
   const text = stableBindingValue(value);
   let hash = 0x811c9dc5;
@@ -174,7 +178,7 @@ function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
   })).sort((left, right) => (
     left.coderId.localeCompare(right.coderId) ||
     left.itemId.localeCompare(right.itemId) ||
-    left.codeIds.join("\u0000").localeCompare(right.codeIds.join("\u0000"))
+    canonicalTupleKey(left.codeIds).localeCompare(canonicalTupleKey(right.codeIds))
   ));
 }
 
@@ -249,7 +253,7 @@ export function bindSenaReliabilityAnnotationsToProject(
       return;
     }
     const normalized = { ...annotation, codeId: canonicalCode };
-    const cell = `${normalized.coderId}\u0000${normalized.itemId}\u0000${normalized.codeId}`;
+    const cell = canonicalTupleKey([normalized.coderId, normalized.itemId, normalized.codeId]);
     if (cells.has(cell)) {
       issues.push({ path: `annotations.${index}`, code: "duplicate-cell" });
     }
@@ -631,56 +635,99 @@ function agreementRate(valuesByUnit: Array<Record<string, boolean>>, coders: str
   return pairs === 0 ? 0 : agreements / pairs;
 }
 
-// One row per item-code unit; a coder's key is OMITTED (not false) when their
-// only evidence for the unit is an explicitly skipped empty-value cell. A
-// recorded decision always beats a skip; an absent row keeps the historical
-// not-applied reading (presence semantics for the unit universe).
+type SenaReliabilityUnitKey = {
+  itemId: string;
+  codeId: string;
+};
+
+type SenaReliabilityAnnotationIndex = Map<string, Map<string, Map<string, boolean>>>;
+type SenaReliabilityMissingCellIndex = Map<string, Map<string, Set<string>>>;
+
+function buildAnnotationIndex(annotations: SenaCoderAnnotation[]): SenaReliabilityAnnotationIndex {
+  const index: SenaReliabilityAnnotationIndex = new Map();
+  for (const annotation of annotations) {
+    let byItem = index.get(annotation.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      index.set(annotation.coderId, byItem);
+    }
+    let byCode = byItem.get(annotation.itemId);
+    if (!byCode) {
+      byCode = new Map();
+      byItem.set(annotation.itemId, byCode);
+    }
+    byCode.set(annotation.codeId, (byCode.get(annotation.codeId) ?? false) || annotation.value);
+  }
+  return index;
+}
+
+function annotationValue(
+  index: SenaReliabilityAnnotationIndex,
+  coderId: string,
+  itemId: string,
+  codeId: string
+) {
+  return index.get(coderId)?.get(itemId)?.get(codeId);
+}
+
+function buildMissingCellIndex(skippedCells: SenaSkippedCoderCell[]): SenaReliabilityMissingCellIndex {
+  const index: SenaReliabilityMissingCellIndex = new Map();
+  for (const cell of skippedCells) {
+    let byItem = index.get(cell.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      index.set(cell.coderId, byItem);
+    }
+    let codeIds = byItem.get(cell.itemId);
+    if (!codeIds) {
+      codeIds = new Set();
+      byItem.set(cell.itemId, codeIds);
+    }
+    for (const codeId of cell.codeIds) codeIds.add(codeId);
+  }
+  return index;
+}
+
+function isMissingCell(
+  index: SenaReliabilityMissingCellIndex,
+  coderId: string,
+  itemId: string,
+  codeId: string
+) {
+  return index.get(coderId)?.get(itemId)?.has(codeId) ?? false;
+}
+
+// One row per structured item-code unit; a coder's key is OMITTED (not false)
+// when their only evidence for the unit is an explicitly skipped empty-value
+// cell. A recorded decision always beats a skip; an absent row keeps the
+// historical not-applied reading (presence semantics for the unit universe).
 function buildUnitRows(
-  unitKeys: string[],
+  unitKeys: SenaReliabilityUnitKey[],
   coders: string[],
-  annotations: SenaCoderAnnotation[],
-  missingCells: ReadonlySet<string>
+  annotations: SenaReliabilityAnnotationIndex,
+  missingCells: SenaReliabilityMissingCellIndex
 ): Array<Record<string, boolean>> {
-  return unitKeys.map((key) => {
-    const [itemId, codeId] = key.split("::");
+  return unitKeys.map(({ itemId, codeId }) => {
     const row: Record<string, boolean> = {};
     for (const coder of coders) {
-      let recorded = false;
-      let positive = false;
-      for (const annotation of annotations) {
-        if (annotation.coderId !== coder || annotation.itemId !== itemId || annotation.codeId !== codeId) continue;
-        recorded = true;
-        if (annotation.value) {
-          positive = true;
-          break;
-        }
-      }
-      if (!recorded && missingCells.has(`${coder}::${itemId}::${codeId}`)) continue;
-      row[coder] = positive;
+      const value = annotationValue(annotations, coder, itemId, codeId);
+      if (value === undefined && isMissingCell(missingCells, coder, itemId, codeId)) continue;
+      row[coder] = value ?? false;
     }
     return row;
   });
 }
 
-function buildMissingCellLookup(skippedCells: SenaSkippedCoderCell[]): Set<string> {
-  const lookup = new Set<string>();
-  for (const cell of skippedCells) {
-    for (const codeId of cell.codeIds) {
-      lookup.add(`${cell.coderId}::${cell.itemId}::${codeId}`);
-    }
-  }
-  return lookup;
-}
-
 function buildCodeDiagnostics(
-  items: string[],
   codes: string[],
   coders: string[],
-  annotations: SenaCoderAnnotation[],
-  missingCells: ReadonlySet<string>
+  unitKeys: SenaReliabilityUnitKey[],
+  valuesByUnit: Array<Record<string, boolean>>
 ): SenaCodeReliabilityDiagnostic[] {
+  const unitsByCode = new Map(codes.map((codeId) => [codeId, [] as Array<Record<string, boolean>>]));
+  unitKeys.forEach((unit, index) => unitsByCode.get(unit.codeId)?.push(valuesByUnit[index]));
   return codes.map((codeId) => {
-    const codeUnits = buildUnitRows(items.map((itemId) => `${itemId}::${codeId}`), coders, annotations, missingCells);
+    const codeUnits = unitsByCode.get(codeId) ?? [];
     const disagreementCount = codeUnits.filter((unit) => new Set(Object.values(unit)).size > 1).length;
     const positiveAssignments = codeUnits.reduce((total, unit) => (
       total + Object.values(unit).filter(Boolean).length
@@ -894,7 +941,7 @@ function canonicalReliabilityInputs(value: {
     !sameStringArray(coderIds, [...coderIds].sort()) ||
     !value.pairwiseCohenKappa.every(isValidPairwiseKappa)) return null;
   const actualPairKeys = value.pairwiseCohenKappa
-    .map((pair) => [pair.coderA, pair.coderB].sort().join("::"))
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort()))
     .sort();
   if (!sameStringArray(actualPairKeys, expectedPairKeys(coderIds))) return null;
   const pairwiseKappaStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
@@ -1044,7 +1091,8 @@ export function buildSenaReliabilityDashboard(
   const warnings: string[] = [];
   const skippedCells = options.skippedCells ?? [];
   const derivationEvidence = buildReliabilityDerivationEvidence(annotations, skippedCells);
-  const missingCells = buildMissingCellLookup(skippedCells);
+  const annotationIndex = buildAnnotationIndex(annotations);
+  const missingCells = buildMissingCellIndex(skippedCells);
   const coders = Array.from(new Set(annotations.map((annotation) => annotation.coderId))).sort();
   const items = Array.from(new Set(annotations.map((annotation) => annotation.itemId))).sort();
   const codes = Array.from(new Set(annotations.map((annotation) => annotation.codeId))).sort();
@@ -1061,25 +1109,31 @@ export function buildSenaReliabilityDashboard(
       throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
     }
   }
-  const unitKeys = items.flatMap((itemId) => codes.map((codeId) => `${itemId}::${codeId}`));
+  const unitKeys = items.flatMap((itemId) => codes.map((codeId) => ({ itemId, codeId })));
 
   if (coders.length < 2) warnings.push("At least two coders are required for reliability statistics.");
   if (items.length === 0 || codes.length === 0) warnings.push("No codable item-code units were available.");
   // Count only cells actually excluded: a recorded decision beats a skip, and
   // a skipped cell whose item or code never entered the unit universe excludes
   // nothing. Distinct cells; the per-row warnings disclose each skipped row.
-  const recordedCellKeys = new Set(annotations.map((annotation) => `${annotation.coderId}::${annotation.itemId}::${annotation.codeId}`));
   const itemSet = new Set(items);
   const codeSet = new Set(codes);
-  const excludedCellCount = Array.from(missingCells).filter((key) => {
-    const [, itemId, codeId] = key.split("::");
-    return !recordedCellKeys.has(key) && itemSet.has(itemId) && codeSet.has(codeId);
-  }).length;
+  let excludedCellCount = 0;
+  for (const [coderId, byItem] of missingCells) {
+    for (const [itemId, missingCodeIds] of byItem) {
+      if (!itemSet.has(itemId)) continue;
+      for (const codeId of missingCodeIds) {
+        if (codeSet.has(codeId) && annotationValue(annotationIndex, coderId, itemId, codeId) === undefined) {
+          excludedCellCount += 1;
+        }
+      }
+    }
+  }
   if (excludedCellCount > 0) {
     warnings.push(`${excludedCellCount} distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units.`);
   }
 
-  const valuesByUnit = buildUnitRows(unitKeys, coders, annotations, missingCells);
+  const valuesByUnit = buildUnitRows(unitKeys, coders, annotationIndex, missingCells);
 
   const pairwiseCohenKappa: SenaPairwiseKappa[] = [];
   const rawPairwiseKappas: number[] = [];
@@ -1111,8 +1165,7 @@ export function buildSenaReliabilityDashboard(
     const values = valuesByUnit[index];
     const decisions = new Set(Object.values(values));
     if (decisions.size <= 1) return;
-    const [itemId, codeId] = key.split("::");
-    adjudicationQueue.push({ itemId, codeId, values });
+    adjudicationQueue.push({ itemId: key.itemId, codeId: key.codeId, values });
   });
 
   const unestimablePairCount = pairwiseCohenKappa.filter((entry) => entry.status !== "estimable").length;
@@ -1156,7 +1209,7 @@ export function buildSenaReliabilityDashboard(
     unresolvedDisagreementCount: adjudicationQueue.length
   };
   const status = aggregateReliabilityStatus(coders.length, pairwiseStatuses, alphaEstimate.status);
-  const codeDiagnostics = buildCodeDiagnostics(items, codes, coders, annotations, missingCells);
+  const codeDiagnostics = buildCodeDiagnostics(codes, coders, unitKeys, valuesByUnit);
   const interpretation = coders.length < 2
     ? "Reliability cannot be interpreted until at least two coders are uploaded."
     : claimEligibility.eligible
@@ -1422,7 +1475,7 @@ function expectedPairKeys(coderIds: string[]) {
   const keys: string[] = [];
   for (let left = 0; left < coderIds.length; left += 1) {
     for (let right = left + 1; right < coderIds.length; right += 1) {
-      keys.push([coderIds[left], coderIds[right]].sort().join("::"));
+      keys.push(canonicalTupleKey([coderIds[left], coderIds[right]].sort()));
     }
   }
   return keys.sort();
@@ -1463,13 +1516,15 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     if (entries.length < 2 || entries.some(([coderId, decision]) => (
       !coderIds.includes(coderId) || typeof decision !== "boolean"
     )) || new Set(entries.map(([, decision]) => decision)).size < 2) return "";
-    return `${candidate.itemId}\u0000${candidate.codeId}`;
+    return canonicalTupleKey([candidate.itemId, candidate.codeId]);
   });
   if (adjudicationQueue.length !== Number(value.disagreementCount) ||
     adjudicationKeys.some((key) => key.length === 0) ||
     new Set(adjudicationKeys).size !== adjudicationKeys.length) return false;
   const pairwiseStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
-  const pairKeys = value.pairwiseCohenKappa.map((pair) => [pair.coderA, pair.coderB].sort().join("::")).sort();
+  const pairKeys = value.pairwiseCohenKappa
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort()))
+    .sort();
   const canonicalPairKeys = expectedPairKeys(coderIds);
   if (new Set(coderIds).size !== coderIds.length ||
     coderIds.length !== value.coderCount ||
