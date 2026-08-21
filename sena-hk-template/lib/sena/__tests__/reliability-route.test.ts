@@ -369,6 +369,8 @@ describe("SENA reliability route", () => {
           source?: string;
           fileCount?: number;
           uploadIds?: string[];
+          reviewerEnvelopeUploadId?: string;
+          reviewerEnvelopeSha256?: string;
           projectVersion?: number;
           snapshotFingerprint?: string;
         };
@@ -409,7 +411,8 @@ describe("SENA reliability route", () => {
           projectVersion?: number;
           snapshotFingerprint?: string;
           uploadIds?: string[];
-          reviewer?: string;
+          reviewerEnvelopeUploadId?: string;
+          reviewerEnvelopeSha256?: string;
         };
       };
       expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
@@ -418,17 +421,26 @@ describe("SENA reliability route", () => {
         projectVersion: project.currentVersion,
         snapshotFingerprint: body.payloadSummary?.snapshotFingerprint,
         uploadIds: body.payloadSummary?.uploadIds,
-        reviewer: "Queued Reliability Reviewer"
+        reviewerEnvelopeUploadId: body.payloadSummary?.reviewerEnvelopeUploadId,
+        reviewerEnvelopeSha256: body.payloadSummary?.reviewerEnvelopeSha256
       }));
       expect(queueRequests[0].body).not.toContain("coder_id,item_id");
+      expect(queueRequests[0].body).not.toContain("Queued Reliability Reviewer");
+      expect(body.payloadSummary?.reviewerEnvelopeUploadId).toMatch(/^upload_/);
+      expect(body.payloadSummary?.reviewerEnvelopeSha256).toMatch(/^[a-f0-9]{64}$/);
 
-      // H10: nothing in-repo parses a queued reliability file (the external
-      // worker does), so the registry must leave warningCount unset — 0 would
-      // assert a clean parse that never happened.
+      // No worker has parsed the queued file yet, so the registry must leave
+      // warningCount unset — 0 would assert a clean parse before execution.
       const uploadsAfterQueue = enterprise.listEnterpriseUploads(registered.context, registered.context.teams[0].id);
       const queuedUpload = uploadsAfterQueue.find((upload) => upload.id === body.payloadSummary?.uploadIds?.[0]);
       expect(queuedUpload).toBeDefined();
       expect(queuedUpload?.warningCount).toBeUndefined();
+      const reviewerEnvelope = uploadsAfterQueue.find((upload) => upload.id === body.payloadSummary?.reviewerEnvelopeUploadId);
+      expect(reviewerEnvelope).toEqual(expect.objectContaining({
+        sha256: body.payloadSummary?.reviewerEnvelopeSha256,
+        importProfile: "reliability-reviewer-envelope",
+        storageEncoding: "sena-upload-aes-256-gcm-envelope/v1"
+      }));
 
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
         event: "reliability.queue",

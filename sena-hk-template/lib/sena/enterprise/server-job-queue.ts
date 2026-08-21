@@ -263,6 +263,8 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   format?: string;
   fileCount?: number;
   uploadIds?: string[];
+  reviewerEnvelopeUploadId?: string;
+  reviewerEnvelopeSha256?: string;
   annotationCount?: number;
   comparisonCount?: number;
   validationMethod?: "group-comparison";
@@ -1021,7 +1023,9 @@ function serverJobWithoutDelivery(input: {
       projectId: input.projectId,
       projectVersion: input.payloadSummary.projectVersion,
       snapshotFingerprint: input.payloadSummary.snapshotFingerprint,
-      uploadIds
+      uploadIds,
+      reviewerEnvelopeUploadId: input.payloadSummary.reviewerEnvelopeUploadId,
+      reviewerEnvelopeSha256: input.payloadSummary.reviewerEnvelopeSha256
     };
     if (uploadIds.length === 0 ||
       stableServerJobPayloadSha256(input.payload) !== stableServerJobPayloadSha256(reproduciblePayload)) {

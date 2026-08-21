@@ -36,6 +36,12 @@ import {
   reliabilityDashboardToReview,
   senaReliabilitySnapshotFingerprint
 } from "@/lib/sena/reliability";
+import {
+  buildSenaReliabilityReviewerEnvelope,
+  normalizeSenaReliabilityReviewer,
+  SENA_RELIABILITY_REVIEWER_ENVELOPE_NAME,
+  SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+} from "@/lib/sena/reliability-queue-reviewer";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -62,6 +68,27 @@ function fileSummary(file: BufferedReliabilityFile) {
     name: file.name,
     size: file.size,
     sha256: createHash("sha256").update(file.bytes).digest("hex")
+  };
+}
+
+async function createQueuedReviewerEnvelope(
+  context: Awaited<ReturnType<typeof requireApiSessionForMutation>>,
+  teamId: string,
+  reviewerValue: unknown
+) {
+  const envelope = buildSenaReliabilityReviewerEnvelope(reviewerValue, context.user.name);
+  const [upload] = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+    teamId,
+    files: [{
+      name: SENA_RELIABILITY_REVIEWER_ENVELOPE_NAME,
+      contentType: "application/json",
+      bytes: envelope.bytes,
+      importProfile: SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+    }]
+  });
+  return {
+    uploadId: upload.id,
+    sha256: upload.sha256
   };
 }
 
@@ -131,13 +158,16 @@ export async function POST(request: Request) {
             "reliability_queue_source_required"
           );
         }
+        const reviewerEnvelope = await createQueuedReviewerEnvelope(context, teamId, body.reviewer);
         const canonicalPointerPayload = {
           action: "run-reliability",
           teamId,
           projectId,
           projectVersion: project?.currentVersion,
           snapshotFingerprint,
-          uploadIds
+          uploadIds,
+          reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+          reviewerEnvelopeSha256: reviewerEnvelope.sha256
         };
         const job = await enqueueEnterpriseServerJob({
           kind: "reliability",
@@ -151,7 +181,8 @@ export async function POST(request: Request) {
             projectVersion: project?.currentVersion,
             snapshotFingerprint,
             uploadIds,
-            reviewer: body.reviewer ? String(body.reviewer) : context.user.name,
+            reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+            reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             sourceName: body.sourceName ? String(body.sourceName) : undefined,
             requestSchemaVersion: body.schemaVersion ? String(body.schemaVersion) : undefined,
             inlineAnnotations: queue.inlinePayloadAllowed ? body.annotations : undefined
@@ -161,6 +192,8 @@ export async function POST(request: Request) {
             projectVersion: project?.currentVersion,
             snapshotFingerprint,
             uploadIds,
+            reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+            reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             annotationCount,
             fileCount: uploadIds.length || (body.sourceName ? 1 : undefined),
             hasInlineSnapshot: false,
@@ -210,22 +243,32 @@ export async function POST(request: Request) {
           name: file.name,
           contentType: "application/octet-stream",
           bytes: file.bytes,
-          // No warningCount: nothing in-repo parses queued reliability files
-          // (the external worker does), so the registry must not assert a
-          // clean parse it never performed (2026-08-01 report H10).
+          // No warningCount at enqueue: neither the local nor external worker
+          // has parsed the file yet, so the registry must not assert a clean
+          // parse before the eventual worker reports it.
           importProfile: "reliability"
         }))
       });
       const queue = serverJobQueueStatus();
       const uploadIds = uploads.map((upload) => upload.id);
       const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
+      if (uploadIds.length === 0) {
+        throw new SenaEnterpriseError(
+          "Queued reliability jobs require at least one reliability file.",
+          400,
+          "reliability_queue_source_required"
+        );
+      }
+      const reviewerEnvelope = await createQueuedReviewerEnvelope(context, teamId, form.get("reviewer"));
       const canonicalPointerPayload = {
         action: "run-reliability",
         teamId,
         projectId,
         projectVersion: project?.currentVersion,
         snapshotFingerprint,
-        uploadIds
+        uploadIds,
+        reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+        reviewerEnvelopeSha256: reviewerEnvelope.sha256
       };
       const job = await enqueueEnterpriseServerJob({
         kind: "reliability",
@@ -239,13 +282,16 @@ export async function POST(request: Request) {
           projectVersion: project?.currentVersion,
           snapshotFingerprint,
           uploadIds,
-          reviewer: String(form.get("reviewer") || context.user.name)
+          reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+          reviewerEnvelopeSha256: reviewerEnvelope.sha256
         },
         payloadSummary: {
           source: "upload",
           projectVersion: project?.currentVersion,
           snapshotFingerprint,
           uploadIds,
+          reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
+          reviewerEnvelopeSha256: reviewerEnvelope.sha256,
           fileCount: uploads.length,
           hasInlineSnapshot: false,
           hasInlineDataset: false,
@@ -285,7 +331,7 @@ export async function POST(request: Request) {
       ...dashboard,
       warnings: [...fileWarnings, ...parsed.warnings, ...dashboard.warnings]
     };
-    const reviewer = String(form.get("reviewer") || context.user.name);
+    const reviewer = normalizeSenaReliabilityReviewer(form.get("reviewer"), context.user.name);
     const reviewPatch = reliabilityDashboardToReview(dashboardWithWarnings, reviewer);
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
     const projectId = form.get("projectId") ? String(form.get("projectId")) : undefined;

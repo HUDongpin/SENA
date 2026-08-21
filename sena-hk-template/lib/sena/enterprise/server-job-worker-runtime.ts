@@ -16,6 +16,10 @@ import {
   reliabilityDashboardToReview,
   senaReliabilitySnapshotFingerprint
 } from "../reliability";
+import {
+  parseSenaReliabilityReviewerEnvelope,
+  SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+} from "../reliability-queue-reviewer";
 import { contextFromDb, type SenaEnterpriseSession, type SenaEnterpriseSessionContext } from "./auth-session";
 import { SenaEnterpriseError } from "./errors";
 import {
@@ -310,7 +314,8 @@ async function executeReliabilityUploadsJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext,
-  uploadIds: string[]
+  uploadIds: string[],
+  reviewer: string
 ): Promise<SenaServerJobWorkerResult> {
   const teamId = optionalString(payload.teamId) ?? job.teamId;
   const contents = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds });
@@ -323,7 +328,6 @@ async function executeReliabilityUploadsJob(
     ...dashboard,
     warnings: [...fileWarnings, ...parsed.warnings, ...dashboard.warnings]
   };
-  const reviewer = optionalString(payload.reviewer) ?? context.user.name;
   const response = await buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
     teamId,
     projectId: optionalString(payload.projectId) ?? job.projectId,
@@ -350,6 +354,47 @@ async function executeReliabilityUploadsJob(
 
   const reliabilityRun = (response.body as { reliabilityRun?: { id?: string } }).reliabilityRun;
   return { reliabilityRunId: reliabilityRun?.id };
+}
+
+async function queuedReliabilityReviewer(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  context: SenaEnterpriseSessionContext
+) {
+  const uploadId = optionalString(payload.reviewerEnvelopeUploadId);
+  const expectedSha256 = optionalString(payload.reviewerEnvelopeSha256);
+  if (!uploadId && !expectedSha256) {
+    // Legacy externally delivered jobs carried reviewer directly. Retain that
+    // read compatibility, while every new public queue route uses the encrypted
+    // envelope below so the job receipt and payload summary remain PII-free.
+    return optionalString(payload.reviewer) ?? context.user.name;
+  }
+  if (!uploadId || !expectedSha256) {
+    throw new SenaEnterpriseError(
+      "Queued reliability reviewer evidence is incomplete.",
+      400,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
+  const teamId = optionalString(payload.teamId) ?? job.teamId;
+  const [content] = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds: [uploadId] });
+  if (content.upload.importProfile !== SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE ||
+    content.upload.sha256 !== expectedSha256) {
+    throw new SenaEnterpriseError(
+      "Queued reliability reviewer evidence does not match its canonical envelope.",
+      409,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
+  try {
+    return parseSenaReliabilityReviewerEnvelope(content.bytes);
+  } catch {
+    throw new SenaEnterpriseError(
+      "Queued reliability reviewer evidence is invalid.",
+      400,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
 }
 
 async function executeAnalysisJob(
@@ -436,12 +481,13 @@ async function executeReliabilityJob(
       );
     }
   }
+  const reviewer = await queuedReliabilityReviewer(job, payload, context);
   const uploadIds = uploadPointers(payload);
   // Upload pointers are the default queued shape (inline annotations exist only
   // where SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD is set), so they win when both
   // are present: the uploads are what the enqueueing route actually registered.
   if (uploadIds.length > 0) {
-    return executeReliabilityUploadsJob(job, payload, context, uploadIds);
+    return executeReliabilityUploadsJob(job, payload, context, uploadIds, reviewer);
   }
 
   const annotations = payload.inlineAnnotations ?? payload.annotations;
@@ -459,7 +505,7 @@ async function executeReliabilityJob(
     teamId: job.teamId,
     projectId: optionalString(payload.projectId) ?? job.projectId,
     projectVersion: payload.projectVersion,
-    reviewer: payload.reviewer,
+    reviewer,
     sourceName: payload.sourceName,
     annotations
   });
@@ -667,7 +713,9 @@ function reproduceReliabilityPayload(job: SenaEnterpriseServerJob): Record<strin
     projectId: job.projectId,
     projectVersion: job.payloadSummary.projectVersion,
     snapshotFingerprint: job.payloadSummary.snapshotFingerprint,
-    uploadIds
+    uploadIds,
+    reviewerEnvelopeUploadId: job.payloadSummary.reviewerEnvelopeUploadId,
+    reviewerEnvelopeSha256: job.payloadSummary.reviewerEnvelopeSha256
   };
 }
 

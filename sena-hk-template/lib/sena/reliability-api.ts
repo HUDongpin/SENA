@@ -10,6 +10,7 @@ import {
 } from "./reliability";
 import type { SenaCodingReliabilityReview } from "./types";
 import type { SenaImportRow } from "./import";
+import { normalizeSenaReliabilityReviewer } from "./reliability-queue-reviewer";
 
 export type SenaReliabilityJsonRequest = {
   schemaVersion?: typeof SENA_SCHEMA_VERSIONS.reliabilityJsonRequest;
@@ -109,7 +110,10 @@ export function prepareSenaReliabilityJsonRequest(
     ...dashboard,
     warnings: [...warnings, ...parsed.warnings, ...dashboard.warnings]
   };
-  const reviewer = scalar(payload.reviewer) || options.defaultReviewer?.trim() || "SENA reliability API";
+  const reviewer = normalizeSenaReliabilityReviewer(
+    payload.reviewer,
+    options.defaultReviewer?.trim() || "SENA reliability API"
+  );
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityPreparedInput,
