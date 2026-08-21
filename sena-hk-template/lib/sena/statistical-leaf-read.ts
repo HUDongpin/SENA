@@ -5,6 +5,10 @@ import {
 import { buildSenaClaimReadinessGate } from "./pilot-readiness";
 import { normalizeSenaCodingReliabilityGate } from "./report";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import {
+  assertSenaReportHolderStructure,
+  assertSenaRuntimeBundleHolderStructure
+} from "./statistical-holder-structure";
 import type {
   SenaClaimReadinessGate,
   SenaCodingReliabilityGate,
@@ -393,6 +397,7 @@ export function normalizeSenaReportStatisticalLeaves(
   if (report.schemaVersion !== SENA_SCHEMA_VERSIONS.report) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
+  assertSenaReportHolderStructure(report, context);
   const state = normalizeSenaStatisticalLeafHolder(report, context, reportFusionEvidence(report, context));
   reconcileSenaReportStatisticalSurfaces(report as SenaReport, state);
   return { report: report as SenaReport, state };
@@ -406,6 +411,7 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
   if (runtimeBundle.schemaVersion !== SENA_SCHEMA_VERSIONS.runtimeBundle) {
     throw new Error(`${context}.schemaVersion is not supported.`);
   }
+  assertSenaRuntimeBundleHolderStructure(runtimeBundle, context);
   const bundleState = normalizeSenaStatisticalLeafHolder(
     runtimeBundle,
     context,
