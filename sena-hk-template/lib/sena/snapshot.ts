@@ -1,5 +1,8 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
+import {
+  SenaInputValidationError,
+  validateSenaAnalyticalInputs
+} from "./analytical-input-validation";
 import {
   normalizeSenaFusionMathAudit,
   type SenaFusionMathAuditEvidence
@@ -267,6 +270,22 @@ export function importSenaProjectSnapshot(source: string | unknown): SenaProject
     dataset: validated.dataset,
     buildOptions: validated.reproducibility.buildOptions
   });
+  if (validated.source.sourceDataset !== undefined) {
+    try {
+      validateSenaAnalyticalInputs({
+        dataset: validated.source.sourceDataset,
+        buildOptions: validated.reproducibility.buildOptions
+      });
+    } catch (error) {
+      if (!(error instanceof SenaInputValidationError)) throw error;
+      throw new SenaInputValidationError(error.issues.map((issue) => ({
+        ...issue,
+        path: issue.path.startsWith("dataset")
+          ? `source.sourceDataset${issue.path.slice("dataset".length)}`
+          : issue.path
+      })));
+    }
+  }
   const normalized = structuredClone(value) as Record<string, unknown>;
   const normalizedReport = normalizeSenaReportStatisticalLeaves(
     normalized.report,
@@ -299,6 +318,13 @@ export function isSenaProjectSnapshot(value: unknown): value is SenaProjectSnaps
       dataset: root.dataset,
       buildOptions: reproducibility.buildOptions
     });
+    const source = asRecord(root.source, "project snapshot.source");
+    if (source.sourceDataset !== undefined) {
+      validateSenaAnalyticalInputs({
+        dataset: source.sourceDataset,
+        buildOptions: reproducibility.buildOptions
+      });
+    }
     const report = asRecord(root.report, "project snapshot.report");
     const fusionMathAudit = asRecord(report.fusionMathAudit, "project snapshot.report.fusionMathAudit");
     const codingReliabilityGate = asRecord(report.codingReliabilityGate, "project snapshot.report.codingReliabilityGate");

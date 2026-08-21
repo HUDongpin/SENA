@@ -16,6 +16,7 @@ import type {
 import type { LocalEnterpriseValidationResult } from "./enterprise-contracts";
 import type { UploadedSenaTable } from "./uploaded-table-mapper";
 import type { DemoManualReviewState } from "./use-demo-verification-manual-review-actions";
+import { importSenaProjectSnapshot } from "./analysis-runtime";
 
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
 
@@ -101,6 +102,7 @@ export function useProjectSnapshotRestoreAction({
   setUploadedTables
 }: ProjectSnapshotRestoreActionOptions) {
   const restoreProjectSnapshot = useCallback((snapshot: SenaProjectSnapshot, fileName: string) => {
+    snapshot = importSenaProjectSnapshot(snapshot);
     const options = snapshot.reproducibility.buildOptions;
     const sourceDataset = snapshot.source.sourceDataset ?? snapshot.dataset;
     const review = snapshot.report.humanReview;

@@ -17,6 +17,7 @@ import {
 } from "./publication-figure";
 import { buildSenaMarkdownReport } from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { importSenaProjectSnapshot } from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
@@ -999,6 +1000,7 @@ export async function buildSenaPublicationExport(
   format: SenaPublicationFormat,
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
 ): Promise<SenaPublicationExport> {
+  snapshot = importSenaProjectSnapshot(snapshot);
   const model = buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions);
   const report = snapshot.report;
   assertSenaPublicationModelCardReady(report);
