@@ -121,7 +121,15 @@ export type SenaReliabilityProjectBindingIssue = {
  */
 export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
   binaryUnits: 50_000,
-  assignmentCells: 200_000
+  assignmentCells: 200_000,
+  // One global pair result is retained per unordered coder pair. This also
+  // bounds the outer pair loops before any pair-result array is allocated.
+  coderPairs: 2_000,
+  // Cohen kappa maps two observation vectors for every global and per-code
+  // pair. `2 * coderPairs * binaryUnits` is a safe upper bound on those reads.
+  pairwiseObservationEvaluations: 10_000_000,
+  // Each pair is retained once globally and once for every code diagnostic.
+  pairwiseResultEntries: 100_000
 });
 
 export type SenaReliabilityUniverseLimitIssue = {
@@ -139,7 +147,8 @@ export class SenaReliabilityUniverseLimitError extends Error {
 
   constructor(issues: SenaReliabilityUniverseLimitIssue[]) {
     super("SENA coding-reliability input exceeds the supported analysis universe.");
-    this.issues = issues.map((issue) => ({ ...issue }));
+    this.issues = [];
+    for (const issue of issues) this.issues.push({ ...issue });
   }
 
   toJSON() {
@@ -159,6 +168,14 @@ function safeCardinalityProduct(left: number, right: number) {
   return left * right;
 }
 
+function safeUnorderedPairCount(count: number) {
+  if (!Number.isSafeInteger(count) || count < 0) return null;
+  if (count < 2) return 0;
+  const left = count % 2 === 0 ? count / 2 : count;
+  const right = count % 2 === 0 ? count - 1 : (count - 1) / 2;
+  return safeCardinalityProduct(left, right);
+}
+
 export function assertSenaReliabilityUniverseWithinLimits(input: {
   itemCount: number;
   codeCount: number;
@@ -168,6 +185,19 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
   const assignmentCells = binaryUnits === null
     ? null
     : safeCardinalityProduct(binaryUnits, input.coderCount);
+  const coderPairs = safeUnorderedPairCount(input.coderCount);
+  const pairwiseUnitEvaluations = coderPairs === null || binaryUnits === null
+    ? null
+    : safeCardinalityProduct(coderPairs, binaryUnits);
+  const pairwiseObservationEvaluations = pairwiseUnitEvaluations === null
+    ? null
+    : safeCardinalityProduct(pairwiseUnitEvaluations, 2);
+  const codeLayers = Number.isSafeInteger(input.codeCount) && input.codeCount >= 0 && input.codeCount < Number.MAX_SAFE_INTEGER
+    ? input.codeCount + 1
+    : null;
+  const pairwiseResultEntries = coderPairs === null || codeLayers === null
+    ? null
+    : safeCardinalityProduct(coderPairs, codeLayers);
   const issues: SenaReliabilityUniverseLimitIssue[] = [];
   if (binaryUnits === null || binaryUnits > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) {
     issues.push({
@@ -187,8 +217,44 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
       maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
     });
   }
+  if (issues.length === 0 && (coderPairs === null || coderPairs > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs)) {
+    issues.push({
+      path: "annotations",
+      rule: `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      actual: coderPairs ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    });
+  }
+  if (issues.length === 0 && (
+    pairwiseObservationEvaluations === null
+    || pairwiseObservationEvaluations > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations
+  )) {
+    issues.push({
+      path: "annotations",
+      rule: `pairwise-observation-evaluation-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations}`,
+      actual: pairwiseObservationEvaluations ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations
+    });
+  }
+  if (issues.length === 0 && (
+    pairwiseResultEntries === null
+    || pairwiseResultEntries > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries
+  )) {
+    issues.push({
+      path: "annotations",
+      rule: `pairwise-result-entry-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries}`,
+      actual: pairwiseResultEntries ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries
+    });
+  }
   if (issues.length > 0) throw new SenaReliabilityUniverseLimitError(issues);
-  return { binaryUnits, assignmentCells };
+  return {
+    binaryUnits,
+    assignmentCells,
+    coderPairs,
+    pairwiseObservationEvaluations,
+    pairwiseResultEntries
+  };
 }
 
 export function preflightSenaReliabilityAnnotations(annotations: readonly SenaCoderAnnotation[]) {
