@@ -27,7 +27,9 @@ const PROVENANCE_PATH = path.join(
   "lib/sena/__tests__/fixtures/sena-review-packet-14bb306.provenance.json"
 );
 const VERIFIER_PATH = path.join(PACKAGE_ROOT, "scripts/verify-sena-14bb306-fixture.mjs");
-const APPROVED_TEMP_ROOT = path.join(PACKAGE_ROOT, ".tmp/codex-pr-a-round5");
+const APPROVED_TEMP_ROOT = process.env.SENA_FIXTURE_TEMP_ROOT
+  ? path.resolve(process.env.SENA_FIXTURE_TEMP_ROOT)
+  : path.join(PACKAGE_ROOT, ".tmp/codex-pr-a-round5");
 
 const BASE_COMMIT = "14bb3067adc7df6c985785d57d62a54761839555";
 const PAYLOAD_SHA256 = "e43c07b81f7d6bd409d9d1c4fcc1ce26dfd6d3cb84be4b5c5ff61c87fddae6c9";
@@ -48,7 +50,7 @@ function readFixture() {
   return { metadata, json };
 }
 
-function runVerifier(args: string[], tempDirectory: string) {
+function runVerifier(args: string[], tempDirectory: string, env: Record<string, string> = {}) {
   return spawnSync(process.execPath, [VERIFIER_PATH, ...args], {
     cwd: PACKAGE_ROOT,
     encoding: "utf8",
@@ -56,7 +58,8 @@ function runVerifier(args: string[], tempDirectory: string) {
       ...process.env,
       TMPDIR: tempDirectory,
       TMP: tempDirectory,
-      TEMP: tempDirectory
+      TEMP: tempDirectory,
+      ...env
     }
   });
 }
@@ -200,6 +203,26 @@ describe("historical 14bb306 fixture provenance", () => {
       expect(result.stdout).toContain(PAYLOAD_SHA256);
     } finally {
       rmSync(runDirectory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("honors an explicit isolated temp root without weakening exact-base reconstruction", () => {
+    expect(existsSync(VERIFIER_PATH)).toBe(true);
+    if (!existsSync(VERIFIER_PATH)) return;
+
+    const isolatedRoot = path.join(APPROVED_TEMP_ROOT, "fixture-temp-root-override-contract");
+    rmSync(isolatedRoot, { recursive: true, force: true });
+    try {
+      const result = runVerifier([], APPROVED_TEMP_ROOT, {
+        SENA_FIXTURE_TEMP_ROOT: isolatedRoot
+      });
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(existsSync(isolatedRoot)).toBe(true);
+      expect(result.stdout).toContain(`verified ${BASE_COMMIT}`);
+      expect(result.stdout).toContain(PAYLOAD_SHA256);
+      expect(result.stdout).toContain("from exact-base archive");
+    } finally {
+      rmSync(isolatedRoot, { recursive: true, force: true });
     }
   }, 30_000);
 

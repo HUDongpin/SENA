@@ -14,7 +14,9 @@ import { fileURLToPath } from "node:url";
 import { brotliDecompressSync } from "node:zlib";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const APPROVED_TEMP_ROOT = path.join(PACKAGE_ROOT, ".tmp/codex-pr-a-round5");
+const APPROVED_TEMP_ROOT = process.env.SENA_FIXTURE_TEMP_ROOT
+  ? path.resolve(process.env.SENA_FIXTURE_TEMP_ROOT)
+  : path.join(PACKAGE_ROOT, ".tmp/codex-pr-a-round5");
 const DEFAULT_FIXTURE_PATH = path.join(
   PACKAGE_ROOT,
   "lib/sena/__tests__/fixtures/sena-review-packet-14bb306.json.br.b64"
