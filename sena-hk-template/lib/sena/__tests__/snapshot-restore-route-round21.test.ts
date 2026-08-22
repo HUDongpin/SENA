@@ -114,6 +114,87 @@ describe("SENA stateless snapshot restore route", () => {
     });
   });
 
+  it("accepts browser same-origin metadata when Next reconstructs the request URL with an internal host", async () => {
+    const source = currentSnapshot();
+    const response = await POST(new Request("http://localhost:3101/api/sena/snapshot/restore", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "127.0.0.1:3101",
+        origin: "http://127.0.0.1:3101",
+        "sec-fetch-site": "same-origin"
+      },
+      body: JSON.stringify({
+        schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+        source
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: "sena-snapshot-restore-result/v1",
+      sourceKind: "project-snapshot",
+      processing: { persisted: false, audited: false }
+    });
+  });
+
+  it("uses the public host and forwarded protocol when Fetch Metadata is unavailable", async () => {
+    const source = currentSnapshot();
+    const response = await POST(new Request("http://localhost:3101/api/sena/snapshot/restore", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "sena.example.test",
+        origin: "https://sena.example.test",
+        "x-forwarded-proto": "https"
+      },
+      body: JSON.stringify({
+        schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+        source
+      })
+    }));
+
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects same-site cross-origin browser traffic even when the internal request URL shares a host", async () => {
+    const response = await POST(new Request("https://sena.example.test/api/sena/snapshot/restore", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "sena.example.test",
+        origin: "https://subdomain.sena.example.test",
+        "sec-fetch-site": "same-site"
+      },
+      body: JSON.stringify({
+        schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+        source: currentSnapshot()
+      })
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ code: "snapshot_restore_cross_origin_blocked" });
+  });
+
+  it("rejects an origin mismatch even when a client claims same-origin Fetch Metadata", async () => {
+    const response = await POST(new Request("https://sena.example.test/api/sena/snapshot/restore", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "sena.example.test",
+        origin: "https://attacker.example",
+        "sec-fetch-site": "same-origin"
+      },
+      body: JSON.stringify({
+        schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+        source: currentSnapshot()
+      })
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ code: "snapshot_restore_cross_origin_blocked" });
+  });
+
   it("enforces the configured byte ceiling before JSON parsing", async () => {
     const request = new Request(endpoint, {
       method: "POST",

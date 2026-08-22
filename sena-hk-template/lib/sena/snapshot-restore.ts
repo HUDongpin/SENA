@@ -67,10 +67,48 @@ function requestTooLarge(maxBytes: number) {
 }
 
 export function assertSenaSnapshotRestoreSameOrigin(request: Request) {
-  const requestOrigin = new URL(request.url).origin;
-  const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
-  if ((origin && origin !== requestOrigin) || fetchSite === "cross-site") {
+  if (fetchSite === "cross-site" || fetchSite === "same-site") {
+    throw new SenaSnapshotRestoreRequestError(
+      "Snapshot restore validation accepts only same-origin browser requests.",
+      403,
+      "snapshot_restore_cross_origin_blocked"
+    );
+  }
+
+  const origin = request.headers.get("origin");
+  if (!origin) return;
+
+  const firstHeaderValue = (value: string | null) => value?.split(",", 1)[0]?.trim() || null;
+  const requestUrl = new URL(request.url);
+  const host = firstHeaderValue(request.headers.get("host"))
+    ?? firstHeaderValue(request.headers.get("x-forwarded-host"))
+    ?? requestUrl.host;
+  const protocol = firstHeaderValue(request.headers.get("x-forwarded-proto"))
+    ?? requestUrl.protocol.slice(0, -1);
+
+  let originUrl: URL;
+  let expectedOrigin: string;
+  try {
+    originUrl = new URL(origin);
+    const expectedUrl = new URL(`${protocol}://${host}`);
+    if (
+      !["http:", "https:"].includes(originUrl.protocol) ||
+      !["http:", "https:"].includes(expectedUrl.protocol) ||
+      expectedUrl.host !== host
+    ) {
+      throw new Error("Unsupported snapshot restore origin.");
+    }
+    expectedOrigin = expectedUrl.origin;
+  } catch {
+    throw new SenaSnapshotRestoreRequestError(
+      "Snapshot restore validation accepts only same-origin browser requests.",
+      403,
+      "snapshot_restore_cross_origin_blocked"
+    );
+  }
+
+  if (originUrl.origin !== expectedOrigin) {
     throw new SenaSnapshotRestoreRequestError(
       "Snapshot restore validation accepts only same-origin browser requests.",
       403,
