@@ -354,6 +354,58 @@ describe("SENA stateless snapshot restore route", () => {
     }
   });
 
+  it("does not let ignored string padding buy pre-parse structural fan-out", async () => {
+    const source = structuredClone(currentSnapshot());
+    source.dataset.people = Array.from({ length: 300_000 }, () => ({})) as never;
+    const raw = JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      padding: "x".repeat(8_000_000),
+      source
+    });
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(16 * 1024 * 1024);
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+    const parse = vi.spyOn(JSON, "parse");
+    let response: Response;
+
+    try {
+      response = await POST(request);
+      expect(response.status).toBe(413);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+    await expect(response!.json()).resolves.toEqual({
+      error: "Snapshot restore request exceeds the supported JSON complexity limit.",
+      code: "snapshot_restore_request_too_complex"
+    });
+  });
+
+  it("scales member caps only with an explicit configured byte ceiling", async () => {
+    const raw = JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      source: Array.from({ length: 70_000 }, () => null)
+    });
+    const request = () => new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+
+    await expect(readSenaSnapshotRestoreRequest(request())).rejects.toMatchObject({
+      status: 413,
+      code: "snapshot_restore_request_too_complex"
+    } satisfies Partial<SenaSnapshotRestoreRequestError>);
+
+    const accepted = await readSenaSnapshotRestoreRequest(request(), {
+      SENA_SNAPSHOT_RESTORE_MAX_BYTES: String(32 * 1024 * 1024)
+    });
+    expect(accepted.source).toHaveLength(70_000);
+  });
+
   it("rejects excessive JSON depth before invoking the parser", async () => {
     const nestedSource = `${"[".repeat(65)}null${"]".repeat(65)}`;
     const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":${nestedSource}}`;

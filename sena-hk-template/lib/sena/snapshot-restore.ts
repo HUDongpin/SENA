@@ -6,14 +6,18 @@ import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 export const SENA_SNAPSHOT_RESTORE_MAX_CHUNKS = 4096;
-// Structural work stays proportional to admitted transport bytes. The byte
-// ceiling therefore supplies the hard maximum (4,194,304 tokens at the
-// 16 MiB default) instead of an unrelated plateau that can reject canonical
-// builder output before schema validation.
+// Structural work is bounded independently from bytes inside JSON strings, so
+// ignored padding cannot purchase parser fan-out. The byte ceiling still
+// supplies the absolute token maximum (4,194,304 at the 16 MiB default).
 export const SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS = 250_000;
 export const SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN = 4;
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_STRUCTURAL_TOKENS =
   SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN;
+export const SENA_SNAPSHOT_RESTORE_JSON_STRUCTURAL_DENSITY_NUMERATOR = 3;
+export const SENA_SNAPSHOT_RESTORE_JSON_STRUCTURAL_DENSITY_DENOMINATOR = 4;
+export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS = 262_144;
+export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS = 65_536;
+export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS = 2_097_152;
 export const SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH = 64;
 
 export type SenaSnapshotRestoreResult = {
@@ -83,19 +87,73 @@ function requestTooComplex() {
   );
 }
 
-function snapshotRestoreStructuralTokenBudget(bytes: number) {
-  return Math.max(
+function snapshotRestoreStructuralTokenBudget(carrierUnits: number, maxBytes: number) {
+  const paddingInvariantBudget = Math.max(
     SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
-    Math.floor(bytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
+    Math.floor(
+      carrierUnits * SENA_SNAPSHOT_RESTORE_JSON_STRUCTURAL_DENSITY_NUMERATOR
+      / SENA_SNAPSHOT_RESTORE_JSON_STRUCTURAL_DENSITY_DENOMINATOR
+    )
+  );
+  const byteCeilingBudget = Math.max(
+    SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+    Math.floor(maxBytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
+  );
+  return Math.min(paddingInvariantBudget, byteCeilingBudget);
+}
+
+function scaledSnapshotRestoreLimit(defaultLimit: number, maxBytes: number) {
+  return Math.max(
+    1,
+    Math.floor(defaultLimit * maxBytes / SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES)
   );
 }
 
-function assertSenaSnapshotRestoreJsonComplexity(raw: string, bytes: number) {
-  const structuralTokenBudget = snapshotRestoreStructuralTokenBudget(bytes);
+function assertSenaSnapshotRestoreJsonComplexity(raw: string, maxBytes: number) {
+  type ContainerFrame = { hasContent: boolean; members: number };
+  const frames: ContainerFrame[] = [];
+  const maxContainers = scaledSnapshotRestoreLimit(
+    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS,
+    maxBytes
+  );
+  const maxContainerMembers = scaledSnapshotRestoreLimit(
+    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS,
+    maxBytes
+  );
+  const maxTotalMembers = scaledSnapshotRestoreLimit(
+    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS,
+    maxBytes
+  );
+  const absoluteStructuralTokenBudget = Math.max(
+    SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+    Math.floor(maxBytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
+  );
   let structuralTokens = 0;
-  let depth = 0;
+  let carrierUnits = 0;
+  let containers = 0;
+  let totalMembers = 0;
   let inString = false;
   let escaped = false;
+
+  const assertMemberBounds = (frame: ContainerFrame) => {
+    if (
+      frame.members > maxContainerMembers ||
+      totalMembers > maxTotalMembers
+    ) {
+      throw requestTooComplex();
+    }
+  };
+  const markCurrentContainerContent = () => {
+    const frame = frames.at(-1);
+    if (!frame || frame.hasContent) return;
+    frame.hasContent = true;
+    frame.members = 1;
+    totalMembers += 1;
+    assertMemberBounds(frame);
+  };
+  const isJsonWhitespace = (character: string) => (
+    character === " " || character === "\n" || character === "\r" || character === "\t"
+  );
 
   for (const character of raw) {
     if (inString) {
@@ -105,26 +163,46 @@ function assertSenaSnapshotRestoreJsonComplexity(raw: string, bytes: number) {
         escaped = true;
       } else if (character === "\"") {
         inString = false;
+        carrierUnits += 1;
       }
       continue;
     }
     if (character === "\"") {
+      markCurrentContainerContent();
       inString = true;
+      carrierUnits += 1;
       continue;
     }
+    if (!isJsonWhitespace(character)) carrierUnits += 1;
     if (character === "{" || character === "[") {
+      markCurrentContainerContent();
       structuralTokens += 1;
-      depth += 1;
-      if (depth > SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH) throw requestTooComplex();
+      containers += 1;
+      if (containers > maxContainers) throw requestTooComplex();
+      frames.push({ hasContent: false, members: 0 });
+      if (frames.length > SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH) throw requestTooComplex();
     } else if (character === "}" || character === "]") {
       structuralTokens += 1;
-      depth = Math.max(depth - 1, 0);
-    } else if (character === "," || character === ":") {
+      frames.pop();
+    } else if (character === ",") {
+      const frame = frames.at(-1);
+      if (frame) {
+        markCurrentContainerContent();
+        frame.members += 1;
+        totalMembers += 1;
+        assertMemberBounds(frame);
+      }
       structuralTokens += 1;
+    } else if (character === ":") {
+      structuralTokens += 1;
+    } else if (!isJsonWhitespace(character)) {
+      markCurrentContainerContent();
     }
-    if (structuralTokens > structuralTokenBudget) {
-      throw requestTooComplex();
-    }
+    if (structuralTokens > absoluteStructuralTokenBudget) throw requestTooComplex();
+  }
+
+  if (structuralTokens > snapshotRestoreStructuralTokenBudget(carrierUnits, maxBytes)) {
+    throw requestTooComplex();
   }
 }
 
@@ -227,7 +305,7 @@ export async function readSenaSnapshotRestoreRequest(
   }
 
   const raw = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
-  assertSenaSnapshotRestoreJsonComplexity(raw, bytes);
+  assertSenaSnapshotRestoreJsonComplexity(raw, maxBytes);
   let body: unknown;
   try {
     body = JSON.parse(raw) as unknown;
