@@ -30,7 +30,11 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { readSenaReliabilityUploadRows } from "@/lib/sena/import-adapters";
+import { assertSenaReliabilityJsonRequestWithinLimits } from "@/lib/sena/reliability-api";
 import {
+  assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySourceBytesWithinLimits,
+  assertSenaReliabilitySourceCountWithinLimits,
   bindSenaReliabilityAnnotationsToProject,
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
@@ -55,7 +59,7 @@ type BufferedReliabilityFile = {
 };
 
 async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilityFile[]> {
-  return Promise.all(files.map(async (file) => {
+  const buffered = await Promise.all(files.map(async (file) => {
     const bytes = Buffer.from(await file.arrayBuffer());
     return {
       name: file.name,
@@ -63,6 +67,8 @@ async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilit
       bytes
     };
   }));
+  assertSenaReliabilitySourceBytesWithinLimits(buffered.map((file) => file.bytes.byteLength), "files");
+  return buffered;
 }
 
 function fileSummary(file: BufferedReliabilityFile) {
@@ -112,12 +118,15 @@ export async function POST(request: Request) {
     if ((request.headers.get("content-type") || "").toLowerCase().includes("application/json")) {
       const body = await request.json() as Record<string, unknown>;
       if (shouldQueueServerJob(request, body)) {
+        assertSenaReliabilityJsonRequestWithinLimits(body);
         const projectId = body.projectId ? String(body.projectId) : undefined;
         const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
         const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
         requireEnterprisePermission(context, teamId, "reliability:adjudicate");
         const queue = serverJobQueueStatus();
-        let uploadIds = Array.isArray(body.uploadIds) ? body.uploadIds.map((value) => String(value)).filter(Boolean).slice(0, 100) : [];
+        const rawUploadIds = Array.isArray(body.uploadIds) ? body.uploadIds : [];
+        assertSenaReliabilitySourceCountWithinLimits(rawUploadIds.length, "uploadIds");
+        let uploadIds = rawUploadIds.map((value) => String(value)).filter(Boolean);
         const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
         const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
         if (Array.isArray(body.annotations)) {
@@ -255,7 +264,13 @@ export async function POST(request: Request) {
       return NextResponse.json(response.body, { headers: response.headers });
     }
     const form = await request.formData();
-    const files = form.getAll("files").filter((value): value is File => value instanceof File);
+    const suppliedFileValues = form.getAll("files");
+    assertSenaReliabilitySourceCountWithinLimits(suppliedFileValues.length, "files");
+    const files = suppliedFileValues.filter((value): value is File => value instanceof File);
+    // File.size is available before reading multipart bodies into application
+    // buffers. Reject declared count and bytes before arrayBuffer(), then verify
+    // the actual buffered byte counts again inside bufferReliabilityFiles.
+    assertSenaReliabilitySourceBytesWithinLimits(files.map((file) => file.size), "files");
     const bufferedFiles = await bufferReliabilityFiles(files);
     if (shouldQueueServerJob(request, { queue: ["1", "true", "yes", "on"].includes(String(form.get("queue") || "").toLowerCase()) })) {
       const projectId = form.get("projectId") ? String(form.get("projectId")) : undefined;
@@ -263,6 +278,7 @@ export async function POST(request: Request) {
       const teamId = String(form.get("teamId") || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "reliability:adjudicate");
       const parsedForPreflight = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
+      assertSenaReliabilityCombinedRawRowsWithinLimits(parsedForPreflight.map((file) => file.rows));
       const preflightRows = parsedForPreflight.flatMap((file) => file.rows);
       const preflightAnnotations = parseCoderAnnotationsFromRows(preflightRows);
       preflightSenaReliabilityAnnotations(preflightAnnotations.annotations);
@@ -352,6 +368,7 @@ export async function POST(request: Request) {
       });
     }
     const parsedFiles = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
+    assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => file.rows));
     const rows = parsedFiles.flatMap((file) => file.rows);
     const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
     const parsed = parseCoderAnnotationsFromRows(rows);

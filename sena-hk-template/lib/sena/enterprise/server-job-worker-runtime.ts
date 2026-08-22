@@ -10,6 +10,7 @@ import {
   withSenaImportDatasetMetadata
 } from "../import-adapters";
 import {
+  assertSenaReliabilitySourceCountWithinLimits,
   buildSenaReliabilityDashboard,
   reliabilityDashboardToReview,
   senaReliabilitySnapshotFingerprint
@@ -467,8 +468,10 @@ async function executeReliabilityJob(
       );
     }
   }
-  const reviewer = await queuedReliabilityReviewer(job, payload, context);
+  const rawUploadIds = Array.isArray(payload.uploadIds) ? payload.uploadIds : [];
+  assertSenaReliabilitySourceCountWithinLimits(rawUploadIds.length, "uploadIds");
   const uploadIds = uploadPointers(payload);
+  const reviewer = await queuedReliabilityReviewer(job, payload, context);
   // Upload pointers are the default queued shape (inline annotations exist only
   // where SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD is set), so they win when both
   // are present: the uploads are what the enqueueing route actually registered.

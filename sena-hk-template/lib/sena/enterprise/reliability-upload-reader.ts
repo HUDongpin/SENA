@@ -1,8 +1,14 @@
 import { readSenaReliabilityUploadRows } from "../import-adapters";
-import { parseCoderAnnotationsFromRows } from "../reliability";
+import {
+  assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySourceBytesWithinLimits,
+  assertSenaReliabilitySourceCountWithinLimits,
+  parseCoderAnnotationsFromRows
+} from "../reliability";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import {
   readEnterpriseUploadContentsAsync,
+  readEnterpriseUploadMetadataAsync,
   type SenaEnterpriseUploadContent
 } from "./import-analysis";
 
@@ -24,10 +30,15 @@ export async function readEnterpriseReliabilityUploadPointers(
   context: SenaEnterpriseSessionContext,
   input: { teamId: string; uploadIds: string[] }
 ) {
+  assertSenaReliabilitySourceCountWithinLimits(input.uploadIds.length, "uploadIds");
+  const metadata = await readEnterpriseUploadMetadataAsync(context, input);
+  assertSenaReliabilitySourceBytesWithinLimits(metadata.map((upload) => upload.size), "uploadIds");
   const contents = await readEnterpriseUploadContentsAsync(context, input);
+  assertSenaReliabilitySourceBytesWithinLimits(contents.map((content) => content.bytes.byteLength), "uploadIds");
   const parsedFiles = await Promise.all(contents.map((content) => (
     readSenaReliabilityUploadRows(reliabilityUploadFile(content))
   )));
+  assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => file.rows));
   const parsed = parseCoderAnnotationsFromRows(parsedFiles.flatMap((file) => file.rows));
   return {
     contents,

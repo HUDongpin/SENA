@@ -1,6 +1,9 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { parseSenaCsv, type SenaImportRow } from "./import";
 import {
+  assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySourceBytesWithinLimits,
+  assertSenaReliabilitySourceCountWithinLimits,
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
@@ -29,44 +32,57 @@ function isImportRow(value: unknown): value is SenaImportRow {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function rowsFromJson(value: unknown): SenaImportRow[] {
-  if (Array.isArray(value)) return value.filter(isImportRow);
+function rawRowsFromJson(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
   if (!isImportRow(value)) return [];
   const candidates = [value.rows, value.annotations, value.data];
   const table = candidates.find(Array.isArray);
-  return Array.isArray(table) ? table.filter(isImportRow) : [value];
+  return Array.isArray(table) ? table : [value];
 }
 
-async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
+async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{ rows: SenaImportRow[]; warnings: string[]; bytes: number }> {
   const lowerName = file.name.toLowerCase();
   if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
     throw new Error(`${file.name}: local reliability import accepts CSV or JSON only. Sign in to process .xlsx files on the server, or export this worksheet as CSV.`);
   }
 
   const text = await file.text();
+  const bytes = new TextEncoder().encode(text).byteLength;
+  assertSenaReliabilitySourceBytesWithinLimits([bytes], "files");
   if (lowerName.endsWith(".json")) {
+    let decoded: unknown;
     try {
-      return { rows: rowsFromJson(JSON.parse(text)), warnings: [] };
-    } catch (error) {
+      decoded = JSON.parse(text);
+    } catch {
       return {
         rows: [],
-        warnings: [`${file.name}: JSON reliability annotations could not be parsed.`]
+        warnings: [`${file.name}: JSON reliability annotations could not be parsed.`],
+        bytes
       };
     }
+    const rawRows = rawRowsFromJson(decoded);
+    assertSenaReliabilityCombinedRawRowsWithinLimits([rawRows]);
+    return { rows: rawRows.filter(isImportRow), warnings: [], bytes };
   }
 
   const parsed = parseSenaCsv(text);
+  assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
   // Ragged-row repairs are recorded per file; the padded empty value cell is
   // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
   // instead of being read as an applied code that moves kappa/alpha.
-  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`) };
+  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`), bytes };
 }
 
 export async function importSenaReliabilityFiles(
   files: SenaReliabilityUploadLike[],
   reviewer = "SENA reliability workflow"
 ): Promise<SenaLocalReliabilityImportResult> {
+  assertSenaReliabilitySourceCountWithinLimits(files.length, "files");
+  const declaredSizes = files.map((file) => file.size).filter((size): size is number => size !== undefined);
+  assertSenaReliabilitySourceBytesWithinLimits(declaredSizes, "files");
   const parsedFiles = await Promise.all(files.map(rowsFromReliabilityFile));
+  assertSenaReliabilitySourceBytesWithinLimits(parsedFiles.map((file) => file.bytes), "files");
+  assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => file.rows));
   const rows = parsedFiles.flatMap((file) => file.rows);
   const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
   const parsed = parseCoderAnnotationsFromRows(rows);

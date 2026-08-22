@@ -1,6 +1,9 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { createHash } from "node:crypto";
 import {
+  assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySourceBytesWithinLimits,
+  assertSenaReliabilitySourceCountWithinLimits,
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
@@ -51,11 +54,18 @@ function isImportRow(value: unknown): value is SenaImportRow {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function rowsFrom(value: unknown): SenaImportRow[] {
-  if (Array.isArray(value)) return value.filter(isImportRow);
+function rawRowsFrom(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
   if (!isImportRow(value)) return [];
   const nested = [value.annotations, value.rows, value.data].find(Array.isArray);
-  return Array.isArray(nested) ? nested.filter(isImportRow) : [value];
+  return Array.isArray(nested) ? nested : [value];
+}
+
+function allRawRowGroupsFrom(value: unknown): unknown[][] {
+  if (Array.isArray(value)) return [value];
+  if (!isImportRow(value)) return [];
+  const nested = [value.annotations, value.rows, value.data].filter(Array.isArray);
+  return nested.length > 0 ? nested : [[value]];
 }
 
 function stableStringify(value: unknown): string {
@@ -82,26 +92,90 @@ function sourceSummary(name: string, rows: SenaImportRow[]) {
   };
 }
 
-function namedSources(payload: SenaReliabilityJsonRequest) {
-  if (Array.isArray(payload.files) && payload.files.length > 0) {
-    return payload.files.map((file, index) => {
-      const record = isImportRow(file) ? file : {};
-      const name = scalar(record.name) || `reliability-json-batch-${index + 1}.json`;
-      return { name, rows: rowsFrom(record) };
+function assertJsonSourcesWithinLimits(payload: SenaReliabilityJsonRequest) {
+  const fileValues = Array.isArray(payload.files) ? payload.files : [];
+  const inlineValues = [
+    ["annotations", payload.annotations],
+    ["rows", payload.rows],
+    ["data", payload.data]
+  ].filter((entry): entry is [string, unknown] => entry[1] !== undefined);
+  const sourceCount = fileValues.length + inlineValues.length || 1;
+  const admissionPath = fileValues.length > 0 ? "files" as const : "annotations" as const;
+  // Count before mapping source envelopes so an attacker cannot create the
+  // very serialization/source-summary fan-out this guard is intended to stop.
+  assertSenaReliabilitySourceCountWithinLimits(sourceCount, admissionPath);
+
+  const admissionSources: Array<{ name: string; rawRowGroups: unknown[][] }> = [];
+  for (let index = 0; index < fileValues.length; index += 1) {
+    const value = fileValues[index];
+    const record = isImportRow(value) ? value : {};
+    admissionSources.push({
+      name: scalar(record.name) || `reliability-json-batch-${index + 1}.json`,
+      rawRowGroups: allRawRowGroupsFrom(record)
+    });
+  }
+  for (const [key, value] of inlineValues) {
+    admissionSources.push({
+      name: scalar(payload.sourceName) || `reliability-json-${key}.json`,
+      rawRowGroups: allRawRowGroupsFrom(value)
+    });
+  }
+  if (admissionSources.length === 0) {
+    admissionSources.push({
+      name: scalar(payload.sourceName) || "reliability-json-annotations.json",
+      rawRowGroups: [[]]
     });
   }
 
-  return [{
+  const rawRowGroups: unknown[][] = [];
+  for (const source of admissionSources) {
+    for (const rows of source.rawRowGroups) rawRowGroups.push(rows);
+  }
+  // Count every supplied alias/file group, including groups that semantic
+  // precedence will not select, before filtering any row values.
+  assertSenaReliabilityCombinedRawRowsWithinLimits(rawRowGroups);
+  assertSenaReliabilitySourceBytesWithinLimits(admissionSources.map((source) => Buffer.byteLength(stableStringify({
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
+    name: source.name,
+    rows: source.rawRowGroups.length === 1 ? source.rawRowGroups[0] : source.rawRowGroups
+  }), "utf8")), admissionPath);
+}
+
+function admittedNamedSources(payload: SenaReliabilityJsonRequest) {
+  assertJsonSourcesWithinLimits(payload);
+  if (Array.isArray(payload.files) && payload.files.length > 0) {
+    const rawSources: Array<{ name: string; rawRows: unknown[] }> = [];
+    for (let index = 0; index < payload.files.length; index += 1) {
+      const file = payload.files[index];
+      const record = isImportRow(file) ? file : {};
+      const name = scalar(record.name) || `reliability-json-batch-${index + 1}.json`;
+      rawSources.push({ name, rawRows: rawRowsFrom(record) });
+    }
+    return rawSources.map((source) => ({
+      name: source.name,
+      rows: source.rawRows.filter(isImportRow)
+    }));
+  }
+
+  const rawSources = [{
     name: scalar(payload.sourceName) || "reliability-json-annotations.json",
-    rows: rowsFrom(payload.annotations ?? payload.rows ?? payload.data)
+    rawRows: rawRowsFrom(payload.annotations ?? payload.rows ?? payload.data)
   }];
+  return rawSources.map((source) => ({
+    name: source.name,
+    rows: source.rawRows.filter(isImportRow)
+  }));
+}
+
+export function assertSenaReliabilityJsonRequestWithinLimits(payload: SenaReliabilityJsonRequest) {
+  assertJsonSourcesWithinLimits(payload);
 }
 
 export function prepareSenaReliabilityJsonRequest(
   payload: SenaReliabilityJsonRequest,
   options: { defaultReviewer?: string } = {}
 ): SenaPreparedReliabilityRunInput {
-  const sources = namedSources(payload).filter((source) => source.rows.length > 0);
+  const sources = admittedNamedSources(payload).filter((source) => source.rows.length > 0);
   const warnings = sources.length === 0 ? ["JSON reliability request did not include annotation rows."] : [];
   const rows = sources.flatMap((source) => source.rows);
   const parsed = parseCoderAnnotationsFromRows(rows);

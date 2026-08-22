@@ -16,6 +16,10 @@ import {
   type SenaMappedTable
 } from "./import";
 import type { SenaCode, SenaDataset, SenaDatasetMetadata } from "./types";
+import {
+  assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySourceBytesWithinLimits
+} from "./reliability";
 
 export type SenaImportAdapterSource = {
   name: string;
@@ -975,9 +979,11 @@ export type SenaReliabilityUploadFile = {
 export async function readSenaReliabilityUploadRows(
   file: SenaReliabilityUploadFile
 ): Promise<{ rows: SenaImportRow[]; warnings: string[] }> {
+  assertSenaReliabilitySourceBytesWithinLimits([file.bytes.byteLength], "files");
   const lower = file.name.toLowerCase();
   if (lower.endsWith(".xlsx")) {
     const workbook = await readXlsxWorkbookRows(file.bytes);
+    assertSenaReliabilityCombinedRawRowsWithinLimits(workbook.map((sheet) => sheet.rows));
     return { rows: workbook.flatMap((sheet) => sheet.rows), warnings: [] };
   }
   if (lower.endsWith(".xls")) {
@@ -985,12 +991,15 @@ export async function readSenaReliabilityUploadRows(
   }
   if (lower.endsWith(".json")) {
     const parsed = JSON.parse(file.bytes.toString("utf8"));
+    const rawRows = Array.isArray(parsed) ? parsed : [];
+    assertSenaReliabilityCombinedRawRowsWithinLimits([rawRows]);
     return {
-      rows: Array.isArray(parsed) ? parsed.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)) : [],
+      rows: rawRows.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)),
       warnings: []
     };
   }
   const parsed = parseSenaCsv(file.bytes.toString("utf8"));
+  assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
   // Ragged-row repairs are recorded per file; the padded empty value cell is
   // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
   // instead of being read as an applied code that moves kappa/alpha.

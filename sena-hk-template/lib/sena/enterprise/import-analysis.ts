@@ -483,6 +483,32 @@ export type SenaEnterpriseUploadContent = {
 };
 
 /**
+ * Resolves only tenant-scoped upload registry metadata. Reliability admission
+ * uses this read-only boundary to reject pointer fan-out and registered byte
+ * totals before any encrypted blob is opened or decrypted.
+ */
+export async function readEnterpriseUploadMetadataAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId: string; uploadIds: string[] }
+): Promise<SenaEnterpriseUpload[]> {
+  requireEnterprisePermission(context, input.teamId, "upload:read");
+  if (input.uploadIds.length === 0) {
+    throw new SenaEnterpriseError("No upload ids were supplied to read.", 400, "upload_ids_required");
+  }
+  const state = await readEnterpriseState();
+  const uploadsById = new Map(state.db.uploads
+    .filter((upload) => upload.teamId === input.teamId)
+    .map((upload) => [upload.id, upload] as const));
+  return input.uploadIds.map((uploadId) => {
+    const upload = uploadsById.get(uploadId);
+    if (!upload) {
+      throw new SenaEnterpriseError("Upload was not found for this team.", 404, "upload_not_found");
+    }
+    return upload;
+  });
+}
+
+/**
  * Resolves registered uploads by id and hands back their decrypted bytes.
  *
  * This is the only way out of this module for upload content, and it exists so

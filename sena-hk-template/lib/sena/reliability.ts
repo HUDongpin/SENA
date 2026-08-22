@@ -120,21 +120,28 @@ export type SenaReliabilityProjectBindingIssue = {
  * cartesian-product or value-row allocation can occur.
  */
 export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
+  rawRows: 200_000,
+  sources: 100,
+  sourceBytes: 25 * 1024 * 1024,
+  aggregateSourceBytes: 100 * 1024 * 1024,
   annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
   // One global pair result is retained per unordered coder pair. This also
   // bounds the outer pair loops before any pair-result array is allocated.
   coderPairs: 2_000,
-  // Cohen kappa maps two observation vectors for every global and per-code
-  // pair. `2 * coderPairs * binaryUnits` is a safe upper bound on those reads.
-  pairwiseObservationEvaluations: 10_000_000,
+  // Covers every pair/coder fan-out verified in the core statistics below:
+  // global and per-code Cohen projections/scans, per-code agreement pairs,
+  // and Krippendorff rating collection plus every m-by-m loop check. Linear
+  // input/result preparation is independently bounded by the surrounding raw
+  // row, annotation, assignment-cell, binary-unit, and result-entry caps.
+  algorithmWorkEvaluations: 10_000_000,
   // Each pair is retained once globally and once for every code diagnostic.
   pairwiseResultEntries: 100_000
 });
 
 export type SenaReliabilityUniverseLimitIssue = {
-  path: "annotations";
+  path: "annotations" | "files" | "uploadIds";
   rule: string;
   actual: number | "safe-integer-overflow";
   maximum: number;
@@ -196,12 +203,158 @@ function safeCardinalityProduct(left: number, right: number) {
   return left * right;
 }
 
+function safeCardinalitySum(values: readonly number[]) {
+  let total = 0;
+  for (const value of values) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER - total) return null;
+    total += value;
+  }
+  return total;
+}
+
 function safeUnorderedPairCount(count: number) {
   if (!Number.isSafeInteger(count) || count < 0) return null;
   if (count < 2) return 0;
   const left = count % 2 === 0 ? count / 2 : count;
   const right = count % 2 === 0 ? count - 1 : (count - 1) / 2;
   return safeCardinalityProduct(left, right);
+}
+
+export function assertSenaReliabilityRawRowsWithinLimits(
+  rawRowCount: number,
+  path: SenaReliabilityUniverseLimitIssue["path"] = "annotations"
+) {
+  if (!Number.isSafeInteger(rawRowCount) || rawRowCount < 0 || rawRowCount > SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `raw-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows}`,
+      actual: Number.isSafeInteger(rawRowCount) && rawRowCount >= 0 ? rawRowCount : "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows
+    }]);
+  }
+  return rawRowCount;
+}
+
+export function assertSenaReliabilityCombinedRawRowsWithinLimits(
+  rowGroups: readonly { readonly length: number }[],
+  path: SenaReliabilityUniverseLimitIssue["path"] = "annotations"
+) {
+  let total = 0;
+  for (const rows of rowGroups) {
+    const next = safeCardinalitySum([total, rows.length]);
+    if (next === null) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `raw-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows}`,
+        actual: "safe-integer-overflow",
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows
+      }]);
+    }
+    total = next;
+    if (total > SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows) {
+      return assertSenaReliabilityRawRowsWithinLimits(total, path);
+    }
+  }
+  return assertSenaReliabilityRawRowsWithinLimits(total, path);
+}
+
+export function assertSenaReliabilitySourceCountWithinLimits(
+  sourceCount: number,
+  path: SenaReliabilityUniverseLimitIssue["path"]
+) {
+  if (!Number.isSafeInteger(sourceCount) || sourceCount < 0 || sourceCount > SENA_RELIABILITY_UNIVERSE_LIMITS.sources) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `source-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sources}`,
+      actual: Number.isSafeInteger(sourceCount) && sourceCount >= 0 ? sourceCount : "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sources
+    }]);
+  }
+  return sourceCount;
+}
+
+export function assertSenaReliabilitySourceBytesWithinLimits(
+  sourceSizes: readonly number[],
+  path: SenaReliabilityUniverseLimitIssue["path"]
+) {
+  assertSenaReliabilitySourceCountWithinLimits(sourceSizes.length, path);
+  let aggregateBytes = 0;
+  for (const size of sourceSizes) {
+    if (!Number.isSafeInteger(size) || size < 0 || size > SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes}`,
+        actual: Number.isSafeInteger(size) && size >= 0 ? size : "safe-integer-overflow",
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes
+      }]);
+    }
+    const next = safeCardinalitySum([aggregateBytes, size]);
+    if (next === null) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `aggregate-source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes}`,
+        actual: "safe-integer-overflow",
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
+      }]);
+    }
+    aggregateBytes = next;
+  }
+  if (aggregateBytes > SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `aggregate-source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes}`,
+      actual: aggregateBytes,
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
+    }]);
+  }
+  return aggregateBytes;
+}
+
+export type SenaReliabilityAlgorithmWorkComponents = {
+  globalCohenVectorProjections: number;
+  globalCohenScans: number;
+  perCodeCohenVectorProjections: number;
+  perCodeCohenScans: number;
+  perCodeAgreementPairEvaluations: number;
+  krippendorffRatingCollectionPasses: number;
+  krippendorffOrderedPairUpdates: number;
+  krippendorffDiagonalPairChecks: number;
+};
+
+function senaReliabilityAlgorithmWork(input: {
+  binaryUnits: number | null;
+  assignmentCells: number | null;
+  coderPairs: number | null;
+  coderCount: number;
+}): { components: SenaReliabilityAlgorithmWorkComponents; total: number } | null {
+  if (input.binaryUnits === null || input.assignmentCells === null || input.coderPairs === null) return null;
+  const pairwiseUnits = safeCardinalityProduct(input.coderPairs, input.binaryUnits);
+  const orderedCoderPairs = Number.isSafeInteger(input.coderCount) && input.coderCount >= 0
+    ? safeCardinalityProduct(input.coderCount, Math.max(0, input.coderCount - 1))
+    : null;
+  if (pairwiseUnits === null || orderedCoderPairs === null) return null;
+  const globalCohenVectorProjections = safeCardinalityProduct(pairwiseUnits, 2);
+  const perCodeCohenVectorProjections = safeCardinalityProduct(pairwiseUnits, 2);
+  // krippendorffAlphaNominal performs map/filter/map over every coder value in
+  // every binary unit before its m-by-m coincidence loop.
+  const krippendorffRatingCollectionPasses = safeCardinalityProduct(input.assignmentCells, 3);
+  const krippendorffOrderedPairUpdates = safeCardinalityProduct(orderedCoderPairs, input.binaryUnits);
+  const krippendorffDiagonalPairChecks = safeCardinalityProduct(input.coderCount, input.binaryUnits);
+  if (globalCohenVectorProjections === null || perCodeCohenVectorProjections === null ||
+    krippendorffRatingCollectionPasses === null || krippendorffOrderedPairUpdates === null ||
+    krippendorffDiagonalPairChecks === null) return null;
+  const components: SenaReliabilityAlgorithmWorkComponents = {
+    globalCohenVectorProjections,
+    globalCohenScans: pairwiseUnits,
+    perCodeCohenVectorProjections,
+    perCodeCohenScans: pairwiseUnits,
+    perCodeAgreementPairEvaluations: pairwiseUnits,
+    krippendorffRatingCollectionPasses,
+    krippendorffOrderedPairUpdates,
+    krippendorffDiagonalPairChecks
+  };
+  const total = safeCardinalitySum(Object.values(components));
+  return total === null ? null : { components, total };
 }
 
 export function assertSenaReliabilityUniverseWithinLimits(input: {
@@ -214,12 +367,12 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
     ? null
     : safeCardinalityProduct(binaryUnits, input.coderCount);
   const coderPairs = safeUnorderedPairCount(input.coderCount);
-  const pairwiseUnitEvaluations = coderPairs === null || binaryUnits === null
-    ? null
-    : safeCardinalityProduct(coderPairs, binaryUnits);
-  const pairwiseObservationEvaluations = pairwiseUnitEvaluations === null
-    ? null
-    : safeCardinalityProduct(pairwiseUnitEvaluations, 2);
+  const algorithmWork = senaReliabilityAlgorithmWork({
+    binaryUnits,
+    assignmentCells,
+    coderPairs,
+    coderCount: input.coderCount
+  });
   const codeLayers = Number.isSafeInteger(input.codeCount) && input.codeCount >= 0 && input.codeCount < Number.MAX_SAFE_INTEGER
     ? input.codeCount + 1
     : null;
@@ -253,15 +406,17 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
       maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
     });
   }
-  if (issues.length === 0 && (
-    pairwiseObservationEvaluations === null
-    || pairwiseObservationEvaluations > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations
+  // Surface arithmetic overflow even when a stricter cardinality issue already
+  // exists. Otherwise an implementation change could make this work estimate
+  // unsafe while tests only observe the earlier cap.
+  if (algorithmWork === null || (
+    issues.length === 0 && algorithmWork.total > SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations
   )) {
     issues.push({
       path: "annotations",
-      rule: `pairwise-observation-evaluation-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations}`,
-      actual: pairwiseObservationEvaluations ?? "safe-integer-overflow",
-      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseObservationEvaluations
+      rule: `algorithm-work-evaluation-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations}`,
+      actual: algorithmWork?.total ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations
     });
   }
   if (issues.length === 0 && (
@@ -280,7 +435,8 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
     binaryUnits,
     assignmentCells,
     coderPairs,
-    pairwiseObservationEvaluations,
+    algorithmWorkEvaluations: algorithmWork?.total ?? null,
+    algorithmWorkComponents: algorithmWork?.components ?? null,
     pairwiseResultEntries
   };
 }
@@ -666,6 +822,10 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
   warnings: string[];
   skippedCells: SenaSkippedCoderCell[];
 } {
+  // Defensive direct-call boundary. Public request/file adapters also run this
+  // admission before invoking the semantic parser so invalid rows cannot fan
+  // out warnings or skipped-cell evidence first.
+  assertSenaReliabilityCombinedRawRowsWithinLimits([rows]);
   const warnings: string[] = [];
   const skippedCells: SenaSkippedCoderCell[] = [];
   const annotations = rows.flatMap<SenaCoderAnnotation>((row, index) => {
@@ -700,6 +860,7 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
 
 export function parseCoderAnnotationsCsv(text: string) {
   const parsed = parseSenaCsv(text);
+  assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
   const annotations = parseCoderAnnotationsFromRows(parsed.rows);
   // Ragged-row repairs are additive on the existing shape: a row truncated
   // before its value cell is padded here, then skipped (with disclosure) by the

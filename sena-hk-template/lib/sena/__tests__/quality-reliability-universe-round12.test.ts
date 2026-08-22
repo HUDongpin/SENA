@@ -139,7 +139,13 @@ describe("Round12 bounded coding-reliability universe", () => {
       codeCount: 2,
       coderCount: 1
     })).toThrow(expect.objectContaining({
-      issues: [expect.objectContaining({ actual: "safe-integer-overflow" })]
+      issues: expect.arrayContaining([
+        expect.objectContaining({ actual: "safe-integer-overflow" }),
+        expect.objectContaining({
+          rule: `algorithm-work-evaluation-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations}`,
+          actual: "safe-integer-overflow"
+        })
+      ])
     }));
   });
 
