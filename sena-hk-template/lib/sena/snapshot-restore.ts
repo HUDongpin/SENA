@@ -6,11 +6,14 @@ import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 export const SENA_SNAPSHOT_RESTORE_MAX_CHUNKS = 4096;
-// The adaptive allowance accepts current builder packets without granting a
-// dense small payload the hard maximum; 16 MiB inputs never exceed 1M tokens.
+// Structural work stays proportional to admitted transport bytes. The byte
+// ceiling therefore supplies the hard maximum (4,194,304 tokens at the
+// 16 MiB default) instead of an unrelated plateau that can reject canonical
+// builder output before schema validation.
 export const SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS = 250_000;
-export const SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS = 1_000_000;
 export const SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN = 4;
+export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_STRUCTURAL_TOKENS =
+  SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN;
 export const SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH = 64;
 
 export type SenaSnapshotRestoreResult = {
@@ -81,12 +84,9 @@ function requestTooComplex() {
 }
 
 function snapshotRestoreStructuralTokenBudget(bytes: number) {
-  return Math.min(
-    SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS,
-    Math.max(
-      SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
-      Math.floor(bytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
-    )
+  return Math.max(
+    SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+    Math.floor(bytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
   );
 }
 

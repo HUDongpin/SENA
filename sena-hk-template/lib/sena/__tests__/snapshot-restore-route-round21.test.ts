@@ -10,7 +10,7 @@ import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
 import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import { buildSenaProjectSnapshot } from "../snapshot";
+import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "../snapshot";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 
 const endpoint = "https://sena.example.test/api/sena/snapshot/restore";
@@ -47,6 +47,24 @@ function currentReviewPacket() {
     generatedAt: "2026-08-23T00:00:00.000Z",
     sourceDataset: lessonStudySenaContract,
     evidenceLimit: 500
+  });
+}
+
+function canonicalHundredCodeSnapshot() {
+  const dataset = structuredClone(lessonStudySenaContract);
+  dataset.codebook = [
+    ...dataset.codebook,
+    ...Array.from({ length: 100 - dataset.codebook.length }, (_, index) => ({
+      id: `unused-code-${String(index + 1).padStart(3, "0")}`,
+      label: `Unused code ${index + 1}`,
+      family: "Restore admission fixture",
+      description: "Valid unused code retained to exercise canonical builder output bounds.",
+      color: "#64748b"
+    }))
+  ];
+  return buildSenaProjectSnapshot(buildSenaModel(dataset), {
+    generatedAt: "2026-08-23T00:00:00.000Z",
+    sourceDataset: dataset
   });
 }
 
@@ -132,6 +150,32 @@ describe("SENA stateless snapshot restore route", () => {
       }
     });
     expect("snapshot" in result ? result.snapshot : null).toEqual(expected);
+  });
+
+  it("round-trips a builder-generated 100-code canonical snapshot below the byte ceiling", async () => {
+    const source = canonicalHundredCodeSnapshot();
+    const raw = JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      source
+    });
+
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(16 * 1024 * 1024);
+    expect(importSenaProjectSnapshot(source)).toEqual(source);
+
+    const response = await POST(restoreRequest(source));
+    const result = await response.json() as SenaSnapshotRestoreResult | { code: string };
+
+    expect(response.status).toBe(200);
+    expect(result).toMatchObject({
+      schemaVersion: "sena-snapshot-restore-result/v1",
+      sourceKind: "project-snapshot",
+      processing: {
+        persisted: false,
+        audited: false,
+        mode: "stateless-canonical-read-projection"
+      }
+    });
+    expect("snapshot" in result ? result.snapshot.source.sourceDatasetCounts.codes : null).toBe(100);
   });
 
   it("rejects over-cardinality review-packet catalogs with one sanitized route error", async () => {
@@ -268,6 +312,29 @@ describe("SENA stateless snapshot restore route", () => {
 
   it("rejects excessive JSON structure before invoking the parser", async () => {
     const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":{"dataset":{"people":[${"{},".repeat(100_000)}null]}}}`;
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await expect(readSenaSnapshotRestoreRequest(request)).rejects.toMatchObject({
+        name: "SenaSnapshotRestoreRequestError",
+        status: 413,
+        code: "snapshot_restore_request_too_complex"
+      } satisfies Partial<SenaSnapshotRestoreRequestError>);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("keeps proportional structural fan-out rejection above the adaptive floor", async () => {
+    const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":{"dataset":{"people":[${"{},".repeat(400_000)}null]}}}`;
+    expect(Buffer.byteLength(raw, "utf8")).toBeGreaterThan(1_000_000);
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(16 * 1024 * 1024);
     const request = new Request(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
