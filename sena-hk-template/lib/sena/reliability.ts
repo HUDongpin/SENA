@@ -179,7 +179,7 @@ export class SenaReliabilityUniverseLimitError extends Error {
 
 export type SenaReliabilitySourceInputIssue = {
   path: "sources" | "files" | "uploadIds";
-  rule: "exactly-one-source-mode" | "file-value-required" | "non-empty-string-upload-id";
+  rule: "exactly-one-source-mode" | "file-array-required" | "file-value-required" | "non-empty-string-upload-id";
 };
 
 export class SenaReliabilitySourceInputError extends Error {

@@ -613,6 +613,12 @@ export function createEnterpriseStateStore(input: {
 
 export type SenaFileEnterpriseStateStore = SenaEnterpriseStateStore & {
   adapter: "file-backed-json";
+  /**
+   * Runs a synchronous read-modify-write while holding the cross-process file
+   * lock. The callback is never invoked when lock acquisition fails, and a
+   * thrown callback leaves the persisted database unchanged.
+   */
+  mutateAtomically: <Result>(mutator: (db: SenaEnterpriseDb) => Result) => Result;
   paths: {
     dbDir: string;
     dbPath: string;
@@ -780,18 +786,8 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   );
   const pruneBeforeSave = options.pruneBeforeSave ?? ((db: SenaEnterpriseDb) => db);
 
-  const write = (db: SenaEnterpriseDb) => {
-    const fileWritePolicy = enterpriseFileStateWritePolicy();
-    if (fileWritePolicy.blocked) throw enterpriseFileStateWriteBlockedError();
+  const persistWithoutLock = (db: SenaEnterpriseDb) => {
     options.validateDb?.(db);
-    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
-    const lockId = acquireFileStateLock({
-      dbDir,
-      lockPath,
-      timeoutMs,
-      pollMs,
-      lockTimeoutError: options.lockTimeoutError
-    });
     const tmpPath = `${dbPath}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`;
     try {
       const serialized = JSON.stringify(db, null, 2);
@@ -807,6 +803,45 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
           // Best effort cleanup; ops health reports storage writability separately.
         }
       }
+    }
+  };
+
+  const acquireWriteLock = () => {
+    const fileWritePolicy = enterpriseFileStateWritePolicy();
+    if (fileWritePolicy.blocked) throw enterpriseFileStateWriteBlockedError();
+    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    return acquireFileStateLock({
+      dbDir,
+      lockPath,
+      timeoutMs,
+      pollMs,
+      lockTimeoutError: options.lockTimeoutError
+    });
+  };
+
+  const write = (db: SenaEnterpriseDb) => {
+    const lockId = acquireWriteLock();
+    try {
+      persistWithoutLock(db);
+    } finally {
+      releaseFileStateLock(lockPath, lockId);
+    }
+  };
+
+  const mutateAtomically = <Result>(mutator: (db: SenaEnterpriseDb) => Result) => {
+    const lockId = acquireWriteLock();
+    try {
+      const db = existsSync(dbPath)
+        ? (() => {
+          const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDbReadModel;
+          options.validateDb?.(parsed);
+          return normalizeDb(parsed);
+        })()
+        : normalizeDb(options.createEmptyDb());
+      const result = mutator(db);
+      persistWithoutLock(db);
+      return result;
+    } finally {
       releaseFileStateLock(lockPath, lockId);
     }
   };
@@ -840,6 +875,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     read,
     write,
     save: (db) => write(pruneBeforeSave(db)),
+    mutateAtomically,
     probeLock: () => {
       let lockId = "";
       try {
@@ -997,6 +1033,10 @@ export function readEnterpriseDb(): SenaEnterpriseDb {
 
 export function writeEnterpriseDb(db: SenaEnterpriseDb) {
   enterpriseStateStore().write(db);
+}
+
+export function mutateEnterpriseDbAtomically<Result>(mutator: (db: SenaEnterpriseDb) => Result) {
+  return enterpriseStateStore().mutateAtomically(mutator);
 }
 
 export function saveDb(db: SenaEnterpriseDb) {

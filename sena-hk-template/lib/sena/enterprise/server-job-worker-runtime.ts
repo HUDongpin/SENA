@@ -358,24 +358,29 @@ function queuedReliabilityJsonSourceSupplied(payload: Record<string, unknown>) {
 }
 
 function queuedReliabilityJsonPayload(payload: Record<string, unknown>): SenaReliabilityJsonRequest {
-  return {
+  const result: SenaReliabilityJsonRequest = {
     teamId: payload.teamId,
     projectId: payload.projectId,
     projectVersion: payload.projectVersion,
     reviewer: payload.reviewer,
-    sourceName: payload.sourceName,
-    files: payload.files,
-    // inlineAnnotations is the managed-worker transport alias and retains its
-    // historical semantic precedence. Admission below still counts every
-    // additional public alias supplied beside it.
-    annotations: hasOwn(payload, "inlineAnnotations") ? payload.inlineAnnotations : payload.annotations,
-    rows: payload.rows,
-    data: payload.data
+    sourceName: payload.sourceName
   };
+  if (hasOwn(payload, "files")) result.files = payload.files;
+  // inlineAnnotations is the managed-worker transport alias and retains its
+  // historical semantic precedence. Admission below still counts every
+  // additional public alias supplied beside it.
+  if (hasOwn(payload, "inlineAnnotations")) result.annotations = payload.inlineAnnotations;
+  else if (hasOwn(payload, "annotations")) result.annotations = payload.annotations;
+  if (hasOwn(payload, "rows")) result.rows = payload.rows;
+  if (hasOwn(payload, "data")) result.data = payload.data;
+  return result;
 }
 
 function queuedReliabilityAdmissionPayload(payload: Record<string, unknown>): SenaReliabilityJsonRequest {
   if (!hasOwn(payload, "inlineAnnotations")) return queuedReliabilityJsonPayload(payload);
+  if (hasOwn(payload, "files") && !Array.isArray(payload.files)) {
+    return { files: payload.files };
+  }
   const files = Array.isArray(payload.files) ? [...payload.files] : [];
   for (const key of ["inlineAnnotations", "annotations", "rows", "data"] as const) {
     if (!hasOwn(payload, key)) continue;

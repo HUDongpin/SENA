@@ -7,6 +7,7 @@ import {
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
+  SenaReliabilitySourceInputError,
   type SenaCoderAnnotation,
   type SenaReliabilityDashboard,
   type SenaSkippedCoderCell
@@ -109,7 +110,14 @@ type SenaReliabilityJsonAdmissionSource = {
 };
 
 function jsonAdmissionSources(payload: SenaReliabilityJsonRequest) {
-  const fileValues = Array.isArray(payload.files) ? payload.files : [];
+  const filesSupplied = Object.prototype.hasOwnProperty.call(payload, "files");
+  if (filesSupplied && !Array.isArray(payload.files)) {
+    throw new SenaReliabilitySourceInputError([{
+      path: "files",
+      rule: "file-array-required"
+    }]);
+  }
+  const fileValues = filesSupplied ? payload.files as unknown[] : [];
   const inlineValues = [
     ["annotations", payload.annotations],
     ["rows", payload.rows],
@@ -132,7 +140,10 @@ function jsonAdmissionSources(payload: SenaReliabilityJsonRequest) {
   for (const [key, value] of inlineValues) {
     sources.push({
       kind: key,
-      name: scalar(payload.sourceName) || `reliability-json-${key}.json`,
+      // Synchronous semantics have always summarized the selected legacy alias
+      // under the annotations source name. Preserve that canonical identity in
+      // queue envelopes so rows/data do not drift in name, bytes, or SHA-256.
+      name: scalar(payload.sourceName) || "reliability-json-annotations.json",
       rawValue: value,
       rawRowGroups: allRawRowGroupsFrom(value),
       supplied: true
@@ -144,7 +155,10 @@ function jsonAdmissionSources(payload: SenaReliabilityJsonRequest) {
       name: scalar(payload.sourceName) || "reliability-json-annotations.json",
       rawValue: [],
       rawRowGroups: [[]],
-      supplied: false
+      // An explicit empty files array is a supported empty JSON source. Carry
+      // one canonical empty envelope through a local queue instead of silently
+      // turning it into a missing-source error.
+      supplied: filesSupplied
     });
   }
   return { admissionPath, sourceCount, sources };

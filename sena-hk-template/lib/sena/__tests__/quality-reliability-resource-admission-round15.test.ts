@@ -55,6 +55,18 @@ function expectedLimitIssue(input: {
   });
 }
 
+function expectedSourceIssue(input: {
+  path: "files" | "uploadIds" | "sources";
+  rule: string;
+}) {
+  return expect.objectContaining({
+    name: "SenaReliabilitySourceInputError",
+    status: 400,
+    code: "invalid_sena_reliability_sources",
+    issues: [input]
+  });
+}
+
 afterEach(() => {
   resetReliabilityEnvironment();
   vi.doUnmock("../reliability");
@@ -67,6 +79,33 @@ afterEach(() => {
 });
 
 describe("Round15 raw reliability admission", () => {
+  it.each([
+    ["object", (): unknown => ({ rows: Array.from({ length: resourceLimits.rawRows + 1 }, () => null) })],
+    ["null", (): unknown => null],
+    ["string", (): unknown => "not-a-file-array"]
+  ] as const)("rejects a supplied non-array JSON files %s before semantic parsing", async (_label, value) => {
+    vi.resetModules();
+    const parseRows = vi.fn(() => {
+      throw new Error("semantic reliability parser must not run");
+    });
+    const buildDashboard = vi.fn(() => {
+      throw new Error("reliability dashboard must not run");
+    });
+    vi.doMock("../reliability", async () => ({
+      ...await vi.importActual<typeof import("../reliability")>("../reliability"),
+      parseCoderAnnotationsFromRows: parseRows,
+      buildSenaReliabilityDashboard: buildDashboard
+    }));
+    const { prepareSenaReliabilityJsonRequest } = await import("../reliability-api");
+
+    expect(() => prepareSenaReliabilityJsonRequest({ files: value() })).toThrow(expectedSourceIssue({
+      path: "files",
+      rule: "file-array-required"
+    }));
+    expect(parseRows).not.toHaveBeenCalled();
+    expect(buildDashboard).not.toHaveBeenCalled();
+  });
+
   it("rejects 200001 invalid JSON rows before the semantic parser or dashboard", async () => {
     vi.resetModules();
     const parseRows = vi.fn(() => {
@@ -336,6 +375,94 @@ describe("Round15 raw reliability admission", () => {
       value: true
     }]);
   });
+});
+
+describe("Round15 invalid JSON files shape route admission", () => {
+  it.each([
+    ["object", (): unknown => ({ rows: Array.from({ length: resourceLimits.rawRows + 1 }, () => null) })],
+    ["null", (): unknown => null],
+    ["string", (): unknown => "not-a-file-array"]
+  ] as const)(
+    "returns a stable 400 for files=%s before upload, queue, run, or audit side effects",
+    async (_label, value) => {
+      const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-round15-invalid-json-files-"));
+      let sessionToken = "";
+      resetReliabilityEnvironment();
+      vi.resetModules();
+      process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+      process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+      process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+      process.env.SENA_JOB_QUEUE_SECRET = "round15-invalid-files-secret";
+      process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.doMock("next/headers", () => ({
+        cookies: () => ({
+          get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+        })
+      }));
+      vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+      vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+      vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+      vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+      vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+      try {
+        const enterprise = await import("../enterprise");
+        const importAnalysis = await import("../enterprise/import-analysis");
+        const jobs = await import("../enterprise/server-job-queue");
+        const reliabilityRuns = await import("../enterprise/reliability-runs");
+        const registered = enterprise.registerEnterpriseUser({
+          name: "Round15 invalid files reviewer",
+          email: `round15-invalid-files-${_label}@example.edu`,
+          password: "sena-secure-123",
+          organization: "Round15 Reliability Lab",
+          plan: "lab"
+        });
+        sessionToken = registered.token;
+        const teamId = registered.context.teams[0].id;
+        const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+        const uploadsBefore = importAnalysis.listEnterpriseUploads(registered.context, teamId);
+        const runsBefore = await reliabilityRuns.listEnterpriseReliabilityRunsAsync(registered.context, { teamId });
+        const auditsBefore = enterprise.listEnterpriseAuditLog(registered.context, {
+          teamId,
+          limit: 500
+        }).events;
+        const route = await import("../../../app/api/sena/reliability/route");
+        const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token,
+            prefer: "respond-async"
+          },
+          body: JSON.stringify({
+            teamId,
+            reviewer: "Round15 invalid files reviewer",
+            files: value()
+          })
+        }));
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: "SENA coding-reliability request sources are invalid.",
+          code: "invalid_sena_reliability_sources",
+          issues: [{ path: "files", rule: "file-array-required" }]
+        });
+        expect(importAnalysis.listEnterpriseUploads(registered.context, teamId)).toEqual(uploadsBefore);
+        expect((await jobs.listEnterpriseServerJobs({ teamId })).jobs).toHaveLength(0);
+        expect(await reliabilityRuns.listEnterpriseReliabilityRunsAsync(registered.context, { teamId })).toEqual(runsBefore);
+        expect(enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events).toEqual(auditsBefore);
+        expect(fetchMock).not.toHaveBeenCalled();
+      } finally {
+        resetReliabilityEnvironment();
+        rmSync(enterpriseDbDir, { recursive: true, force: true });
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
+    },
+    30_000
+  );
 });
 
 describe("Round15 decoded reliability file row admission", () => {
@@ -1075,7 +1202,10 @@ const queuedJsonFilesParityPayload = {
   ]
 };
 
-async function runQueuedJsonFilesParityCase(mode: "sync" | "local" | "managed") {
+async function runQueuedJsonFilesParityCase(
+  mode: "sync" | "local" | "managed",
+  payload: Record<string, unknown> = queuedJsonFilesParityPayload
+) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-round15-json-files-${mode}-`));
   let sessionToken = "";
   let managedWebhook: { workerPayload?: unknown } | undefined;
@@ -1131,7 +1261,7 @@ async function runQueuedJsonFilesParityCase(mode: "sync" | "local" | "managed") 
         ...(mode === "sync" ? {} : { prefer: "respond-async" })
       },
       body: JSON.stringify({
-        ...queuedJsonFilesParityPayload,
+        ...payload,
         teamId
       })
     }));
@@ -1214,6 +1344,55 @@ describe("Round15 queued JSON files parity", () => {
     expect(synchronous.skippedCells).toHaveLength(1);
     expect(synchronous.meanPairwiseKappaStatus).toBe("insufficient-pairable-units");
     expect(synchronous.meanPairwiseKappa).toBeNull();
+    expect.soft(local).toEqual(synchronous);
+    expect.soft(managed).toEqual(synchronous);
+  }, 60_000);
+
+  it.each(["rows", "data"] as const)(
+    "preserves the canonical source summary and statistics for a lone %s alias without sourceName",
+    async (alias) => {
+      const payload = {
+        reviewer: `Round15 queued ${alias} alias reviewer`,
+        [alias]: [
+          { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+          { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" },
+          { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "" },
+          { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" },
+          { ignored: `${alias}-invalid-row` }
+        ]
+      };
+      const synchronous = await runQueuedJsonFilesParityCase("sync", payload);
+      const local = await runQueuedJsonFilesParityCase("local", payload);
+      const managed = await runQueuedJsonFilesParityCase("managed", payload);
+
+      expect(synchronous.inputFiles).toEqual([
+        expect.objectContaining({ name: "reliability-json-annotations.json" })
+      ]);
+      expect(synchronous.skippedCells).toHaveLength(1);
+      expect(synchronous.warnings.length).toBeGreaterThan(0);
+      expect.soft(local).toEqual(synchronous);
+      expect.soft(managed).toEqual(synchronous);
+    },
+    60_000
+  );
+
+  it("preserves exact empty-files semantics in synchronous, local, and managed execution", async () => {
+    const payload = {
+      reviewer: "Round15 empty JSON files reviewer",
+      files: []
+    };
+    const synchronous = await runQueuedJsonFilesParityCase("sync", payload);
+    const local = await runQueuedJsonFilesParityCase("local", payload);
+    const managed = await runQueuedJsonFilesParityCase("managed", payload);
+
+    // Preserve the established direct-empty JSON contract: it records one
+    // canonical logical JSON source even though that source has no rows.
+    expect(synchronous.fileCount).toBe(1);
+    expect(synchronous.annotationCount).toBe(0);
+    expect(synchronous.inputFiles).toEqual([
+      expect.objectContaining({ name: "reliability-json-annotations.json" })
+    ]);
+    expect(synchronous.warnings).toContain("JSON reliability request did not include annotation rows.");
     expect.soft(local).toEqual(synchronous);
     expect.soft(managed).toEqual(synchronous);
   }, 60_000);
