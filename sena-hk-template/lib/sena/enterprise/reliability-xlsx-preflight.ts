@@ -6,6 +6,7 @@ export type SenaXlsxWorkbookPreflightLimits = {
   maximumUncompressedBytes?: number;
   maximumDataRows?: number;
   maximumWorksheets?: number;
+  maximumRowIndex?: number;
 };
 
 export type SenaXlsxWorkbookPreflight = {
@@ -19,7 +20,7 @@ export class SenaXlsxWorkbookPreflightError extends Error {
   readonly name = "SenaXlsxWorkbookPreflightError";
 
   constructor(
-    readonly kind: "entries" | "uncompressed-bytes" | "data-rows" | "worksheets",
+    readonly kind: "entries" | "uncompressed-bytes" | "data-rows" | "worksheets" | "row-index",
     readonly actual: number,
     readonly maximum: number
   ) {
@@ -153,6 +154,7 @@ export async function preflightXlsxWorkbook(
   );
   const maximumDataRows = checkedXlsxPreflightLimit(limits.maximumDataRows, "maximumDataRows");
   const maximumWorksheets = checkedXlsxPreflightLimit(limits.maximumWorksheets, "maximumWorksheets");
+  const maximumRowIndex = checkedXlsxPreflightLimit(limits.maximumRowIndex ?? 1_048_576, "maximumRowIndex");
   const entries = xlsxCentralDirectoryEntryCount(bytes, maximumEntries);
   const archive = await JSZip.loadAsync(bytes);
   let uncompressedBytes = 0;
@@ -161,7 +163,10 @@ export async function preflightXlsxWorkbook(
 
   for (const entry of Object.values(archive.files)) {
     if (entry.dir) continue;
-    const isWorksheet = /^xl\/worksheets\/[^/]+\.xml$/i.test(entry.name);
+    // Match the exact unanchored worksheet pattern used by ExcelJS 4.4.x.
+    // Any archive entry the downstream decoder can materialize must be walked
+    // here first, including a worksheet path embedded below another prefix.
+    const isWorksheet = /xl\/worksheets\/sheet(\d+)\.xml/i.test(entry.name);
     let rowOrdinal = 0;
     let parser: SaxesParser | undefined;
     let decoder: TextDecoder | undefined;
@@ -178,6 +183,13 @@ export async function preflightXlsxWorkbook(
         rowOrdinal += 1;
         const rawRowNumber = typeof tag.attributes.r === "string" ? tag.attributes.r : undefined;
         const rowNumber = rawRowNumber && /^\d+$/.test(rawRowNumber) ? Number(rawRowNumber) : rowOrdinal;
+        if (!Number.isSafeInteger(rowNumber) || rowNumber < 1 || rowNumber > maximumRowIndex) {
+          throw new SenaXlsxWorkbookPreflightError(
+            "row-index",
+            Number.isSafeInteger(rowNumber) && rowNumber >= 0 ? rowNumber : maximumRowIndex + 1,
+            maximumRowIndex
+          );
+        }
         if (rowNumber === 1) return;
         dataRows += 1;
         if (dataRows > maximumDataRows) {

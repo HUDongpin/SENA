@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -31,9 +31,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  writeEnterpriseDb(emptyEnterpriseDb(), {
-    authorizedOverwrite: { reason: "isolated canonical-boundary test reset" }
-  });
+  writeFileSync(path.join(enterpriseDbDir, "enterprise-db.json"), JSON.stringify(emptyEnterpriseDb()));
 });
 
 afterAll(() => {

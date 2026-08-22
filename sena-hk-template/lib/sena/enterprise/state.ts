@@ -614,9 +614,6 @@ export function createEnterpriseStateStore(input: {
 
 export type SenaFileEnterpriseStateWriteOptions = {
   expectedRevision?: string;
-  authorizedOverwrite?: {
-    reason: string;
-  };
 };
 
 export type SenaFileEnterpriseStateStore = Omit<SenaEnterpriseStateStore, "read" | "write" | "save"> & {
@@ -672,6 +669,7 @@ export type SenaFileEnterpriseStateStoreOptions = {
   fileName?: string;
   lockTimeoutMs?: number;
   lockPollMs?: number;
+  lockStaleMs?: number;
   createEmptyDb: () => SenaEnterpriseDb;
   validateDb?: (db: SenaEnterpriseDbReadModel) => void;
   normalizeDb?: (db: SenaEnterpriseDbReadModel) => SenaEnterpriseDbReadModel;
@@ -683,11 +681,52 @@ function sleepSync(ms: number) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+function fileLockOwnerAlive(pid: number) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+    // EPERM still proves that a process owns this pid; only ESRCH is a
+    // positive dead-owner signal.
+    return code !== "ESRCH";
+  }
+}
+
+function reclaimStaleFileStateLock(lockPath: string, staleMs: number) {
+  try {
+    const observed = readFileSync(lockPath, "utf8");
+    const match = /^(\d+):(\d+):/.exec(observed);
+    const ownerPid = match ? Number(match[1]) : undefined;
+    const acquiredAt = match ? Number(match[2]) : undefined;
+    const statAge = Math.max(0, Date.now() - statSync(lockPath).mtimeMs);
+    const declaredAge = Number.isSafeInteger(acquiredAt) && acquiredAt! >= 0
+      ? Math.max(0, Date.now() - acquiredAt!)
+      : statAge;
+    if (Math.max(statAge, declaredAge) < staleMs) return false;
+    if (ownerPid !== undefined && fileLockOwnerAlive(ownerPid)) return false;
+    // Re-read the owner token immediately before unlinking. A prior owner may
+    // have released the path and a new writer acquired it during inspection.
+    if (readFileSync(lockPath, "utf8") !== observed) return false;
+    unlinkSync(lockPath);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+    return code === "ENOENT";
+  }
+}
+
 function acquireFileStateLock(input: {
   dbDir: string;
   lockPath: string;
   timeoutMs: number;
   pollMs: number;
+  staleMs: number;
   lockTimeoutError?: () => Error;
 }) {
   if (!existsSync(input.dbDir)) mkdirSync(input.dbDir, { recursive: true });
@@ -700,6 +739,7 @@ function acquireFileStateLock(input: {
     } catch (error) {
       const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
       if (code !== "EEXIST") throw error;
+      if (reclaimStaleFileStateLock(input.lockPath, input.staleMs)) continue;
       if (Date.now() - startedAt >= input.timeoutMs) {
         throw input.lockTimeoutError?.() ?? new Error("Timed out waiting for SENA enterprise database write lock.");
       }
@@ -809,6 +849,12 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const lockPath = `${dbPath}.lock`;
   const timeoutMs = options.lockTimeoutMs ?? 5000;
   const pollMs = options.lockPollMs ?? 25;
+  const staleMs = options.lockStaleMs ?? Math.max(1000, timeoutMs);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 ||
+    !Number.isSafeInteger(pollMs) || pollMs <= 0 ||
+    !Number.isSafeInteger(staleMs) || staleMs < 0) {
+    throw new Error("Enterprise file-state lock timing options must be safe non-negative integers.");
+  }
   const normalizeDb = (db: SenaEnterpriseDbReadModel) => normalizeEnterpriseDb(
     options.normalizeDb ? options.normalizeDb(db) : db
   );
@@ -860,6 +906,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       lockPath,
       timeoutMs,
       pollMs,
+      staleMs,
       lockTimeoutError: options.lockTimeoutError
     });
   };
@@ -867,14 +914,13 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const write = (db: SenaEnterpriseDb, writeOptions: SenaFileEnterpriseStateWriteOptions = {}) => {
     if (enterpriseFileStateWritePolicy().blocked) throw enterpriseFileStateWriteBlockedError();
     const expectedRevision = writeOptions.expectedRevision ?? trackedRevisions.get(db);
-    const overwriteReason = writeOptions.authorizedOverwrite?.reason.trim();
-    if (!expectedRevision && !overwriteReason) throw enterpriseFileStateUntrackedSnapshotError();
+    if (!expectedRevision) throw enterpriseFileStateUntrackedSnapshotError();
     const lockId = acquireWriteLock();
     try {
       const currentRevision = existsSync(dbPath)
         ? revisionOf(readFileSync(dbPath, "utf8"))
         : missingRevision;
-      if (!overwriteReason && currentRevision !== expectedRevision) {
+      if (currentRevision !== expectedRevision) {
         throw enterpriseFileStateRevisionConflictError();
       }
       const nextRevision = persistWithoutLock(db);
@@ -964,6 +1010,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
           lockPath,
           timeoutMs: Math.min(250, timeoutMs),
           pollMs,
+          staleMs,
           lockTimeoutError: options.lockTimeoutError
         });
         return { lockProbe: "pass", lockTimeoutMs: timeoutMs };
@@ -1117,6 +1164,76 @@ export function writeEnterpriseDb(db: SenaEnterpriseDb, options?: SenaFileEnterp
 
 export function mutateEnterpriseDbAtomically<Result>(mutator: (db: SenaEnterpriseDb) => Result) {
   return enterpriseStateStore().mutateAtomically(mutator);
+}
+
+type SenaEnterpriseStateMutationOutcome<Result> =
+  | { ok: true; result: Result }
+  | { ok: false; error: unknown };
+
+function runPersistedMutation<Result>(db: SenaEnterpriseDb, mutator: (db: SenaEnterpriseDb) => Result) {
+  try {
+    return { ok: true, result: mutator(db) } satisfies SenaEnterpriseStateMutationOutcome<Result>;
+  } catch (error) {
+    return { ok: false, error } satisfies SenaEnterpriseStateMutationOutcome<Result>;
+  }
+}
+
+function unwrapPersistedMutation<Result>(outcome: SenaEnterpriseStateMutationOutcome<Result>) {
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
+}
+
+function postgresRevisionConflict(error: unknown) {
+  return Boolean(error && typeof error === "object" && "code" in error &&
+    (error as { code?: unknown }).code === "postgres_state_revision_conflict");
+}
+
+/**
+ * Serializes security-sensitive read-modify-write operations. Application
+ * errors are captured until their counters/audits have committed, so a failed
+ * login or over-budget request cannot lose evidence or have its 401/429 masked
+ * by a whole-state revision conflict.
+ */
+export async function mutateEnterpriseStateAtomically<Result>(
+  mutator: (db: SenaEnterpriseDb) => Result
+): Promise<Result> {
+  const runtime = getEnterprisePrimaryStateRuntime();
+  if (runtime.activePrimary === "file") {
+    const outcome = enterpriseStateStore().mutateAtomically((db) => runPersistedMutation(db, mutator));
+    return unwrapPersistedMutation(outcome);
+  }
+
+  const adapter = postgresPrimaryStateStore().adapter;
+  const maximumAttempts = 32;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    let current;
+    try {
+      current = await adapter.readState();
+    } catch (error) {
+      normalizePostgresStateError(error);
+    }
+    const db = normalizeEnterpriseDb(current.db);
+    const normalizedBaseline = JSON.stringify(db);
+    const outcome = runPersistedMutation(db, mutator);
+    if (JSON.stringify(db) === normalizedBaseline) return unwrapPersistedMutation(outcome);
+    try {
+      await adapter.writeState(pruneEnterpriseDbBeforeSave(db), {
+        expectedRevision: current.revision
+      });
+      return unwrapPersistedMutation(outcome);
+    } catch (error) {
+      if (postgresRevisionConflict(error) && attempt < maximumAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(25, attempt)));
+        continue;
+      }
+      normalizePostgresStateError(error);
+    }
+  }
+  throw new SenaEnterpriseError(
+    "SENA enterprise state could not serialize the security mutation.",
+    503,
+    "enterprise_state_atomic_mutation_exhausted"
+  );
 }
 
 export function saveDb(db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) {

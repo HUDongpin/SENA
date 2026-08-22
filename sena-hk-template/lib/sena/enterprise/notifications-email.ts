@@ -10,10 +10,8 @@ import type { SenaEnterpriseMfaSealedSecret } from "./auth-mfa";
 import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
-  readEnterpriseDb,
+  mutateEnterpriseStateAtomically,
   readEnterpriseState,
-  saveDb,
-  saveEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
 import {
@@ -71,6 +69,9 @@ export type SenaEnterpriseEmailDelivery = {
   nextAttemptAt?: string;
   deliveredAt?: string;
   failedAt?: string;
+  dispatchClaimToken?: string;
+  dispatchClaimedAt?: string;
+  dispatchClaimExpiresAt?: string;
 };
 
 export type SenaEnterpriseEmailDeliveryResult = {
@@ -276,6 +277,7 @@ async function postEmailWebhook(emailDelivery: SenaEnterpriseEmailDelivery, time
   }
   const headers: Record<string, string> = {
     "content-type": "application/json",
+    "idempotency-key": emailDelivery.id,
     "x-sena-webhook-event": "email.deliver",
     "x-sena-webhook-timestamp": generatedAt,
     "x-sena-email-delivery-id": emailDelivery.id
@@ -503,30 +505,133 @@ export async function dispatchEnterpriseEmailDelivery(
   }
 }
 
+/**
+ * Persistent outbox delivery for request-time callers. The queued delivery is
+ * claimed in state before any webhook is sent; the provider sees the stable
+ * delivery id as its idempotency key; and the outcome is applied through a
+ * second atomic mutation. A crash after send can therefore retry the same
+ * logical delivery id instead of minting an orphan message.
+ */
+export async function dispatchEnterpriseEmailDeliveryByIdAtomically(
+  emailDeliveryId: string,
+  input: {
+    timeoutMs?: number;
+    force?: boolean;
+    actor?: { userId?: string; trigger: "manual-flush" | "auto-dispatch" };
+  } = {}
+): Promise<SenaEnterpriseEmailDispatchOutcome> {
+  const claimToken = randomBytes(24).toString("hex");
+  const claimedAt = now();
+  const claimTtlMs = Math.max(30_000, (input.timeoutMs ?? emailInlineDispatchTimeoutMs()) + 10_000);
+  const claim = await mutateEnterpriseStateAtomically((db) => {
+    const provider = enterpriseEmailProvider();
+    const delivery = (db.emailDeliveries ?? []).find((entry) => entry.id === emailDeliveryId);
+    if (!delivery) {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: false, status: "failed" as const, errorCode: "email_delivery_not_found" }
+      };
+    }
+    if (!provider.configured || !provider.endpointHash) {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: false, status: delivery.status, errorCode: "email_provider_not_configured" }
+      };
+    }
+    if (delivery.status === "delivered") {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: true, status: "delivered" as const }
+      };
+    }
+    if (delivery.dispatchClaimToken && delivery.dispatchClaimExpiresAt &&
+      Date.parse(delivery.dispatchClaimExpiresAt) > Date.now()) {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: false, status: delivery.status, errorCode: "email_delivery_claimed" }
+      };
+    }
+    if (delivery.endpointHash !== provider.endpointHash) {
+      delivery.endpointHash = provider.endpointHash;
+      delivery.status = "pending";
+      delivery.attempts = 0;
+      delete delivery.nextAttemptAt;
+      delete delivery.failedAt;
+    }
+    delivery.maxAttempts = provider.maxAttempts;
+    if (delivery.attempts >= delivery.maxAttempts) {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: false, status: delivery.status, errorCode: "max_attempts_exhausted" }
+      };
+    }
+    if (!input.force && delivery.nextAttemptAt && Date.parse(delivery.nextAttemptAt) > Date.now()) {
+      return {
+        ready: false as const,
+        outcome: { attempted: false, delivered: false, status: delivery.status, errorCode: "retry_not_due" }
+      };
+    }
+    delivery.dispatchClaimToken = claimToken;
+    delivery.dispatchClaimedAt = claimedAt;
+    delivery.dispatchClaimExpiresAt = new Date(Date.parse(claimedAt) + claimTtlMs).toISOString();
+    return { ready: true as const, delivery: structuredClone(delivery) };
+  });
+  if (!claim.ready) return claim.outcome;
+
+  let attemptResult: SenaEnterpriseEmailAttemptResult;
+  const delivery = claim.delivery;
+  const provider = enterpriseEmailProvider();
+  if (delivery.expiresAt && Date.parse(delivery.expiresAt) <= Date.now()) {
+    attemptResult = { ok: false, errorCode: "expired" };
+  } else if (provider.mode === "local-sink") {
+    attemptResult = localWebhookSinkAttempt(delivery.endpointHash);
+  } else {
+    attemptResult = await postEmailWebhook(delivery, input.timeoutMs ?? emailInlineDispatchTimeoutMs());
+  }
+
+  return mutateEnterpriseStateAtomically((db) => {
+    const current = (db.emailDeliveries ?? []).find((entry) => entry.id === emailDeliveryId);
+    if (!current || current.dispatchClaimToken !== claimToken) {
+      return {
+        attempted: false,
+        delivered: current?.status === "delivered",
+        status: current?.status ?? "failed",
+        errorCode: "email_delivery_claim_lost"
+      } satisfies SenaEnterpriseEmailDispatchOutcome;
+    }
+    const status = applyEmailDeliveryAttempt(db, current, attemptResult, claimedAt, {
+      userId: input.actor?.userId ?? current.userId,
+      trigger: input.actor?.trigger ?? "auto-dispatch"
+    });
+    delete current.dispatchClaimToken;
+    delete current.dispatchClaimedAt;
+    delete current.dispatchClaimExpiresAt;
+    return {
+      attempted: true,
+      delivered: attemptResult.ok,
+      status,
+      errorCode: attemptResult.errorCode
+    } satisfies SenaEnterpriseEmailDispatchOutcome;
+  });
+}
+
 export async function deliverEnterpriseEmails(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string } = {}
 ): Promise<SenaEnterpriseEmailDeliveryResult> {
-  const db = readEnterpriseDb();
-  const result = await deliverEnterpriseEmailsFromDb(context, input, db);
-  saveDb(db);
-  return result;
+  return deliverEnterpriseEmailsAtomically(context, input);
 }
 
 export async function deliverEnterpriseEmailsAsync(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string } = {}
 ): Promise<SenaEnterpriseEmailDeliveryResult> {
-  const state = await readEnterpriseState();
-  const result = await deliverEnterpriseEmailsFromDb(context, input, state.db);
-  await saveEnterpriseState(state, state.db);
-  return result;
+  return deliverEnterpriseEmailsAtomically(context, input);
 }
 
-async function deliverEnterpriseEmailsFromDb(
+async function deliverEnterpriseEmailsAtomically(
   context: SenaEnterpriseSessionContext,
-  input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string },
-  db: SenaEnterpriseDb
+  input: { teamId?: string; limit?: number; force?: boolean; emailDeliveryId?: string }
 ): Promise<SenaEnterpriseEmailDeliveryResult> {
   const provider = enterpriseEmailProvider();
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200);
@@ -562,11 +667,12 @@ async function deliverEnterpriseEmailsFromDb(
     return result;
   }
 
+  const state = await readEnterpriseState();
   const teamIdSet = new Set(teamIds);
   const deliveryQueue: SenaEnterpriseEmailDelivery[] = [];
   const nowMs = Date.now();
 
-  for (const emailDelivery of (db.emailDeliveries ?? [])
+  for (const emailDelivery of (state.db.emailDeliveries ?? [])
     .filter((candidate) => candidate.teamId && teamIdSet.has(candidate.teamId))
     .filter((candidate) => !input.emailDeliveryId || candidate.id === input.emailDeliveryId)
     .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt))) {
@@ -574,19 +680,17 @@ async function deliverEnterpriseEmailsFromDb(
       result.summary.skipped += 1;
       continue;
     }
-    if (emailDelivery.endpointHash !== provider.endpointHash) {
-      emailDelivery.endpointHash = provider.endpointHash!;
-      emailDelivery.status = "pending";
-      emailDelivery.attempts = 0;
-      delete emailDelivery.nextAttemptAt;
-      delete emailDelivery.failedAt;
-    }
-    emailDelivery.maxAttempts = provider.maxAttempts;
-    if (emailDelivery.attempts >= emailDelivery.maxAttempts) {
+    const providerChanged = emailDelivery.endpointHash !== provider.endpointHash;
+    if (!providerChanged && emailDelivery.attempts >= provider.maxAttempts) {
       result.summary.skipped += 1;
       continue;
     }
-    if (!force && emailDelivery.nextAttemptAt && Date.parse(emailDelivery.nextAttemptAt) > nowMs) {
+    if (!providerChanged && !force && emailDelivery.nextAttemptAt && Date.parse(emailDelivery.nextAttemptAt) > nowMs) {
+      result.summary.skipped += 1;
+      continue;
+    }
+    if (emailDelivery.dispatchClaimToken && emailDelivery.dispatchClaimExpiresAt &&
+      Date.parse(emailDelivery.dispatchClaimExpiresAt) > nowMs) {
       result.summary.skipped += 1;
       continue;
     }
@@ -595,36 +699,36 @@ async function deliverEnterpriseEmailsFromDb(
 
   const targets = deliveryQueue.slice(0, limit);
   result.summary.skipped += deliveryQueue.length - targets.length;
+  const attemptedIds = new Set<string>();
 
   for (const emailDelivery of targets) {
-    const attemptedAt = now();
-    let attemptResult: SenaEnterpriseEmailAttemptResult;
-    if (emailDelivery.expiresAt && Date.parse(emailDelivery.expiresAt) <= Date.now()) {
-      attemptResult = {
-        ok: false,
-        httpStatus: undefined,
-        errorCode: "expired",
-        errorHash: undefined
-      };
-    } else if (provider.mode === "local-sink") {
-      attemptResult = localWebhookSinkAttempt(emailDelivery.endpointHash);
-    } else {
-      attemptResult = await postEmailWebhook(emailDelivery);
-    }
-
-    const status = applyEmailDeliveryAttempt(db, emailDelivery, attemptResult, attemptedAt, {
-      userId: context.user.id,
-      trigger: "manual-flush"
+    const outcome = await dispatchEnterpriseEmailDeliveryByIdAtomically(emailDelivery.id, {
+      timeoutMs: emailWebhookTimeoutMs(),
+      force,
+      actor: { userId: context.user.id, trigger: "manual-flush" }
     });
-    if (status === "delivered") {
+    if (!outcome.attempted) {
+      result.summary.skipped += 1;
+      continue;
+    }
+    attemptedIds.add(emailDelivery.id);
+    if (outcome.status === "delivered") {
       result.summary.delivered += 1;
-    } else if (status === "failed") {
+    } else if (outcome.status === "failed") {
       result.summary.failed += 1;
     } else {
       result.summary.pending += 1;
     }
 
     result.summary.attempted += 1;
+  }
+
+  const finalState = await readEnterpriseState();
+  const finalDeliveries = new Map((finalState.db.emailDeliveries ?? []).map((delivery) => [delivery.id, delivery]));
+  for (const target of targets) {
+    if (!attemptedIds.has(target.id)) continue;
+    const emailDelivery = finalDeliveries.get(target.id);
+    if (!emailDelivery) continue;
     result.emails.push({
       emailDeliveryId: emailDelivery.id,
       kind: emailDelivery.kind,

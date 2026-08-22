@@ -72,6 +72,14 @@ function reliabilityXlsxPreflightError(
       maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxWorksheets
     }]);
   }
+  if (error.kind === "row-index") {
+    return new SenaReliabilityUniverseLimitError([{
+      path: "files",
+      rule: `xlsx-row-index-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxRowIndex}`,
+      actual: error.actual,
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxRowIndex
+    }]);
+  }
   const maximum = aggregateExpandedLimitApplied
     ? SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
     : SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes;
@@ -125,6 +133,7 @@ export async function readSenaReliabilityUploadRows(
       archivePreflight = await preflightXlsxWorkbook(file.bytes, {
         maximumEntries: SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxArchiveEntries,
         maximumWorksheets: SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxWorksheets,
+        maximumRowIndex: SENA_RELIABILITY_UNIVERSE_LIMITS.xlsxRowIndex,
         maximumDataRows: remainingRows,
         maximumUncompressedBytes: Math.min(
           SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes,

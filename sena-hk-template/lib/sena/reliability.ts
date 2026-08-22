@@ -133,6 +133,7 @@ export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
   requestChunks: 8_192,
   xlsxArchiveEntries: 2_048,
   xlsxWorksheets: 100,
+  xlsxRowIndex: 1_048_576,
   annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
@@ -180,8 +181,9 @@ export class SenaReliabilityUniverseLimitError extends Error {
 }
 
 export type SenaReliabilitySourceInputIssue = {
-  path: "sources" | "files" | "uploadIds";
-  rule: "exactly-one-source-mode" | "file-array-required" | "file-value-required" | "non-empty-string-upload-id";
+  path: "sources" | "annotations" | "files" | "uploadIds";
+  rule: "exactly-one-source-mode" | "file-array-required" | "file-value-required" |
+    "non-empty-string-upload-id" | "valid-json-required" | "valid-multipart-required";
 };
 
 export class SenaReliabilitySourceInputError extends Error {

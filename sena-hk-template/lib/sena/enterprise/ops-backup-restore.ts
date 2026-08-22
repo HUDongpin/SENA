@@ -15,10 +15,10 @@ import {
   type SenaEnterpriseBackupVerification
 } from "./ops-backup";
 import {
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   readEnterpriseDb,
   readEnterpriseState,
-  saveDb,
-  saveEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -173,15 +173,10 @@ export function restoreEnterpriseBackup(
   backup: SenaEnterpriseBackupArtifact,
   input: { dryRun?: boolean; mode?: "merge" } = {}
 ): SenaEnterpriseBackupRestoreResult {
-  const sourceDb = readEnterpriseDb();
-  try {
-    const result = buildEnterpriseBackupRestoreResult(context, backup, sourceDb, input);
-    saveDb(sourceDb);
-    return result;
-  } catch (error) {
-    saveDb(sourceDb);
-    throw error;
+  if (input.dryRun) {
+    return buildEnterpriseBackupRestoreResult(context, backup, readEnterpriseDb(), input);
   }
+  return mutateEnterpriseDbAtomically((db) => buildEnterpriseBackupRestoreResultAtomically(context, backup, db, input));
 }
 
 export async function restoreEnterpriseBackupWithPostgresEvidence(
@@ -189,15 +184,23 @@ export async function restoreEnterpriseBackupWithPostgresEvidence(
   backup: SenaEnterpriseBackupArtifact,
   input: { dryRun?: boolean; mode?: "merge" } = {}
 ): Promise<SenaEnterpriseBackupRestoreResult> {
-  const state = await readEnterpriseState();
-  try {
-    const result = buildEnterpriseBackupRestoreResult(context, backup, state.db, input);
-    await saveEnterpriseState(state, state.db);
-    return result;
-  } catch (error) {
-    await saveEnterpriseState(state, state.db);
-    throw error;
+  if (input.dryRun) {
+    const state = await readEnterpriseState();
+    return buildEnterpriseBackupRestoreResult(context, backup, state.db, input);
   }
+  return mutateEnterpriseStateAtomically((db) => buildEnterpriseBackupRestoreResultAtomically(context, backup, db, input));
+}
+
+function buildEnterpriseBackupRestoreResultAtomically(
+  context: SenaEnterpriseSessionContext,
+  backup: SenaEnterpriseBackupArtifact,
+  sourceDb: SenaEnterpriseDb,
+  input: { dryRun?: boolean; mode?: "merge" }
+) {
+  const workingDb = dbWorkingCopy(sourceDb);
+  const result = buildEnterpriseBackupRestoreResult(context, backup, workingDb, input);
+  Object.assign(sourceDb, workingDb);
+  return result;
 }
 
 function buildEnterpriseBackupRestoreResult(

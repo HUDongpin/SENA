@@ -2233,9 +2233,9 @@ describe("SENA enterprise module boundaries", () => {
         code: "enterprise_file_state_untracked_snapshot",
         status: 409
       }));
-      store.write(emptyEnterpriseDb(), {
-        authorizedOverwrite: { reason: "explicit test fixture reset" }
-      });
+      const trackedReset = store.read();
+      Object.assign(trackedReset, emptyEnterpriseDb());
+      store.write(trackedReset);
       expect(store.read().teams).toEqual([]);
     } finally {
       rmSync(enterpriseDbDir, { recursive: true, force: true });

@@ -1208,6 +1208,9 @@ describe("Round15 reliability transport admission", () => {
       const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
       const auditsBefore = enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events;
       const runsBefore = enterprise.listEnterpriseReliabilityRuns(registered.context, {});
+      const requestJson = vi.spyOn(Request.prototype, "json").mockImplementation(async () => {
+        throw new Error("framework JSON parser must not run after configured source admission fails");
+      });
       const route = await import("../../../app/api/sena/reliability/route");
       const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
         method: "POST",
@@ -1220,7 +1223,7 @@ describe("Round15 reliability transport admission", () => {
           annotations: [{ coder_id: "c1", item_id: "i1", code_id: "x", value: "1" }]
         })
       }));
-      const body = await response.json() as Record<string, unknown>;
+      const body = JSON.parse(await response.text()) as Record<string, unknown>;
 
       expect(response.status).toBe(400);
       expect(body).toMatchObject({
@@ -1233,6 +1236,22 @@ describe("Round15 reliability transport admission", () => {
           maximum: 8
         }]
       });
+      expect(requestJson).not.toHaveBeenCalled();
+      const malformedResponse = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: '{"annotations":['
+      }));
+      expect(malformedResponse.status).toBe(400);
+      expect(JSON.parse(await malformedResponse.text())).toEqual({
+        error: "SENA coding-reliability request sources are invalid.",
+        code: "invalid_sena_reliability_sources",
+        issues: [{ path: "annotations", rule: "valid-json-required" }]
+      });
+      expect(requestJson).not.toHaveBeenCalled();
       expect(enterprise.listEnterpriseReliabilityRuns(registered.context, {})).toEqual(runsBefore);
       expect(enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events).toEqual(auditsBefore);
     } finally {

@@ -120,6 +120,32 @@ describe("reliability JSON structural preflight", () => {
     expect(Math.max(...retainedStrings.map((value) => value.length))).toBeLessThanOrEqual(32);
   });
 
+  it("does not charge a numeric source's following delimiter to its exact byte boundary", () => {
+    expect(preflightSenaReliabilityJsonText('{"annotations":123,"metadata":true}', {
+      mode: "request",
+      maximumSourceBytes: 3,
+      maximumAggregateSourceBytes: 3
+    })).toEqual({ rawRows: 0, sources: 1 });
+    expect(() => preflightSenaReliabilityJsonText('{"annotations":123,"metadata":true}', {
+      mode: "request",
+      maximumSourceBytes: 2,
+      maximumAggregateSourceBytes: 3
+    })).toThrow(expect.objectContaining({
+      issues: [{ path: "annotations", rule: "source-byte-count-at-most-2", actual: 3, maximum: 2 }]
+    }));
+  });
+
+  it("charges one UTF-8 scalar when a surrogate pair is split across scanner writes", () => {
+    const scanner = new SenaReliabilityJsonPreflightScanner({
+      mode: "request",
+      maximumSourceBytes: 6,
+      maximumAggregateSourceBytes: 6
+    });
+    scanner.write('{"annotations":"\ud83d');
+    scanner.write('\ude00"}');
+    expect(scanner.finish()).toEqual({ rawRows: 0, sources: 1 });
+  });
+
   it.each(["rows", "annotations", "data"] as const)(
     "keeps source-mode %s arrays push/pop symmetric at empty and single-row boundaries",
     (alias) => {
@@ -259,6 +285,306 @@ describe("production JSON pre-parse admission", () => {
         rule: "raw-row-count-at-most-200000",
         actual: 200_001,
         maximum: 200_000
+      }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized logical JSON source before framework request.json", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const body = JSON.stringify({ annotations: [{ padding: "x".repeat(256) }] });
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.json());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body
+        }
+      ), {
+        json: true,
+        sourceBytes: 64
+      } as never);
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: "source-byte-count-at-most-64",
+        actual: 65,
+        maximum: 64
+      }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("sub-slices one large transport chunk before UTF-8 decoding and structural scanning", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const write = vi.spyOn(SenaReliabilityJsonPreflightScanner.prototype, "write");
+    const body = JSON.stringify({ annotations: [{ padding: "x".repeat(256 * 1024) }] });
+    const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+      "https://sena.example.test/api/sena/reliability",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body
+      }
+    ), {
+      json: true,
+      sourceBytes: body.length + 1
+    } as never);
+
+    await expect(bounded.json()).resolves.toMatchObject({ annotations: expect.any(Array) });
+    expect(Math.max(...write.mock.calls.map(([chunk]) => chunk.length))).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it("cancels the request stream as soon as an early logical source overflow is known", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const encoder = new TextEncoder();
+    let pulls = 0;
+    let cancelled = false;
+    const request = new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) {
+            controller.enqueue(encoder.encode(`{"annotations":[{"padding":"${"x".repeat(128)}`));
+            return;
+          }
+          if (pulls === 2) {
+            controller.enqueue(encoder.encode('"}]}'));
+            return;
+          }
+          controller.close();
+        },
+        cancel() {
+          cancelled = true;
+        }
+      }),
+      duplex: "half"
+    } as RequestInit & { duplex: "half" });
+
+    await expect(transport.readSenaReliabilityBoundedTransportRequest(request, {
+      json: true,
+      sourceBytes: 64
+    })).rejects.toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{ rule: "source-byte-count-at-most-64" }]
+    });
+    expect(pulls).toBe(1);
+    expect(cancelled).toBe(true);
+  });
+
+  it("returns the stable JSON source error for malformed input before framework request.json", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.json());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"annotations":['
+        }
+      ), { json: true });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "invalid_sena_reliability_sources",
+      status: 400,
+      issues: [{ path: "annotations", rule: "valid-json-required" }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("counts escaped duplicate aliases against the raw aggregate budget before JSON.parse", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const alias = `"ann\\u006ftations":"${"x".repeat(40)}"`;
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.json());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: `{${alias},${alias},${alias}}`
+        }
+      ), {
+        json: true,
+        sourceBytes: 64,
+        aggregateSourceBytes: 100
+      });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: "aggregate-source-byte-count-at-most-100",
+        actual: 101,
+        maximum: 100
+      }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it.each(["{}", "null", '"not-an-array"'])(
+    "rejects a non-array files value %s before framework request.json",
+    async (filesValue) => {
+      const transport = await import("../enterprise/reliability-transport");
+      const frameworkParser = vi.fn(async (bounded: Request) => bounded.json());
+      let thrown: unknown;
+      try {
+        const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+          "https://sena.example.test/api/sena/reliability",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: `{"files":${filesValue}}`
+          }
+        ), { json: true });
+        await frameworkParser(bounded);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toMatchObject({
+        code: "invalid_sena_reliability_sources",
+        issues: [{ path: "files", rule: "file-array-required" }]
+      });
+      expect(frameworkParser).not.toHaveBeenCalled();
+    }
+  );
+
+  it("rejects multipart file bytes before framework formData parsing", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const form = new FormData();
+    form.append("files", new File(["0123456789"], "oversized.csv", { type: "text/csv" }));
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.formData());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        { method: "POST", body: form }
+      ), {
+        json: false,
+        sourceBytes: 8
+      });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "files",
+        rule: "source-byte-count-at-most-8",
+        actual: 9,
+        maximum: 8
+      }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("rejects aggregate multipart file bytes before framework formData parsing", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const form = new FormData();
+    form.append("files", new File(["012345"], "first.csv", { type: "text/csv" }));
+    form.append("files", new File(["abcdef"], "second.csv", { type: "text/csv" }));
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.formData());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        { method: "POST", body: form }
+      ), {
+        json: false,
+        sourceBytes: 8,
+        aggregateSourceBytes: 10
+      });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "files",
+        rule: "aggregate-source-byte-count-at-most-10",
+        actual: 11,
+        maximum: 10
+      }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed multipart declaration before framework formData parsing", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const request = new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data" },
+      body: "not-a-valid-multipart-body"
+    });
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.formData());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(request, { json: false });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "invalid_sena_reliability_sources",
+      status: 400,
+      issues: [{ path: "files", rule: "valid-multipart-required" }]
+    });
+    expect(frameworkParser).not.toHaveBeenCalled();
+  });
+
+  it("rejects multipart file fan-out before framework formData parsing", async () => {
+    const transport = await import("../enterprise/reliability-transport");
+    const form = new FormData();
+    for (let index = 0; index < 101; index += 1) {
+      form.append("files", new File(["x"], `source-${index}.csv`, { type: "text/csv" }));
+    }
+    const frameworkParser = vi.fn(async (bounded: Request) => bounded.formData());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        { method: "POST", body: form }
+      ), { json: false });
+      await frameworkParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "files",
+        rule: "source-count-at-most-100",
+        actual: 101,
+        maximum: 100
       }]
     });
     expect(frameworkParser).not.toHaveBeenCalled();
@@ -413,6 +739,32 @@ describe("reliability XLSX pre-decompression budget", () => {
       kind: "worksheets",
       actual: 101,
       maximum: 100
+    });
+  });
+
+  it("preflights every worksheet path that the regular ExcelJS matcher can load", async () => {
+    const bytes = await testZip([{
+      name: "nested/xl/worksheets/sheet1.xml.evil",
+      content: "<worksheet><sheetData><row r=\"1\"/><row r=\"2\"/><row r=\"3\"/></sheetData></worksheet>"
+    }]);
+
+    await expect(preflight(bytes, { maximumDataRows: 1 })).rejects.toMatchObject({
+      kind: "data-rows",
+      actual: 2,
+      maximum: 1
+    });
+  });
+
+  it("rejects an out-of-range sparse worksheet row before the regular ExcelJS decoder", async () => {
+    const bytes = await testZip([{
+      name: "xl/worksheets/sheet1.xml",
+      content: "<worksheet><sheetData><row r=\"4294967295\"><c r=\"A4294967295\"><v>1</v></c></row></sheetData></worksheet>"
+    }]);
+
+    await expect(preflight(bytes, {})).rejects.toMatchObject({
+      kind: "row-index",
+      actual: 4_294_967_295,
+      maximum: 1_048_576
     });
   });
 });

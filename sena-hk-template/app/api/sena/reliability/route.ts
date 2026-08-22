@@ -137,7 +137,10 @@ export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
     const context = await requireApiSessionForMutation(request);
     const jsonRequest = (request.headers.get("content-type") || "").toLowerCase().includes("application/json");
-    const boundedRequest = await readSenaReliabilityBoundedTransportRequest(request, { json: jsonRequest });
+    const boundedRequest = await readSenaReliabilityBoundedTransportRequest(request, {
+      json: jsonRequest,
+      sourceBytes: senaReliabilityServerSourceByteLimit()
+    });
     if (jsonRequest) {
       const body = await boundedRequest.json() as Record<string, unknown>;
       const inlineSourceSupplied = ["files", "annotations", "rows", "data"]

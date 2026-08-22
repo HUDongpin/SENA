@@ -1,5 +1,6 @@
 import {
   SENA_RELIABILITY_UNIVERSE_LIMITS,
+  SenaReliabilitySourceInputError,
   SenaReliabilityUniverseLimitError
 } from "./reliability";
 
@@ -10,6 +11,8 @@ export type SenaReliabilityJsonTextPreflightOptions = {
   mode: "request" | "source";
   maximumRows?: number;
   maximumSources?: number;
+  maximumSourceBytes?: number;
+  maximumAggregateSourceBytes?: number;
   consumedRows?: number;
   consumedSources?: number;
 };
@@ -86,6 +89,23 @@ function hexDigitValue(value: string) {
   return -1;
 }
 
+function utf8CodeUnitBytes(input: string, index: number) {
+  const value = input.charCodeAt(index);
+  if (value <= 0x7f) return 1;
+  if (value <= 0x7ff) return 2;
+  if (value >= 0xd800 && value <= 0xdbff) {
+    const next = input.charCodeAt(index + 1);
+    if (next >= 0xdc00 && next <= 0xdfff) return 4;
+  }
+  // A low surrogate paired with the immediately preceding high surrogate was
+  // already charged as one four-byte UTF-8 scalar.
+  if (value >= 0xdc00 && value <= 0xdfff) {
+    const previous = input.charCodeAt(index - 1);
+    if (previous >= 0xd800 && previous <= 0xdbff) return 0;
+  }
+  return 3;
+}
+
 /**
  * Incremental, non-materializing JSON lexical/structural admission scanner.
  *
@@ -97,6 +117,8 @@ function hexDigitValue(value: string) {
 export class SenaReliabilityJsonPreflightScanner {
   private readonly maximumRows: number;
   private readonly maximumSources: number;
+  private readonly maximumSourceBytes: number;
+  private readonly maximumAggregateSourceBytes: number;
   private readonly consumedRows: number;
   private readonly consumedSources: number;
   private readonly frames: SenaJsonFrame[] = [];
@@ -112,6 +134,14 @@ export class SenaReliabilityJsonPreflightScanner {
   private unicodeDigits = 0;
   private rawRows = 0;
   private sources = 0;
+  private completedSourceBytes = 0;
+  private pendingSourceHighSurrogate = false;
+  private activeSource: {
+    path: "annotations" | "files";
+    bytes: number;
+    parentDepth: number;
+    kind: "pending" | "scalar" | "container";
+  } | undefined;
   private position = 0;
   private finished = false;
 
@@ -126,14 +156,138 @@ export class SenaReliabilityJsonPreflightScanner {
       SENA_RELIABILITY_UNIVERSE_LIMITS.sources,
       "maximumSources"
     );
+    this.maximumSourceBytes = checkedPreflightInteger(
+      options.maximumSourceBytes,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes,
+      "maximumSourceBytes"
+    );
+    this.maximumAggregateSourceBytes = checkedPreflightInteger(
+      options.maximumAggregateSourceBytes,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes,
+      "maximumAggregateSourceBytes"
+    );
     this.consumedRows = checkedPreflightInteger(options.consumedRows, 0, "consumedRows");
     this.consumedSources = checkedPreflightInteger(options.consumedSources, 0, "consumedSources");
     if (this.consumedRows > this.maximumRows) this.throwRowLimit(this.consumedRows);
     if (this.consumedSources > this.maximumSources) this.throwSourceLimit(this.consumedSources);
   }
 
+  private beginByteSource(path: "annotations" | "files") {
+    this.activeSource = {
+      path,
+      bytes: 0,
+      parentDepth: this.frames.length,
+      kind: "pending"
+    };
+  }
+
+  private maybeBeginByteSource(value: string) {
+    if (this.activeSource || this.lexicalMode !== "default") return;
+    const frame = this.frames[this.frames.length - 1];
+    if (!frame) {
+      if (this.options.mode === "source" && this.rootState === "value" && !isWhitespace(value)) {
+        this.beginByteSource("files");
+      }
+      return;
+    }
+    if (frame.type === "object" && frame.role === "request-root" && frame.state === "value" && isAlias(frame.key)) {
+      this.beginByteSource("annotations");
+      return;
+    }
+    if (frame.type === "array" && frame.role === "files-array" &&
+      (frame.state === "value-or-end" || frame.state === "value") &&
+      !isWhitespace(value) && value !== "]") {
+      this.beginByteSource("files");
+    }
+  }
+
+  private chargeByteSource(bytes: number) {
+    if (!this.activeSource || bytes === 0) return;
+    const next = this.activeSource.bytes <= Number.MAX_SAFE_INTEGER - bytes
+      ? this.activeSource.bytes + bytes
+      : Number.MAX_SAFE_INTEGER + 1;
+    if (!Number.isSafeInteger(next) || next > this.maximumSourceBytes) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: this.activeSource.path,
+        rule: `source-byte-count-at-most-${this.maximumSourceBytes}`,
+        actual: Number.isSafeInteger(next) ? next : "safe-integer-overflow",
+        maximum: this.maximumSourceBytes
+      }]);
+    }
+    this.activeSource.bytes = next;
+    const aggregate = this.completedSourceBytes <= Number.MAX_SAFE_INTEGER - next
+      ? this.completedSourceBytes + next
+      : Number.MAX_SAFE_INTEGER + 1;
+    if (!Number.isSafeInteger(aggregate) || aggregate > this.maximumAggregateSourceBytes) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: this.activeSource.path,
+        rule: `aggregate-source-byte-count-at-most-${this.maximumAggregateSourceBytes}`,
+        actual: Number.isSafeInteger(aggregate) ? aggregate : "safe-integer-overflow",
+        maximum: this.maximumAggregateSourceBytes
+      }]);
+    }
+  }
+
+  private numberConsumesCharacter(value: string) {
+    if (this.numberState === "minus" || this.numberState === "dot" || this.numberState === "exp-sign") {
+      return isDigit(value);
+    }
+    if (this.numberState === "zero") return value === "." || value === "e" || value === "E";
+    if (this.numberState === "integer" || this.numberState === "fraction") {
+      return isDigit(value) || value === "." && this.numberState === "integer" || value === "e" || value === "E";
+    }
+    if (this.numberState === "exp") return value === "+" || value === "-" || isDigit(value);
+    return isDigit(value);
+  }
+
+  private chargeByteSourceCharacter(chunk: string, index: number) {
+    if (!this.activeSource) return;
+    const value = chunk[index];
+    // A number is finalized when its delimiter is reprocessed by the JSON
+    // parser. That delimiter belongs to the parent container, not to the raw
+    // scalar span being admitted.
+    if (this.activeSource.kind === "scalar" && this.lexicalMode === "number" &&
+      !this.numberConsumesCharacter(value)) return;
+
+    const codeUnit = value.charCodeAt(0);
+    if (this.pendingSourceHighSurrogate) {
+      this.pendingSourceHighSurrogate = false;
+      if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+        this.chargeByteSource(4);
+        return;
+      }
+      // TextEncoder represents an unpaired high surrogate as U+FFFD.
+      this.chargeByteSource(3);
+    }
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 === chunk.length) {
+      this.pendingSourceHighSurrogate = true;
+      return;
+    }
+    this.chargeByteSource(utf8CodeUnitBytes(chunk, index));
+  }
+
+  private updateByteSourceAfterCharacter(value: string) {
+    const source = this.activeSource;
+    if (!source) return;
+    if (source.kind === "pending" && !isWhitespace(value)) {
+      source.kind = value === "{" || value === "[" ? "container" : "scalar";
+    }
+    const complete = source.kind === "container"
+      ? this.frames.length <= source.parentDepth
+      : source.kind === "scalar" && this.lexicalMode === "default";
+    if (!complete) return;
+    this.completedSourceBytes += source.bytes;
+    this.activeSource = undefined;
+  }
+
   private syntax(message: string): never {
-    throw new SyntaxError(`Invalid JSON reliability input at character ${this.position}: ${message}`);
+    // Keep character/token diagnostics server-side only. Route consumers need
+    // one stable sanitized 400 contract, not parser internals or a false 500.
+    void message;
+    throw new SenaReliabilitySourceInputError([{
+      path: this.options.mode === "request" ? "annotations" : "files",
+      rule: "valid-json-required"
+    }]);
   }
 
   private throwRowLimit(actual: number): never {
@@ -284,7 +438,13 @@ export class SenaReliabilityJsonPreflightScanner {
           this.pushObject("source-value");
           return;
         }
-      } else if (key === "files" && token.type === "[") {
+      } else if (key === "files") {
+        if (token.type !== "[") {
+          throw new SenaReliabilitySourceInputError([{
+            path: "files",
+            rule: "file-array-required"
+          }]);
+        }
         this.pushArray("files-array");
         return;
       }
@@ -508,6 +668,8 @@ export class SenaReliabilityJsonPreflightScanner {
     if (this.finished) throw new Error("Reliability JSON scanner is already finished.");
     for (let index = 0; index < chunk.length; index += 1) {
       const value = chunk[index];
+      this.maybeBeginByteSource(value);
+      this.chargeByteSourceCharacter(chunk, index);
       let consumed = false;
       while (!consumed) {
         if (this.lexicalMode === "default") {
@@ -569,6 +731,7 @@ export class SenaReliabilityJsonPreflightScanner {
           }
         }
       }
+      this.updateByteSourceAfterCharacter(value);
       this.position += 1;
     }
     return this;
@@ -576,6 +739,10 @@ export class SenaReliabilityJsonPreflightScanner {
 
   finish(): SenaReliabilityJsonTextPreflight {
     if (this.finished) throw new Error("Reliability JSON scanner is already finished.");
+    if (this.pendingSourceHighSurrogate) {
+      this.pendingSourceHighSurrogate = false;
+      this.chargeByteSource(3);
+    }
     if (this.lexicalMode === "number") {
       if (!this.numberAccepting()) this.syntax("incomplete number");
       this.lexicalMode = "default";
@@ -585,6 +752,10 @@ export class SenaReliabilityJsonPreflightScanner {
     }
     if (this.frames.length > 0) this.syntax("incomplete JSON container");
     if (this.rootState !== "done") this.syntax("expected a root JSON value");
+    if (this.activeSource) {
+      this.completedSourceBytes += this.activeSource.bytes;
+      this.activeSource = undefined;
+    }
     this.finished = true;
     return { rawRows: this.rawRows, sources: this.sources };
   }
