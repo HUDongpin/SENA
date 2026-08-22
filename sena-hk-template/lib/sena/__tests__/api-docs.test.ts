@@ -359,6 +359,10 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-publication-enterprise-project-evidence/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
+      .toContain("sena-publication-derivation-manifest/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
+      .toContain("sena-publication-state-binding/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-data-governance-metadata/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-enterprise-server-job/v1");

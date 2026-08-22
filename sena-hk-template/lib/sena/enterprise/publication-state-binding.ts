@@ -62,6 +62,7 @@ export type SenaEnterprisePublicationStateBinding = {
   };
   reliabilityRun: {
     runId: string;
+    status: "approved";
     sha256: string;
     dashboardSchemaVersion: string;
     projectVersion: number;
@@ -133,8 +134,12 @@ export function resolveEnterprisePublicationStateBundleFromState(
     throw publicationStateBindingError();
   }
 
+  if (reliabilityRun && reliabilityRun.status !== "approved") {
+    throw publicationStateBindingError();
+  }
   const reliabilityBinding = reliabilityRun ? {
     runId: reliabilityRun.id,
+    status: "approved" as const,
     sha256: sha256Json(reliabilityRun),
     dashboardSchemaVersion: reliabilityRun.dashboard.schemaVersion,
     projectVersion: reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,

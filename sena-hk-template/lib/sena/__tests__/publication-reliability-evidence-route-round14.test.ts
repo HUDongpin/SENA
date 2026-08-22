@@ -177,6 +177,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
             activePrimary?: string;
             stateRevision?: string;
             stateRevisionSha256?: string;
+            bindingSha256?: string;
             project?: {
               projectId?: string;
               projectVersion?: number;
@@ -191,6 +192,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
             };
             reliabilityRun?: {
               runId?: string;
+              status?: string;
               sha256?: string;
               projectVersion?: number;
               unresolvedDisagreements?: number;
@@ -206,6 +208,18 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           claimPackage?: { sourceSnapshotSha256?: string };
         };
         claimEvidence?: { codingReliability?: string };
+        derivationManifest?: {
+          schemaVersion?: string;
+          sourceKind?: string;
+          derivationKind?: string;
+          manifestSha256?: string;
+          hashBoundaries?: {
+            persistedSnapshotSha256?: string;
+            readProjectionSnapshotSha256?: string;
+            publicationSnapshotSha256?: string;
+          };
+          enterpriseProjectEvidence?: { stateBinding?: { bindingSha256?: string } };
+        };
       };
       expect(body.claimEvidence?.codingReliability).toBe("ready");
       expect(body.enterpriseProjectEvidence?.sourceSnapshotSha256).toBe(body.sourceSnapshotEvidence?.snapshotSha256);
@@ -214,7 +228,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         reliabilityRunId: reliabilityBody.reliabilityRun?.id,
         reliabilityDashboardSchemaVersion: "sena-coding-reliability-dashboard/v2",
         projectVersion: project.currentVersion,
-        persistedSourceSnapshotSha256: body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256
+        persistedSourceSnapshotSha256: body.enterpriseProjectEvidence?.stateBinding?.project?.persistedSnapshotSha256
       }));
       expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
         .not.toBe(body.sourceSnapshotEvidence?.snapshotSha256);
@@ -237,11 +251,36 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         }),
         reliabilityRun: expect.objectContaining({
           runId: reliabilityBody.reliabilityRun?.id,
+          status: "approved",
           sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
           projectVersion: project.currentVersion,
           unresolvedDisagreements: 0
         })
       }));
+      expect(body.derivationManifest).toEqual(expect.objectContaining({
+        schemaVersion: "sena-publication-derivation-manifest/v1",
+        sourceKind: "enterprise-project",
+        derivationKind: "current-project-reliability-run",
+        manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        hashBoundaries: expect.objectContaining({
+          persistedSnapshotSha256: body.enterpriseProjectEvidence?.stateBinding?.project?.persistedSnapshotSha256,
+          readProjectionSnapshotSha256: body.enterpriseProjectEvidence?.stateBinding?.project?.readProjectionSnapshotSha256,
+          publicationSnapshotSha256: body.sourceSnapshotEvidence?.snapshotSha256
+        }),
+        enterpriseProjectEvidence: expect.objectContaining({
+          stateBinding: expect.objectContaining({
+            bindingSha256: body.enterpriseProjectEvidence?.stateBinding?.bindingSha256
+          })
+        })
+      }));
+      expect(exported.headers.get("x-sena-publication-derivation-manifest-sha256"))
+        .toBe(body.derivationManifest?.manifestSha256);
+      expect(exported.headers.get("x-sena-persisted-source-snapshot-sha256"))
+        .toBe(body.derivationManifest?.hashBoundaries?.persistedSnapshotSha256);
+      expect(exported.headers.get("x-sena-read-projection-source-snapshot-sha256"))
+        .toBe(body.derivationManifest?.hashBoundaries?.readProjectionSnapshotSha256);
+      expect(exported.headers.get("x-sena-source-snapshot-sha256"))
+        .toBe(body.derivationManifest?.hashBoundaries?.publicationSnapshotSha256);
       expect(enterprise.getEnterpriseProject(registered.context, project.id).currentVersion).toBe(project.currentVersion);
 
       const viewerEmail = "current-v2-publication-viewer@example.edu";

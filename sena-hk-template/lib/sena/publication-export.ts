@@ -28,6 +28,7 @@ export type SenaPublicationExport = {
   filename: string;
   contentType: string;
   body: string | Buffer;
+  derivationManifest: SenaPublicationDerivationManifest;
 };
 
 export type SenaPublicationEnterpriseProjectEvidence = {
@@ -61,6 +62,36 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   };
 };
 
+export type SenaPublicationDerivationManifest = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationDerivationManifest;
+  generatedAt: string;
+  sourceKind: "inline-snapshot" | "enterprise-project" | "report-model";
+  derivationKind: "inline-snapshot" | "persisted-project-snapshot" | "current-project-reliability-run" | "report-model";
+  publicationSnapshot: {
+    schemaVersion: string;
+    title: string;
+    generatedAt: string;
+    sha256: string;
+    reportSha256: string;
+  };
+  hashBoundaries: {
+    hashAlgorithm: "sha256";
+    persistedSnapshotSha256: string;
+    readProjectionSnapshotSha256: string;
+    publicationSnapshotSha256: string;
+    reportSha256: string;
+  };
+  manifestIntegrity: {
+    algorithm: "sha256";
+    encoding: "utf8";
+    serialization: "JSON.stringify in schema field order";
+    scope: "all manifest fields except manifestSha256";
+  };
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence;
+  guardrails: string[];
+  manifestSha256: string;
+};
+
 function escapeXml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -75,6 +106,117 @@ function sha256Buffer(buffer: Buffer) {
 
 function sha256Json(value: unknown) {
   return sha256Buffer(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
+function publicationDerivationManifestError() {
+  return new SenaEnterpriseError(
+    "Publication derivation evidence does not match the selected snapshot and atomic state binding.",
+    409,
+    "publication_derivation_manifest_binding_invalid"
+  );
+}
+
+function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnterpriseProjectEvidence) {
+  const { bindingSha256, ...bindingCore } = evidence.stateBinding;
+  const binding = evidence.stateBinding;
+  const reliability = binding.reliabilityRun;
+  const derivation = evidence.publicationDerivation;
+  return (
+    sha256Json(bindingCore) === bindingSha256 &&
+    binding.project.projectId === evidence.projectId &&
+    binding.project.projectVersion === evidence.currentVersion &&
+    binding.claimPackage.sha256 === evidence.claimPackage.sha256 &&
+    binding.claimPackage.projectVersion === evidence.currentVersion &&
+    binding.claimPackage.sourceSnapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
+    binding.claimPackage.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    binding.claimPackage.reliabilityRunId === (reliability?.runId ?? null) &&
+    (!reliability || (
+      reliability.status === "approved" &&
+      reliability.projectVersion === evidence.currentVersion &&
+      reliability.unresolvedDisagreements === 0
+    )) &&
+    (!derivation || (
+      reliability?.runId === derivation.reliabilityRunId &&
+      reliability.dashboardSchemaVersion === derivation.reliabilityDashboardSchemaVersion &&
+      reliability.projectVersion === derivation.projectVersion
+    ))
+  );
+}
+
+export function buildSenaPublicationDerivationManifest(input: {
+  snapshot?: SenaProjectSnapshot;
+  model?: SenaModel;
+  report: SenaReport;
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence;
+}): SenaPublicationDerivationManifest {
+  const snapshotSha256 = input.snapshot
+    ? sha256Json(input.snapshot)
+    : sha256Json({ report: input.report, modelOptions: input.model?.options });
+  const reportSha256 = sha256Json(input.report);
+  const enterpriseEvidence = input.enterpriseProjectEvidence;
+  const persistedSnapshotSha256 = enterpriseEvidence?.stateBinding.project.persistedSnapshotSha256 ?? snapshotSha256;
+  const readProjectionSnapshotSha256 = enterpriseEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? snapshotSha256;
+  const derivationKind = enterpriseEvidence?.publicationDerivation
+    ? "current-project-reliability-run" as const
+    : enterpriseEvidence
+      ? "persisted-project-snapshot" as const
+      : input.snapshot
+        ? "inline-snapshot" as const
+        : "report-model" as const;
+
+  if (enterpriseEvidence && (
+    !enterprisePublicationEvidenceIsConsistent(enterpriseEvidence) ||
+    enterpriseEvidence.sourceSnapshotSha256 !== snapshotSha256 ||
+    enterpriseEvidence.reportSha256 !== reportSha256 ||
+    enterpriseEvidence.claimPackage.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+    enterpriseEvidence.claimPackage.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    enterpriseEvidence.stateBinding.claimPackage.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
+    enterpriseEvidence.stateBinding.claimPackage.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    (enterpriseEvidence.publicationDerivation && (
+      enterpriseEvidence.publicationDerivation.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+      enterpriseEvidence.publicationDerivation.readProjectionSourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+      enterpriseEvidence.publicationDerivation.derivedPublicationSnapshotSha256 !== snapshotSha256
+    ))
+  )) {
+    throw publicationDerivationManifestError();
+  }
+
+  const manifestCore = {
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationDerivationManifest,
+    generatedAt: input.snapshot?.generatedAt ?? input.report.generatedAt,
+    sourceKind: enterpriseEvidence ? "enterprise-project" as const : input.snapshot ? "inline-snapshot" as const : "report-model" as const,
+    derivationKind,
+    publicationSnapshot: {
+      schemaVersion: input.snapshot?.schemaVersion ?? "derived-from-report",
+      title: input.snapshot?.title ?? input.report.title,
+      generatedAt: input.snapshot?.generatedAt ?? input.report.generatedAt,
+      sha256: snapshotSha256,
+      reportSha256
+    },
+    hashBoundaries: {
+      hashAlgorithm: "sha256" as const,
+      persistedSnapshotSha256,
+      readProjectionSnapshotSha256,
+      publicationSnapshotSha256: snapshotSha256,
+      reportSha256
+    },
+    manifestIntegrity: {
+      algorithm: "sha256" as const,
+      encoding: "utf8" as const,
+      serialization: "JSON.stringify in schema field order" as const,
+      scope: "all manifest fields except manifestSha256" as const
+    },
+    ...(enterpriseEvidence ? { enterpriseProjectEvidence: structuredClone(enterpriseEvidence) } : {}),
+    guardrails: [
+      "The persisted hash identifies raw stored evidence; the read-projection hash identifies non-persisted compatibility normalization.",
+      "The publication snapshot hash identifies the exact rendered/exported analytical snapshot.",
+      "A derivation manifest records provenance and integrity boundaries; it does not make a causal or inferential claim."
+    ]
+  };
+  return {
+    ...manifestCore,
+    manifestSha256: sha256Json(manifestCore)
+  };
 }
 
 function snapshotDatasetCounts(snapshot: SenaProjectSnapshot) {
@@ -162,7 +304,20 @@ function pngChunk(type: string, data: Buffer) {
   return Buffer.concat([length, typeBuffer, data, checksum]);
 }
 
-function encodePng(width: number, height: number, pixels: Buffer) {
+function pngInternationalTextChunk(keyword: string, text: string) {
+  return pngChunk("iTXt", Buffer.concat([
+    Buffer.from(keyword, "latin1"),
+    Buffer.from([0, 0, 0, 0, 0]),
+    Buffer.from(text, "utf8")
+  ]));
+}
+
+function encodePng(
+  width: number,
+  height: number,
+  pixels: Buffer,
+  internationalText: Array<{ keyword: string; text: string }> = []
+) {
   const scanlines = Buffer.alloc((width * 4 + 1) * height);
   for (let y = 0; y < height; y += 1) {
     const scanlineOffset = y * (width * 4 + 1);
@@ -180,6 +335,7 @@ function encodePng(width: number, height: number, pixels: Buffer) {
   return Buffer.concat([
     pngSignature,
     pngChunk("IHDR", ihdr),
+    ...internationalText.map(({ keyword, text }) => pngInternationalTextChunk(keyword, text)),
     pngChunk("IDAT", deflateSync(scanlines)),
     pngChunk("IEND", Buffer.alloc(0))
   ]);
@@ -340,7 +496,8 @@ const PUBLICATION_RASTER_NOTE =
 export function buildSenaPublicationSvg(
   model: SenaModel,
   title: string,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.svg.document;
   const plate = figure.vector;
@@ -356,6 +513,7 @@ export function buildSenaPublicationSvg(
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(`${title} — canonical ENA plane`)}" font-family="Arial, Helvetica, sans-serif">
+  ${derivationManifest ? `<metadata id="sena-publication-derivation-manifest">${escapeXml(JSON.stringify(derivationManifest))}</metadata>` : ""}
   <rect width="${width}" height="${height}" fill="#f8fafc"/>
   <rect x="36" y="32" width="${width - 72}" height="966" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="${plate.x}" y="76" font-size="28" font-weight="800" fill="#111827">${escapeXml(title)}</text>
@@ -387,7 +545,8 @@ ${renderSenaPublicationFigureSvgGroup(figure)}
 export function buildSenaPublicationPng(
   model: SenaModel,
   title: string,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.png.document;
   const plate = figure.raster;
@@ -420,7 +579,10 @@ export function buildSenaPublicationPng(
 
   drawText(pixels, width, height, bitmapSafeText(PUBLICATION_GUARDRAIL), plate.x, 1316, 2, [100, 116, 139, 255]);
   drawText(pixels, width, height, bitmapSafeText(PUBLICATION_RASTER_NOTE), plate.x, 1344, 2, [148, 118, 20, 255]);
-  return encodePng(width, height, pixels);
+  return encodePng(width, height, pixels, derivationManifest ? [{
+    keyword: "SENA Derivation Manifest",
+    text: JSON.stringify(derivationManifest)
+  }] : []);
 }
 
 /**
@@ -437,7 +599,11 @@ export function buildSenaPublicationFigurePng(figure: SenaPublicationFigure) {
   return encodePng(width, height, pixels);
 }
 
-export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublicationFigure) {
+export function buildSenaPublicationHtml(
+  report: SenaReport,
+  figure?: SenaPublicationFigure,
+  derivationManifest?: SenaPublicationDerivationManifest
+) {
   const markdown = buildSenaMarkdownReport(report);
   // The report's own "Figures" section is prose — node, edge and window counts —
   // so without this the HTML export is the one publication artifact that names
@@ -471,11 +637,15 @@ export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublic
     li { margin: 4px 0; }
   </style>
 </head>
-<body>${figureBlock}${body}</body>
+<body>${figureBlock}${body}${derivationManifest ? `<script type="application/json" data-sena-derivation-manifest>${JSON.stringify(derivationManifest).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")}</script>` : ""}</body>
 </html>`;
 }
 
-export async function buildSenaPublicationWorkbook(model: SenaModel, report: SenaReport) {
+export async function buildSenaPublicationWorkbook(
+  model: SenaModel,
+  report: SenaReport,
+  derivationManifest?: SenaPublicationDerivationManifest
+) {
   return buildXlsxWorkbookBuffer([
     {
       name: "Summary",
@@ -610,7 +780,17 @@ export async function buildSenaPublicationWorkbook(model: SenaModel, report: Sen
         parityStatus: metric.parityStatus,
         interpretationLimit: metric.interpretationLimit
       }))
-    }
+    },
+    ...(derivationManifest ? [{
+      name: "Derivation Manifest",
+      rows: [
+        { key: "schemaVersion", value: derivationManifest.schemaVersion },
+        { key: "manifestSha256", value: derivationManifest.manifestSha256 },
+        { key: "sourceKind", value: derivationManifest.sourceKind },
+        { key: "derivationKind", value: derivationManifest.derivationKind },
+        { key: "manifestJson", value: JSON.stringify(derivationManifest) }
+      ]
+    }] : [])
   ]);
 }
 
@@ -620,7 +800,8 @@ const DOCX_FIGURE_WIDTH = 600;
 export async function buildSenaPublicationDocx(
   model: SenaModel,
   report: SenaReport,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   // Vector first: Word renders the SVG and keeps the figure resolution-free, and
   // the PNG fallback is what older Word builds (and most converters) fall back
@@ -662,7 +843,17 @@ export async function buildSenaPublicationDocx(
         new Paragraph({ text: "Claim Readiness", heading: HeadingLevel.HEADING_1 }),
         new Paragraph(`Status: ${report.claimReadinessGate.status}; use: ${report.claimReadinessGate.claimUse}`),
         new Paragraph({ text: "Guardrail", heading: HeadingLevel.HEADING_1 }),
-        new Paragraph("SENA outputs are descriptive analytics. Include coding reliability, human review, runtime provenance, and method settings with any publication-facing interpretation.")
+        new Paragraph("SENA outputs are descriptive analytics. Include coding reliability, human review, runtime provenance, and method settings with any publication-facing interpretation."),
+        ...(derivationManifest ? [
+          new Paragraph({ text: "Derivation Manifest", heading: HeadingLevel.HEADING_1 }),
+          new Paragraph(`Schema: ${derivationManifest.schemaVersion}; SHA-256: ${derivationManifest.manifestSha256}`),
+          new Paragraph({
+            children: [new TextRun({
+              text: `SENA_DERIVATION_MANIFEST_BEGIN${JSON.stringify(derivationManifest)}SENA_DERIVATION_MANIFEST_END`,
+              vanish: true
+            })]
+          })
+        ] : [])
       ]
     }]
   });
@@ -690,7 +881,8 @@ function pdfSafeText(value: string) {
 export async function buildSenaPublicationPdf(
   model: SenaModel,
   report: SenaReport,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -779,6 +971,19 @@ export async function buildSenaPublicationPdf(
     color: rgb(0.35, 0.41, 0.5)
   });
 
+  if (derivationManifest) {
+    await pdf.attach(
+      Buffer.from(JSON.stringify(derivationManifest), "utf8"),
+      "sena-publication-derivation-manifest.json",
+      {
+        mimeType: "application/json",
+        description: `SENA derivation manifest ${derivationManifest.manifestSha256}`
+      }
+    );
+    pdf.setSubject(`SENA derivation manifest SHA-256 ${derivationManifest.manifestSha256}`);
+    pdf.setKeywords(["SENA", "derivation manifest", derivationManifest.manifestSha256]);
+  }
+
   return Buffer.from(await pdf.save());
 }
 
@@ -825,47 +1030,54 @@ async function buildSingleSenaPublicationExport(
   report: SenaReport,
   safeTitle: string,
   format: PackagedPublicationFormat,
-  figure: SenaPublicationFigure = publicationFigureFor(model, report)
+  figure: SenaPublicationFigure,
+  derivationManifest: SenaPublicationDerivationManifest
 ): Promise<SenaPublicationExport> {
   if (format === "svg") {
     return {
       filename: `${safeTitle}.svg`,
       contentType: "image/svg+xml; charset=utf-8",
-      body: buildSenaPublicationSvg(model, report.title, figure)
+      body: buildSenaPublicationSvg(model, report.title, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "png") {
     return {
       filename: `${safeTitle}.png`,
       contentType: "image/png",
-      body: buildSenaPublicationPng(model, report.title, figure)
+      body: buildSenaPublicationPng(model, report.title, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "html") {
     return {
       filename: `${safeTitle}.html`,
       contentType: "text/html; charset=utf-8",
-      body: buildSenaPublicationHtml(report, figure)
+      body: buildSenaPublicationHtml(report, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "xlsx") {
     return {
       filename: `${safeTitle}.xlsx`,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      body: await buildSenaPublicationWorkbook(model, report)
+      body: await buildSenaPublicationWorkbook(model, report, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "docx") {
     return {
       filename: `${safeTitle}.docx`,
       contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      body: await buildSenaPublicationDocx(model, report, figure)
+      body: await buildSenaPublicationDocx(model, report, figure, derivationManifest),
+      derivationManifest
     };
   }
   return {
     filename: `${safeTitle}.pdf`,
     contentType: "application/pdf",
-    body: await buildSenaPublicationPdf(model, report, figure)
+    body: await buildSenaPublicationPdf(model, report, figure, derivationManifest),
+    derivationManifest
   };
 }
 
@@ -874,14 +1086,27 @@ export async function buildSenaPublicationPackage(
   report: SenaReport,
   safeTitle: string,
   snapshot?: SenaProjectSnapshot,
-  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence,
+  derivationManifest: SenaPublicationDerivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  })
 ) {
   // One projection for all six artifacts: the SVG, PNG, DOCX, and PDF each draw
   // the same figure, so resolving it once is both cheaper and the guarantee that
   // the package's four pictures cannot disagree with each other.
   const figure = publicationFigureFor(model, report);
   const artifacts = await Promise.all(packagedPublicationFormats.map(async (format) => {
-    const exportArtifact = await buildSingleSenaPublicationExport(model, report, safeTitle, format, figure);
+    const exportArtifact = await buildSingleSenaPublicationExport(
+      model,
+      report,
+      safeTitle,
+      format,
+      figure,
+      derivationManifest
+    );
     const bytes = bodyBuffer(exportArtifact.body);
     return {
       format,
@@ -889,6 +1114,7 @@ export async function buildSenaPublicationPackage(
       contentType: exportArtifact.contentType,
       bytes: bytes.byteLength,
       sha256: sha256Buffer(bytes),
+      derivationManifestSha256: derivationManifest.manifestSha256,
       bodyBase64: bytes.toString("base64")
     };
   }));
@@ -961,6 +1187,7 @@ export async function buildSenaPublicationPackage(
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationVerificationCertificate,
     status: artifactManifest.every((artifact) => artifact.bytes > 0 && artifact.sha256.length === 64) ? "verified" : "needs-review",
     generatedAt: report.generatedAt,
+    derivationManifestSha256: derivationManifest.manifestSha256,
     sourceSnapshotSha256: sourceSnapshotEvidence.snapshotSha256,
     reportSha256: sourceSnapshotEvidence.reportSha256,
     artifactChecks: artifactManifest.map((artifact) => ({
@@ -985,7 +1212,8 @@ export async function buildSenaPublicationPackage(
     claimEvidence,
     figureEvidence,
     verificationCertificate,
-    enterpriseProjectEvidence
+    enterpriseProjectEvidence,
+    derivationManifest
   };
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationPackage,
@@ -996,12 +1224,14 @@ export async function buildSenaPublicationPackage(
       hashAlgorithm: "sha256",
       sourceSnapshotSha256: sourceSnapshotEvidence.snapshotSha256,
       reportSha256: sourceSnapshotEvidence.reportSha256,
+      derivationManifestSha256: derivationManifest.manifestSha256,
       packageSha256: createHash("sha256").update(JSON.stringify(packageEvidence)).digest("hex")
     },
     claimEvidence,
     sourceSnapshotEvidence,
     figureEvidence,
     enterpriseProjectEvidence,
+    derivationManifest,
     artifactManifest,
     verificationCertificate,
     artifacts
@@ -1018,13 +1248,34 @@ export async function buildSenaPublicationExport(
   const report = snapshot.report;
   assertSenaPublicationModelCardReady(report);
   const safeTitle = (snapshot.title || report.title || "sena-publication").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "sena-publication";
+  const derivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  });
 
   if (format === "package") {
     return {
       filename: `${safeTitle}.sena-publication-package.json`,
       contentType: "application/vnd.sena.publication-package+json; charset=utf-8",
-      body: JSON.stringify(await buildSenaPublicationPackage(model, report, safeTitle, snapshot, enterpriseProjectEvidence), null, 2)
+      body: JSON.stringify(await buildSenaPublicationPackage(
+        model,
+        report,
+        safeTitle,
+        snapshot,
+        enterpriseProjectEvidence,
+        derivationManifest
+      ), null, 2),
+      derivationManifest
     };
   }
-  return buildSingleSenaPublicationExport(model, report, safeTitle, format);
+  return buildSingleSenaPublicationExport(
+    model,
+    report,
+    safeTitle,
+    format,
+    publicationFigureFor(model, report),
+    derivationManifest
+  );
 }

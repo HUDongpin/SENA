@@ -242,11 +242,13 @@ export async function POST(request: Request) {
         title: snapshot.title,
         projectVersion: projectVersion ?? null,
         sourceSnapshotSha256: enterpriseProjectEvidence?.sourceSnapshotSha256 ?? null,
-        persistedSourceSnapshotSha256: enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256 ?? null,
+        persistedSourceSnapshotSha256: enterpriseProjectEvidence?.stateBinding.project.persistedSnapshotSha256 ?? null,
+        readProjectionSourceSnapshotSha256: enterpriseProjectEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? null,
         reliabilityRunId: enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId ?? null,
         claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null,
         publicationStateRevisionSha256: enterpriseProjectEvidence?.stateBinding.stateRevisionSha256 ?? null,
-        publicationStateBindingSha256: enterpriseProjectEvidence?.stateBinding.bindingSha256 ?? null
+        publicationStateBindingSha256: enterpriseProjectEvidence?.stateBinding.bindingSha256 ?? null,
+        publicationDerivationManifestSha256: result.derivationManifest.manifestSha256
       }
     });
     const exportBuffer = bodyBuffer(result.body);
@@ -261,11 +263,15 @@ export async function POST(request: Request) {
         "x-sena-export-filename": result.filename,
         "x-sena-export-bytes": String(exportBuffer.byteLength),
         "x-sena-export-sha256": sha256Buffer(exportBuffer),
+        "x-sena-publication-derivation-manifest-sha256": result.derivationManifest.manifestSha256,
         ...(projectId ? { "x-sena-project-id": projectId } : {}),
         ...(projectVersion ? { "x-sena-project-version": String(projectVersion) } : {}),
         ...(enterpriseProjectEvidence?.sourceSnapshotSha256 ? { "x-sena-source-snapshot-sha256": enterpriseProjectEvidence.sourceSnapshotSha256 } : {}),
-        ...(enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256
-          ? { "x-sena-persisted-source-snapshot-sha256": enterpriseProjectEvidence.publicationDerivation.persistedSourceSnapshotSha256 }
+        ...(enterpriseProjectEvidence?.stateBinding.project.persistedSnapshotSha256
+          ? { "x-sena-persisted-source-snapshot-sha256": enterpriseProjectEvidence.stateBinding.project.persistedSnapshotSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.project.readProjectionSnapshotSha256
+          ? { "x-sena-read-projection-source-snapshot-sha256": enterpriseProjectEvidence.stateBinding.project.readProjectionSnapshotSha256 }
           : {}),
         ...(enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId
           ? { "x-sena-publication-reliability-run-id": enterpriseProjectEvidence.publicationDerivation.reliabilityRunId }

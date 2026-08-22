@@ -183,6 +183,7 @@ export const SENA_SCHEMA_VERSIONS = {
   project: "sena-project/v1",
   publicationBackupOwner: "sena-publication-backup-owner/v1",
   publicationCommitReceipt: "sena-publication-commit-receipt/v1",
+  publicationDerivationManifest: "sena-publication-derivation-manifest/v1",
   publicationEnterpriseProjectEvidence: "sena-publication-enterprise-project-evidence/v1",
   publicationLock: "sena-publication-lock/v1",
   publicationPackage: "sena-publication-package/v1",
