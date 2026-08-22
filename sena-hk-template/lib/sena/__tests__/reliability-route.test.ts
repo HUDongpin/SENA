@@ -217,8 +217,8 @@ describe("SENA reliability route", () => {
     }
   }, reliabilityRouteTestTimeoutMs);
 
-  it("preflights queued inline annotations against the authoritative full source", async () => {
-    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-authoritative-queue-"));
+  it.each(["annotations", "rows", "data"] as const)("preflights queued inline %s against the authoritative full source", async (alias) => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-reliability-authoritative-${alias}-queue-`));
     let sessionToken = "";
     vi.resetModules();
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
@@ -242,7 +242,7 @@ describe("SENA reliability route", () => {
       const enterprise = await import("../enterprise");
       const registered = enterprise.registerEnterpriseUser({
         name: "Authoritative Queue Reviewer",
-        email: "authoritative-queue@example.edu",
+        email: `authoritative-${alias}-queue@example.edu`,
         password: "sena-secure-123",
         organization: "Authoritative Queue Lab",
         plan: "lab"
@@ -266,7 +266,7 @@ describe("SENA reliability route", () => {
           teamId: project.teamId,
           projectId: project.id,
           reviewer: registered.context.user.name,
-          annotations: [
+          [alias]: [
             { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "1" },
             { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
           ]

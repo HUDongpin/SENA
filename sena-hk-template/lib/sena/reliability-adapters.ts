@@ -40,7 +40,19 @@ function rawRowsFromJson(value: unknown): unknown[] {
   return Array.isArray(table) ? table : [value];
 }
 
-async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{ rows: SenaImportRow[]; warnings: string[]; bytes: number }> {
+function allRawRowGroupsFromJson(value: unknown): unknown[][] {
+  if (Array.isArray(value)) return [value];
+  if (!isImportRow(value)) return [];
+  const groups = [value.rows, value.annotations, value.data].filter(Array.isArray);
+  return groups.length > 0 ? groups : [[value]];
+}
+
+async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{
+  rows: SenaImportRow[];
+  warnings: string[];
+  bytes: number;
+  rawRowCount: number;
+}> {
   const lowerName = file.name.toLowerCase();
   if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
     throw new Error(`${file.name}: local reliability import accepts CSV or JSON only. Sign in to process .xlsx files on the server, or export this worksheet as CSV.`);
@@ -57,20 +69,29 @@ async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise
       return {
         rows: [],
         warnings: [`${file.name}: JSON reliability annotations could not be parsed.`],
-        bytes
+        bytes,
+        rawRowCount: 0
       };
     }
+    // Every supplied alias consumes admission budget even though the legacy
+    // semantic reader continues to select the first rows/annotations/data
+    // table. Count before that precedence can hide ignored raw rows.
+    const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(allRawRowGroupsFromJson(decoded));
     const rawRows = rawRowsFromJson(decoded);
-    assertSenaReliabilityCombinedRawRowsWithinLimits([rawRows]);
-    return { rows: rawRows.filter(isImportRow), warnings: [], bytes };
+    return { rows: rawRows.filter(isImportRow), warnings: [], bytes, rawRowCount };
   }
 
   const parsed = parseSenaCsv(text);
-  assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
+  const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
   // Ragged-row repairs are recorded per file; the padded empty value cell is
   // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
   // instead of being read as an applied code that moves kappa/alpha.
-  return { rows: parsed.rows, warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`), bytes };
+  return {
+    rows: parsed.rows,
+    warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`),
+    bytes,
+    rawRowCount
+  };
 }
 
 export async function importSenaReliabilityFiles(
@@ -82,7 +103,7 @@ export async function importSenaReliabilityFiles(
   assertSenaReliabilitySourceBytesWithinLimits(declaredSizes, "files");
   const parsedFiles = await Promise.all(files.map(rowsFromReliabilityFile));
   assertSenaReliabilitySourceBytesWithinLimits(parsedFiles.map((file) => file.bytes), "files");
-  assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => file.rows));
+  assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => ({ length: file.rawRowCount })));
   const rows = parsedFiles.flatMap((file) => file.rows);
   const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
   const parsed = parseCoderAnnotationsFromRows(rows);

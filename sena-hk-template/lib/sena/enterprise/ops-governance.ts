@@ -3,6 +3,7 @@ import {
   type SenaEnterprisePostgresConfig
 } from "../enterprise-postgres";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { senaEnterpriseUploadMaxBytes } from "./upload-limits";
 import {
   alertingChannel,
   alertingOwner,
@@ -1029,7 +1030,7 @@ const mfaSetupMinutes = positiveIntegerEnv("SENA_MFA_SETUP_MINUTES", 10);
 const mfaChallengeMinutes = positiveIntegerEnv("SENA_MFA_CHALLENGE_MINUTES", 5);
 const passwordResetMinutes = positiveIntegerEnv("SENA_PASSWORD_RESET_MINUTES", 30);
 const uploadScanEngine = "sena-local-upload-scan/v1" as const;
-const maxUploadBytes = Number(process.env.SENA_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
+const maxUploadBytes = senaEnterpriseUploadMaxBytes();
 const allowedUploadExtensions = new Set([".csv", ".json", ".xlsx", ".txt", ".md", ".srt", ".vtt"]);
 
 export function manageableTeamIds(context: SenaEnterpriseSessionContext) {

@@ -250,6 +250,22 @@ export async function getEnterpriseProjectAsync(context: SenaEnterpriseSessionCo
   return project;
 }
 
+/**
+ * Resolves a project and enforces tenant read permission without appending the
+ * audited `project.read` event or writing enterprise state. Resource-admission
+ * paths use this lookup before they know a request is safe to execute.
+ */
+export async function getEnterpriseProjectReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  return project;
+}
+
 export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, projectId: string, input: {
   title?: string;
   description?: string;

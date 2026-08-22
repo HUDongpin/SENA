@@ -565,6 +565,112 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(reliabilityRun?.fileCount).toBe(1);
   });
 
+  it("admits queued reliability pointers before project reads and reviewer decryption", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-reliability-preflight.csv",
+      contentType: "text/csv",
+      body: reliabilityCsv,
+      importProfile: "reliability"
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const reviewerEnvelopeSha256 = "a".repeat(64);
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds,
+      reviewerEnvelopeUploadId: "upload_reviewer_must_not_be_read",
+      reviewerEnvelopeSha256
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+        uploadIds,
+        fileCount: uploadIds.length,
+        reviewerEnvelopeUploadId: "upload_reviewer_must_not_be_read",
+        reviewerEnvelopeSha256,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const auditedProjectRead = vi.fn(async () => {
+      throw new Error("audited project read happened before reliability pointer admission");
+    });
+    const readOnlyProjectLookup = vi.fn(async () => {
+      throw new Error("read-only project lookup happened before reliability pointer admission");
+    });
+    const reviewerReader = vi.fn(async () => {
+      throw new Error("reviewer decrypt happened before reliability pointer admission");
+    });
+    const pointerReader = vi.fn(async () => {
+      const actualReliability = await vi.importActual<typeof import("../reliability")>("../reliability");
+      throw new actualReliability.SenaReliabilityUniverseLimitError([{
+        path: "uploadIds",
+        rule: "aggregate-source-byte-count-at-most-104857600",
+        actual: 104_857_601,
+        maximum: 104_857_600
+      }]);
+    });
+
+    vi.resetModules();
+    vi.doMock("../enterprise/team-project", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/team-project")>("../enterprise/team-project"),
+      getEnterpriseProjectAsync: auditedProjectRead,
+      getEnterpriseProjectReadOnlyAsync: readOnlyProjectLookup
+    }));
+    vi.doMock("../enterprise/import-analysis", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/import-analysis")>("../enterprise/import-analysis"),
+      readEnterpriseUploadContentsAsync: reviewerReader
+    }));
+    vi.doMock("../enterprise/reliability-upload-reader", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/reliability-upload-reader")>("../enterprise/reliability-upload-reader"),
+      readEnterpriseReliabilityUploadPointers: pointerReader
+    }));
+
+    try {
+      const runtime = await import("../enterprise/server-job-worker-runtime");
+      const outcome = await runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+      expect(outcome.status).toBe("failed");
+      expect(pointerReader).toHaveBeenCalledTimes(1);
+      expect(auditedProjectRead).not.toHaveBeenCalled();
+      expect(readOnlyProjectLookup).not.toHaveBeenCalled();
+      expect(reviewerReader).not.toHaveBeenCalled();
+      expect(outcome.errorCode).toBe("reliability_universe_limit_exceeded");
+      expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      })).toEqual(runsBefore);
+      expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events).toEqual(auditsBefore);
+    } finally {
+      vi.doUnmock("../enterprise/team-project");
+      vi.doUnmock("../enterprise/import-analysis");
+      vi.doUnmock("../enterprise/reliability-upload-reader");
+    }
+  });
+
   it("fails a queued import whose upload is not registered instead of importing zero bytes", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;

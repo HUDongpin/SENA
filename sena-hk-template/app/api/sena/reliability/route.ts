@@ -10,12 +10,14 @@ import {
 import {
   createEnterpriseUploadsWithPostgresMirrorAsync
 } from "@/lib/sena/enterprise/import-analysis";
+import { senaReliabilityServerSourceByteLimit } from "@/lib/sena/enterprise/upload-limits";
+import { readSenaReliabilityBoundedTransportRequest } from "@/lib/sena/enterprise/reliability-transport";
 import { readEnterpriseReliabilityUploadPointers } from "@/lib/sena/enterprise/reliability-upload-reader";
 import {
   requireEnterprisePermission
 } from "@/lib/sena/enterprise/access-control";
 import {
-  getEnterpriseProjectAsync
+  getEnterpriseProjectReadOnlyAsync
 } from "@/lib/sena/enterprise/team-project";
 import {
   SenaEnterpriseError
@@ -30,16 +32,22 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { readSenaReliabilityUploadRows } from "@/lib/sena/import-adapters";
-import { assertSenaReliabilityJsonRequestWithinLimits } from "@/lib/sena/reliability-api";
+import {
+  assertSenaReliabilityJsonRequestWithinLimits,
+  prepareSenaReliabilityJsonRequest
+} from "@/lib/sena/reliability-api";
 import {
   assertSenaReliabilityCombinedRawRowsWithinLimits,
+  assertSenaReliabilitySingleSourceMode,
   assertSenaReliabilitySourceBytesWithinLimits,
   assertSenaReliabilitySourceCountWithinLimits,
   bindSenaReliabilityAnnotationsToProject,
   buildSenaReliabilityDashboard,
+  normalizeSenaReliabilityUploadIds,
   parseCoderAnnotationsFromRows,
   preflightSenaReliabilityAnnotations,
   reliabilityDashboardToReview,
+  SenaReliabilitySourceInputError,
   senaReliabilitySnapshotFingerprint
 } from "@/lib/sena/reliability";
 import {
@@ -67,7 +75,11 @@ async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilit
       bytes
     };
   }));
-  assertSenaReliabilitySourceBytesWithinLimits(buffered.map((file) => file.bytes.byteLength), "files");
+  assertSenaReliabilitySourceBytesWithinLimits(
+    buffered.map((file) => file.bytes.byteLength),
+    "files",
+    { sourceBytes: senaReliabilityServerSourceByteLimit() }
+  );
   return buffered;
 }
 
@@ -115,23 +127,63 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
     const context = await requireApiSessionForMutation(request);
-    if ((request.headers.get("content-type") || "").toLowerCase().includes("application/json")) {
-      const body = await request.json() as Record<string, unknown>;
-      if (shouldQueueServerJob(request, body)) {
-        assertSenaReliabilityJsonRequestWithinLimits(body);
+    const jsonRequest = (request.headers.get("content-type") || "").toLowerCase().includes("application/json");
+    const boundedRequest = await readSenaReliabilityBoundedTransportRequest(request, { json: jsonRequest });
+    if (jsonRequest) {
+      const body = await boundedRequest.json() as Record<string, unknown>;
+      const inlineSourceSupplied = ["files", "annotations", "rows", "data"]
+        .some((key) => Object.prototype.hasOwnProperty.call(body, key));
+      const uploadPointersSupplied = Object.prototype.hasOwnProperty.call(body, "uploadIds");
+      assertSenaReliabilitySingleSourceMode({
+        json: inlineSourceSupplied,
+        uploadPointers: uploadPointersSupplied
+      });
+      // A registered pointer has no synchronous byte source to execute from;
+      // treat the pointer shape itself as an explicit queue request rather than
+      // silently ignoring it in the direct JSON builder.
+      const queueRequest = uploadPointersSupplied || shouldQueueServerJob(boundedRequest, body);
+      // Pointer-only queue requests are admitted against registered metadata
+      // below. Every direct or inline JSON source uses the effective server cap
+      // before the semantic preparer, even when deployment configuration is
+      // stricter than the fixed reliability-file limit.
+      if (!queueRequest || inlineSourceSupplied) {
+        assertSenaReliabilityJsonRequestWithinLimits(body, {
+          sourceBytes: senaReliabilityServerSourceByteLimit()
+        });
+      }
+      if (queueRequest) {
+        const uploadIdsFromRequest = normalizeSenaReliabilityUploadIds(body.uploadIds);
+        // The shared JSON preparer preserves files > annotations > rows > data
+        // semantic precedence while the admission pass above counts every
+        // supplied alias. It also executes the complete dashboard work-budget
+        // preflight before any project lookup or reliability-specific write.
+        const preparedInline = inlineSourceSupplied
+          ? prepareSenaReliabilityJsonRequest(body, { defaultReviewer: context.user.name })
+          : undefined;
+        const parsedInline = preparedInline ? {
+          annotations: preparedInline.annotations,
+          skippedCells: preparedInline.skippedCells
+        } : undefined;
+        const inlineRowsForQueue = preparedInline
+          ? Array.isArray(body.files) && body.files.length > 0
+            ? preparedInline.annotations
+            : Array.isArray(body.annotations)
+              ? body.annotations
+              : Array.isArray(body.rows)
+                ? body.rows
+                : Array.isArray(body.data)
+                  ? body.data
+                  : preparedInline.annotations
+          : undefined;
         const projectId = body.projectId ? String(body.projectId) : undefined;
-        const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+        const project = projectId ? await getEnterpriseProjectReadOnlyAsync(context, projectId) : null;
         const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
         requireEnterprisePermission(context, teamId, "reliability:adjudicate");
         const queue = serverJobQueueStatus();
-        const rawUploadIds = Array.isArray(body.uploadIds) ? body.uploadIds : [];
-        assertSenaReliabilitySourceCountWithinLimits(rawUploadIds.length, "uploadIds");
-        let uploadIds = rawUploadIds.map((value) => String(value)).filter(Boolean);
-        const annotationCount = Array.isArray(body.annotations) ? body.annotations.length : undefined;
+        let uploadIds = uploadIdsFromRequest;
+        const annotationCount = preparedInline?.annotationCount;
         const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
-        if (Array.isArray(body.annotations)) {
-          const parsedInline = parseCoderAnnotationsFromRows(body.annotations as Record<string, unknown>[]);
-          preflightSenaReliabilityAnnotations(parsedInline.annotations);
+        if (parsedInline) {
           if (project) {
             try {
               bindSenaReliabilityAnnotationsToProject(parsedInline.annotations, {
@@ -173,19 +225,19 @@ export async function POST(request: Request) {
         // annotations through the existing encrypted upload registry and keep
         // only the opaque pointer in the job receipt, so its polling worker can
         // reproduce the exact payload hash without persisting coder values.
-        if (queue.mode === "local" && uploadIds.length === 0 && Array.isArray(body.annotations)) {
+        if (queue.mode === "local" && uploadIds.length === 0 && inlineRowsForQueue) {
           const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
             teamId,
             files: [{
               name: "queued-reliability-annotations.json",
               contentType: "application/json",
-              bytes: Buffer.from(JSON.stringify(body.annotations), "utf8"),
+              bytes: Buffer.from(JSON.stringify(inlineRowsForQueue), "utf8"),
               importProfile: "reliability"
             }]
           });
           uploadIds = uploads.map((upload) => upload.id);
         }
-        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !Array.isArray(body.annotations))) {
+        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !inlineRowsForQueue)) {
           throw new SenaEnterpriseError(
             "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
             400,
@@ -219,7 +271,7 @@ export async function POST(request: Request) {
             reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             sourceName: body.sourceName ? String(body.sourceName) : undefined,
             requestSchemaVersion: body.schemaVersion ? String(body.schemaVersion) : undefined,
-            inlineAnnotations: queue.inlinePayloadAllowed ? body.annotations : undefined
+            inlineAnnotations: queue.inlinePayloadAllowed ? inlineRowsForQueue : undefined
           },
           payloadSummary: {
             source: uploadIds.length > 0 ? "upload" : "dataset",
@@ -229,9 +281,9 @@ export async function POST(request: Request) {
             reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
             reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             annotationCount,
-            fileCount: uploadIds.length || (body.sourceName ? 1 : undefined),
+            fileCount: uploadIds.length || preparedInline?.fileCount,
             hasInlineSnapshot: false,
-            hasInlineDataset: queue.mode === "local" ? false : Array.isArray(body.annotations),
+            hasInlineDataset: queue.mode === "local" ? false : Boolean(inlineRowsForQueue),
             payloadValuesExcluded: true
           },
           queue
@@ -263,22 +315,34 @@ export async function POST(request: Request) {
       const response = await buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync(context, body);
       return NextResponse.json(response.body, { headers: response.headers });
     }
-    const form = await request.formData();
+    const form = await boundedRequest.formData();
     const suppliedFileValues = form.getAll("files");
     assertSenaReliabilitySourceCountWithinLimits(suppliedFileValues.length, "files");
+    if (suppliedFileValues.some((value) => !(value instanceof File))) {
+      throw new SenaReliabilitySourceInputError([{
+        path: "files",
+        rule: "file-value-required"
+      }]);
+    }
     const files = suppliedFileValues.filter((value): value is File => value instanceof File);
     // File.size is available before reading multipart bodies into application
     // buffers. Reject declared count and bytes before arrayBuffer(), then verify
     // the actual buffered byte counts again inside bufferReliabilityFiles.
-    assertSenaReliabilitySourceBytesWithinLimits(files.map((file) => file.size), "files");
+    assertSenaReliabilitySourceBytesWithinLimits(
+      files.map((file) => file.size),
+      "files",
+      { sourceBytes: senaReliabilityServerSourceByteLimit() }
+    );
     const bufferedFiles = await bufferReliabilityFiles(files);
-    if (shouldQueueServerJob(request, { queue: ["1", "true", "yes", "on"].includes(String(form.get("queue") || "").toLowerCase()) })) {
+    if (shouldQueueServerJob(boundedRequest, { queue: ["1", "true", "yes", "on"].includes(String(form.get("queue") || "").toLowerCase()) })) {
       const projectId = form.get("projectId") ? String(form.get("projectId")) : undefined;
-      const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+      const project = projectId ? await getEnterpriseProjectReadOnlyAsync(context, projectId) : null;
       const teamId = String(form.get("teamId") || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "reliability:adjudicate");
       const parsedForPreflight = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
-      assertSenaReliabilityCombinedRawRowsWithinLimits(parsedForPreflight.map((file) => file.rows));
+      assertSenaReliabilityCombinedRawRowsWithinLimits(
+        parsedForPreflight.map((file) => ({ length: file.rawRowCount }))
+      );
       const preflightRows = parsedForPreflight.flatMap((file) => file.rows);
       const preflightAnnotations = parseCoderAnnotationsFromRows(preflightRows);
       preflightSenaReliabilityAnnotations(preflightAnnotations.annotations);
@@ -368,7 +432,9 @@ export async function POST(request: Request) {
       });
     }
     const parsedFiles = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
-    assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => file.rows));
+    assertSenaReliabilityCombinedRawRowsWithinLimits(
+      parsedFiles.map((file) => ({ length: file.rawRowCount }))
+    );
     const rows = parsedFiles.flatMap((file) => file.rows);
     const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
     const parsed = parseCoderAnnotationsFromRows(rows);

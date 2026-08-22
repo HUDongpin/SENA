@@ -18,6 +18,7 @@ import {
 import { SenaEnterpriseError } from "./errors";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseProject } from "./team-project";
+import { senaEnterpriseUploadMaxBytes } from "./upload-limits";
 import {
   localWebhookSinkAttempt,
   objectStorageWebhookEndpointHash,
@@ -240,7 +241,6 @@ export type SenaEnterpriseAnalysisRun = {
 const dbDir = process.env.SENA_ENTERPRISE_DB_DIR || ".sena-enterprise";
 const dbPath = path.join(dbDir, "enterprise-db.json");
 const uploadScanEngine = "sena-local-upload-scan/v1" as const;
-const maxUploadBytes = Number(process.env.SENA_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
 const allowedUploadExtensions = new Set([".csv", ".json", ".xlsx", ".txt", ".md", ".srt", ".vtt"]);
 
 function now() {
@@ -269,7 +269,7 @@ function scanEnterpriseUploadFile(file: { name: string; contentType?: string; by
   if (bytes.byteLength === 0) {
     throw new SenaEnterpriseError("Empty upload files are not accepted.", 400, "upload_empty");
   }
-  if (bytes.byteLength > maxUploadBytes) {
+  if (bytes.byteLength > senaEnterpriseUploadMaxBytes()) {
     throw new SenaEnterpriseError("Upload exceeds the configured SENA_UPLOAD_MAX_BYTES limit.", 413, "upload_too_large");
   }
   if (!allowedUploadExtensions.has(extension)) {

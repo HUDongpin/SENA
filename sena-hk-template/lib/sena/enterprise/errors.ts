@@ -2,6 +2,7 @@ import { SenaInputValidationError } from "../analytical-input-validation";
 import {
   SenaReliabilityAnnotationValidationError,
   SenaReliabilityProjectBindingError,
+  SenaReliabilitySourceInputError,
   SenaReliabilityUniverseLimitError
 } from "../reliability";
 
@@ -74,6 +75,16 @@ export function enterpriseErrorResponse(error: unknown) {
         error: error.message,
         code: error.code,
         issues: error.issues.map(({ path, rule, actual, maximum }) => ({ path, rule, actual, maximum }))
+      },
+      status: error.status
+    };
+  }
+  if (error instanceof SenaReliabilitySourceInputError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, rule }) => ({ path, rule }))
       },
       status: error.status
     };

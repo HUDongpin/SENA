@@ -124,6 +124,9 @@ export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
   sources: 100,
   sourceBytes: 25 * 1024 * 1024,
   aggregateSourceBytes: 100 * 1024 * 1024,
+  // Transport envelopes include JSON property names or multipart boundaries
+  // in addition to the admitted 100 MiB aggregate source universe.
+  requestBytes: 128 * 1024 * 1024,
   annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
@@ -168,6 +171,57 @@ export class SenaReliabilityUniverseLimitError extends Error {
       issues: this.issues
     };
   }
+}
+
+export type SenaReliabilitySourceInputIssue = {
+  path: "sources" | "files" | "uploadIds";
+  rule: "exactly-one-source-mode" | "file-value-required" | "non-empty-string-upload-id";
+};
+
+export class SenaReliabilitySourceInputError extends Error {
+  readonly name = "SenaReliabilitySourceInputError";
+  readonly status = 400;
+  readonly code = "invalid_sena_reliability_sources";
+  readonly issues: SenaReliabilitySourceInputIssue[];
+
+  constructor(issues: SenaReliabilitySourceInputIssue[]) {
+    super("SENA coding-reliability request sources are invalid.");
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+}
+
+export function assertSenaReliabilitySingleSourceMode(input: {
+  json: boolean;
+  uploadPointers: boolean;
+}) {
+  if (input.json && input.uploadPointers) {
+    throw new SenaReliabilitySourceInputError([{
+      path: "sources",
+      rule: "exactly-one-source-mode"
+    }]);
+  }
+}
+
+export function normalizeSenaReliabilityUploadIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new SenaReliabilitySourceInputError([{
+      path: "uploadIds",
+      rule: "non-empty-string-upload-id"
+    }]);
+  }
+  assertSenaReliabilitySourceCountWithinLimits(value.length, "uploadIds");
+  const normalized: string[] = [];
+  for (const uploadId of value) {
+    if (typeof uploadId !== "string" || uploadId.trim() === "") {
+      throw new SenaReliabilitySourceInputError([{
+        path: "uploadIds",
+        rule: "non-empty-string-upload-id"
+      }]);
+    }
+    normalized.push(uploadId.trim());
+  }
+  return normalized;
 }
 
 export type SenaReliabilityAnnotationValidationIssue = {
@@ -275,39 +329,70 @@ export function assertSenaReliabilitySourceCountWithinLimits(
 
 export function assertSenaReliabilitySourceBytesWithinLimits(
   sourceSizes: readonly number[],
-  path: SenaReliabilityUniverseLimitIssue["path"]
+  path: SenaReliabilityUniverseLimitIssue["path"],
+  limits: {
+    sourceBytes?: number;
+    aggregateSourceBytes?: number;
+  } = {}
 ) {
+  const sourceBytes = limits.sourceBytes ?? SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes;
+  const aggregateSourceBytes = limits.aggregateSourceBytes ?? SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes;
+  if (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0 ||
+    !Number.isSafeInteger(aggregateSourceBytes) || aggregateSourceBytes < 0) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes}`,
+      actual: "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes
+    }]);
+  }
   assertSenaReliabilitySourceCountWithinLimits(sourceSizes.length, path);
   let aggregateBytes = 0;
   for (const size of sourceSizes) {
-    if (!Number.isSafeInteger(size) || size < 0 || size > SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes) {
+    if (!Number.isSafeInteger(size) || size < 0 || size > sourceBytes) {
       throw new SenaReliabilityUniverseLimitError([{
         path,
-        rule: `source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes}`,
+        rule: `source-byte-count-at-most-${sourceBytes}`,
         actual: Number.isSafeInteger(size) && size >= 0 ? size : "safe-integer-overflow",
-        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes
+        maximum: sourceBytes
       }]);
     }
     const next = safeCardinalitySum([aggregateBytes, size]);
     if (next === null) {
       throw new SenaReliabilityUniverseLimitError([{
         path,
-        rule: `aggregate-source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes}`,
+        rule: `aggregate-source-byte-count-at-most-${aggregateSourceBytes}`,
         actual: "safe-integer-overflow",
-        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
+        maximum: aggregateSourceBytes
       }]);
     }
     aggregateBytes = next;
   }
-  if (aggregateBytes > SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes) {
+  if (aggregateBytes > aggregateSourceBytes) {
     throw new SenaReliabilityUniverseLimitError([{
       path,
-      rule: `aggregate-source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes}`,
+      rule: `aggregate-source-byte-count-at-most-${aggregateSourceBytes}`,
       actual: aggregateBytes,
-      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
+      maximum: aggregateSourceBytes
     }]);
   }
   return aggregateBytes;
+}
+
+export function assertSenaReliabilityDeclaredRequestBytesWithinLimits(
+  byteCount: number,
+  path: "annotations" | "files",
+  maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.requestBytes
+) {
+  if (!Number.isSafeInteger(maximum) || maximum < 0 ||
+    !Number.isSafeInteger(byteCount) || byteCount < 0 || byteCount > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `request-byte-count-at-most-${maximum}`,
+      actual: Number.isSafeInteger(byteCount) && byteCount >= 0 ? byteCount : "safe-integer-overflow",
+      maximum
+    }]);
+  }
 }
 
 export type SenaReliabilityAlgorithmWorkComponents = {

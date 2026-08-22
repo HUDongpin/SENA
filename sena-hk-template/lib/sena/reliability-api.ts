@@ -92,7 +92,10 @@ function sourceSummary(name: string, rows: SenaImportRow[]) {
   };
 }
 
-function assertJsonSourcesWithinLimits(payload: SenaReliabilityJsonRequest) {
+function assertJsonSourcesWithinLimits(
+  payload: SenaReliabilityJsonRequest,
+  limits: { sourceBytes?: number } = {}
+) {
   const fileValues = Array.isArray(payload.files) ? payload.files : [];
   const inlineValues = [
     ["annotations", payload.annotations],
@@ -105,24 +108,27 @@ function assertJsonSourcesWithinLimits(payload: SenaReliabilityJsonRequest) {
   // very serialization/source-summary fan-out this guard is intended to stop.
   assertSenaReliabilitySourceCountWithinLimits(sourceCount, admissionPath);
 
-  const admissionSources: Array<{ name: string; rawRowGroups: unknown[][] }> = [];
+  const admissionSources: Array<{ name: string; rawValue: unknown; rawRowGroups: unknown[][] }> = [];
   for (let index = 0; index < fileValues.length; index += 1) {
     const value = fileValues[index];
     const record = isImportRow(value) ? value : {};
     admissionSources.push({
       name: scalar(record.name) || `reliability-json-batch-${index + 1}.json`,
+      rawValue: value,
       rawRowGroups: allRawRowGroupsFrom(record)
     });
   }
   for (const [key, value] of inlineValues) {
     admissionSources.push({
       name: scalar(payload.sourceName) || `reliability-json-${key}.json`,
+      rawValue: value,
       rawRowGroups: allRawRowGroupsFrom(value)
     });
   }
   if (admissionSources.length === 0) {
     admissionSources.push({
       name: scalar(payload.sourceName) || "reliability-json-annotations.json",
+      rawValue: [],
       rawRowGroups: [[]]
     });
   }
@@ -134,11 +140,17 @@ function assertJsonSourcesWithinLimits(payload: SenaReliabilityJsonRequest) {
   // Count every supplied alias/file group, including groups that semantic
   // precedence will not select, before filtering any row values.
   assertSenaReliabilityCombinedRawRowsWithinLimits(rawRowGroups);
-  assertSenaReliabilitySourceBytesWithinLimits(admissionSources.map((source) => Buffer.byteLength(stableStringify({
-    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
-    name: source.name,
-    rows: source.rawRowGroups.length === 1 ? source.rawRowGroups[0] : source.rawRowGroups
-  }), "utf8")), admissionPath);
+  assertSenaReliabilitySourceBytesWithinLimits(
+    admissionSources.map((source) => Buffer.byteLength(stableStringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
+      name: source.name,
+      // Byte admission covers the complete supplied source envelope, including
+      // invalid alias values and fields semantic row selection will ignore.
+      rows: source.rawValue
+    }), "utf8")),
+    admissionPath,
+    limits
+  );
 }
 
 function admittedNamedSources(payload: SenaReliabilityJsonRequest) {
@@ -167,8 +179,11 @@ function admittedNamedSources(payload: SenaReliabilityJsonRequest) {
   }));
 }
 
-export function assertSenaReliabilityJsonRequestWithinLimits(payload: SenaReliabilityJsonRequest) {
-  assertJsonSourcesWithinLimits(payload);
+export function assertSenaReliabilityJsonRequestWithinLimits(
+  payload: SenaReliabilityJsonRequest,
+  limits: { sourceBytes?: number } = {}
+) {
+  assertJsonSourcesWithinLimits(payload, limits);
 }
 
 export function prepareSenaReliabilityJsonRequest(
