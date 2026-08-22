@@ -238,10 +238,13 @@ function collectSenaDatasetContractIssues(
 
   interactions.forEach((row, index) => {
     if (!isRecord(row)) return;
-    for (const field of ["source", "target"]) {
-      if (isNonemptyString(row[field]) && !personIds.has((row[field] as string).trim())) {
-        add(`${path}.interactions[${index}].${field}`, "reference");
-      }
+    // ADR-0010: a source is contribution-shaped and must resolve to the
+    // authoritative roster; a target is a claim about an actor. Import keeps a
+    // dangling target so it can disclose the excluded tie, while the runtime
+    // drops it from S. Persisted snapshots must preserve that evidence instead
+    // of becoming impossible to restore.
+    if (isNonemptyString(row.source) && !personIds.has(row.source.trim())) {
+      add(`${path}.interactions[${index}].source`, "reference");
     }
   });
   utterances.forEach((row, index) => {
@@ -263,9 +266,6 @@ function collectSenaDatasetContractIssues(
     if (Array.isArray(row.targetPersonIds)) {
       row.targetPersonIds.forEach((target, targetIndex) => {
         canonicalString(target, `${rowPath}.targetPersonIds[${targetIndex}]`);
-        if (isNonemptyString(target) && !personIds.has(target.trim())) {
-          add(`${rowPath}.targetPersonIds[${targetIndex}]`, "reference");
-        }
       });
     }
     if (Array.isArray(row.codes)) {
@@ -378,6 +378,7 @@ function collectSenaSnapshotSourceIssues(
         add(entryPath, "nonempty-string");
         return;
       }
+      if (entry !== entry.trim()) add(entryPath, "canonical-string");
       const id = entry.trim();
       if (seen.has(id)) add(entryPath, "distinct-values");
       seen.add(id);
@@ -428,9 +429,11 @@ function deduplicatedIssues(issues: SenaInputValidationIssue[]) {
 }
 
 /**
- * Strict project-snapshot input boundary. Model construction keeps its legacy
- * warning semantics for unknown references; persisted/restored snapshots do
- * not, because they are the canonical source for later machine evidence.
+ * Strict project-snapshot input boundary. Contribution-shaped references must
+ * resolve, while target-shaped claims remain restorable when ADR-0006/0010
+ * import semantics deliberately preserve them for disclosure and let the
+ * runtime exclude them from S/B_CP. Canonical strings prevent trim-dependent
+ * runtime scoping from changing the represented window.
  */
 export function validateSenaProjectSnapshotCanonicalInputs(input: {
   dataset: unknown;

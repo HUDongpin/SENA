@@ -20,6 +20,15 @@ implemented the same day on `fix/q9-roster-target-gate`. Implementation notes:
   of one).` It rides the existing cleaning-manifest channel (`dataset.warnings` →
   `SenaImportResult` → workspace alerts; the enterprise queue sees it as an
   `uploadWarnings` count), so no new plumbing was added.
+- The project-snapshot canonical validator follows the same boundary. Contribution-shaped
+  references (`interaction.source`, utterance authors, and segment authors) must resolve to
+  the finished roster, but target-shaped claims (`interaction.target` and
+  `coded_segments.targetPersonIds`) remain canonical, restorable evidence even when they do
+  not resolve. Snapshot import therefore preserves the original dangling row and warning;
+  `buildSocialMatrix`/`buildBridgeMatrix` exclude it from `S`/independent `B_CP` exactly as
+  the import contract declares. Temporal-window `stages`, `utteranceIds`, and `segmentIds`
+  must be trim-canonical before restore so runtime scoping never selects a different set from
+  the one represented by the persisted snapshot.
 - The forum adapter's lenient `resolvePersonIdentity` pass-through
   (`lib/sena/import-adapters.ts`) is **deliberately kept**: the import-layer gate is the
   single enforcement point for every producer (JSON contract, CSV tables, adapters), and
