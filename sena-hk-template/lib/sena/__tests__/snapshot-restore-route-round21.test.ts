@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { POST } from "../../../app/api/sena/snapshot/restore/route";
 import {
+  SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS,
+  SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS,
+  SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS,
+  SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
   SenaSnapshotRestoreRequestError,
   readSenaSnapshotRestoreRequest,
   type SenaSnapshotRestoreResult
@@ -380,6 +384,41 @@ describe("SENA stateless snapshot restore route", () => {
     }
     await expect(response!.json()).resolves.toEqual({
       error: "Snapshot restore request exceeds the supported JSON complexity limit.",
+      code: "snapshot_restore_request_too_complex"
+    });
+  });
+
+  it("excludes escaped string contents from the structural-density allowance", async () => {
+    const denseMembers = Array.from({ length: 50_000 }, () => ({}));
+    expect(100_004).toBeLessThan(SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS);
+    expect(50_000).toBeLessThan(SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS);
+    expect(100_005).toBeLessThan(SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS);
+    expect(300_014).toBeGreaterThan(SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS);
+    const raw = JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      padding: String.fromCharCode(92, 34, 91, 93, 123, 125).repeat(1_000_000),
+      source: {
+        first: denseMembers,
+        second: denseMembers
+      }
+    });
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(16 * 1024 * 1024);
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+    const parse = vi.spyOn(JSON, "parse");
+    let response: Response;
+
+    try {
+      response = await POST(request);
+      expect(response.status).toBe(413);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+    await expect(response!.json()).resolves.toMatchObject({
       code: "snapshot_restore_request_too_complex"
     });
   });
