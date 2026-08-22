@@ -525,6 +525,13 @@ describe("SENA publication export route", () => {
           projectId?: string;
           currentVersion?: number;
           claimPackage?: { status?: string };
+          stateBinding?: {
+            activePrimary?: string;
+            stateRevisionKind?: string;
+            stateRevision?: string;
+            stateRevisionSha256?: string;
+            bindingSha256?: string;
+          };
         };
       };
 
@@ -534,8 +541,19 @@ describe("SENA publication export route", () => {
         currentVersion: 1
       }));
       expect(body.enterpriseProjectEvidence?.claimPackage?.status).toBe("exploratory-only");
+      expect(body.enterpriseProjectEvidence?.stateBinding).toEqual(expect.objectContaining({
+        activePrimary: "postgres",
+        stateRevisionKind: "postgres-row-revision",
+        stateRevision: expect.any(String),
+        stateRevisionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        bindingSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-project-version")).toBe("1");
+      expect(response.headers.get("x-sena-publication-state-revision-sha256"))
+        .toBe(body.enterpriseProjectEvidence?.stateBinding?.stateRevisionSha256);
+      expect(response.headers.get("x-sena-publication-state-binding-sha256"))
+        .toBe(body.enterpriseProjectEvidence?.stateBinding?.bindingSha256);
       expect(pg.state?.payload.projects.map((candidate) => candidate.id)).toContain(project.id);
       expect(pg.auditRows.map((entry) => entry.event)).toContain("export.run");
 

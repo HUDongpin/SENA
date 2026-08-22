@@ -2,18 +2,16 @@ import { NextResponse } from "next/server";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
 import {
-  getEnterpriseClaimEvidencePackageWithPostgresEvidence
-} from "@/lib/sena/enterprise/claim-evidence-package";
-import {
   getEnterpriseProjectAsync,
   type SenaEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
-import type { SenaEnterpriseSessionContext } from "@/lib/sena/enterprise/auth-session";
 import {
-  findEnterprisePublicationReliabilityRunAsync,
   type SenaEnterpriseReliabilityRun
 } from "@/lib/sena/enterprise/reliability-runs";
 import { assertEnterpriseReliabilityRunCurrentProject } from "@/lib/sena/enterprise/reliability-integrity";
+import {
+  resolveEnterprisePublicationStateBundle
+} from "@/lib/sena/enterprise/publication-state-binding";
 import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
@@ -70,14 +68,13 @@ function snapshotWithReliabilityEvidence(
   });
 }
 
-async function publicationSnapshotForProject(
-  context: SenaEnterpriseSessionContext,
-  project: SenaEnterpriseProject
+function publicationSnapshotForProject(
+  project: SenaEnterpriseProject,
+  reliabilityRun?: SenaEnterpriseReliabilityRun
 ) {
   if (project.snapshot.report.modelCard.renderGate.status === "ready") {
     return { snapshot: project.snapshot };
   }
-  const reliabilityRun = await findEnterprisePublicationReliabilityRunAsync(context, project);
   if (!reliabilityRun) return { snapshot: project.snapshot };
   return {
     snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun),
@@ -187,10 +184,9 @@ export async function POST(request: Request) {
     let projectVersion: number | undefined;
     let enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence | undefined;
     if (projectId) {
-      const project = await getEnterpriseProjectAsync(context, projectId);
-      requireEnterprisePermission(context, project.teamId, "export:create");
-      const claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(context, { projectId });
-      const publicationSource = await publicationSnapshotForProject(context, project);
+      const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+      const { project, claimPackage, stateBinding } = publicationState;
+      const publicationSource = publicationSnapshotForProject(project, publicationState.reliabilityRun);
       snapshot = publicationSource.snapshot;
       teamId = project.teamId;
       source = "project";
@@ -207,13 +203,16 @@ export async function POST(request: Request) {
         claimUse: project.claimUse,
         sourceSnapshotSha256,
         reportSha256,
+        stateBinding,
         ...(publicationSource.reliabilityRun ? {
           publicationDerivation: {
             kind: "current-project-reliability-run",
             reliabilityRunId: publicationSource.reliabilityRun.id,
             reliabilityDashboardSchemaVersion: publicationSource.reliabilityRun.dashboard.schemaVersion,
             projectVersion: publicationSource.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
-            persistedSourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256
+            persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+            readProjectionSourceSnapshotSha256: stateBinding.project.readProjectionSnapshotSha256,
+            derivedPublicationSnapshotSha256: sourceSnapshotSha256
           }
         } : {}),
         claimPackage: {
@@ -221,7 +220,9 @@ export async function POST(request: Request) {
           status: claimPackage.status,
           blockers: claimPackage.summary.blockers,
           warnings: claimPackage.summary.warnings,
-          sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256
+          sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
+          persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+          sha256: stateBinding.claimPackage.sha256
         }
       };
     } else if (requestBody.snapshot) {
@@ -243,7 +244,9 @@ export async function POST(request: Request) {
         sourceSnapshotSha256: enterpriseProjectEvidence?.sourceSnapshotSha256 ?? null,
         persistedSourceSnapshotSha256: enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256 ?? null,
         reliabilityRunId: enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId ?? null,
-        claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null
+        claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null,
+        publicationStateRevisionSha256: enterpriseProjectEvidence?.stateBinding.stateRevisionSha256 ?? null,
+        publicationStateBindingSha256: enterpriseProjectEvidence?.stateBinding.bindingSha256 ?? null
       }
     });
     const exportBuffer = bodyBuffer(result.body);
@@ -269,6 +272,12 @@ export async function POST(request: Request) {
           : {}),
         ...(enterpriseProjectEvidence?.reportSha256 ? { "x-sena-report-sha256": enterpriseProjectEvidence.reportSha256 } : {}),
         ...(enterpriseProjectEvidence?.claimPackage.status ? { "x-sena-claim-package-status": enterpriseProjectEvidence.claimPackage.status } : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.stateRevisionSha256
+          ? { "x-sena-publication-state-revision-sha256": enterpriseProjectEvidence.stateBinding.stateRevisionSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.bindingSha256
+          ? { "x-sena-publication-state-binding-sha256": enterpriseProjectEvidence.stateBinding.bindingSha256 }
+          : {}),
         ...packageHeaders
       }
     });

@@ -172,6 +172,30 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         sourceSnapshotEvidence?: { snapshotSha256?: string };
         enterpriseProjectEvidence?: {
           sourceSnapshotSha256?: string;
+          stateBinding?: {
+            schemaVersion?: string;
+            activePrimary?: string;
+            stateRevision?: string;
+            stateRevisionSha256?: string;
+            project?: {
+              projectId?: string;
+              projectVersion?: number;
+              persistedSnapshotSha256?: string;
+              readProjectionSnapshotSha256?: string;
+            };
+            claimPackage?: {
+              sha256?: string;
+              projectVersion?: number;
+              sourceSnapshotSha256?: string;
+              reliabilityRunId?: string | null;
+            };
+            reliabilityRun?: {
+              runId?: string;
+              sha256?: string;
+              projectVersion?: number;
+              unresolvedDisagreements?: number;
+            } | null;
+          };
           publicationDerivation?: {
             kind?: string;
             reliabilityRunId?: string;
@@ -194,6 +218,30 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       }));
       expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
         .not.toBe(body.sourceSnapshotEvidence?.snapshotSha256);
+      expect(body.enterpriseProjectEvidence?.stateBinding).toEqual(expect.objectContaining({
+        schemaVersion: "sena-publication-state-binding/v1",
+        activePrimary: "file",
+        stateRevision: expect.any(String),
+        stateRevisionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        project: expect.objectContaining({
+          projectId: project.id,
+          projectVersion: project.currentVersion,
+          persistedSnapshotSha256: body.enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256,
+          readProjectionSnapshotSha256: body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256
+        }),
+        claimPackage: expect.objectContaining({
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          projectVersion: project.currentVersion,
+          sourceSnapshotSha256: body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256,
+          reliabilityRunId: reliabilityBody.reliabilityRun?.id
+        }),
+        reliabilityRun: expect.objectContaining({
+          runId: reliabilityBody.reliabilityRun?.id,
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          projectVersion: project.currentVersion,
+          unresolvedDisagreements: 0
+        })
+      }));
       expect(enterprise.getEnterpriseProject(registered.context, project.id).currentVersion).toBe(project.currentVersion);
 
       const viewerEmail = "current-v2-publication-viewer@example.edu";

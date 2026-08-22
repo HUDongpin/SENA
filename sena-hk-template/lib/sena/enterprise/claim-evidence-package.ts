@@ -52,10 +52,10 @@ export type SenaEnterpriseClaimEvidencePackage = {
   generatedAt: string;
   status: SenaEnterpriseClaimEvidencePackageStatus;
   evidenceSource: {
-    reliabilityRuns: "file-json" | "postgres-table";
-    validationRuns: "file-json" | "postgres-table";
-    expertReviews: "file-json" | "postgres-table";
-    adjudications: "file-json" | "postgres-table" | "reliability-run-payload";
+    reliabilityRuns: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    validationRuns: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    expertReviews: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    adjudications: "file-json" | "postgres-table" | "reliability-run-payload" | "file-primary-state" | "postgres-primary-state";
     evidence: string[];
   };
   project: {
@@ -77,6 +77,9 @@ export type SenaEnterpriseClaimEvidencePackage = {
     snapshotTitle: string;
     snapshotGeneratedAt: string;
     snapshotSha256: string;
+    readProjectionSnapshotSha256: string;
+    persistedSnapshotSha256?: string;
+    stateRevisionSha256?: string;
     reportSha256: string;
     dataGovernance: SenaProjectSnapshot["report"]["dataGovernance"];
     datasetCounts: SenaEnterpriseProject["datasetCounts"];
@@ -201,9 +204,14 @@ function validationCorrection(run: SenaEnterpriseValidationRun): "holm" | undefi
 
 function claimPackageSourceSnapshotEvidence(
   project: SenaEnterpriseProject,
-  revision: SenaEnterpriseProjectRevision | undefined
+  revision: SenaEnterpriseProjectRevision | undefined,
+  options: Pick<
+    SenaEnterpriseClaimEvidencePackageBuildOptions,
+    "persistedSnapshotSha256" | "stateRevisionSha256"
+  > = {}
 ): SenaEnterpriseClaimEvidencePackage["sourceSnapshotEvidence"] {
   const activeWindow = project.snapshot.source.activeTemporalWindow;
+  const readProjectionSnapshotSha256 = artifactSha256(project.snapshot);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseClaimSourceSnapshot,
     projectVersion: project.currentVersion,
@@ -213,7 +221,10 @@ function claimPackageSourceSnapshotEvidence(
     snapshotSchemaVersion: project.snapshot.schemaVersion,
     snapshotTitle: project.title,
     snapshotGeneratedAt: project.snapshot.generatedAt,
-    snapshotSha256: artifactSha256(project.snapshot),
+    snapshotSha256: readProjectionSnapshotSha256,
+    readProjectionSnapshotSha256,
+    ...(options.persistedSnapshotSha256 ? { persistedSnapshotSha256: options.persistedSnapshotSha256 } : {}),
+    ...(options.stateRevisionSha256 ? { stateRevisionSha256: options.stateRevisionSha256 } : {}),
     reportSha256: artifactSha256(project.snapshot.report),
     dataGovernance: project.snapshot.report.dataGovernance,
     datasetCounts: project.datasetCounts,
@@ -266,11 +277,19 @@ export function enterpriseClaimEvidencePackageRuntime(): SenaEnterpriseClaimEvid
   };
 }
 
-function buildEnterpriseClaimEvidencePackageFromDb(
+export type SenaEnterpriseClaimEvidencePackageBuildOptions = {
+  /** `null` pins publication aggregation to no eligible reliability run. */
+  approvedReliabilityRunId?: string | null;
+  persistedSnapshotSha256?: string;
+  stateRevisionSha256?: string;
+};
+
+export function buildEnterpriseClaimEvidencePackageFromDb(
   db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
   input: { projectId: string },
-  evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"]
+  evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"],
+  options: SenaEnterpriseClaimEvidencePackageBuildOptions = {}
 ): SenaEnterpriseClaimEvidencePackage {
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
   const currentRevision = db.projectRevisions.find((revision) => (
@@ -284,7 +303,12 @@ function buildEnterpriseClaimEvidencePackageFromDb(
     }));
   const projectValidationRuns = db.validationRuns.filter((run) => run.projectId === project.id);
   const projectExpertReviews = db.expertReviews.filter((review) => review.projectId === project.id);
-  const approvedReliability = latestByTimestamp(projectReliabilityRuns.filter((run) => run.status === "approved"));
+  const approvedReliabilityRuns = projectReliabilityRuns.filter((run) => run.status === "approved");
+  const approvedReliability = Object.hasOwn(options, "approvedReliabilityRunId")
+    ? options.approvedReliabilityRunId
+      ? approvedReliabilityRuns.find((run) => run.id === options.approvedReliabilityRunId)
+      : undefined
+    : latestByTimestamp(approvedReliabilityRuns);
   const approvedExpertReview = latestByTimestamp(projectExpertReviews.filter((review) => review.status === "approved"));
   const approvedValidationRuns = projectValidationRuns.filter((run) => run.status === "approved");
   const expertValidationTargetId = approvedExpertReview?.target.kind === "validation-run" ? approvedExpertReview.target.id : undefined;
@@ -426,7 +450,7 @@ function buildEnterpriseClaimEvidencePackageFromDb(
       activeWindowLabel: project.activeWindowLabel,
       datasetCounts: project.datasetCounts
     },
-    sourceSnapshotEvidence: claimPackageSourceSnapshotEvidence(project, currentRevision),
+    sourceSnapshotEvidence: claimPackageSourceSnapshotEvidence(project, currentRevision, options),
     summary: {
       reliability: claimEvidenceStatus(projectReliabilityRuns, approvedReliability),
       validation: claimEvidenceStatus(projectValidationRuns, approvedValidation),

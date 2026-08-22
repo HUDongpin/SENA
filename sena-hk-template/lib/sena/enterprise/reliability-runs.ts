@@ -3,7 +3,8 @@ import {
   readEnterpriseDb,
   readEnterpriseState,
   saveDb,
-  writeEnterpriseState
+  writeEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 import {
   createEnterprisePostgresAdjudicationAdapterFromEnv,
@@ -608,14 +609,22 @@ export async function findEnterprisePublicationReliabilityRunAsync(
   context: SenaEnterpriseSessionContext,
   project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">
 ) {
-  requireEnterprisePermission(context, project.teamId, "export:create");
   const state = await readEnterpriseState();
-  const currentProject = state.db.projects.find((candidate) => candidate.id === project.id);
+  return findEnterprisePublicationReliabilityRunFromDb(context, project, state.db);
+}
+
+export function findEnterprisePublicationReliabilityRunFromDb(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  db: SenaEnterpriseDb
+) {
+  requireEnterprisePermission(context, project.teamId, "export:create");
+  const currentProject = db.projects.find((candidate) => candidate.id === project.id);
   if (!currentProject) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
   requireEnterprisePermission(context, currentProject.teamId, "export:create");
   if (currentProject.teamId !== project.teamId || currentProject.currentVersion !== project.currentVersion) return undefined;
 
-  const candidates = state.db.reliabilityRuns
+  const candidates = db.reliabilityRuns
     .filter((run) => run.projectId === currentProject.id && run.status === "approved")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   for (const run of candidates) {
@@ -625,7 +634,7 @@ export async function findEnterprisePublicationReliabilityRunAsync(
         const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
           run,
           currentProject,
-          state.db.adjudications
+          db.adjudications
         );
         if (adjudicationCoverage.unresolvedDisagreements === 0) {
           return { ...run, dashboard, adjudicationCoverage };

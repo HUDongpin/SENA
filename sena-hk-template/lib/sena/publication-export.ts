@@ -19,6 +19,7 @@ import { buildSenaMarkdownReport } from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { importSenaProjectSnapshot } from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
+import type { SenaEnterprisePublicationStateBinding } from "./enterprise/publication-state-binding";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
 export type SenaPublicationFormat = "html" | "svg" | "png" | "xlsx" | "docx" | "pdf" | "package";
@@ -39,12 +40,15 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   claimUse: string;
   sourceSnapshotSha256: string;
   reportSha256: string;
+  stateBinding: SenaEnterprisePublicationStateBinding;
   publicationDerivation?: {
     kind: "current-project-reliability-run";
     reliabilityRunId: string;
     reliabilityDashboardSchemaVersion: string;
     projectVersion: number;
     persistedSourceSnapshotSha256: string;
+    readProjectionSourceSnapshotSha256: string;
+    derivedPublicationSnapshotSha256: string;
   };
   claimPackage: {
     schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
@@ -52,6 +56,8 @@ export type SenaPublicationEnterpriseProjectEvidence = {
     blockers: number;
     warnings: number;
     sourceSnapshotSha256: string;
+    persistedSourceSnapshotSha256: string;
+    sha256: string;
   };
 };
 

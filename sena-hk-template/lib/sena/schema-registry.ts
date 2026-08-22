@@ -187,6 +187,7 @@ export const SENA_SCHEMA_VERSIONS = {
   publicationLock: "sena-publication-lock/v1",
   publicationPackage: "sena-publication-package/v1",
   publicationPackageOwner: "sena-publication-package-owner/v1",
+  publicationStateBinding: "sena-publication-state-binding/v1",
   publicationSourceSnapshot: "sena-publication-source-snapshot/v1",
   publicationStagingOwner: "sena-publication-staging-owner/v2",
   publicationVerificationCertificate: "sena-publication-verification-certificate/v1",

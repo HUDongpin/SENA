@@ -981,14 +981,21 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
 
   const revisionOf = (serialized: string) => createHash("sha256").update(serialized).digest("hex");
 
-  const parsePersisted = () => {
+  const parsePersistedRaw = () => {
     const serialized = readFileSync(dbPath, "utf8");
     const parsed = JSON.parse(serialized) as SenaEnterpriseDbReadModel;
     options.validateDb?.(parsed);
     return {
-      db: normalizeDb(cloneStateValue(parsed)),
       persistedDb: parsed,
       revision: revisionOf(serialized)
+    };
+  };
+
+  const parsePersisted = () => {
+    const persisted = parsePersistedRaw();
+    return {
+      ...persisted,
+      db: normalizeDb(cloneStateValue(persisted.persistedDb))
     };
   };
 
@@ -1035,10 +1042,9 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     const lockId = acquireWriteLock();
     try {
       const currentExists = existsSync(dbPath);
-      const current = currentExists ? parsePersisted() : (() => {
+      const current = currentExists ? parsePersistedRaw() : (() => {
         const persistedDb = options.createEmptyDb();
         return {
-          db: normalizeDb(cloneStateValue(persistedDb)),
           persistedDb: persistedDb as SenaEnterpriseDbReadModel,
           revision: missingRevision
         };
@@ -1048,7 +1054,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       }
       const normalizedBaseline = trackedState?.revision === current.revision
         ? trackedState.normalizedBaseline
-        : current.db;
+        : normalizeDb(cloneStateValue(current.persistedDb));
       const materialized = materializePersistedEnterpriseDb({
         persisted: current.persistedDb,
         normalizedBaseline,

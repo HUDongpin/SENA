@@ -9,6 +9,8 @@ import {
   type SenaEnterpriseDb
 } from "../enterprise/state";
 import type { SenaReviewPacket } from "../types";
+import type { SenaEnterpriseSessionContext } from "../enterprise/auth-session";
+import { resolveEnterprisePublicationStateBundleFromState } from "../enterprise/publication-state-binding";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
@@ -120,6 +122,45 @@ describe("enterprise legacy state read projections", () => {
       expect(afterPersisted.projectRevisions[0].version).toBe(7);
       expect(sha256(afterView.db.projects[0].snapshot)).toBe(derivedProjectHash);
       expect(codingGateVersion(afterView.db.projects[0].snapshot)).toBe("sena-coding-reliability-gate/v2");
+    } finally {
+      rmSync(dbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("binds publication persisted and read-projection hashes to the same raw file revision", () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-state-read-projection-publication-"));
+    try {
+      const dbPath = path.join(dbDir, "enterprise-db.json");
+      writeFileSync(dbPath, JSON.stringify(legacyProjectDb()));
+      const store = createFileEnterpriseStateStore({ dbDir, createEmptyDb: emptyEnterpriseDb });
+      const state = store.readState();
+      const context = {
+        memberships: [{ teamId: "team_projection", role: "owner", status: "active" }]
+      } as SenaEnterpriseSessionContext;
+      const bundle = resolveEnterprisePublicationStateBundleFromState(
+        context,
+        "project_legacy_projection",
+        {
+          db: state.db,
+          persistedDb: state.persistedDb,
+          fileRevision: state.revision,
+          runtime: { activePrimary: "file" } as never
+        }
+      );
+      const rawProject = (JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb).projects[0];
+
+      expect(bundle.stateBinding.stateRevision).toBe(state.revision);
+      expect(bundle.stateBinding.project.persistedSnapshotSha256).toBe(sha256(rawProject.snapshot));
+      expect(bundle.stateBinding.project.readProjectionSnapshotSha256).toBe(sha256(state.db.projects[0].snapshot));
+      expect(bundle.stateBinding.project.persistedSnapshotSha256)
+        .not.toBe(bundle.stateBinding.project.readProjectionSnapshotSha256);
+      expect(bundle.claimPackage.sourceSnapshotEvidence).toEqual(expect.objectContaining({
+        persistedSnapshotSha256: bundle.stateBinding.project.persistedSnapshotSha256,
+        readProjectionSnapshotSha256: bundle.stateBinding.project.readProjectionSnapshotSha256,
+        stateRevisionSha256: bundle.stateBinding.stateRevisionSha256
+      }));
+      expect(bundle.stateBinding.claimPackage.reliabilityRunId).toBeNull();
+      expect(bundle.stateBinding.reliabilityRun).toBeNull();
     } finally {
       rmSync(dbDir, { recursive: true, force: true });
     }

@@ -1188,19 +1188,23 @@ describe("SENA enterprise module boundaries", () => {
     const staleReliabilityValidationPath = path.join(process.cwd(), "lib", "sena", "enterprise", "reliability-validation.ts");
     const expertReviewPath = path.join(process.cwd(), "lib", "sena", "enterprise", "expert-review.ts");
     const claimPackagePath = path.join(process.cwd(), "lib", "sena", "enterprise", "claim-evidence-package.ts");
+    const publicationStateBindingPath = path.join(process.cwd(), "lib", "sena", "enterprise", "publication-state-binding.ts");
     expect(existsSync(reliabilityRunsPath)).toBe(true);
     expect(existsSync(validationRunsPath)).toBe(true);
     expect(existsSync(staleReliabilityValidationPath)).toBe(false);
     expect(existsSync(expertReviewPath)).toBe(true);
     expect(existsSync(claimPackagePath)).toBe(true);
+    expect(existsSync(publicationStateBindingPath)).toBe(true);
     const reliabilityRunsSource = readFileSync(reliabilityRunsPath, "utf8");
     const validationRunsSource = readFileSync(validationRunsPath, "utf8");
     const expertReviewSource = readFileSync(expertReviewPath, "utf8");
     const claimPackageSource = readFileSync(claimPackagePath, "utf8");
+    const publicationStateBindingSource = readFileSync(publicationStateBindingPath, "utf8");
     const reliabilityRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "reliability", "route.ts"), "utf8");
     const validationRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "group-comparison", "route.ts"), "utf8");
     const expertReviewRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "expert-review", "route.ts"), "utf8");
     const claimPackageRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "claim-package", "route.ts"), "utf8");
+    const publicationRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "exports", "publication", "route.ts"), "utf8");
     const stateSource = readFileSync(path.join(process.cwd(), "lib", "sena", "enterprise", "state.ts"), "utf8");
     const backupSource = readFileSync(path.join(process.cwd(), "lib", "sena", "enterprise", "ops-backup.ts"), "utf8");
 
@@ -1258,6 +1262,10 @@ describe("SENA enterprise module boundaries", () => {
     expect(expertReviewRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
     expect(claimPackageRouteSource).toContain("@/lib/sena/enterprise/claim-evidence-package");
     expect(claimPackageRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
+    expect(publicationStateBindingSource.match(/\breadEnterpriseState\s*\(/g)).toHaveLength(1);
+    expect(publicationRouteSource).toContain("@/lib/sena/enterprise/publication-state-binding");
+    expect(publicationRouteSource).not.toContain("getEnterpriseClaimEvidencePackageWithPostgresEvidence");
+    expect(publicationRouteSource).not.toContain("findEnterprisePublicationReliabilityRunAsync");
     expect(stateSource).toContain("./reliability-runs");
     expect(stateSource).toContain("./validation-runs");
     expect(stateSource).toContain("./expert-review");
@@ -2293,6 +2301,32 @@ describe("SENA enterprise module boundaries", () => {
       expect(readFileSync(backupPath, "utf8")).toBe(beforeBackup);
       expect(statSync(backupPath).mtimeMs).toBe(beforeBackupMtime);
       expect(store.readState().revision).toBe(beforeRevision);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets the tracked CAS writer repair a state that no longer normalizes", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-repair-"));
+    try {
+      const store = createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb,
+        normalizeDb: (db) => {
+          if (db.teams.some((team) => team.id === "team_invalid_projection")) {
+            throw new Error("invalid state projection");
+          }
+          return db;
+        }
+      });
+      const tracked = store.read();
+      tracked.teams = [{ id: "team_invalid_projection" } as never];
+      store.write(tracked);
+      expect(() => store.read()).toThrow("invalid state projection");
+
+      tracked.teams = [];
+      expect(() => store.write(tracked)).not.toThrow();
+      expect(store.read().teams).toEqual([]);
     } finally {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
     }
