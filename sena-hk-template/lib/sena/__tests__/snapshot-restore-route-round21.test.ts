@@ -8,7 +8,7 @@ import {
 } from "../snapshot-restore";
 import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
-import { importSenaReviewPacket } from "../review-packet";
+import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { buildSenaProjectSnapshot } from "../snapshot";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
@@ -39,6 +39,14 @@ function currentSnapshot() {
   return buildSenaProjectSnapshot(buildSenaModel(lessonStudySenaContract), {
     generatedAt: "2026-08-23T00:00:00.000Z",
     sourceDataset: lessonStudySenaContract
+  });
+}
+
+function currentReviewPacket() {
+  return buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+    generatedAt: "2026-08-23T00:00:00.000Z",
+    sourceDataset: lessonStudySenaContract,
+    evidenceLimit: 500
   });
 }
 
@@ -98,6 +106,53 @@ describe("SENA stateless snapshot restore route", () => {
       persisted: false,
       audited: false,
       mode: "stateless-canonical-read-projection"
+    });
+  });
+
+  it("round-trips the current built-in review-packet builder output within the byte ceiling", async () => {
+    const source = currentReviewPacket();
+    const raw = JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      source
+    });
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThan(16 * 1024 * 1024);
+
+    const response = await POST(restoreRequest(source));
+    const result = await response.json() as SenaSnapshotRestoreResult | { code: string };
+    const expected = importSenaReviewPacket(JSON.parse(JSON.stringify(source))).contents.projectSnapshot;
+
+    expect(response.status).toBe(200);
+    expect(result).toMatchObject({
+      schemaVersion: "sena-snapshot-restore-result/v1",
+      sourceKind: "review-packet",
+      processing: {
+        persisted: false,
+        audited: false,
+        mode: "stateless-canonical-read-projection"
+      }
+    });
+    expect("snapshot" in result ? result.snapshot : null).toEqual(expected);
+  });
+
+  it("rejects over-cardinality review-packet catalogs with one sanitized route error", async () => {
+    const source = currentReviewPacket();
+    const manifest = source.contents.pilotPackageManifest;
+    const extras = Array.from(
+      { length: 257 - manifest.exportArtifacts.length },
+      (_, index) => `extra-route-artifact-${index}.json`
+    );
+    manifest.exportArtifacts = [...manifest.exportArtifacts, ...extras];
+    manifest.exportArtifactSchemas = {
+      ...manifest.exportArtifactSchemas,
+      ...Object.fromEntries(extras.map((filename) => [filename, "sena-test-artifact/v1"]))
+    };
+
+    const response = await POST(restoreRequest(source));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Snapshot restore source did not pass canonical SENA validation.",
+      code: "snapshot_restore_source_invalid"
     });
   });
 
@@ -212,7 +267,7 @@ describe("SENA stateless snapshot restore route", () => {
   });
 
   it("rejects excessive JSON structure before invoking the parser", async () => {
-    const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":{"dataset":{"people":[${"{},".repeat(70_000)}null]}}}`;
+    const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":{"dataset":{"people":[${"{},".repeat(100_000)}null]}}}`;
     const request = new Request(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },

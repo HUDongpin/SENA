@@ -35,6 +35,24 @@ const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifes
 
 const artifactManifest = listSenaReviewPacketArtifacts();
 
+/**
+ * Review-packet catalog fields participate in cross-membership validation.
+ * Bound each collection before iteration; Set-backed lookups below then keep
+ * worst-case catalog validation linear in the admitted entries/evidence.
+ */
+export const SENA_REVIEW_PACKET_IMPORT_LIMITS = Object.freeze({
+  artifactManifestEntries: 256,
+  rootReviewGuardrails: 512,
+  rootNotes: 512,
+  pilotExpectedStages: 256,
+  pilotExportArtifacts: 256,
+  pilotAssetEntriesPerGroup: 256,
+  pilotAssetIntegrityEntries: 512,
+  pilotHandoffChecks: 256,
+  pilotHandoffEvidenceEntries: 512,
+  pilotReviewGuardrails: 512
+});
+
 type ReviewPacketAuditInput = Pick<SenaReviewPacket, "analysisWindow" | "artifactManifest" | "contents" | "reviewGuardrails" | "schemaVersion" | "summary">;
 
 function auditItem(
@@ -95,11 +113,13 @@ function contentSchemaVersion(input: ReviewPacketAuditInput, filename: string) {
 
 function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPacketAudit {
   const manifestFilenames = input.artifactManifest.map((artifact) => artifact.filename);
+  const manifestFilenameSet = new Set(manifestFilenames);
   const expectedFilenames = listSenaReviewPacketFilenames();
-  const missingArtifacts = expectedFilenames.filter((filename) => !manifestFilenames.includes(filename));
+  const missingArtifacts = expectedFilenames.filter((filename) => !manifestFilenameSet.has(filename));
   const schemaMismatches = input.artifactManifest.filter((artifact) => contentSchemaVersion(input, artifact.filename) !== artifact.schemaVersion);
   const pilotPackage = input.contents.pilotPackageManifest;
-  const packageExportCoverage = manifestFilenames.every((filename) => pilotPackage.exportArtifacts.includes(filename));
+  const pilotExportArtifactSet = new Set(pilotPackage.exportArtifacts);
+  const packageExportCoverage = manifestFilenames.every((filename) => pilotExportArtifactSet.has(filename));
   const packageSchemaCoverage = pilotPackage.exportArtifacts.every((filename) => Boolean(pilotPackage.exportArtifactSchemas[filename]));
   const packageHandoffCheckIds = pilotPackage.handoffChecks.map((check) => check.id);
   const modelJsonHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "model-json-export");
@@ -107,14 +127,17 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const assetIntegrityHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "pilot-asset-integrity");
   const reviewPacketHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "review-packet-audit");
   const pilotAssetHrefs = [...pilotPackage.assets.sample, ...pilotPackage.assets.templates];
+  const pilotAssetHrefSet = new Set(pilotAssetHrefs);
+  const pilotSampleAssetSet = new Set(pilotPackage.assets.sample);
   const pilotAssetIntegrityHrefs = pilotPackage.assetIntegrity.map((asset) => asset.href);
+  const pilotAssetIntegrityHrefSet = new Set(pilotAssetIntegrityHrefs);
   const pilotAssetIntegrityCoverage = pilotPackage.assetIntegrity.length === pilotAssetHrefs.length &&
-    new Set(pilotAssetIntegrityHrefs).size === pilotAssetIntegrityHrefs.length &&
-    pilotAssetHrefs.every((href) => pilotAssetIntegrityHrefs.includes(href)) &&
+    pilotAssetIntegrityHrefSet.size === pilotAssetIntegrityHrefs.length &&
+    pilotAssetHrefs.every((href) => pilotAssetIntegrityHrefSet.has(href)) &&
     pilotPackage.assetIntegrity.every((asset) => {
-      const expectedKind = pilotPackage.assets.sample.includes(asset.href) ? "sample" : "template";
+      const expectedKind = pilotSampleAssetSet.has(asset.href) ? "sample" : "template";
       const expectedFormat = asset.href.endsWith(".json") ? "json" : "csv";
-      return pilotAssetHrefs.includes(asset.href) &&
+      return pilotAssetHrefSet.has(asset.href) &&
         asset.kind === expectedKind &&
         asset.format === expectedFormat &&
         asset.bytes > 0 &&
@@ -145,7 +168,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     ...workflowExportArtifacts,
     ...verificationRequiredArtifacts
   ]);
-  const missingPackageExports = requiredHandoffExports.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingPackageExports = requiredHandoffExports.filter((filename) => !pilotExportArtifactSet.has(filename));
   const pilotPackageReady = pilotPackage.workspaceRoute === "/workspace/sena" &&
     pilotPackage.assets.sample.length >= 6 &&
     pilotPackage.assets.templates.length >= 6 &&
@@ -299,8 +322,8 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     productionContractTextCount > 0 &&
     productionContract.visualChecks.every((check) => check.requiredText.trim().length > 0);
   const methodProtocol = input.contents.methodProtocol;
-  const missingMethodCompanionsFromPacket = methodProtocol.requiredCompanionArtifacts.filter((filename) => !manifestFilenames.includes(filename));
-  const missingMethodCompanionsFromPilotPackage = methodProtocol.requiredCompanionArtifacts.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingMethodCompanionsFromPacket = methodProtocol.requiredCompanionArtifacts.filter((filename) => !manifestFilenameSet.has(filename));
+  const missingMethodCompanionsFromPilotPackage = methodProtocol.requiredCompanionArtifacts.filter((filename) => !pilotExportArtifactSet.has(filename));
   const methodProtocolRuntimeHandoffIds = methodProtocol.runtimeHandoffs.map((handoff) => handoff.id);
   const methodProtocolRuntimeHandoffsReady = methodProtocol.auditSummary.runtimeConsistency.status === "consistent" &&
     methodProtocol.auditSummary.fusionMath.status === "verified" &&
@@ -313,8 +336,8 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const developmentRuntimeParityIds = developmentPlan.runtimeParityEvidence.map((evidence) => evidence.id);
   const reportRuntimeParityIds = report.runtimeProvenance.parityEvidence.map((evidence) => evidence.id);
   const methodRuntimeParityIds = methodProtocol.runtimeParityEvidence.map((evidence) => evidence.id);
-  const missingDevelopmentArtifactsFromPacket = developmentPlan.requiredArtifacts.filter((filename) => !manifestFilenames.includes(filename));
-  const missingDevelopmentArtifactsFromPilotPackage = developmentPlan.requiredArtifacts.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingDevelopmentArtifactsFromPacket = developmentPlan.requiredArtifacts.filter((filename) => !manifestFilenameSet.has(filename));
+  const missingDevelopmentArtifactsFromPilotPackage = developmentPlan.requiredArtifacts.filter((filename) => !pilotExportArtifactSet.has(filename));
   const runtimeFoundationPhase = developmentPlan.phases.find((phase) => phase.id === "runtime-foundation");
   const researchValidationPhase = developmentPlan.phases.find((phase) => phase.id === "research-validation");
   const deliveryCandidate = developmentPlan.deliveryCandidate;
@@ -773,16 +796,29 @@ function assertNonNegativeInteger(value: unknown, context: string) {
   }
 }
 
-function assertStringArray(value: unknown, context: string, minLength = 0): asserts value is string[] {
+function assertStringArray(
+  value: unknown,
+  context: string,
+  minLength = 0,
+  maxLength = Number.MAX_SAFE_INTEGER
+): asserts value is string[] {
   assertArray(value, context);
   if (value.length < minLength) {
     throw new Error(`${context} must contain at least ${minLength} item(s).`);
+  }
+  if (value.length > maxLength) {
+    throw new Error(`${context} must contain at most ${maxLength} items.`);
   }
   value.forEach((item, index) => assertString(item, `${context}.${index}`));
 }
 
 function assertReviewPacketArtifactManifest(value: unknown) {
   assertArray(value, "review packet.artifactManifest");
+  if (value.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.artifactManifestEntries) {
+    throw new Error(
+      `review packet.artifactManifest must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.artifactManifestEntries} items.`
+    );
+  }
   value.forEach((item, index) => {
     const artifact = asRecord(item, `review packet.artifactManifest.${index}`);
     assertString(artifact.filename, `review packet.artifactManifest.${index}.filename`);
@@ -811,7 +847,12 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   for (const field of ["people", "interactions", "utterances", "codedSegments", "codes"]) {
     assertNonNegativeInteger(expectedCounts[field], `${context}.sampleDataset.expectedCounts.${field}`);
   }
-  assertStringArray(sampleDataset.expectedStages, `${context}.sampleDataset.expectedStages`, 1);
+  assertStringArray(
+    sampleDataset.expectedStages,
+    `${context}.sampleDataset.expectedStages`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExpectedStages
+  );
   const expectedRuntime = asRecord(sampleDataset.expectedRuntime, `${context}.sampleDataset.expectedRuntime`);
   assertStringOneOf(expectedRuntime.jena, `${context}.sampleDataset.expectedRuntime.jena`, ["computed", "skipped"]);
   assertStringOneOf(expectedRuntime.jsna, `${context}.sampleDataset.expectedRuntime.jsna`, ["computed", "skipped"]);
@@ -820,21 +861,56 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   assertStringOneOf(expectedRuntime.pilotReadinessBeforeHumanReview, `${context}.sampleDataset.expectedRuntime.pilotReadinessBeforeHumanReview`, ["ready", "needs-review"]);
 
   const exportArtifacts = root.exportArtifacts;
-  assertStringArray(exportArtifacts, `${context}.exportArtifacts`, 1);
+  assertStringArray(
+    exportArtifacts,
+    `${context}.exportArtifacts`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts
+  );
+  const exportArtifactSet = new Set(exportArtifacts);
+  if (exportArtifactSet.size !== exportArtifacts.length) {
+    throw new Error(`${context}.exportArtifacts must not contain duplicate items.`);
+  }
   const exportArtifactSchemas = asRecord(root.exportArtifactSchemas, `${context}.exportArtifactSchemas`);
   for (const filename of exportArtifacts) {
     assertString(exportArtifactSchemas[filename], `${context}.exportArtifactSchemas.${filename}`);
   }
-  const unknownSchemaKeys = Object.keys(exportArtifactSchemas).filter((filename) => !exportArtifacts.includes(filename));
+  const exportArtifactSchemaKeys = Object.keys(exportArtifactSchemas);
+  if (exportArtifactSchemaKeys.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts) {
+    throw new Error(
+      `${context}.exportArtifactSchemas must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts} entries.`
+    );
+  }
+  const unknownSchemaKeys = exportArtifactSchemaKeys.filter((filename) => !exportArtifactSet.has(filename));
   if (unknownSchemaKeys.length > 0) {
     throw new Error(`${context}.exportArtifactSchemas contains unknown export artifact(s): ${unknownSchemaKeys.join(", ")}.`);
   }
   const assets = asRecord(root.assets, `${context}.assets`);
-  assertStringArray(assets.sample, `${context}.assets.sample`, 1);
-  assertStringArray(assets.templates, `${context}.assets.templates`, 1);
+  assertStringArray(
+    assets.sample,
+    `${context}.assets.sample`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetEntriesPerGroup
+  );
+  assertStringArray(
+    assets.templates,
+    `${context}.assets.templates`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetEntriesPerGroup
+  );
   const assetHrefs = [...assets.sample, ...assets.templates];
+  const assetHrefSet = new Set(assetHrefs);
+  const sampleAssetSet = new Set(assets.sample);
+  if (assetHrefSet.size !== assetHrefs.length) {
+    throw new Error(`${context}.assets must not contain duplicate hrefs.`);
+  }
   const assetIntegrity = root.assetIntegrity;
   assertArray(assetIntegrity, `${context}.assetIntegrity`);
+  if (assetIntegrity.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetIntegrityEntries) {
+    throw new Error(
+      `${context}.assetIntegrity must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetIntegrityEntries} items.`
+    );
+  }
   if (assetIntegrity.length !== assetHrefs.length) {
     throw new Error(`${context}.assetIntegrity must cover every sample and template asset.`);
   }
@@ -853,14 +929,14 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
       throw new Error(`${context}.assetIntegrity.${index}.sha256 must be a lowercase SHA-256 hex digest.`);
     }
     const href = integrity.href as string;
-    if (!assetHrefs.includes(href)) {
+    if (!assetHrefSet.has(href)) {
       throw new Error(`${context}.assetIntegrity.${index}.href must be declared in assets.sample or assets.templates.`);
     }
     if (assetIntegrityHrefs.has(href)) {
       throw new Error(`${context}.assetIntegrity.${index}.href duplicates another assetIntegrity entry.`);
     }
     assetIntegrityHrefs.add(href);
-    const expectedKind = (assets.sample as string[]).includes(href) ? "sample" : "template";
+    const expectedKind = sampleAssetSet.has(href) ? "sample" : "template";
     const expectedFormat = href.endsWith(".json") ? "json" : "csv";
     if (integrity.kind !== expectedKind) {
       throw new Error(`${context}.assetIntegrity.${index}.kind must match the declared asset group.`);
@@ -874,17 +950,32 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   if (handoffChecks.length === 0) {
     throw new Error(`${context}.handoffChecks must contain at least one item.`);
   }
+  if (handoffChecks.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffChecks) {
+    throw new Error(
+      `${context}.handoffChecks must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffChecks} items.`
+    );
+  }
   handoffChecks.forEach((item, index) => {
     const check = asRecord(item, `${context}.handoffChecks.${index}`);
     assertString(check.id, `${context}.handoffChecks.${index}.id`);
     assertString(check.label, `${context}.handoffChecks.${index}.label`);
     assertString(check.artifact, `${context}.handoffChecks.${index}.artifact`);
-    if (!exportArtifacts.includes(check.artifact as string)) {
+    if (!exportArtifactSet.has(check.artifact as string)) {
       throw new Error(`${context}.handoffChecks.${index}.artifact must be declared in exportArtifacts.`);
     }
-    assertStringArray(check.expectedEvidence, `${context}.handoffChecks.${index}.expectedEvidence`, 1);
+    assertStringArray(
+      check.expectedEvidence,
+      `${context}.handoffChecks.${index}.expectedEvidence`,
+      1,
+      SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffEvidenceEntries
+    );
   });
-  assertStringArray(root.reviewGuardrails, `${context}.reviewGuardrails`, 1);
+  assertStringArray(
+    root.reviewGuardrails,
+    `${context}.reviewGuardrails`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotReviewGuardrails
+  );
 }
 
 function mergeStatisticalReadStates(states: SenaStatisticalLeafReadState[]): SenaStatisticalLeafReadState {
@@ -1045,8 +1136,18 @@ function assertSenaReviewPacket(value: unknown): void {
   assertString(root.generatedAt, "review packet.generatedAt");
   assertSchemaRecord(root.reviewPacketAudit, "review packet.reviewPacketAudit", "sena-review-packet-audit/v1");
   assertReviewPacketArtifactManifest(root.artifactManifest);
-  assertArray(root.reviewGuardrails, "review packet.reviewGuardrails");
-  assertArray(root.notes, "review packet.notes");
+  assertStringArray(
+    root.reviewGuardrails,
+    "review packet.reviewGuardrails",
+    0,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.rootReviewGuardrails
+  );
+  assertStringArray(
+    root.notes,
+    "review packet.notes",
+    0,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.rootNotes
+  );
 
   const summary = asRecord(root.summary, "review packet.summary");
   const analysisScope = asRecord(summary.analysisScope, "review packet.summary.analysisScope");

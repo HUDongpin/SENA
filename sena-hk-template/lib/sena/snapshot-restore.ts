@@ -6,7 +6,11 @@ import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 export const SENA_SNAPSHOT_RESTORE_MAX_CHUNKS = 4096;
-export const SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS = 200_000;
+// The adaptive allowance accepts current builder packets without granting a
+// dense small payload the hard maximum; 16 MiB inputs never exceed 1M tokens.
+export const SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS = 250_000;
+export const SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS = 1_000_000;
+export const SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN = 4;
 export const SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH = 64;
 
 export type SenaSnapshotRestoreResult = {
@@ -76,7 +80,18 @@ function requestTooComplex() {
   );
 }
 
-function assertSenaSnapshotRestoreJsonComplexity(raw: string) {
+function snapshotRestoreStructuralTokenBudget(bytes: number) {
+  return Math.min(
+    SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS,
+    Math.max(
+      SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+      Math.floor(bytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
+    )
+  );
+}
+
+function assertSenaSnapshotRestoreJsonComplexity(raw: string, bytes: number) {
+  const structuralTokenBudget = snapshotRestoreStructuralTokenBudget(bytes);
   let structuralTokens = 0;
   let depth = 0;
   let inString = false;
@@ -107,7 +122,7 @@ function assertSenaSnapshotRestoreJsonComplexity(raw: string) {
     } else if (character === "," || character === ":") {
       structuralTokens += 1;
     }
-    if (structuralTokens > SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS) {
+    if (structuralTokens > structuralTokenBudget) {
       throw requestTooComplex();
     }
   }
@@ -212,7 +227,7 @@ export async function readSenaSnapshotRestoreRequest(
   }
 
   const raw = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
-  assertSenaSnapshotRestoreJsonComplexity(raw);
+  assertSenaSnapshotRestoreJsonComplexity(raw, bytes);
   let body: unknown;
   try {
     body = JSON.parse(raw) as unknown;
