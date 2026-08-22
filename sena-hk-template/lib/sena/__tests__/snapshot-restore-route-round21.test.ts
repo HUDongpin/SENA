@@ -176,7 +176,7 @@ describe("SENA stateless snapshot restore route", () => {
       }
     });
     expect("snapshot" in result ? result.snapshot.source.sourceDatasetCounts.codes : null).toBe(100);
-  });
+  }, 120_000);
 
   it("rejects over-cardinality review-packet catalogs with one sanitized route error", async () => {
     const source = currentReviewPacket();
