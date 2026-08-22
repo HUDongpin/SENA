@@ -59,8 +59,14 @@ function perfectAuthoritativeAnnotations(snapshot: ReturnType<typeof publication
   })));
 }
 
+function unresolvedAuthoritativeAnnotations(snapshot: ReturnType<typeof publicationCandidateSnapshot>) {
+  return perfectAuthoritativeAnnotations(snapshot).map((annotation, index) => (
+    index === 1 ? { ...annotation, value: "0" } : annotation
+  ));
+}
+
 describe("enterprise publication current-v2 reliability evidence", () => {
-  it("returns 409 without machine evidence and 200 after a real current project-bound v2 dashboard", async () => {
+  it("uses only approved, current, fully adjudicated evidence without elevating viewer reliability access", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-reliability-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -137,6 +143,29 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       }));
       expect(reliabilityBody.reliabilityRun?.projectBinding?.projectVersion).toBe(project.currentVersion);
 
+      const pendingReview = await publicationRoute.POST(publicationRequest());
+      expect(pendingReview.status).toBe(409);
+      await expect(pendingReview.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_model_card_blocked"
+      }));
+
+      const approval = await reliabilityRoute.PATCH(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          runId: reliabilityBody.reliabilityRun?.id,
+          status: "approved",
+          notes: "Approved for the current project revision after reliability review."
+        })
+      }));
+      expect(approval.status).toBe(200);
+      await expect(approval.json()).resolves.toEqual(expect.objectContaining({
+        reliabilityRun: expect.objectContaining({ status: "approved" })
+      }));
+
       const exported = await publicationRoute.POST(publicationRequest());
       expect(exported.status).toBe(200);
       const body = await exported.json() as {
@@ -166,6 +195,96 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
         .not.toBe(body.sourceSnapshotEvidence?.snapshotSha256);
       expect(enterprise.getEnterpriseProject(registered.context, project.id).currentVersion).toBe(project.currentVersion);
+
+      const viewerEmail = "current-v2-publication-viewer@example.edu";
+      const invitation = enterprise.createEnterpriseInvitation(registered.context, {
+        teamId: project.teamId,
+        email: viewerEmail,
+        role: "viewer"
+      });
+      const viewer = enterprise.registerEnterpriseUser({
+        name: "Current v2 Publication Viewer",
+        email: viewerEmail,
+        password: "sena-secure-456",
+        organization: "Current v2 Publication Viewer Lab",
+        plan: "individual"
+      });
+      const accepted = enterprise.acceptEnterpriseInvitation(viewer.context, {
+        inviteCode: invitation.inviteCode
+      });
+      sessionToken = viewer.token;
+      const viewerCsrf = enterprise.createEnterpriseCsrfToken(accepted.context);
+      const viewerReliabilityList = await reliabilityRoute.GET(new Request(
+        `https://sena.example.test/api/sena/reliability?projectId=${encodeURIComponent(project.id)}`
+      ));
+      expect(viewerReliabilityList.status).toBe(403);
+      const viewerExported = await publicationRoute.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": viewerCsrf.token
+        },
+        body: JSON.stringify({ projectId: project.id, format: "package" })
+      }));
+      expect(viewerExported.status).toBe(200);
+      expect(viewerExported.headers.get("x-sena-publication-reliability-run-id"))
+        .toBe(reliabilityBody.reliabilityRun?.id);
+
+      sessionToken = registered.token;
+      const unresolvedResponse = await reliabilityRoute.POST(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          schemaVersion: "sena-reliability-json-request/v1",
+          teamId: project.teamId,
+          projectId: project.id,
+          reviewer: "Unresolved publication reviewer",
+          annotations: unresolvedAuthoritativeAnnotations(snapshot)
+        })
+      }));
+      expect(unresolvedResponse.status).toBe(200);
+      const unresolvedBody = await unresolvedResponse.json() as {
+        reliabilityRun?: { id?: string; adjudicationCoverage?: { unresolvedDisagreements?: number } };
+      };
+      expect(unresolvedBody.reliabilityRun?.adjudicationCoverage?.unresolvedDisagreements).toBe(1);
+
+      const db = enterprise.readEnterpriseDb();
+      const approvedRun = db.reliabilityRuns.find((run) => run.id === reliabilityBody.reliabilityRun?.id);
+      const unresolvedRun = db.reliabilityRuns.find((run) => run.id === unresolvedBody.reliabilityRun?.id);
+      if (!approvedRun || !unresolvedRun) throw new Error("Expected both publication reliability fixtures in enterprise state.");
+      approvedRun.status = "rejected";
+      unresolvedRun.status = "approved";
+      unresolvedRun.reviewPatch = structuredClone(approvedRun.reviewPatch);
+      unresolvedRun.createdAt = "2026-08-22T23:59:59.000Z";
+      enterprise.writeEnterpriseDb(db);
+
+      const unresolvedPublication = await publicationRoute.POST(publicationRequest());
+      expect(unresolvedPublication.status).toBe(409);
+      await expect(unresolvedPublication.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_model_card_blocked"
+      }));
+
+      const completedAdjudication = enterprise.createEnterpriseReliabilityAdjudications(
+        registered.context,
+        unresolvedRun.id,
+        { decision: "include" }
+      );
+      expect(completedAdjudication.reliabilityRun.adjudicationCoverage.unresolvedDisagreements).toBe(0);
+      const updatedProject = enterprise.updateEnterpriseProject(registered.context, project.id, {
+        snapshot,
+        expectedVersion: project.currentVersion
+      });
+      expect(updatedProject.currentVersion).toBe(project.currentVersion + 1);
+
+      const stalePublication = await publicationRoute.POST(publicationRequest());
+      expect(stalePublication.status).toBe(409);
+      expect(stalePublication.headers.get("x-sena-publication-reliability-run-id")).toBeNull();
+      await expect(stalePublication.json()).resolves.toEqual(expect.objectContaining({
+        code: "reliability_adjudication_binding_invalid"
+      }));
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

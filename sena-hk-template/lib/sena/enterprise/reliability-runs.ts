@@ -13,6 +13,7 @@ import {
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
+import type { SenaEnterpriseProject } from "./team-project";
 import {
   requireEnterprisePermission,
   rolePermissions
@@ -601,6 +602,40 @@ export async function listEnterpriseReliabilityRunsAsync(context: SenaEnterprise
 } = {}) {
   const state = await readEnterpriseState();
   return listEnterpriseReliabilityRunsFromDb(context, state.db, input);
+}
+
+export async function findEnterprisePublicationReliabilityRunAsync(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">
+) {
+  requireEnterprisePermission(context, project.teamId, "export:create");
+  const state = await readEnterpriseState();
+  const currentProject = state.db.projects.find((candidate) => candidate.id === project.id);
+  if (!currentProject) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, currentProject.teamId, "export:create");
+  if (currentProject.teamId !== project.teamId || currentProject.currentVersion !== project.currentVersion) return undefined;
+
+  const candidates = state.db.reliabilityRuns
+    .filter((run) => run.projectId === currentProject.id && run.status === "approved")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  for (const run of candidates) {
+    try {
+      const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, currentProject);
+      if (dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard) {
+        const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
+          run,
+          currentProject,
+          state.db.adjudications
+        );
+        if (adjudicationCoverage.unresolvedDisagreements === 0) {
+          return { ...run, dashboard, adjudicationCoverage };
+        }
+      }
+    } catch {
+      // Invalid or stale reliability evidence is ineligible for publication.
+    }
+  }
+  return undefined;
 }
 
 function listEnterpriseReliabilityRunsFromDb(context: SenaEnterpriseSessionContext, db: ReturnType<typeof readEnterpriseDb>, input: {

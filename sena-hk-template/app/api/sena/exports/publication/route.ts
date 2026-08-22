@@ -10,7 +10,7 @@ import {
 } from "@/lib/sena/enterprise/team-project";
 import type { SenaEnterpriseSessionContext } from "@/lib/sena/enterprise/auth-session";
 import {
-  listEnterpriseReliabilityRunsAsync,
+  findEnterprisePublicationReliabilityRunAsync,
   type SenaEnterpriseReliabilityRun
 } from "@/lib/sena/enterprise/reliability-runs";
 import { assertEnterpriseReliabilityRunCurrentProject } from "@/lib/sena/enterprise/reliability-integrity";
@@ -77,13 +77,7 @@ async function publicationSnapshotForProject(
   if (project.snapshot.report.modelCard.renderGate.status === "ready") {
     return { snapshot: project.snapshot };
   }
-  const reliabilityRuns = await listEnterpriseReliabilityRunsAsync(context, { projectId: project.id });
-  const reliabilityRun = reliabilityRuns.find((run) => (
-    run.status !== "rejected" &&
-    run.projectBinding?.projectId === project.id &&
-    run.projectBinding.projectVersion === project.currentVersion &&
-    run.dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard
-  ));
+  const reliabilityRun = await findEnterprisePublicationReliabilityRunAsync(context, project);
   if (!reliabilityRun) return { snapshot: project.snapshot };
   return {
     snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun),
@@ -194,6 +188,7 @@ export async function POST(request: Request) {
     let enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence | undefined;
     if (projectId) {
       const project = await getEnterpriseProjectAsync(context, projectId);
+      requireEnterprisePermission(context, project.teamId, "export:create");
       const claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(context, { projectId });
       const publicationSource = await publicationSnapshotForProject(context, project);
       snapshot = publicationSource.snapshot;
