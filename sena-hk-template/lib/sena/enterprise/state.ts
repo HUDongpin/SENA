@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { importSenaProjectSnapshot } from "../snapshot";
 import {
@@ -523,6 +524,110 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
   };
 }
 
+function cloneStateValue<Value>(value: Value): Value {
+  return value === undefined ? value : structuredClone(value);
+}
+
+function stableRecordIds(values: unknown[]) {
+  const ids = values.map((value) => (
+    value && typeof value === "object" && !Array.isArray(value) &&
+      typeof (value as { id?: unknown }).id === "string"
+      ? (value as { id: string }).id
+      : undefined
+  ));
+  return ids.every((id): id is string => id !== undefined) && new Set(ids).size === ids.length
+    ? ids
+    : undefined;
+}
+
+/**
+ * Applies explicit changes made to a normalized read model back onto the raw
+ * persisted JSON. Compatibility normalization is therefore a read projection,
+ * not an implicit migration. A snapshot is deliberately treated as an atomic
+ * evidence value: an unchanged derived snapshot resolves to its persisted
+ * source, while an explicit snapshot edit writes the complete new snapshot.
+ */
+function materializePersistedStateValue(
+  persisted: unknown,
+  normalizedBaseline: unknown,
+  normalizedAfter: unknown,
+  propertyName?: string
+): unknown {
+  if (isDeepStrictEqual(normalizedAfter, normalizedBaseline)) {
+    return cloneStateValue(persisted);
+  }
+  if (propertyName === "snapshot") return cloneStateValue(normalizedAfter);
+
+  if (Array.isArray(normalizedAfter) && Array.isArray(normalizedBaseline) && Array.isArray(persisted)) {
+    const afterIds = stableRecordIds(normalizedAfter);
+    const baselineIds = stableRecordIds(normalizedBaseline);
+    const persistedIds = stableRecordIds(persisted);
+    if (afterIds && baselineIds && persistedIds) {
+      const baselineById = new Map(baselineIds.map((id, index) => [id, normalizedBaseline[index]]));
+      const persistedById = new Map(persistedIds.map((id, index) => [id, persisted[index]]));
+      return afterIds.map((id, index) => {
+        if (!baselineById.has(id)) return cloneStateValue(normalizedAfter[index]);
+        return materializePersistedStateValue(
+          persistedById.get(id),
+          baselineById.get(id),
+          normalizedAfter[index]
+        );
+      });
+    }
+    return cloneStateValue(normalizedAfter);
+  }
+
+  if (
+    normalizedAfter && typeof normalizedAfter === "object" && !Array.isArray(normalizedAfter) &&
+    normalizedBaseline && typeof normalizedBaseline === "object" && !Array.isArray(normalizedBaseline) &&
+    persisted && typeof persisted === "object" && !Array.isArray(persisted)
+  ) {
+    const afterRecord = normalizedAfter as Record<string, unknown>;
+    const baselineRecord = normalizedBaseline as Record<string, unknown>;
+    const persistedRecord = persisted as Record<string, unknown>;
+    const materialized = cloneStateValue(persistedRecord);
+
+    for (const key of Object.keys(baselineRecord)) {
+      if (!Object.hasOwn(afterRecord, key)) delete materialized[key];
+    }
+    for (const [key, afterValue] of Object.entries(afterRecord)) {
+      if (!Object.hasOwn(baselineRecord, key)) {
+        materialized[key] = cloneStateValue(afterValue);
+        continue;
+      }
+      if (!Object.hasOwn(persistedRecord, key)) {
+        if (!isDeepStrictEqual(afterValue, baselineRecord[key])) {
+          materialized[key] = cloneStateValue(afterValue);
+        } else {
+          delete materialized[key];
+        }
+        continue;
+      }
+      materialized[key] = materializePersistedStateValue(
+        persistedRecord[key],
+        baselineRecord[key],
+        afterValue,
+        key
+      );
+    }
+    return materialized;
+  }
+
+  return cloneStateValue(normalizedAfter);
+}
+
+function materializePersistedEnterpriseDb(input: {
+  persisted: SenaEnterpriseDbReadModel;
+  normalizedBaseline: SenaEnterpriseDb;
+  normalizedAfter: SenaEnterpriseDb;
+}) {
+  return materializePersistedStateValue(
+    input.persisted,
+    input.normalizedBaseline,
+    input.normalizedAfter
+  ) as SenaEnterpriseDbReadModel;
+}
+
 function pruneEnterpriseDbBeforeSave(db: SenaEnterpriseDb) {
   const liveSessions = db.sessions.filter((session) => Date.parse(session.expiresAt) > Date.now());
   const livePresence = db.projectPresence.filter((presence) => Date.parse(presence.expiresAt) > Date.now());
@@ -576,6 +681,8 @@ export type SenaEnterprisePrimaryStateRuntime = {
 
 export type SenaEnterpriseStateRead = {
   db: SenaEnterpriseDb;
+  /** Raw state retained only to distinguish read projection from explicit writes. */
+  persistedDb?: SenaEnterpriseDbReadModel;
   revision?: number;
   fileRevision?: string;
   runtime: SenaEnterprisePrimaryStateRuntime;
@@ -619,7 +726,11 @@ export type SenaFileEnterpriseStateWriteOptions = {
 export type SenaFileEnterpriseStateStore = Omit<SenaEnterpriseStateStore, "read" | "write" | "save"> & {
   adapter: "file-backed-json";
   read: () => SenaEnterpriseDb;
-  readState: () => { db: SenaEnterpriseDb; revision: string };
+  readState: () => {
+    db: SenaEnterpriseDb;
+    persistedDb: SenaEnterpriseDbReadModel;
+    revision: string;
+  };
   write: (db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) => void;
   save: (db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) => void;
   /**
@@ -859,7 +970,11 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     options.normalizeDb ? options.normalizeDb(db) : db
   );
   const pruneBeforeSave = options.pruneBeforeSave ?? ((db: SenaEnterpriseDb) => db);
-  const trackedRevisions = new WeakMap<SenaEnterpriseDb, string>();
+  const trackedStates = new WeakMap<SenaEnterpriseDb, {
+    revision: string;
+    persistedDb: SenaEnterpriseDbReadModel;
+    normalizedBaseline: SenaEnterpriseDb;
+  }>();
   const missingRevision = createHash("sha256")
     .update("sena-enterprise-file-state:missing")
     .digest("hex");
@@ -871,12 +986,13 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     const parsed = JSON.parse(serialized) as SenaEnterpriseDbReadModel;
     options.validateDb?.(parsed);
     return {
-      db: normalizeDb(parsed),
+      db: normalizeDb(cloneStateValue(parsed)),
+      persistedDb: parsed,
       revision: revisionOf(serialized)
     };
   };
 
-  const persistWithoutLock = (db: SenaEnterpriseDb) => {
+  const persistWithoutLock = (db: SenaEnterpriseDbReadModel) => {
     options.validateDb?.(db);
     const tmpPath = `${dbPath}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`;
     try {
@@ -913,18 +1029,42 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
 
   const write = (db: SenaEnterpriseDb, writeOptions: SenaFileEnterpriseStateWriteOptions = {}) => {
     if (enterpriseFileStateWritePolicy().blocked) throw enterpriseFileStateWriteBlockedError();
-    const expectedRevision = writeOptions.expectedRevision ?? trackedRevisions.get(db);
+    const trackedState = trackedStates.get(db);
+    const expectedRevision = writeOptions.expectedRevision ?? trackedState?.revision;
     if (!expectedRevision) throw enterpriseFileStateUntrackedSnapshotError();
     const lockId = acquireWriteLock();
     try {
-      const currentRevision = existsSync(dbPath)
-        ? revisionOf(readFileSync(dbPath, "utf8"))
-        : missingRevision;
-      if (currentRevision !== expectedRevision) {
+      const currentExists = existsSync(dbPath);
+      const current = currentExists ? parsePersisted() : (() => {
+        const persistedDb = options.createEmptyDb();
+        return {
+          db: normalizeDb(cloneStateValue(persistedDb)),
+          persistedDb: persistedDb as SenaEnterpriseDbReadModel,
+          revision: missingRevision
+        };
+      })();
+      if (current.revision !== expectedRevision) {
         throw enterpriseFileStateRevisionConflictError();
       }
-      const nextRevision = persistWithoutLock(db);
-      trackedRevisions.set(db, nextRevision);
+      const normalizedBaseline = trackedState?.revision === current.revision
+        ? trackedState.normalizedBaseline
+        : current.db;
+      const materialized = materializePersistedEnterpriseDb({
+        persisted: current.persistedDb,
+        normalizedBaseline,
+        normalizedAfter: db
+      });
+      const persistedDb = currentExists && isDeepStrictEqual(materialized, current.persistedDb)
+        ? current.persistedDb
+        : materialized;
+      const nextRevision = currentExists && isDeepStrictEqual(materialized, current.persistedDb)
+        ? current.revision
+        : persistWithoutLock(materialized);
+      trackedStates.set(db, {
+        revision: nextRevision,
+        persistedDb: cloneStateValue(persistedDb),
+        normalizedBaseline: cloneStateValue(db)
+      });
     } finally {
       releaseFileStateLock(lockPath, lockId);
     }
@@ -933,17 +1073,32 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const mutateAtomically = <Result>(mutator: (db: SenaEnterpriseDb) => Result) => {
     const lockId = acquireWriteLock();
     try {
-      const current = existsSync(dbPath)
-        ? parsePersisted()
-        : { db: normalizeDb(options.createEmptyDb()), revision: missingRevision };
+      const current = existsSync(dbPath) ? parsePersisted() : (() => {
+        const persistedDb = options.createEmptyDb();
+        return {
+          db: normalizeDb(cloneStateValue(persistedDb)),
+          persistedDb: persistedDb as SenaEnterpriseDbReadModel,
+          revision: missingRevision
+        };
+      })();
       const db = current.db;
-      const normalizedBaseline = JSON.stringify(db);
+      const normalizedBaseline = cloneStateValue(db);
       const result = mutator(db);
-      const normalizedAfter = JSON.stringify(db);
-      const nextRevision = normalizedAfter === normalizedBaseline
+      const materialized = isDeepStrictEqual(db, normalizedBaseline)
+        ? current.persistedDb
+        : materializePersistedEnterpriseDb({
+          persisted: current.persistedDb,
+          normalizedBaseline,
+          normalizedAfter: db
+        });
+      const nextRevision = isDeepStrictEqual(materialized, current.persistedDb)
         ? current.revision
-        : persistWithoutLock(db);
-      trackedRevisions.set(db, nextRevision);
+        : persistWithoutLock(materialized);
+      trackedStates.set(db, {
+        revision: nextRevision,
+        persistedDb: cloneStateValue(materialized),
+        normalizedBaseline: cloneStateValue(db)
+      });
       return result;
     } finally {
       releaseFileStateLock(lockPath, lockId);
@@ -958,9 +1113,14 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     if (!existsSync(dbPath)) {
       const db = options.createEmptyDb();
       if (enterpriseFileStateWritePolicy().blocked || postgresPrimaryStateActiveForFileBackend()) {
-        const normalized = normalizeDb(db);
-        trackedRevisions.set(normalized, missingRevision);
-        return { db: normalized, revision: missingRevision };
+        const persistedDb = cloneStateValue(db) as SenaEnterpriseDbReadModel;
+        const normalized = normalizeDb(cloneStateValue(persistedDb));
+        trackedStates.set(normalized, {
+          revision: missingRevision,
+          persistedDb,
+          normalizedBaseline: cloneStateValue(normalized)
+        });
+        return { db: normalized, persistedDb, revision: missingRevision };
       }
       const lockId = acquireWriteLock();
       try {
@@ -971,21 +1131,27 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     }
 
     const state = parsePersisted();
-    trackedRevisions.set(state.db, state.revision);
+    trackedStates.set(state.db, {
+      revision: state.revision,
+      persistedDb: cloneStateValue(state.persistedDb),
+      normalizedBaseline: cloneStateValue(state.db)
+    });
     return state;
   };
 
   const read = () => readState().db;
 
   const save = (db: SenaEnterpriseDb, writeOptions: SenaFileEnterpriseStateWriteOptions = {}) => {
-    const expectedRevision = writeOptions.expectedRevision ?? trackedRevisions.get(db);
+    const trackedState = trackedStates.get(db);
+    const expectedRevision = writeOptions.expectedRevision ?? trackedState?.revision;
     const pruned = pruneBeforeSave(db);
+    if (trackedState) trackedStates.set(pruned, trackedState);
     write(pruned, {
       ...writeOptions,
       expectedRevision
     });
-    const nextRevision = trackedRevisions.get(pruned);
-    if (nextRevision) trackedRevisions.set(db, nextRevision);
+    const nextState = trackedStates.get(pruned);
+    if (nextState) trackedStates.set(db, nextState);
   };
 
   return {
@@ -1212,12 +1378,18 @@ export async function mutateEnterpriseStateAtomically<Result>(
     } catch (error) {
       normalizePostgresStateError(error);
     }
-    const db = normalizeEnterpriseDb(current.db);
-    const normalizedBaseline = JSON.stringify(db);
+    const persistedDb = cloneStateValue(current.db) as SenaEnterpriseDbReadModel;
+    const db = normalizeEnterpriseDb(cloneStateValue(persistedDb));
+    const normalizedBaseline = cloneStateValue(db);
     const outcome = runPersistedMutation(db, mutator);
-    if (JSON.stringify(db) === normalizedBaseline) return unwrapPersistedMutation(outcome);
+    if (isDeepStrictEqual(db, normalizedBaseline)) return unwrapPersistedMutation(outcome);
+    const materialized = materializePersistedEnterpriseDb({
+      persisted: persistedDb,
+      normalizedBaseline,
+      normalizedAfter: pruneEnterpriseDbBeforeSave(db)
+    });
     try {
-      await adapter.writeState(pruneEnterpriseDbBeforeSave(db), {
+      await adapter.writeState(materialized as SenaEnterpriseDb, {
         expectedRevision: current.revision
       });
       return unwrapPersistedMutation(outcome);
@@ -1249,8 +1421,10 @@ export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
   if (runtime.activePrimary === "postgres") {
     try {
       const state = await postgresPrimaryStateStore().adapter.readState();
+      const persistedDb = cloneStateValue(state.db) as SenaEnterpriseDbReadModel;
       return {
-        db: normalizeEnterpriseDb(state.db),
+        db: normalizeEnterpriseDb(cloneStateValue(persistedDb)),
+        persistedDb,
         revision: state.revision,
         runtime
       };
@@ -1261,6 +1435,7 @@ export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
   const state = enterpriseStateStore().readState();
   return {
     db: state.db,
+    persistedDb: state.persistedDb,
     fileRevision: state.revision,
     runtime
   };
@@ -1268,8 +1443,15 @@ export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
 
 export async function writeEnterpriseState(state: SenaEnterpriseStateRead, db: SenaEnterpriseDb) {
   if (state.runtime.activePrimary === "postgres") {
+    const persistedDb = cloneStateValue(state.persistedDb ?? state.db) as SenaEnterpriseDbReadModel;
+    const materialized = materializePersistedEnterpriseDb({
+      persisted: persistedDb,
+      normalizedBaseline: normalizeEnterpriseDb(cloneStateValue(persistedDb)),
+      normalizedAfter: db
+    });
+    if (isDeepStrictEqual(materialized, persistedDb)) return;
     try {
-      await postgresPrimaryStateStore().adapter.writeState(db, {
+      await postgresPrimaryStateStore().adapter.writeState(materialized as SenaEnterpriseDb, {
         expectedRevision: state.revision
       });
     } catch (error) {
@@ -1284,8 +1466,15 @@ export async function writeEnterpriseState(state: SenaEnterpriseStateRead, db: S
 
 export async function saveEnterpriseState(state: SenaEnterpriseStateRead, db: SenaEnterpriseDb) {
   if (state.runtime.activePrimary === "postgres") {
+    const persistedDb = cloneStateValue(state.persistedDb ?? state.db) as SenaEnterpriseDbReadModel;
+    const materialized = materializePersistedEnterpriseDb({
+      persisted: persistedDb,
+      normalizedBaseline: normalizeEnterpriseDb(cloneStateValue(persistedDb)),
+      normalizedAfter: pruneEnterpriseDbBeforeSave(db)
+    });
+    if (isDeepStrictEqual(materialized, persistedDb)) return;
     try {
-      await postgresPrimaryStateStore().adapter.writeState(pruneEnterpriseDbBeforeSave(db), {
+      await postgresPrimaryStateStore().adapter.writeState(materialized as SenaEnterpriseDb, {
         expectedRevision: state.revision
       });
     } catch (error) {
