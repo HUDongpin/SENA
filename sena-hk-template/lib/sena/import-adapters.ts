@@ -16,10 +16,6 @@ import {
   type SenaMappedTable
 } from "./import";
 import type { SenaCode, SenaDataset, SenaDatasetMetadata } from "./types";
-import {
-  assertSenaReliabilityCombinedRawRowsWithinLimits,
-  assertSenaReliabilitySourceBytesWithinLimits
-} from "./reliability";
 
 export type SenaImportAdapterSource = {
   name: string;
@@ -958,64 +954,5 @@ export function withSenaImportDatasetMetadata(
         contentHash: buildSenaStableContentHash(dataset.codebook)
       }
     }
-  };
-}
-
-export type SenaReliabilityUploadFile = {
-  name: string;
-  bytes: Buffer;
-};
-
-/**
- * Picks the parser for a reliability upload by extension.
- *
- * Shared by the synchronous reliability route and the queued-job worker for the
- * same reason as withSenaImportDatasetMetadata above: a queued run has to score
- * the same rows out of the same file the direct run would, and two copies of this
- * dispatch had already drifted — only one of them rejected legacy .xls, so a
- * queued .xls was read as CSV and scored as whatever its binary bytes happened to
- * parse into.
- */
-export async function readSenaReliabilityUploadRows(
-  file: SenaReliabilityUploadFile
-): Promise<{ rows: SenaImportRow[]; warnings: string[]; rawRowCount: number }> {
-  assertSenaReliabilitySourceBytesWithinLimits([file.bytes.byteLength], "files");
-  const lower = file.name.toLowerCase();
-  if (lower.endsWith(".xlsx")) {
-    const workbook = await readXlsxWorkbookRows(file.bytes);
-    const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(workbook.map((sheet) => sheet.rows));
-    return { rows: workbook.flatMap((sheet) => sheet.rows), warnings: [], rawRowCount };
-  }
-  if (lower.endsWith(".xls")) {
-    throw new Error(`${file.name}: legacy .xls reliability uploads are not accepted. Save the workbook as .xlsx, CSV, or JSON before uploading.`);
-  }
-  if (lower.endsWith(".json")) {
-    const parsed = JSON.parse(file.bytes.toString("utf8"));
-    const record = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : undefined;
-    const rawRowGroups = Array.isArray(parsed)
-      ? [parsed]
-      : [record?.annotations, record?.rows, record?.data].filter(Array.isArray);
-    if (record && rawRowGroups.length === 0) rawRowGroups.push([record]);
-    const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(rawRowGroups);
-    // Preserve one canonical semantic table while admission above counts every
-    // supplied alias, including precedence-ignored arrays.
-    const rawRows = rawRowGroups[0] ?? [];
-    return {
-      rows: rawRows.filter((row) => typeof row === "object" && row !== null && !Array.isArray(row)),
-      warnings: [],
-      rawRowCount
-    };
-  }
-  const parsed = parseSenaCsv(file.bytes.toString("utf8"));
-  const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
-  // Ragged-row repairs are recorded per file; the padded empty value cell is
-  // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
-  // instead of being read as an applied code that moves kappa/alpha.
-  return {
-    rows: parsed.rows,
-    warnings: parsed.warnings.map((warning) => `${file.name}: ${warning}`),
-    rawRowCount
   };
 }

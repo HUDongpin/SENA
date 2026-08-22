@@ -34,7 +34,7 @@ import {
   serverJobQueueStatus,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
-import { readSenaReliabilityUploadRows } from "@/lib/sena/import-adapters";
+import { readSenaReliabilityUploadFiles } from "@/lib/sena/enterprise/reliability-file-decoder";
 import {
   assertSenaReliabilityJsonRequestWithinLimits,
   prepareSenaReliabilityJsonRequest
@@ -70,14 +70,20 @@ type BufferedReliabilityFile = {
 };
 
 async function bufferReliabilityFiles(files: File[]): Promise<BufferedReliabilityFile[]> {
-  const buffered = await Promise.all(files.map(async (file) => {
+  const buffered: BufferedReliabilityFile[] = [];
+  for (const file of files) {
     const bytes = Buffer.from(await file.arrayBuffer());
-    return {
+    buffered.push({
       name: file.name,
       size: bytes.byteLength,
       bytes
-    };
-  }));
+    });
+    assertSenaReliabilitySourceBytesWithinLimits(
+      buffered.map((entry) => entry.bytes.byteLength),
+      "files",
+      { sourceBytes: senaReliabilityServerSourceByteLimit() }
+    );
+  }
   assertSenaReliabilitySourceBytesWithinLimits(
     buffered.map((file) => file.bytes.byteLength),
     "files",
@@ -338,7 +344,7 @@ export async function POST(request: Request) {
       const project = projectId ? await getEnterpriseProjectReadOnlyAsync(context, projectId) : null;
       const teamId = String(form.get("teamId") || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "reliability:adjudicate");
-      const parsedForPreflight = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
+      const parsedForPreflight = await readSenaReliabilityUploadFiles(bufferedFiles);
       assertSenaReliabilityCombinedRawRowsWithinLimits(
         parsedForPreflight.map((file) => ({ length: file.rawRowCount }))
       );
@@ -430,7 +436,7 @@ export async function POST(request: Request) {
         headers: serverJobHeaders(job)
       });
     }
-    const parsedFiles = await Promise.all(bufferedFiles.map(readSenaReliabilityUploadRows));
+    const parsedFiles = await readSenaReliabilityUploadFiles(bufferedFiles);
     assertSenaReliabilityCombinedRawRowsWithinLimits(
       parsedFiles.map((file) => ({ length: file.rawRowCount }))
     );

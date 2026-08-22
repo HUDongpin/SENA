@@ -577,6 +577,7 @@ export type SenaEnterprisePrimaryStateRuntime = {
 export type SenaEnterpriseStateRead = {
   db: SenaEnterpriseDb;
   revision?: number;
+  fileRevision?: string;
   runtime: SenaEnterprisePrimaryStateRuntime;
 };
 
@@ -611,8 +612,19 @@ export function createEnterpriseStateStore(input: {
   };
 }
 
-export type SenaFileEnterpriseStateStore = SenaEnterpriseStateStore & {
+export type SenaFileEnterpriseStateWriteOptions = {
+  expectedRevision?: string;
+  authorizedOverwrite?: {
+    reason: string;
+  };
+};
+
+export type SenaFileEnterpriseStateStore = Omit<SenaEnterpriseStateStore, "read" | "write" | "save"> & {
   adapter: "file-backed-json";
+  read: () => SenaEnterpriseDb;
+  readState: () => { db: SenaEnterpriseDb; revision: string };
+  write: (db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) => void;
+  save: (db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) => void;
   /**
    * Runs a synchronous read-modify-write while holding the cross-process file
    * lock. The callback is never invoked when lock acquisition fails, and a
@@ -770,6 +782,22 @@ function enterpriseFileStateWriteErrorHash(policy: SenaEnterpriseFileStateWriteP
   ].join("\n")).digest("hex");
 }
 
+function enterpriseFileStateRevisionConflictError() {
+  return new SenaEnterpriseError(
+    "SENA enterprise file state changed after this snapshot was read.",
+    409,
+    "enterprise_file_state_revision_conflict"
+  );
+}
+
+function enterpriseFileStateUntrackedSnapshotError() {
+  return new SenaEnterpriseError(
+    "SENA enterprise file state writes require a tracked read snapshot or an explicitly authorized overwrite.",
+    409,
+    "enterprise_file_state_untracked_snapshot"
+  );
+}
+
 function postgresPrimaryStateActiveForFileBackend() {
   return primaryStateMode() === "postgres" && resolveEnterprisePostgresConfig().configured;
 }
@@ -785,6 +813,22 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     options.normalizeDb ? options.normalizeDb(db) : db
   );
   const pruneBeforeSave = options.pruneBeforeSave ?? ((db: SenaEnterpriseDb) => db);
+  const trackedRevisions = new WeakMap<SenaEnterpriseDb, string>();
+  const missingRevision = createHash("sha256")
+    .update("sena-enterprise-file-state:missing")
+    .digest("hex");
+
+  const revisionOf = (serialized: string) => createHash("sha256").update(serialized).digest("hex");
+
+  const parsePersisted = () => {
+    const serialized = readFileSync(dbPath, "utf8");
+    const parsed = JSON.parse(serialized) as SenaEnterpriseDbReadModel;
+    options.validateDb?.(parsed);
+    return {
+      db: normalizeDb(parsed),
+      revision: revisionOf(serialized)
+    };
+  };
 
   const persistWithoutLock = (db: SenaEnterpriseDb) => {
     options.validateDb?.(db);
@@ -795,6 +839,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       if (existsSync(dbPath)) copyFileSync(dbPath, backupPath);
       writeFileSync(tmpPath, serialized);
       renameSync(tmpPath, dbPath);
+      return revisionOf(serialized);
     } finally {
       if (existsSync(tmpPath)) {
         try {
@@ -819,10 +864,21 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     });
   };
 
-  const write = (db: SenaEnterpriseDb) => {
+  const write = (db: SenaEnterpriseDb, writeOptions: SenaFileEnterpriseStateWriteOptions = {}) => {
+    if (enterpriseFileStateWritePolicy().blocked) throw enterpriseFileStateWriteBlockedError();
+    const expectedRevision = writeOptions.expectedRevision ?? trackedRevisions.get(db);
+    const overwriteReason = writeOptions.authorizedOverwrite?.reason.trim();
+    if (!expectedRevision && !overwriteReason) throw enterpriseFileStateUntrackedSnapshotError();
     const lockId = acquireWriteLock();
     try {
-      persistWithoutLock(db);
+      const currentRevision = existsSync(dbPath)
+        ? revisionOf(readFileSync(dbPath, "utf8"))
+        : missingRevision;
+      if (!overwriteReason && currentRevision !== expectedRevision) {
+        throw enterpriseFileStateRevisionConflictError();
+      }
+      const nextRevision = persistWithoutLock(db);
+      trackedRevisions.set(db, nextRevision);
     } finally {
       releaseFileStateLock(lockPath, lockId);
     }
@@ -831,36 +887,59 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const mutateAtomically = <Result>(mutator: (db: SenaEnterpriseDb) => Result) => {
     const lockId = acquireWriteLock();
     try {
-      const db = existsSync(dbPath)
-        ? (() => {
-          const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDbReadModel;
-          options.validateDb?.(parsed);
-          return normalizeDb(parsed);
-        })()
-        : normalizeDb(options.createEmptyDb());
+      const current = existsSync(dbPath)
+        ? parsePersisted()
+        : { db: normalizeDb(options.createEmptyDb()), revision: missingRevision };
+      const db = current.db;
+      const normalizedBaseline = JSON.stringify(db);
       const result = mutator(db);
-      persistWithoutLock(db);
+      const normalizedAfter = JSON.stringify(db);
+      const nextRevision = normalizedAfter === normalizedBaseline
+        ? current.revision
+        : persistWithoutLock(db);
+      trackedRevisions.set(db, nextRevision);
       return result;
     } finally {
       releaseFileStateLock(lockPath, lockId);
     }
   };
 
-  const read = () => {
+  const readState = () => {
     // Do not create the store directory on the read path: serverless runtimes
     // (Vercel) have a read-only cwd, and non-persisting reads must return the
     // empty state without touching the filesystem. write() creates the
     // directory itself when persistence is actually allowed.
     if (!existsSync(dbPath)) {
       const db = options.createEmptyDb();
-      if (enterpriseFileStateWritePolicy().blocked || postgresPrimaryStateActiveForFileBackend()) return normalizeDb(db);
-      write(db);
-      return db;
+      if (enterpriseFileStateWritePolicy().blocked || postgresPrimaryStateActiveForFileBackend()) {
+        const normalized = normalizeDb(db);
+        trackedRevisions.set(normalized, missingRevision);
+        return { db: normalized, revision: missingRevision };
+      }
+      const lockId = acquireWriteLock();
+      try {
+        if (!existsSync(dbPath)) persistWithoutLock(db);
+      } finally {
+        releaseFileStateLock(lockPath, lockId);
+      }
     }
 
-    const parsed = JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDbReadModel;
-    options.validateDb?.(parsed);
-    return normalizeDb(parsed);
+    const state = parsePersisted();
+    trackedRevisions.set(state.db, state.revision);
+    return state;
+  };
+
+  const read = () => readState().db;
+
+  const save = (db: SenaEnterpriseDb, writeOptions: SenaFileEnterpriseStateWriteOptions = {}) => {
+    const expectedRevision = writeOptions.expectedRevision ?? trackedRevisions.get(db);
+    const pruned = pruneBeforeSave(db);
+    write(pruned, {
+      ...writeOptions,
+      expectedRevision
+    });
+    const nextRevision = trackedRevisions.get(pruned);
+    if (nextRevision) trackedRevisions.set(db, nextRevision);
   };
 
   return {
@@ -873,8 +952,9 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       lockPath
     },
     read,
+    readState,
     write,
-    save: (db) => write(pruneBeforeSave(db)),
+    save,
     mutateAtomically,
     probeLock: () => {
       let lockId = "";
@@ -1031,16 +1111,16 @@ export function readEnterpriseDb(): SenaEnterpriseDb {
   return enterpriseStateStore().read();
 }
 
-export function writeEnterpriseDb(db: SenaEnterpriseDb) {
-  enterpriseStateStore().write(db);
+export function writeEnterpriseDb(db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) {
+  enterpriseStateStore().write(db, options);
 }
 
 export function mutateEnterpriseDbAtomically<Result>(mutator: (db: SenaEnterpriseDb) => Result) {
   return enterpriseStateStore().mutateAtomically(mutator);
 }
 
-export function saveDb(db: SenaEnterpriseDb) {
-  enterpriseStateStore().save(db);
+export function saveDb(db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) {
+  enterpriseStateStore().save(db, options);
 }
 
 export function createConfiguredFileEnterpriseStateStore(): SenaFileEnterpriseStateStore {
@@ -1061,8 +1141,10 @@ export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
       normalizePostgresStateError(error);
     }
   }
+  const state = enterpriseStateStore().readState();
   return {
-    db: readEnterpriseDb(),
+    db: state.db,
+    fileRevision: state.revision,
     runtime
   };
 }
@@ -1078,7 +1160,9 @@ export async function writeEnterpriseState(state: SenaEnterpriseStateRead, db: S
     }
     return;
   }
-  writeEnterpriseDb(db);
+  enterpriseStateStore().write(db, {
+    expectedRevision: state.fileRevision
+  });
 }
 
 export async function saveEnterpriseState(state: SenaEnterpriseStateRead, db: SenaEnterpriseDb) {
@@ -1092,5 +1176,7 @@ export async function saveEnterpriseState(state: SenaEnterpriseStateRead, db: Se
     }
     return;
   }
-  saveDb(db);
+  enterpriseStateStore().save(db, {
+    expectedRevision: state.fileRevision
+  });
 }

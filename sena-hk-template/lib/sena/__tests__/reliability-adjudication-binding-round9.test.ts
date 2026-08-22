@@ -30,7 +30,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  writeEnterpriseDb(emptyEnterpriseDb());
+  writeEnterpriseDb(emptyEnterpriseDb(), {
+    authorizedOverwrite: { reason: "isolated reliability-adjudication test reset" }
+  });
 });
 
 afterAll(() => {

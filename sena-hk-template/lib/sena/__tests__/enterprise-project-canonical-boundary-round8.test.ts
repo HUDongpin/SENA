@@ -31,7 +31,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  writeEnterpriseDb(emptyEnterpriseDb());
+  writeEnterpriseDb(emptyEnterpriseDb(), {
+    authorizedOverwrite: { reason: "isolated canonical-boundary test reset" }
+  });
 });
 
 afterAll(() => {

@@ -179,13 +179,42 @@ export function missingRequiredSenaFields(table: SenaImportTable, mapping: SenaC
   return senaImportFields[table].filter((definition) => definition.required && !mapping[definition.field]);
 }
 
-export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImportRow[]; warnings: string[] } {
+export type SenaCsvParseOptions = {
+  /**
+   * Stops the lexical CSV scan before an over-budget data row is retained.
+   * The header is not a data row and blank physical rows do not consume the
+   * budget, matching the parser's existing semantic row selection.
+   */
+  maximumDataRows?: number;
+  onDataRowLimitExceeded?: (actual: number, maximum: number) => never;
+};
+
+export function parseSenaCsv(
+  text: string,
+  options: SenaCsvParseOptions = {}
+): { columns: string[]; rows: SenaImportRow[]; warnings: string[] } {
   const warnings: string[] = [];
   const source = text.replace(/^\uFEFF/, "");
   const parsedRows: string[][] = [];
   let row: string[] = [];
   let cell = "";
   let inQuotes = false;
+  const maximumDataRows = options.maximumDataRows;
+  if (maximumDataRows !== undefined && (!Number.isSafeInteger(maximumDataRows) || maximumDataRows < 0)) {
+    throw new Error("CSV maximumDataRows must be a non-negative safe integer.");
+  }
+
+  const retainCompletedRow = () => {
+    if (!row.some((value) => value.trim().length > 0)) return;
+    const nextDataRowCount = parsedRows.length;
+    if (maximumDataRows !== undefined && nextDataRowCount > maximumDataRows) {
+      if (options.onDataRowLimitExceeded) {
+        options.onDataRowLimitExceeded(nextDataRowCount, maximumDataRows);
+      }
+      throw new Error(`CSV data row count ${nextDataRowCount} exceeds the supported maximum of ${maximumDataRows}.`);
+    }
+    parsedRows.push(row);
+  };
 
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
@@ -211,7 +240,7 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
       cell = "";
     } else if (char === "\n" || char === "\r") {
       row.push(cell);
-      parsedRows.push(row);
+      retainCompletedRow();
       row = [];
       cell = "";
       if (char === "\r" && next === "\n") index += 1;
@@ -223,13 +252,12 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
   if (inQuotes) throw new Error("CSV has an unterminated quoted value.");
   if (cell.length > 0 || row.length > 0 || source.endsWith(",")) {
     row.push(cell);
-    parsedRows.push(row);
+    retainCompletedRow();
   }
 
-  const nonEmptyRows = parsedRows.filter((csvRow) => csvRow.some((value) => value.trim().length > 0));
-  if (nonEmptyRows.length === 0) throw new Error("CSV is empty.");
+  if (parsedRows.length === 0) throw new Error("CSV is empty.");
 
-  const columns = nonEmptyRows[0]?.map((header) => header.trim()) ?? [];
+  const columns = parsedRows[0]?.map((header) => header.trim()) ?? [];
   if (columns.length === 0 || columns.some((header) => header.length === 0)) {
     throw new Error("CSV header row must contain non-empty column names.");
   }
@@ -239,7 +267,7 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
     throw new Error(`CSV header contains duplicate columns: ${[...new Set(duplicateColumns)].join(", ")}.`);
   }
 
-  const rows = nonEmptyRows.slice(1).map<SenaImportRow>((cells, rowIndex) => {
+  const rows = parsedRows.slice(1).map<SenaImportRow>((cells, rowIndex) => {
     let normalizedCells = cells;
     if (normalizedCells.length > columns.length) {
       // Drop trailing empty cells (a stray trailing delimiter or spreadsheet

@@ -131,6 +131,8 @@ export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
   // maximum number of retained/replayed body-chunk objects; zero-byte chunks
   // consume the budget even though they are not retained for replay.
   requestChunks: 8_192,
+  xlsxArchiveEntries: 2_048,
+  xlsxWorksheets: 100,
   annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
@@ -908,8 +910,28 @@ function parseBoolean(value: string) {
 // splits multi-value cells on "|" only (ADR-0007 D2) — do not "align" this
 // splitter with lib/sena/import.ts without deciding how comma-bearing code ids
 // in coder files should then be expressed.
-function parseCodes(value: string) {
-  return value.split(/[|;,]/).map((code) => code.trim()).filter(Boolean);
+function parseCodesWithinCellBudget(value: string, budget: { emittedCells: number }) {
+  const codes: string[] = [];
+  let tokenStart = 0;
+  for (let index = 0; index <= value.length; index += 1) {
+    const character = value[index];
+    if (index !== value.length && character !== "|" && character !== ";" && character !== ",") continue;
+    const code = value.slice(tokenStart, index).trim();
+    tokenStart = index + 1;
+    if (!code) continue;
+    const next = budget.emittedCells + 1;
+    if (next > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: "annotations",
+        rule: `annotation-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows}`,
+        actual: next,
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows
+      }]);
+    }
+    budget.emittedCells = next;
+    codes.push(code);
+  }
+  return codes;
 }
 
 // An explicitly skipped cell: the coder's row existed but its value cell was
@@ -931,17 +953,29 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
   // admission before invoking the semantic parser so invalid rows cannot fan
   // out warnings or skipped-cell evidence first.
   assertSenaReliabilityCombinedRawRowsWithinLimits([rows]);
+  const cellBudget = { emittedCells: 0 };
+  // Tokenize every row first. This is deliberately a two-phase pass: an
+  // over-limit code cell or cumulative multi-row fan-out fails before any
+  // annotation, skipped-cell, or warning output object is allocated. The
+  // scanner never calls String#split, so retained tokens and loop work are
+  // bounded by the same 200,000-cell contract.
+  const preparedRows = rows.map((row, index) => ({
+    index,
+    coderId: readAlias(row, ["coder_id", "coder", "rater", "reviewer"]),
+    itemId: readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]),
+    codes: parseCodesWithinCellBudget(
+      readAlias(row, ["code_id", "code", "codes", "label", "coding"]),
+      cellBudget
+    ),
+    valueEntry: readAliasEntry(row, ["value", "applied", "present", "decision", "score"])
+  }));
   const warnings: string[] = [];
   const skippedCells: SenaSkippedCoderCell[] = [];
-  const annotations = rows.flatMap<SenaCoderAnnotation>((row, index) => {
-    const coderId = readAlias(row, ["coder_id", "coder", "rater", "reviewer"]);
-    const itemId = readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]);
-    const codes = parseCodes(readAlias(row, ["code_id", "code", "codes", "label", "coding"]));
-    const valueEntry = readAliasEntry(row, ["value", "applied", "present", "decision", "score"]);
-
+  const annotations: SenaCoderAnnotation[] = [];
+  for (const { coderId, itemId, codes, valueEntry, index } of preparedRows) {
     if (!coderId || !itemId || codes.length === 0) {
       warnings.push(`coder annotation row ${index + 1} is missing coder, item, or code and was skipped.`);
-      return [];
+      continue;
     }
 
     // A file with no value column is a presence-style export: each row means
@@ -953,12 +987,11 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
     if (valueEntry.present && valueEntry.value === "") {
       skippedCells.push({ coderId, itemId, codeIds: codes });
       warnings.push(`coder annotation row ${index + 1} has an empty value cell; it is treated as missing data and excluded from pairable reliability units.`);
-      return [];
+      continue;
     }
     const value = valueEntry.present ? parseBoolean(valueEntry.value) : true;
-
-    return codes.map((codeId) => ({ coderId, itemId, codeId, value }));
-  });
+    for (const codeId of codes) annotations.push({ coderId, itemId, codeId, value });
+  }
 
   return { annotations, warnings, skippedCells };
 }

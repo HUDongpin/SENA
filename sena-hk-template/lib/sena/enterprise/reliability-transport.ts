@@ -3,6 +3,7 @@ import {
   assertSenaReliabilityRequestChunksWithinLimits,
   SENA_RELIABILITY_UNIVERSE_LIMITS
 } from "../reliability";
+import { SenaReliabilityJsonPreflightScanner } from "../reliability-json-preflight";
 
 function assertDeclaredReliabilityTransportWithinLimits(request: Request, json: boolean, maximum: number) {
   const contentLength = request.headers.get("content-length")?.trim();
@@ -64,6 +65,13 @@ export async function readSenaReliabilityBoundedTransportRequest(
     // Empty chunks have no replay semantics, but were counted above. Every
     // retained/replayed object is therefore bounded by requestChunks too.
     if (value.byteLength > 0) chunks.push(value);
+  }
+
+  if (options.json) {
+    const decoder = new TextDecoder("utf-8");
+    const scanner = new SenaReliabilityJsonPreflightScanner({ mode: "request" });
+    for (const chunk of chunks) scanner.write(decoder.decode(chunk, { stream: true }));
+    scanner.write(decoder.decode()).finish();
   }
 
   let chunkIndex = 0;

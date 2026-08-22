@@ -7,6 +7,8 @@ import {
   buildSenaReliabilityDashboard,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
+  SENA_RELIABILITY_UNIVERSE_LIMITS,
+  SenaReliabilityUniverseLimitError,
   type SenaReliabilityDashboard
 } from "./reliability";
 import type { SenaCodingReliabilityReview } from "./types";
@@ -47,7 +49,10 @@ function allRawRowGroupsFromJson(value: unknown): unknown[][] {
   return groups.length > 0 ? groups : [[value]];
 }
 
-async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise<{
+async function rowsFromReliabilityFile(
+  file: SenaReliabilityUploadLike,
+  budget: { consumedRawRows: number; consumedBytes: number }
+): Promise<{
   rows: SenaImportRow[];
   warnings: string[];
   bytes: number;
@@ -61,11 +66,31 @@ async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise
   const text = await file.text();
   const bytes = new TextEncoder().encode(text).byteLength;
   assertSenaReliabilitySourceBytesWithinLimits([bytes], "files");
+  if (bytes > SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes - budget.consumedBytes) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "files",
+      rule: `aggregate-source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes}`,
+      actual: budget.consumedBytes + bytes,
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes
+    }]);
+  }
   if (lowerName.endsWith(".json")) {
     let decoded: unknown;
+    let structuralRawRows = 0;
     try {
+      // Keep the scanner out of the initial workspace bundle. It is loaded
+      // only when a researcher explicitly imports a local reliability JSON
+      // file, before JSON.parse can materialize its arrays/objects.
+      const { preflightSenaReliabilityJsonText } = await import("./reliability-json-preflight");
+      structuralRawRows = preflightSenaReliabilityJsonText(text, {
+        mode: "source",
+        maximumRows: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows,
+        maximumSources: SENA_RELIABILITY_UNIVERSE_LIMITS.sources,
+        consumedRows: budget.consumedRawRows
+      }).rawRows;
       decoded = JSON.parse(text);
-    } catch {
+    } catch (error) {
+      if (error instanceof SenaReliabilityUniverseLimitError) throw error;
       return {
         rows: [],
         warnings: [`${file.name}: JSON reliability annotations could not be parsed.`],
@@ -76,13 +101,24 @@ async function rowsFromReliabilityFile(file: SenaReliabilityUploadLike): Promise
     // Every supplied alias consumes admission budget even though the legacy
     // semantic reader continues to select the first rows/annotations/data
     // table. Count before that precedence can hide ignored raw rows.
-    const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(allRawRowGroupsFromJson(decoded));
+    const semanticRawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(allRawRowGroupsFromJson(decoded));
+    const rawRowCount = Math.max(structuralRawRows, semanticRawRowCount);
     const rawRows = rawRowsFromJson(decoded);
     return { rows: rawRows.filter(isImportRow), warnings: [], bytes, rawRowCount };
   }
 
-  const parsed = parseSenaCsv(text);
-  const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
+  const parsed = parseSenaCsv(text, {
+    maximumDataRows: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows - budget.consumedRawRows,
+    onDataRowLimitExceeded(actual) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: "annotations",
+        rule: `raw-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows}`,
+        actual: budget.consumedRawRows + actual,
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows
+      }]);
+    }
+  });
+  const rawRowCount = parsed.rows.length;
   // Ragged-row repairs are recorded per file; the padded empty value cell is
   // then skipped (with its own disclosure) by parseCoderAnnotationsFromRows
   // instead of being read as an applied code that moves kappa/alpha.
@@ -101,7 +137,15 @@ export async function importSenaReliabilityFiles(
   assertSenaReliabilitySourceCountWithinLimits(files.length, "files");
   const declaredSizes = files.map((file) => file.size).filter((size): size is number => size !== undefined);
   assertSenaReliabilitySourceBytesWithinLimits(declaredSizes, "files");
-  const parsedFiles = await Promise.all(files.map(rowsFromReliabilityFile));
+  const parsedFiles: Awaited<ReturnType<typeof rowsFromReliabilityFile>>[] = [];
+  let consumedRawRows = 0;
+  let consumedBytes = 0;
+  for (const file of files) {
+    const parsedFile = await rowsFromReliabilityFile(file, { consumedRawRows, consumedBytes });
+    consumedRawRows += parsedFile.rawRowCount;
+    consumedBytes += parsedFile.bytes;
+    parsedFiles.push(parsedFile);
+  }
   assertSenaReliabilitySourceBytesWithinLimits(parsedFiles.map((file) => file.bytes), "files");
   assertSenaReliabilityCombinedRawRowsWithinLimits(parsedFiles.map((file) => ({ length: file.rawRowCount })));
   const rows = parsedFiles.flatMap((file) => file.rows);

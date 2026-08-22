@@ -1,7 +1,76 @@
 import { describe, expect, it } from "vitest";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
-import { buildSenaReliabilityDashboard, parseCoderAnnotationsCsv, parseCoderAnnotationsFromRows, reliabilityDashboardToReview } from "../reliability";
+import {
+  buildSenaReliabilityDashboard,
+  parseCoderAnnotationsCsv,
+  parseCoderAnnotationsFromRows,
+  reliabilityDashboardToReview,
+  SENA_RELIABILITY_UNIVERSE_LIMITS
+} from "../reliability";
+
+const annotationCellLimit = SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows;
+
+function annotationCellLimitError(actual = annotationCellLimit + 1) {
+  return expect.objectContaining({
+    code: "reliability_universe_limit_exceeded",
+    issues: [{
+      path: "annotations",
+      rule: `annotation-row-count-at-most-${annotationCellLimit}`,
+      actual,
+      maximum: annotationCellLimit
+    }]
+  });
+}
+
+describe("SENA reliability code-cell admission", () => {
+  it("rejects one 200001-code cell before returning annotations", () => {
+    expect(() => parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: "a;".repeat(annotationCellLimit + 1),
+      value: "1"
+    }])).toThrow(annotationCellLimitError());
+  });
+
+  it("admits the exact 200000-code boundary and ignores empty delimiter cells", () => {
+    const parsed = parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: `${"a;".repeat(annotationCellLimit)};;; | ;`,
+      value: "1"
+    }]);
+
+    expect(parsed.annotations).toHaveLength(annotationCellLimit);
+    expect(parsed.skippedCells).toEqual([]);
+  });
+
+  it("applies the emitted-cell budget cumulatively across rows", () => {
+    expect(() => parseCoderAnnotationsFromRows([
+      {
+        coder_id: "c1",
+        item_id: "u1",
+        code_id: "a;".repeat(100_001),
+        value: "1"
+      },
+      {
+        coder_id: "c2",
+        item_id: "u2",
+        code_id: "b;".repeat(100_000),
+        value: "0"
+      }
+    ])).toThrow(annotationCellLimitError());
+  });
+
+  it("counts empty-value skipped codes before allocating skipped-cell evidence", () => {
+    expect(() => parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: "a;".repeat(annotationCellLimit + 1),
+      value: ""
+    }])).toThrow(annotationCellLimitError());
+  });
+});
 
 describe("SENA coding reliability diagnostics", () => {
   it("summarizes code-level agreement and coder positive-rate drift", () => {

@@ -17,7 +17,10 @@ import {
   SenaReliabilityAnnotationValidationError,
   SenaReliabilitySourceInputError,
   SenaReliabilityUniverseLimitError,
-  senaReliabilitySnapshotFingerprint
+  senaReliabilitySnapshotFingerprint,
+  type SenaReliabilityAnnotationValidationIssue,
+  type SenaReliabilitySourceInputIssue,
+  type SenaReliabilityUniverseLimitIssue
 } from "../reliability";
 import {
   assertSenaReliabilityJsonRequestWithinLimits,
@@ -111,6 +114,11 @@ export type SenaServerJobWorkerResult = {
 
 export type SenaServerJobWorkerOutcomeStatus = "succeeded" | "failed" | "skipped";
 
+export type SenaServerJobWorkerIssue = SenaInputValidationIssue
+  | SenaReliabilityUniverseLimitIssue
+  | SenaReliabilitySourceInputIssue
+  | SenaReliabilityAnnotationValidationIssue;
+
 export type SenaServerJobWorkerOutcome = {
   jobId: string;
   kind: SenaEnterpriseServerJobKind;
@@ -122,7 +130,7 @@ export type SenaServerJobWorkerOutcome = {
   retryable?: boolean;
   errorCode?: string;
   errorHash?: string;
-  issues?: SenaInputValidationIssue[];
+  issues?: SenaServerJobWorkerIssue[];
   skipReason?: string;
   result?: SenaServerJobWorkerResult;
 };
@@ -160,9 +168,19 @@ function errorCodeOf(error: unknown) {
 }
 
 function errorIssuesOf(error: unknown) {
-  return error instanceof SenaInputValidationError
-    ? error.issues.map(({ path, rule }) => ({ path, rule }))
-    : undefined;
+  if (error instanceof SenaInputValidationError) {
+    return error.issues.map(({ path, rule }) => ({ path, rule }));
+  }
+  if (error instanceof SenaReliabilityUniverseLimitError) {
+    return error.issues.map(({ path, rule, actual, maximum }) => ({ path, rule, actual, maximum }));
+  }
+  if (error instanceof SenaReliabilitySourceInputError) {
+    return error.issues.map(({ path, rule }) => ({ path, rule }));
+  }
+  if (error instanceof SenaReliabilityAnnotationValidationError) {
+    return error.issues.map(({ path, code }) => ({ path, code }));
+  }
+  return undefined;
 }
 
 function errorHashOf(error: unknown) {

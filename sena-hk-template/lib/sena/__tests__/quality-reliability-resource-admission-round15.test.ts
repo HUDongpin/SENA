@@ -21,6 +21,7 @@ const resourceLimits = {
 // Reuse one string across five sources so the aggregate contract is exercised
 // without retaining five separate ~20 MiB fixture strings in the test process.
 const aggregateJsonPadding = "x".repeat(Math.floor(resourceLimits.aggregateBytes / 5) + 1);
+const oversizedReliabilityCodeCell = "a;".repeat(resourceLimits.rawRows + 1);
 
 function round15ReliabilitySnapshot() {
   const imported = importSenaJsonContract(lessonStudySenaContract);
@@ -72,6 +73,8 @@ afterEach(() => {
   vi.doUnmock("../reliability");
   vi.doUnmock("../enterprise/import-analysis");
   vi.doUnmock("@/lib/sena/enterprise/reliability-upload-reader");
+  vi.doUnmock("@/lib/sena/enterprise/reliability-file-decoder");
+  vi.doUnmock("../enterprise/reliability-xlsx-preflight");
   vi.doUnmock("@/lib/sena/import-adapters");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -305,17 +308,30 @@ describe("Round15 raw reliability admission", () => {
 
   it("rejects combined XLSX sheet rows immediately after decoding and before sheet flatMap", async () => {
     vi.resetModules();
-    const firstRows = Array.from({ length: 100_001 }, () => ({}));
-    const secondRows = Array.from({ length: 100_000 }, () => ({}));
-    const workbookReader = vi.fn(async () => [
-      { name: "First", rows: firstRows },
-      { name: "Second", rows: secondRows }
-    ]);
+    const workbookReader = vi.fn(async () => {
+      throw new Error("regular workbook decoder must not run after preflight rejection");
+    });
+    const workbookPreflight = vi.fn(async () => {
+      const actual = await vi.importActual<typeof import("../enterprise/reliability-xlsx-preflight")>(
+        "../enterprise/reliability-xlsx-preflight"
+      );
+      throw new actual.SenaXlsxWorkbookPreflightError(
+        "data-rows",
+        resourceLimits.rawRows + 1,
+        resourceLimits.rawRows
+      );
+    });
     vi.doMock("../excel-workbook", async () => ({
       ...await vi.importActual<typeof import("../excel-workbook")>("../excel-workbook"),
       readXlsxWorkbookRows: workbookReader
     }));
-    const { readSenaReliabilityUploadRows } = await import("../import-adapters");
+    vi.doMock("../enterprise/reliability-xlsx-preflight", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/reliability-xlsx-preflight")>(
+        "../enterprise/reliability-xlsx-preflight"
+      ),
+      preflightXlsxWorkbook: workbookPreflight
+    }));
+    const { readSenaReliabilityUploadRows } = await import("../enterprise/reliability-file-decoder");
     const flatMap = vi.spyOn(Array.prototype, "flatMap");
     let thrown: unknown;
     try {
@@ -332,12 +348,58 @@ describe("Round15 raw reliability admission", () => {
       actual: resourceLimits.rawRows + 1,
       maximum: resourceLimits.rawRows
     }));
-    expect(workbookReader).toHaveBeenCalledTimes(1);
+    expect(workbookPreflight).toHaveBeenCalledTimes(1);
+    expect(workbookReader).not.toHaveBeenCalled();
     expect(flatMapCalls).toBe(0);
   });
 
+  it("shares the emitted-cell budget across decoded XLSX sheets", async () => {
+    vi.resetModules();
+    const workbookReader = vi.fn(async () => [
+      {
+        name: "First",
+        rows: [{ coder_id: "c1", item_id: "u1", code_id: "a;".repeat(100_001), value: "1" }]
+      },
+      {
+        name: "Second",
+        rows: [{ coder_id: "c2", item_id: "u2", code_id: "b;".repeat(100_000), value: "" }]
+      }
+    ]);
+    const workbookPreflight = vi.fn(async () => ({
+      entries: 2,
+      uncompressedBytes: 4,
+      dataRows: 2,
+      worksheets: 2
+    }));
+    vi.doMock("../excel-workbook", async () => ({
+      ...await vi.importActual<typeof import("../excel-workbook")>("../excel-workbook"),
+      readXlsxWorkbookRows: workbookReader
+    }));
+    vi.doMock("../enterprise/reliability-xlsx-preflight", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/reliability-xlsx-preflight")>(
+        "../enterprise/reliability-xlsx-preflight"
+      ),
+      preflightXlsxWorkbook: workbookPreflight
+    }));
+    const { readSenaReliabilityUploadRows } = await import("../enterprise/reliability-file-decoder");
+    const { parseCoderAnnotationsFromRows } = await import("../reliability");
+    const decoded = await readSenaReliabilityUploadRows({
+      name: "cumulative-code-cells.xlsx",
+      bytes: Buffer.from("xlsx")
+    });
+
+    expect(() => parseCoderAnnotationsFromRows(decoded.rows)).toThrow(expectedLimitIssue({
+      path: "annotations",
+      rule: `annotation-row-count-at-most-${resourceLimits.rawRows}`,
+      actual: resourceLimits.rawRows + 1,
+      maximum: resourceLimits.rawRows
+    }));
+    expect(workbookPreflight).toHaveBeenCalledTimes(1);
+    expect(workbookReader).toHaveBeenCalledTimes(1);
+  });
+
   it("counts every server JSON object alias before selecting the canonical row table", async () => {
-    const { readSenaReliabilityUploadRows } = await import("../import-adapters");
+    const { readSenaReliabilityUploadRows } = await import("../enterprise/reliability-file-decoder");
     const bytes = Buffer.from(JSON.stringify({
       annotations: [{ coder_id: "c1", item_id: "i1", code_id: "x", value: "1" }],
       rows: Array.from({ length: resourceLimits.rawRows }, () => ({}))
@@ -356,7 +418,7 @@ describe("Round15 raw reliability admission", () => {
 
   it("treats a server JSON root annotation object as one raw semantic row", async () => {
     vi.resetModules();
-    const { readSenaReliabilityUploadRows } = await import("../import-adapters");
+    const { readSenaReliabilityUploadRows } = await import("../enterprise/reliability-file-decoder");
     const reliability = await import("../reliability");
     const row = { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" };
 
@@ -1310,7 +1372,111 @@ async function runQueuedJsonFilesParityCase(
   }
 }
 
+async function runCodeCellJsonRouteAdmissionCase(mode: "sync" | "local" | "managed") {
+  const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-round15-code-cell-${mode}-`));
+  let sessionToken = "";
+  resetReliabilityEnvironment();
+  vi.resetModules();
+  process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+  if (mode === "local") {
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+  }
+  if (mode === "managed") {
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "round15-code-cell-secret";
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+  }
+  const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.doMock("next/headers", () => ({
+    cookies: () => ({
+      get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+    })
+  }));
+  vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+  vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+  vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+  vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+  vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+  try {
+    const enterprise = await import("../enterprise");
+    const importAnalysis = await import("../enterprise/import-analysis");
+    const jobs = await import("../enterprise/server-job-queue");
+    const reliabilityRuns = await import("../enterprise/reliability-runs");
+    const registered = enterprise.registerEnterpriseUser({
+      name: `Round15 code cell ${mode} reviewer`,
+      email: `round15-code-cell-${mode}@example.edu`,
+      password: "sena-secure-123",
+      organization: "Round15 Reliability Lab",
+      plan: "lab"
+    });
+    sessionToken = registered.token;
+    const teamId = registered.context.teams[0].id;
+    const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+    const uploadsBefore = importAnalysis.listEnterpriseUploads(registered.context, teamId);
+    const jobsBefore = (await jobs.listEnterpriseServerJobs({ teamId })).jobs;
+    const runsBefore = await reliabilityRuns.listEnterpriseReliabilityRunsAsync(registered.context, { teamId });
+    const auditsBefore = enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events;
+    const route = await import("../../../app/api/sena/reliability/route");
+    const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sena-csrf-token": csrf.token,
+        ...(mode === "sync" ? {} : { prefer: "respond-async" })
+      },
+      body: JSON.stringify({
+        teamId,
+        reviewer: "Round15 bounded code cell reviewer",
+        files: [
+          {
+            name: "first.json",
+            rows: [{ coder_id: "c1", item_id: "u1", code_id: "a;".repeat(100_001), value: "1" }]
+          },
+          {
+            name: "second.json",
+            rows: [{ coder_id: "c2", item_id: "u2", code_id: "b;".repeat(100_000), value: "" }]
+          }
+        ]
+      })
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "SENA coding-reliability input exceeds the supported analysis universe.",
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: `annotation-row-count-at-most-${resourceLimits.rawRows}`,
+        actual: resourceLimits.rawRows + 1,
+        maximum: resourceLimits.rawRows
+      }]
+    });
+    expect(importAnalysis.listEnterpriseUploads(registered.context, teamId)).toEqual(uploadsBefore);
+    expect((await jobs.listEnterpriseServerJobs({ teamId })).jobs).toEqual(jobsBefore);
+    expect(await reliabilityRuns.listEnterpriseReliabilityRunsAsync(registered.context, { teamId })).toEqual(runsBefore);
+    expect(enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events).toEqual(auditsBefore);
+    expect(fetchMock).not.toHaveBeenCalled();
+  } finally {
+    resetReliabilityEnvironment();
+    rmSync(enterpriseDbDir, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+}
+
 describe("Round15 queued JSON files parity", () => {
+  it.each(["sync", "local", "managed"] as const)(
+    "rejects cumulative multi-source code-cell fan-out in %s mode before uploads, jobs, runs, audits, or webhook delivery",
+    async (mode) => {
+      await runCodeCellJsonRouteAdmissionCase(mode);
+    },
+    30_000
+  );
+
   it("reconstructs multiple inline aliases without inventing an ambiguous source name", async () => {
     const reliabilityApi = await import("../reliability-api");
     const uploadReader = await import("../enterprise/reliability-upload-reader");
@@ -1591,7 +1757,7 @@ describe("Round15 project-bound work admission ordering", () => {
 
 async function runMultipartAdmissionCase(input: {
   mode: QueueMode;
-  kind: "count" | "non-file" | "declared-size" | "configured-size" | "aggregate-size" | "combined-rows" | "combined-invalid-rows";
+  kind: "count" | "non-file" | "declared-size" | "configured-size" | "aggregate-size" | "combined-rows" | "combined-invalid-rows" | "code-cells";
 }) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-round15-multipart-${input.mode}-${input.kind}-`));
   let sessionToken = "";
@@ -1633,20 +1799,48 @@ async function runMultipartAdmissionCase(input: {
         Array.from({ length: 100_001 }, () => ({})),
         Array.from({ length: 100_000 }, () => ({}))
       ]
+    : input.kind === "code-cells"
+      ? [
+          [{ coder_id: "c1", item_id: "u1", code_id: "a;".repeat(100_001), value: "1" }],
+          [{ coder_id: "c2", item_id: "u2", code_id: "b;".repeat(100_000), value: "" }]
+        ]
     : [];
   const rawRowCounts = input.kind === "combined-invalid-rows" ? [100_001, 100_000] : [];
-  const reliabilityRowReader = vi.fn(async () => {
+  const reliabilityRowReader = vi.fn(async (_file?: unknown) => {
     const index = reliabilityRowReader.mock.calls.length - 1;
     const rows = decodedRows[index] ?? [];
     return {
       rows,
       rawRowCount: rawRowCounts[index] ?? rows.length,
-      warnings: []
+      warnings: [],
+      decodedBytes: 1
     };
   });
-  vi.doMock("@/lib/sena/import-adapters", async () => ({
-    ...await vi.importActual<typeof import("../import-adapters")>("../import-adapters"),
-    readSenaReliabilityUploadRows: reliabilityRowReader
+  const reliabilityFilesReader = vi.fn(async (files: Array<{ name: string; bytes: Buffer }>) => {
+    const parsedFiles: Array<Awaited<ReturnType<typeof reliabilityRowReader>>> = [];
+    let rawRows = 0;
+    for (const file of files) {
+      const parsed = await reliabilityRowReader(file);
+      rawRows += parsed.rawRowCount;
+      if (rawRows > resourceLimits.rawRows) {
+        const actual = await vi.importActual<typeof import("../reliability")>("../reliability");
+        throw new actual.SenaReliabilityUniverseLimitError([{
+          path: "annotations",
+          rule: `raw-row-count-at-most-${resourceLimits.rawRows}`,
+          actual: rawRows,
+          maximum: resourceLimits.rawRows
+        }]);
+      }
+      parsedFiles.push(parsed);
+    }
+    return parsedFiles;
+  });
+  vi.doMock("@/lib/sena/enterprise/reliability-file-decoder", async () => ({
+    ...await vi.importActual<typeof import("../enterprise/reliability-file-decoder")>(
+      "../enterprise/reliability-file-decoder"
+    ),
+    readSenaReliabilityUploadRows: reliabilityRowReader,
+    readSenaReliabilityUploadFiles: reliabilityFilesReader
   }));
 
   try {
@@ -1678,10 +1872,10 @@ async function runMultipartAdmissionCase(input: {
         ? Array.from({ length: 5 }, (_, index) => (
             new File(["coder_id,item_id,code_id,value\n"], `aggregate-size-${index}.csv`, { type: "text/csv" })
           ))
-        : input.kind === "combined-rows" || input.kind === "combined-invalid-rows"
+        : input.kind === "combined-rows" || input.kind === "combined-invalid-rows" || input.kind === "code-cells"
         ? [
-            new File(["coder_id,item_id,code_id,value\n"], `${input.kind}-first.csv`, { type: "text/csv" }),
-            new File(["coder_id,item_id,code_id,value\n"], `${input.kind}-second.csv`, { type: "text/csv" })
+            new File(["coder_id,item_id,code_id,value\n"], `${input.kind}-first.xlsx`, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+            new File(["coder_id,item_id,code_id,value\n"], `${input.kind}-second.xlsx`, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
           ]
         : [new File(["coder_id,item_id,code_id,value\n"], "declared-oversized.csv", { type: "text/csv" })];
     if (input.kind === "declared-size" || input.kind === "configured-size") {
@@ -1734,10 +1928,12 @@ async function runMultipartAdmissionCase(input: {
             actual: resourceLimits.aggregateBytes + 5,
             maximum: resourceLimits.aggregateBytes
           }
-        : input.kind === "combined-rows" || input.kind === "combined-invalid-rows"
+        : input.kind === "combined-rows" || input.kind === "combined-invalid-rows" || input.kind === "code-cells"
           ? {
               path: "annotations" as const,
-              rule: `raw-row-count-at-most-${resourceLimits.rawRows}`,
+              rule: input.kind === "code-cells"
+                ? `annotation-row-count-at-most-${resourceLimits.rawRows}`
+                : `raw-row-count-at-most-${resourceLimits.rawRows}`,
               actual: resourceLimits.rawRows + 1,
               maximum: resourceLimits.rawRows
             }
@@ -1766,12 +1962,12 @@ async function runMultipartAdmissionCase(input: {
       issues: [expected]
     });
     for (const arrayBufferSpy of arrayBufferSpies) {
-      if (input.kind === "combined-rows" || input.kind === "combined-invalid-rows") expect(arrayBufferSpy).toHaveBeenCalledTimes(1);
+      if (input.kind === "combined-rows" || input.kind === "combined-invalid-rows" || input.kind === "code-cells") expect(arrayBufferSpy).toHaveBeenCalledTimes(1);
       else expect(arrayBufferSpy).not.toHaveBeenCalled();
     }
-    if (input.kind === "combined-rows" || input.kind === "combined-invalid-rows") {
+    if (input.kind === "combined-rows" || input.kind === "combined-invalid-rows" || input.kind === "code-cells") {
       expect(reliabilityRowReader).toHaveBeenCalledTimes(2);
-      expect(semanticParser).not.toHaveBeenCalled();
+      if (input.kind !== "code-cells") expect(semanticParser).not.toHaveBeenCalled();
     } else {
       expect(reliabilityRowReader).not.toHaveBeenCalled();
     }
@@ -1788,6 +1984,14 @@ async function runMultipartAdmissionCase(input: {
 }
 
 describe("Round15 multipart admission", () => {
+  it.each(["local", "managed"] as const)(
+    "rejects cumulative XLSX code-cell fan-out in %s multipart mode before uploads, jobs, audits, or webhook delivery",
+    async (mode) => {
+      await runMultipartAdmissionCase({ mode, kind: "code-cells" });
+    },
+    30_000
+  );
+
   it("rejects managed multipart file fan-out before arrayBuffer, parsing, or side effects", async () => {
     await runMultipartAdmissionCase({ mode: "managed", kind: "count" });
   }, 30_000);

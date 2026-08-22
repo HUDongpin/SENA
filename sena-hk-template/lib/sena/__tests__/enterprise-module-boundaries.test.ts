@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -2193,7 +2193,8 @@ describe("SENA enterprise module boundaries", () => {
         })
       });
 
-      const initial = store.read();
+      const initialState = store.readState();
+      const initial = initialState.db;
       const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
       expect(initial.schemaVersion).toBe("sena-enterprise-db/v1");
       expect(existsSync(dbPath)).toBe(true);
@@ -2201,16 +2202,21 @@ describe("SENA enterprise module boundaries", () => {
       store.write({
         ...initial,
         teams: [{ id: "team_persisted" } as never]
+      }, {
+        expectedRevision: initialState.revision
       });
       expect(store.read().teams.map((team) => team.id)).toEqual(["team_persisted"]);
       expect(existsSync(`${dbPath}.bak`)).toBe(true);
 
+      const beforeSave = store.readState();
       store.save({
-        ...store.read(),
+        ...beforeSave.db,
         sessions: [
           { id: "expired", expiresAt: new Date(Date.now() - 60_000).toISOString() } as never,
           { id: "live", expiresAt: new Date(Date.now() + 60_000).toISOString() } as never
         ]
+      }, {
+        expectedRevision: beforeSave.revision
       });
 
       expect(store.read().sessions.map((session) => session.id)).toEqual(["live"]);
@@ -2223,6 +2229,70 @@ describe("SENA enterprise module boundaries", () => {
         dbFileExists: true,
         dbBackupExists: true
       });
+      expect(() => store.write(emptyEnterpriseDb())).toThrow(expect.objectContaining({
+        code: "enterprise_file_state_untracked_snapshot",
+        status: 409
+      }));
+      store.write(emptyEnterpriseDb(), {
+        authorizedOverwrite: { reason: "explicit test fixture reset" }
+      });
+      expect(store.read().teams).toEqual([]);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stale whole-state write across independent file store instances instead of silently losing an ordinary update", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-cas-"));
+    try {
+      const makeStore = () => createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb
+      });
+      const firstStore = makeStore();
+      const secondStore = makeStore();
+      const firstSnapshot = firstStore.read();
+      const staleSecondSnapshot = secondStore.read();
+
+      firstSnapshot.teams = [{ id: "team_first_writer" } as never];
+      firstStore.write(firstSnapshot);
+      staleSecondSnapshot.users = [{ id: "user_stale_writer" } as never];
+
+      expect(() => secondStore.write(staleSecondSnapshot)).toThrow(expect.objectContaining({
+        code: "enterprise_file_state_revision_conflict",
+        status: 409
+      }));
+      expect(firstStore.read().teams.map((team) => team.id)).toEqual(["team_first_writer"]);
+      expect(firstStore.read().users).toEqual([]);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not persist a normalized projection or touch the backup for an atomic no-op", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-noop-"));
+    try {
+      const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+      const backupPath = `${dbPath}.bak`;
+      const legacy = emptyEnterpriseDb() as SenaEnterpriseDb & { serverJobs?: unknown };
+      Reflect.deleteProperty(legacy, "serverJobs");
+      writeFileSync(dbPath, JSON.stringify(legacy));
+      writeFileSync(backupPath, "preexisting-backup-evidence");
+      const store = createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb
+      });
+      const beforeRaw = readFileSync(dbPath, "utf8");
+      const beforeBackup = readFileSync(backupPath, "utf8");
+      const beforeBackupMtime = statSync(backupPath).mtimeMs;
+      const beforeRevision = store.readState().revision;
+
+      expect(store.mutateAtomically(() => "no-op")).toBe("no-op");
+
+      expect(readFileSync(dbPath, "utf8")).toBe(beforeRaw);
+      expect(readFileSync(backupPath, "utf8")).toBe(beforeBackup);
+      expect(statSync(backupPath).mtimeMs).toBe(beforeBackupMtime);
+      expect(store.readState().revision).toBe(beforeRevision);
     } finally {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
     }

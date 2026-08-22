@@ -1,4 +1,4 @@
-import { readSenaReliabilityUploadRows } from "../import-adapters";
+import { readSenaReliabilityUploadFiles } from "./reliability-file-decoder";
 import {
   buildSenaReliabilityJsonQueueSources,
   prepareSenaReliabilityJsonRequest,
@@ -11,8 +11,10 @@ import {
   assertSenaReliabilityCombinedRawRowsWithinLimits,
   assertSenaReliabilitySourceBytesWithinLimits,
   assertSenaReliabilitySourceCountWithinLimits,
-  parseCoderAnnotationsFromRows
+  parseCoderAnnotationsFromRows,
+  SenaReliabilityUniverseLimitError
 } from "../reliability";
+import { preflightSenaReliabilityJsonText } from "../reliability-json-preflight";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import { SenaEnterpriseError } from "./errors";
 import { senaReliabilityServerSourceByteLimit } from "./upload-limits";
@@ -53,20 +55,32 @@ export function buildEnterpriseReliabilityJsonQueueUploads(payload: SenaReliabil
   }));
 }
 
-function queueJsonSourceEnvelope(content: SenaEnterpriseUploadContent) {
+function queueJsonSourceEnvelope(
+  content: SenaEnterpriseUploadContent,
+  admission: { rawRows: number; sources: number }
+) {
   const kind = content.upload.importProfile
     ? queueJsonKindByProfile.get(content.upload.importProfile)
     : undefined;
   if (!kind) return undefined;
   try {
-    const value = JSON.parse(content.bytes.toString("utf8")) as Record<string, unknown>;
+    const text = content.bytes.toString("utf8");
+    const structural = preflightSenaReliabilityJsonText(text, {
+      mode: "source",
+      consumedRows: admission.rawRows,
+      consumedSources: admission.sources
+    });
+    admission.rawRows += structural.rawRows;
+    admission.sources += structural.sources;
+    const value = JSON.parse(text) as Record<string, unknown>;
     if (!value || typeof value !== "object" || Array.isArray(value) ||
       value.schemaVersion !== SENA_SCHEMA_VERSIONS.reliabilityJsonSource ||
       typeof value.name !== "string" || !Object.prototype.hasOwnProperty.call(value, "rows")) {
       throw new Error("invalid queue source envelope");
     }
     return { kind, name: value.name, value: value.rows };
-  } catch {
+  } catch (error) {
+    if (error instanceof SenaReliabilityUniverseLimitError) throw error;
     throw new SenaEnterpriseError(
       "Queued reliability JSON source evidence is invalid.",
       400,
@@ -79,7 +93,8 @@ export function prepareEnterpriseReliabilityQueuedJsonUploads(
   contents: SenaEnterpriseUploadContent[],
   defaultReviewer: string
 ): SenaPreparedReliabilityRunInput | undefined {
-  const envelopes = contents.map(queueJsonSourceEnvelope);
+  const admission = { rawRows: 0, sources: 0 };
+  const envelopes = contents.map((content) => queueJsonSourceEnvelope(content, admission));
   if (envelopes.every((envelope) => envelope === undefined)) return undefined;
   if (envelopes.some((envelope) => envelope === undefined)) {
     throw new SenaEnterpriseError(
@@ -147,9 +162,7 @@ export async function readEnterpriseReliabilityUploadPointerContents(
 export async function parseEnterpriseReliabilityUploadContents(
   contents: SenaEnterpriseUploadContent[]
 ) {
-  const parsedFiles = await Promise.all(contents.map((content) => (
-    readSenaReliabilityUploadRows(reliabilityUploadFile(content))
-  )));
+  const parsedFiles = await readSenaReliabilityUploadFiles(contents.map(reliabilityUploadFile));
   assertSenaReliabilityCombinedRawRowsWithinLimits(
     parsedFiles.map((file) => ({ length: file.rawRowCount }))
   );
