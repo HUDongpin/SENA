@@ -115,6 +115,7 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         importResult: null,
         publicationBlocked: null,
         reliability: null,
+        reliabilityApproval: null,
         publication: null
       };
     }
@@ -200,6 +201,9 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     let reliabilityResponse = null;
     let reliabilityBody = null;
     let reliabilityHeaders = null;
+    let reliabilityApprovalResponse = null;
+    let reliabilityApprovalBody = null;
+    let reliabilityApprovalHeaders = null;
     let publicationResponse = null;
     let publicationBody = null;
     let publicationHeaders = null;
@@ -248,6 +252,25 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
       reliabilityBody = await parseJsonResponse(reliabilityResponse);
       reliabilityHeaders = responseHeaders(reliabilityResponse);
 
+      const reliabilityRunId = reliabilityBody?.reliabilityRun?.id;
+      if (reliabilityRunId) {
+        reliabilityApprovalResponse = await fetch("/api/sena/reliability", {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrfToken
+          },
+          body: JSON.stringify({
+            runId: reliabilityRunId,
+            status: "approved",
+            notes: "Enterprise API smoke approval after complete zero-disagreement adjudication coverage."
+          })
+        });
+        reliabilityApprovalBody = await parseJsonResponse(reliabilityApprovalResponse);
+        reliabilityApprovalHeaders = responseHeaders(reliabilityApprovalResponse);
+      }
+
       publicationResponse = await fetch("/api/sena/exports/publication", {
         method: "POST",
         credentials: "include",
@@ -294,6 +317,11 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         status: reliabilityResponse.status,
         headers: reliabilityHeaders,
         body: reliabilityBody
+      } : null,
+      reliabilityApproval: reliabilityApprovalResponse ? {
+        status: reliabilityApprovalResponse.status,
+        headers: reliabilityApprovalHeaders,
+        body: reliabilityApprovalBody
       } : null,
       publication: publicationResponse ? {
         status: publicationResponse.status,
@@ -514,6 +542,23 @@ function assertEnterpriseWorkflowEvidence(evidence) {
     throw new Error(`Enterprise reliability evidence is not bound to the imported current project revision: ${JSON.stringify(reliability.body?.reliabilityRun)}.`);
   }
 
+  const reliabilityApproval = evidence.reliabilityApproval;
+  if (
+    reliabilityApproval?.status !== 200 ||
+    reliabilityApproval.body?.schemaVersion !== "sena-reliability-run-review/v1" ||
+    reliabilityApproval.body?.reliabilityRun?.id !== reliabilityRunId ||
+    reliabilityApproval.body?.reliabilityRun?.status !== "approved"
+  ) {
+    throw new Error(`Enterprise reliability run was not explicitly approved before publication: ${JSON.stringify(reliabilityApproval)}.`);
+  }
+  if (
+    requireHeaderValue(reliabilityApproval.headers, "x-sena-reliability-status") !== "approved" ||
+    requireHeaderValue(reliabilityApproval.headers, "x-sena-unresolved-disagreements") !== "0" ||
+    requireHeaderValue(reliabilityApproval.headers, "x-sena-reliability-coverage-rate") !== "1"
+  ) {
+    throw new Error(`Enterprise reliability approval is missing complete adjudication coverage: ${JSON.stringify(reliabilityApproval.headers)}.`);
+  }
+
   const publication = evidence.publication;
   if (publication?.status !== 200) {
     throw new Error(`Publication package export returned HTTP ${publication?.status ?? "<missing>"}: ${JSON.stringify(publication?.body)}.`);
@@ -587,7 +632,7 @@ export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSm
     const session = await registerSmokeSession(page, origin);
     const evidence = await fetchEnterpriseWorkflow(page, session.teamId, provisioningToken);
     assertEnterpriseWorkflowEvidence(evidence);
-    console.log(`Enterprise API browser smoke passed for identity platform decision plus import, missing-evidence 409, current-v2 reliability binding, and publication package 200 on ${origin}.`);
+    console.log(`Enterprise API browser smoke passed for identity platform decision plus import, missing-evidence 409, explicit current-v2 reliability approval, and publication package 200 on ${origin}.`);
   } finally {
     await browser.close();
   }
