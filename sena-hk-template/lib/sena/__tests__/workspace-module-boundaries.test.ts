@@ -1250,6 +1250,10 @@ describe("SENA workspace module boundaries", () => {
     expect(restoreHookSource).toContain("snapshot.reproducibility.buildOptions");
     expect(restoreHookSource).toContain("snapshot.source.sourceDataset ?? snapshot.dataset");
     expect(restoreHookSource).toContain("project snapshot restored");
+    expect(restoreHookSource).not.toContain('import { importSenaProjectSnapshot } from "./analysis-runtime"');
+    expect(restoreHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(restoreHookSource).toContain("requestSenaSnapshotRestore");
+    expect(restoreHookSource).toContain("restoreValidatedProjectSnapshot");
     expect(workspaceSource).not.toContain("function restoreProjectSnapshot");
     expect(workspaceSource).not.toContain("snapshot.reproducibility.buildOptions");
     expect(workspaceSource).not.toContain("project snapshot restored");
@@ -1260,6 +1264,31 @@ describe("SENA workspace module boundaries", () => {
       "own snapshot dataset, build options, review, reliability, governance, manual-review, selection, temporal-window, and import-message state restoration",
       "keep project snapshot restore state hydration outside the main workspace container while enterprise import and project hooks share one restore callback"
     ]);
+  });
+
+  it("keeps snapshot and review-packet validators behind a stateless server boundary", () => {
+    const uploadHookPath = new URL("../../../components/sena/workspace/use-contract-upload-action.ts", import.meta.url);
+    const uploadHookSource = existsSync(uploadHookPath) ? readFileSync(uploadHookPath, "utf8") : "";
+    const restoreHookPath = new URL("../../../components/sena/workspace/use-project-snapshot-restore-action.ts", import.meta.url);
+    const restoreHookSource = existsSync(restoreHookPath) ? readFileSync(restoreHookPath, "utf8") : "";
+    const restoreRoutePath = new URL("../../../app/api/sena/snapshot/restore/route.ts", import.meta.url);
+    const restoreRouteSource = existsSync(restoreRoutePath) ? readFileSync(restoreRoutePath, "utf8") : "";
+    const restoreRuntimePath = new URL("../snapshot-restore.ts", import.meta.url);
+    const restoreRuntimeSource = existsSync(restoreRuntimePath) ? readFileSync(restoreRuntimePath, "utf8") : "";
+
+    expect(uploadHookSource).not.toContain("  importSenaProjectSnapshot,\n");
+    expect(uploadHookSource).not.toContain("  importSenaReviewPacket,\n");
+    expect(uploadHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(uploadHookSource).not.toContain('import("@/lib/sena/review-packet")');
+    expect(restoreHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(uploadHookSource).toContain("requestSenaSnapshotRestore");
+    expect(restoreHookSource).toContain("requestSenaSnapshotRestore");
+    expect(uploadHookSource).toContain("await restoreProjectSnapshot(");
+    expect(restoreRouteSource).toContain('from "@/lib/sena/snapshot-restore"');
+    expect(restoreRuntimeSource).toContain('from "./project-handoff"');
+    expect(restoreRuntimeSource).toContain('from "./review-packet"');
+    expect(restoreRuntimeSource).toContain('persisted: false');
+    expect(restoreRuntimeSource).toContain('audited: false');
   });
 
   it("keeps current project snapshot builder in a focused runtime hook", () => {

@@ -1,0 +1,147 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { POST } from "../../../app/api/sena/snapshot/restore/route";
+import {
+  SenaSnapshotRestoreRequestError,
+  readSenaSnapshotRestoreRequest,
+  type SenaSnapshotRestoreResult
+} from "../snapshot-restore";
+import { buildSenaModel } from "../model";
+import { lessonStudySenaContract } from "../pilot-assets";
+import { importSenaReviewPacket } from "../review-packet";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { buildSenaProjectSnapshot } from "../snapshot";
+import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
+
+const endpoint = "https://sena.example.test/api/sena/snapshot/restore";
+
+function sha256(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function restoreRequest(source: unknown, headers: HeadersInit = {}) {
+  return new Request(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://sena.example.test",
+      "sec-fetch-site": "same-origin",
+      ...headers
+    },
+    body: JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      source
+    })
+  });
+}
+
+function currentSnapshot() {
+  return buildSenaProjectSnapshot(buildSenaModel(lessonStudySenaContract), {
+    generatedAt: "2026-08-23T00:00:00.000Z",
+    sourceDataset: lessonStudySenaContract
+  });
+}
+
+describe("SENA stateless snapshot restore route", () => {
+  it("returns an independently hashable canonical snapshot without persistence or audit semantics", async () => {
+    const source = currentSnapshot();
+    const response = await POST(restoreRequest(source));
+    const result = await response.json() as SenaSnapshotRestoreResult;
+
+    expect(response.status).toBe(200);
+    expect(result).toMatchObject({
+      schemaVersion: "sena-snapshot-restore-result/v1",
+      sourceKind: "project-snapshot",
+      reviewPacket: null,
+      processing: {
+        persisted: false,
+        audited: false,
+        mode: "stateless-canonical-read-projection"
+      }
+    });
+    expect(result.snapshot).toEqual(source);
+    expect(result.integrity).toEqual({
+      hashAlgorithm: "sha256",
+      sourcePayloadSha256: sha256(JSON.stringify(source)),
+      normalizedSnapshotSha256: sha256(JSON.stringify(result.snapshot))
+    });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-sena-snapshot-restore-persisted")).toBe("false");
+    expect(response.headers.get("x-sena-snapshot-restore-source-sha256"))
+      .toBe(result.integrity.sourcePayloadSha256);
+    expect(response.headers.get("x-sena-snapshot-restore-normalized-sha256"))
+      .toBe(result.integrity.normalizedSnapshotSha256);
+  });
+
+  it("round-trips the historical review packet through the canonical read-only projection", async () => {
+    const source = loadSena14bb306ReviewPacketFixture();
+    const expected = importSenaReviewPacket(source);
+    const response = await POST(restoreRequest(source));
+    const result = await response.json() as SenaSnapshotRestoreResult;
+
+    expect(response.status).toBe(200);
+    expect(result.sourceKind).toBe("review-packet");
+    expect(result.snapshot).toEqual(expected.contents.projectSnapshot);
+    expect(result.reviewPacket).toEqual({
+      auditStatus: expected.reviewPacketAudit.status,
+      pilotReadinessStatus: expected.summary.pilotReadinessStatus
+    });
+    expect(result.snapshot.report.fusionMathAudit).toMatchObject({
+      schemaVersion: "sena-fusion-math-audit/v2",
+      sourceSchemaVersion: "sena-fusion-math-audit/v1"
+    });
+    expect(result.snapshot.report.codingReliabilityGate).toMatchObject({
+      schemaVersion: "sena-coding-reliability-gate/v2",
+      sourceSchemaVersion: "sena-coding-reliability-gate/v1"
+    });
+    expect(result.processing).toEqual({
+      persisted: false,
+      audited: false,
+      mode: "stateless-canonical-read-projection"
+    });
+  });
+
+  it("rejects explicit cross-origin browser traffic before reading the restore source", async () => {
+    const response = await POST(restoreRequest(currentSnapshot(), {
+      origin: "https://attacker.example",
+      "sec-fetch-site": "cross-site"
+    }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Snapshot restore validation accepts only same-origin browser requests.",
+      code: "snapshot_restore_cross_origin_blocked"
+    });
+  });
+
+  it("enforces the configured byte ceiling before JSON parsing", async () => {
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{\"schemaVersion\":\"sena-snapshot-restore-request/v1\"}"
+    });
+
+    await expect(readSenaSnapshotRestoreRequest(request, {
+      SENA_SNAPSHOT_RESTORE_MAX_BYTES: "8"
+    })).rejects.toMatchObject({
+      name: "SenaSnapshotRestoreRequestError",
+      status: 413,
+      code: "snapshot_restore_request_too_large"
+    } satisfies Partial<SenaSnapshotRestoreRequestError>);
+  });
+
+  it("returns one sanitized source-validation error and never exposes analytical row details", async () => {
+    const forged = structuredClone(currentSnapshot());
+    forged.source.sourceDataset!.interactions[0].weight = -7;
+    const response = await POST(restoreRequest(forged));
+    const body = await response.json() as { error: string; code: string };
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "Snapshot restore source did not pass canonical SENA validation.",
+      code: "snapshot_restore_source_invalid"
+    });
+    expect(JSON.stringify(body)).not.toContain("interactions[0]");
+    expect(JSON.stringify(body)).not.toContain("-7");
+  });
+});

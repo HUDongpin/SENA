@@ -211,6 +211,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     responses: ["sena-api-documentation/v1", "OpenAPI 3.1"]
   },
   {
+    id: "sena-snapshot-restore",
+    group: "projects",
+    path: "/api/sena/snapshot/restore",
+    methods: ["POST"],
+    auth: "public",
+    summary: "Stateless same-origin canonical validation and read projection for a project snapshot or review-packet restore source; no project, audit, or raw payload is persisted.",
+    evidenceNoteId: "sena-snapshot-restore",
+    responses: ["sena-snapshot-restore-result/v1"]
+  },
+  {
     id: "sena-projects",
     group: "projects",
     path: "/api/sena/projects",

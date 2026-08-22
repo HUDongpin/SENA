@@ -20,6 +20,8 @@ export type SenaEnterpriseProductionPerformanceBudgetCheck = {
   status: "pass" | "fail";
   actualBrotliBytes?: number;
   budgetBytes?: number;
+  headroomBytes?: number;
+  minimumHeadroomBytes?: number;
   evidence: string[];
   nextAction: string;
 };
@@ -41,6 +43,7 @@ export type SenaEnterpriseProductionPerformanceBudgetArtifact = {
     localFileStoreIsProductionBackend: false;
     artifactPurpose: "archive-performance-budget-json-plus-sha256";
     buildIdentityRequiredForBinding: true;
+    totalStaticJsHeadroomReserveRequired: true;
     strictProductionEvidenceRequired: boolean;
   };
   buildIdentity: {
@@ -70,11 +73,13 @@ export type SenaEnterpriseProductionPerformanceBudgetArtifact = {
     workspaceHtmlBrotliBytes: number;
     workspaceRouteJsBrotliBytes: number;
     totalStaticJsBrotliBytes: number;
+    totalStaticJsMinimumHeadroomBytes: number;
   };
   budgetEnv: {
     workspaceHtmlBrotliBytes: "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES";
     workspaceRouteJsBrotliBytes: "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES";
     totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES";
+    totalStaticJsMinimumHeadroomBytes: "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES";
   };
   checks: SenaEnterpriseProductionPerformanceBudgetCheck[];
   evidence: string[];
@@ -348,6 +353,7 @@ function buildSizeCheck(input: {
   readErrorHashes?: string[];
   readAttempts?: number;
   transientReadRecoveries?: number;
+  minimumHeadroomBytes?: number;
   nextAction: string;
 }): SenaEnterpriseProductionPerformanceBudgetCheck {
   const readComplete = (input.missingArtifactFiles ?? 0) === 0;
@@ -355,7 +361,13 @@ function buildSizeCheck(input: {
   // empty (stale or dev-polluted .next with no matching chunks), never a
   // legitimately weightless build output — fail instead of trivially passing.
   const zeroByteActual = input.actualBrotliBytes === 0;
-  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && !zeroByteActual && input.actualBrotliBytes <= input.budgetBytes
+  const headroomBytes = input.actualBrotliBytes === undefined
+    ? undefined
+    : input.budgetBytes - input.actualBrotliBytes;
+  const minimumHeadroomBytes = input.minimumHeadroomBytes;
+  const headroomReserveSatisfied = headroomBytes !== undefined &&
+    (minimumHeadroomBytes === undefined || headroomBytes >= minimumHeadroomBytes);
+  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && !zeroByteActual && input.actualBrotliBytes <= input.budgetBytes && headroomReserveSatisfied
     ? "pass"
     : "fail";
   return {
@@ -364,10 +376,15 @@ function buildSizeCheck(input: {
     status,
     actualBrotliBytes: input.actualBrotliBytes,
     budgetBytes: input.budgetBytes,
+    headroomBytes,
+    minimumHeadroomBytes,
     evidence: [
       ...input.evidence,
       `actualBrotliBytes=${input.actualBrotliBytes ?? "missing"}`,
       `budgetBytes=${input.budgetBytes}`,
+      `headroomBytes=${headroomBytes ?? "missing"}`,
+      `minimumHeadroomBytes=${minimumHeadroomBytes ?? "not-required"}`,
+      `headroomReserveSatisfied=${headroomReserveSatisfied}`,
       `missingProductionBuild=${input.missingBuild}`,
       `zeroByteActual=${zeroByteActual}`,
       `artifactReadComplete=${readComplete}`,
@@ -381,7 +398,9 @@ function buildSizeCheck(input: {
       : zeroByteActual
         ? "Run npm run build to refresh the stale or incomplete .next output, then rerun npm run sena:performance:check."
         : readComplete
-          ? input.nextAction
+          ? minimumHeadroomBytes !== undefined && headroomBytes !== undefined && headroomBytes < minimumHeadroomBytes
+            ? `Reduce static JavaScript until at least ${minimumHeadroomBytes} bytes of budget headroom remain, or change SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES with release-owner approval.`
+            : input.nextAction
           : "Run npm run build after any in-progress build finishes, then rerun npm run sena:performance:check."
   };
 }
@@ -402,22 +421,31 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
   const nextBuildIdPath = path.join(nextDir, "BUILD_ID");
   const staticChunksDir = path.join(nextDir, "static", "chunks");
   const workspaceHtmlPath = path.join(nextDir, "server", "app", "workspace", "sena.html");
+  const totalStaticJsBrotliBytes = budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 848_000);
+  const defaultTotalStaticJsMinimumHeadroomBytes = Math.min(12_000, Math.floor(totalStaticJsBrotliBytes * 0.05));
   const budgets = {
     workspaceHtmlBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES", 80_000),
     workspaceRouteJsBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES", 180_000),
-    // 900_000 → 852_000, set 2026-08-03 after the runtime-constants win and held.
+    // 900_000 → 852_000 (2026-08-03) → 848_000 (2026-08-23).
     //
     // It was provisional only because it had been set against a pre-redesign build and
     // nobody had re-measured since; iteration 9 (2026-08-16) did, by same-session A/B.
     // Actual is 824,791 B — 27,209 B (3.19%) of headroom — with the fusion redesign
     // accounting for +9,505 B of the growth and the 2026-08-15 remediation +2,808 B.
     //
-    // Confirmed at 852_000 rather than re-ratcheted down to the new actual: T7 is still
-    // open, and every option for it reorganises this payload (one attempt already moved
-    // it +7,874 B before being reverted). Tightening now would spend the headroom that
-    // work needs and turn an unrelated build into a red gate. Re-ratchet once T7 lands.
-    // Confirmed under delegated authority; see docs/adr/0011.
-    totalStaticJsBrotliBytes: budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 852_000)
+    // Round 21 moved canonical snapshot/review-packet restore validation behind a
+    // bounded, stateless server boundary. The accepted build measured 830,811 B,
+    // 22,101 B below the 852,912 B pre-change build. ADR-0011 therefore closes its
+    // deferred re-ratchet at 848,000 B and reserves at least 12,000 B of displayed
+    // headroom. The reserve makes a near-zero-headroom green build fail before release.
+    totalStaticJsBrotliBytes,
+    totalStaticJsMinimumHeadroomBytes: boundedIntegerEnv(
+      env,
+      "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES",
+      defaultTotalStaticJsMinimumHeadroomBytes,
+      0,
+      totalStaticJsBrotliBytes
+    )
   };
   const productionBuildPresent = existsSync(nextDir) && existsSync(staticChunksDir);
   const jsFiles = productionBuildPresent
@@ -540,6 +568,7 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       readErrorHashes: totalStaticJsRead.readErrorHashes,
       readAttempts: totalStaticJsRead.readAttempts,
       transientReadRecoveries: totalStaticJsRead.transientReadRecoveries,
+      minimumHeadroomBytes: budgets.totalStaticJsMinimumHeadroomBytes,
       evidence: [
         `staticJsFiles=${jsFiles.length}`,
         "chunkPaths=excluded",
@@ -567,6 +596,7 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       localFileStoreIsProductionBackend: false,
       artifactPurpose: "archive-performance-budget-json-plus-sha256",
       buildIdentityRequiredForBinding: true,
+      totalStaticJsHeadroomReserveRequired: true,
       strictProductionEvidenceRequired
     },
     buildIdentity,
@@ -575,7 +605,8 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
     budgetEnv: {
       workspaceHtmlBrotliBytes: "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES",
       workspaceRouteJsBrotliBytes: "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES",
-      totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES"
+      totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES",
+      totalStaticJsMinimumHeadroomBytes: "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES"
     },
     checks,
     evidence: [

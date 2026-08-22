@@ -366,6 +366,13 @@ describe("SENA API documentation contract", () => {
       .toContain("sena-data-governance-metadata/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-enterprise-server-job/v1");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-snapshot-restore")).toEqual(expect.objectContaining({
+      auth: "public",
+      methods: ["POST"],
+      path: "/api/sena/snapshot/restore"
+    }));
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-snapshot-restore")?.responses)
+      .toContain("sena-snapshot-restore-result/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")
       .toContain("x-sena-security-identity-control-blockers");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")

@@ -13,10 +13,11 @@ import type {
   SenaTemporalMode,
   SenaTemporalWindow
 } from "@/lib/sena/types";
+import type { SenaSnapshotRestoreResult } from "@/lib/sena/snapshot-restore";
+import { requestSenaSnapshotRestore } from "./api-client";
 import type { LocalEnterpriseValidationResult } from "./enterprise-contracts";
 import type { UploadedSenaTable } from "./uploaded-table-mapper";
 import type { DemoManualReviewState } from "./use-demo-verification-manual-review-actions";
-import { importSenaProjectSnapshot } from "./analysis-runtime";
 
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
 
@@ -101,8 +102,7 @@ export function useProjectSnapshotRestoreAction({
   setUnitOfCoding,
   setUploadedTables
 }: ProjectSnapshotRestoreActionOptions) {
-  const restoreProjectSnapshot = useCallback((snapshot: SenaProjectSnapshot, fileName: string) => {
-    snapshot = importSenaProjectSnapshot(snapshot);
+  const hydrateProjectSnapshot = useCallback((snapshot: SenaProjectSnapshot, fileName: string) => {
     const options = snapshot.reproducibility.buildOptions;
     const sourceDataset = snapshot.source.sourceDataset ?? snapshot.dataset;
     const review = snapshot.report.humanReview;
@@ -191,7 +191,19 @@ export function useProjectSnapshotRestoreAction({
     setUploadedTables
   ]);
 
+  const restoreValidatedProjectSnapshot = useCallback((
+    result: SenaSnapshotRestoreResult,
+    fileName: string
+  ) => {
+    hydrateProjectSnapshot(result.snapshot, fileName);
+  }, [hydrateProjectSnapshot]);
+
+  const restoreProjectSnapshot = useCallback(async (snapshot: SenaProjectSnapshot, fileName: string) => {
+    restoreValidatedProjectSnapshot(await requestSenaSnapshotRestore(snapshot), fileName);
+  }, [restoreValidatedProjectSnapshot]);
+
   return {
-    restoreProjectSnapshot
+    restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot
   };
 }

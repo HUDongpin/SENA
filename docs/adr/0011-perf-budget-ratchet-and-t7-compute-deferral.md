@@ -48,3 +48,17 @@ The seconds live in a follow-on this ADR did not scope: **22 of the analysis bar
 ## Ratification
 
 Peter may reverse either decision at review. The ratchet is a one-line default; the T7 direction is recorded here before implementation precisely so reversing it is cheap.
+
+## 2026-08-23 closure — snapshot restore validator deferral and re-ratchet
+
+The deferred re-ratchet is now closed by the statistical-integrity remediation. Fresh production builds in the same worktree and toolchain established these boundaries:
+
+- the frozen `37b6f9e7...` candidate measured **849,099 B**, leaving only **2,901 B** below the former 852,000 B ceiling;
+- immediately before this slice, `c1a4f2d` measured **852,912 B**, already **912 B over** that ceiling;
+- a client-side dynamic-import attempt measured **855,709 B** and was rejected because it moved validator code into additional static chunks instead of removing it from the shipped set;
+- a temporary validation-free diagnostic measured **834,621 B**; it was used only to establish the reclaimable ceiling and was reverted, never accepted as implementation;
+- the accepted bounded stateless server-validation boundary measured **830,811 B** across 112 static JavaScript files, with `/workspace/sena` HTML at 3,231 B and its route JavaScript at 2,946 B Brotli.
+
+The accepted path keeps canonical validation: the browser posts the parsed snapshot/review-packet source to `/api/sena/snapshot/restore`; the route bounds `Content-Length` and streamed bytes before `JSON.parse`, applies the existing project-handoff/review-packet validators, returns a canonical read projection plus independently recomputable source/projection SHA-256 values, and performs no project, revision, enterprise-audit, or application raw-payload-log write. This is a deliberate privacy boundary: source data crosses the same-origin server, so deployment HTTPS, ingress, retention, and infrastructure logging policy still governs it even though the SENA application handler is stateless.
+
+The default `total-static-js-br` ceiling is therefore re-ratcheted from **852,000 B to 848,000 B**. The gate also requires at least **12,000 B** of displayed headroom through `SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES`. At the accepted measurement, displayed headroom is **17,189 B** and only **5,189 B** of further growth is available before the reserve gate fails. This prevents another nominally green build with only a few kilobytes left while retaining enough noise tolerance for deterministic rebuilds. Both the ceiling and reserve remain explicit release-owner overrides; raising the ceiling or reducing the reserve requires review evidence rather than silently weakening the default.

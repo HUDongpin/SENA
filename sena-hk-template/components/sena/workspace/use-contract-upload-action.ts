@@ -9,12 +9,12 @@ import type {
   SenaDemoVerification,
   SenaProjectSnapshot
 } from "@/lib/sena/types";
+import type { SenaSnapshotRestoreResult } from "@/lib/sena/snapshot-restore";
+import { requestSenaSnapshotRestore } from "./api-client";
 import type { LocalEnterpriseValidationResult } from "./enterprise-contracts";
 import {
   importSenaDemoVerification,
   importSenaJsonContract,
-  importSenaProjectSnapshot,
-  importSenaReviewPacket,
   inferSenaColumnMapping,
   inferSenaTableFromName,
   parseSenaCsv,
@@ -28,7 +28,8 @@ export type ContractUploadActionOptions = {
   applyDemoVerificationManualReviews: (verification: SenaDemoVerification, fileName: string) => void;
   commitUploadedTables: (tables: UploadedSenaTable[]) => void;
   importFilesViaEnterpriseApi: (files: File[]) => Promise<void>;
-  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void;
+  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void | Promise<void>;
+  restoreValidatedProjectSnapshot: (result: SenaSnapshotRestoreResult, fileName: string) => void | Promise<void>;
   setDataset: (dataset: SenaDataset) => void;
   setDemoManualReviews: (manualReviews: DemoManualReviewState) => void;
   setImportError: (message: string | null) => void;
@@ -46,6 +47,7 @@ export function useContractUploadAction({
   commitUploadedTables,
   importFilesViaEnterpriseApi,
   restoreProjectSnapshot,
+  restoreValidatedProjectSnapshot,
   setDataset,
   setDemoManualReviews,
   setImportError,
@@ -92,7 +94,7 @@ export function useContractUploadAction({
             !Array.isArray(parsed) &&
             (parsed as Record<string, unknown>).schemaVersion === SENA_SCHEMA_VERSIONS.projectSnapshot
           ) {
-            restoreProjectSnapshot(importSenaProjectSnapshot(parsed), file.name);
+            await restoreProjectSnapshot(parsed as SenaProjectSnapshot, file.name);
             continue;
           }
 
@@ -102,9 +104,10 @@ export function useContractUploadAction({
             !Array.isArray(parsed) &&
             (parsed as Record<string, unknown>).schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket
           ) {
-            const packet = importSenaReviewPacket(parsed);
-            restoreProjectSnapshot(packet.contents.projectSnapshot, file.name);
-            setImportMessage(`${file.name}: review packet restored editable workspace state (${packet.reviewPacketAudit.status}; ${packet.summary.pilotReadinessStatus}).`);
+            const result = await requestSenaSnapshotRestore(parsed);
+            if (!result.reviewPacket) throw new Error("Review packet restore response is missing review metadata.");
+            await restoreValidatedProjectSnapshot(result, file.name);
+            setImportMessage(`${file.name}: review packet restored editable workspace state (${result.reviewPacket.auditStatus}; ${result.reviewPacket.pilotReadinessStatus}).`);
             setImportError(null);
             continue;
           }
@@ -159,6 +162,7 @@ export function useContractUploadAction({
     commitUploadedTables,
     importFilesViaEnterpriseApi,
     restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot,
     setDataset,
     setDemoManualReviews,
     setImportError,

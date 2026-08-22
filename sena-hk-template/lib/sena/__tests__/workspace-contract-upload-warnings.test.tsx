@@ -5,6 +5,7 @@ import { useContractUploadAction } from "../../../components/sena/workspace/use-
 import { useDataImportMappedTableActions } from "../../../components/sena/workspace/use-data-import-mapped-table-actions";
 import type { UploadedSenaTable } from "../../../components/sena/workspace/uploaded-table-mapper";
 import { createEmptySenaDataset } from "../import";
+import { buildSenaSnapshotRestoreResult } from "../snapshot-restore";
 import type { SenaDataset, SenaProjectSnapshot } from "../types";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 
@@ -81,7 +82,11 @@ function mountWorkspace(store: WorkspaceStore): WorkspaceHandlers {
       commitUploadedTables: mapped.commitUploadedTables,
       importFilesViaEnterpriseApi: async () => undefined,
       restoreProjectSnapshot: (snapshot, fileName) => {
-        store.restoredSnapshot = snapshot;
+        store.restoredSnapshot = buildSenaSnapshotRestoreResult(snapshot).snapshot;
+        store.restoredFileName = fileName;
+      },
+      restoreValidatedProjectSnapshot: (result, fileName) => {
+        store.restoredSnapshot = result.snapshot;
         store.restoredFileName = fileName;
       },
       setDataset: (dataset) => { store.dataset = dataset; },

@@ -11,7 +11,9 @@ for (const check of artifact.checks) {
   if (check.actualBrotliBytes === undefined || check.budgetBytes === undefined) {
     console.log(`${check.status}\t${check.id}\tstatus=${check.status}`);
   } else {
-    console.log(`${check.status}\t${check.id}\tactual=${check.actualBrotliBytes}\tbudget=${check.budgetBytes}`);
+    const headroom = check.headroomBytes === undefined ? "" : `\theadroom=${check.headroomBytes}`;
+    const minimumHeadroom = check.minimumHeadroomBytes === undefined ? "" : `\tminimumHeadroom=${check.minimumHeadroomBytes}`;
+    console.log(`${check.status}\t${check.id}\tactual=${check.actualBrotliBytes}\tbudget=${check.budgetBytes}${headroom}${minimumHeadroom}`);
   }
 }
 

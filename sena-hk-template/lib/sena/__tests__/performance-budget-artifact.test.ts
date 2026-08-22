@@ -133,6 +133,7 @@ describe("SENA production performance budget artifact", () => {
       expect(artifact.summary.failed).toBe(0);
       expect(artifact.summary.workspaceRouteJsFiles).toBe(1);
       expect(artifact.policy.buildIdentityRequiredForBinding).toBe(true);
+      expect(artifact.policy.totalStaticJsHeadroomReserveRequired).toBe(true);
       expect(artifact.policy.strictProductionEvidenceRequired).toBe(false);
       expect(artifact.buildIdentity).toEqual(expect.objectContaining({
         nextBuildIdSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -164,6 +165,13 @@ describe("SENA production performance budget artifact", () => {
       });
       expect(JSON.stringify(artifact)).not.toContain(root);
       expect(artifact.checks.map((check) => check.status)).toEqual(["pass", "pass", "pass", "pass", "pass"]);
+      const totalStaticJsCheck = artifact.checks.find((check) => check.id === "total-static-js-br");
+      expect(totalStaticJsCheck).toEqual(expect.objectContaining({
+        minimumHeadroomBytes: 500,
+        headroomBytes: expect.any(Number),
+        status: "pass"
+      }));
+      expect(totalStaticJsCheck?.evidence).toContain("headroomReserveSatisfied=true");
     });
   });
 
@@ -478,6 +486,33 @@ describe("SENA production performance budget artifact", () => {
         status: "fail",
         budgetBytes: 1
       }));
+    });
+  });
+
+  it("fails a nominally under-budget build when the required headroom reserve is eroded", () => {
+    withTempRoot((root) => {
+      writeProductionBuildFixture(root, {});
+
+      const artifact = buildEnterpriseProductionPerformanceBudgetArtifact({
+        root,
+        env: {
+          SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES: "10000",
+          SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES: "10000",
+          SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES: "10000",
+          SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES: "9999"
+        }
+      });
+      const totalStaticJsCheck = artifact.checks.find((check) => check.id === "total-static-js-br");
+
+      expect(totalStaticJsCheck?.actualBrotliBytes).toBeLessThan(10_000);
+      expect(totalStaticJsCheck).toEqual(expect.objectContaining({
+        status: "fail",
+        budgetBytes: 10_000,
+        minimumHeadroomBytes: 9_999
+      }));
+      expect(totalStaticJsCheck?.evidence).toContain("headroomReserveSatisfied=false");
+      expect(totalStaticJsCheck?.nextAction).toContain("at least 9999 bytes of budget headroom");
+      expect(artifact.status).toBe("fail");
     });
   });
 

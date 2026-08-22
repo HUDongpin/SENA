@@ -212,6 +212,8 @@ export const SENA_SCHEMA_VERSIONS = {
   scimServiceProviderConfig: "sena-scim-service-provider-config/v1",
   scimUsersList: "sena-scim-users-list/v1",
   snaReport: "sena-sna-report/v1",
+  snapshotRestoreRequest: "sena-snapshot-restore-request/v1",
+  snapshotRestoreResult: "sena-snapshot-restore-result/v1",
   ssoAuthorization: "sena-sso-authorization/v1",
   ssoProviderStatus: "sena-sso-provider-status/v1",
   stableFnv1a32: "sena-stable-fnv1a32/v1",

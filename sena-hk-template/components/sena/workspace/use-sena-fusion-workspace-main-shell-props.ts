@@ -1139,7 +1139,8 @@ export function useSenaFusionWorkspaceMainShellProps() {
   });
 
   const {
-    restoreProjectSnapshot
+    restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot
   } = useProjectSnapshotRestoreAction({
     setActiveTemporalWindow: setPendingActiveWindow,
     setAdjudicationNotes,
@@ -1459,6 +1460,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     commitUploadedTables,
     importFilesViaEnterpriseApi,
     restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot,
     setDataset,
     setDemoManualReviews,
     setImportError,

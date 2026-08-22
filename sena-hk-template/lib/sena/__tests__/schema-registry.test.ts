@@ -50,6 +50,8 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterprisePrimaryStateRuntime).toBe("sena-enterprise-primary-state-runtime/v1");
     expect(SENA_SCHEMA_VERSIONS.publicationStateBinding).toBe("sena-publication-state-binding/v1");
     expect(SENA_SCHEMA_VERSIONS.publicationDerivationManifest).toBe("sena-publication-derivation-manifest/v1");
+    expect(SENA_SCHEMA_VERSIONS.snapshotRestoreRequest).toBe("sena-snapshot-restore-request/v1");
+    expect(SENA_SCHEMA_VERSIONS.snapshotRestoreResult).toBe("sena-snapshot-restore-result/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseAuditStoreRuntime).toBe("sena-enterprise-audit-store-runtime/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJob).toBe("sena-enterprise-server-job/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobList).toBe("sena-enterprise-server-job-list/v1");

@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { POST as restoreSnapshotRoute } from "../../../app/api/sena/snapshot/restore/route";
+import { SenaWorkspaceApiError } from "../../../components/sena/workspace/api-client";
 import {
   useProjectSnapshotRestoreAction,
   type ProjectSnapshotRestoreActionOptions
@@ -72,7 +74,7 @@ function expectTypedSourceIssue(action: () => unknown, mutation: SourceMutation)
 }
 
 function mountWorkspaceRestore(onDataset: () => void) {
-  let restore: ((snapshot: SenaProjectSnapshot, fileName: string) => void) | undefined;
+  let restore: ((snapshot: SenaProjectSnapshot, fileName: string) => Promise<void>) | undefined;
   const noop = () => undefined;
   const setters = new Proxy({}, {
     get: (_target, property) => property === "setDataset" ? onDataset : noop
@@ -89,6 +91,10 @@ function mountWorkspaceRestore(onDataset: () => void) {
 }
 
 describe("SENA snapshot sourceDataset analytical validation", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it.each(sourceMutations)("rejects a $label on direct snapshot import", (mutation) => {
     expectTypedSourceIssue(() => importSenaProjectSnapshot(forgedSourceSnapshot(mutation)), mutation);
   });
@@ -109,12 +115,23 @@ describe("SENA snapshot sourceDataset analytical validation", () => {
       });
   });
 
-  it("rejects a sourceDataset forgery before workspace state setters run", () => {
+  it("rejects a sourceDataset forgery before workspace state setters run", async () => {
     const mutation = sourceMutations[0];
     let datasetSetterCalls = 0;
     const restore = mountWorkspaceRestore(() => { datasetSetterCalls += 1; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "https://sena.example.test");
+      return restoreSnapshotRoute(new Request(url, init));
+    });
 
-    expectTypedSourceIssue(() => restore(forgedSourceSnapshot(mutation), "forged.sena.json"), mutation);
+    await expect(restore(forgedSourceSnapshot(mutation), "forged.sena.json")).rejects.toMatchObject({
+      name: "SenaWorkspaceApiError",
+      status: 400,
+      payload: {
+        code: "snapshot_restore_source_invalid",
+        error: "Snapshot restore source did not pass canonical SENA validation."
+      }
+    } satisfies Partial<SenaWorkspaceApiError>);
     expect(datasetSetterCalls).toBe(0);
   });
 });

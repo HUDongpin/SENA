@@ -3,6 +3,7 @@ import {
   buildEnterpriseExpertReviewQuery,
   buildEnterpriseTeamQuery,
   buildSenaWorkspaceApiUrl,
+  requestSenaSnapshotRestore,
   requestSenaWorkspaceJson,
   SenaWorkspaceApiError,
   SENA_WORKSPACE_API_ROUTES
@@ -17,6 +18,7 @@ describe("SENA workspace API client contract", () => {
     expect(SENA_WORKSPACE_API_ROUTES.enterprise.provisioning).toBe("/api/sena/provisioning");
     expect(SENA_WORKSPACE_API_ROUTES.enterprise.scimUsers).toBe("/api/sena/scim/v2/Users");
     expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
+    expect(SENA_WORKSPACE_API_ROUTES.snapshotRestore).toBe("/api/sena/snapshot/restore");
   });
 
   it("builds encoded team and project query strings for enterprise actions", () => {
@@ -57,5 +59,30 @@ describe("SENA workspace API client contract", () => {
       url: "/api/sena/team",
       payload: { error: "team_not_found" }
     } satisfies Partial<SenaWorkspaceApiError>);
+  });
+
+  it("posts a schema-versioned snapshot source to the stateless restore boundary", async () => {
+    const source = { schemaVersion: "sena-project-snapshot/v1", marker: "fixture" };
+    let request: { input: RequestInfo | URL; init?: RequestInit } | undefined;
+    const response = { schemaVersion: "sena-snapshot-restore-result/v1" };
+
+    await expect(requestSenaSnapshotRestore(source, {
+      fetchImpl: async (input, init) => {
+        request = { input, init };
+        return new Response(JSON.stringify(response), { status: 200 });
+      }
+    })).resolves.toEqual(response);
+
+    expect(request?.input).toBe(SENA_WORKSPACE_API_ROUTES.snapshotRestore);
+    expect(request?.init).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "content-type": "application/json" }
+    });
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      schemaVersion: "sena-snapshot-restore-request/v1",
+      source
+    });
   });
 });
