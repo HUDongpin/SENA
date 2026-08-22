@@ -259,6 +259,14 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       unresolvedRun.status = "approved";
       unresolvedRun.reviewPatch = structuredClone(approvedRun.reviewPatch);
       unresolvedRun.createdAt = "2026-08-22T23:59:59.000Z";
+      unresolvedRun.adjudicationCoverage.resolvedDisagreements = unresolvedRun.adjudicationCoverage.queuedDisagreements;
+      unresolvedRun.adjudicationCoverage.unresolvedDisagreements = 0;
+      unresolvedRun.adjudicationCoverage.coverageRate = 1;
+      expect(unresolvedRun.adjudicationCoverage).toEqual(expect.objectContaining({
+        coverageRate: 1,
+        unresolvedDisagreements: 0
+      }));
+      expect(db.adjudications.filter((record) => record.reliabilityRunId === unresolvedRun.id)).toHaveLength(0);
       enterprise.writeEnterpriseDb(db);
 
       const unresolvedPublication = await publicationRoute.POST(publicationRequest());
@@ -273,6 +281,38 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         { decision: "include" }
       );
       expect(completedAdjudication.reliabilityRun.adjudicationCoverage.unresolvedDisagreements).toBe(0);
+
+      const fingerprintDb = enterprise.readEnterpriseDb();
+      const fingerprintRun = fingerprintDb.reliabilityRuns.find((run) => run.id === unresolvedRun.id);
+      if (!fingerprintRun?.projectBinding || !fingerprintRun.dashboard.projectBinding) {
+        throw new Error("Expected current project bindings for the fingerprint mismatch fixture.");
+      }
+      const originalRunBinding = structuredClone(fingerprintRun.projectBinding);
+      const originalDashboardBinding = structuredClone(fingerprintRun.dashboard.projectBinding);
+      const mismatchedFingerprint = originalRunBinding.snapshotFingerprint === "0x00000000"
+        ? "0x00000001"
+        : "0x00000000";
+      fingerprintRun.projectBinding.snapshotFingerprint = mismatchedFingerprint;
+      fingerprintRun.dashboard.projectBinding.snapshotFingerprint = mismatchedFingerprint;
+      enterprise.writeEnterpriseDb(fingerprintDb);
+
+      const reliabilityRuns = await import("../enterprise/reliability-runs");
+      await expect(reliabilityRuns.findEnterprisePublicationReliabilityRunAsync(registered.context, project))
+        .rejects.toMatchObject({
+          status: 409,
+          code: "reliability_adjudication_binding_invalid"
+        });
+      const fingerprintPublication = await publicationRoute.POST(publicationRequest());
+      expect(fingerprintPublication.status).toBe(409);
+      expect(fingerprintPublication.headers.get("x-sena-publication-reliability-run-id")).toBeNull();
+      await expect(fingerprintPublication.json()).resolves.toEqual(expect.objectContaining({
+        code: "reliability_adjudication_binding_invalid"
+      }));
+
+      fingerprintRun.projectBinding = originalRunBinding;
+      fingerprintRun.dashboard.projectBinding = originalDashboardBinding;
+      enterprise.writeEnterpriseDb(fingerprintDb);
+
       const updatedProject = enterprise.updateEnterpriseProject(registered.context, project.id, {
         snapshot,
         expectedVersion: project.currentVersion

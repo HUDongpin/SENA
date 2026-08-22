@@ -305,6 +305,16 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("projectId exports the persisted server-side project snapshot");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("status exactly approved");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("current project version and snapshot");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("authoritative live adjudication coverage");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("zero unresolved disagreements");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .not.toContain("latest non-rejected");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-source-snapshot-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-export-sha256");
