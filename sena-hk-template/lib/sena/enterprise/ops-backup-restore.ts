@@ -18,7 +18,6 @@ import {
   mutateEnterpriseDbAtomically,
   mutateEnterpriseStateAtomically,
   readEnterpriseDb,
-  readEnterpriseState,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -174,7 +173,11 @@ export function restoreEnterpriseBackup(
   input: { dryRun?: boolean; mode?: "merge" } = {}
 ): SenaEnterpriseBackupRestoreResult {
   if (input.dryRun) {
-    return buildEnterpriseBackupRestoreResult(context, backup, readEnterpriseDb(), input);
+    // The dry-run builder merges into its own working copy, but canonical
+    // verification intentionally appends governance.backup.verify to the DB it
+    // receives. Keep that one evidence write atomic without persisting restore
+    // collections or a governance.backup.restore event.
+    return mutateEnterpriseDbAtomically((db) => buildEnterpriseBackupRestoreResult(context, backup, db, input));
   }
   return mutateEnterpriseDbAtomically((db) => buildEnterpriseBackupRestoreResultAtomically(context, backup, db, input));
 }
@@ -185,8 +188,9 @@ export async function restoreEnterpriseBackupWithPostgresEvidence(
   input: { dryRun?: boolean; mode?: "merge" } = {}
 ): Promise<SenaEnterpriseBackupRestoreResult> {
   if (input.dryRun) {
-    const state = await readEnterpriseState();
-    return buildEnterpriseBackupRestoreResult(context, backup, state.db, input);
+    // Match file-primary semantics under the Postgres whole-state CAS: only the
+    // verification audit is materialized; the simulated merge remains cloned.
+    return mutateEnterpriseStateAtomically((db) => buildEnterpriseBackupRestoreResult(context, backup, db, input));
   }
   return mutateEnterpriseStateAtomically((db) => buildEnterpriseBackupRestoreResultAtomically(context, backup, db, input));
 }
