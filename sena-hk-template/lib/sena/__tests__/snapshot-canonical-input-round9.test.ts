@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SenaInputValidationError } from "../analytical-input-validation";
+import {
+  SENA_INPUT_VALIDATION_MAX_ISSUES,
+  SenaInputValidationError
+} from "../analytical-input-validation";
 import { buildSenaModel } from "../model";
 import { importSenaJsonContract } from "../import";
 import { lessonStudySenaContract } from "../pilot-assets";
@@ -225,6 +228,23 @@ describe("Round 9 canonical snapshot input contract", () => {
     expect(senaReliabilitySnapshotFingerprint(nonfinite)).not.toBe(
       senaReliabilitySnapshotFingerprint(explicitNull)
     );
+  });
+
+  it("bounds canonical validation evidence for a compact high-fan-out invalid snapshot", () => {
+    const snapshot = validSnapshot();
+    snapshot.dataset.people = Array.from({ length: 1_100 }, () => ({})) as never;
+
+    let thrown: unknown;
+    try {
+      importSenaProjectSnapshot(snapshot);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(SenaInputValidationError);
+    expect((thrown as SenaInputValidationError).issues.length)
+      .toBeLessThanOrEqual(SENA_INPUT_VALIDATION_MAX_ISSUES);
+    expect((thrown as SenaInputValidationError).message.length).toBeLessThan(100_000);
   });
 
   it("round-trips dangling target claims without inventing Ghost or changing the snapshot fingerprint", () => {

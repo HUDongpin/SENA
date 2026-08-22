@@ -62,8 +62,7 @@ function dataset(): SenaDataset {
   };
 }
 
-function snapshot() {
-  const source = dataset();
+function snapshot(source: SenaDataset = dataset()) {
   return buildSenaProjectSnapshot(buildSenaModel(source), {
     generatedAt: "2026-08-21T00:00:00.000Z",
     sourceDataset: source
@@ -79,7 +78,10 @@ function annotations(): SenaCoderAnnotation[] {
   ];
 }
 
-function setupProjectRun() {
+function setupProjectRun(
+  source: SenaDataset = dataset(),
+  coderAnnotations: SenaCoderAnnotation[] = annotations()
+) {
   userIndex += 1;
   const registered = registerEnterpriseUser({
     name: "Round9 Reliability Reviewer",
@@ -91,9 +93,9 @@ function setupProjectRun() {
   const project = createEnterpriseProject(registered.context, {
     teamId: registered.context.teams[0].id,
     title: "Round9 reliability project",
-    snapshot: snapshot()
+    snapshot: snapshot(source)
   });
-  const bound = bindSenaReliabilityAnnotationsToProject(annotations(), {
+  const bound = bindSenaReliabilityAnnotationsToProject(coderAnnotations, {
     projectId: project.id,
     projectVersion: project.currentVersion,
     snapshot: project.snapshot
@@ -214,5 +216,62 @@ describe("enterprise reliability adjudication canonical binding", () => {
       status: "approved",
       notes: "Forged cached coverage must not approve."
     })).toThrow(/adjudication|coverage|coder|binding|integrity/i);
+  });
+
+  it("keeps tuple-distinct disagreements separate when IDs contain the former delimiter", () => {
+    const itemA = "left\u0000middle";
+    const itemB = "left";
+    const codeA = "right";
+    const codeB = "middle\u0000right";
+    const source: SenaDataset = {
+      people: [{ id: "p1", label: "Person 1", role: "reviewer", group: "review" }],
+      interactions: [],
+      utterances: [itemA, itemB].map((id, index) => ({
+        id,
+        personId: "p1",
+        unitId: `unit-${index + 1}`,
+        stanzaId: `stanza-${index + 1}`,
+        stage: "coding",
+        turnIndex: index + 1,
+        text: `Collision-safe item ${index + 1}`
+      })),
+      coded_segments: [],
+      codebook: [codeA, codeB].map((id, index) => ({
+        id,
+        label: `Code ${index + 1}`,
+        family: "reasoning",
+        description: `Collision-safe code ${index + 1}`,
+        color: index === 0 ? "#2563eb" : "#7c3aed"
+      }))
+    };
+    const coderAnnotations: SenaCoderAnnotation[] = [
+      { coderId: "c1", itemId: itemA, codeId: codeA, value: true },
+      { coderId: "c2", itemId: itemA, codeId: codeA, value: false },
+      { coderId: "c1", itemId: itemA, codeId: codeB, value: false },
+      { coderId: "c2", itemId: itemA, codeId: codeB, value: false },
+      { coderId: "c1", itemId: itemB, codeId: codeA, value: false },
+      { coderId: "c2", itemId: itemB, codeId: codeA, value: false },
+      { coderId: "c1", itemId: itemB, codeId: codeB, value: true },
+      { coderId: "c2", itemId: itemB, codeId: codeB, value: false }
+    ];
+    const { registered, project, run } = setupProjectRun(source, coderAnnotations);
+    expect(run.dashboard.adjudicationQueue).toHaveLength(2);
+    const first = run.dashboard.adjudicationQueue.find((entry) => (
+      entry.itemId === itemA && entry.codeId === codeA
+    ));
+    if (!first) throw new Error("tuple-collision disagreement fixture missing");
+
+    createEnterpriseAdjudicationRecord(registered.context, project.id, {
+      reliabilityRunId: run.id,
+      itemId: first.itemId,
+      codeId: first.codeId,
+      decision: "include",
+      coderValues: first.values
+    });
+
+    expect(() => reviewEnterpriseReliabilityRun(registered.context, run.id, {
+      status: "approved",
+      notes: "One of two tuple-distinct disagreements remains unresolved."
+    })).toThrow(/all queued reliability disagreements|coverage/i);
   });
 });

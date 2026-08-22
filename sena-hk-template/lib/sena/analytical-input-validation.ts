@@ -26,19 +26,39 @@ export type SenaInputValidationIssue = {
   rule: SenaInputValidationRule;
 };
 
+export const SENA_INPUT_VALIDATION_MAX_ISSUES = 1_000;
+
+function appendSenaInputValidationIssue(
+  issues: SenaInputValidationIssue[],
+  issue: SenaInputValidationIssue
+) {
+  if (issues.length < SENA_INPUT_VALIDATION_MAX_ISSUES) issues.push(issue);
+}
+
+function appendSenaInputValidationIssues(
+  issues: SenaInputValidationIssue[],
+  candidates: readonly SenaInputValidationIssue[]
+) {
+  for (const issue of candidates) {
+    if (issues.length >= SENA_INPUT_VALIDATION_MAX_ISSUES) return;
+    appendSenaInputValidationIssue(issues, issue);
+  }
+}
+
 export class SenaInputValidationError extends Error {
   readonly issues: SenaInputValidationIssue[];
 
   constructor(issues: SenaInputValidationIssue[], options: { messagePathPrefix?: string } = {}) {
+    const boundedIssues = issues.slice(0, SENA_INPUT_VALIDATION_MAX_ISSUES);
     const displayIssue = (issue: SenaInputValidationIssue) => {
       const path = `${options.messagePathPrefix ?? ""}${issue.path}`;
       return issue.rule === "supported-value"
         ? `${path} is not supported (${issue.rule})`
         : `${path} (${issue.rule})`;
     };
-    super(`Invalid SENA analytical inputs: ${issues.map(displayIssue).join(", ")}.`);
+    super(`Invalid SENA analytical inputs: ${boundedIssues.map(displayIssue).join(", ")}.`);
     this.name = "SenaInputValidationError";
-    this.issues = issues.map((issue) => ({ ...issue }));
+    this.issues = boundedIssues.map((issue) => ({ ...issue }));
   }
 }
 
@@ -75,7 +95,9 @@ function collectSenaDatasetContractIssues(
   path: string,
   issues: SenaInputValidationIssue[]
 ) {
-  const add = (issuePath: string, rule: SenaInputValidationRule) => issues.push({ path: issuePath, rule });
+  const add = (issuePath: string, rule: SenaInputValidationRule) => {
+    appendSenaInputValidationIssue(issues, { path: issuePath, rule });
+  };
   if (!isRecord(value)) {
     add(path, "object");
     return;
@@ -294,7 +316,9 @@ function collectSenaSnapshotSourceIssues(
   authoritativeDatasetValue: unknown,
   issues: SenaInputValidationIssue[]
 ) {
-  const add = (path: string, rule: SenaInputValidationRule) => issues.push({ path, rule });
+  const add = (path: string, rule: SenaInputValidationRule) => {
+    appendSenaInputValidationIssue(issues, { path, rule });
+  };
   if (!isRecord(sourceValue)) {
     add("source", "object");
     return;
@@ -445,7 +469,7 @@ export function validateSenaProjectSnapshotCanonicalInputs(input: {
     validateSenaAnalyticalInputs({ dataset: input.dataset, buildOptions: input.buildOptions });
   } catch (error) {
     if (!(error instanceof SenaInputValidationError)) throw error;
-    issues.push(...error.issues);
+    appendSenaInputValidationIssues(issues, error.issues);
   }
   collectSenaDatasetContractIssues(input.dataset, "dataset", issues);
 
@@ -456,12 +480,15 @@ export function validateSenaProjectSnapshotCanonicalInputs(input: {
       validateSenaAnalyticalInputs({ dataset: source.sourceDataset, buildOptions: input.buildOptions });
     } catch (error) {
       if (!(error instanceof SenaInputValidationError)) throw error;
-      issues.push(...error.issues.map((issue) => ({
-        ...issue,
-        path: issue.path.startsWith("dataset")
-          ? `source.sourceDataset${issue.path.slice("dataset".length)}`
-          : issue.path
-      })));
+      for (const issue of error.issues) {
+        if (issues.length >= SENA_INPUT_VALIDATION_MAX_ISSUES) break;
+        appendSenaInputValidationIssue(issues, {
+          ...issue,
+          path: issue.path.startsWith("dataset")
+            ? `source.sourceDataset${issue.path.slice("dataset".length)}`
+            : issue.path
+        });
+      }
     }
     collectSenaDatasetContractIssues(source.sourceDataset, "source.sourceDataset", issues);
   }
@@ -484,14 +511,17 @@ function collectFiniteNonnegativeMatrixIssues(
     value.length !== rows ||
     value.some((row) => !Array.isArray(row) || row.length !== columns)
   ) {
-    issues.push({ path, rule: "matrix-shape" });
+    appendSenaInputValidationIssue(issues, { path, rule: "matrix-shape" });
   }
   if (!Array.isArray(value)) return;
   value.forEach((row, rowIndex) => {
     if (!Array.isArray(row)) return;
     row.forEach((cell, columnIndex) => {
       if (!isFiniteNumber(cell) || cell < 0) {
-        issues.push({ path: `${path}[${rowIndex}][${columnIndex}]`, rule: "finite-nonnegative" });
+        appendSenaInputValidationIssue(issues, {
+          path: `${path}[${rowIndex}][${columnIndex}]`,
+          rule: "finite-nonnegative"
+        });
       }
     });
   });
@@ -510,7 +540,7 @@ export function validateSenaFusionAdjacencyInputs(input: SenaFusionAdjacencyVali
   for (const field of ["alpha", "beta", "gamma"] as const) {
     const value = input[field];
     if (!isFiniteNumber(value) || value < 0) {
-      issues.push({ path: field, rule: "finite-nonnegative" });
+      appendSenaInputValidationIssue(issues, { path: field, rule: "finite-nonnegative" });
     }
   }
   if (issues.length > 0) throw new SenaInputValidationError(issues);
@@ -635,7 +665,9 @@ export function validateSenaAnalyticalInputs(input: {
   groupComparison?: unknown;
 }): void {
   const issues: SenaInputValidationIssue[] = [];
-  const add = (path: string, rule: SenaInputValidationRule) => issues.push({ path, rule });
+  const add = (path: string, rule: SenaInputValidationRule) => {
+    appendSenaInputValidationIssue(issues, { path, rule });
+  };
   const options = typeof input.buildOptions === "object" && input.buildOptions !== null && !Array.isArray(input.buildOptions)
     ? input.buildOptions as Partial<SenaBuildOptions>
     : undefined;

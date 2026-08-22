@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { POST } from "../../../app/api/sena/snapshot/restore/route";
 import {
   SenaSnapshotRestoreRequestError,
@@ -201,6 +201,73 @@ describe("SENA stateless snapshot restore route", () => {
       headers: { "content-type": "application/json" },
       body: "{\"schemaVersion\":\"sena-snapshot-restore-request/v1\"}"
     });
+
+    await expect(readSenaSnapshotRestoreRequest(request, {
+      SENA_SNAPSHOT_RESTORE_MAX_BYTES: "8"
+    })).rejects.toMatchObject({
+      name: "SenaSnapshotRestoreRequestError",
+      status: 413,
+      code: "snapshot_restore_request_too_large"
+    } satisfies Partial<SenaSnapshotRestoreRequestError>);
+  });
+
+  it("rejects excessive JSON structure before invoking the parser", async () => {
+    const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":{"dataset":{"people":[${"{},".repeat(70_000)}null]}}}`;
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await expect(readSenaSnapshotRestoreRequest(request)).rejects.toMatchObject({
+        name: "SenaSnapshotRestoreRequestError",
+        status: 413,
+        code: "snapshot_restore_request_too_complex"
+      } satisfies Partial<SenaSnapshotRestoreRequestError>);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("rejects excessive JSON depth before invoking the parser", async () => {
+    const nestedSource = `${"[".repeat(65)}null${"]".repeat(65)}`;
+    const raw = `{"schemaVersion":"${SENA_SCHEMA_VERSIONS.snapshotRestoreRequest}","source":${nestedSource}}`;
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw
+    });
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await expect(readSenaSnapshotRestoreRequest(request)).rejects.toMatchObject({
+        name: "SenaSnapshotRestoreRequestError",
+        status: 413,
+        code: "snapshot_restore_request_too_complex"
+      } satisfies Partial<SenaSnapshotRestoreRequestError>);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("preserves the stable size error when stream cancellation fails", async () => {
+    const request = new Request(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("123456789"));
+        },
+        cancel() {
+          throw new Error("transport cancellation failed");
+        }
+      }),
+      duplex: "half"
+    } as RequestInit & { duplex: "half" });
 
     await expect(readSenaSnapshotRestoreRequest(request, {
       SENA_SNAPSHOT_RESTORE_MAX_BYTES: "8"

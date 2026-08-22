@@ -6,6 +6,8 @@ import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 export const SENA_SNAPSHOT_RESTORE_MAX_CHUNKS = 4096;
+export const SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS = 200_000;
+export const SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH = 64;
 
 export type SenaSnapshotRestoreResult = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.snapshotRestoreResult;
@@ -64,6 +66,59 @@ function requestTooLarge(maxBytes: number) {
     413,
     "snapshot_restore_request_too_large"
   );
+}
+
+function requestTooComplex() {
+  return new SenaSnapshotRestoreRequestError(
+    "Snapshot restore request exceeds the supported JSON complexity limit.",
+    413,
+    "snapshot_restore_request_too_complex"
+  );
+}
+
+function assertSenaSnapshotRestoreJsonComplexity(raw: string) {
+  let structuralTokens = 0;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (const character of raw) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === "\"") {
+      inString = true;
+      continue;
+    }
+    if (character === "{" || character === "[") {
+      structuralTokens += 1;
+      depth += 1;
+      if (depth > SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH) throw requestTooComplex();
+    } else if (character === "}" || character === "]") {
+      structuralTokens += 1;
+      depth = Math.max(depth - 1, 0);
+    } else if (character === "," || character === ":") {
+      structuralTokens += 1;
+    }
+    if (structuralTokens > SENA_SNAPSHOT_RESTORE_MAX_JSON_STRUCTURAL_TOKENS) {
+      throw requestTooComplex();
+    }
+  }
+}
+
+async function cancelSnapshotRestoreReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  try {
+    await reader.cancel();
+  } catch {
+    // Preserve the deterministic admission error even if transport cleanup fails.
+  }
 }
 
 export function assertSenaSnapshotRestoreSameOrigin(request: Request) {
@@ -142,11 +197,11 @@ export async function readSenaSnapshotRestoreRequest(
     chunkCount += 1;
     bytes += value.byteLength;
     if (bytes > maxBytes) {
-      await reader.cancel();
+      await cancelSnapshotRestoreReader(reader);
       throw requestTooLarge(maxBytes);
     }
     if (chunkCount > SENA_SNAPSHOT_RESTORE_MAX_CHUNKS) {
-      await reader.cancel();
+      await cancelSnapshotRestoreReader(reader);
       throw new SenaSnapshotRestoreRequestError(
         "Snapshot restore request uses too many streamed chunks.",
         413,
@@ -157,6 +212,7 @@ export async function readSenaSnapshotRestoreRequest(
   }
 
   const raw = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
+  assertSenaSnapshotRestoreJsonComplexity(raw);
   let body: unknown;
   try {
     body = JSON.parse(raw) as unknown;

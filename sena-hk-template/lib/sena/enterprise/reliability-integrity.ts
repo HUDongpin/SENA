@@ -92,20 +92,26 @@ function roundedCoverageRate(resolved: number, queued: number) {
   return Number((resolved / queued).toFixed(4));
 }
 
+function canonicalDisagreementKey(itemId: string, codeId: string) {
+  return [itemId, codeId].map((part) => `${part.length}:${part}`).join("");
+}
+
 export function buildEnterpriseReliabilityAdjudicationCoverage(
   run: SenaEnterpriseReliabilityRun,
   project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
   adjudications: SenaEnterpriseAdjudicationRecord[]
 ): SenaEnterpriseReliabilityAdjudicationCoverage {
   const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
-  const queueKeys = new Set(dashboard.adjudicationQueue.map((entry) => `${entry.itemId}\u0000${entry.codeId}`));
+  const queueKeys = new Set(dashboard.adjudicationQueue.map((entry) => (
+    canonicalDisagreementKey(entry.itemId, entry.codeId)
+  )));
   const latestByDisagreement = new Map<string, SenaEnterpriseAdjudicationRecord>();
   adjudications
     .filter((record) => record.reliabilityRunId === run.id)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .forEach((record) => {
       assertEnterpriseReliabilityAdjudicationRecord(run, project, record);
-      const key = `${record.itemId}\u0000${record.codeId}`;
+      const key = canonicalDisagreementKey(record.itemId, record.codeId);
       if (!queueKeys.has(key)) throw adjudicationBindingError();
       latestByDisagreement.set(key, record);
     });
