@@ -113,6 +113,8 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         csrf: { status: csrfResponse.status, headers: responseHeaders(csrfResponse), body: csrfBody },
         platformDecision: null,
         importResult: null,
+        publicationBlocked: null,
+        reliability: null,
         publication: null
       };
     }
@@ -192,10 +194,60 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     const importHeaders = responseHeaders(importResponse);
     const projectId = importBody?.persistedProject?.id;
 
+    let publicationBlockedResponse = null;
+    let publicationBlockedBody = null;
+    let publicationBlockedHeaders = null;
+    let reliabilityResponse = null;
+    let reliabilityBody = null;
+    let reliabilityHeaders = null;
     let publicationResponse = null;
     let publicationBody = null;
     let publicationHeaders = null;
     if (projectId) {
+      publicationBlockedResponse = await fetch("/api/sena/exports/publication", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrfToken
+        },
+        body: JSON.stringify({
+          projectId,
+          format: "package"
+        })
+      });
+      publicationBlockedBody = await parseJsonResponse(publicationBlockedResponse);
+      publicationBlockedHeaders = responseHeaders(publicationBlockedResponse);
+
+      const snapshot = importBody?.persistedProject?.snapshot;
+      const authoritativeDataset = snapshot?.source?.sourceDataset ?? snapshot?.dataset;
+      const itemIds = authoritativeDataset?.utterances?.slice(0, 3).map((utterance) => utterance.id) ?? [];
+      const codeIds = authoritativeDataset?.codebook?.slice(0, 3).map((code) => code.id) ?? [];
+      const annotations = itemIds.flatMap((itemId, index) => ["enterprise-smoke-coder-a", "enterprise-smoke-coder-b"].map((coderId) => ({
+        coder_id: coderId,
+        item_id: itemId,
+        code_id: codeIds[index],
+        value: "1"
+      })));
+      reliabilityResponse = await fetch("/api/sena/reliability", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrfToken
+        },
+        body: JSON.stringify({
+          schemaVersion: "sena-reliability-json-request/v1",
+          teamId: activeTeamId,
+          projectId,
+          reviewer: "Enterprise API smoke reliability reviewer",
+          sourceName: "enterprise-api-smoke-reliability.json",
+          annotations
+        })
+      });
+      reliabilityBody = await parseJsonResponse(reliabilityResponse);
+      reliabilityHeaders = responseHeaders(reliabilityResponse);
+
       publicationResponse = await fetch("/api/sena/exports/publication", {
         method: "POST",
         credentials: "include",
@@ -233,6 +285,16 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         headers: importHeaders,
         body: importBody
       },
+      publicationBlocked: publicationBlockedResponse ? {
+        status: publicationBlockedResponse.status,
+        headers: publicationBlockedHeaders,
+        body: publicationBlockedBody
+      } : null,
+      reliability: reliabilityResponse ? {
+        status: reliabilityResponse.status,
+        headers: reliabilityHeaders,
+        body: reliabilityBody
+      } : null,
       publication: publicationResponse ? {
         status: publicationResponse.status,
         headers: publicationHeaders,
@@ -428,6 +490,30 @@ function assertEnterpriseWorkflowEvidence(evidence) {
     throw new Error(`Analysis run id header/body mismatch: ${analysisRunId} vs ${importResult.body?.enterpriseAnalysisRun?.id}.`);
   }
 
+  const publicationBlocked = evidence.publicationBlocked;
+  if (publicationBlocked?.status !== 409 || publicationBlocked.body?.code !== "publication_export_model_card_blocked") {
+    throw new Error(`Publication export without current v2 machine evidence should return 409: ${JSON.stringify(publicationBlocked)}.`);
+  }
+  if (publicationBlocked.headers?.["x-sena-observed-status-class"] !== "4xx") {
+    throw new Error(`Blocked publication export did not expose observed 4xx evidence: ${JSON.stringify(publicationBlocked.headers)}.`);
+  }
+
+  const reliability = evidence.reliability;
+  if (reliability?.status !== 200 || reliability.body?.schemaVersion !== "sena-reliability-response/v1") {
+    throw new Error(`Enterprise reliability run returned invalid current-v2 evidence: ${JSON.stringify(reliability)}.`);
+  }
+  if (reliability.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v2" ||
+    reliability.body?.dashboard?.claimEligibility?.eligible !== true) {
+    throw new Error(`Enterprise reliability dashboard is not current-v2 claim-eligible evidence: ${JSON.stringify(reliability.body?.dashboard)}.`);
+  }
+  const reliabilityRunId = requireHeaderValue(reliability.headers, "x-sena-reliability-run-id");
+  if (reliability.body?.reliabilityRun?.id !== reliabilityRunId ||
+    reliability.body?.reliabilityRun?.projectId !== projectId ||
+    reliability.body?.reliabilityRun?.projectBinding?.projectId !== projectId ||
+    reliability.body?.reliabilityRun?.projectBinding?.projectVersion !== importResult.body?.persistedProject?.currentVersion) {
+    throw new Error(`Enterprise reliability evidence is not bound to the imported current project revision: ${JSON.stringify(reliability.body?.reliabilityRun)}.`);
+  }
+
   const publication = evidence.publication;
   if (publication?.status !== 200) {
     throw new Error(`Publication package export returned HTTP ${publication?.status ?? "<missing>"}: ${JSON.stringify(publication?.body)}.`);
@@ -440,6 +526,27 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   }
   if (publication.body?.sourceSnapshotEvidence?.snapshotSchemaVersion !== "sena-project-snapshot/v1") {
     throw new Error(`Publication package is missing project snapshot evidence: ${JSON.stringify(publication.body?.sourceSnapshotEvidence)}.`);
+  }
+  const derivation = publication.body?.enterpriseProjectEvidence?.publicationDerivation;
+  if (derivation?.kind !== "current-project-reliability-run" ||
+    derivation?.reliabilityRunId !== reliabilityRunId ||
+    derivation?.reliabilityDashboardSchemaVersion !== "sena-coding-reliability-dashboard/v2" ||
+    derivation?.projectVersion !== importResult.body?.persistedProject?.currentVersion) {
+    throw new Error(`Publication package is missing its current-v2 reliability derivation: ${JSON.stringify(derivation)}.`);
+  }
+  if (publication.body?.claimEvidence?.codingReliability !== "ready") {
+    throw new Error(`Publication package coding reliability gate is not ready: ${JSON.stringify(publication.body?.claimEvidence)}.`);
+  }
+  if (publication.body?.enterpriseProjectEvidence?.sourceSnapshotSha256 !== publication.body?.sourceSnapshotEvidence?.snapshotSha256) {
+    throw new Error(`Derived publication snapshot hash does not match enterprise project evidence: ${JSON.stringify(publication.body?.enterpriseProjectEvidence)}.`);
+  }
+  if (derivation?.persistedSourceSnapshotSha256 !== publication.body?.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256 ||
+    derivation?.persistedSourceSnapshotSha256 === publication.body?.sourceSnapshotEvidence?.snapshotSha256) {
+    throw new Error(`Persisted and reliability-derived publication snapshot hashes are not distinguished: ${JSON.stringify(publication.body?.enterpriseProjectEvidence)}.`);
+  }
+  if (requireHeaderValue(publication.headers, "x-sena-publication-reliability-run-id") !== reliabilityRunId ||
+    requireHeaderValue(publication.headers, "x-sena-persisted-source-snapshot-sha256") !== derivation.persistedSourceSnapshotSha256) {
+    throw new Error(`Publication response headers do not bind the current-v2 reliability derivation: ${JSON.stringify(publication.headers)}.`);
   }
   requiredPublicationFormats.forEach((format) => {
     assertArrayIncludes(publication.body?.manifest?.formats, format, "publication package manifest formats");
@@ -480,7 +587,7 @@ export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSm
     const session = await registerSmokeSession(page, origin);
     const evidence = await fetchEnterpriseWorkflow(page, session.teamId, provisioningToken);
     assertEnterpriseWorkflowEvidence(evidence);
-    console.log(`Enterprise API browser smoke passed for identity platform decision plus import-to-project-to-publication package on ${origin}.`);
+    console.log(`Enterprise API browser smoke passed for identity platform decision plus import, missing-evidence 409, current-v2 reliability binding, and publication package 200 on ${origin}.`);
   } finally {
     await browser.close();
   }

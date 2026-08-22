@@ -143,6 +143,80 @@ describe("SENA reliability route", () => {
     }
   }, reliabilityRouteTestTimeoutMs);
 
+  it("returns a sanitized 400 when synchronous annotations do not bind to the current project", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-binding-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+    vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Binding Error Reviewer",
+        email: "binding-error-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Binding Error Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Binding Error Reliability Project",
+        snapshot: reliabilityRouteSnapshot()
+      });
+      const route = await import("../../../app/api/sena/reliability/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          schemaVersion: "sena-reliability-json-request/v1",
+          teamId: project.teamId,
+          projectId: project.id,
+          reviewer: "Binding Error Reviewer",
+          annotations: [
+            { coder_id: "c1", item_id: "unknown-route-item", code_id: "Evidence", value: "1" },
+            { coder_id: "c2", item_id: "unknown-route-item", code_id: "Evidence", value: "0" }
+          ]
+        })
+      }));
+      const body = await response.json() as {
+        error?: string;
+        code?: string;
+        issues?: Array<{ path?: string; code?: string }>;
+      };
+
+      expect(response.status).toBe(400);
+      expect(body).toEqual({
+        error: "SENA reliability annotations do not match the current project snapshot.",
+        code: "reliability_project_binding_invalid",
+        issues: [
+          { path: "annotations.0.itemId", code: "unknown-item" },
+          { path: "annotations.1.itemId", code: "unknown-item" }
+        ]
+      });
+      expect(JSON.stringify(body)).not.toContain("unknown-route-item");
+      expect(response.headers.get("x-sena-observed-status-class")).toBe("4xx");
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, reliabilityRouteTestTimeoutMs);
+
   it("preflights queued inline annotations against the authoritative full source", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-reliability-authoritative-queue-"));
     let sessionToken = "";

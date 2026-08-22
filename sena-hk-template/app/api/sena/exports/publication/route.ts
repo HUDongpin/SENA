@@ -5,8 +5,15 @@ import {
   getEnterpriseClaimEvidencePackageWithPostgresEvidence
 } from "@/lib/sena/enterprise/claim-evidence-package";
 import {
-  getEnterpriseProjectAsync
+  getEnterpriseProjectAsync,
+  type SenaEnterpriseProject
 } from "@/lib/sena/enterprise/team-project";
+import type { SenaEnterpriseSessionContext } from "@/lib/sena/enterprise/auth-session";
+import {
+  listEnterpriseReliabilityRunsAsync,
+  type SenaEnterpriseReliabilityRun
+} from "@/lib/sena/enterprise/reliability-runs";
+import { assertEnterpriseReliabilityRunCurrentProject } from "@/lib/sena/enterprise/reliability-integrity";
 import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
@@ -22,7 +29,8 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { buildSenaPublicationExport, type SenaPublicationEnterpriseProjectEvidence, type SenaPublicationFormat } from "@/lib/sena/publication-export";
-import { importSenaProjectSnapshot } from "@/lib/sena/snapshot";
+import { buildSenaModel } from "@/lib/sena/model";
+import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
@@ -36,6 +44,51 @@ function bodyBuffer(body: string | Buffer) {
 
 function sha256Buffer(buffer: Buffer) {
   return createHash("sha256").update(buffer).digest("hex");
+}
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function snapshotWithReliabilityEvidence(
+  project: SenaEnterpriseProject,
+  reliabilityRun: SenaEnterpriseReliabilityRun
+) {
+  assertEnterpriseReliabilityRunCurrentProject(reliabilityRun, project);
+  const sourceSnapshot = project.snapshot;
+  const model = buildSenaModel(sourceSnapshot.dataset, sourceSnapshot.reproducibility.buildOptions);
+  return buildSenaProjectSnapshot(model, {
+    title: sourceSnapshot.title,
+    generatedAt: sourceSnapshot.generatedAt,
+    sourceDataset: sourceSnapshot.source.sourceDataset ?? sourceSnapshot.dataset,
+    activeTemporalWindow: sourceSnapshot.source.activeTemporalWindow,
+    temporalRuntimeTrace: sourceSnapshot.analysis.temporalRuntimeTrace,
+    demoVerificationManualReviews: sourceSnapshot.workspaceState?.demoVerificationManualReviews,
+    humanReview: sourceSnapshot.report.humanReview,
+    codingReliability: reliabilityRun.reviewPatch,
+    dataGovernance: sourceSnapshot.dataGovernance ?? sourceSnapshot.report.dataGovernance
+  });
+}
+
+async function publicationSnapshotForProject(
+  context: SenaEnterpriseSessionContext,
+  project: SenaEnterpriseProject
+) {
+  if (project.snapshot.report.modelCard.renderGate.status === "ready") {
+    return { snapshot: project.snapshot };
+  }
+  const reliabilityRuns = await listEnterpriseReliabilityRunsAsync(context, { projectId: project.id });
+  const reliabilityRun = reliabilityRuns.find((run) => (
+    run.status !== "rejected" &&
+    run.projectBinding?.projectId === project.id &&
+    run.projectBinding.projectVersion === project.currentVersion &&
+    run.dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard
+  ));
+  if (!reliabilityRun) return { snapshot: project.snapshot };
+  return {
+    snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun),
+    reliabilityRun
+  };
 }
 
 function publicationPackageHeaders(format: SenaPublicationFormat, body: string | Buffer) {
@@ -142,10 +195,13 @@ export async function POST(request: Request) {
     if (projectId) {
       const project = await getEnterpriseProjectAsync(context, projectId);
       const claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(context, { projectId });
-      snapshot = project.snapshot;
+      const publicationSource = await publicationSnapshotForProject(context, project);
+      snapshot = publicationSource.snapshot;
       teamId = project.teamId;
       source = "project";
       projectVersion = project.currentVersion;
+      const sourceSnapshotSha256 = sha256Json(snapshot);
+      const reportSha256 = sha256Json(snapshot.report);
       enterpriseProjectEvidence = {
         schemaVersion: SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence,
         projectId: project.id,
@@ -154,8 +210,17 @@ export async function POST(request: Request) {
         title: project.title,
         activeWindowLabel: project.activeWindowLabel,
         claimUse: project.claimUse,
-        sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
-        reportSha256: claimPackage.sourceSnapshotEvidence.reportSha256,
+        sourceSnapshotSha256,
+        reportSha256,
+        ...(publicationSource.reliabilityRun ? {
+          publicationDerivation: {
+            kind: "current-project-reliability-run",
+            reliabilityRunId: publicationSource.reliabilityRun.id,
+            reliabilityDashboardSchemaVersion: publicationSource.reliabilityRun.dashboard.schemaVersion,
+            projectVersion: publicationSource.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
+            persistedSourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256
+          }
+        } : {}),
         claimPackage: {
           schemaVersion: claimPackage.schemaVersion,
           status: claimPackage.status,
@@ -181,6 +246,8 @@ export async function POST(request: Request) {
         title: snapshot.title,
         projectVersion: projectVersion ?? null,
         sourceSnapshotSha256: enterpriseProjectEvidence?.sourceSnapshotSha256 ?? null,
+        persistedSourceSnapshotSha256: enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256 ?? null,
+        reliabilityRunId: enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId ?? null,
         claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null
       }
     });
@@ -199,6 +266,12 @@ export async function POST(request: Request) {
         ...(projectId ? { "x-sena-project-id": projectId } : {}),
         ...(projectVersion ? { "x-sena-project-version": String(projectVersion) } : {}),
         ...(enterpriseProjectEvidence?.sourceSnapshotSha256 ? { "x-sena-source-snapshot-sha256": enterpriseProjectEvidence.sourceSnapshotSha256 } : {}),
+        ...(enterpriseProjectEvidence?.publicationDerivation?.persistedSourceSnapshotSha256
+          ? { "x-sena-persisted-source-snapshot-sha256": enterpriseProjectEvidence.publicationDerivation.persistedSourceSnapshotSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId
+          ? { "x-sena-publication-reliability-run-id": enterpriseProjectEvidence.publicationDerivation.reliabilityRunId }
+          : {}),
         ...(enterpriseProjectEvidence?.reportSha256 ? { "x-sena-report-sha256": enterpriseProjectEvidence.reportSha256 } : {}),
         ...(enterpriseProjectEvidence?.claimPackage.status ? { "x-sena-claim-package-status": enterpriseProjectEvidence.claimPackage.status } : {}),
         ...packageHeaders

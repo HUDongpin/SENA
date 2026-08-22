@@ -6,6 +6,7 @@ import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
 import {
   assertSenaReliabilityUniverseWithinLimits,
   buildSenaReliabilityDashboard,
+  preflightSenaReliabilityAnnotations,
   SENA_RELIABILITY_UNIVERSE_LIMITS,
   type SenaCoderAnnotation
 } from "../reliability";
@@ -95,6 +96,31 @@ describe("Round12 bounded coding-reliability universe", () => {
       issues: [expect.objectContaining({ actual: declaredUnitCap + 1, maximum: declaredUnitCap })]
     }));
     expect(flatMap).not.toHaveBeenCalled();
+  });
+
+  it("rejects raw annotation row cap plus one before dashboard derivation work", () => {
+    const annotation: SenaCoderAnnotation = {
+      coderId: "coder-a",
+      itemId: "item-0",
+      codeId: "code-0",
+      value: true
+    };
+    const annotations = Array.from(
+      { length: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows + 1 },
+      () => annotation
+    );
+
+    expect(() => preflightSenaReliabilityAnnotations(annotations)).toThrow(expect.objectContaining({
+      name: "SenaReliabilityUniverseLimitError",
+      status: 400,
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: `annotation-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows}`,
+        actual: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows + 1,
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows
+      }]
+    }));
   });
 
   it("rejects assignment-cell cap plus one and safe-integer overflow in the shared preflight", () => {

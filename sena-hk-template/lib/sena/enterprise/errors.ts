@@ -1,5 +1,9 @@
 import { SenaInputValidationError } from "../analytical-input-validation";
-import { SenaReliabilityUniverseLimitError } from "../reliability";
+import {
+  SenaReliabilityAnnotationValidationError,
+  SenaReliabilityProjectBindingError,
+  SenaReliabilityUniverseLimitError
+} from "../reliability";
 
 export class SenaEnterpriseError extends Error {
   constructor(
@@ -44,6 +48,26 @@ function describeUnexpectedError(error: unknown) {
 }
 
 export function enterpriseErrorResponse(error: unknown) {
+  if (error instanceof SenaReliabilityAnnotationValidationError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, code }) => ({ path, code }))
+      },
+      status: error.status
+    };
+  }
+  if (error instanceof SenaReliabilityProjectBindingError) {
+    return {
+      body: {
+        error: error.message,
+        code: "reliability_project_binding_invalid",
+        issues: error.issues.map(({ path, code }) => ({ path, code }))
+      },
+      status: 400
+    };
+  }
   if (error instanceof SenaReliabilityUniverseLimitError) {
     return {
       body: {

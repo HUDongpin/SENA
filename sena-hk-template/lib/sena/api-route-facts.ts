@@ -355,7 +355,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/exports/publication",
     methods: ["POST"],
     auth: "session",
-    summary: "Generate publication-ready SENA artifacts or queue the export for an external worker; projectId exports preserve enterprise project provenance.",
+    summary: "Generate publication-ready SENA artifacts or queue the export for an external worker; projectId exports preserve enterprise provenance and may derive an export-only snapshot from a current project-bound v2 reliability run while exposing distinct persisted and derived snapshot hashes.",
     evidenceNoteId: "sena-publication-export",
     responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-data-governance-metadata/v1", "sena-enterprise-server-job/v1"]
   },

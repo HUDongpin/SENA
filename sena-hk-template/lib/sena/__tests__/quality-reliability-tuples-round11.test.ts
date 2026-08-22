@@ -1,11 +1,68 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { enterpriseErrorResponse } from "../enterprise/errors";
 import {
   buildSenaReliabilityDashboard,
   normalizeSenaReliabilityDashboard,
+  SenaReliabilityAnnotationValidationError,
   type SenaCoderAnnotation
 } from "../reliability";
 
 describe("Round11 reliability tuple correctness and indexed work", () => {
+  it("rejects duplicate annotation cells before dashboard derivation", () => {
+    const flatMap = vi.spyOn(Array.prototype, "flatMap");
+    const annotations: SenaCoderAnnotation[] = [
+      { coderId: "coder-a", itemId: "item-1", codeId: "evidence", value: true },
+      { coderId: "coder-a", itemId: "item-1", codeId: "evidence", value: true }
+    ];
+
+    try {
+      expect(() => buildSenaReliabilityDashboard(annotations)).toThrow(expect.objectContaining({
+        name: "SenaReliabilityAnnotationValidationError",
+        status: 400,
+        code: "invalid_sena_reliability_annotations",
+        issues: [{ path: "annotations.1", code: "duplicate-cell" }]
+      }));
+      expect(flatMap).not.toHaveBeenCalled();
+    } finally {
+      flatMap.mockRestore();
+    }
+  });
+
+  it("rejects contradictory annotation cells before dashboard derivation", () => {
+    const flatMap = vi.spyOn(Array.prototype, "flatMap");
+    const annotations: SenaCoderAnnotation[] = [
+      { coderId: "coder-a", itemId: "item-1", codeId: "evidence", value: false },
+      { coderId: "coder-a", itemId: "item-1", codeId: "evidence", value: true }
+    ];
+
+    try {
+      expect(() => buildSenaReliabilityDashboard(annotations)).toThrow(expect.objectContaining({
+        name: "SenaReliabilityAnnotationValidationError",
+        status: 400,
+        code: "invalid_sena_reliability_annotations",
+        issues: [{ path: "annotations.1", code: "conflicting-cell" }]
+      }));
+      expect(flatMap).not.toHaveBeenCalled();
+    } finally {
+      flatMap.mockRestore();
+    }
+  });
+
+  it("maps raw duplicate-cell validation to a sanitized client 400", () => {
+    const response = enterpriseErrorResponse(new SenaReliabilityAnnotationValidationError([
+      { path: "annotations.1", code: "duplicate-cell" }
+    ]));
+
+    expect(response).toEqual({
+      body: {
+        error: "SENA coding-reliability annotations contain duplicate coder-item-code cells.",
+        code: "invalid_sena_reliability_annotations",
+        issues: [{ path: "annotations.1", code: "duplicate-cell" }]
+      },
+      status: 400
+    });
+  });
+
   it("keeps coder, item, and code IDs containing :: as exact structured tuple members", () => {
     const annotations: SenaCoderAnnotation[] = [
       { coderId: "coder::one", itemId: "item::one", codeId: "code::evidence", value: true },

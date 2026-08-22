@@ -13,6 +13,7 @@ export type SenaInputValidationRule =
   | "nonempty-array"
   | "array-range"
   | "nonempty-string"
+  | "canonical-string"
   | "distinct-values"
   | "boolean"
   | "consistent-direction"
@@ -100,6 +101,12 @@ function collectSenaDatasetContractIssues(
   const optionalString = (record: Record<string, unknown>, field: string, rowPath: string) => {
     if (record[field] !== undefined && !isNonemptyString(record[field])) add(`${rowPath}.${field}`, "nonempty-string");
   };
+  const canonicalString = (value: unknown, valuePath: string) => {
+    if (isNonemptyString(value) && value !== value.trim()) add(valuePath, "canonical-string");
+  };
+  const canonicalField = (record: Record<string, unknown>, field: string, rowPath: string) => {
+    canonicalString(record[field], `${rowPath}.${field}`);
+  };
   const integer = (record: Record<string, unknown>, field: string, rowPath: string, optional = false) => {
     if (optional && record[field] === undefined) return;
     if (!Number.isSafeInteger(record[field]) || (record[field] as number) < 0) {
@@ -114,6 +121,7 @@ function collectSenaDatasetContractIssues(
   ) => {
     requiredString(record, field, rowPath);
     if (!isNonemptyString(record[field])) return;
+    canonicalField(record, field, rowPath);
     const id = (record[field] as string).trim();
     if (seen.has(id)) add(`${rowPath}.${field}`, "distinct-values");
     seen.add(id);
@@ -184,6 +192,7 @@ function collectSenaDatasetContractIssues(
           add(codePath, "nonempty-string");
           return;
         }
+        canonicalString(code, codePath);
         const codeId = code.trim();
         if (seenCodes.has(codeId)) add(codePath, "distinct-values");
         seenCodes.add(codeId);
@@ -200,6 +209,7 @@ function collectSenaDatasetContractIssues(
             add(targetPath, "nonempty-string");
             return;
           }
+          canonicalString(target, targetPath);
           const targetId = target.trim();
           if (seenTargets.has(targetId)) add(targetPath, "distinct-values");
           seenTargets.add(targetId);
@@ -219,6 +229,7 @@ function collectSenaDatasetContractIssues(
       return;
     }
     for (const field of ["source", "target", "channel", "stage", "evidence"]) requiredString(row, field, rowPath);
+    for (const field of ["source", "target"]) canonicalField(row, field, rowPath);
     integer(row, "turnIndex", rowPath, true);
     if (row.weight !== undefined && (!isFiniteNumber(row.weight) || row.weight < 0)) {
       add(`${rowPath}.weight`, "finite-nonnegative");
@@ -234,6 +245,7 @@ function collectSenaDatasetContractIssues(
     }
   });
   utterances.forEach((row, index) => {
+    if (isRecord(row)) canonicalField(row, "personId", `${path}.utterances[${index}]`);
     if (isRecord(row) && isNonemptyString(row.personId) && !personIds.has(row.personId.trim())) {
       add(`${path}.utterances[${index}].personId`, "reference");
     }
@@ -241,6 +253,7 @@ function collectSenaDatasetContractIssues(
   codedSegments.forEach((row, index) => {
     if (!isRecord(row)) return;
     const rowPath = `${path}.coded_segments[${index}]`;
+    for (const field of ["utteranceId", "personId"]) canonicalField(row, field, rowPath);
     if (isNonemptyString(row.utteranceId) && !utteranceIds.has(row.utteranceId.trim())) {
       add(`${rowPath}.utteranceId`, "reference");
     }
@@ -249,6 +262,7 @@ function collectSenaDatasetContractIssues(
     }
     if (Array.isArray(row.targetPersonIds)) {
       row.targetPersonIds.forEach((target, targetIndex) => {
+        canonicalString(target, `${rowPath}.targetPersonIds[${targetIndex}]`);
         if (isNonemptyString(target) && !personIds.has(target.trim())) {
           add(`${rowPath}.targetPersonIds[${targetIndex}]`, "reference");
         }
@@ -256,6 +270,7 @@ function collectSenaDatasetContractIssues(
     }
     if (Array.isArray(row.codes)) {
       row.codes.forEach((code, codeIndex) => {
+        canonicalString(code, `${rowPath}.codes[${codeIndex}]`);
         if (isNonemptyString(code) && !codeIds.has(code.trim())) {
           add(`${rowPath}.codes[${codeIndex}]`, "reference");
         }

@@ -120,6 +120,7 @@ export type SenaReliabilityProjectBindingIssue = {
  * cartesian-product or value-row allocation can occur.
  */
 export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
+  annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
   // One global pair result is retained per unordered coder pair. This also
@@ -158,6 +159,33 @@ export class SenaReliabilityUniverseLimitError extends Error {
       status: this.status,
       code: this.code,
       issues: this.issues
+    };
+  }
+}
+
+export type SenaReliabilityAnnotationValidationIssue = {
+  path: string;
+  code: "duplicate-cell" | "conflicting-cell";
+};
+
+export class SenaReliabilityAnnotationValidationError extends Error {
+  readonly name = "SenaReliabilityAnnotationValidationError";
+  readonly status = 400;
+  readonly code = "invalid_sena_reliability_annotations";
+  readonly issues: SenaReliabilityAnnotationValidationIssue[];
+
+  constructor(issues: SenaReliabilityAnnotationValidationIssue[]) {
+    super("SENA coding-reliability annotations contain duplicate coder-item-code cells.");
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      status: this.status,
+      code: this.code,
+      issues: this.issues.map((issue) => ({ ...issue }))
     };
   }
 }
@@ -258,19 +286,41 @@ export function assertSenaReliabilityUniverseWithinLimits(input: {
 }
 
 export function preflightSenaReliabilityAnnotations(annotations: readonly SenaCoderAnnotation[]) {
+  if (annotations.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "annotations",
+      rule: `annotation-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows}`,
+      actual: annotations.length,
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows
+    }]);
+  }
   const coderIds = new Set<string>();
   const itemIds = new Set<string>();
   const codeIds = new Set<string>();
   for (const annotation of annotations) {
-    coderIds.add(annotation.coderId);
-    itemIds.add(annotation.itemId);
-    codeIds.add(annotation.codeId);
+    const { coderId, itemId, codeId } = annotation;
+    coderIds.add(coderId);
+    itemIds.add(itemId);
+    codeIds.add(codeId);
   }
   const cardinality = assertSenaReliabilityUniverseWithinLimits({
     itemCount: itemIds.size,
     codeCount: codeIds.size,
     coderCount: coderIds.size
   });
+  const cells = new Map<string, boolean>();
+  for (const [index, annotation] of annotations.entries()) {
+    const { coderId, itemId, codeId, value } = annotation;
+    const cell = canonicalTupleKey([coderId, itemId, codeId]);
+    const previousValue = cells.get(cell);
+    if (previousValue !== undefined) {
+      throw new SenaReliabilityAnnotationValidationError([{
+        path: `annotations.${index}`,
+        code: previousValue === value ? "duplicate-cell" : "conflicting-cell"
+      }]);
+    }
+    cells.set(cell, value);
+  }
   return {
     coders: Array.from(coderIds).sort(),
     items: Array.from(itemIds).sort(),

@@ -39,6 +39,13 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   claimUse: string;
   sourceSnapshotSha256: string;
   reportSha256: string;
+  publicationDerivation?: {
+    kind: "current-project-reliability-run";
+    reliabilityRunId: string;
+    reliabilityDashboardSchemaVersion: string;
+    projectVersion: number;
+    persistedSourceSnapshotSha256: string;
+  };
   claimPackage: {
     schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
     status: string;

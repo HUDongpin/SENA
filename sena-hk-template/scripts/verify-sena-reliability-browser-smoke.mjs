@@ -140,27 +140,55 @@ async function createReliabilityProject(page, csrf) {
   if (result.body?.persistedProject?.id !== projectId) {
     throw new Error(`Reliability project header/body mismatch: ${projectId} vs ${result.body?.persistedProject?.id}.`);
   }
-  return projectId;
+  const snapshot = result.body?.persistedProject?.snapshot;
+  if (!snapshot) {
+    throw new Error("Reliability project import did not return the persisted authoritative snapshot.");
+  }
+  return { projectId, snapshot };
 }
 
-function reliabilityAnnotations() {
+function reliabilityAnnotations(snapshot) {
+  const dataset = snapshot?.source?.sourceDataset ?? snapshot?.dataset;
+  const utteranceIds = Array.isArray(dataset?.utterances)
+    ? dataset.utterances.map((utterance) => utterance?.id).filter((id) => typeof id === "string" && id.length > 0)
+    : [];
+  const codebook = Array.isArray(dataset?.codebook) ? dataset.codebook : [];
+  const codeId = (name) => {
+    const normalized = name.toLowerCase();
+    const code = codebook.find((candidate) => (
+      typeof candidate?.id === "string" && candidate.id.toLowerCase() === normalized
+    ) || (
+      typeof candidate?.label === "string" && candidate.label.toLowerCase() === normalized
+    ));
+    if (!code?.id) throw new Error(`Reliability project snapshot is missing the required ${name} code.`);
+    return code.id;
+  };
+  if (utteranceIds.length < 3) {
+    throw new Error("Reliability project snapshot must expose at least three authoritative utterance IDs.");
+  }
+  const [firstItemId, secondItemId, thirdItemId] = utteranceIds;
+  const question = codeId("Question");
+  const evidence = codeId("Evidence");
+  const claim = codeId("Claim");
+  const explanation = codeId("Explanation");
+  const reflection = codeId("Reflection");
   return [
-    { coder_id: "coder-a", item_id: "u1", code_id: "Question", value: "1" },
-    { coder_id: "coder-b", item_id: "u1", code_id: "Question", value: "1" },
-    { coder_id: "coder-a", item_id: "u1", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-b", item_id: "u1", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-a", item_id: "u2", code_id: "Evidence", value: "1" },
-    { coder_id: "coder-b", item_id: "u2", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-a", item_id: "u2", code_id: "Claim", value: "1" },
-    { coder_id: "coder-b", item_id: "u2", code_id: "Claim", value: "1" },
-    { coder_id: "coder-a", item_id: "u3", code_id: "Explanation", value: "1" },
-    { coder_id: "coder-b", item_id: "u3", code_id: "Explanation", value: "0" },
-    { coder_id: "coder-a", item_id: "u3", code_id: "Reflection", value: "1" },
-    { coder_id: "coder-b", item_id: "u3", code_id: "Reflection", value: "1" }
+    { coder_id: "coder-a", item_id: firstItemId, code_id: question, value: "1" },
+    { coder_id: "coder-b", item_id: firstItemId, code_id: question, value: "1" },
+    { coder_id: "coder-a", item_id: firstItemId, code_id: evidence, value: "0" },
+    { coder_id: "coder-b", item_id: firstItemId, code_id: evidence, value: "0" },
+    { coder_id: "coder-a", item_id: secondItemId, code_id: evidence, value: "1" },
+    { coder_id: "coder-b", item_id: secondItemId, code_id: evidence, value: "0" },
+    { coder_id: "coder-a", item_id: secondItemId, code_id: claim, value: "1" },
+    { coder_id: "coder-b", item_id: secondItemId, code_id: claim, value: "1" },
+    { coder_id: "coder-a", item_id: thirdItemId, code_id: explanation, value: "1" },
+    { coder_id: "coder-b", item_id: thirdItemId, code_id: explanation, value: "0" },
+    { coder_id: "coder-a", item_id: thirdItemId, code_id: reflection, value: "1" },
+    { coder_id: "coder-b", item_id: thirdItemId, code_id: reflection, value: "1" }
   ];
 }
 
-async function createReliabilityRun(page, csrf, teamId, projectId) {
+async function createReliabilityRun(page, csrf, teamId, projectId, annotations) {
   const result = await fetchJson(page, "/api/sena/reliability", {
     method: "POST",
     headers: {
@@ -173,7 +201,7 @@ async function createReliabilityRun(page, csrf, teamId, projectId) {
       projectId,
       reviewer: "Reliability smoke reviewer",
       sourceName: "reliability-smoke-annotations.json",
-      annotations: reliabilityAnnotations()
+      annotations
     })
   });
   if (result.status !== 200 || result.body?.schemaVersion !== "sena-reliability-response/v1") {
@@ -303,13 +331,19 @@ export async function verifySenaReliabilityBrowserSmoke(baseUrl = reliabilitySmo
   try {
     const reviewer = await registerReliabilityReviewer(page, origin, unique);
     const csrf = await csrfToken(page);
-    const projectId = await createReliabilityProject(page, csrf);
-    const runId = await createReliabilityRun(page, csrf, reviewer.teamId, projectId);
+    const project = await createReliabilityProject(page, csrf);
+    const runId = await createReliabilityRun(
+      page,
+      csrf,
+      reviewer.teamId,
+      project.projectId,
+      reliabilityAnnotations(project.snapshot)
+    );
     await adjudicateReliabilityRun(page, csrf, runId);
     await approveReliabilityRun(page, csrf, runId);
-    await verifyReliabilityPersistence(page, projectId, runId);
-    await verifyClaimPackageReliabilityEvidence(page, projectId, runId);
-    console.log(`Reliability browser smoke passed for approved multi-coder run ${runId} on project ${projectId}.`);
+    await verifyReliabilityPersistence(page, project.projectId, runId);
+    await verifyClaimPackageReliabilityEvidence(page, project.projectId, runId);
+    console.log(`Reliability browser smoke passed for approved multi-coder run ${runId} on project ${project.projectId}.`);
   } finally {
     await browser.close();
   }
