@@ -18,7 +18,9 @@ import {
 } from "../enterprise-postgres";
 import {
   getEnterprisePrimaryStateRuntime,
+  readEnterpriseDb,
   readEnterpriseState,
+  writeEnterpriseDb,
   writeEnterpriseState
 } from "./state";
 import {
@@ -1558,6 +1560,76 @@ function statusForAction(job: SenaEnterpriseServerJob, action: SenaEnterpriseSer
     return job.lifecycle.attempts < job.lifecycle.maxAttempts ? "failed" : "dead-lettered";
   }
   return job.status;
+}
+
+/**
+ * Atomically transitions one queued job to running for a worker contender.
+ *
+ * Production Postgres uses a queued-status compare-and-set. The local
+ * enterprise-state fallback performs its read and synchronous file write in
+ * one JavaScript turn; it is a development-only store, while the worker also
+ * retains its per-process in-flight guard.
+ */
+export async function claimEnterpriseServerJob(input: {
+  jobId: string;
+  workerRunId: string;
+}) {
+  const timestamp = now();
+  if (isPostgresServerJobStoreActive()) {
+    const current = await getEnterpriseServerJob(input.jobId);
+    if (current.status !== "queued") {
+      return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
+    }
+    const lifecycle = updatedLifecycle({
+      job: current,
+      action: "mark-running",
+      timestamp,
+      workerRunId: input.workerRunId
+    });
+    const nextJob: SenaEnterpriseServerJob = {
+      ...current,
+      status: statusForAction({ ...current, lifecycle }, "mark-running"),
+      updatedAt: timestamp,
+      lifecycle
+    };
+    const claimed = await postgresServerJobStore().claimQueuedJob(nextJob);
+    if (claimed) return { claimed: true as const, job: claimed };
+    return {
+      claimed: false as const,
+      reason: "server_job_worker_claim_lost",
+      job: await getEnterpriseServerJob(input.jobId)
+    };
+  }
+
+  // Do not await between this local read and write. That makes this transition
+  // atomic for all contenders in the process, independently of worker-runtime
+  // call ordering.
+  const db = readEnterpriseDb();
+  const current = (db.serverJobs ?? []).find((candidate) => candidate.id === input.jobId);
+  if (!current) {
+    throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+  }
+  if (current.status !== "queued") {
+    return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
+  }
+  const lifecycle = updatedLifecycle({
+    job: current,
+    action: "mark-running",
+    timestamp,
+    workerRunId: input.workerRunId
+  });
+  const claimed: SenaEnterpriseServerJob = {
+    ...current,
+    status: statusForAction({ ...current, lifecycle }, "mark-running"),
+    updatedAt: timestamp,
+    lifecycle
+  };
+  db.serverJobs = [
+    claimed,
+    ...(db.serverJobs ?? []).filter((candidate) => candidate.id !== claimed.id)
+  ].slice(0, 2000);
+  writeEnterpriseDb(db);
+  return { claimed: true as const, job: claimed };
 }
 
 // Counts only (no warning text): parse-repair disclosure that is safe to carry

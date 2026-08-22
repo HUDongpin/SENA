@@ -52,6 +52,7 @@ describe("SENA server job Postgres store", () => {
     }));
 
     const enterprise = await import("../enterprise");
+    const serverJobs = await import("../enterprise/server-job-queue");
     const runtime = enterprise.serverJobStoreRuntime();
     expect(runtime).toEqual(expect.objectContaining({
       activeStore: "postgres-table",
@@ -142,6 +143,32 @@ describe("SENA server job Postgres store", () => {
         projectId: "project_postgres_jobs"
       })
     ]));
+
+    const raceJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_race",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_race" },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: true,
+        payloadValuesExcluded: true
+      }
+    });
+    const [leftClaim, rightClaim] = await Promise.all([
+      serverJobs.claimEnterpriseServerJob({ jobId: raceJob.id, workerRunId: "worker_run_pg_left" }),
+      serverJobs.claimEnterpriseServerJob({ jobId: raceJob.id, workerRunId: "worker_run_pg_right" })
+    ]);
+    const claims = [leftClaim, rightClaim];
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(claims.filter((claim) => !claim.claimed)).toHaveLength(1);
+    expect(pg.queries.some((query) => (
+      /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
+      /WHERE id = \$1 AND status = 'queued'/i.test(query) &&
+      /RETURNING \*/i.test(query)
+    ))).toBe(true);
 
     expect(existsSync(path.join(enterpriseDbDir, "enterprise-db.json"))).toBe(false);
     expect(pg.queries.some((query) => /CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_server_jobs"/.test(query))).toBe(true);

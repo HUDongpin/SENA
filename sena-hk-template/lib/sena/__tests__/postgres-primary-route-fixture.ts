@@ -226,6 +226,22 @@ export class RouteMemoryPostgres {
       });
       return { rows: [], rowCount: 1 };
     }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /WHERE id = \$1 AND status = 'queued'/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      if (!current || current.status !== "queued") return { rows: [], rowCount: 0 };
+      const claimed: Record<string, unknown> = {
+        ...current,
+        status: "running",
+        lifecycle: values[1],
+        updated_at: values[2]
+      };
+      this.serverJobs = [
+        claimed,
+        ...this.serverJobs.filter((record) => record.id !== claimed.id)
+      ];
+      return { rows: [claimed], rowCount: 1 };
+    }
     if (/INSERT INTO "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
       const row = {
         id: values[0],

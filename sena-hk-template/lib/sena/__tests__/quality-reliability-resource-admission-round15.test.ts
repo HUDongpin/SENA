@@ -14,7 +14,8 @@ const resourceLimits = {
   sources: 100,
   sourceBytes: 25 * 1024 * 1024,
   aggregateBytes: 100 * 1024 * 1024,
-  requestBytes: 128 * 1024 * 1024
+  requestBytes: 128 * 1024 * 1024,
+  requestChunks: 8_192
 } as const;
 
 // Reuse one string across five sources so the aggregate contract is exercised
@@ -312,6 +313,28 @@ describe("Round15 raw reliability admission", () => {
       actual: resourceLimits.rawRows + 1,
       maximum: resourceLimits.rawRows
     }));
+  });
+
+  it("treats a server JSON root annotation object as one raw semantic row", async () => {
+    vi.resetModules();
+    const { readSenaReliabilityUploadRows } = await import("../import-adapters");
+    const reliability = await import("../reliability");
+    const row = { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" };
+
+    const decoded = await readSenaReliabilityUploadRows({
+      name: "single-root-row.json",
+      bytes: Buffer.from(JSON.stringify(row), "utf8")
+    });
+    const parsed = reliability.parseCoderAnnotationsFromRows(decoded.rows);
+
+    expect(decoded.rawRowCount).toBe(1);
+    expect(decoded.rows).toEqual([row]);
+    expect(parsed.annotations).toEqual([{
+      coderId: "c1",
+      itemId: "u1",
+      codeId: "Evidence",
+      value: true
+    }]);
   });
 });
 
@@ -750,6 +773,89 @@ async function runDeclaredTransportAdmissionCase(kind: "json" | "multipart") {
   }
 }
 
+async function runZeroByteChunkTransportAdmissionCase() {
+  const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-round15-transport-zero-chunks-"));
+  let sessionToken = "";
+  resetReliabilityEnvironment();
+  vi.resetModules();
+  process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+  vi.doMock("next/headers", () => ({
+    cookies: () => ({
+      get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+    })
+  }));
+  vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+  vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+  vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+  vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+  vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+  try {
+    const enterprise = await import("../enterprise");
+    const importAnalysis = await import("../enterprise/import-analysis");
+    const jobs = await import("../enterprise/server-job-queue");
+    const registered = enterprise.registerEnterpriseUser({
+      name: "Round15 zero-chunk transport reviewer",
+      email: "round15-transport-zero-chunks@example.edu",
+      password: "sena-secure-123",
+      organization: "Round15 Reliability Lab",
+      plan: "lab"
+    });
+    sessionToken = registered.token;
+    const teamId = registered.context.teams[0].id;
+    const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+    const uploadsBefore = importAnalysis.listEnterpriseUploads(registered.context, teamId);
+    const auditsBefore = enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events;
+    let emittedChunks = 0;
+    const request = new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sena-csrf-token": csrf.token
+      },
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (emittedChunks >= 100_000) {
+            controller.close();
+            return;
+          }
+          emittedChunks += 1;
+          controller.enqueue(new Uint8Array(0));
+        }
+      }),
+      duplex: "half"
+    } as RequestInit & { duplex: "half" });
+    const transportParser = vi.spyOn(Request.prototype, "json").mockImplementation(async () => {
+      throw new Error("framework transport parser must not run after the chunk budget is exhausted");
+    });
+    const route = await import("../../../app/api/sena/reliability/route");
+    const response = await route.POST(request);
+    const body = JSON.parse(await response.text()) as Record<string, unknown>;
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "SENA coding-reliability input exceeds the supported analysis universe.",
+      code: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: `request-chunk-count-at-most-${resourceLimits.requestChunks}`,
+        actual: resourceLimits.requestChunks + 1,
+        maximum: resourceLimits.requestChunks
+      }]
+    });
+    expect(transportParser).not.toHaveBeenCalled();
+    expect(emittedChunks).toBeLessThan(100_000);
+    expect(importAnalysis.listEnterpriseUploads(registered.context, teamId)).toEqual(uploadsBefore);
+    expect((await jobs.listEnterpriseServerJobs({ teamId })).jobs).toHaveLength(0);
+    expect(enterprise.listEnterpriseAuditLog(registered.context, { teamId, limit: 500 }).events).toEqual(auditsBefore);
+  } finally {
+    resetReliabilityEnvironment();
+    rmSync(enterpriseDbDir, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+}
+
 describe("Round15 reliability transport admission", () => {
   it.each(["json", "multipart"] as const)(
     "rejects an oversized declared %s request before framework transport parsing or side effects",
@@ -798,6 +904,88 @@ describe("Round15 reliability transport admission", () => {
       expect(transportParser).not.toHaveBeenCalled();
     }
   );
+
+  it("rejects 100000 zero-byte chunks under a one-byte budget before parsing or side effects", async () => {
+    vi.resetModules();
+    const transport = await import("../enterprise/reliability-transport");
+    let emittedChunks = 0;
+    const request = new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (emittedChunks >= 100_000) {
+            controller.close();
+            return;
+          }
+          emittedChunks += 1;
+          controller.enqueue(new Uint8Array(0));
+        }
+      }),
+      duplex: "half"
+    } as RequestInit & { duplex: "half" });
+    const transportParser = vi.fn(async (bounded: Request) => bounded.json());
+    let thrown: unknown;
+    try {
+      const bounded = await transport.readSenaReliabilityBoundedTransportRequest(request, {
+        json: true,
+        maximum: 1
+      });
+      await transportParser(bounded);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toEqual(expectedLimitIssue({
+      path: "annotations",
+      rule: `request-chunk-count-at-most-${resourceLimits.requestChunks}`,
+      actual: resourceLimits.requestChunks + 1,
+      maximum: resourceLimits.requestChunks
+    }));
+    expect(transportParser).not.toHaveBeenCalled();
+    expect(emittedChunks).toBeLessThan(100_000);
+  });
+
+  it("admits exactly 8192 chunks while replaying only non-empty JSON chunks", async () => {
+    vi.resetModules();
+    const transport = await import("../enterprise/reliability-transport");
+    const encoder = new TextEncoder();
+    let emittedChunks = 0;
+    const request = new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (emittedChunks >= resourceLimits.requestChunks) {
+            controller.close();
+            return;
+          }
+          const chunk = emittedChunks === 0
+            ? encoder.encode("{")
+            : emittedChunks === resourceLimits.requestChunks - 1
+              ? encoder.encode("}")
+              : new Uint8Array(0);
+          emittedChunks += 1;
+          controller.enqueue(chunk);
+        }
+      }),
+      duplex: "half"
+    } as RequestInit & { duplex: "half" });
+    const transportParser = vi.fn(async (bounded: Request) => bounded.json());
+
+    const bounded = await transport.readSenaReliabilityBoundedTransportRequest(request, {
+      json: true,
+      maximum: 2
+    });
+
+    await expect(transportParser(bounded)).resolves.toEqual({});
+    expect(emittedChunks).toBe(resourceLimits.requestChunks);
+    expect(transportParser).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the stable public 400 for a zero-byte chunk storm without reliability side effects", async () => {
+    await runZeroByteChunkTransportAdmissionCase();
+  }, 30_000);
 
   it("uses the lower configured upload cap for synchronous JSON before parsing or run persistence", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-round15-json-configured-cap-"));
@@ -864,6 +1052,171 @@ describe("Round15 reliability transport admission", () => {
       vi.resetModules();
     }
   }, 30_000);
+});
+
+const queuedJsonFilesParityPayload = {
+  reviewer: "Round15 queued JSON files reviewer",
+  files: [
+    {
+      name: "round15-coders-a.json",
+      rows: [
+        { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+        { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" },
+        { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "" },
+        { ignored: "invalid-row-must-remain-a-warning" }
+      ]
+    },
+    {
+      name: "round15-coders-b.json",
+      data: [
+        { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
+      ]
+    }
+  ]
+};
+
+async function runQueuedJsonFilesParityCase(mode: "sync" | "local" | "managed") {
+  const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-round15-json-files-${mode}-`));
+  let sessionToken = "";
+  let managedWebhook: { workerPayload?: unknown } | undefined;
+  resetReliabilityEnvironment();
+  vi.resetModules();
+  process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+  if (mode === "local") {
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+  }
+  if (mode === "managed") {
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "round15-json-files-secret";
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      managedWebhook = JSON.parse(String(init?.body ?? "{}")) as { workerPayload?: unknown };
+      return new Response("", { status: 202 });
+    }));
+  }
+  vi.doMock("next/headers", () => ({
+    cookies: () => ({
+      get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+    })
+  }));
+  vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+  vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+  vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+  vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+  vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+  try {
+    const enterprise = await import("../enterprise");
+    const queue = await import("../enterprise/server-job-queue");
+    const runtime = await import("../enterprise/server-job-worker-runtime");
+    const reliabilityRuns = await import("../enterprise/reliability-runs");
+    const registered = enterprise.registerEnterpriseUser({
+      name: `Round15 JSON files ${mode} reviewer`,
+      email: `round15-json-files-${mode}@example.edu`,
+      password: "sena-secure-123",
+      organization: "Round15 Reliability Lab",
+      plan: "lab"
+    });
+    sessionToken = registered.token;
+    const teamId = registered.context.teams[0].id;
+    const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+    const route = await import("../../../app/api/sena/reliability/route");
+    const response = await route.POST(new Request("https://sena.example.test/api/sena/reliability", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sena-csrf-token": csrf.token,
+        ...(mode === "sync" ? {} : { prefer: "respond-async" })
+      },
+      body: JSON.stringify({
+        ...queuedJsonFilesParityPayload,
+        teamId
+      })
+    }));
+    const responseBody = await response.json() as { id?: string };
+
+    if (mode === "sync") {
+      expect(response.status).toBe(200);
+    } else {
+      expect(response.status).toBe(202);
+      if (mode === "local") {
+        const drain = await runtime.drainEnterpriseServerJobQueue({ teamId, kind: "reliability" });
+        expect(drain.succeeded).toBe(1);
+      } else {
+        expect(managedWebhook?.workerPayload).toBeDefined();
+        const job = await queue.getEnterpriseServerJob(String(responseBody.id));
+        const outcome = await runtime.runEnterpriseServerJob({
+          job,
+          workerPayload: managedWebhook?.workerPayload
+        });
+        expect(outcome.status).toBe("succeeded");
+      }
+    }
+
+    const runs = await reliabilityRuns.listEnterpriseReliabilityRunsAsync(registered.context, { teamId });
+    expect(runs).toHaveLength(1);
+    const run = runs[0];
+    return structuredClone({
+      fileCount: run.fileCount,
+      annotationCount: run.annotationCount,
+      inputFiles: run.inputFiles,
+      annotations: run.dashboard.derivationEvidence?.annotations,
+      skippedCells: run.dashboard.derivationEvidence?.skippedCells,
+      status: run.dashboard.status,
+      meanPairwiseKappaStatus: run.dashboard.meanPairwiseKappaStatus,
+      meanPairwiseKappa: run.dashboard.meanPairwiseKappa,
+      krippendorffAlphaNominalStatus: run.dashboard.krippendorffAlphaNominalStatus,
+      krippendorffAlphaNominal: run.dashboard.krippendorffAlphaNominal,
+      pairwiseCohenKappa: run.dashboard.pairwiseCohenKappa,
+      warnings: run.dashboard.warnings
+    });
+  } finally {
+    resetReliabilityEnvironment();
+    rmSync(enterpriseDbDir, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+}
+
+describe("Round15 queued JSON files parity", () => {
+  it("reconstructs multiple inline aliases without inventing an ambiguous source name", async () => {
+    const reliabilityApi = await import("../reliability-api");
+    const uploadReader = await import("../enterprise/reliability-upload-reader");
+    const defaultReviewer = "Round15 queued alias reviewer";
+    const payload = {
+      annotations: [
+        { coder_id: "c1", item_id: "i1", code_id: "x", value: "1" },
+        { coder_id: "c2", item_id: "i1", code_id: "x", value: "1" }
+      ],
+      rows: [{}],
+      data: [{ ignored_alias_row: true }]
+    };
+    const expected = reliabilityApi.prepareSenaReliabilityJsonRequest(payload, { defaultReviewer });
+    const uploads = uploadReader.buildEnterpriseReliabilityJsonQueueUploads(payload);
+    const contents = uploads.map((upload) => ({
+      upload: {
+        importProfile: upload.importProfile,
+        originalName: upload.name
+      },
+      bytes: upload.bytes
+    })) as unknown as Parameters<typeof uploadReader.prepareEnterpriseReliabilityQueuedJsonUploads>[0];
+
+    expect(uploadReader.prepareEnterpriseReliabilityQueuedJsonUploads(contents, defaultReviewer)).toEqual(expected);
+  });
+
+  it("preserves source summaries, skipped cells, warnings, annotations, and estimates in local and managed queues", async () => {
+    const synchronous = await runQueuedJsonFilesParityCase("sync");
+    const local = await runQueuedJsonFilesParityCase("local");
+    const managed = await runQueuedJsonFilesParityCase("managed");
+
+    expect(synchronous.skippedCells).toHaveLength(1);
+    expect(synchronous.meanPairwiseKappaStatus).toBe("insufficient-pairable-units");
+    expect(synchronous.meanPairwiseKappa).toBeNull();
+    expect.soft(local).toEqual(synchronous);
+    expect.soft(managed).toEqual(synchronous);
+  }, 60_000);
 });
 
 describe("Round15 project-bound work admission ordering", () => {

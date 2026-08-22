@@ -1,5 +1,6 @@
 import {
   assertSenaReliabilityDeclaredRequestBytesWithinLimits,
+  assertSenaReliabilityRequestChunksWithinLimits,
   SENA_RELIABILITY_UNIVERSE_LIMITS
 } from "../reliability";
 
@@ -34,13 +35,20 @@ export async function readSenaReliabilityBoundedTransportRequest(
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let chunkCount = 0;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    const nextChunkCount = chunkCount < Number.MAX_SAFE_INTEGER
+      ? chunkCount + 1
+      : Number.MAX_SAFE_INTEGER + 1;
     const next = value.byteLength <= Number.MAX_SAFE_INTEGER - total
       ? total + value.byteLength
       : Number.MAX_SAFE_INTEGER + 1;
     try {
+      // This count is independent of byte length: a zero-byte chunk still
+      // costs one reader iteration and therefore consumes the object/work cap.
+      assertSenaReliabilityRequestChunksWithinLimits(nextChunkCount, path);
       assertSenaReliabilityDeclaredRequestBytesWithinLimits(next, path, maximum);
     } catch (error) {
       try {
@@ -51,8 +59,11 @@ export async function readSenaReliabilityBoundedTransportRequest(
       }
       throw error;
     }
+    chunkCount = nextChunkCount;
     total = next;
-    chunks.push(value);
+    // Empty chunks have no replay semantics, but were counted above. Every
+    // retained/replayed object is therefore bounded by requestChunks too.
+    if (value.byteLength > 0) chunks.push(value);
   }
 
   let chunkIndex = 0;

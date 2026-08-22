@@ -39,12 +39,17 @@ import {
   type SenaEnterpriseUploadContent
 } from "./import-analysis";
 import { now } from "./ops-runtime";
-import { readEnterpriseReliabilityUploadPointers } from "./reliability-upload-reader";
+import {
+  parseEnterpriseReliabilityUploadContents,
+  prepareEnterpriseReliabilityQueuedJsonUploads,
+  readEnterpriseReliabilityUploadPointerContents
+} from "./reliability-upload-reader";
 import { senaReliabilityServerSourceByteLimit } from "./upload-limits";
 import {
   buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync
 } from "./reliability-runs";
 import {
+  claimEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
   stableServerJobPayloadSha256,
@@ -73,9 +78,9 @@ import {
  * through updateEnterpriseServerJobStatus — the existing lifecycle, not a new
  * one.
  *
- * It deliberately does not touch server-job-queue.ts: enqueue, dispatch,
- * signing and the status machine stay where they are, and this module is only
- * ever a caller of them.
+ * It does not duplicate queue persistence: enqueue, dispatch, signing, the
+ * atomic claim, and the status machine stay in server-job-queue.ts, while this
+ * module remains a caller of those boundaries.
  */
 
 export type SenaServerJobWorkerAction = SenaEnterpriseServerJob["worker"]["expectedAction"];
@@ -316,18 +321,15 @@ async function executeImportJob(
   };
 }
 
-async function admitReliabilityUploadsJob(
-  job: SenaEnterpriseServerJob,
-  payload: Record<string, unknown>,
-  context: SenaEnterpriseSessionContext,
-  uploadIds: string[]
+async function admitReliabilityUploadContentsJob(
+  contents: SenaEnterpriseUploadContent[]
 ) {
-  const teamId = optionalString(payload.teamId) ?? job.teamId;
-  const pointerInput = await readEnterpriseReliabilityUploadPointers(context, { teamId, uploadIds });
+  const pointerInput = await parseEnterpriseReliabilityUploadContents(contents);
   const dashboard = buildSenaReliabilityDashboard(pointerInput.parsed.annotations, {
     skippedCells: pointerInput.parsed.skippedCells
   });
   return {
+    contents,
     ...pointerInput,
     dashboard: {
       ...dashboard,
@@ -335,6 +337,16 @@ async function admitReliabilityUploadsJob(
     }
   };
 }
+
+type SenaReliabilityJobAdmission =
+  | {
+      source: "uploads";
+      input: Awaited<ReturnType<typeof admitReliabilityUploadContentsJob>>;
+    }
+  | {
+      source: "json";
+      input: SenaPreparedReliabilityRunInput;
+    };
 
 function hasOwn(payload: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(payload, key);
@@ -386,11 +398,45 @@ function admitReliabilityInlineJob(
   return prepareSenaReliabilityJsonRequest(semanticPayload, { defaultReviewer });
 }
 
+async function admitReliabilityJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  context: SenaEnterpriseSessionContext
+): Promise<SenaReliabilityJobAdmission> {
+  const uploadIds = reliabilityUploadPointers(payload);
+  const inlineSourceSupplied = queuedReliabilityJsonSourceSupplied(payload);
+  assertSenaReliabilitySingleSourceMode({
+    json: inlineSourceSupplied,
+    uploadPointers: uploadIds.length > 0
+  });
+  if (uploadIds.length > 0) {
+    const teamId = optionalString(payload.teamId) ?? job.teamId;
+    const { contents } = await readEnterpriseReliabilityUploadPointerContents(context, { teamId, uploadIds });
+    const queuedJson = prepareEnterpriseReliabilityQueuedJsonUploads(contents, context.user.name);
+    if (queuedJson) return { source: "json", input: queuedJson };
+    return {
+      source: "uploads",
+      input: await admitReliabilityUploadContentsJob(contents)
+    };
+  }
+  if (inlineSourceSupplied) {
+    return {
+      source: "json",
+      input: admitReliabilityInlineJob(payload, context.user.name)
+    };
+  }
+  throw new SenaEnterpriseError(
+    "Queued reliability jobs need either upload pointers or inline annotations.",
+    400,
+    "server_job_worker_reliability_source_missing"
+  );
+}
+
 async function executeReliabilityUploadsJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext,
-  admission: Awaited<ReturnType<typeof admitReliabilityUploadsJob>>,
+  admission: Awaited<ReturnType<typeof admitReliabilityUploadContentsJob>>,
   reviewer: string
 ): Promise<SenaServerJobWorkerResult> {
   const teamId = optionalString(payload.teamId) ?? job.teamId;
@@ -555,33 +601,9 @@ async function executeAnalysisJob(
 async function executeReliabilityJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
-  context: SenaEnterpriseSessionContext
+  context: SenaEnterpriseSessionContext,
+  admission: SenaReliabilityJobAdmission
 ): Promise<SenaServerJobWorkerResult> {
-  const uploadIds = reliabilityUploadPointers(payload);
-  const inlineSourceSupplied = queuedReliabilityJsonSourceSupplied(payload);
-  assertSenaReliabilitySingleSourceMode({
-    json: inlineSourceSupplied,
-    uploadPointers: uploadIds.length > 0
-  });
-
-  // Source admission is intentionally complete before project lookup and
-  // reviewer retrieval. Both paths decode/count every raw row and build the
-  // dashboard once, which executes the comprehensive algorithm-work preflight;
-  // the admitted result is then carried to persistence without reparsing.
-  const uploadAdmission = uploadIds.length > 0
-    ? await admitReliabilityUploadsJob(job, payload, context, uploadIds)
-    : undefined;
-  const inlineAdmission = !uploadAdmission && inlineSourceSupplied
-    ? admitReliabilityInlineJob(payload, context.user.name)
-    : undefined;
-  if (!uploadAdmission && !inlineAdmission) {
-    throw new SenaEnterpriseError(
-      "Queued reliability jobs need either upload pointers or inline annotations.",
-      400,
-      "server_job_worker_reliability_source_missing"
-    );
-  }
-
   const projectId = optionalString(payload.projectId) ?? job.projectId;
   if (projectId) {
     const project = await getEnterpriseProjectReadOnlyAsync(context, projectId);
@@ -598,20 +620,24 @@ async function executeReliabilityJob(
     }
   }
   const reviewer = await queuedReliabilityReviewer(job, payload, context);
-  if (uploadAdmission) {
-    return executeReliabilityUploadsJob(job, payload, context, uploadAdmission, reviewer);
+  if (admission.source === "uploads") {
+    return executeReliabilityUploadsJob(job, payload, context, admission.input, reviewer);
   }
-  return executeReliabilityInlineJob(job, payload, context, inlineAdmission!, reviewer);
+  return executeReliabilityInlineJob(job, payload, context, admission.input, reviewer);
 }
 
 async function executeByKind(
   job: SenaEnterpriseServerJob,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options: { reliabilityAdmission?: SenaReliabilityJobAdmission } = {}
 ): Promise<SenaServerJobWorkerResult> {
   const context = await workerSessionContext(job);
   if (job.kind === "analysis") return executeAnalysisJob(job, payload, context);
   if (job.kind === "import") return executeImportJob(job, payload, context);
-  if (job.kind === "reliability") return executeReliabilityJob(job, payload, context);
+  if (job.kind === "reliability") {
+    const admission = options.reliabilityAdmission ?? await admitReliabilityJob(job, payload, context);
+    return executeReliabilityJob(job, payload, context, admission);
+  }
   throw new SenaEnterpriseError(
     `No in-repo executor is registered for SENA server job kind ${job.kind}.`,
     501,
@@ -631,26 +657,31 @@ function skipped(job: SenaEnterpriseServerJob, skipReason: string): SenaServerJo
   };
 }
 
+function failedBeforeClaim(job: SenaEnterpriseServerJob, error: unknown): SenaServerJobWorkerOutcome {
+  return {
+    jobId: job.id,
+    kind: job.kind,
+    action: job.worker.expectedAction,
+    status: "failed",
+    jobStatus: job.status,
+    attempts: job.lifecycle.attempts,
+    retryable: job.lifecycle.retryable,
+    errorCode: errorCodeOf(error),
+    errorHash: errorHashOf(error),
+    issues: errorIssuesOf(error)
+  };
+}
+
 /**
  * Takes the job out of `queued` for this worker run.
  *
- * Two guards, because the queue's status writer is a read-modify-write and this
- * module may not change it: the in-process set above stops overlapping calls in
- * one runtime, and re-reading the job after mark-running confirms that *our*
- * workerRunId is the one that stuck. A worker that loses that race abandons the
- * job instead of executing it, so a job is executed at most once per claim.
+ * The queue owns the compare-and-set: production Postgres updates only a row
+ * whose status is still queued, while the local development store makes its
+ * synchronous transition in one process turn. A losing contender never
+ * receives the admitted work product for execution.
  */
 async function claimServerJob(jobId: string, runId: string) {
-  const current = await getEnterpriseServerJob(jobId);
-  if (current.status !== "queued") {
-    return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
-  }
-  await updateEnterpriseServerJobStatus({ jobId, action: "mark-running", workerRunId: runId });
-  const claimed = await getEnterpriseServerJob(jobId);
-  if (claimed.status !== "running" || claimed.lifecycle.workerRunId !== runId) {
-    return { claimed: false as const, reason: "server_job_worker_claim_lost", job: claimed };
-  }
-  return { claimed: true as const, job: claimed };
+  return claimEnterpriseServerJob({ jobId, workerRunId: runId });
 }
 
 /**
@@ -678,12 +709,30 @@ export async function runEnterpriseServerJob(input: {
 
   const runId = input.runId ?? workerRunId();
   try {
-    const claim = await claimServerJob(job.id, runId);
+    const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
+    let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
+    let candidate = job;
+    if (job.kind === "reliability") {
+      // Cross-process contenders may repeat this bounded, read-only preflight,
+      // but no contender mutates the job until its complete source universe is
+      // admitted. claimServerJob below remains the single execution winner.
+      candidate = await getEnterpriseServerJob(job.id);
+      if (candidate.status !== "queued") {
+        return skipped(candidate, "server_job_worker_job_not_queued");
+      }
+      try {
+        const context = await workerSessionContext(candidate);
+        reliabilityAdmission = await admitReliabilityJob(candidate, payload, context);
+      } catch (error) {
+        return failedBeforeClaim(candidate, error);
+      }
+    }
+
+    const claim = await claimServerJob(candidate.id, runId);
     if (!claim.claimed) return skipped(claim.job, claim.reason);
 
-    const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
     try {
-      const result = await executeByKind(claim.job, payload);
+      const result = await executeByKind(claim.job, payload, { reliabilityAdmission });
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-succeeded",

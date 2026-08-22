@@ -127,6 +127,10 @@ export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
   // Transport envelopes include JSON property names or multipart boundaries
   // in addition to the admitted 100 MiB aggregate source universe.
   requestBytes: 128 * 1024 * 1024,
+  // 128 MiB / 16 KiB. This independently bounds reader iterations and the
+  // maximum number of retained/replayed body-chunk objects; zero-byte chunks
+  // consume the budget even though they are not retained for replay.
+  requestChunks: 8_192,
   annotationRows: 200_000,
   binaryUnits: 50_000,
   assignmentCells: 200_000,
@@ -390,6 +394,22 @@ export function assertSenaReliabilityDeclaredRequestBytesWithinLimits(
       path,
       rule: `request-byte-count-at-most-${maximum}`,
       actual: Number.isSafeInteger(byteCount) && byteCount >= 0 ? byteCount : "safe-integer-overflow",
+      maximum
+    }]);
+  }
+}
+
+export function assertSenaReliabilityRequestChunksWithinLimits(
+  chunkCount: number,
+  path: "annotations" | "files",
+  maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.requestChunks
+) {
+  if (!Number.isSafeInteger(maximum) || maximum < 0 ||
+    !Number.isSafeInteger(chunkCount) || chunkCount < 0 || chunkCount > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `request-chunk-count-at-most-${maximum}`,
+      actual: Number.isSafeInteger(chunkCount) && chunkCount >= 0 ? chunkCount : "safe-integer-overflow",
       maximum
     }]);
   }

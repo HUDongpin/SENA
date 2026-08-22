@@ -28,6 +28,14 @@ export type SenaReliabilityJsonRequest = {
   files?: unknown;
 };
 
+export type SenaReliabilityJsonQueueSourceKind = "file" | "annotations" | "rows" | "data";
+
+export type SenaReliabilityJsonQueueSource = {
+  kind: SenaReliabilityJsonQueueSourceKind;
+  name: string;
+  bytes: Buffer;
+};
+
 export type SenaPreparedReliabilityRunInput = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityPreparedInput;
   source: "json-annotations";
@@ -92,62 +100,84 @@ function sourceSummary(name: string, rows: SenaImportRow[]) {
   };
 }
 
-function assertJsonSourcesWithinLimits(
-  payload: SenaReliabilityJsonRequest,
-  limits: { sourceBytes?: number } = {}
-) {
+type SenaReliabilityJsonAdmissionSource = {
+  kind: SenaReliabilityJsonQueueSourceKind;
+  name: string;
+  rawValue: unknown;
+  rawRowGroups: unknown[][];
+  supplied: boolean;
+};
+
+function jsonAdmissionSources(payload: SenaReliabilityJsonRequest) {
   const fileValues = Array.isArray(payload.files) ? payload.files : [];
   const inlineValues = [
     ["annotations", payload.annotations],
     ["rows", payload.rows],
     ["data", payload.data]
-  ].filter((entry): entry is [string, unknown] => entry[1] !== undefined);
+  ].filter((entry): entry is [Exclude<SenaReliabilityJsonQueueSourceKind, "file">, unknown] => entry[1] !== undefined);
   const sourceCount = fileValues.length + inlineValues.length || 1;
   const admissionPath = fileValues.length > 0 ? "files" as const : "annotations" as const;
+  const sources: SenaReliabilityJsonAdmissionSource[] = [];
+  for (let index = 0; index < fileValues.length; index += 1) {
+    const value = fileValues[index];
+    const record = isImportRow(value) ? value : {};
+    sources.push({
+      kind: "file",
+      name: scalar(record.name) || `reliability-json-batch-${index + 1}.json`,
+      rawValue: value,
+      rawRowGroups: allRawRowGroupsFrom(record),
+      supplied: true
+    });
+  }
+  for (const [key, value] of inlineValues) {
+    sources.push({
+      kind: key,
+      name: scalar(payload.sourceName) || `reliability-json-${key}.json`,
+      rawValue: value,
+      rawRowGroups: allRawRowGroupsFrom(value),
+      supplied: true
+    });
+  }
+  if (sources.length === 0) {
+    sources.push({
+      kind: "annotations",
+      name: scalar(payload.sourceName) || "reliability-json-annotations.json",
+      rawValue: [],
+      rawRowGroups: [[]],
+      supplied: false
+    });
+  }
+  return { admissionPath, sourceCount, sources };
+}
+
+function jsonSourceEnvelope(source: SenaReliabilityJsonAdmissionSource) {
+  return stableStringify({
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
+    name: source.name,
+    // Byte admission covers the complete supplied source envelope, including
+    // invalid alias values and fields semantic row selection will ignore.
+    rows: source.rawValue
+  });
+}
+
+function assertJsonSourcesWithinLimits(
+  payload: SenaReliabilityJsonRequest,
+  limits: { sourceBytes?: number } = {}
+) {
+  const { admissionPath, sourceCount, sources } = jsonAdmissionSources(payload);
   // Count before mapping source envelopes so an attacker cannot create the
   // very serialization/source-summary fan-out this guard is intended to stop.
   assertSenaReliabilitySourceCountWithinLimits(sourceCount, admissionPath);
 
-  const admissionSources: Array<{ name: string; rawValue: unknown; rawRowGroups: unknown[][] }> = [];
-  for (let index = 0; index < fileValues.length; index += 1) {
-    const value = fileValues[index];
-    const record = isImportRow(value) ? value : {};
-    admissionSources.push({
-      name: scalar(record.name) || `reliability-json-batch-${index + 1}.json`,
-      rawValue: value,
-      rawRowGroups: allRawRowGroupsFrom(record)
-    });
-  }
-  for (const [key, value] of inlineValues) {
-    admissionSources.push({
-      name: scalar(payload.sourceName) || `reliability-json-${key}.json`,
-      rawValue: value,
-      rawRowGroups: allRawRowGroupsFrom(value)
-    });
-  }
-  if (admissionSources.length === 0) {
-    admissionSources.push({
-      name: scalar(payload.sourceName) || "reliability-json-annotations.json",
-      rawValue: [],
-      rawRowGroups: [[]]
-    });
-  }
-
   const rawRowGroups: unknown[][] = [];
-  for (const source of admissionSources) {
+  for (const source of sources) {
     for (const rows of source.rawRowGroups) rawRowGroups.push(rows);
   }
   // Count every supplied alias/file group, including groups that semantic
   // precedence will not select, before filtering any row values.
   assertSenaReliabilityCombinedRawRowsWithinLimits(rawRowGroups);
   assertSenaReliabilitySourceBytesWithinLimits(
-    admissionSources.map((source) => Buffer.byteLength(stableStringify({
-      schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityJsonSource,
-      name: source.name,
-      // Byte admission covers the complete supplied source envelope, including
-      // invalid alias values and fields semantic row selection will ignore.
-      rows: source.rawValue
-    }), "utf8")),
+    sources.map((source) => Buffer.byteLength(jsonSourceEnvelope(source), "utf8")),
     admissionPath,
     limits
   );
@@ -184,6 +214,25 @@ export function assertSenaReliabilityJsonRequestWithinLimits(
   limits: { sourceBytes?: number } = {}
 ) {
   assertJsonSourcesWithinLimits(payload, limits);
+}
+
+/**
+ * Serializes one encrypted local-queue upload per admitted logical JSON source.
+ * The bytes are the exact envelope used for byte admission, so queue transport
+ * cannot add an unbudgeted wrapper or flatten away invalid/skipped raw rows.
+ */
+export function buildSenaReliabilityJsonQueueSources(
+  payload: SenaReliabilityJsonRequest,
+  limits: { sourceBytes?: number } = {}
+): SenaReliabilityJsonQueueSource[] {
+  assertJsonSourcesWithinLimits(payload, limits);
+  return jsonAdmissionSources(payload).sources
+    .filter((source) => source.supplied)
+    .map((source) => ({
+      kind: source.kind,
+      name: source.name,
+      bytes: Buffer.from(jsonSourceEnvelope(source), "utf8")
+    }));
 }
 
 export function prepareSenaReliabilityJsonRequest(

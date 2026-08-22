@@ -12,7 +12,10 @@ import {
 } from "@/lib/sena/enterprise/import-analysis";
 import { senaReliabilityServerSourceByteLimit } from "@/lib/sena/enterprise/upload-limits";
 import { readSenaReliabilityBoundedTransportRequest } from "@/lib/sena/enterprise/reliability-transport";
-import { readEnterpriseReliabilityUploadPointers } from "@/lib/sena/enterprise/reliability-upload-reader";
+import {
+  buildEnterpriseReliabilityJsonQueueUploads,
+  readEnterpriseReliabilityUploadPointers
+} from "@/lib/sena/enterprise/reliability-upload-reader";
 import {
   requireEnterprisePermission
 } from "@/lib/sena/enterprise/access-control";
@@ -164,22 +167,23 @@ export async function POST(request: Request) {
           annotations: preparedInline.annotations,
           skippedCells: preparedInline.skippedCells
         } : undefined;
-        const inlineRowsForQueue = preparedInline
-          ? Array.isArray(body.files) && body.files.length > 0
-            ? preparedInline.annotations
-            : Array.isArray(body.annotations)
-              ? body.annotations
-              : Array.isArray(body.rows)
-                ? body.rows
-                : Array.isArray(body.data)
-                  ? body.data
-                  : preparedInline.annotations
-          : undefined;
+        const queue = serverJobQueueStatus();
+        const queuedJsonUploads = preparedInline && queue.mode === "local"
+          ? buildEnterpriseReliabilityJsonQueueUploads(body)
+          : [];
+        const managedInlineSourcePayload: Record<string, unknown> = {};
+        if (preparedInline && queue.inlinePayloadAllowed) {
+          for (const key of ["files", "annotations", "rows", "data"] as const) {
+            if (Object.prototype.hasOwnProperty.call(body, key)) managedInlineSourcePayload[key] = body[key];
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "sourceName")) {
+            managedInlineSourcePayload.sourceName = body.sourceName;
+          }
+        }
         const projectId = body.projectId ? String(body.projectId) : undefined;
         const project = projectId ? await getEnterpriseProjectReadOnlyAsync(context, projectId) : null;
         const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
         requireEnterprisePermission(context, teamId, "reliability:adjudicate");
-        const queue = serverJobQueueStatus();
         let uploadIds = uploadIdsFromRequest;
         const annotationCount = preparedInline?.annotationCount;
         const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
@@ -221,23 +225,18 @@ export async function POST(request: Request) {
             }
           }
         }
-        // The local queue has no webhook body to deliver later. Store JSON
-        // annotations through the existing encrypted upload registry and keep
-        // only the opaque pointer in the job receipt, so its polling worker can
-        // reproduce the exact payload hash without persisting coder values.
-        if (queue.mode === "local" && uploadIds.length === 0 && inlineRowsForQueue) {
+        // The local queue has no webhook body to deliver later. Store each
+        // admitted logical JSON source through the encrypted upload registry,
+        // preserving file/alias boundaries and raw skipped/invalid rows while
+        // keeping only opaque pointers in the public job receipt.
+        if (queue.mode === "local" && uploadIds.length === 0 && queuedJsonUploads.length > 0) {
           const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
             teamId,
-            files: [{
-              name: "queued-reliability-annotations.json",
-              contentType: "application/json",
-              bytes: Buffer.from(JSON.stringify(inlineRowsForQueue), "utf8"),
-              importProfile: "reliability"
-            }]
+            files: queuedJsonUploads
           });
           uploadIds = uploads.map((upload) => upload.id);
         }
-        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !inlineRowsForQueue)) {
+        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !preparedInline)) {
           throw new SenaEnterpriseError(
             "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
             400,
@@ -271,7 +270,7 @@ export async function POST(request: Request) {
             reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             sourceName: body.sourceName ? String(body.sourceName) : undefined,
             requestSchemaVersion: body.schemaVersion ? String(body.schemaVersion) : undefined,
-            inlineAnnotations: queue.inlinePayloadAllowed ? inlineRowsForQueue : undefined
+            ...managedInlineSourcePayload
           },
           payloadSummary: {
             source: uploadIds.length > 0 ? "upload" : "dataset",
@@ -281,9 +280,9 @@ export async function POST(request: Request) {
             reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
             reviewerEnvelopeSha256: reviewerEnvelope.sha256,
             annotationCount,
-            fileCount: uploadIds.length || preparedInline?.fileCount,
+            fileCount: preparedInline?.fileCount ?? uploadIds.length,
             hasInlineSnapshot: false,
-            hasInlineDataset: queue.mode === "local" ? false : Boolean(inlineRowsForQueue),
+            hasInlineDataset: queue.mode === "local" ? false : Boolean(preparedInline),
             payloadValuesExcluded: true
           },
           queue

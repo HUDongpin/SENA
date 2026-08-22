@@ -3238,6 +3238,19 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     ]);
   }
 
+  async function claimQueuedJob(job: SenaEnterpriseServerJob) {
+    await ensureSchema();
+    const result = await input.query<Record<string, unknown>>(`
+      UPDATE ${tableRef}
+      SET status = 'running',
+        lifecycle = $2::jsonb,
+        updated_at = $3
+      WHERE id = $1 AND status = 'queued'
+      RETURNING *
+    `, [job.id, roundTripJson(job.lifecycle), job.updatedAt]);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
   function filterClauses(inputFilters: {
     status?: SenaEnterpriseServerJobStatus;
     kind?: SenaEnterpriseServerJobKind;
@@ -3337,6 +3350,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
   return {
     ensureSchema,
     upsertJob,
+    claimQueuedJob,
     listJobs,
     getJob
   };

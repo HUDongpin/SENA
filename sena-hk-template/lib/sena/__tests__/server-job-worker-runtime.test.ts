@@ -394,6 +394,43 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(runs).toHaveLength(1);
   });
 
+  it("atomically grants exactly one queued-job claim to racing worker contenders", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const [left, right] = await Promise.all([
+      fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "worker_run_left" }),
+      fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "worker_run_right" })
+    ]);
+    const claims = [left, right];
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(claims.filter((claim) => !claim.claimed)).toHaveLength(1);
+
+    const winner = claims.find((claim) => claim.claimed);
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored.status).toBe("running");
+    expect(stored.lifecycle.attempts).toBe(1);
+    expect(stored.lifecycle.workerRunId).toBe(winner?.job.lifecycle.workerRunId);
+  });
+
   it("executes a queued import job from its registered upload blobs and lands it succeeded", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
@@ -609,6 +646,7 @@ describe("SENA in-repo server job worker runtime", () => {
     const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
       teamId: fixture.teamId
     });
+    const jobBeforeAdmission = structuredClone(await fixture.queue.getEnterpriseServerJob(job.id));
     const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
       teamId: fixture.teamId,
       limit: 500
@@ -644,7 +682,7 @@ describe("SENA in-repo server job worker runtime", () => {
     }));
     vi.doMock("../enterprise/reliability-upload-reader", async () => ({
       ...await vi.importActual<typeof import("../enterprise/reliability-upload-reader")>("../enterprise/reliability-upload-reader"),
-      readEnterpriseReliabilityUploadPointers: pointerReader
+      readEnterpriseReliabilityUploadPointerContents: pointerReader
     }));
 
     try {
@@ -657,6 +695,7 @@ describe("SENA in-repo server job worker runtime", () => {
       expect(readOnlyProjectLookup).not.toHaveBeenCalled();
       expect(reviewerReader).not.toHaveBeenCalled();
       expect(outcome.errorCode).toBe("reliability_universe_limit_exceeded");
+      expect(await fixture.queue.getEnterpriseServerJob(job.id)).toEqual(jobBeforeAdmission);
       expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
         teamId: fixture.teamId
       })).toEqual(runsBefore);

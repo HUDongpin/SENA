@@ -997,6 +997,7 @@ export async function readSenaReliabilityUploadRows(
     const rawRowGroups = Array.isArray(parsed)
       ? [parsed]
       : [record?.annotations, record?.rows, record?.data].filter(Array.isArray);
+    if (record && rawRowGroups.length === 0) rawRowGroups.push([record]);
     const rawRowCount = assertSenaReliabilityCombinedRawRowsWithinLimits(rawRowGroups);
     // Preserve one canonical semantic table while admission above counts every
     // supplied alias, including precedence-ignored arrays.
