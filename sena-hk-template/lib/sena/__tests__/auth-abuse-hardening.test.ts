@@ -194,15 +194,15 @@ describe("SENA auth rate-limit key custody (A2)", () => {
         }
       }), { bucket: "auth.login", discriminator: "victim@example.edu", limit: 10 }));
 
-    // Exactly the failure a rotated User-Agent used to cause. It is tolerated only
-    // because SENA runs behind a proxy that overwrites x-forwarded-for; expose the
-    // app directly and this per-IP limiter stops bounding anything. What still
+    // Exactly the failure a rotated User-Agent used to cause. This is safe only
+    // when SENA is deployed behind a proxy that overwrites x-forwarded-for; expose
+    // the app directly and this per-IP limiter stops bounding anything. What still
     // bounds the attempt is the per-subject backstop covered by the tests below.
     expect(new Set(rotated.map((outcome) => outcome.keyHash)).size).toBe(3);
     expect(rotated.map((outcome) => outcome.requestCount)).toEqual([1, 1, 1]);
   });
 
-  it("falls back to x-real-ip only when x-forwarded-for is absent", async () => {
+  it("falls back to x-real-ip only when x-forwarded-for is absent or blank", async () => {
     enterpriseTempDbDir("sena-auth-ratelimit-real-ip-");
     vi.resetModules();
 
@@ -215,14 +215,27 @@ describe("SENA auth rate-limit key custody (A2)", () => {
     }
 
     const realIpOnly = loginAttempt({ "x-real-ip": "198.51.100.4" });
+    const forwardedSameIp = loginAttempt({ "x-forwarded-for": "198.51.100.4" });
+    const blankForwarded = loginAttempt({
+      "x-forwarded-for": "   ",
+      "x-real-ip": "198.51.100.4"
+    });
     const bothHeaders = loginAttempt({
       "x-forwarded-for": "203.0.113.7",
       "x-real-ip": "198.51.100.4"
     });
     const forwardedOnly = loginAttempt({ "x-forwarded-for": "203.0.113.7" });
 
-    // x-real-ip is a second client-supplied header, not a more trustworthy one, so
-    // it buys nothing when x-forwarded-for is present.
+    // The same address must share a bucket across the two header names. Otherwise
+    // an implementation that silently ignores x-real-ip would still pass the
+    // precedence assertions below by falling back to the unrelated "local" key.
+    expect(forwardedSameIp.keyHash).toBe(realIpOnly.keyHash);
+    expect(forwardedSameIp.requestCount).toBe(2);
+    expect(blankForwarded.keyHash).toBe(realIpOnly.keyHash);
+    expect(blankForwarded.requestCount).toBe(3);
+
+    // x-real-ip is a second potentially client-supplied header, not a more
+    // trustworthy one, so it buys nothing when a non-blank x-forwarded-for exists.
     expect(forwardedOnly.keyHash).toBe(bothHeaders.keyHash);
     expect(forwardedOnly.requestCount).toBe(2);
     expect(realIpOnly.keyHash).not.toBe(bothHeaders.keyHash);
