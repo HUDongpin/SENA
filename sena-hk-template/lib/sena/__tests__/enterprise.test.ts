@@ -3919,6 +3919,7 @@ describe("SENA enterprise runtime", () => {
     const reliability = buildSenaReliabilityDashboard(parsedReliability.annotations);
     expect(reliability.coderCount).toBe(2);
     expect(reliability.disagreementCount).toBe(2);
+    expect(reliability.claimEligibility.eligible).toBe(false);
     expect(reliability.codeDiagnostics[0]).toEqual(expect.objectContaining({
       codeId: "Explanation",
       disagreementCount: 2,
@@ -4193,6 +4194,52 @@ describe("SENA enterprise runtime", () => {
     const expertCheck = validationGovernance.checks.find((check: { id: string }) => check.id === "domain-expert-review");
     expect(expertCheck?.evidence).toContain("expertReviews=1");
     expect(expertCheck?.evidence).toContain("approved=1");
+    expect((validationSuiteRun as {
+      projectBinding?: { projectId: string; projectVersion: number; snapshotSha256: string };
+    }).projectBinding).toEqual({
+      projectId: project.id,
+      projectVersion: updatedProject.currentVersion,
+      snapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+    expect((expertReview as {
+      projectBinding?: { projectId: string; projectVersion: number; snapshotSha256: string };
+    }).projectBinding).toEqual({
+      projectId: project.id,
+      projectVersion: updatedProject.currentVersion,
+      snapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+
+    const eligibleReliabilityAnnotations = parseCoderAnnotationsFromRows([
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "0" },
+      { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" },
+      { coder_id: "c1", item_id: "u3", code_id: "Explanation", value: "1" },
+      { coder_id: "c2", item_id: "u3", code_id: "Explanation", value: "1" },
+      { coder_id: "c1", item_id: "u4", code_id: "Explanation", value: "0" },
+      { coder_id: "c2", item_id: "u4", code_id: "Explanation", value: "0" }
+    ]);
+    const eligibleReliabilityDashboard = buildSenaReliabilityDashboard(eligibleReliabilityAnnotations.annotations);
+    expect(eligibleReliabilityDashboard.claimEligibility.eligible).toBe(true);
+    const eligibleReliabilityRun = enterprise.createEnterpriseReliabilityRun(registered.context, {
+      teamId: registered.context.teams[0].id,
+      projectId: project.id,
+      reviewer: "Enterprise claim package reviewer",
+      fileCount: 1,
+      annotationCount: eligibleReliabilityAnnotations.annotations.length,
+      annotations: eligibleReliabilityAnnotations.annotations,
+      skippedCells: eligibleReliabilityAnnotations.skippedCells,
+      inputFiles: [{ name: "eligible-coder-ratings.csv", size: 160, sha256: "b".repeat(64) }],
+      dashboard: eligibleReliabilityDashboard,
+      reviewPatch: reliabilityDashboardToReview(eligibleReliabilityDashboard, "Enterprise claim package reviewer")
+    });
+    const approvedEligibleReliabilityRun = enterprise.reviewEnterpriseReliabilityRun(
+      registered.context,
+      eligibleReliabilityRun.id,
+      { status: "approved", notes: "Approved current-project machine-eligible reliability evidence." }
+    );
+    expect(approvedEligibleReliabilityRun.status).toBe("approved");
+
     const claimPackage = enterprise.getEnterpriseClaimEvidencePackage(registered.context, { projectId: project.id });
     expect(claimPackage.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v1");
     expect(claimPackage.project.id).toBe(project.id);
@@ -4212,7 +4259,7 @@ describe("SENA enterprise runtime", () => {
     expect(claimPackage.sourceSnapshotEvidence.matrixFingerprints.every((fingerprint: { sha256: string }) => fingerprint.sha256.length === 64)).toBe(true);
     expect(claimPackage.status).toBe("claim-ready-with-limits");
     expect(claimPackage.summary.blockers).toBe(0);
-    expect(claimPackage.evidence.reliability?.runId).toBe(reliabilityRun.id);
+    expect(claimPackage.evidence.reliability?.runId).toBe(eligibleReliabilityRun.id);
     expect(claimPackage.evidence.reliability?.status).toBe("approved");
     expect(claimPackage.evidence.validation?.runId).toBe(validationSuiteRun.id);
     expect(claimPackage.evidence.validation?.preregistrationPlanHash).toMatch(/^[a-f0-9]{64}$/);

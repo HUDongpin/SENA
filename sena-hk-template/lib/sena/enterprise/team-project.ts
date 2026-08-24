@@ -54,6 +54,17 @@ export type SenaEnterpriseProjectRevision = {
   createdAt: string;
 };
 
+/**
+ * Immutable analytical-revision identity captured by enterprise evidence records.
+ * The field remains optional on persisted evidence types so historical records can
+ * still be read, but an absent or stale binding is never claim-ready.
+ */
+export type SenaEnterpriseProjectEvidenceBinding = {
+  projectId: string;
+  projectVersion: number;
+  snapshotSha256: string;
+};
+
 export type SenaEnterpriseProjectDeletion = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.projectDelete;
   projectId: string;
@@ -74,6 +85,25 @@ function id(prefix: string) {
 
 function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function buildEnterpriseProjectEvidenceBinding(
+  project: Pick<SenaEnterpriseProject, "id" | "currentVersion" | "snapshot">
+): SenaEnterpriseProjectEvidenceBinding {
+  return {
+    projectId: project.id,
+    projectVersion: project.currentVersion,
+    snapshotSha256: artifactSha256(project.snapshot)
+  };
+}
+
+export function enterpriseProjectEvidenceBindingMatches(
+  binding: SenaEnterpriseProjectEvidenceBinding | undefined,
+  project: Pick<SenaEnterpriseProject, "id" | "currentVersion" | "snapshot">
+) {
+  return binding?.projectId === project.id &&
+    binding.projectVersion === project.currentVersion &&
+    binding.snapshotSha256 === artifactSha256(project.snapshot);
 }
 
 function snapshotCounts(snapshot: SenaProjectSnapshot) {

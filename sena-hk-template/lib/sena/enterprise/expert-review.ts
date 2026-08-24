@@ -22,6 +22,10 @@ import {
   notifyProjectReaders,
   queueEnterpriseNotification
 } from "./notifications-delivery";
+import {
+  buildEnterpriseProjectEvidenceBinding,
+  type SenaEnterpriseProjectEvidenceBinding
+} from "./team-project";
 
 export type SenaEnterpriseExpertReviewStatus = "requested" | "approved" | "changes-requested" | "rejected";
 
@@ -29,6 +33,8 @@ export type SenaEnterpriseExpertReview = {
   id: string;
   teamId: string;
   projectId: string;
+  /** Historical records may be unbound; claim aggregation treats them as exploratory-only. */
+  projectBinding?: SenaEnterpriseProjectEvidenceBinding;
   userId: string;
   status: SenaEnterpriseExpertReviewStatus;
   target: {
@@ -178,6 +184,7 @@ function createEnterpriseExpertReviewInDb(
     id: id("expert"),
     teamId: project.teamId,
     projectId: project.id,
+    projectBinding: buildEnterpriseProjectEvidenceBinding(project),
     userId: context.user.id,
     status,
     target,

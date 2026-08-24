@@ -12,8 +12,15 @@ import {
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseDb } from "./state";
-import type { SenaEnterpriseProject } from "./team-project";
-import { getEnterpriseProject, getEnterpriseProjectAsync } from "./team-project";
+import type {
+  SenaEnterpriseProject,
+  SenaEnterpriseProjectEvidenceBinding
+} from "./team-project";
+import {
+  buildEnterpriseProjectEvidenceBinding,
+  getEnterpriseProject,
+  getEnterpriseProjectAsync
+} from "./team-project";
 import {
   requireEnterprisePermission,
   rolePermissions
@@ -153,6 +160,8 @@ export type SenaEnterpriseValidationRun = {
   id: string;
   teamId: string;
   projectId?: string;
+  /** Historical records may be unbound; claim aggregation treats them as exploratory-only. */
+  projectBinding?: SenaEnterpriseProjectEvidenceBinding;
   userId: string;
   status: SenaEnterpriseValidationRunStatus;
   reviewerId?: string;
@@ -651,6 +660,7 @@ function createEnterpriseValidationRunInDb(
     id: id("val"),
     teamId: input.teamId,
     projectId: input.projectId,
+    projectBinding: project ? buildEnterpriseProjectEvidenceBinding(project) : undefined,
     userId: context.user.id,
     status: "pending-review",
     preregistrationNote: input.preregistrationNote?.trim() ?? "",
