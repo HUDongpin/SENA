@@ -905,6 +905,8 @@ describe("SENA human-concept publication figure generator", () => {
     )).toBe(true);
   });
 
+  // Rasterization competes with other workers in full-suite runs, so inherit
+  // the loaded-machine timeout floor from vitest.config.ts.
   it("replays all nine artifacts byte-for-byte with the same SOURCE_DATE_EPOCH", () => {
     const cachedRun = getCachedGeneratorRun();
     const replayOutputDir = makeOutputDir();
@@ -918,7 +920,7 @@ describe("SENA human-concept publication figure generator", () => {
         readFileSync(path.join(cachedRun.outputDir, artifactName))
       );
     }
-  }, 15_000);
+  });
 
   it("leaves the previous output untouched when rasterization fails", () => {
     const outputDir = makeOutputDir();
