@@ -54,6 +54,20 @@ function readySnapshot() {
   });
 }
 
+function reorderJsonObjectKeys<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => reorderJsonObjectKeys(entry)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left === right ? 0 : left < right ? 1 : -1)
+        .map(([key, entry]) => [key, reorderJsonObjectKeys(entry)])
+    ) as T;
+  }
+  return value;
+}
+
 describe("enterprise claim evidence package integrity", () => {
   const previousDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-claim-integrity-"));
@@ -217,6 +231,28 @@ describe("enterprise claim evidence package integrity", () => {
     expect(claimPackage.evidence.reliability?.runId).toBe(eligibleReliabilityRunId);
     expect(claimPackage.evidence.validation?.runId).toBe(readyValidationRunId);
     expect(claimPackage.evidence.expertReview?.reviewId).toBe(expertReviewId);
+  });
+
+  it("preserves claim-ready evidence after a recursive PostgreSQL jsonb key reorder", () => {
+    const claimPackage = buildPackage(reorderJsonObjectKeys(structuredClone(baseDb)));
+    expect(claimPackage.status).toBe("claim-ready-with-limits");
+    expect(claimPackage.blockers).toEqual([]);
+    expect(claimPackage.evidence.validation?.runId).toBe(readyValidationRunId);
+    expect(claimPackage.evidence.expertReview?.reviewId).toBe(expertReviewId);
+  });
+
+  it("still rejects a semantic validation tamper after a PostgreSQL jsonb key reorder", () => {
+    const db = reorderJsonObjectKeys(structuredClone(baseDb));
+    const validation = db.validationRuns.find((run) => run.id === readyValidationRunId);
+    if (!validation?.preregistrationPlan) throw new Error("Expected validation plan fixture.");
+    validation.preregistrationPlan.guardrail = `${validation.preregistrationPlan.guardrail} tampered`;
+
+    const claimPackage = buildPackage(db);
+    expect(claimPackage.status).toBe("exploratory-only");
+    expect(claimPackage.blockers).toEqual(expect.arrayContaining([
+      "validation-parity-readiness-required",
+      "validation-formal-inference-readiness-required"
+    ]));
   });
 
   it("keeps a human-approved but machine-ineligible reliability run exploratory", () => {

@@ -103,6 +103,21 @@ function validationSqlRow(payload: Record<string, unknown>) {
   };
 }
 
+function postgresJsonbRoundTrip<T>(value: T): T {
+  const reorder = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(reorder);
+    if (entry && typeof entry === "object") {
+      return Object.fromEntries(
+        Object.entries(entry as Record<string, unknown>)
+          .sort(([left], [right]) => left === right ? 0 : left < right ? 1 : -1)
+          .map(([key, child]) => [key, reorder(child)])
+      );
+    }
+    return entry;
+  };
+  return reorder(JSON.parse(JSON.stringify(value))) as T;
+}
+
 describe("SENA enterprise Neon Postgres readiness", () => {
   let enterpriseDbDir: string | undefined;
 
@@ -987,7 +1002,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
             if (!primaryState) {
               primaryState = {
                 revision: 0,
-                payload: values[2]
+                payload: postgresJsonbRoundTrip(values[2])
               };
             }
             return { rows: [], rowCount: 1 };
@@ -995,28 +1010,28 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/UPDATE "public"\."sena_enterprise_state" SET payload/.test(normalizedSql)) {
             primaryState = {
               revision: (primaryState?.revision ?? 0) + 1,
-              payload: values[0]
+              payload: postgresJsonbRoundTrip(values[0])
             };
             return { rows: [{ revision: primaryState.revision }], rowCount: 1 };
           }
           if (/INSERT INTO "public"\."sena_enterprise_state".*ON CONFLICT \(id\) DO UPDATE/.test(normalizedSql)) {
             primaryState = {
               revision: (primaryState?.revision ?? -1) + 1,
-              payload: values[2]
+              payload: postgresJsonbRoundTrip(values[2])
             };
             return { rows: [{ revision: primaryState.revision }], rowCount: 1 };
           }
           if (/INSERT INTO "public"\."sena_enterprise_reliability_runs"/.test(normalizedSql)) {
-            reliabilityPayloads.set(String(values[0]), values[19] as Record<string, unknown>);
+            reliabilityPayloads.set(String(values[0]), postgresJsonbRoundTrip(values[19] as Record<string, unknown>));
           }
           if (/INSERT INTO "public"\."sena_enterprise_validation_runs"/.test(normalizedSql)) {
-            validationPayloads.set(String(values[0]), values[23] as Record<string, unknown>);
+            validationPayloads.set(String(values[0]), postgresJsonbRoundTrip(values[23] as Record<string, unknown>));
           }
           if (/INSERT INTO "public"\."sena_enterprise_expert_reviews"/.test(normalizedSql)) {
-            expertReviewPayloads.set(String(values[0]), values[15] as Record<string, unknown>);
+            expertReviewPayloads.set(String(values[0]), postgresJsonbRoundTrip(values[15] as Record<string, unknown>));
           }
           if (/INSERT INTO "public"\."sena_enterprise_adjudications"/.test(normalizedSql)) {
-            adjudicationPayloads.set(String(values[0]), values[9] as Record<string, unknown>);
+            adjudicationPayloads.set(String(values[0]), postgresJsonbRoundTrip(values[9] as Record<string, unknown>));
           }
           if (/INSERT INTO "public"\."sena_enterprise_project_comments"/.test(normalizedSql)) {
             projectCommentPayloads.set(String(values[0]), values[8] as Record<string, unknown>);
@@ -1091,11 +1106,33 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       plan: "lab"
     });
     const teamId = registered.context.teams[0].id;
+    const snapshotReliability = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+      { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+    ]);
     const analysisArtifact = buildSenaAnalysisRun({
       dataset: lessonStudySenaContract,
       title: "Neon Claim Evidence Project",
-      includeRuntimeBundle: true
+      includeRuntimeBundle: true,
+      humanReview: {
+        status: "human-reviewed",
+        reviewer: "Neon Claim PI",
+        interpretation: "Synthetic indexed-Postgres claim fixture interpretation.",
+        limitations: "Synthetic fixture only.",
+        nextActions: "Retain fail-closed evidence binding."
+      },
+      codingReliability: reliabilityDashboardToReview(snapshotReliability, "Neon Claim PI"),
+      dataGovernance: {
+        irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+        consentScope: "Synthetic indexed-Postgres regression fixture only.",
+        retentionPolicy: "Delete generated state after the test.",
+        usageConstraints: ["Do not use as participant evidence."],
+        dataSteward: "Neon Claim PI"
+      }
     });
+    expect(analysisArtifact.projectSnapshot.report.claimReadinessGate.claimUse).toBe("research-claim-ready");
     const project = enterprise.createEnterpriseProject(registered.context, {
       teamId,
       title: "Neon Claim Evidence Project",
@@ -1106,12 +1143,21 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       payload: enterprise.readEnterpriseDb()
     };
     const parsed = parseCoderAnnotationsFromRows([
-      { coder_id: "c1", item_id: "u1", code_id: "Question", value: "1" },
-      { coder_id: "c2", item_id: "u1", code_id: "Question", value: "0" },
-      { coder_id: "c1", item_id: "u2", code_id: "Evidence", value: "0" },
-      { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "0" }
+      { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
+      { coder_id: "c2", item_id: "u1", code_id: "Evidence", value: "0" },
+      ...Array.from({ length: 4 }, (_, index) => (index + 2)).flatMap((item) => ([
+        { coder_id: "c1", item_id: `u${item}`, code_id: "Evidence", value: "1" },
+        { coder_id: "c2", item_id: `u${item}`, code_id: "Evidence", value: "1" }
+      ])),
+      ...Array.from({ length: 5 }, (_, index) => (index + 6)).flatMap((item) => ([
+        { coder_id: "c1", item_id: `u${item}`, code_id: "Evidence", value: "0" },
+        { coder_id: "c2", item_id: `u${item}`, code_id: "Evidence", value: "0" }
+      ]))
     ]);
     const dashboard = buildSenaReliabilityDashboard(parsed.annotations);
+    expect(dashboard.meanPairwiseKappa).toBeGreaterThanOrEqual(0.8);
+    expect(dashboard.krippendorffAlphaNominal).toBeGreaterThanOrEqual(0.8);
+    expect(dashboard.disagreementCount).toBe(1);
     const reliabilityRun = await enterprise.createEnterpriseReliabilityRunWithPostgresMirror(registered.context, {
       teamId,
       projectId: project.id,
@@ -1127,7 +1173,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     const adjudication = await enterprise.createEnterpriseAdjudicationRecordWithPostgresMirror(registered.context, project.id, {
       reliabilityRunId: reliabilityRun.id,
       itemId: "u1",
-      codeId: "question",
+      codeId: "evidence",
       decision: "include",
       notes: "Indexed adjudication evidence for claim package.",
       coderValues: { c1: true, c2: false }
@@ -1180,6 +1226,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       projectId: project.id
     });
 
+    expect(claimPackage.blockers).toEqual([]);
     expect(claimPackage.status).toBe("claim-ready-with-limits");
     expect(claimPackage.evidenceSource).toEqual(expect.objectContaining({
       reliabilityRuns: "postgres-table",

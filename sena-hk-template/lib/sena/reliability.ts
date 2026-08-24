@@ -639,6 +639,10 @@ function reliabilityBindingHash(value: unknown) {
   return `0x${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
+export function senaReliabilityProjectBindingsEqual(left: unknown, right: unknown) {
+  return stableBindingValue(left) === stableBindingValue(right);
+}
+
 function sortedUnique(values: string[]) {
   return Array.from(new Set(values)).sort(compareSenaCanonicalText);
 }
@@ -885,7 +889,7 @@ export function assertSenaReliabilityProjectBindingMatchesSnapshot(
     snapshot,
     skippedCells: binding.skippedCellCoverage
   }).binding;
-  if (JSON.stringify(rebuilt) !== JSON.stringify(binding)) {
+  if (!senaReliabilityProjectBindingsEqual(rebuilt, binding)) {
     throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
   }
 }

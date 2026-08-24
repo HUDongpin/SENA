@@ -5,6 +5,7 @@ import {
   isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
+  senaReliabilityProjectBindingsEqual,
   type SenaReliabilityDashboard,
   type SenaReliabilityDashboardReadModel
 } from "../reliability";
@@ -87,7 +88,7 @@ function resolvedReliabilityRunProjectScope(
   const binding = run.projectBinding;
   if (!run.projectId || run.projectId !== project.id || run.teamId !== project.teamId ||
     !isValidSenaReliabilityProjectBinding(binding) ||
-    JSON.stringify(binding) !== JSON.stringify(dashboard.projectBinding) ||
+    !senaReliabilityProjectBindingsEqual(binding, dashboard.projectBinding) ||
     binding.projectId !== project.id || binding.projectVersion !== project.currentVersion) {
     throw adjudicationBindingError();
   }
@@ -158,7 +159,7 @@ function assertResolvedReliabilityRunIdentity(
 ) {
   if (run.id !== resolved.runIdentity.id || run.teamId !== resolved.runIdentity.teamId ||
     run.projectId !== resolved.runIdentity.projectId ||
-    JSON.stringify(run.projectBinding) !== JSON.stringify(resolved.runIdentity.projectBinding)) {
+    !senaReliabilityProjectBindingsEqual(run.projectBinding, resolved.runIdentity.projectBinding)) {
     throw adjudicationBindingError();
   }
 }

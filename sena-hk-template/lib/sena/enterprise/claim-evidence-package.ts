@@ -49,7 +49,11 @@ import type {
   SenaEnterpriseValidationRun,
   SenaEnterpriseValidationRunStatus
 } from "./validation-runs";
-import { enterpriseValidationRunRegistryRuntime } from "./validation-runs";
+import {
+  enterpriseValidationRunRegistryRuntime,
+  isEnterpriseValidationParityEvidenceHashValid,
+  isEnterpriseValidationPreregistrationPlanHashValid
+} from "./validation-runs";
 
 export type SenaEnterpriseClaimEvidencePackageStatus =
   | "claim-ready-with-limits"
@@ -227,22 +231,13 @@ function projectSnapshotIsResearchClaimReady(project: SenaEnterpriseProject) {
     isDeepStrictEqual(gate, canonicalGate);
 }
 
-function validationPlanHashIsValid(plan: SenaEnterpriseValidationPreregistrationPlan | undefined) {
-  if (!plan || !/^[a-f0-9]{64}$/.test(plan.planHash)) return false;
-  const { planHash, ...planBody } = plan;
-  return planHash === artifactSha256(planBody);
-}
-
 function validationParityAndFormalInferenceReadiness(run: SenaEnterpriseValidationRun) {
   const parity = run.parityEvidence;
   const plan = run.preregistrationPlan;
-  if (!parity || !plan || !validationPlanHashIsValid(plan) ||
+  if (!parity || !plan || !isEnterpriseValidationPreregistrationPlanHashValid(plan) ||
+    !isEnterpriseValidationParityEvidenceHashValid(parity) ||
     parity.preregistrationPlanHash !== plan.planHash ||
     !/^[a-f0-9]{64}$/.test(parity.validationRunHash)) {
-    return { parityReady: false, formalReady: false };
-  }
-  const { status: _status, validationRunHash, ...manifestBody } = parity;
-  if (validationRunHash !== artifactSha256(manifestBody)) {
     return { parityReady: false, formalReady: false };
   }
   const foundationGateIds = ["rena-parity", "r-sna-parity", "real-data-walkthrough"] as const;

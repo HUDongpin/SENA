@@ -30,6 +30,7 @@ import {
   isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
+  senaReliabilityProjectBindingsEqual,
   type SenaCoderAnnotation,
   type SenaReliabilityDashboard,
   type SenaSkippedCoderCell
@@ -858,7 +859,7 @@ function listEnterpriseReliabilityRunsFromDb(context: SenaEnterpriseSessionConte
     .map((run) => {
       const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
       if (run.projectId && (!isValidSenaReliabilityProjectBinding(run.projectBinding) ||
-        JSON.stringify(run.projectBinding) !== JSON.stringify(dashboard.projectBinding) ||
+        !senaReliabilityProjectBindingsEqual(run.projectBinding, dashboard.projectBinding) ||
         run.projectBinding.projectId !== run.projectId)) {
         throw new SenaEnterpriseError(
           "Stored reliability run project binding is missing or contradictory.",

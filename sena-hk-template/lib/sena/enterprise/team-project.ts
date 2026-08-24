@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { canonicalSenaJson } from "../canonical-json";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { importSenaProjectSnapshot } from "../snapshot";
 import type { SenaProjectSnapshot } from "../types";
@@ -87,13 +88,17 @@ function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+export function enterpriseProjectBindingSnapshotSha256(snapshot: SenaProjectSnapshot) {
+  return createHash("sha256").update(canonicalSenaJson(snapshot) ?? "null").digest("hex");
+}
+
 export function buildEnterpriseProjectEvidenceBinding(
   project: Pick<SenaEnterpriseProject, "id" | "currentVersion" | "snapshot">
 ): SenaEnterpriseProjectEvidenceBinding {
   return {
     projectId: project.id,
     projectVersion: project.currentVersion,
-    snapshotSha256: artifactSha256(project.snapshot)
+    snapshotSha256: enterpriseProjectBindingSnapshotSha256(project.snapshot)
   };
 }
 
@@ -103,7 +108,7 @@ export function enterpriseProjectEvidenceBindingMatches(
 ) {
   return binding?.projectId === project.id &&
     binding.projectVersion === project.currentVersion &&
-    binding.snapshotSha256 === artifactSha256(project.snapshot);
+    binding.snapshotSha256 === enterpriseProjectBindingSnapshotSha256(project.snapshot);
 }
 
 function snapshotCounts(snapshot: SenaProjectSnapshot) {

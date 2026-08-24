@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { senaJsonValuesEqual } from "../canonical-json";
 import {
   readEnterpriseDb,
   readEnterpriseState,
@@ -244,6 +245,160 @@ function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function validationComparisonHashBody(
+  comparison: SenaEnterpriseValidationPreregistrationPlan["primary"]
+) {
+  return {
+    metric: comparison.metric,
+    groupField: comparison.groupField,
+    groupA: comparison.groupA,
+    groupB: comparison.groupB
+  };
+}
+
+function validationParametersHashBody(
+  parameters: SenaEnterpriseValidationPreregistrationPlan["parameters"]
+) {
+  return {
+    permutationIterations: parameters.permutationIterations,
+    bootstrapIterations: parameters.bootstrapIterations,
+    seed: parameters.seed,
+    ...(parameters.alpha === undefined ? {} : { alpha: parameters.alpha }),
+    ...(parameters.correction === undefined ? {} : { correction: parameters.correction })
+  };
+}
+
+function validationPreregistrationPlanHashBody(
+  plan: Omit<SenaEnterpriseValidationPreregistrationPlan, "planHash">
+) {
+  return {
+    schemaVersion: plan.schemaVersion,
+    hashAlgorithm: plan.hashAlgorithm,
+    analysis: plan.analysis,
+    primary: validationComparisonHashBody(plan.primary),
+    comparisons: plan.comparisons.map(validationComparisonHashBody),
+    parameters: validationParametersHashBody(plan.parameters),
+    protocolNoteHash: plan.protocolNoteHash,
+    methodNoteHash: plan.methodNoteHash,
+    guardrail: plan.guardrail,
+    evidence: plan.evidence
+  };
+}
+
+export function enterpriseValidationPreregistrationPlanHash(
+  plan: Omit<SenaEnterpriseValidationPreregistrationPlan, "planHash">
+) {
+  return artifactSha256(validationPreregistrationPlanHashBody(plan));
+}
+
+function validationFormalInferenceHashBody(
+  formal: SenaEnterpriseFormalInferenceReadiness
+) {
+  return {
+    schemaVersion: formal.schemaVersion,
+    status: formal.status,
+    resultSchemaVersion: formal.resultSchemaVersion,
+    analysis: formal.analysis,
+    preregistrationPlanHash: formal.preregistrationPlanHash,
+    studySpecificInferenceReference: formal.studySpecificInferenceReference,
+    comparisonCount: formal.comparisonCount,
+    minGroupSize: formal.minGroupSize,
+    smallSampleComparisons: formal.smallSampleComparisons,
+    permutationIterations: formal.permutationIterations,
+    bootstrapIterations: formal.bootstrapIterations,
+    alpha: formal.alpha,
+    correction: formal.correction,
+    checks: formal.checks.map((check) => ({
+      id: check.id,
+      label: check.label,
+      status: check.status,
+      evidence: check.evidence
+    })),
+    blockers: formal.blockers,
+    warnings: formal.warnings,
+    guardrail: formal.guardrail
+  };
+}
+
+function validationParityEvidenceHashBody(
+  parity: Omit<SenaEnterpriseValidationParityEvidence, "status" | "validationRunHash">
+) {
+  return {
+    schemaVersion: parity.schemaVersion,
+    hashAlgorithm: parity.hashAlgorithm,
+    analysis: parity.analysis,
+    preregistrationPlanHash: parity.preregistrationPlanHash,
+    runtimeParity: parity.runtimeParity.map((entry) => ({
+      id: entry.id,
+      referenceRuntime: entry.referenceRuntime,
+      fixturePath: entry.fixturePath,
+      status: entry.status,
+      coverage: entry.coverage,
+      sampleHash: entry.sampleHash,
+      interpretation: entry.interpretation
+    })),
+    walkthrough: {
+      datasetLabel: parity.walkthrough.datasetLabel,
+      datasetHash: parity.walkthrough.datasetHash,
+      source: parity.walkthrough.source,
+      sourceId: parity.walkthrough.sourceId,
+      status: parity.walkthrough.status
+    },
+    inference: {
+      resultSchemaVersion: parity.inference.resultSchemaVersion,
+      guardrail: parity.inference.guardrail,
+      comparisonCount: parity.inference.comparisonCount,
+      permutationIterations: parity.inference.permutationIterations,
+      bootstrapIterations: parity.inference.bootstrapIterations,
+      alpha: parity.inference.alpha,
+      correction: parity.inference.correction,
+      studySpecificInferenceReference: parity.inference.studySpecificInferenceReference
+    },
+    formalInference: validationFormalInferenceHashBody(parity.formalInference),
+    gates: parity.gates.map((gate) => ({
+      id: gate.id,
+      label: gate.label,
+      status: gate.status,
+      evidence: gate.evidence
+    })),
+    notes: parity.notes
+  };
+}
+
+export function enterpriseValidationParityEvidenceHash(
+  parity: Omit<SenaEnterpriseValidationParityEvidence, "status" | "validationRunHash">
+) {
+  return artifactSha256(validationParityEvidenceHashBody(parity));
+}
+
+export function isEnterpriseValidationPreregistrationPlanHashValid(
+  plan: SenaEnterpriseValidationPreregistrationPlan | undefined
+) {
+  if (!plan || !/^[a-f0-9]{64}$/.test(plan.planHash)) return false;
+  try {
+    const { planHash, ...storedBody } = plan;
+    const expectedBody = validationPreregistrationPlanHashBody(plan);
+    return senaJsonValuesEqual(storedBody, expectedBody) &&
+      planHash === artifactSha256(expectedBody);
+  } catch {
+    return false;
+  }
+}
+
+export function isEnterpriseValidationParityEvidenceHashValid(
+  parity: SenaEnterpriseValidationParityEvidence | undefined
+) {
+  if (!parity || !/^[a-f0-9]{64}$/.test(parity.validationRunHash)) return false;
+  try {
+    const { status: _status, validationRunHash, ...storedBody } = parity;
+    const expectedBody = validationParityEvidenceHashBody(parity);
+    return senaJsonValuesEqual(storedBody, expectedBody) &&
+      validationRunHash === artifactSha256(expectedBody);
+  } catch {
+    return false;
+  }
+}
+
 function latestByTimestamp<T extends { createdAt: string; updatedAt?: string }>(records: T[]) {
   return records
     .slice()
@@ -319,7 +474,7 @@ function buildValidationPreregistrationPlan(input: {
   };
   return {
     ...planBody,
-    planHash: artifactSha256(planBody)
+    planHash: enterpriseValidationPreregistrationPlanHash(planBody)
   };
 }
 
@@ -599,7 +754,7 @@ function buildValidationParityEvidence(input: {
   return {
     ...manifestBody,
     status: passedFoundation ? "ready-for-review" : "incomplete",
-    validationRunHash: artifactSha256(manifestBody)
+    validationRunHash: enterpriseValidationParityEvidenceHash(manifestBody)
   };
 }
 
