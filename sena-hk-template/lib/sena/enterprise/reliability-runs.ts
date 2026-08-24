@@ -39,28 +39,22 @@ import {
   type SenaReliabilityJsonRequest
 } from "../reliability-api";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import type { SenaCodingReliabilityReview, SenaReliabilityProjectBinding } from "../types";
+import type {
+  SenaCodingReliabilityReview,
+  SenaReliabilityAdjudicationCoverageEvidence,
+  SenaReliabilityProjectBinding
+} from "../types";
 import {
   assertEnterpriseReliabilityRunCurrentProject,
-  buildEnterpriseReliabilityAdjudicationCoverage
+  buildEnterpriseReliabilityAdjudicationCoverage,
+  buildEnterpriseReliabilityPublicationReviewProjection
 } from "./reliability-integrity";
 import { parseSenaReliabilityAdjudicationDecision } from "./reliability-adjudication-decision";
 
 export type SenaEnterpriseReliabilityRunStatus = "pending-review" | "pending-adjudication" | "approved" | "rejected";
 
-export type SenaEnterpriseReliabilityAdjudicationCoverage = {
-  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
-  queuedDisagreements: number;
-  resolvedDisagreements: number;
-  unresolvedDisagreements: number;
-  coverageRate: number;
-  decisions: {
-    include: number;
-    exclude: number;
-    revise: number;
-  };
-  updatedAt: string;
-};
+export type SenaEnterpriseReliabilityAdjudicationCoverage =
+  SenaReliabilityAdjudicationCoverageEvidence;
 
 export type SenaEnterpriseReliabilityRun = {
   id: string;
@@ -613,11 +607,24 @@ export async function findEnterprisePublicationReliabilityRunAsync(
   return findEnterprisePublicationReliabilityRunFromDb(context, project, state.db);
 }
 
+export type SenaEnterprisePublicationReliabilityEvidence = {
+  reliabilityRun: SenaEnterpriseReliabilityRun;
+  reviewProjection: Partial<SenaCodingReliabilityReview>;
+};
+
 export function findEnterprisePublicationReliabilityRunFromDb(
   context: SenaEnterpriseSessionContext,
   project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
   db: SenaEnterpriseDb
 ) {
+  return findEnterprisePublicationReliabilityEvidenceFromDb(context, project, db)?.reliabilityRun;
+}
+
+export function findEnterprisePublicationReliabilityEvidenceFromDb(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  db: SenaEnterpriseDb
+): SenaEnterprisePublicationReliabilityEvidence | undefined {
   requireEnterprisePermission(context, project.teamId, "export:create");
   const currentProject = db.projects.find((candidate) => candidate.id === project.id);
   if (!currentProject) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
@@ -629,20 +636,26 @@ export function findEnterprisePublicationReliabilityRunFromDb(
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   for (const run of candidates) {
     try {
-      const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, currentProject);
+      const projection = buildEnterpriseReliabilityPublicationReviewProjection(
+        run,
+        currentProject,
+        db.adjudications
+      );
+      const machineEvidence = projection.review.machineEvidence;
       if (
-        dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
-        dashboard.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
-        dashboard.claimEligibility.eligible
+        projection.dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        projection.dashboard.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        machineEvidence?.claimEligibility.eligible &&
+        projection.adjudicationCoverage.unresolvedDisagreements === 0
       ) {
-        const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
-          run,
-          currentProject,
-          db.adjudications
-        );
-        if (adjudicationCoverage.unresolvedDisagreements === 0) {
-          return { ...run, dashboard, adjudicationCoverage };
-        }
+        return {
+          reliabilityRun: {
+            ...run,
+            dashboard: projection.dashboard,
+            adjudicationCoverage: projection.adjudicationCoverage
+          },
+          reviewProjection: projection.review
+        };
       }
     } catch {
       // Invalid or stale reliability evidence is ineligible for publication.

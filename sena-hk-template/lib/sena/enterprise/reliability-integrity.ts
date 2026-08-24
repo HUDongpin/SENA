@@ -1,7 +1,10 @@
 import {
   assertSenaReliabilityProjectBindingMatchesSnapshot,
+  deriveSenaReliabilityClaimEligibility,
+  isSemanticallyValidSenaReliabilityMachineEvidence,
   isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
+  reliabilityDashboardToReview,
   type SenaReliabilityDashboard
 } from "../reliability";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
@@ -12,6 +15,7 @@ import type {
 } from "./reliability-runs";
 import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
 import type { SenaEnterpriseProject } from "./team-project";
+import type { SenaCodingReliabilityReview } from "../types";
 
 function exactStringArray(left: unknown, right: string[]) {
   return Array.isArray(left) && left.length === right.length &&
@@ -131,5 +135,53 @@ export function buildEnterpriseReliabilityAdjudicationCoverage(
     coverageRate: roundedCoverageRate(resolvedDisagreements, queuedDisagreements),
     decisions,
     updatedAt
+  };
+}
+
+export function buildEnterpriseReliabilityPublicationReviewProjection(
+  run: SenaEnterpriseReliabilityRun,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  adjudications: SenaEnterpriseAdjudicationRecord[]
+): {
+  dashboard: SenaReliabilityDashboard;
+  adjudicationCoverage: SenaEnterpriseReliabilityAdjudicationCoverage;
+  review: Partial<SenaCodingReliabilityReview>;
+} {
+  const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
+  const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
+    run,
+    project,
+    adjudications
+  );
+  const canonicalReview = reliabilityDashboardToReview(dashboard, run.reviewer);
+  if (!canonicalReview.machineEvidence) throw adjudicationBindingError();
+  const claimEligibilityInputs = {
+    ...structuredClone(canonicalReview.machineEvidence.claimEligibilityInputs),
+    unresolvedDisagreementCount: adjudicationCoverage.unresolvedDisagreements
+  };
+  const machineEvidence = {
+    ...structuredClone(canonicalReview.machineEvidence),
+    unresolvedDisagreementCount: adjudicationCoverage.unresolvedDisagreements,
+    claimEligibilityInputs,
+    claimEligibility: deriveSenaReliabilityClaimEligibility(claimEligibilityInputs),
+    adjudicationCoverage: structuredClone(adjudicationCoverage)
+  };
+  if (!isSemanticallyValidSenaReliabilityMachineEvidence(machineEvidence)) {
+    throw adjudicationBindingError();
+  }
+  const decisions = adjudicationCoverage.decisions;
+  return {
+    dashboard,
+    adjudicationCoverage,
+    review: {
+      ...structuredClone(run.reviewPatch),
+      ...canonicalReview,
+      adjudicationNotes: [
+        `${adjudicationCoverage.queuedDisagreements} queued, ${adjudicationCoverage.resolvedDisagreements} resolved, ${adjudicationCoverage.unresolvedDisagreements} unresolved in the live enterprise adjudication projection.`,
+        `Decisions: include=${decisions.include}, exclude=${decisions.exclude}, revise=${decisions.revise}; coverage updated ${adjudicationCoverage.updatedAt}.`,
+        "The persisted reliability dashboard, disagreement queue, and raw review patch remain unchanged."
+      ].join(" "),
+      machineEvidence
+    }
   };
 }

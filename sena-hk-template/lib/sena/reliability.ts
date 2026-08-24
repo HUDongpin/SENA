@@ -4,6 +4,7 @@ import type {
   SenaCodingReliabilityMachineEvidence,
   SenaCodingReliabilityReview,
   SenaProjectSnapshot,
+  SenaReliabilityAdjudicationCoverageEvidence,
   SenaReliabilityClaimEligibility,
   SenaReliabilityClaimEligibilityInputs,
   SenaReliabilityEstimationStatus,
@@ -1406,6 +1407,34 @@ function isClaimEligibility(value: unknown): value is SenaReliabilityClaimEligib
     typeof adjudication.disclosure === "string";
 }
 
+function isReliabilityAdjudicationCoverageEvidence(
+  value: unknown,
+  rawDisagreementCount: number
+): value is SenaReliabilityAdjudicationCoverageEvidence {
+  if (!isRecord(value) ||
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage ||
+    !Number.isInteger(value.queuedDisagreements) || Number(value.queuedDisagreements) < 0 ||
+    !Number.isInteger(value.resolvedDisagreements) || Number(value.resolvedDisagreements) < 0 ||
+    !Number.isInteger(value.unresolvedDisagreements) || Number(value.unresolvedDisagreements) < 0 ||
+    typeof value.coverageRate !== "number" || !Number.isFinite(value.coverageRate) ||
+    !isRecord(value.decisions) ||
+    !Number.isInteger(value.decisions.include) || Number(value.decisions.include) < 0 ||
+    !Number.isInteger(value.decisions.exclude) || Number(value.decisions.exclude) < 0 ||
+    !Number.isInteger(value.decisions.revise) || Number(value.decisions.revise) < 0 ||
+    typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))) return false;
+  const queued = Number(value.queuedDisagreements);
+  const resolved = Number(value.resolvedDisagreements);
+  const unresolved = Number(value.unresolvedDisagreements);
+  const decisionCount = Number(value.decisions.include) +
+    Number(value.decisions.exclude) +
+    Number(value.decisions.revise);
+  const expectedRate = queued === 0 ? 1 : Number((resolved / queued).toFixed(4));
+  return queued === rawDisagreementCount &&
+    resolved + unresolved === queued &&
+    decisionCount === resolved &&
+    value.coverageRate === expectedRate;
+}
+
 export function isSenaReliabilityClaimEligibilityInputs(
   value: unknown
 ): value is SenaReliabilityClaimEligibilityInputs {
@@ -1533,6 +1562,20 @@ export function isSemanticallyValidSenaReliabilityMachineEvidence(
       value.projectBindingRequired !== true || !isValidSenaReliabilityProjectBinding(value.projectBinding)
     )) ||
     (value.projectBindingRequired === true && value.projectBinding === undefined)) return false;
+
+  if (value.adjudicationCoverage !== undefined) {
+    if (value.projectBinding === undefined) return false;
+    let rawDashboard: SenaReliabilityDashboard;
+    try {
+      rawDashboard = canonicalDashboardFromProjectBinding(value.projectBinding);
+    } catch {
+      return false;
+    }
+    if (!isReliabilityAdjudicationCoverageEvidence(
+      value.adjudicationCoverage,
+      rawDashboard.disagreementCount
+    ) || value.unresolvedDisagreementCount !== value.adjudicationCoverage.unresolvedDisagreements) return false;
+  }
 
   const canonicalInputs = canonicalReliabilityInputs(value as unknown as {
     coderIds: string[];
@@ -1832,8 +1875,11 @@ function matchesProjectBoundDashboardDerivedMetrics(dashboard: SenaReliabilityDa
   }
 }
 
-function reliabilityMachineDerivedProjection(value: SenaCodingReliabilityMachineEvidence) {
-  return {
+function reliabilityMachineDerivedProjection(
+  value: SenaCodingReliabilityMachineEvidence,
+  includeAdjudicationState = true
+) {
+  const statisticalProjection = {
     status: value.status,
     coderIds: value.coderIds,
     pairwiseCohenKappa: value.pairwiseCohenKappa,
@@ -1842,15 +1888,21 @@ function reliabilityMachineDerivedProjection(value: SenaCodingReliabilityMachine
     krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
     krippendorffAlphaNominalRaw: value.krippendorffAlphaNominalRaw,
     krippendorffAlphaNominal: value.krippendorffAlphaNominal,
+    allPairwiseKappaEstimable: value.allPairwiseKappaEstimable
+  };
+  return includeAdjudicationState ? {
+    ...statisticalProjection,
     unresolvedDisagreementCount: value.unresolvedDisagreementCount,
-    allPairwiseKappaEstimable: value.allPairwiseKappaEstimable,
     claimEligibilityInputs: value.claimEligibilityInputs,
     claimEligibility: value.claimEligibility
-  };
+  } : statisticalProjection;
 }
 
-function dashboardMachineDerivedProjection(dashboard: SenaReliabilityDashboard) {
-  return {
+function dashboardMachineDerivedProjection(
+  dashboard: SenaReliabilityDashboard,
+  includeAdjudicationState = true
+) {
+  const statisticalProjection = {
     status: dashboard.status,
     coderIds: dashboard.coderIds,
     pairwiseCohenKappa: dashboard.pairwiseCohenKappa,
@@ -1859,12 +1911,15 @@ function dashboardMachineDerivedProjection(dashboard: SenaReliabilityDashboard) 
     krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
     krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
     krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
-    unresolvedDisagreementCount: dashboard.disagreementCount,
     allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 &&
-      dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
+      dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable")
+  };
+  return includeAdjudicationState ? {
+    ...statisticalProjection,
+    unresolvedDisagreementCount: dashboard.disagreementCount,
     claimEligibilityInputs: dashboard.claimEligibilityInputs,
     claimEligibility: dashboard.claimEligibility
-  };
+  } : statisticalProjection;
 }
 
 function matchesProjectBoundMachineEvidenceDerivedMetrics(
@@ -1872,9 +1927,11 @@ function matchesProjectBoundMachineEvidenceDerivedMetrics(
 ) {
   if (!evidence.projectBinding) return true;
   try {
-    return stableBindingValue(reliabilityMachineDerivedProjection(evidence)) ===
+    const includeAdjudicationState = evidence.adjudicationCoverage === undefined;
+    return stableBindingValue(reliabilityMachineDerivedProjection(evidence, includeAdjudicationState)) ===
       stableBindingValue(dashboardMachineDerivedProjection(
-        canonicalDashboardFromProjectBinding(evidence.projectBinding)
+        canonicalDashboardFromProjectBinding(evidence.projectBinding),
+        includeAdjudicationState
       ));
   } catch {
     return false;

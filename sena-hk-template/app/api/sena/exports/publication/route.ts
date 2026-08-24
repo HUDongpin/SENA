@@ -50,7 +50,8 @@ function sha256Json(value: unknown) {
 
 function snapshotWithReliabilityEvidence(
   project: SenaEnterpriseProject,
-  reliabilityRun: SenaEnterpriseReliabilityRun
+  reliabilityRun: SenaEnterpriseReliabilityRun,
+  reliabilityReviewProjection: SenaEnterpriseReliabilityRun["reviewPatch"]
 ) {
   assertEnterpriseReliabilityRunCurrentProject(reliabilityRun, project);
   const sourceSnapshot = project.snapshot;
@@ -63,16 +64,17 @@ function snapshotWithReliabilityEvidence(
     temporalRuntimeTrace: sourceSnapshot.analysis.temporalRuntimeTrace,
     demoVerificationManualReviews: sourceSnapshot.workspaceState?.demoVerificationManualReviews,
     humanReview: sourceSnapshot.report.humanReview,
-    codingReliability: reliabilityRun.reviewPatch,
+    codingReliability: reliabilityReviewProjection,
     dataGovernance: sourceSnapshot.dataGovernance ?? sourceSnapshot.report.dataGovernance
   });
 }
 
 function publicationSnapshotForProject(
   project: SenaEnterpriseProject,
-  reliabilityRun?: SenaEnterpriseReliabilityRun
+  reliabilityRun?: SenaEnterpriseReliabilityRun,
+  reliabilityReviewProjection?: SenaEnterpriseReliabilityRun["reviewPatch"]
 ) {
-  if (!reliabilityRun) {
+  if (!reliabilityRun || !reliabilityReviewProjection) {
     throw new SenaEnterpriseError(
       "Publication export blocked until an approved, current, machine-eligible reliability run is available for this project revision.",
       409,
@@ -80,7 +82,7 @@ function publicationSnapshotForProject(
     );
   }
   return {
-    snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun),
+    snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun, reliabilityReviewProjection),
     reliabilityRun
   };
 }
@@ -189,7 +191,11 @@ export async function POST(request: Request) {
     if (projectId) {
       const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
       const { project, claimPackage, stateBinding } = publicationState;
-      const publicationSource = publicationSnapshotForProject(project, publicationState.reliabilityRun);
+      const publicationSource = publicationSnapshotForProject(
+        project,
+        publicationState.reliabilityRun,
+        publicationState.reliabilityReviewProjection
+      );
       snapshot = publicationSource.snapshot;
       teamId = project.teamId;
       source = "project";

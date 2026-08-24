@@ -8,11 +8,12 @@ import {
 import { requireEnterprisePermission } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import {
-  findEnterprisePublicationReliabilityRunFromDb,
+  findEnterprisePublicationReliabilityEvidenceFromDb,
   type SenaEnterpriseReliabilityRun
 } from "./reliability-runs";
 import { readEnterpriseState, type SenaEnterpriseStateRead } from "./state";
 import type { SenaEnterpriseProject } from "./team-project";
+import type { SenaCodingReliabilityReview } from "../types";
 
 function sha256Json(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -76,6 +77,7 @@ export type SenaEnterprisePublicationStateBundle = {
   project: SenaEnterpriseProject;
   claimPackage: SenaEnterpriseClaimEvidencePackage;
   reliabilityRun?: SenaEnterpriseReliabilityRun;
+  reliabilityReviewProjection?: Partial<SenaCodingReliabilityReview>;
   stateBinding: SenaEnterprisePublicationStateBinding;
 };
 
@@ -95,7 +97,8 @@ export function resolveEnterprisePublicationStateBundleFromState(
   const revisionEvidence = stateRevisionEvidence(state);
   const persistedSnapshotSha256 = sha256Json(persistedProject.snapshot);
   const readProjectionSnapshotSha256 = sha256Json(project.snapshot);
-  const reliabilityRun = findEnterprisePublicationReliabilityRunFromDb(context, project, state.db);
+  const reliabilityEvidence = findEnterprisePublicationReliabilityEvidenceFromDb(context, project, state.db);
+  const reliabilityRun = reliabilityEvidence?.reliabilityRun;
   const primarySource = revisionEvidence.activePrimary === "postgres"
     ? "postgres-primary-state" as const
     : "file-primary-state" as const;
@@ -176,6 +179,7 @@ export function resolveEnterprisePublicationStateBundleFromState(
     project,
     claimPackage,
     reliabilityRun,
+    reliabilityReviewProjection: reliabilityEvidence?.reviewProjection,
     stateBinding: {
       ...bindingCore,
       bindingSha256: sha256Json(bindingCore)

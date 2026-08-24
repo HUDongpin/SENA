@@ -374,8 +374,23 @@ export type SenaCodingReliabilityMachineEvidence = {
   allPairwiseKappaEstimable: boolean;
   claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
   claimEligibility: SenaReliabilityClaimEligibility;
+  adjudicationCoverage?: SenaReliabilityAdjudicationCoverageEvidence;
   projectBindingRequired?: true;
   projectBinding?: SenaReliabilityProjectBinding;
+};
+
+export type SenaReliabilityAdjudicationCoverageEvidence = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
+  queuedDisagreements: number;
+  resolvedDisagreements: number;
+  unresolvedDisagreements: number;
+  coverageRate: number;
+  decisions: {
+    include: number;
+    exclude: number;
+    revise: number;
+  };
+  updatedAt: string;
 };
 
 export type SenaCodingReliabilityReview = {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +11,10 @@ import {
   lessonStudySenaContract,
   reliabilityDashboardToReview
 } from "../index";
+import {
+  deriveSenaReliabilityClaimEligibility,
+  isSemanticallyValidSenaReliabilityMachineEvidence
+} from "../reliability";
 import {
   buildSenaPublicationExport,
   type SenaPublicationEnterpriseProjectEvidence
@@ -71,6 +76,28 @@ function unresolvedAuthoritativeAnnotations(snapshot: ReturnType<typeof publicat
   ));
 }
 
+function balancedAdjudicableAnnotations(snapshot: ReturnType<typeof publicationCandidateSnapshot>) {
+  const source = snapshot.source.sourceDataset ?? snapshot.dataset;
+  const units = source.utterances.flatMap((utterance) => (
+    source.codebook.map((code) => ({ itemId: utterance.id, codeId: code.id }))
+  )).slice(0, 20);
+  if (units.length < 20) throw new Error("Publication adjudication fixture requires twenty item-code units.");
+  return units.flatMap((unit, unitIndex) => ["coder-a", "coder-b"].map((coderId, coderIndex) => {
+    const canonicalValue = unitIndex % 2 === 0;
+    const value = unitIndex === 0 && coderIndex === 1 ? !canonicalValue : canonicalValue;
+    return {
+      coder_id: coderId,
+      item_id: unit.itemId,
+      code_id: unit.codeId,
+      value: value ? "1" : "0"
+    };
+  }));
+}
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
 function persistedReadyPublicationSnapshot() {
   const sourceSnapshot = publicationCandidateSnapshot();
   const dashboard = buildSenaReliabilityDashboard(
@@ -95,6 +122,223 @@ function persistedReadyPublicationSnapshot() {
 }
 
 describe("enterprise publication current-v2 reliability evidence", () => {
+  it("publishes a statistically eligible run after real adjudication without rewriting its raw disagreement evidence", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-live-adjudication-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/publication-export", async () => await import("../publication-export"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+    vi.doMock("@/lib/sena/reliability-api", async () => await import("../reliability-api"));
+    vi.doMock("@/lib/sena/reliability", async () => await import("../reliability"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Live Adjudication Publication Reviewer",
+        email: "live-adjudication-publication-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Live Adjudication Publication Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const snapshot = publicationCandidateSnapshot();
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Live adjudication publication project",
+        snapshot
+      });
+      const reliabilityRoute = await import("../../../app/api/sena/reliability/route");
+      const publicationRoute = await import("../../../app/api/sena/exports/publication/route");
+      const reliabilityResponse = await reliabilityRoute.POST(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({
+            schemaVersion: "sena-reliability-json-request/v1",
+            teamId: project.teamId,
+            projectId: project.id,
+            reviewer: "Selected live-adjudication reviewer",
+            annotations: balancedAdjudicableAnnotations(snapshot)
+          })
+        }
+      ));
+      expect(reliabilityResponse.status).toBe(200);
+      const reliabilityBody = await reliabilityResponse.json() as {
+        reliabilityRun?: { id?: string };
+        dashboard?: {
+          disagreementCount?: number;
+          meanPairwiseKappa?: number | null;
+          krippendorffAlphaNominal?: number | null;
+          claimEligibility?: { eligible?: boolean; blockers?: string[] };
+        };
+      };
+      const runId = reliabilityBody.reliabilityRun?.id;
+      if (!runId) throw new Error("Expected a reliability run for the live adjudication fixture.");
+      expect(reliabilityBody.dashboard).toEqual(expect.objectContaining({
+        disagreementCount: 1,
+        meanPairwiseKappa: expect.any(Number),
+        krippendorffAlphaNominal: expect.any(Number),
+        claimEligibility: expect.objectContaining({
+          eligible: false,
+          blockers: ["unresolved-reliability-disagreements"]
+        })
+      }));
+      expect(reliabilityBody.dashboard?.meanPairwiseKappa).toBeGreaterThanOrEqual(0.8);
+      expect(reliabilityBody.dashboard?.krippendorffAlphaNominal).toBeGreaterThanOrEqual(0.8);
+
+      const rawBefore = enterprise.readEnterpriseDb().reliabilityRuns.find((run) => run.id === runId);
+      if (!rawBefore) throw new Error("Expected persisted raw reliability evidence before adjudication.");
+      const rawHashesBefore = {
+        dashboard: sha256Json(rawBefore.dashboard),
+        queue: sha256Json(rawBefore.dashboard.adjudicationQueue),
+        reviewPatch: sha256Json(rawBefore.reviewPatch)
+      };
+      expect(rawBefore.reviewPatch.machineEvidence?.unresolvedDisagreementCount).toBe(1);
+
+      const adjudicated = await reliabilityRoute.PATCH(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({ action: "adjudicate", runId, decision: "include" })
+        }
+      ));
+      expect(adjudicated.status).toBe(201);
+      const adjudicatedBody = await adjudicated.json() as {
+        adjudication?: {
+          reliabilityRun?: {
+            adjudicationCoverage?: {
+              schemaVersion: "sena-reliability-adjudication-coverage/v1";
+              queuedDisagreements: number;
+              resolvedDisagreements: number;
+              unresolvedDisagreements: number;
+              coverageRate: number;
+              decisions: { include: number; exclude: number; revise: number };
+              updatedAt: string;
+            };
+          };
+        };
+      };
+      expect(adjudicatedBody).toEqual(expect.objectContaining({
+        adjudication: expect.objectContaining({
+          reliabilityRun: expect.objectContaining({
+            adjudicationCoverage: expect.objectContaining({
+              queuedDisagreements: 1,
+              resolvedDisagreements: 1,
+              unresolvedDisagreements: 0,
+              coverageRate: 1
+            })
+          })
+        })
+      }));
+      const coverage = adjudicatedBody.adjudication?.reliabilityRun?.adjudicationCoverage;
+      if (!coverage || !rawBefore.reviewPatch.machineEvidence) {
+        throw new Error("Expected raw machine evidence and live adjudication coverage.");
+      }
+      const projectedMachineEvidence = structuredClone(rawBefore.reviewPatch.machineEvidence) as
+        typeof rawBefore.reviewPatch.machineEvidence & { adjudicationCoverage?: typeof coverage };
+      projectedMachineEvidence.adjudicationCoverage = coverage;
+      projectedMachineEvidence.unresolvedDisagreementCount = coverage.unresolvedDisagreements;
+      projectedMachineEvidence.claimEligibilityInputs.unresolvedDisagreementCount = coverage.unresolvedDisagreements;
+      projectedMachineEvidence.claimEligibility = deriveSenaReliabilityClaimEligibility(
+        projectedMachineEvidence.claimEligibilityInputs
+      );
+      expect(isSemanticallyValidSenaReliabilityMachineEvidence(projectedMachineEvidence)).toBe(true);
+      for (const forgedCoverage of [
+        { ...coverage, queuedDisagreements: 2 },
+        { ...coverage, resolvedDisagreements: 0 },
+        { ...coverage, decisions: { include: 0, exclude: 0, revise: 0 } },
+        { ...coverage, coverageRate: 0.5 }
+      ]) {
+        const forgedEvidence = structuredClone(projectedMachineEvidence);
+        forgedEvidence.adjudicationCoverage = forgedCoverage;
+        expect(isSemanticallyValidSenaReliabilityMachineEvidence(forgedEvidence)).toBe(false);
+      }
+
+      const approval = await reliabilityRoute.PATCH(new Request(
+        "https://sena.example.test/api/sena/reliability",
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({
+            runId,
+            status: "approved",
+            notes: "Approved after the canonical disagreement received a real adjudication record."
+          })
+        }
+      ));
+      expect(approval.status).toBe(200);
+
+      const exported = await publicationRoute.POST(new Request(
+        "https://sena.example.test/api/sena/exports/publication",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({ projectId: project.id, format: "package" })
+        }
+      ));
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get("x-sena-publication-reliability-run-id")).toBe(runId);
+      const exportBody = await exported.json() as {
+        claimEvidence?: { codingReliability?: string };
+        artifacts?: Array<{ format?: string; bodyBase64?: string }>;
+        enterpriseProjectEvidence?: {
+          stateBinding?: {
+            reliabilityRun?: {
+              runId?: string;
+              unresolvedDisagreements?: number;
+            } | null;
+          };
+        };
+      };
+      expect(exportBody.claimEvidence?.codingReliability).toBe("ready");
+      expect(exportBody.enterpriseProjectEvidence?.stateBinding?.reliabilityRun).toEqual(expect.objectContaining({
+        runId,
+        unresolvedDisagreements: 0
+      }));
+      const htmlArtifact = exportBody.artifacts?.find((artifact) => artifact.format === "html");
+      const html = Buffer.from(htmlArtifact?.bodyBase64 ?? "", "base64").toString("utf8");
+      expect(html).toContain("Selected live-adjudication reviewer");
+      expect(html).toContain("1 queued, 1 resolved, 0 unresolved");
+
+      const rawAfter = enterprise.readEnterpriseDb().reliabilityRuns.find((run) => run.id === runId);
+      if (!rawAfter) throw new Error("Expected persisted raw reliability evidence after publication.");
+      expect({
+        dashboard: sha256Json(rawAfter.dashboard),
+        queue: sha256Json(rawAfter.dashboard.adjudicationQueue),
+        reviewPatch: sha256Json(rawAfter.reviewPatch)
+      }).toEqual(rawHashesBefore);
+      expect(rawAfter.reviewPatch.machineEvidence?.unresolvedDisagreementCount).toBe(1);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, 45_000);
+
   it("requires an eligible approved run even for a persisted-ready project and binds the rendered derivation to that run", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-ready-project-route-"));
     let sessionToken = "";
