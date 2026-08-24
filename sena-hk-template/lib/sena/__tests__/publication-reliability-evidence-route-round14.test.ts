@@ -305,14 +305,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       const exportBody = await exported.json() as {
         claimEvidence?: { codingReliability?: string };
         artifacts?: Array<{ format?: string; bodyBase64?: string }>;
-        enterpriseProjectEvidence?: {
-          stateBinding?: {
-            reliabilityRun?: {
-              runId?: string;
-              unresolvedDisagreements?: number;
-            } | null;
-          };
-        };
+        enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence;
       };
       expect(exportBody.claimEvidence?.codingReliability).toBe("ready");
       expect(exportBody.enterpriseProjectEvidence?.stateBinding?.reliabilityRun).toEqual(expect.objectContaining({
@@ -332,6 +325,43 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         reviewPatch: sha256Json(rawAfter.reviewPatch)
       }).toEqual(rawHashesBefore);
       expect(rawAfter.reviewPatch.machineEvidence?.unresolvedDisagreementCount).toBe(1);
+
+      const enterpriseEvidence = exportBody.enterpriseProjectEvidence;
+      if (!enterpriseEvidence || !projectedMachineEvidence.adjudicationCoverage) {
+        throw new Error("Expected enterprise publication evidence and projected adjudication coverage.");
+      }
+      const mismatchedMachineEvidence = structuredClone(projectedMachineEvidence);
+      const originalProjectedCoverage = mismatchedMachineEvidence.adjudicationCoverage;
+      if (!originalProjectedCoverage) throw new Error("Expected cloned adjudication coverage.");
+      mismatchedMachineEvidence.adjudicationCoverage = {
+        ...originalProjectedCoverage,
+        decisions: { include: 0, exclude: 1, revise: 0 }
+      };
+      expect(isSemanticallyValidSenaReliabilityMachineEvidence(mismatchedMachineEvidence)).toBe(true);
+      const mismatchedSnapshot = buildSenaProjectSnapshot(
+        buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions),
+        {
+          title: snapshot.title,
+          generatedAt: snapshot.generatedAt,
+          sourceDataset: snapshot.source.sourceDataset ?? snapshot.dataset,
+          activeTemporalWindow: snapshot.source.activeTemporalWindow,
+          temporalRuntimeTrace: snapshot.analysis.temporalRuntimeTrace,
+          demoVerificationManualReviews: snapshot.workspaceState?.demoVerificationManualReviews,
+          humanReview: snapshot.report.humanReview,
+          codingReliability: {
+            ...rawBefore.reviewPatch,
+            adjudicationNotes: "A different but internally valid decision distribution was paired by mistake.",
+            machineEvidence: mismatchedMachineEvidence
+          },
+          dataGovernance: snapshot.dataGovernance ?? snapshot.report.dataGovernance
+        }
+      );
+      expect(mismatchedSnapshot.report.modelCard.renderGate.status).toBe("ready");
+      await expect(buildSenaPublicationExport(mismatchedSnapshot, "html", enterpriseEvidence))
+        .rejects.toMatchObject({
+          status: 409,
+          code: "publication_derivation_manifest_binding_invalid"
+        });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
