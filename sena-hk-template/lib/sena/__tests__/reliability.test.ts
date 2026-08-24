@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
@@ -425,6 +426,39 @@ describe("SENA coding reliability diagnostics", () => {
       reviewer: "JSON reviewer",
       agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal"
     }));
+  });
+
+  it("fingerprints Unicode JSON row keys in canonical code-unit order", () => {
+    const row = {
+      "ä": "last-by-code-unit",
+      z: "before-umlaut",
+      coder_id: "coder-z",
+      item_id: "u1",
+      code_id: "Evidence",
+      value: "1"
+    };
+    const prepared = prepareSenaReliabilityJsonRequest({
+      sourceName: "unicode-row.json",
+      annotations: [row]
+    });
+    const stable = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+      if (value && typeof value === "object") {
+        return `{${Object.entries(value as Record<string, unknown>)
+          .sort(([left], [right]) => left === right ? 0 : left < right ? -1 : 1)
+          .map(([key, entry]) => `${JSON.stringify(key)}:${stable(entry)}`)
+          .join(",")}}`;
+      }
+      return JSON.stringify(value);
+    };
+    const expectedBody = stable({
+      schemaVersion: "sena-reliability-json-source/v1",
+      name: "unicode-row.json",
+      rows: [row]
+    });
+
+    expect(prepared.inputFiles[0].sha256)
+      .toBe(createHash("sha256").update(expectedBody).digest("hex"));
   });
 
   it("computes canonical Krippendorff nominal alpha with the n(n-1) correction", () => {

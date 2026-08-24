@@ -1,5 +1,6 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { createHash } from "node:crypto";
+import { compareSenaCanonicalText } from "./canonical-order.mjs";
 import {
   assertSenaReliabilityCombinedRawRowsWithinLimits,
   assertSenaReliabilitySourceBytesWithinLimits,
@@ -81,7 +82,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareSenaCanonicalText(left, right))
       .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
       .join(",")}}`;
   }

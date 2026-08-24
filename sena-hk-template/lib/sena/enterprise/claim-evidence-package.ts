@@ -35,6 +35,7 @@ import type {
 import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
 import {
   buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
   resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
 import type {
@@ -298,6 +299,9 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
   const currentRevision = db.projectRevisions.find((revision) => (
     revision.projectId === project.id && revision.version === project.currentVersion
   ));
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(
+    db.adjudications.filter((record) => record.projectId === project.id)
+  );
   const projectReliabilityRuns = db.reliabilityRuns
     .filter((run) => run.projectId === project.id)
     .flatMap((run) => {
@@ -309,7 +313,7 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
       const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
         run,
         resolved,
-        db.adjudications
+        adjudicationsByRunId.get(run.id) ?? []
       );
       return resolved.scope === "current" ? [{
         ...run,
@@ -333,7 +337,7 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
     ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId) ?? latestByTimestamp(approvedValidationRuns)
     : latestByTimestamp(approvedValidationRuns);
   const loadedReliabilityAdjudications = approvedReliability
-    ? db.adjudications.filter((record) => record.reliabilityRunId === approvedReliability.id).length
+    ? (adjudicationsByRunId.get(approvedReliability.id) ?? []).length
     : 0;
   const reliabilityAdjudications = approvedReliability
     ? evidenceSource.adjudications === "reliability-run-payload"

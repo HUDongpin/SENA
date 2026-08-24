@@ -536,7 +536,7 @@ export function getEnterpriseCapabilityAudit(input: {
       evidence: [
         "formats=svg|png|html|xlsx|docx|pdf|package",
         "xlsxWorkbookEvidence=claim-readiness|coding-reliability|data-governance|matrix-fingerprints|evidence-snippets",
-        "projectSource=projectId|snapshot",
+        "projectSource=projectId-only",
         "package=sena-publication-package/v1",
         "sourceSnapshot=sena-publication-source-snapshot/v1",
         "certificate=sena-publication-verification-certificate/v1"
@@ -545,7 +545,7 @@ export function getEnterpriseCapabilityAudit(input: {
       requiredArtifacts: ["sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-data-governance-metadata/v1"],
       productionContractTestIds: ["export-publication-svg", "export-publication-png", "export-publication-xlsx", "export-publication-docx", "export-publication-pdf", "export-publication-package"],
       remainingPlatformDecisions: [],
-      nextAction: "Keep data-governance metadata and verification certificate bundled with publication exports."
+      nextAction: "Require a persisted projectId and keep data-governance metadata, approved current reliability evidence, atomic state binding, and the verification certificate bundled with publication exports."
     }),
     capability({
       id: "production-security-governance",

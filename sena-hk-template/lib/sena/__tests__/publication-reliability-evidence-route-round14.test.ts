@@ -432,9 +432,17 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           body: JSON.stringify({ snapshot, format: "html" })
         }
       ));
-      expect(directSnapshot.status).toBe(200);
-      expect(directSnapshot.headers.get("x-sena-export-source")).toBe("snapshot");
+      expect(directSnapshot.status).toBe(400);
+      await expect(directSnapshot.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_project_required"
+      }));
+      expect(directSnapshot.headers.get("x-sena-export-source")).toBeNull();
       expect(directSnapshot.headers.get("x-sena-publication-reliability-run-id")).toBeNull();
+      expect(enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.run",
+        limit: 5
+      }).events).toHaveLength(0);
+      expect(enterprise.getEnterpriseProject(registered.context, project.id)).toEqual(project);
 
       const reliabilityRoute = await import("../../../app/api/sena/reliability/route");
       const reliability = await reliabilityRoute.POST(new Request("https://sena.example.test/api/sena/reliability", {
@@ -748,7 +756,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         })
       }));
       expect(body.derivationManifest).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-derivation-manifest/v1",
+        schemaVersion: "sena-publication-derivation-manifest/v2",
         sourceKind: "enterprise-project",
         derivationKind: "current-project-reliability-run",
         manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),

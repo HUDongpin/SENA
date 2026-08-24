@@ -2703,37 +2703,17 @@ describe("SENA model builder", () => {
 
     const serverProjectExport = await exportEnterprisePublicationAction(
       {
-        teamId: "team-1",
         format: "pdf",
         projectId: "project-1"
       },
       { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
     );
-    const snapshotExport = await exportEnterprisePublicationAction(
-      {
-        teamId: "team-1",
-        format: "package",
-        snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
-      },
-      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
-    );
-
     expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
     expect(serverProjectExport.filename).toBe("sena-publication.pdf");
-    expect(snapshotExport.filename).toBe("sena-publication.pdf");
-    expect(calls.map((call) => call.url)).toEqual([
-      SENA_WORKSPACE_API_ROUTES.publicationExport,
-      SENA_WORKSPACE_API_ROUTES.publicationExport
-    ]);
+    expect(calls.map((call) => call.url)).toEqual([SENA_WORKSPACE_API_ROUTES.publicationExport]);
     expect(calls[0].body).toEqual({
-      teamId: "team-1",
       format: "pdf",
       projectId: "project-1"
-    });
-    expect(calls[1].body).toEqual({
-      teamId: "team-1",
-      format: "package",
-      snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
     });
   });
 

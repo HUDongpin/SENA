@@ -535,10 +535,8 @@ export async function restoreEnterpriseProjectRevisionAction(
 
 export async function exportEnterprisePublicationAction(
   input: {
-    teamId?: string;
     format: EnterprisePublicationFormat;
-    projectId?: string;
-    snapshot?: unknown;
+    projectId: string;
   },
   options: EnterpriseActionOptions
 ): Promise<EnterprisePublicationExportActionResponse> {
@@ -548,10 +546,8 @@ export async function exportEnterprisePublicationAction(
       method: "POST",
       headers: await enterpriseJsonHeaders(options),
       body: JSON.stringify({
-        teamId: input.teamId,
         format: input.format,
-        projectId: input.projectId,
-        snapshot: input.snapshot
+        projectId: input.projectId
       })
     }
   );

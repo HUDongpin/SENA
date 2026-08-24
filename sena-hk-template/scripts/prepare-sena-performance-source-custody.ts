@@ -1,14 +1,9 @@
-import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  buildSenaPerformanceSourceCustody,
-  performanceSourceCustodyEnvText
-} from "../lib/sena/enterprise/performance-source-custody";
+import { buildSenaPerformanceSourceCustody } from "../lib/sena/enterprise/performance-source-custody";
 import { emitVerificationArtifact } from "./verification-artifact-output";
 
 type Options = {
   output?: string;
-  envOutput?: string;
   root?: string;
 };
 
@@ -26,21 +21,22 @@ function parseArgs(argv: string[]): Options {
       options.output = nextValue(argv, index, arg);
       index += 1;
     } else if (arg === "--env-output") {
-      options.envOutput = nextValue(argv, index, arg);
-      index += 1;
+      throw new Error("--env-output is disabled: performance source custody is diagnostic-only and cannot authorize or bind a dirty production build.");
     } else if (arg === "--root") {
       options.root = nextValue(argv, index, arg);
       index += 1;
     } else if (arg === "--help" || arg === "-h") {
-      console.log(`Prepare SENA performance source custody for a reviewed clean release slice.
+      console.log(`Capture a redacted, diagnostic SENA performance source snapshot.
 
 Usage:
-  npm run sena:performance:source-custody -- [--output <file>] [--env-output <file>] [--root <dir>]
+  npm run sena:performance:source-custody -- [--output <file>] [--root <dir>]
 
 Options:
-  --output <file>      Write the redacted source-custody JSON and <file>.sha256 custody hash.
-  --env-output <file>  Write non-secret SENA_PERFORMANCE_SOURCE_CUSTODY_* hash/count env lines for sena:performance:check.
-  --root <dir>         Project root. Default: current working directory.`);
+  --output <file>      Write the redacted diagnostic JSON and <file>.sha256 transport checksum.
+  --root <dir>         Project root. Default: current working directory.
+
+This diagnostic snapshot cannot authorize production evidence. Production performance
+binding requires a fresh build from a clean Git worktree.`);
       process.exit(0);
     } else {
       throw new Error(`Unknown option: ${arg}`);
@@ -54,13 +50,6 @@ const artifact = buildSenaPerformanceSourceCustody({
   root: options.root ? path.resolve(options.root) : process.cwd()
 });
 
-if (options.envOutput) {
-  const envPath = path.resolve(options.envOutput);
-  mkdirSync(path.dirname(envPath), { recursive: true });
-  writeFileSync(envPath, performanceSourceCustodyEnvText(artifact.env));
-  process.stdout.write(`performanceSourceCustodyEnvPath=${envPath}\n`);
-}
-
 emitVerificationArtifact({
   artifact,
   output: options.output,
@@ -70,13 +59,9 @@ emitVerificationArtifact({
   verifiedAt: artifact.generatedAt
 });
 
-for (const [key, value] of Object.entries(artifact.env)) {
-  process.stdout.write(`${key}=${value}\n`);
-}
-
 if (artifact.status !== "pass") {
-  console.error("SENA performance source custody failed. Inspect unreadable source files or missing git identity before binding performance evidence.");
+  console.error("SENA diagnostic performance source snapshot failed. Inspect unreadable source files or missing Git identity; this snapshot is not production authorization.");
   process.exit(1);
 }
 
-console.log("SENA performance source custody prepared.");
+console.log("SENA diagnostic performance source snapshot captured (non-bindable).");

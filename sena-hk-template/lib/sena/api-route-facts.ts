@@ -365,9 +365,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/exports/publication",
     methods: ["POST"],
     auth: "session",
-    summary: "Generate publication-ready SENA artifacts; every format embeds sena-publication-derivation-manifest/v1, and projectId exports bind project, claim package, approved reliability evidence, persisted/read-projection/publication hashes, and adjudication coverage to one primary-state revision. Async requests fail closed after the same model-card gate until an evidence-bound publication worker is implemented.",
+    summary: "Generate project-bound publication-ready SENA artifacts; projectId is required, inline snapshots are rejected, and every format embeds sena-publication-derivation-manifest/v2 binding the project, claim package, approved current reliability evidence, persisted/read-projection/publication hashes, and adjudication coverage to one primary-state revision. Async requests fail closed after the same project-bound evidence gate until an evidence-bound publication worker is implemented.",
     evidenceNoteId: "sena-publication-export",
-    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-publication-derivation-manifest/v1", "sena-publication-state-binding/v1", "sena-data-governance-metadata/v1"]
+    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-publication-derivation-manifest/v2", "sena-publication-state-binding/v1", "sena-data-governance-metadata/v1"]
   },
   {
     id: "sena-notifications",

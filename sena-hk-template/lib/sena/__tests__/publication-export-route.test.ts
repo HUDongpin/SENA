@@ -385,9 +385,41 @@ describe("SENA publication export route", () => {
           queue: true
         })
       }));
-      expect(inlineResponse.status).toBe(503);
+      expect(inlineResponse.status).toBe(400);
       await expect(inlineResponse.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_async_worker_unavailable"
+        code: "publication_export_project_required"
+      }));
+      expect(inlineResponse.headers.get("x-sena-export-source")).toBeNull();
+      expect(inlineResponse.headers.get("content-disposition")).toBeNull();
+      const blankProjectResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({ projectId: "  \n\t", format: "html", queue: true })
+      }));
+      expect(blankProjectResponse.status).toBe(400);
+      await expect(blankProjectResponse.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_project_required"
+      }));
+      expect(blankProjectResponse.headers.get("x-sena-export-source")).toBeNull();
+      const mixedSourceResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          snapshot: routeSnapshot(),
+          format: "html",
+          queue: true
+        })
+      }));
+      expect(mixedSourceResponse.status).toBe(400);
+      await expect(mixedSourceResponse.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_inline_snapshot_forbidden"
       }));
       expect(queueRequests).toHaveLength(0);
       const incompleteProject = enterprise.createEnterpriseProject(registered.context, {
@@ -431,6 +463,10 @@ describe("SENA publication export route", () => {
         limit: 5
       });
       expect(audit.events).toHaveLength(0);
+      expect(enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.run",
+        limit: 5
+      }).events).toHaveLength(0);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_REQUIRE_ASYNC_HEAVY_JOBS;

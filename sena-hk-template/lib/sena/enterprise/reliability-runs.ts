@@ -47,7 +47,9 @@ import type {
 import {
   assertEnterpriseReliabilityRunCurrentProject,
   buildEnterpriseReliabilityAdjudicationCoverage,
-  buildEnterpriseReliabilityPublicationReviewProjection
+  buildEnterpriseReliabilityPublicationReviewProjection,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
+  senaReliabilityDisagreementKey
 } from "./reliability-integrity";
 import { parseSenaReliabilityAdjudicationDecision } from "./reliability-adjudication-decision";
 
@@ -362,6 +364,32 @@ type CreateEnterpriseReliabilityAdjudicationsInput = {
   limit?: number;
 };
 
+// Postgres mirroring currently persists one adjudication at a time. Keep one
+// mutation deliberately small and require callers to make progress in bounded
+// batches instead of turning a valid 50,000-cell disagreement universe into a
+// single long-running state mutation.
+export const SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT = 100;
+
+function adjudicationRequestLimit(inputLimit: number | undefined, unresolvedCount: number) {
+  const requested = inputLimit ?? unresolvedCount;
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    if (inputLimit === undefined && unresolvedCount === 0) return 0;
+    throw new SenaEnterpriseError(
+      "Reliability adjudication limit must be a positive safe integer.",
+      400,
+      "reliability_adjudication_limit_invalid"
+    );
+  }
+  if (requested > SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT) {
+    throw new SenaEnterpriseError(
+      `Reliability adjudication requests may resolve at most ${SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT} unresolved disagreements at a time; submit bounded batches.`,
+      413,
+      "reliability_adjudication_limit_exceeded"
+    );
+  }
+  return Math.min(requested, unresolvedCount);
+}
+
 function createEnterpriseReliabilityAdjudicationsInDb(
   context: SenaEnterpriseSessionContext,
   runId: string,
@@ -381,26 +409,23 @@ function createEnterpriseReliabilityAdjudicationsInDb(
   }
   requireEnterprisePermission(context, run.teamId, "reliability:adjudicate");
   const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
-
-  const queueLimit = Math.min(
-    Math.max(Math.trunc(input.limit ?? dashboard.adjudicationQueue.length), 1),
-    dashboard.adjudicationQueue.length
-  );
-  const queue = dashboard.adjudicationQueue.slice(0, queueLimit);
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(db.adjudications);
+  const existingForRun = adjudicationsByRunId.get(run.id) ?? [];
+  // Validate all existing records before deciding that a queue item is already
+  // resolved. This is a pure read projection and occurs before any state write.
+  buildEnterpriseReliabilityAdjudicationCoverage(run, project, existingForRun);
+  const existingKeys = new Set(existingForRun.map((record) => (
+    senaReliabilityDisagreementKey(record.itemId, record.codeId)
+  )));
+  const unresolvedQueue = dashboard.adjudicationQueue.filter((disagreement) => (
+    !existingKeys.has(senaReliabilityDisagreementKey(disagreement.itemId, disagreement.codeId))
+  ));
+  const queueLimit = adjudicationRequestLimit(input.limit, unresolvedQueue.length);
+  const queue = unresolvedQueue.slice(0, queueLimit);
   const adjudications: SenaEnterpriseAdjudicationRecord[] = [];
-  let skippedExisting = 0;
+  const skippedExisting = dashboard.adjudicationQueue.length - unresolvedQueue.length;
   const timestamp = now();
   for (const disagreement of queue) {
-    const existing = db.adjudications.find((record) => (
-      record.projectId === run.projectId &&
-      record.reliabilityRunId === run.id &&
-      record.itemId === disagreement.itemId &&
-      record.codeId === disagreement.codeId
-    ));
-    if (existing) {
-      skippedExisting += 1;
-      continue;
-    }
     const record: SenaEnterpriseAdjudicationRecord = {
       id: id("adj"),
       projectId: run.projectId,
@@ -420,7 +445,12 @@ function createEnterpriseReliabilityAdjudicationsInDb(
     db.adjudications.push(record);
     adjudications.push(record);
   }
-  const coverage = refreshReliabilityAdjudicationCoverage(db, run);
+  const coverage = buildEnterpriseReliabilityAdjudicationCoverage(
+    run,
+    project,
+    [...existingForRun, ...adjudications]
+  );
+  run.adjudicationCoverage = coverage;
 
   appendAudit(db, {
     event: "reliability.adjudicate",
@@ -634,12 +664,15 @@ export function findEnterprisePublicationReliabilityEvidenceFromDb(
   const candidates = db.reliabilityRuns
     .filter((run) => run.projectId === currentProject.id && run.status === "approved")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(
+    db.adjudications.filter((record) => record.projectId === currentProject.id)
+  );
   for (const run of candidates) {
     try {
       const projection = buildEnterpriseReliabilityPublicationReviewProjection(
         run,
         currentProject,
-        db.adjudications
+        adjudicationsByRunId.get(run.id) ?? []
       );
       const machineEvidence = projection.review.machineEvidence;
       if (
@@ -807,7 +840,7 @@ export function buildEnterpriseReliabilityAdjudicationResponse(
   const adjudication: SenaEnterpriseReliabilityAdjudicationResult = adjudicate(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
+    limit: body.limit === undefined ? undefined : Number(body.limit)
   });
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {
@@ -826,7 +859,7 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirror(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
+    limit: body.limit === undefined ? undefined : Number(body.limit)
   });
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {
@@ -845,7 +878,7 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsync(context, String(body.runId ?? ""), {
     decision,
     notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
+    limit: body.limit === undefined ? undefined : Number(body.limit)
   });
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {

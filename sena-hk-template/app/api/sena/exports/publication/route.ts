@@ -24,7 +24,7 @@ import {
   type SenaPublicationFormat
 } from "@/lib/sena/publication-export";
 import { buildSenaModel } from "@/lib/sena/model";
-import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "@/lib/sena/snapshot";
+import { buildSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
@@ -112,48 +112,49 @@ export async function POST(request: Request) {
     const context = await requireApiSessionForMutation(request);
     const requestBody = await request.json();
     const format = formats.has(requestBody.format) ? requestBody.format : "html";
-    const projectId = requestBody.projectId ? String(requestBody.projectId) : "";
+    const projectId = requestBody.projectId ? String(requestBody.projectId).trim() : "";
+    if (!projectId) {
+      throw new SenaEnterpriseError(
+        "Enterprise publication export requires a persisted projectId; inline snapshots cannot establish approved, current reliability and atomic state-revision evidence.",
+        400,
+        "publication_export_project_required"
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(requestBody, "snapshot")) {
+      throw new SenaEnterpriseError(
+        "Inline snapshots are not accepted by the enterprise publication route; export the persisted project by projectId.",
+        400,
+        "publication_export_inline_snapshot_forbidden"
+      );
+    }
     if (shouldQueueServerJob(request, requestBody)) {
-      if (projectId) {
-        const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
-        const queuedPublication = publicationSnapshotForProject(
-          publicationState.project,
-          publicationState.reliabilityRun,
-          publicationState.reliabilityReviewProjection
-        );
-        assertSenaPublicationModelCardReady(queuedPublication.snapshot.report);
-      } else if (requestBody.snapshot) {
-        const queuedSnapshot = importSenaProjectSnapshot(requestBody.snapshot);
-        assertSenaPublicationModelCardReady(queuedSnapshot.report);
-      } else {
-        throw new SenaEnterpriseError("Provide projectId or snapshot for publication export.", 400, "publication_export_source_required");
-      }
+      const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+      const queuedPublication = publicationSnapshotForProject(
+        publicationState.project,
+        publicationState.reliabilityRun,
+        publicationState.reliabilityReviewProjection
+      );
+      assertSenaPublicationModelCardReady(queuedPublication.snapshot.report);
       throw new SenaEnterpriseError(
         "Queued publication export is unavailable until an evidence-bound publication worker can revalidate the complete state, reliability, adjudication, and derivation lease before producing artifacts.",
         503,
         "publication_export_async_worker_unavailable"
       );
     }
-    let snapshot: SenaProjectSnapshot;
-    let teamId = String(requestBody.teamId || context.teams[0]?.id || "");
-    let source = "snapshot";
-    let projectVersion: number | undefined;
-    let enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence | undefined;
-    if (projectId) {
-      const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
-      const { project, claimPackage, stateBinding } = publicationState;
-      const publicationSource = publicationSnapshotForProject(
-        project,
-        publicationState.reliabilityRun,
-        publicationState.reliabilityReviewProjection
-      );
-      snapshot = publicationSource.snapshot;
-      teamId = project.teamId;
-      source = "project";
-      projectVersion = project.currentVersion;
-      const sourceSnapshotSha256 = sha256Json(snapshot);
-      const reportSha256 = sha256Json(snapshot.report);
-      enterpriseProjectEvidence = {
+    const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+    const { project, claimPackage, stateBinding } = publicationState;
+    const publicationSource = publicationSnapshotForProject(
+      project,
+      publicationState.reliabilityRun,
+      publicationState.reliabilityReviewProjection
+    );
+    const snapshot: SenaProjectSnapshot = publicationSource.snapshot;
+    const teamId = project.teamId;
+    const source = "project";
+    const projectVersion = project.currentVersion;
+    const sourceSnapshotSha256 = sha256Json(snapshot);
+    const reportSha256 = sha256Json(snapshot.report);
+    const enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence = {
         schemaVersion: SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence,
         projectId: project.id,
         teamId: project.teamId,
@@ -186,11 +187,6 @@ export async function POST(request: Request) {
           sha256: stateBinding.claimPackage.sha256
         }
       };
-    } else if (requestBody.snapshot) {
-      snapshot = importSenaProjectSnapshot(requestBody.snapshot);
-    } else {
-      throw new SenaEnterpriseError("Provide projectId or snapshot for publication export.", 400, "publication_export_source_required");
-    }
     const result = await buildSenaPublicationExport(snapshot, format, enterpriseProjectEvidence);
     await recordEnterpriseAuditAsync({
       event: "export.run",

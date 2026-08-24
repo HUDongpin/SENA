@@ -94,6 +94,9 @@ TypeScript 6.5s, 74 static pages.
 | workspace-route-js-br |             1,430 |    180,000 |      99% |
 | total-static-js-br    |           812,524 |    900,000 |      10% |
 
+`workspace-route-js-br` is the `/workspace/sena` App Router page entry chunk only;
+it does not include the dynamically loaded stage-2 workspace chunks.
+
 ### Static JS (raw, fresh build)
 
 Total static JS: **3,442.4 KiB** raw. Shared first-load (rootMainFiles + polyfills,
@@ -135,14 +138,36 @@ Datasets: 1x = 4 people / 8 interactions / 10 utterances / 10 segments / 7 codes
 
 - **P1 (closed 2026-08-02, iteration 1).** `sena:performance:check` run against the stale
   pre-existing `.next` reported `total-static-js-br` **fail** at 945,737 B and
-  `workspace-route-js-br` actual **0 B (trivial pass)**; after a fresh build it reports
+  `workspace-route-js-br` entry-chunk actual **0 B (trivial pass)**; after a fresh build it reports
   812,524 B (pass) and 1,430 B. The check happily measured stale or dev-polluted build
   output, and a zero-byte route actual passed instead of failing. **Fix landed:**
   `buildSizeCheck` in `lib/sena/enterprise/performance-budget-artifact.ts` now fails any
   size check whose actual is exactly 0 bytes, with `zeroByteActual=true` evidence and a
   rebuild next-action (regression test: "fails a zero-byte actual instead of trivially
-  passing a stale build (P1)"). Staleness *binding* (source-hash pinning) already exists
-  behind the strict-production-evidence env flags and was left as-is.
+  passing a stale build (P1)"). The earlier strict binding only combined a hash of an
+  opaque Next BUILD_ID with Git identity read at measurement time, so it did not prove
+  that `.next` came from that source. The 2026-08-24 follow-up replaced it with a
+  content-addressed, ad-blocker-safe BUILD_ID over HEAD, Git status, lockfile, and the
+  deployable source tree (including `packages/` and root Tailwind config); exact paths use canonical JSON
+  records rather than trimmed newline joins. The checker brackets source, BUILD_ID, and
+  measured chunks before/after reads, binds a separate aggregate hash of the actual JS
+  and workspace HTML artifact set, and explicitly records that BUILD_ID itself does not
+  bind build-environment values. Its reversible base-16 encoding cannot contain the `ad`
+  substring that Next's fallback generator avoids for ad-blocker compatibility. Production
+  bind/archive now accept only the v2 performance artifact from a clean Git tree, reject
+  v1 evidence and automatic dirty-slice self-attestation, recompute provenance,
+  independently remeasure the same local `.next` output set and all
+  three Brotli actuals, and validate the complete five-check summary plus budget/headroom/
+  reserve arithmetic rather than trusting a rehashed JSON artifact and sidecar. Their
+  remeasurement root is anchored to the production script location rather than `cwd` or
+  a test environment variable. Output traversal is sorted and `lstat`-based; any nested
+  enumeration/stat error, symlink, or non-regular file makes the measurement unavailable
+  instead of silently omitting a subtree. Runtime readiness also requires the exact v2
+  schema marker and measured output-set hash, so a previously bound v1 tuple cannot remain
+  green after the validator upgrade. This
+  closes artifact-only rewriting under the controlled-runner model; it does not claim
+  signed build provenance against an actor who can also rewrite `.next`. That stronger
+  threat model requires an immutable CI artifact digest or an external signed attestation.
 - **P2 (open, compute).** `buildSenaModel` is 80% of pipeline time at 25x (13.4 of 16.7 ms)
   and grows 7.4x for 25x rows — fastest-growing stage, though absolute cost is still small.
   Not worth optimizing until absolute cost matters; first profile at 100–250x to see if

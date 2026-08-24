@@ -1348,7 +1348,7 @@ export const SENA_WORKSPACE_MODULE_BOUNDARIES = {
       },
       containerResponsibilities: [
         "own enterprise publication export callbacks",
-        "keep publication export action calls, Blob download binding, snapshot fallback binding, and publication status messages outside the main workspace container"
+        "keep project-bound publication export calls, Blob download binding, and publication status messages outside the main workspace container"
       ]
     },
     {

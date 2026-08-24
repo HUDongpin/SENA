@@ -14,8 +14,8 @@ import {
 } from "../reliability";
 import { SenaEnterpriseError } from "./errors";
 import {
-  assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope,
   buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
   resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
 import type {
@@ -346,13 +346,13 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     ...normalizedProjectSnapshotFields(revision.snapshot)
   }));
   const adjudications = db.adjudications ?? [];
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(adjudications);
+  const projectById = new Map(projects.map((project) => [project.id, project]));
   const reliabilityScopeByRunId = new Map<string, ReturnType<
     typeof resolveEnterpriseReliabilityRunProjectScope
   >>();
   const reliabilityRuns = (db.reliabilityRuns ?? []).map((run) => {
-    const project = run.projectId
-      ? projects.find((candidate) => candidate.id === run.projectId)
-      : undefined;
+    const project = run.projectId ? projectById.get(run.projectId) : undefined;
     if (run.projectId && !project) {
       throw new SenaEnterpriseError(
         "Stored project-bound reliability run has no current project.",
@@ -386,7 +386,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       ? buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
         normalizedRun,
         resolvedScope,
-        adjudications
+        adjudicationsByRunId.get(normalizedRun.id) ?? []
       )
       : {
         schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
@@ -399,9 +399,10 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       };
     return { ...normalizedRun, adjudicationCoverage };
   });
+  const reliabilityRunById = new Map(reliabilityRuns.map((run) => [run.id, run]));
   for (const record of adjudications) {
     const run = record.reliabilityRunId
-      ? reliabilityRuns.find((candidate) => candidate.id === record.reliabilityRunId)
+      ? reliabilityRunById.get(record.reliabilityRunId)
       : undefined;
     const resolvedScope = run ? reliabilityScopeByRunId.get(run.id) : undefined;
     if (!run || !resolvedScope) {
@@ -411,7 +412,6 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
         "reliability_adjudication_binding_invalid"
       );
     }
-    assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(resolvedScope, record);
   }
   return {
     ...db,

@@ -1,5 +1,6 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { parseSenaCsv, type SenaImportRow } from "./import";
+import { compareSenaCanonicalText } from "./canonical-order.mjs";
 import type {
   SenaCodingReliabilityMachineEvidence,
   SenaCodingReliabilityReview,
@@ -588,9 +589,9 @@ export function preflightSenaReliabilityAnnotations(annotations: readonly SenaCo
     cells.set(cell, value);
   }
   return {
-    coders: Array.from(coderIds).sort(),
-    items: Array.from(itemIds).sort(),
-    codes: Array.from(codeIds).sort(),
+    coders: Array.from(coderIds).sort(compareSenaCanonicalText),
+    items: Array.from(itemIds).sort(compareSenaCanonicalText),
+    codes: Array.from(codeIds).sort(compareSenaCanonicalText),
     ...cardinality
   };
 }
@@ -617,7 +618,7 @@ function stableBindingValue(value: unknown): string {
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareSenaCanonicalText(left, right))
       .map(([key, entry]) => `${JSON.stringify(key)}:${stableBindingValue(entry)}`)
       .join(",")}}`;
   }
@@ -639,14 +640,14 @@ function reliabilityBindingHash(value: unknown) {
 }
 
 function sortedUnique(values: string[]) {
-  return Array.from(new Set(values)).sort();
+  return Array.from(new Set(values)).sort(compareSenaCanonicalText);
 }
 
 function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
   return annotations.map((annotation) => ({ ...annotation })).sort((left, right) => (
-    left.coderId.localeCompare(right.coderId) ||
-    left.itemId.localeCompare(right.itemId) ||
-    left.codeId.localeCompare(right.codeId) ||
+    compareSenaCanonicalText(left.coderId, right.coderId) ||
+    compareSenaCanonicalText(left.itemId, right.itemId) ||
+    compareSenaCanonicalText(left.codeId, right.codeId) ||
     Number(left.value) - Number(right.value)
   ));
 }
@@ -673,8 +674,8 @@ function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
     }
   }
   return coverage.sort((left, right) => (
-    left.coderId.localeCompare(right.coderId) ||
-    left.itemId.localeCompare(right.itemId)
+    compareSenaCanonicalText(left.coderId, right.coderId) ||
+    compareSenaCanonicalText(left.itemId, right.itemId)
   ));
 }
 
@@ -722,7 +723,7 @@ export function bindSenaReliabilityAnnotationsToProject(
   const authoritativeDataset = senaReliabilityAuthoritativeDataset(project.snapshot);
   const codebookUniverse = authoritativeDataset.codebook
     .map((code) => ({ id: code.id, label: code.label }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareSenaCanonicalText(left.id, right.id));
   const exactCodes = new Map(codebookUniverse.map((code) => [code.id, code.id]));
   const aliases = new Map<string, string | null>();
   for (const code of codebookUniverse) {
@@ -735,7 +736,9 @@ export function bindSenaReliabilityAnnotationsToProject(
   const itemUniverse = [
     ...authoritativeDataset.utterances.map((item) => ({ id: item.id, kind: "utterance" as const })),
     ...authoritativeDataset.coded_segments.map((item) => ({ id: item.segmentId, kind: "coded-segment" as const }))
-  ].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
+  ].sort((left, right) => (
+    compareSenaCanonicalText(left.id, right.id) || compareSenaCanonicalText(left.kind, right.kind)
+  ));
   const itemIds = new Set(itemUniverse.map((item) => item.id));
   const canonical: SenaCoderAnnotation[] = [];
   const cells = new Set<string>();
@@ -832,8 +835,11 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
     ![binding.codebookIds, binding.itemUniverseIds, binding.annotatedItemIds, binding.annotatedCodeIds, binding.coderIds]
       .every((entry) => Array.isArray(entry) && entry.every((item) => typeof item === "string")) ||
     !Number.isInteger(binding.annotationCount) || Number(binding.annotationCount) < 0) return false;
-  const codebookUniverse = [...binding.codebookUniverse].sort((left, right) => left.id.localeCompare(right.id));
-  const itemUniverse = [...binding.itemUniverse].sort((left, right) => left.id.localeCompare(right.id) || left.kind.localeCompare(right.kind));
+  const codebookUniverse = [...binding.codebookUniverse]
+    .sort((left, right) => compareSenaCanonicalText(left.id, right.id));
+  const itemUniverse = [...binding.itemUniverse].sort((left, right) => (
+    compareSenaCanonicalText(left.id, right.id) || compareSenaCanonicalText(left.kind, right.kind)
+  ));
   const annotationCoverage = canonicalAnnotationCoverage(binding.annotationCoverage);
   const skippedCellCoverage = canonicalSkippedCellCoverage(binding.skippedCellCoverage);
   const codebookIds = codebookUniverse.map((entry) => entry.id);
@@ -1297,7 +1303,7 @@ function buildCodeDiagnostics(
   }).sort((a, b) => (
     b.disagreementCount - a.disagreementCount ||
     a.agreementRate - b.agreementRate ||
-    a.codeId.localeCompare(b.codeId)
+    compareSenaCanonicalText(a.codeId, b.codeId)
   ));
 }
 
@@ -1491,11 +1497,11 @@ function canonicalReliabilityInputs(value: {
   const coderIds = value.coderIds;
   if (coderIds.some((coderId) => coderId.length === 0) ||
     new Set(coderIds).size !== coderIds.length ||
-    !sameStringArray(coderIds, [...coderIds].sort()) ||
+    !sameStringArray(coderIds, [...coderIds].sort(compareSenaCanonicalText)) ||
     !value.pairwiseCohenKappa.every(isValidPairwiseKappa)) return null;
   const actualPairKeys = value.pairwiseCohenKappa
-    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort()))
-    .sort();
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort(compareSenaCanonicalText)))
+    .sort(compareSenaCanonicalText);
   if (!sameStringArray(actualPairKeys, expectedPairKeys(coderIds))) return null;
   const pairwiseKappaStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
   const allPairsEstimable = pairwiseKappaStatuses.length > 0 &&
@@ -2058,10 +2064,10 @@ function expectedPairKeys(coderIds: string[]) {
   const keys: string[] = [];
   for (let left = 0; left < coderIds.length; left += 1) {
     for (let right = left + 1; right < coderIds.length; right += 1) {
-      keys.push(canonicalTupleKey([coderIds[left], coderIds[right]].sort()));
+      keys.push(canonicalTupleKey([coderIds[left], coderIds[right]].sort(compareSenaCanonicalText)));
     }
   }
-  return keys.sort();
+  return keys.sort(compareSenaCanonicalText);
 }
 
 function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaReliabilityDashboard {
@@ -2106,8 +2112,8 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     new Set(adjudicationKeys).size !== adjudicationKeys.length) return false;
   const pairwiseStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
   const pairKeys = value.pairwiseCohenKappa
-    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort()))
-    .sort();
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort(compareSenaCanonicalText)))
+    .sort(compareSenaCanonicalText);
   const canonicalPairKeys = expectedPairKeys(coderIds);
   if (new Set(coderIds).size !== coderIds.length ||
     coderIds.length !== value.coderCount ||
@@ -2117,7 +2123,9 @@ function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaRel
     value.projectBinding.annotatedItemIds.length !== Number(value.itemCount) ||
     value.projectBinding.annotatedCodeIds.length !== Number(value.codeCount) ||
     JSON.stringify(value.projectBinding.annotatedCodeIds) !== JSON.stringify(
-      (value.codeDiagnostics as SenaCodeReliabilityDiagnostic[]).map((entry) => entry.codeId).sort()
+      (value.codeDiagnostics as SenaCodeReliabilityDiagnostic[])
+        .map((entry) => entry.codeId)
+        .sort(compareSenaCanonicalText)
     )
   )) return false;
   const rawMeanPairwiseKappa = pairwiseStatuses.length > 0 && pairwiseStatuses.every((status) => status === "estimable")
@@ -2229,7 +2237,8 @@ export function normalizeSenaReliabilityDashboard(
     })) as SenaCodeReliabilityDiagnostic[]
     : [];
   const coderCount = typeof value.coderCount === "number" && Number.isFinite(value.coderCount) ? Math.max(0, Math.trunc(value.coderCount)) : 0;
-  const pairCoderIds = Array.from(new Set(pairwiseCohenKappa.flatMap((pair) => [pair.coderA, pair.coderB]))).sort();
+  const pairCoderIds = Array.from(new Set(pairwiseCohenKappa.flatMap((pair) => [pair.coderA, pair.coderB])))
+    .sort(compareSenaCanonicalText);
   const coderIds = Array.from({ length: coderCount }, (_, index) => pairCoderIds[index] ?? `legacy-coder-${index + 1}`);
   const meanPairwiseKappa = null;
   const alpha = null;

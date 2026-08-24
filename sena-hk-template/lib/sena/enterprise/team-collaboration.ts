@@ -37,10 +37,10 @@ import {
 } from "./reliability-runs";
 import {
   assertEnterpriseReliabilityAdjudicationRecord,
-  assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope,
   assertEnterpriseReliabilityRunCurrentProject,
   buildEnterpriseReliabilityAdjudicationCoverage,
   buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
   resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
 import {
@@ -731,6 +731,7 @@ function buildEnterpriseProjectCollaborationFromDb(
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
   const adjudications = evidence.adjudications.filter((record) => record.projectId === projectId);
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(adjudications);
   const reliabilityScopeByRunId = new Map<string, ReturnType<
     typeof resolveEnterpriseReliabilityRunProjectScope
   >>();
@@ -748,15 +749,16 @@ function buildEnterpriseProjectCollaborationFromDb(
         dashboard: resolved.dashboard,
         projectBinding: resolved.dashboard.projectBinding,
         adjudicationCoverage: buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
-          run,
-          resolved,
-          adjudications
-        )
+        run,
+        resolved,
+        adjudicationsByRunId.get(run.id) ?? []
+      )
       };
     });
+  const reliabilityRunById = new Map(reliabilityRuns.map((run) => [run.id, run]));
   for (const record of adjudications) {
     const run = record.reliabilityRunId
-      ? reliabilityRuns.find((candidate) => candidate.id === record.reliabilityRunId)
+      ? reliabilityRunById.get(record.reliabilityRunId)
       : undefined;
     const reliabilityScope = run ? reliabilityScopeByRunId.get(run.id) : undefined;
     if (!run || !reliabilityScope) {
@@ -766,7 +768,6 @@ function buildEnterpriseProjectCollaborationFromDb(
         "reliability_adjudication_binding_invalid"
       );
     }
-    assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(reliabilityScope, record);
   }
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.projectCollaboration,

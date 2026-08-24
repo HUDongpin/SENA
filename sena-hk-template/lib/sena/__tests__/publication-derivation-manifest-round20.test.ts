@@ -116,7 +116,7 @@ async function manifestFromPdf(body: Buffer) {
     if (!(object instanceof PDFRawStream)) continue;
     try {
       const decoded = Buffer.from(decodePDFRawStream(object).decode()).toString("utf8");
-      if (decoded.includes('"schemaVersion":"sena-publication-derivation-manifest/v1"')) {
+      if (decoded.includes('"schemaVersion":"sena-publication-derivation-manifest/v2"')) {
         return JSON.parse(decoded) as SenaPublicationDerivationManifest;
       }
     } catch {
@@ -151,11 +151,20 @@ describe("publication derivation manifest embedding", () => {
       const embedded = await extractManifest(format, result.body);
       expect(embedded).toEqual(result.derivationManifest);
       expect(embedded).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-derivation-manifest/v1",
+        schemaVersion: "sena-publication-derivation-manifest/v2",
         sourceKind: "inline-snapshot",
         derivationKind: "inline-snapshot",
         manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
       }));
+      expect(embedded.hashBoundaries).toEqual(expect.objectContaining({
+        persistedSnapshotSha256: null,
+        readProjectionSnapshotSha256: null,
+        publicationSnapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
+      expect(embedded.guardrails).toContain(
+        "No persisted or read-projection snapshot hash is asserted for this standalone input; those boundaries are null."
+      );
+      expect(embedded.guardrails.join(" ")).not.toContain("raw stored evidence");
       const { manifestSha256, ...manifestCore } = embedded;
       expect(createHash("sha256").update(JSON.stringify(manifestCore), "utf8").digest("hex"))
         .toBe(manifestSha256);

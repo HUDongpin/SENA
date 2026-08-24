@@ -1,7 +1,6 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useCallback } from "react";
-import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import {
   exportEnterprisePublicationAction,
   type EnterprisePublicationFormat
@@ -11,20 +10,16 @@ type StateSetter<T> = Dispatch<SetStateAction<T>>;
 
 export type EnterprisePublicationActionsOptions = {
   enterpriseUserPresent: boolean;
-  activeEnterpriseTeamId: string;
   activeEnterpriseProjectId: string;
   enterpriseJsonHeaders: () => Promise<Record<string, string>>;
-  buildCurrentProjectSnapshot: () => SenaProjectSnapshot;
   setEnterpriseBusy: StateSetter<boolean>;
   setEnterpriseMessage: StateSetter<string>;
 };
 
 export function useEnterprisePublicationActions({
   enterpriseUserPresent,
-  activeEnterpriseTeamId,
   activeEnterpriseProjectId,
   enterpriseJsonHeaders,
-  buildCurrentProjectSnapshot,
   setEnterpriseBusy,
   setEnterpriseMessage
 }: EnterprisePublicationActionsOptions) {
@@ -33,14 +28,16 @@ export function useEnterprisePublicationActions({
       setEnterpriseMessage("Sign in before using enterprise publication exports.");
       return;
     }
+    if (!activeEnterpriseProjectId) {
+      setEnterpriseMessage("Save or open a server-side project before using enterprise publication exports.");
+      return;
+    }
     setEnterpriseBusy(true);
     try {
       const payload = await exportEnterprisePublicationAction(
         {
-          teamId: activeEnterpriseTeamId,
           format,
-          projectId: activeEnterpriseProjectId || undefined,
-          snapshot: activeEnterpriseProjectId ? undefined : buildCurrentProjectSnapshot()
+          projectId: activeEnterpriseProjectId
         },
         { jsonHeaders: enterpriseJsonHeaders }
       );
@@ -50,8 +47,7 @@ export function useEnterprisePublicationActions({
       anchor.download = payload.filename;
       anchor.click();
       URL.revokeObjectURL(url);
-      const exportSource = activeEnterpriseProjectId ? "server project" : "workspace snapshot";
-      setEnterpriseMessage(`${payload.filename} exported from the enterprise publication API using ${exportSource}.`);
+      setEnterpriseMessage(`${payload.filename} exported from the enterprise publication API using the server project.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Publication export failed.");
     } finally {
@@ -59,8 +55,6 @@ export function useEnterprisePublicationActions({
     }
   }, [
     activeEnterpriseProjectId,
-    activeEnterpriseTeamId,
-    buildCurrentProjectSnapshot,
     enterpriseJsonHeaders,
     enterpriseUserPresent,
     setEnterpriseBusy,

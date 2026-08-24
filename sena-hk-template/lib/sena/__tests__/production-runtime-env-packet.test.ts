@@ -282,6 +282,25 @@ describe("SENA production runtime env packet", () => {
         "performance-budget-artifact",
         "performance-build-git-dirty"
       ]));
+    expect(artifact.providerGroups.find((group) => group.id === "performance-clean-build")?.canonicalEnv)
+      .toEqual([
+        "SENA_PERFORMANCE_BUDGET_CONFIRMED",
+        "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
+        "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+        "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+        "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
+        "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+        "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+        "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+        "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+        "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE"
+      ]);
+    expect(artifact.providerGroups.find((group) => group.id === "performance-clean-build")?.verifyCommands)
+      .toEqual([
+        "npm run build",
+        "SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED=1 npm run sena:performance:check -- --output output/production-evidence/performance-budget.json",
+        "npm run sena:production-evidence:bind -- --artifact output/production-evidence/performance-budget.json --scope <vercel-team-slug> --yes"
+      ]);
     expect(artifact.providerGroups.find((group) => group.id === "performance-clean-build")?.nextAction)
       .toContain("performance-build-git-dirty");
     expect(artifact.providerGroups.find((group) => group.id === "neon-postgres")?.configureCommand)

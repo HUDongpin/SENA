@@ -9,6 +9,7 @@ import {
   type SenaReliabilityDashboardReadModel
 } from "../reliability";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { compareSenaCanonicalText } from "../canonical-order.mjs";
 import { SenaEnterpriseError } from "./errors";
 import type {
   SenaEnterpriseReliabilityAdjudicationCoverage,
@@ -45,6 +46,8 @@ export type SenaEnterpriseResolvedReliabilityRunProjectScope = {
   };
 };
 
+type SenaReliabilityDisagreement = SenaReliabilityDashboard["adjudicationQueue"][number];
+
 function exactStringArray(left: unknown, right: string[]) {
   return Array.isArray(left) && left.length === right.length &&
     left.every((entry, index) => entry === right[index]);
@@ -53,7 +56,7 @@ function exactStringArray(left: unknown, right: string[]) {
 function canonicalBooleanEntries(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => compareSenaCanonicalText(left, right));
   return entries.every(([coderId, decision]) => coderId.length > 0 && typeof decision === "boolean")
     ? entries as Array<[string, boolean]>
     : null;
@@ -160,14 +163,13 @@ function assertResolvedReliabilityRunIdentity(
   }
 }
 
-export function assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(
+function assertEnterpriseReliabilityAdjudicationRecordWithQueueIndex(
   resolved: SenaEnterpriseResolvedReliabilityRunProjectScope,
-  record: SenaEnterpriseAdjudicationRecord
+  record: SenaEnterpriseAdjudicationRecord,
+  queueByKey: ReadonlyMap<string, SenaReliabilityDisagreement>
 ) {
   const { dashboard, project, runIdentity } = resolved;
-  const disagreement = dashboard.adjudicationQueue.find((candidate) => (
-    candidate.itemId === record.itemId && candidate.codeId === record.codeId
-  ));
+  const disagreement = queueByKey.get(senaReliabilityDisagreementKey(record.itemId, record.codeId));
   if (!disagreement || record.projectId !== project.id || record.teamId !== project.teamId ||
     record.reliabilityRunId !== runIdentity.id || record.projectVersion !== project.currentVersion ||
     record.snapshotFingerprint !== runIdentity.projectBinding?.snapshotFingerprint ||
@@ -178,6 +180,17 @@ export function assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(
     typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))) {
     throw adjudicationBindingError();
   }
+}
+
+export function assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(
+  resolved: SenaEnterpriseResolvedReliabilityRunProjectScope,
+  record: SenaEnterpriseAdjudicationRecord
+) {
+  assertEnterpriseReliabilityAdjudicationRecordWithQueueIndex(
+    resolved,
+    record,
+    reliabilityDisagreementQueueIndex(resolved.dashboard)
+  );
 }
 
 export function assertEnterpriseReliabilityAdjudicationRecord(
@@ -195,8 +208,28 @@ function roundedCoverageRate(resolved: number, queued: number) {
   return Number((resolved / queued).toFixed(4));
 }
 
-function canonicalDisagreementKey(itemId: string, codeId: string) {
+export function senaReliabilityDisagreementKey(itemId: string, codeId: string) {
   return [itemId, codeId].map((part) => `${part.length}:${part}`).join("");
+}
+
+function reliabilityDisagreementQueueIndex(dashboard: SenaReliabilityDashboard) {
+  return new Map(dashboard.adjudicationQueue.map((entry) => ([
+    senaReliabilityDisagreementKey(entry.itemId, entry.codeId),
+    entry
+  ])));
+}
+
+export function groupEnterpriseReliabilityAdjudicationsByRunId(
+  adjudications: SenaEnterpriseAdjudicationRecord[]
+) {
+  const byRunId = new Map<string, SenaEnterpriseAdjudicationRecord[]>();
+  for (const record of adjudications) {
+    if (typeof record.reliabilityRunId !== "string" || record.reliabilityRunId.length === 0) continue;
+    const records = byRunId.get(record.reliabilityRunId);
+    if (records) records.push(record);
+    else byRunId.set(record.reliabilityRunId, [record]);
+  }
+  return byRunId;
 }
 
 export function buildEnterpriseReliabilityAdjudicationCoverage(
@@ -219,17 +252,14 @@ export function buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
   adjudications: SenaEnterpriseAdjudicationRecord[]
 ): SenaEnterpriseReliabilityAdjudicationCoverage {
   assertResolvedReliabilityRunIdentity(run, resolved);
-  const queueKeys = new Set(resolved.dashboard.adjudicationQueue.map((entry) => (
-    canonicalDisagreementKey(entry.itemId, entry.codeId)
-  )));
+  const queueByKey = reliabilityDisagreementQueueIndex(resolved.dashboard);
   const latestByDisagreement = new Map<string, SenaEnterpriseAdjudicationRecord>();
   adjudications
     .filter((record) => record.reliabilityRunId === run.id)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .forEach((record) => {
-      assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(resolved, record);
-      const key = canonicalDisagreementKey(record.itemId, record.codeId);
-      if (!queueKeys.has(key)) throw adjudicationBindingError();
+      assertEnterpriseReliabilityAdjudicationRecordWithQueueIndex(resolved, record, queueByKey);
+      const key = senaReliabilityDisagreementKey(record.itemId, record.codeId);
       latestByDisagreement.set(key, record);
     });
   const decisions = { include: 0, exclude: 0, revise: 0 };
@@ -238,7 +268,7 @@ export function buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
     decisions[record.decision] += 1;
     if (record.createdAt.localeCompare(updatedAt) > 0) updatedAt = record.createdAt;
   }
-  const queuedDisagreements = queueKeys.size;
+  const queuedDisagreements = queueByKey.size;
   const resolvedDisagreements = latestByDisagreement.size;
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,

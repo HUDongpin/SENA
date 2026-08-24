@@ -1199,8 +1199,8 @@ export function ReportGenerator({
           <Download className="h-4 w-4" /> Export publication package
         </button>
         {!hasPublicationAccess && (
-          <p data-testid="publication-export-signin-note" className="basis-full text-xs font-semibold text-muted">
-            Sign in to export publication formats.
+          <p data-testid="publication-export-prerequisite-note" className="basis-full text-xs font-semibold text-muted">
+            Sign in and save or open a server-side project to export publication formats.
           </p>
         )}
       </div>

@@ -3139,7 +3139,7 @@ describe("SENA enterprise runtime", () => {
     expect(capabilityAudit.capabilities.find((capability) => capability.id === "publication-exports")?.evidence)
       .toEqual(expect.arrayContaining(["xlsxWorkbookEvidence=claim-readiness|coding-reliability|data-governance|matrix-fingerprints|evidence-snippets"]));
     expect(capabilityAudit.capabilities.find((capability) => capability.id === "publication-exports")?.evidence)
-      .toEqual(expect.arrayContaining(["projectSource=projectId|snapshot"]));
+      .toEqual(expect.arrayContaining(["projectSource=projectId-only"]));
     expect(capabilityAudit.capabilities.find((capability) => capability.id === "go-live-operations")?.requiredArtifacts)
       .toEqual(expect.arrayContaining([
         "sena-enterprise-go-live-rehearsal/v1",

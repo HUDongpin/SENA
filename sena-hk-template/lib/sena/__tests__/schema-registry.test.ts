@@ -49,7 +49,7 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterpriseGoLiveCloseoutCheck).toBe("sena-go-live-closeout-check/v1");
     expect(SENA_SCHEMA_VERSIONS.enterprisePrimaryStateRuntime).toBe("sena-enterprise-primary-state-runtime/v1");
     expect(SENA_SCHEMA_VERSIONS.publicationStateBinding).toBe("sena-publication-state-binding/v1");
-    expect(SENA_SCHEMA_VERSIONS.publicationDerivationManifest).toBe("sena-publication-derivation-manifest/v1");
+    expect(SENA_SCHEMA_VERSIONS.publicationDerivationManifest).toBe("sena-publication-derivation-manifest/v2");
     expect(SENA_SCHEMA_VERSIONS.snapshotRestoreRequest).toBe("sena-snapshot-restore-request/v1");
     expect(SENA_SCHEMA_VERSIONS.snapshotRestoreResult).toBe("sena-snapshot-restore-result/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseAuditStoreRuntime).toBe("sena-enterprise-audit-store-runtime/v1");
@@ -70,7 +70,7 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterpriseObservabilityContract).toBe("sena-enterprise-observability-contract/v1");
     expect(SENA_SCHEMA_VERSIONS.enterprisePostgresProbe).toBe("sena-enterprise-postgres-probe/v1");
     expect(SENA_SCHEMA_VERSIONS.enterprisePostgresSchemaContract).toBe("sena-enterprise-postgres-schema-contract/v1");
-    expect(SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget).toBe("sena-enterprise-production-performance-budget/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget).toBe("sena-enterprise-production-performance-budget/v2");
     expect(SENA_SCHEMA_VERSIONS.enterprisePerformanceSourceCustody).toBe("sena-performance-source-custody/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseConferenceLoadRehearsal).toBe("sena-enterprise-conference-load-rehearsal/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseConferenceRehearsalPlan).toBe("sena-enterprise-conference-rehearsal-plan/v1");

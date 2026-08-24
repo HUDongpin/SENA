@@ -77,8 +77,8 @@ export type SenaPublicationDerivationManifest = {
   };
   hashBoundaries: {
     hashAlgorithm: "sha256";
-    persistedSnapshotSha256: string;
-    readProjectionSnapshotSha256: string;
+    persistedSnapshotSha256: string | null;
+    readProjectionSnapshotSha256: string | null;
     publicationSnapshotSha256: string;
     reportSha256: string;
   };
@@ -158,8 +158,8 @@ export function buildSenaPublicationDerivationManifest(input: {
     : sha256Json({ report: input.report, modelOptions: input.model?.options });
   const reportSha256 = sha256Json(input.report);
   const enterpriseEvidence = input.enterpriseProjectEvidence;
-  const persistedSnapshotSha256 = enterpriseEvidence?.stateBinding.project.persistedSnapshotSha256 ?? snapshotSha256;
-  const readProjectionSnapshotSha256 = enterpriseEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? snapshotSha256;
+  const persistedSnapshotSha256 = enterpriseEvidence?.stateBinding.project.persistedSnapshotSha256 ?? null;
+  const readProjectionSnapshotSha256 = enterpriseEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? null;
   const derivationKind = enterpriseEvidence?.publicationDerivation
     ? "current-project-reliability-run" as const
     : enterpriseEvidence
@@ -212,7 +212,9 @@ export function buildSenaPublicationDerivationManifest(input: {
     },
     ...(enterpriseEvidence ? { enterpriseProjectEvidence: structuredClone(enterpriseEvidence) } : {}),
     guardrails: [
-      "The persisted hash identifies raw stored evidence; the read-projection hash identifies non-persisted compatibility normalization.",
+      ...(enterpriseEvidence
+        ? ["The persisted hash identifies raw stored evidence; the read-projection hash identifies non-persisted compatibility normalization."]
+        : ["No persisted or read-projection snapshot hash is asserted for this standalone input; those boundaries are null."]),
       "The publication snapshot hash identifies the exact rendered/exported analytical snapshot.",
       "A derivation manifest records provenance and integrity boundaries; it does not make a causal or inferential claim."
     ]

@@ -181,11 +181,22 @@ function staticWorkspaceConfigSource() {
   return readFileSync(new URL("../../../components/sena/workspace/workspace-static-config.tsx", import.meta.url), "utf8");
 }
 
+function analysisRuntimeSource() {
+  return readFileSync(new URL("../../../components/sena/workspace/analysis-runtime.ts", import.meta.url), "utf8");
+}
+
 function enterpriseRuntimePanelSource() {
   return readFileSync(new URL("../../../components/sena/workspace/enterprise-runtime-panel.tsx", import.meta.url), "utf8");
 }
 
 describe("SENA workspace module boundaries", () => {
+  it("keeps server-side snapshot restore validators out of the client-safe analysis adapter", () => {
+    const source = analysisRuntimeSource();
+
+    expect(source).not.toContain("importSenaProjectSnapshot");
+    expect(source).not.toContain("importSenaReviewPacket");
+  });
+
   it("declares the main workspace container boundaries as typed manifest data", () => {
     expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container).toMatchObject({
       id: "SenaFusionWorkspace",
@@ -954,6 +965,8 @@ describe("SENA workspace module boundaries", () => {
     expect(publicationHookSource).toContain("export function useEnterprisePublicationActions");
     expect(publicationHookSource).toContain("exportEnterprisePublicationAction");
     expect(publicationHookSource).toContain("Sign in before using enterprise publication exports.");
+    expect(publicationHookSource).toContain("Save or open a server-side project before using enterprise publication exports.");
+    expect(publicationHookSource).not.toContain("buildCurrentProjectSnapshot");
     expect(publicationHookSource).toContain("URL.createObjectURL");
     expect(publicationHookSource).toContain("document.createElement(\"a\")");
     expect(publicationHookSource).toContain("exported from the enterprise publication API");
@@ -966,7 +979,7 @@ describe("SENA workspace module boundaries", () => {
     });
     expect(publicationHook.containerResponsibilities).toEqual([
       "own enterprise publication export callbacks",
-      "keep publication export action calls, Blob download binding, snapshot fallback binding, and publication status messages outside the main workspace container"
+      "keep project-bound publication export calls, Blob download binding, and publication status messages outside the main workspace container"
     ]);
   });
 

@@ -1,9 +1,17 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { compareSenaCanonicalText } from "../canonical-order.mjs";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { now } from "./ops-runtime";
+import {
+  isSenaFullGitObjectId,
+  senaCanonicalSourceFileHash,
+  senaPerformanceSourceCustodyManifestSha256,
+  senaSourceFileListSha256,
+  senaSourceTreeSha256,
+  SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR
+} from "./performance-build-identity.mjs";
 
 export type SenaPerformanceSourceCustodyEnv = {
   SENA_PERFORMANCE_SOURCE_CUSTODY_MODE: "reviewed-clean-release-slice";
@@ -67,6 +75,7 @@ const includePrefixes = [
   "app/",
   "components/",
   "lib/",
+  "packages/",
   "public/",
   "scripts/"
 ];
@@ -84,6 +93,9 @@ const includeRootFiles = [
   "postcss.config.js",
   "postcss.config.mjs",
   "proxy.ts",
+  "tailwind.config.js",
+  "tailwind.config.mjs",
+  "tailwind.config.ts",
   "tsconfig.json",
   "vercel.json"
 ];
@@ -159,42 +171,23 @@ function gitCandidateFiles(root: string) {
   if (output === undefined) return [];
   return output
     .split("\0")
-    .map((entry) => normalizePath(entry.trim()))
-    .filter(Boolean)
-    .sort();
+    .filter((entry) => entry.length > 0)
+    .map((entry) => normalizePath(entry))
+    .sort(compareSenaCanonicalText);
 }
 
 function gitIdentity(root: string) {
   const commit = gitOutput(root, ["rev-parse", "HEAD"])?.trim() || "unavailable";
-  const statusText = gitOutput(root, ["status", "--porcelain"])?.trim();
-  const dirtyLines = statusText ? statusText.split(/\r?\n/).filter(Boolean) : [];
+  const statusText = gitOutput(root, ["status", "--porcelain=v1", "-z"]);
+  const dirtyEntries = statusText === undefined
+    ? []
+    : statusText.split("\0").filter((entry) => entry.length > 0);
   return {
-    baseGitCommit: /^[a-f0-9]{40,64}$/.test(commit) ? commit : "unavailable" as const,
-    rootGitDirty: statusText !== undefined ? dirtyLines.length > 0 : "unknown" as const,
-    rootGitDirtyFileCount: statusText !== undefined ? dirtyLines.length : "unknown" as const,
+    baseGitCommit: isSenaFullGitObjectId(commit) ? commit : "unavailable" as const,
+    rootGitDirty: statusText !== undefined ? dirtyEntries.length > 0 : "unknown" as const,
+    rootGitDirtyFileCount: statusText !== undefined ? dirtyEntries.length : "unknown" as const,
     rootGitStatusSha256: statusText !== undefined ? sha256(statusText) : "unavailable" as const
   };
-}
-
-function manifestHashBasis(input: {
-  baseGitCommit: string | "unavailable";
-  rootGitStatusSha256: string | "unavailable";
-  rootGitDirtyFileCount: number | "unknown";
-  fileListSha256: string;
-  sourceTreeSha256: string;
-  fileCount: number;
-}) {
-  return JSON.stringify({
-    schemaVersion: SENA_SCHEMA_VERSIONS.enterprisePerformanceSourceCustody,
-    generator: "sena-performance-source-custody/v1",
-    mode: "reviewed-clean-release-slice",
-    baseGitCommit: input.baseGitCommit,
-    rootGitStatusSha256: input.rootGitStatusSha256,
-    rootGitDirtyFileCount: input.rootGitDirtyFileCount,
-    fileListSha256: input.fileListSha256,
-    sourceTreeSha256: input.sourceTreeSha256,
-    fileCount: input.fileCount
-  });
 }
 
 export function buildSenaPerformanceSourceCustody(input: {
@@ -215,38 +208,30 @@ export function buildSenaPerformanceSourceCustody(input: {
       excludedCandidateFiles += 1;
       continue;
     }
-    const absolutePath = path.join(root, file);
-    try {
-      if (!existsSync(absolutePath)) {
-        readErrors.push(sha256(`missing:${file}`));
-        continue;
-      }
-      selected.push({
-        path: file,
-        sha256: sha256(readFileSync(absolutePath))
-      });
-    } catch (error) {
-      const message = error instanceof Error ? `${error.name}:${error.message}` : String(error);
-      readErrors.push(sha256(`${file}:${message}`));
+    const result = senaCanonicalSourceFileHash(root, file);
+    if (!result.ok) {
+      readErrors.push(result.errorHash);
+      continue;
     }
+    selected.push({ path: file, sha256: result.sha256 });
   }
 
-  selected.sort((a, b) => a.path.localeCompare(b.path));
-  const fileListText = selected.map((entry) => entry.path).join("\n");
-  const sourceTreeText = selected.map((entry) => `${entry.sha256}  ${entry.path}`).join("\n");
-  const fileListSha256 = sha256(fileListText);
-  const sourceTreeSha256 = sha256(sourceTreeText);
-  const manifestSha256 = sha256(manifestHashBasis({
+  selected.sort((a, b) => compareSenaCanonicalText(a.path, b.path));
+  const fileListSha256 = senaSourceFileListSha256(selected);
+  const sourceTreeSha256 = senaSourceTreeSha256(selected);
+  const manifestSha256 = senaPerformanceSourceCustodyManifestSha256({
     baseGitCommit: identity.baseGitCommit,
     rootGitStatusSha256: identity.rootGitStatusSha256,
     rootGitDirtyFileCount: identity.rootGitDirtyFileCount,
     fileListSha256,
     sourceTreeSha256,
     fileCount: selected.length
-  }));
+  });
   const reviewedClean = identity.baseGitCommit !== "unavailable" &&
     identity.rootGitStatusSha256 !== "unavailable" &&
+    identity.rootGitDirty === false &&
     typeof identity.rootGitDirtyFileCount === "number" &&
+    identity.rootGitDirtyFileCount === 0 &&
     selected.length > 0 &&
     readErrors.length === 0;
   const env: SenaPerformanceSourceCustodyEnv = {
@@ -279,7 +264,7 @@ export function buildSenaPerformanceSourceCustody(input: {
       statusValuesExcluded: true
     },
     sourceSlice: {
-      generator: "sena-performance-source-custody/v1",
+      generator: SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR,
       manifestSha256,
       sourceTreeSha256,
       fileListSha256,
@@ -315,7 +300,7 @@ export function buildSenaPerformanceSourceCustody(input: {
       "gitStatusValues=excluded"
     ],
     nextActions: reviewedClean ? [] : [
-      "Run from a git worktree with a valid base commit and readable deployable runtime source slice."
+      "Run from a clean Git worktree with a valid base commit and readable deployable runtime source slice; an automatic snapshot cannot self-attest a dirty tree as reviewed clean."
     ],
     redaction: {
       sourceContentsExcluded: true,

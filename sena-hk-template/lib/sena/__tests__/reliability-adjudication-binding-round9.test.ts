@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildEnterpriseClaimEvidencePackageFromDb,
   type SenaEnterpriseClaimEvidencePackage
@@ -9,13 +9,23 @@ import {
 import {
   createEnterpriseAdjudicationRecord,
   createEnterpriseProject,
+  createEnterpriseReliabilityAdjudications,
   createEnterpriseReliabilityRun,
   listEnterpriseProjectCollaboration,
   registerEnterpriseUser,
   reviewEnterpriseReliabilityRun,
   updateEnterpriseProject
 } from "../enterprise";
-import { emptyEnterpriseDb, readEnterpriseDb, writeEnterpriseDb } from "../enterprise/state";
+import {
+  buildEnterpriseReliabilityAdjudicationResponse,
+  findEnterprisePublicationReliabilityEvidenceFromDb,
+  SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT
+} from "../enterprise/reliability-runs";
+import {
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  resolveEnterpriseReliabilityRunProjectScope
+} from "../enterprise/reliability-integrity";
+import { emptyEnterpriseDb, normalizeEnterpriseDb, readEnterpriseDb, writeEnterpriseDb } from "../enterprise/state";
 import { buildSenaModel } from "../model";
 import {
   bindSenaReliabilityAnnotationsToProject,
@@ -84,6 +94,29 @@ function annotations(): SenaCoderAnnotation[] {
   ];
 }
 
+function adjudicationBatchDataset(size: number): SenaDataset {
+  return {
+    ...dataset(),
+    utterances: Array.from({ length: size }, (_, index) => ({
+      id: `batch-u${index + 1}`,
+      personId: "p1",
+      unitId: `batch-unit-${index + 1}`,
+      stanzaId: `batch-stanza-${index + 1}`,
+      stage: "coding",
+      turnIndex: index + 1,
+      text: `Reliability batch ${index + 1}`
+    }))
+  };
+}
+
+function adjudicationBatchAnnotations(size: number): SenaCoderAnnotation[] {
+  return Array.from({ length: size }, (_, index) => `batch-u${index + 1}`)
+    .flatMap((itemId) => ([
+      { coderId: "c1", itemId, codeId: "evidence", value: true },
+      { coderId: "c2", itemId, codeId: "evidence", value: false }
+    ]));
+}
+
 function setupProjectRun(
   source: SenaDataset = dataset(),
   coderAnnotations: SenaCoderAnnotation[] = annotations()
@@ -126,6 +159,172 @@ function setupProjectRun(
 }
 
 describe("enterprise reliability adjudication canonical binding", () => {
+  it("round trips Unicode coder IDs through canonical dashboard and adjudication ordering", () => {
+    const { registered, run } = setupProjectRun(dataset(), [
+      { coderId: "coder-z", itemId: "u1", codeId: "evidence", value: true },
+      { coderId: "coder-ä", itemId: "u1", codeId: "evidence", value: false },
+      { coderId: "coder-z", itemId: "u2", codeId: "evidence", value: false },
+      { coderId: "coder-ä", itemId: "u2", codeId: "evidence", value: false }
+    ]);
+
+    expect(run.dashboard.coderIds).toEqual(["coder-z", "coder-ä"]);
+    const result = createEnterpriseReliabilityAdjudications(registered.context, run.id, {
+      decision: "revise"
+    });
+    expect(result.summary).toEqual(expect.objectContaining({
+      created: 1,
+      unresolvedDisagreements: 0,
+      coverageRate: 1
+    }));
+    expect(result.adjudications[0].coderIds).toEqual(["coder-z", "coder-ä"]);
+    expect(Object.keys(result.adjudications[0].coderValues)).toEqual(["coder-z", "coder-ä"]);
+  });
+
+  it("rejects oversized or invalid adjudication batches before writes and advances across bounded batches", () => {
+    const queueSize = SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT + 1;
+    const { registered, project, run } = setupProjectRun(
+      adjudicationBatchDataset(queueSize),
+      adjudicationBatchAnnotations(queueSize)
+    );
+    expect(run.dashboard.adjudicationQueue).toHaveLength(queueSize);
+    const unchangedDb = JSON.stringify(readEnterpriseDb());
+
+    const expectRejectedWithoutWrites = (invoke: () => unknown, code: string) => {
+      expect(invoke).toThrow(expect.objectContaining({ code }));
+      expect(JSON.stringify(readEnterpriseDb())).toBe(unchangedDb);
+    };
+
+    expectRejectedWithoutWrites(
+      () => createEnterpriseReliabilityAdjudications(registered.context, run.id, { decision: "include" }),
+      "reliability_adjudication_limit_exceeded"
+    );
+    expectRejectedWithoutWrites(
+      () => createEnterpriseReliabilityAdjudications(registered.context, run.id, {
+        decision: "include",
+        limit: SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT + 1
+      }),
+      "reliability_adjudication_limit_exceeded"
+    );
+    for (const limit of [0, Number.NaN, 1.5]) {
+      expectRejectedWithoutWrites(
+        () => createEnterpriseReliabilityAdjudications(registered.context, run.id, { decision: "include", limit }),
+        "reliability_adjudication_limit_invalid"
+      );
+    }
+    expectRejectedWithoutWrites(
+      () => buildEnterpriseReliabilityAdjudicationResponse(registered.context, {
+        runId: run.id,
+        decision: "include",
+        limit: 0
+      }),
+      "reliability_adjudication_limit_invalid"
+    );
+
+    const first = createEnterpriseReliabilityAdjudications(registered.context, run.id, {
+      decision: "include",
+      limit: SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT
+    });
+    expect(first.summary).toEqual(expect.objectContaining({
+      created: SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT,
+      unresolvedDisagreements: 1
+    }));
+
+    const second = createEnterpriseReliabilityAdjudications(registered.context, run.id, {
+      decision: "revise"
+    });
+    expect(second.summary).toEqual(expect.objectContaining({
+      created: 1,
+      skippedExisting: SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT,
+      unresolvedDisagreements: 0
+    }));
+    const db = readEnterpriseDb();
+    const storedRun = db.reliabilityRuns.find((candidate) => candidate.id === run.id);
+    const storedProject = db.projects.find((candidate) => candidate.id === project.id);
+    if (!storedRun || !storedProject) throw new Error("bounded adjudication fixture missing");
+    const resolved = resolveEnterpriseReliabilityRunProjectScope(
+      storedRun,
+      storedProject,
+      db.projectRevisions
+    );
+    Object.defineProperty(resolved.dashboard.adjudicationQueue, "find", {
+      configurable: true,
+      value: () => {
+        throw new Error("coverage must use the pre-indexed disagreement map");
+      }
+    });
+    expect(buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+      storedRun,
+      resolved,
+      db.adjudications
+    )).toEqual(expect.objectContaining({
+      resolvedDisagreements: queueSize,
+      unresolvedDisagreements: 0,
+      coverageRate: 1
+    }));
+  }, 60_000);
+
+  it("indexes adjudications once instead of rescanning the full array for every reliability run", () => {
+    const { registered, project, run, disagreement } = setupProjectRun();
+    createEnterpriseAdjudicationRecord(registered.context, project.id, {
+      reliabilityRunId: run.id,
+      itemId: disagreement.itemId,
+      codeId: disagreement.codeId,
+      decision: "include",
+      coderValues: disagreement.values
+    });
+    reviewEnterpriseReliabilityRun(registered.context, run.id, {
+      status: "approved",
+      notes: "Approved after complete adjudication for indexing regression coverage."
+    });
+    const db = readEnterpriseDb();
+    const baseRun = db.reliabilityRuns.find((candidate) => candidate.id === run.id);
+    const baseRecords = db.adjudications.filter((record) => record.reliabilityRunId === run.id);
+    if (!baseRun || baseRecords.length === 0) throw new Error("indexed adjudication fixture missing");
+    for (let index = 1; index < 12; index += 1) {
+      const runId = `${baseRun.id}-clone-${index}`;
+      db.reliabilityRuns.push({
+        ...structuredClone(baseRun),
+        id: runId,
+        createdAt: new Date(Date.parse(baseRun.createdAt) + index * 1_000).toISOString()
+      });
+      db.adjudications.push(...baseRecords.map((record, recordIndex) => ({
+        ...structuredClone(record),
+        id: `${record.id}-clone-${index}-${recordIndex}`,
+        reliabilityRunId: runId
+      })));
+    }
+
+    const normalizationDb = structuredClone(db);
+    const normalizationFilter = vi.spyOn(normalizationDb.adjudications, "filter");
+    normalizeEnterpriseDb(normalizationDb);
+    expect(normalizationFilter).not.toHaveBeenCalled();
+
+    const publicationDb = structuredClone(db);
+    const publicationFilter = vi.spyOn(publicationDb.adjudications, "filter");
+    expect(() => findEnterprisePublicationReliabilityEvidenceFromDb(
+      registered.context,
+      project,
+      publicationDb
+    )).not.toThrow();
+    expect(publicationFilter).toHaveBeenCalledTimes(1);
+
+    const claimDb = structuredClone(db);
+    const claimFilter = vi.spyOn(claimDb.adjudications, "filter");
+    buildEnterpriseClaimEvidencePackageFromDb(
+      claimDb,
+      registered.context,
+      { projectId: project.id },
+      {
+        reliabilityRuns: "file-json",
+        validationRuns: "file-json",
+        expertReviews: "file-json",
+        adjudications: "file-json",
+        evidence: []
+      }
+    );
+    expect(claimFilter).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects public collaboration adjudication without a reliability run", () => {
     const { registered, project, disagreement } = setupProjectRun();
 
