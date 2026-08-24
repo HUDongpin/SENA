@@ -1,3 +1,4 @@
+import { senaJsonValuesEqual } from "./canonical-json";
 import {
   buildSenaEnaReportArtifact,
   buildSenaMarkdownReport,
@@ -203,8 +204,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     report.title === bundle.report.title &&
     report.claimReadinessGate.schemaVersion === bundle.claimReadinessGate.schemaVersion &&
     report.claimReadinessGate.status === bundle.claimReadinessGate.status &&
-    report.codingReliabilityGate.schemaVersion === bundle.codingReliabilityGate.schemaVersion &&
-    report.codingReliabilityGate.status === bundle.codingReliabilityGate.status &&
+    senaJsonValuesEqual(report.codingReliabilityGate, bundle.codingReliabilityGate) &&
     report.matrices.fusion.labels.length === bundle.runtimes.sena.matrices.fusion.labels.length &&
     matrixFingerprintsReady;
   const projectSnapshot = input.contents.projectSnapshot;
@@ -1016,6 +1016,7 @@ function assertStatisticalContractCompatibility(contents: Record<string, unknown
 
 function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPacket {
   const normalized = structuredClone(value) as SenaReviewPacket;
+  const beforeNormalization = structuredClone(normalized);
   const contents = asRecord(normalized.contents, "review packet.contents");
   const directState = normalizeSenaStatisticalLeafHolder(
     contents,
@@ -1042,18 +1043,76 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
     runtimeResult.state,
     snapshotReportResult.state
   ]);
-  if (!state.needsCurrentEvidence) return normalized;
-
   const runtimeBundle = runtimeResult.runtimeBundle;
   const report = reportResult.report;
+  const reliabilityGates = [
+    normalized.contents.codingReliabilityGate,
+    report.codingReliabilityGate,
+    runtimeBundle.codingReliabilityGate,
+    runtimeBundle.report.codingReliabilityGate,
+    snapshotReportResult.report.codingReliabilityGate
+  ] as const;
+  const reliabilityGatesConsistent = reliabilityGates
+    .every((gate) => senaJsonValuesEqual(gate, reliabilityGates[0]));
+  if (!state.needsCurrentEvidence && !reliabilityGatesConsistent) {
+    throw new Error("SENA review packet carries conflicting current-v2 coding-reliability provenance.");
+  }
+  const failClosedReliabilityGate = state.needsCurrentEvidence
+    ? reliabilityGates.find((gate) => gate.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate) ??
+      reliabilityGates.find((gate) => gate.status !== "ready") ??
+      reliabilityGates[0]
+    : reliabilityGates[0];
+  normalized.contents.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  runtimeBundle.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  runtimeBundle.report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  snapshotReportResult.report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+
+  const statisticalSurfacesChanged =
+    !senaJsonValuesEqual(
+      beforeNormalization.contents.codingReliabilityGate,
+      normalized.contents.codingReliabilityGate
+    ) ||
+    !senaJsonValuesEqual(beforeNormalization.contents.reportJson, report) ||
+    !senaJsonValuesEqual(beforeNormalization.contents.runtimeBundle, runtimeBundle) ||
+    !senaJsonValuesEqual(
+      beforeNormalization.contents.projectSnapshot.report,
+      snapshotReportResult.report
+    );
+
   reconcileSenaReportStatisticalSurfaces(report, state);
   reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle, state);
   reconcileSenaReportStatisticalSurfaces(snapshotReportResult.report, state);
-  const readiness = reconcileSenaStatisticalReadiness(
+  const readinessReports = [report, runtimeBundle.report, snapshotReportResult.report];
+  const failClosedReadinessReport = readinessReports.find((candidate) => (
+    candidate.pilotReadinessAudit.status !== "ready" ||
+    candidate.completenessAudit.status !== "complete"
+  )) ?? report;
+  const failClosedPilotReadiness = [
     runtimeBundle.pilotReadinessAudit,
+    ...readinessReports.map((candidate) => candidate.pilotReadinessAudit)
+  ].find((candidate) => candidate.status !== "ready") ?? runtimeBundle.pilotReadinessAudit;
+  const readiness = reconcileSenaStatisticalReadiness(
+    failClosedPilotReadiness,
     state,
-    report.completenessAudit
+    failClosedReadinessReport.completenessAudit
   );
+  const canonicalMarkdown = buildSenaMarkdownReport(report);
+  const wrapperAlreadyCanonical =
+    normalized.summary.fusionMathStatus === runtimeBundle.fusionMathAudit.status &&
+    normalized.summary.codingReliabilityStatus === failClosedReliabilityGate.status &&
+    normalized.summary.pilotReadinessStatus === readiness.pilotReadinessAudit.status &&
+    normalized.summary.claimReadinessStatus === readiness.claimReadinessGate.status &&
+    normalized.summary.reportCompletenessStatus === report.completenessAudit.status &&
+    normalized.summary.humanReviewStatus === report.humanReview.status &&
+    senaJsonValuesEqual(normalized.contents.codingReliabilityGate, failClosedReliabilityGate) &&
+    senaJsonValuesEqual(normalized.contents.pilotReadinessAudit, readiness.pilotReadinessAudit) &&
+    senaJsonValuesEqual(normalized.contents.claimReadinessGate, readiness.claimReadinessGate) &&
+    normalized.contents.reportMarkdown === canonicalMarkdown;
+  if (!state.needsCurrentEvidence && !statisticalSurfacesChanged && wrapperAlreadyCanonical) {
+    return normalized;
+  }
+
   runtimeBundle.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
   runtimeBundle.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
   runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
@@ -1067,38 +1126,40 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
   contents.developmentPlan = structuredClone(runtimeBundle.developmentPlan);
   contents.demoWalkthrough = structuredClone(runtimeBundle.demoWalkthrough);
   contents.demoVerification = structuredClone(runtimeBundle.demoVerification);
-  contents.reportMarkdown = buildSenaMarkdownReport(report);
+  contents.reportMarkdown = canonicalMarkdown;
 
-  normalized.summary.fusionMathStatus = "needs-review";
-  normalized.summary.codingReliabilityStatus = "review";
-  normalized.summary.pilotReadinessStatus = "needs-review";
-  normalized.summary.claimReadinessStatus = "exploratory";
+  normalized.summary.fusionMathStatus = runtimeBundle.fusionMathAudit.status;
+  normalized.summary.codingReliabilityStatus = failClosedReliabilityGate.status;
+  normalized.summary.pilotReadinessStatus = readiness.pilotReadinessAudit.status;
+  normalized.summary.claimReadinessStatus = readiness.claimReadinessGate.status;
   normalized.summary.reportCompletenessStatus = report.completenessAudit.status;
+  normalized.summary.humanReviewStatus = report.humanReview.status;
 
-  const statisticalSchemas = new Map([
-    ["sena-fusion-math-audit.json", SENA_SCHEMA_VERSIONS.fusionMathAudit],
-    ["sena-coding-reliability-gate.json", SENA_SCHEMA_VERSIONS.codingReliabilityGate]
-  ]);
-  normalized.artifactManifest = normalized.artifactManifest.map((artifact) => ({
-    ...artifact,
-    schemaVersion: statisticalSchemas.get(artifact.filename) ?? artifact.schemaVersion
-  }));
-  for (const [filename, schemaVersion] of statisticalSchemas) {
-    normalized.contents.pilotPackageManifest.exportArtifactSchemas[filename] = schemaVersion;
+  if (state.needsCurrentEvidence) {
+    const statisticalSchemas = new Map([
+      ["sena-fusion-math-audit.json", SENA_SCHEMA_VERSIONS.fusionMathAudit],
+      ["sena-coding-reliability-gate.json", SENA_SCHEMA_VERSIONS.codingReliabilityGate]
+    ]);
+    normalized.artifactManifest = normalized.artifactManifest.map((artifact) => ({
+      ...artifact,
+      schemaVersion: statisticalSchemas.get(artifact.filename) ?? artifact.schemaVersion
+    }));
+    for (const [filename, schemaVersion] of statisticalSchemas) {
+      normalized.contents.pilotPackageManifest.exportArtifactSchemas[filename] = schemaVersion;
+    }
+    normalized.contents.pilotPackageManifest.sampleDataset.expectedRuntime.fusionMathAudit = "needs-review";
+    normalized.contents.methodProtocol.auditSummary.fusionMath = {
+      schemaVersion: normalized.contents.fusionMathAudit.schemaVersion,
+      status: "needs-review",
+      passed: normalized.contents.fusionMathAudit.passed,
+      reviewNeeded: normalized.contents.fusionMathAudit.reviewNeeded
+    };
+    normalized.contents.methodProtocol.runtimeHandoffs = normalized.contents.methodProtocol.runtimeHandoffs.map((handoff) => (
+      handoff.id === "fusion-math"
+        ? { ...handoff, status: "review", summary: "Current v2 fusion evidence is required after legacy restore normalization." }
+        : handoff
+    ));
   }
-  normalized.contents.pilotPackageManifest.sampleDataset.expectedRuntime.fusionMathAudit = "needs-review";
-
-  normalized.contents.methodProtocol.auditSummary.fusionMath = {
-    schemaVersion: normalized.contents.fusionMathAudit.schemaVersion,
-    status: "needs-review",
-    passed: normalized.contents.fusionMathAudit.passed,
-    reviewNeeded: normalized.contents.fusionMathAudit.reviewNeeded
-  };
-  normalized.contents.methodProtocol.runtimeHandoffs = normalized.contents.methodProtocol.runtimeHandoffs.map((handoff) => (
-    handoff.id === "fusion-math"
-      ? { ...handoff, status: "review", summary: "Current v2 fusion evidence is required after legacy restore normalization." }
-      : handoff
-  ));
   const rebuiltAudit = buildSenaReviewPacketAudit({
     schemaVersion: normalized.schemaVersion,
     analysisWindow: normalized.analysisWindow,
@@ -1107,25 +1168,47 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
     reviewGuardrails: normalized.reviewGuardrails,
     summary: normalized.summary
   });
-  const legacyItem: SenaReviewPacketAuditItem = {
-    id: "legacy-statistical-contracts",
-    label: "Legacy statistical contract evidence",
-    status: "review",
-    expected: "Current v2 fusion and reliability evidence at every restored holder",
-    actual: [
-      state.legacyFusionMath ? "fusion-math-audit/v1 normalized in memory" : null,
-      state.legacyCodingReliability ? "coding-reliability-gate/v1 normalized in memory" : null
-    ].filter(Boolean).join("; "),
-    evidence: [
-      `legacyFusionMath=${state.legacyFusionMath}`,
-      `legacyCodingReliability=${state.legacyCodingReliability}`,
-      "claimUse=exploratory-only"
-    ]
-  };
-  rebuiltAudit.items = [...rebuiltAudit.items.filter((item) => item.id !== legacyItem.id), legacyItem];
+  const reconciliationItems: SenaReviewPacketAuditItem[] = [];
+  if (state.needsCurrentEvidence) {
+    reconciliationItems.push({
+      id: "legacy-statistical-contracts",
+      label: "Legacy statistical contract evidence",
+      status: "review",
+      expected: "Current v2 fusion and reliability evidence at every restored holder",
+      actual: [
+        state.legacyFusionMath ? "fusion-math-audit/v1 normalized in memory" : null,
+        state.legacyCodingReliability ? "coding-reliability-gate/v1 normalized in memory" : null
+      ].filter(Boolean).join("; "),
+      evidence: [
+        `legacyFusionMath=${state.legacyFusionMath}`,
+        `legacyCodingReliability=${state.legacyCodingReliability}`,
+        "claimUse=exploratory-only"
+      ]
+    });
+  } else {
+    reconciliationItems.push({
+      id: "statistical-contract-reconciliation",
+      label: "Current statistical contract reconciliation",
+      status: "review",
+      expected: "Current-v2 duplicated statistical and readiness surfaces agree before import",
+      actual: "Current-v2 statistical or wrapper surfaces required canonical reconciliation",
+      evidence: [
+        `statisticalSurfacesChanged=${statisticalSurfacesChanged}`,
+        `wrapperAlreadyCanonical=${wrapperAlreadyCanonical}`,
+        `codingReliability=${failClosedReliabilityGate.status}`,
+        `pilotReadiness=${readiness.pilotReadinessAudit.status}`,
+        `claimReadiness=${readiness.claimReadinessGate.status}`
+      ]
+    });
+  }
+  const reconciliationIds = new Set(reconciliationItems.map((item) => item.id));
+  rebuiltAudit.items = [
+    ...rebuiltAudit.items.filter((item) => !reconciliationIds.has(item.id)),
+    ...reconciliationItems
+  ];
   rebuiltAudit.passed = rebuiltAudit.items.filter((item) => item.status === "pass").length;
   rebuiltAudit.reviewNeeded = rebuiltAudit.items.length - rebuiltAudit.passed;
-  rebuiltAudit.status = "needs-review";
+  rebuiltAudit.status = rebuiltAudit.reviewNeeded === 0 ? "complete" : "needs-review";
   normalized.reviewPacketAudit = rebuiltAudit;
   return normalized;
 }

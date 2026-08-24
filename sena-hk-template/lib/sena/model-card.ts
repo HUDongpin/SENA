@@ -17,7 +17,10 @@ export type SenaModelCardOptions = {
   validation?: SenaValidation;
 };
 
-const modelCardSections: Array<{ id: SenaModelCardSectionId; label: string }> = [
+export const SENA_MODEL_CARD_SECTION_DEFINITIONS: ReadonlyArray<{
+  id: SenaModelCardSectionId;
+  label: string;
+}> = Object.freeze([
   { id: "data-contract", label: "Data contract" },
   { id: "exact-formulas", label: "Exact formulas" },
   { id: "normalization", label: "Normalization" },
@@ -28,7 +31,37 @@ const modelCardSections: Array<{ id: SenaModelCardSectionId; label: string }> = 
   { id: "validation", label: "Validation" },
   { id: "isolated-zero-degree", label: "Isolated vertices and zero-degree convention" },
   { id: "directed-graph", label: "Directed-graph convention" }
-];
+]);
+
+export const SENA_MODEL_CARD_SECTION_IDS = Object.freeze(
+  SENA_MODEL_CARD_SECTION_DEFINITIONS.map((section) => section.id)
+);
+
+export function inspectSenaModelCardSections(
+  sections: ReadonlyArray<SenaModelCardSection>
+) {
+  const counts = new Map<SenaModelCardSectionId, number>();
+  for (const section of sections) {
+    counts.set(section.id, (counts.get(section.id) ?? 0) + 1);
+  }
+  const missingIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => !counts.has(id));
+  const duplicateIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => (counts.get(id) ?? 0) > 1);
+  const incompleteIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => {
+    const matching = sections.filter((section) => section.id === id);
+    return matching.length === 1 && matching[0].status !== "complete";
+  });
+  const blockingSet = new Set<SenaModelCardSectionId>([
+    ...missingIds,
+    ...duplicateIds,
+    ...incompleteIds
+  ]);
+  return {
+    missingIds,
+    duplicateIds,
+    incompleteIds,
+    blockingIds: SENA_MODEL_CARD_SECTION_IDS.filter((id) => blockingSet.has(id))
+  };
+}
 
 function metadataComplete(model: SenaModel, dataGovernance?: SenaDataGovernanceMetadata) {
   return Boolean(model.dataset.metadata) && dataGovernance?.status !== "needs-review";
@@ -124,7 +157,7 @@ function buildSections(input: {
     ]
   };
 
-  return modelCardSections.map((section) => ({
+  return SENA_MODEL_CARD_SECTION_DEFINITIONS.map((section) => ({
     ...section,
     status: sectionStatus[section.id],
     evidence: evidence[section.id]
@@ -140,9 +173,7 @@ export function buildSenaModelCard(model: SenaModel, options: SenaModelCardOptio
     dataGovernance: options.dataGovernance,
     validation: options.validation
   });
-  const missingSectionIds = sections
-    .filter((section) => section.status !== "complete")
-    .map((section) => section.id);
+  const missingSectionIds = inspectSenaModelCardSections(sections).blockingIds;
   const normalizations = Object.values(diagnostics.normalization);
   const normalizationWarnings = normalizations.flatMap((normalization) => normalization.warnings);
   const xItaPresent = model.dataset.coded_segments.length > 0 &&

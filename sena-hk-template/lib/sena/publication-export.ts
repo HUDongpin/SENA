@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
+import { inspectSenaModelCardSections } from "./model-card";
 import {
   SENA_PUBLICATION_FIGURE_LAYOUT,
   buildSenaPublicationFigure,
@@ -1014,8 +1015,10 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
     );
   }
   const codingReliabilityGate = normalizeSenaCodingReliabilityGate(report.codingReliabilityGate);
+  const modelCardSectionIntegrity = inspectSenaModelCardSections(report.modelCard.sections);
   const missingReadiness = Array.from(new Set([
     ...renderGate.missingSectionIds,
+    ...modelCardSectionIntegrity.blockingIds,
     ...(codingReliabilityGate.status === "ready" ? [] : ["coding-reliability"]),
     ...(isSenaReportHumanReviewComplete(report.humanReview) ? [] : ["human-review"]),
     ...(report.completenessAudit.status === "complete" ? [] : ["report-completeness"]),

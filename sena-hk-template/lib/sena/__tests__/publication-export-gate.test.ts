@@ -159,6 +159,58 @@ describe("SENA publication export model-card gate", () => {
     expect(restored.report.claimReadinessGate.status).toBe("exploratory");
   });
 
+  it("fails closed when ready runtime reliability gates carry different provenance", () => {
+    const source = readyCurrentV2RuntimeBundle();
+    const forged = JSON.parse(JSON.stringify(source)) as typeof source;
+    forged.codingReliabilityGate.review.reviewer = "Conflicting top-level reviewer";
+
+    expect(forged.codingReliabilityGate.status).toBe("ready");
+    expect(forged.report.codingReliabilityGate.status).toBe("ready");
+    expect(forged.codingReliabilityGate.review.reviewer)
+      .not.toBe(forged.report.codingReliabilityGate.review.reviewer);
+
+    expect(() => importSenaRuntimeBundle(forged))
+      .toThrow(/conflicting ready coding-reliability provenance/i);
+  });
+
+  it.each([
+    {
+      label: "empty sections",
+      expectedBlockingId: "exact-formulas" as const,
+      mutate: (snapshot: ReturnType<typeof readyCurrentV2Snapshot>) => {
+        snapshot.report.modelCard.sections = [];
+      }
+    },
+    {
+      label: "one missing section",
+      expectedBlockingId: "exact-formulas" as const,
+      mutate: (snapshot: ReturnType<typeof readyCurrentV2Snapshot>) => {
+        snapshot.report.modelCard.sections = snapshot.report.modelCard.sections
+          .filter((section) => section.id !== "exact-formulas");
+      }
+    },
+    {
+      label: "a duplicate section",
+      expectedBlockingId: "data-contract" as const,
+      mutate: (snapshot: ReturnType<typeof readyCurrentV2Snapshot>) => {
+        const duplicate = structuredClone(snapshot.report.modelCard.sections[0]);
+        snapshot.report.modelCard.sections.push(duplicate);
+      }
+    }
+  ])("blocks current-v2 publication when the model card has $label", async ({ mutate, expectedBlockingId }) => {
+    const forged = readyCurrentV2Snapshot();
+    mutate(forged);
+    expect(forged.report.modelCard.renderGate.status).toBe("ready");
+
+    const restored = importSenaProjectSnapshot(forged);
+    expect(restored.report.modelCard.renderGate.status).toBe("blocked");
+    expect(restored.report.modelCard.renderGate.missingSectionIds).toContain(expectedBlockingId);
+    await expect(buildSenaPublicationExport(forged, "html")).rejects.toMatchObject({
+      status: 409,
+      code: "publication_export_model_card_blocked"
+    });
+  });
+
   it.each(["", "Pending human review."])(
     "blocks direct publication when a cached-ready current-v2 snapshot carries incomplete human review text %j",
     async (interpretation) => {

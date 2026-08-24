@@ -1,7 +1,9 @@
+import { senaJsonValuesEqual } from "./canonical-json";
 import {
   normalizeSenaFusionMathAudit,
   type SenaFusionMathAuditEvidence
 } from "./fusion-math";
+import { inspectSenaModelCardSections } from "./model-card";
 import { buildSenaClaimReadinessGate } from "./pilot-readiness";
 import {
   isSenaReportHumanReviewComplete,
@@ -309,15 +311,18 @@ function reconcileModelCardReliability(
           : "Coding reliability evidence is incomplete; keep claims exploratory.",
         evidence: [...codingReliabilityGate.evidence]
       };
-  const missingSectionIds = modelCard.sections
-    .filter((section) => section.status !== "complete")
-    .map((section) => section.id);
+  const sectionIntegrity = inspectSenaModelCardSections(modelCard.sections);
+  const missingSectionIds = sectionIntegrity.blockingIds;
+  const sectionMembershipInconsistent = sectionIntegrity.missingIds.length > 0 ||
+    sectionIntegrity.duplicateIds.length > 0;
   modelCard.renderGate = {
     status: missingSectionIds.length === 0 ? "ready" : "blocked",
     missingSectionIds,
     message: missingSectionIds.length === 0
       ? "Model card complete - rendering permitted."
-      : `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
+      : sectionMembershipInconsistent
+        ? `Model card incomplete or inconsistent - rendering blocked: ${missingSectionIds.join(", ")}.`
+        : `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
   };
   return modelCard;
 }
@@ -490,8 +495,14 @@ export function reconcileSenaRuntimeBundleStatisticalSurfaces(
   runtimeBundle: SenaRuntimeBundle,
   state: SenaStatisticalLeafReadState
 ) {
-  if (runtimeBundle.codingReliabilityGate.status !== "ready" ||
-    runtimeBundle.report.codingReliabilityGate.status !== "ready") {
+  if (!senaJsonValuesEqual(
+    runtimeBundle.codingReliabilityGate,
+    runtimeBundle.report.codingReliabilityGate
+  )) {
+    if (runtimeBundle.codingReliabilityGate.status === "ready" &&
+      runtimeBundle.report.codingReliabilityGate.status === "ready") {
+      throw new Error("SENA runtime bundle carries conflicting ready coding-reliability provenance.");
+    }
     const failClosedGate = runtimeBundle.codingReliabilityGate.status !== "ready"
       ? runtimeBundle.codingReliabilityGate
       : runtimeBundle.report.codingReliabilityGate;
@@ -607,21 +618,24 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
     legacyCodingReliability: bundleState.legacyCodingReliability || normalizedReport.state.legacyCodingReliability,
     needsCurrentEvidence: bundleState.needsCurrentEvidence || normalizedReport.state.needsCurrentEvidence
   };
-  reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle as SenaRuntimeBundle, state);
-  if (state.needsCurrentEvidence) {
-    if (Array.isArray(runtimeBundle.artifactEvidence)) {
-      runtimeBundle.artifactEvidence = runtimeBundle.artifactEvidence.map((entry) => {
-        if (entry.filename === "sena-fusion-math-audit.json") {
-          return { ...entry, schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit, status: "review" as const };
-        }
-        if (entry.filename === "sena-coding-reliability-gate.json") {
-          return { ...entry, schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate, status: "review" as const };
-        }
-        return entry;
-      });
-    }
+  const typedRuntimeBundle = runtimeBundle as SenaRuntimeBundle;
+  reconcileSenaRuntimeBundleStatisticalSurfaces(typedRuntimeBundle, state);
+  if (Array.isArray(typedRuntimeBundle.artifactEvidence)) {
+    typedRuntimeBundle.artifactEvidence = typedRuntimeBundle.artifactEvidence.map((entry) => {
+      if (state.needsCurrentEvidence && entry.filename === "sena-fusion-math-audit.json") {
+        return { ...entry, schemaVersion: SENA_SCHEMA_VERSIONS.fusionMathAudit, status: "review" as const };
+      }
+      if (entry.filename === "sena-coding-reliability-gate.json") {
+        return {
+          ...entry,
+          schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
+          status: typedRuntimeBundle.codingReliabilityGate.status === "ready" ? "ready" as const : "review" as const
+        };
+      }
+      return entry;
+    });
   }
-  return { runtimeBundle: runtimeBundle as SenaRuntimeBundle, state };
+  return { runtimeBundle: typedRuntimeBundle, state };
 }
 
 function hasNormalizedStatisticalLeaves(holder: JsonRecord) {
