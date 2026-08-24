@@ -45,6 +45,43 @@ function routeSnapshot() {
   });
 }
 
+function projectReliabilityRunInput(
+  project: { id: string; teamId: string; currentVersion: number },
+  snapshot: ReturnType<typeof routeSnapshot>,
+  reviewer: string
+) {
+  const source = snapshot.source.sourceDataset ?? snapshot.dataset;
+  const itemIds = source.utterances.slice(0, 3).map((utterance) => utterance.id);
+  const codeIds = source.codebook.slice(0, 3).map((code) => code.id);
+  if (itemIds.length < 3 || codeIds.length < 3) {
+    throw new Error("Publication route reliability fixture requires three items and codes.");
+  }
+  const annotations = itemIds.flatMap((itemId, index) => ["route-coder-a", "route-coder-b"].map((coderId) => ({
+    coderId,
+    itemId,
+    codeId: codeIds[index],
+    value: true
+  })));
+  const dashboard = buildSenaReliabilityDashboard(annotations);
+  expect(dashboard.claimEligibility.eligible).toBe(true);
+  return {
+    teamId: project.teamId,
+    projectId: project.id,
+    projectVersion: project.currentVersion,
+    reviewer,
+    fileCount: 1,
+    annotationCount: annotations.length,
+    annotations,
+    inputFiles: [{
+      name: "synthetic-publication-reliability.csv",
+      size: 1,
+      sha256: "f".repeat(64)
+    }],
+    dashboard,
+    reviewPatch: reliabilityDashboardToReview(dashboard, reviewer)
+  };
+}
+
 describe("SENA publication export route", () => {
   it("exports publication packages directly from a persisted projectId", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-route-"));
@@ -76,6 +113,14 @@ describe("SENA publication export route", () => {
         teamId: registered.context.teams[0].id,
         title: "Route Publication Project",
         snapshot: routeSnapshot()
+      });
+      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Route publication reliability reviewer")
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+        status: "approved",
+        notes: "Approved machine-eligible evidence for the current project revision."
       });
 
       const route = await import("../../../app/api/sena/exports/publication/route");
@@ -147,8 +192,10 @@ describe("SENA publication export route", () => {
       expect(body.enterpriseProjectEvidence?.claimPackage).toEqual(expect.objectContaining({
         schemaVersion: "sena-enterprise-claim-evidence-package/v1",
         status: "exploratory-only",
-        sourceSnapshotSha256: body.enterpriseProjectEvidence?.sourceSnapshotSha256
+        sourceSnapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
       }));
+      expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
+        .not.toBe(body.enterpriseProjectEvidence?.sourceSnapshotSha256);
       expect(body.manifest?.formats).toContain("pdf");
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
         event: "export.run",
@@ -507,6 +554,19 @@ describe("SENA publication export route", () => {
         title: "Postgres Publication Project",
         snapshot: routeSnapshot()
       });
+      const reliabilityRuns = await import("../enterprise/reliability-runs");
+      const reliabilityRun = await reliabilityRuns.createEnterpriseReliabilityRunWithPostgresMirrorAsync(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Postgres publication reliability reviewer")
+      );
+      await reliabilityRuns.reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(
+        registered.context,
+        reliabilityRun.id,
+        {
+          status: "approved",
+          notes: "Approved Postgres machine-eligible evidence for the current project revision."
+        }
+      );
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {

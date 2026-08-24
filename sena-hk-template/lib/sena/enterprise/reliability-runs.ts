@@ -630,7 +630,11 @@ export function findEnterprisePublicationReliabilityRunFromDb(
   for (const run of candidates) {
     try {
       const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, currentProject);
-      if (dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard) {
+      if (
+        dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        dashboard.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        dashboard.claimEligibility.eligible
+      ) {
         const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
           run,
           currentProject,

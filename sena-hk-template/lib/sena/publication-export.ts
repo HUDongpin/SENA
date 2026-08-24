@@ -45,6 +45,7 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   publicationDerivation?: {
     kind: "current-project-reliability-run";
     reliabilityRunId: string;
+    reliabilityRunSha256: string;
     reliabilityDashboardSchemaVersion: string;
     projectVersion: number;
     persistedSourceSnapshotSha256: string;
@@ -135,8 +136,11 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
       reliability.projectVersion === evidence.currentVersion &&
       reliability.unresolvedDisagreements === 0
     )) &&
-    (!derivation || (
-      reliability?.runId === derivation.reliabilityRunId &&
+    (reliability ? Boolean(derivation) : !derivation) &&
+    (!reliability || !derivation || (
+      derivation.kind === "current-project-reliability-run" &&
+      reliability.runId === derivation.reliabilityRunId &&
+      reliability.sha256 === derivation.reliabilityRunSha256 &&
       reliability.dashboardSchemaVersion === derivation.reliabilityDashboardSchemaVersion &&
       reliability.projectVersion === derivation.projectVersion
     ))

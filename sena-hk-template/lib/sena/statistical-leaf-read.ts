@@ -183,6 +183,36 @@ export function reconcileSenaReportStatisticalSurfaces(
   const readiness = invalidatedReadiness(report.pilotReadinessAudit, state, report.completenessAudit);
   report.pilotReadinessAudit = readiness.pilotReadinessAudit;
   report.claimReadinessGate = readiness.claimReadinessGate;
+  if (state.legacyCodingReliability) {
+    report.modelCard.sections = report.modelCard.sections.map((section) => section.id === "coding-reliability"
+      ? {
+          ...section,
+          status: "needs-review" as const,
+          evidence: Array.from(new Set([
+            ...section.evidence,
+            "current-v2-reliability-evidence-required",
+            "legacy statistical read projection cannot establish publication readiness"
+          ]))
+        }
+      : section);
+    report.modelCard.reliability = {
+      status: "needs-review",
+      summary: "Historical v1 reliability evidence cannot establish current publication readiness.",
+      evidence: Array.from(new Set([
+        ...report.modelCard.reliability.evidence,
+        "current-v2-reliability-evidence-required"
+      ]))
+    };
+    const missingSectionIds = Array.from(new Set([
+      ...report.modelCard.renderGate.missingSectionIds,
+      "coding-reliability" as const
+    ]));
+    report.modelCard.renderGate = {
+      status: "blocked",
+      missingSectionIds,
+      message: `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
+    };
+  }
   return report;
 }
 

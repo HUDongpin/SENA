@@ -72,10 +72,13 @@ function publicationSnapshotForProject(
   project: SenaEnterpriseProject,
   reliabilityRun?: SenaEnterpriseReliabilityRun
 ) {
-  if (project.snapshot.report.modelCard.renderGate.status === "ready") {
-    return { snapshot: project.snapshot };
+  if (!reliabilityRun) {
+    throw new SenaEnterpriseError(
+      "Publication export blocked until an approved, current, machine-eligible reliability run is available for this project revision.",
+      409,
+      "publication_export_model_card_blocked"
+    );
   }
-  if (!reliabilityRun) return { snapshot: project.snapshot };
   return {
     snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun),
     reliabilityRun
@@ -208,6 +211,7 @@ export async function POST(request: Request) {
           publicationDerivation: {
             kind: "current-project-reliability-run",
             reliabilityRunId: publicationSource.reliabilityRun.id,
+            reliabilityRunSha256: sha256Json(publicationSource.reliabilityRun),
             reliabilityDashboardSchemaVersion: publicationSource.reliabilityRun.dashboard.schemaVersion,
             projectVersion: publicationSource.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
             persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,

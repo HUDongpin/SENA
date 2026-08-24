@@ -11,6 +11,7 @@ import {
 import type { SenaReviewPacket } from "../types";
 import type { SenaEnterpriseSessionContext } from "../enterprise/auth-session";
 import { resolveEnterprisePublicationStateBundleFromState } from "../enterprise/publication-state-binding";
+import { assertSenaPublicationModelCardReady } from "../publication-export";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
@@ -21,6 +22,11 @@ function sha256(value: unknown) {
 function legacyProjectDb() {
   const packet = loadSena14bb306ReviewPacketFixture() as SenaReviewPacket;
   const snapshot = structuredClone(packet.contents.projectSnapshot);
+  snapshot.report.modelCard.renderGate = {
+    status: "ready",
+    missingSectionIds: [],
+    message: "Stale historical cache incorrectly claimed publication readiness."
+  };
   const source = snapshot.source.sourceDataset ?? snapshot.dataset;
   const datasetCounts = {
     people: source.people.length,
@@ -66,6 +72,12 @@ function codingGateVersion(snapshot: unknown) {
   }).report.codingReliabilityGate.schemaVersion;
 }
 
+function modelCardRenderGate(snapshot: unknown) {
+  return (snapshot as {
+    report: { modelCard: { renderGate: { status: string; missingSectionIds: string[] } } };
+  }).report.modelCard.renderGate;
+}
+
 describe("enterprise legacy state read projections", () => {
   it("keeps raw bytes and the file revision unchanged across a projection-only read/save", () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-state-read-projection-noop-"));
@@ -83,6 +95,16 @@ describe("enterprise legacy state read projections", () => {
       expect(codingGateVersion(persistedSnapshot)).toBe("sena-coding-reliability-gate/v1");
       expect(codingGateVersion(before.db.projects[0].snapshot)).toBe("sena-coding-reliability-gate/v2");
       expect(sha256(before.db.projects[0].snapshot)).not.toBe(sha256(persistedSnapshot));
+      expect(modelCardRenderGate(persistedSnapshot).status).toBe("ready");
+      expect(modelCardRenderGate(before.db.projects[0].snapshot)).toEqual(expect.objectContaining({
+        status: "blocked",
+        missingSectionIds: expect.arrayContaining(["coding-reliability"])
+      }));
+      expect(() => assertSenaPublicationModelCardReady(before.db.projects[0].snapshot.report))
+        .toThrowError(expect.objectContaining({
+          status: 409,
+          code: "publication_export_model_card_blocked"
+        }));
 
       store.save(before.db);
 
@@ -118,6 +140,11 @@ describe("enterprise legacy state read projections", () => {
       expect(sha256(afterPersisted.projects[0].snapshot)).toBe(persistedProjectHash);
       expect(sha256(afterPersisted.projectRevisions[0].snapshot)).toBe(persistedRevisionHash);
       expect(codingGateVersion(afterPersisted.projects[0].snapshot)).toBe("sena-coding-reliability-gate/v1");
+      expect(modelCardRenderGate(afterPersisted.projects[0].snapshot).status).toBe("ready");
+      expect(modelCardRenderGate(afterView.db.projects[0].snapshot)).toEqual(expect.objectContaining({
+        status: "blocked",
+        missingSectionIds: expect.arrayContaining(["coding-reliability"])
+      }));
       expect(afterPersisted.projects[0].currentVersion).toBe(7);
       expect(afterPersisted.projectRevisions[0].version).toBe(7);
       expect(sha256(afterView.db.projects[0].snapshot)).toBe(derivedProjectHash);
@@ -193,6 +220,10 @@ describe("enterprise legacy state read projections", () => {
       const state = await stateRuntime.readEnterpriseState();
       expect(state.runtime.activePrimary).toBe("postgres");
       expect(codingGateVersion(state.db.projects[0].snapshot)).toBe("sena-coding-reliability-gate/v2");
+      expect(modelCardRenderGate(state.db.projects[0].snapshot)).toEqual(expect.objectContaining({
+        status: "blocked",
+        missingSectionIds: expect.arrayContaining(["coding-reliability"])
+      }));
 
       await stateRuntime.saveEnterpriseState(state, state.db);
       expect(pg.state?.revision).toBe(7);
@@ -205,6 +236,7 @@ describe("enterprise legacy state read projections", () => {
       expect(sha256(pg.state?.payload.projects[0].snapshot)).toBe(projectHash);
       expect(sha256(pg.state?.payload.projectRevisions[0].snapshot)).toBe(revisionHash);
       expect(codingGateVersion(pg.state?.payload.projects[0].snapshot)).toBe("sena-coding-reliability-gate/v1");
+      expect(modelCardRenderGate(pg.state?.payload.projects[0].snapshot).status).toBe("ready");
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_ADAPTER;
       delete process.env.SENA_ENTERPRISE_STATE_STORE;
