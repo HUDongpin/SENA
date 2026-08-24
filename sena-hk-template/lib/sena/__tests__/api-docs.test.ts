@@ -56,6 +56,27 @@ describe("SENA API documentation contract", () => {
     expect(documented).toEqual(actual);
   });
 
+  it("documents projectId as a required query parameter for claim-package GET", () => {
+    const claimFact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-validation-claim-package");
+    expect(claimFact?.queryParameters).toEqual([expect.objectContaining({
+      name: "projectId",
+      methods: ["GET"],
+      required: true
+    })]);
+
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        parameters?: Array<{ name: string; in: string; required: boolean }>;
+        requestBody?: unknown;
+      }>>;
+    };
+    const claimGet = openApi.paths["/api/sena/validation/claim-package"].get;
+    expect(claimGet.parameters).toEqual([
+      expect.objectContaining({ name: "projectId", in: "query", required: true })
+    ]);
+    expect(claimGet.requestBody).toBeUndefined();
+  });
+
   it("freezes the enterprise and ops API surface while analysis is decomposed along M1-M11 seams", () => {
     const frozenEndpointIds = SENA_API_ENDPOINT_FACTS
       .filter((endpoint) => SENA_API_SURFACE_MORATORIUM.freezePolicy.frozenGroups.includes(endpoint.group))

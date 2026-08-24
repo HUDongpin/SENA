@@ -357,6 +357,14 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Return a project-scoped claim evidence package with approved reliability, validation, preregistration, validation parity, domain expert review, source snapshot provenance evidence, x-sena-source-snapshot-sha256/x-sena-report-sha256, and x-sena-claim-evidence-reliability-source/x-sena-claim-evidence-validation-source/x-sena-claim-evidence-expert-review-source/x-sena-claim-evidence-adjudication-source response headers.",
     evidenceNoteId: "sena-validation-claim-package",
+    queryParameters: [
+      {
+        name: "projectId",
+        methods: ["GET"],
+        required: true,
+        description: "Identifier of the durable SENA project whose claim evidence package is returned."
+      }
+    ],
     responses: ["sena-enterprise-claim-evidence-package/v1", "sena-enterprise-claim-source-snapshot/v1"]
   },
   {

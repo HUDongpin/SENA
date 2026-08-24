@@ -455,6 +455,14 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
         .toEqual(expect.objectContaining({ type: "string", enum: ["json", "openapi"], default: "json" }));
       expect(String((format as { description?: string } | undefined)?.description)).toContain("openapi");
 
+      const projectId = (paths["/api/sena/validation/claim-package"]?.get?.parameters ?? [])
+        .find((parameter) => parameter.name === "projectId");
+      expect(projectId).toEqual(expect.objectContaining({
+        name: "projectId",
+        in: "query",
+        required: true
+      }));
+
       // A DELETE whose handler reads no body must not be documented with one
       // either — every templated resource DELETE is in that group.
       for (const pathKey of [
