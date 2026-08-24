@@ -18,8 +18,10 @@ import {
 } from "../enterprise";
 import {
   buildEnterpriseReliabilityAdjudicationResponse,
+  buildEnterpriseReliabilityRunReviewResponse,
   findEnterprisePublicationReliabilityEvidenceFromDb,
-  SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT
+  SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT,
+  SENA_RELIABILITY_NOTE_BYTE_LIMIT
 } from "../enterprise/reliability-runs";
 import {
   buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
@@ -323,6 +325,51 @@ describe("enterprise reliability adjudication canonical binding", () => {
       }
     );
     expect(claimFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the maximum 100-record adjudication note copy budget explicitly bounded", () => {
+    const { registered, run } = setupProjectRun(
+      adjudicationBatchDataset(SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT),
+      adjudicationBatchAnnotations(SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT)
+    );
+    const notes = `${"界".repeat(2_730)}ab`;
+    expect(Buffer.byteLength(notes, "utf8")).toBe(SENA_RELIABILITY_NOTE_BYTE_LIMIT);
+
+    const result = createEnterpriseReliabilityAdjudications(registered.context, run.id, {
+      decision: "include",
+      notes,
+      limit: SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT
+    });
+
+    expect(result.adjudications).toHaveLength(SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT);
+    expect(result.adjudications.reduce(
+      (total, record) => total + Buffer.byteLength(record.notes, "utf8"),
+      0
+    )).toBe(SENA_RELIABILITY_NOTE_BYTE_LIMIT * SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT);
+  });
+
+  it("normalizes each regular adjudication/review note once before the state mutation path", () => {
+    const { registered, run } = setupProjectRun();
+    const adjudicationNotes = "Round9 single-pass adjudication note.";
+    const reviewNotes = "Round9 single-pass review note.";
+    const byteLength = vi.spyOn(Buffer, "byteLength");
+    try {
+      buildEnterpriseReliabilityAdjudicationResponse(registered.context, {
+        runId: run.id,
+        decision: "include",
+        notes: adjudicationNotes
+      });
+      buildEnterpriseReliabilityRunReviewResponse(registered.context, {
+        runId: run.id,
+        status: "approved",
+        notes: reviewNotes
+      });
+
+      expect(byteLength.mock.calls.filter(([value]) => value === adjudicationNotes)).toHaveLength(1);
+      expect(byteLength.mock.calls.filter(([value]) => value === reviewNotes)).toHaveLength(1);
+    } finally {
+      byteLength.mockRestore();
+    }
   });
 
   it("rejects public collaboration adjudication without a reliability run", () => {

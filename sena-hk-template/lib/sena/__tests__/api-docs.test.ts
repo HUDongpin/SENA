@@ -262,6 +262,10 @@ describe("SENA API documentation contract", () => {
       .toContain("annotations");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
       .toContain("x-sena-reliability-run-id");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
+      .toContain("request stream at 65536 bytes");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
+      .toContain("notes at 8192 UTF-8 bytes");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison")?.responses)
       .toContain("sena-formal-inference-readiness/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison")?.request)

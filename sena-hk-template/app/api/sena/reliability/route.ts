@@ -5,7 +5,9 @@ import {
   buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync,
   buildEnterpriseReliabilityRunListResponseAsync,
   buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync,
-  buildEnterpriseReliabilityRunReviewResponseWithPostgresMirrorAsync
+  buildEnterpriseReliabilityRunReviewResponseWithPostgresMirrorAsync,
+  parseSenaReliabilityMutationBody,
+  SENA_RELIABILITY_PATCH_REQUEST_BYTE_LIMIT
 } from "@/lib/sena/enterprise/reliability-runs";
 import {
   createEnterpriseUploadsWithPostgresMirrorAsync
@@ -473,8 +475,14 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-reliability" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json();
+    const boundedRequest = await readSenaReliabilityBoundedTransportRequest(request, {
+      json: true,
+      maximum: SENA_RELIABILITY_PATCH_REQUEST_BYTE_LIMIT
+    });
+    const body = parseSenaReliabilityMutationBody(
+      boundedRequest.body ? await boundedRequest.json() : null
+    );
+    const context = await requireApiSessionForMutation(boundedRequest);
     const action = String(body.action ?? "review");
     if (action === "adjudicate") {
       const response = await buildEnterpriseReliabilityAdjudicationResponseWithPostgresMirrorAsync(context, body);
