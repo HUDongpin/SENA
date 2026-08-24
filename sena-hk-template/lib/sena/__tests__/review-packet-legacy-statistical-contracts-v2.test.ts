@@ -37,6 +37,33 @@ function statisticalLeaves(packet: ReturnType<typeof buildSenaReviewPacket>) {
   ];
 }
 
+function readyCurrentV2ReviewPacket() {
+  const dashboard = buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+  ]);
+  return JSON.parse(JSON.stringify(buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
+    generatedAt: "2026-08-25T00:00:00.000Z",
+    codingReliability: reliabilityDashboardToReview(dashboard, "Review packet reliability reviewer"),
+    humanReview: {
+      status: "human-reviewed",
+      reviewer: "Review packet human reviewer",
+      interpretation: "Current-v2 packet integrity fixture interpretation.",
+      limitations: "Synthetic fixture only.",
+      nextActions: "Keep duplicated readiness surfaces canonical."
+    },
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic review-packet integrity fixture only.",
+      retentionPolicy: "Delete generated fixture state after the test run.",
+      usageConstraints: ["Do not use as participant evidence."],
+      dataSteward: "Review packet human reviewer"
+    }
+  }))) as ReturnType<typeof buildSenaReviewPacket>;
+}
+
 describe("review-packet statistical contract compatibility", () => {
   it("normalizes genuine 14bb306 fusion-audit v1 leaves without treating nonnegative evidence as proven", () => {
     const { packet, auditV1 } = packetWithGenuine14bb306StatisticalLeaves();
@@ -322,30 +349,7 @@ describe("review-packet statistical contract compatibility", () => {
   });
 
   it("propagates a current-v2 reliability downgrade to every cached review-packet surface", () => {
-    const dashboard = buildSenaReliabilityDashboard([
-      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
-      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
-      { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
-      { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
-    ]);
-    const packet = JSON.parse(JSON.stringify(buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
-      generatedAt: "2026-08-25T00:00:00.000Z",
-      codingReliability: reliabilityDashboardToReview(dashboard, "Review packet reliability reviewer"),
-      humanReview: {
-        status: "human-reviewed",
-        reviewer: "Review packet human reviewer",
-        interpretation: "Current-v2 packet integrity fixture interpretation.",
-        limitations: "Synthetic fixture only.",
-        nextActions: "Keep duplicated readiness surfaces canonical."
-      },
-      dataGovernance: {
-        irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
-        consentScope: "Synthetic review-packet integrity fixture only.",
-        retentionPolicy: "Delete generated fixture state after the test run.",
-        usageConstraints: ["Do not use as participant evidence."],
-        dataSteward: "Review packet human reviewer"
-      }
-    }))) as ReturnType<typeof buildSenaReviewPacket>;
+    const packet = readyCurrentV2ReviewPacket();
     expect(packet.summary.codingReliabilityStatus).toBe("ready");
     expect(packet.summary.reportCompletenessStatus).toBe("complete");
     expect(packet.summary.pilotReadinessStatus).toBe("ready");
@@ -371,31 +375,80 @@ describe("review-packet statistical contract compatibility", () => {
     }));
   });
 
-  it("fails closed when current-v2 review-packet runtime gates are both ready but provenance differs", () => {
-    const dashboard = buildSenaReliabilityDashboard([
-      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
-      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
-      { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
-      { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
-    ]);
-    const packet = JSON.parse(JSON.stringify(buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
-      generatedAt: "2026-08-25T00:00:00.000Z",
-      codingReliability: reliabilityDashboardToReview(dashboard, "Review packet reliability reviewer"),
-      humanReview: {
-        status: "human-reviewed",
-        reviewer: "Review packet human reviewer",
-        interpretation: "Current-v2 packet integrity fixture interpretation.",
-        limitations: "Synthetic fixture only.",
-        nextActions: "Keep duplicated readiness surfaces canonical."
-      },
-      dataGovernance: {
-        irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
-        consentScope: "Synthetic review-packet integrity fixture only.",
-        retentionPolicy: "Delete generated fixture state after the test run.",
-        usageConstraints: ["Do not use as participant evidence."],
-        dataSteward: "Review packet human reviewer"
+  it.each([
+    {
+      label: "runtime-derived caches",
+      mutate: (
+        stalePacket: ReturnType<typeof readyCurrentV2ReviewPacket>,
+        readyPacket: ReturnType<typeof readyCurrentV2ReviewPacket>
+      ) => {
+        stalePacket.contents.runtimeBundle.developmentPlan = structuredClone(
+          readyPacket.contents.runtimeBundle.developmentPlan
+        );
+        stalePacket.contents.runtimeBundle.demoWalkthrough = structuredClone(
+          readyPacket.contents.runtimeBundle.demoWalkthrough
+        );
+        stalePacket.contents.runtimeBundle.demoVerification = structuredClone(
+          readyPacket.contents.runtimeBundle.demoVerification
+        );
       }
-    }))) as ReturnType<typeof buildSenaReviewPacket>;
+    },
+    {
+      label: "outer derived caches",
+      mutate: (
+        stalePacket: ReturnType<typeof readyCurrentV2ReviewPacket>,
+        readyPacket: ReturnType<typeof readyCurrentV2ReviewPacket>
+      ) => {
+        stalePacket.contents.developmentPlan = structuredClone(readyPacket.contents.developmentPlan);
+        stalePacket.contents.demoWalkthrough = structuredClone(readyPacket.contents.demoWalkthrough);
+        stalePacket.contents.demoVerification = structuredClone(readyPacket.contents.demoVerification);
+      }
+    },
+    {
+      label: "review-packet audit cache",
+      mutate: (
+        stalePacket: ReturnType<typeof readyCurrentV2ReviewPacket>,
+        readyPacket: ReturnType<typeof readyCurrentV2ReviewPacket>
+      ) => {
+        stalePacket.reviewPacketAudit = structuredClone(readyPacket.reviewPacketAudit);
+      }
+    }
+  ])("repairs pre-existing stale current-v2 $label and stays idempotent", ({ mutate }) => {
+    const readyPacket = readyCurrentV2ReviewPacket();
+    const reliabilityDowngrade = structuredClone(readyPacket);
+    for (const leaf of statisticalLeaves(reliabilityDowngrade)) {
+      leaf.codingReliabilityGate.review.reviewer = "";
+    }
+    const canonicalReviewPacket = importSenaReviewPacket(reliabilityDowngrade);
+    expect(canonicalReviewPacket.summary.pilotReadinessStatus).toBe("needs-review");
+    expect(canonicalReviewPacket.summary.claimReadinessStatus).toBe("exploratory");
+
+    const stalePacket = structuredClone(canonicalReviewPacket);
+    mutate(stalePacket, readyPacket);
+    expect(stalePacket).not.toEqual(canonicalReviewPacket);
+
+    const imported = importSenaReviewPacket(stalePacket);
+    expect(imported.contents.runtimeBundle.developmentPlan.currentGate.pilotReadinessStatus)
+      .toBe("needs-review");
+    expect(imported.contents.runtimeBundle.developmentPlan.deliveryCandidate.status).toBe("pre-candidate");
+    expect(imported.contents.runtimeBundle.developmentPlan.nextStage.status).toBe("verification-required");
+    expect(imported.contents.runtimeBundle.demoWalkthrough.summary.pilotReadinessStatus).toBe("needs-review");
+    expect(imported.contents.runtimeBundle.demoVerification.summary.pilotReadinessStatus).toBe("needs-review");
+    expect(imported.contents.runtimeBundle.demoVerification.summary.automatedReview).toBeGreaterThan(0);
+    expect(imported.contents.developmentPlan).toEqual(imported.contents.runtimeBundle.developmentPlan);
+    expect(imported.contents.demoWalkthrough).toEqual(imported.contents.runtimeBundle.demoWalkthrough);
+    expect(imported.contents.demoVerification).toEqual(imported.contents.runtimeBundle.demoVerification);
+    expect(imported.reviewPacketAudit).toEqual(expect.objectContaining({ status: "needs-review" }));
+    expect(imported.reviewPacketAudit.items).toContainEqual(expect.objectContaining({
+      id: "statistical-contract-reconciliation",
+      status: "review"
+    }));
+    expect(imported).toEqual(canonicalReviewPacket);
+    expect(importSenaReviewPacket(structuredClone(imported))).toEqual(imported);
+  });
+
+  it("fails closed when current-v2 review-packet runtime gates are both ready but provenance differs", () => {
+    const packet = readyCurrentV2ReviewPacket();
     expect(packet.summary.pilotReadinessStatus).toBe("ready");
     expect(packet.summary.claimReadinessStatus).toBe("ready");
     packet.contents.runtimeBundle.codingReliabilityGate.review.reviewer = "Conflicting runtime reviewer";

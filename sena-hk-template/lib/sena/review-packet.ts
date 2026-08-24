@@ -1014,6 +1014,40 @@ function assertStatisticalContractCompatibility(contents: Record<string, unknown
   importSenaProjectSnapshot(contents.projectSnapshot);
 }
 
+function currentStatisticalReconciliationAuditItem(input: Pick<
+  SenaReviewPacket["summary"],
+  "codingReliabilityStatus" | "pilotReadinessStatus" | "claimReadinessStatus"
+>): SenaReviewPacketAuditItem {
+  return {
+    id: "statistical-contract-reconciliation",
+    label: "Current statistical contract reconciliation",
+    status: "review",
+    expected: "Current-v2 duplicated statistical and readiness surfaces agree before import",
+    actual: "Current-v2 statistical or wrapper surfaces required canonical reconciliation",
+    evidence: [
+      "current-v2-statistical-or-wrapper-cache-reconciled",
+      `codingReliability=${input.codingReliabilityStatus}`,
+      `pilotReadiness=${input.pilotReadinessStatus}`,
+      `claimReadiness=${input.claimReadinessStatus}`
+    ]
+  };
+}
+
+function finalizeReviewPacketAudit(
+  audit: SenaReviewPacketAudit,
+  reconciliationItems: SenaReviewPacketAuditItem[]
+) {
+  const reconciliationIds = new Set(reconciliationItems.map((item) => item.id));
+  audit.items = [
+    ...audit.items.filter((item) => !reconciliationIds.has(item.id)),
+    ...reconciliationItems
+  ];
+  audit.passed = audit.items.filter((item) => item.status === "pass").length;
+  audit.reviewNeeded = audit.items.length - audit.passed;
+  audit.status = audit.reviewNeeded === 0 ? "complete" : "needs-review";
+  return audit;
+}
+
 function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPacket {
   const normalized = structuredClone(value) as SenaReviewPacket;
   const beforeNormalization = structuredClone(normalized);
@@ -1098,6 +1132,19 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
     failClosedReadinessReport.completenessAudit
   );
   const canonicalMarkdown = buildSenaMarkdownReport(report);
+  const rebuildNormalizedReviewPacketAudit = () => buildSenaReviewPacketAudit({
+    schemaVersion: normalized.schemaVersion,
+    analysisWindow: normalized.analysisWindow,
+    artifactManifest: normalized.artifactManifest,
+    contents: normalized.contents,
+    reviewGuardrails: normalized.reviewGuardrails,
+    summary: normalized.summary
+  });
+  const currentReconciliationItem = currentStatisticalReconciliationAuditItem({
+    codingReliabilityStatus: failClosedReliabilityGate.status,
+    pilotReadinessStatus: readiness.pilotReadinessAudit.status,
+    claimReadinessStatus: readiness.claimReadinessGate.status
+  });
   const wrapperAlreadyCanonical =
     normalized.summary.fusionMathStatus === runtimeBundle.fusionMathAudit.status &&
     normalized.summary.codingReliabilityStatus === failClosedReliabilityGate.status &&
@@ -1108,8 +1155,22 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
     senaJsonValuesEqual(normalized.contents.codingReliabilityGate, failClosedReliabilityGate) &&
     senaJsonValuesEqual(normalized.contents.pilotReadinessAudit, readiness.pilotReadinessAudit) &&
     senaJsonValuesEqual(normalized.contents.claimReadinessGate, readiness.claimReadinessGate) &&
+    senaJsonValuesEqual(normalized.contents.developmentPlan, runtimeBundle.developmentPlan) &&
+    senaJsonValuesEqual(normalized.contents.demoWalkthrough, runtimeBundle.demoWalkthrough) &&
+    senaJsonValuesEqual(normalized.contents.demoVerification, runtimeBundle.demoVerification) &&
     normalized.contents.reportMarkdown === canonicalMarkdown;
-  if (!state.needsCurrentEvidence && !statisticalSurfacesChanged && wrapperAlreadyCanonical) {
+  const expectedCachedAudit = wrapperAlreadyCanonical
+    ? finalizeReviewPacketAudit(
+        rebuildNormalizedReviewPacketAudit(),
+        normalized.reviewPacketAudit.items.some((item) => item.id === currentReconciliationItem.id)
+          ? [currentReconciliationItem]
+          : []
+      )
+    : null;
+  const auditAlreadyCanonical = expectedCachedAudit !== null &&
+    senaJsonValuesEqual(normalized.reviewPacketAudit, expectedCachedAudit);
+  if (!state.needsCurrentEvidence && !statisticalSurfacesChanged &&
+    wrapperAlreadyCanonical && auditAlreadyCanonical) {
     return normalized;
   }
 
@@ -1160,14 +1221,7 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
         : handoff
     ));
   }
-  const rebuiltAudit = buildSenaReviewPacketAudit({
-    schemaVersion: normalized.schemaVersion,
-    analysisWindow: normalized.analysisWindow,
-    artifactManifest: normalized.artifactManifest,
-    contents: normalized.contents,
-    reviewGuardrails: normalized.reviewGuardrails,
-    summary: normalized.summary
-  });
+  const rebuiltAudit = rebuildNormalizedReviewPacketAudit();
   const reconciliationItems: SenaReviewPacketAuditItem[] = [];
   if (state.needsCurrentEvidence) {
     reconciliationItems.push({
@@ -1186,30 +1240,9 @@ function normalizeReviewPacketStatisticalContracts(value: unknown): SenaReviewPa
       ]
     });
   } else {
-    reconciliationItems.push({
-      id: "statistical-contract-reconciliation",
-      label: "Current statistical contract reconciliation",
-      status: "review",
-      expected: "Current-v2 duplicated statistical and readiness surfaces agree before import",
-      actual: "Current-v2 statistical or wrapper surfaces required canonical reconciliation",
-      evidence: [
-        `statisticalSurfacesChanged=${statisticalSurfacesChanged}`,
-        `wrapperAlreadyCanonical=${wrapperAlreadyCanonical}`,
-        `codingReliability=${failClosedReliabilityGate.status}`,
-        `pilotReadiness=${readiness.pilotReadinessAudit.status}`,
-        `claimReadiness=${readiness.claimReadinessGate.status}`
-      ]
-    });
+    reconciliationItems.push(currentReconciliationItem);
   }
-  const reconciliationIds = new Set(reconciliationItems.map((item) => item.id));
-  rebuiltAudit.items = [
-    ...rebuiltAudit.items.filter((item) => !reconciliationIds.has(item.id)),
-    ...reconciliationItems
-  ];
-  rebuiltAudit.passed = rebuiltAudit.items.filter((item) => item.status === "pass").length;
-  rebuiltAudit.reviewNeeded = rebuiltAudit.items.length - rebuiltAudit.passed;
-  rebuiltAudit.status = rebuiltAudit.reviewNeeded === 0 ? "complete" : "needs-review";
-  normalized.reviewPacketAudit = rebuiltAudit;
+  normalized.reviewPacketAudit = finalizeReviewPacketAudit(rebuiltAudit, reconciliationItems);
   return normalized;
 }
 

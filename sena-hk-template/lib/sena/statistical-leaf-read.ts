@@ -485,10 +485,12 @@ function reconcileDevelopmentPlan(
       evidence: normalizedReadinessEvidence(pilotReadinessAudit, dependencies)
     };
   });
-  value.notes = Array.from(new Set([
-    ...value.notes,
-    "Legacy-dependent plan evidence was invalidated and rebuilt from normalized current readiness items."
-  ]));
+  if (state.needsCurrentEvidence) {
+    value.notes = Array.from(new Set([
+      ...value.notes,
+      "Legacy-dependent plan evidence was invalidated and rebuilt from normalized current readiness items."
+    ]));
+  }
 }
 
 export function reconcileSenaRuntimeBundleStatisticalSurfaces(
@@ -510,10 +512,6 @@ export function reconcileSenaRuntimeBundleStatisticalSurfaces(
     runtimeBundle.report.codingReliabilityGate = structuredClone(failClosedGate);
   }
   reconcileSenaReportStatisticalSurfaces(runtimeBundle.report, state);
-  const priorReadiness = JSON.stringify({
-    pilotReadinessAudit: runtimeBundle.pilotReadinessAudit,
-    claimReadinessGate: runtimeBundle.claimReadinessGate
-  });
   const readiness = invalidatedReadiness(
     runtimeBundle.pilotReadinessAudit,
     state,
@@ -526,21 +524,15 @@ export function reconcileSenaRuntimeBundleStatisticalSurfaces(
   reconcileModelCardReliability(runtimeBundle.modelCard, runtimeBundle.codingReliabilityGate, state);
   runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
   runtimeBundle.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
-  const readinessChanged = priorReadiness !== JSON.stringify({
-    pilotReadinessAudit: runtimeBundle.pilotReadinessAudit,
-    claimReadinessGate: runtimeBundle.claimReadinessGate
-  });
-  if (state.needsCurrentEvidence || readinessChanged) {
-    reconcileDemoWalkthrough(runtimeBundle.demoWalkthrough, runtimeBundle.pilotReadinessAudit);
-    reconcileDemoVerification(runtimeBundle.demoVerification, runtimeBundle.pilotReadinessAudit);
-    reconcileDevelopmentPlan(
-      runtimeBundle.developmentPlan,
-      runtimeBundle.pilotReadinessAudit,
-      runtimeBundle.demoWalkthrough,
-      runtimeBundle.demoVerification,
-      state
-    );
-  }
+  reconcileDemoWalkthrough(runtimeBundle.demoWalkthrough, runtimeBundle.pilotReadinessAudit);
+  reconcileDemoVerification(runtimeBundle.demoVerification, runtimeBundle.pilotReadinessAudit);
+  reconcileDevelopmentPlan(
+    runtimeBundle.developmentPlan,
+    runtimeBundle.pilotReadinessAudit,
+    runtimeBundle.demoWalkthrough,
+    runtimeBundle.demoVerification,
+    state
+  );
   return runtimeBundle;
 }
 

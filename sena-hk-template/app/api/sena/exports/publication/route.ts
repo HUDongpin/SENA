@@ -24,6 +24,7 @@ import {
   type SenaPublicationFormat
 } from "@/lib/sena/publication-export";
 import { buildSenaModel } from "@/lib/sena/model";
+import { inspectSenaModelCardSections } from "@/lib/sena/model-card";
 import { buildSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
@@ -42,6 +43,28 @@ function sha256Buffer(buffer: Buffer) {
 
 function sha256Json(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function assertPersistedModelCardSectionMembership(snapshot: SenaProjectSnapshot) {
+  const sections = snapshot.report?.modelCard?.sections;
+  if (!Array.isArray(sections)) {
+    throw new SenaEnterpriseError(
+      "Publication export blocked because the persisted model card has no section-membership evidence.",
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
+  const { missingIds, duplicateIds } = inspectSenaModelCardSections(sections);
+  if (missingIds.length === 0 && duplicateIds.length === 0) return;
+  const membershipBlockers = [
+    ...missingIds.map((id) => `missing:${id}`),
+    ...duplicateIds.map((id) => `duplicate:${id}`)
+  ];
+  throw new SenaEnterpriseError(
+    `Publication export blocked because persisted model-card section membership is incomplete or inconsistent: ${membershipBlockers.join(", ")}.`,
+    409,
+    "publication_export_model_card_blocked"
+  );
 }
 
 function snapshotWithReliabilityEvidence(
@@ -70,6 +93,10 @@ function publicationSnapshotForProject(
   reliabilityRun?: SenaEnterpriseReliabilityRun,
   reliabilityReviewProjection?: SenaEnterpriseReliabilityRun["reviewPatch"]
 ) {
+  // The enterprise reliability projection is allowed to refresh the
+  // coding-reliability section, but it must never reconstruct missing or
+  // duplicate persisted section membership into an apparently valid card.
+  assertPersistedModelCardSectionMembership(project.snapshot);
   if (!reliabilityRun || !reliabilityReviewProjection) {
     throw new SenaEnterpriseError(
       "Publication export blocked until an approved, current, machine-eligible reliability run is available for this project revision.",

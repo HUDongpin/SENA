@@ -5,7 +5,10 @@ export function canonicalSenaJson(value: unknown): string | undefined {
     return undefined;
   }
   if (Array.isArray(value)) {
-    return `[${value.map((entry) => canonicalSenaJson(entry) ?? "null").join(",")}]`;
+    return `[${Array.from(
+      { length: value.length },
+      (_, index) => canonicalSenaJson(value[index]) ?? "null"
+    ).join(",")}]`;
   }
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)

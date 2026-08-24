@@ -14,7 +14,7 @@ import {
 
 const publicationExportRouteTestTimeoutMs = 30_000;
 
-function routeSnapshot(dataGovernanceComplete = true) {
+function routeSnapshot(dataGovernanceComplete = true, codingReliabilityComplete = true) {
   const imported = importSenaJsonContract(lessonStudySenaContract);
   const model = buildSenaModel(imported.dataset);
   return buildSenaProjectSnapshot(model, {
@@ -28,12 +28,14 @@ function routeSnapshot(dataGovernanceComplete = true) {
       limitations: "Fixture only.",
       nextActions: "Verify projectId export handoff."
     },
-    codingReliability: reliabilityDashboardToReview(buildSenaReliabilityDashboard([
-      { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
-      { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
-      { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
-      { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
-    ]), "Route test"),
+    codingReliability: codingReliabilityComplete
+      ? reliabilityDashboardToReview(buildSenaReliabilityDashboard([
+          { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+          { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+          { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+          { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+        ]), "Route test")
+      : undefined,
     dataGovernance: {
       irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
       consentScope: "Synthetic route export fixture only.",
@@ -108,10 +110,13 @@ describe("SENA publication export route", () => {
       });
       sessionToken = registered.token;
       const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const sourceSnapshot = routeSnapshot(true, false);
+      expect(sourceSnapshot.report.modelCard.sections.find((section) => section.id === "coding-reliability")?.status)
+        .toBe("needs-review");
       const project = enterprise.createEnterpriseProject(registered.context, {
         teamId: registered.context.teams[0].id,
         title: "Route Publication Project",
-        snapshot: routeSnapshot()
+        snapshot: sourceSnapshot
       });
       const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
         registered.context,
@@ -215,6 +220,93 @@ describe("SENA publication export route", () => {
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, publicationExportRouteTestTimeoutMs);
+
+  it("blocks sync and queued publication before side effects when persisted model-card membership is empty", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-model-card-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    const queueRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      queueRequests.push(String(input));
+      return new Response("", { status: 202 });
+    }));
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/publication-export", async () => await import("../publication-export"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Model Card Publication Exporter",
+        email: "model-card-publication-exporter@example.edu",
+        password: "sena-secure-123",
+        organization: "Model Card Publication Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const forgedSnapshot = routeSnapshot();
+      forgedSnapshot.report.modelCard.sections = [];
+      expect(forgedSnapshot.report.modelCard.renderGate.status).toBe("ready");
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Empty Model Card Publication Project",
+        snapshot: forgedSnapshot
+      });
+      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Model card publication reliability reviewer")
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+        status: "approved",
+        notes: "Reliability projection cannot repair persisted model-card section membership."
+      });
+
+      const route = await import("../../../app/api/sena/exports/publication/route");
+      const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({ projectId: project.id, format: "html", queue })
+      });
+      const syncResponse = await route.POST(request(false));
+      const queuedResponse = await route.POST(request(true));
+
+      for (const response of [syncResponse, queuedResponse]) {
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual(expect.objectContaining({
+          code: "publication_export_model_card_blocked"
+        }));
+      }
+      expect(queueRequests).toHaveLength(0);
+      expect(enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.run",
+        projectId: project.id,
+        limit: 5
+      }).events).toHaveLength(0);
+      expect(enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.queue",
+        projectId: project.id,
+        limit: 5
+      }).events).toHaveLength(0);
+      const jobs = await enterprise.listEnterpriseServerJobs({ projectId: project.id });
+      expect(jobs.jobs).toHaveLength(0);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.unstubAllGlobals();
       vi.resetModules();
     }
   }, publicationExportRouteTestTimeoutMs);

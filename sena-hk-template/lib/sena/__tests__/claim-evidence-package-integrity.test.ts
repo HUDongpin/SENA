@@ -255,6 +255,21 @@ describe("enterprise claim evidence package integrity", () => {
     ]));
   });
 
+  it("independently rejects a semantic parity tamper after a PostgreSQL jsonb key reorder", () => {
+    const db = reorderJsonObjectKeys(structuredClone(baseDb));
+    const validation = db.validationRuns.find((run) => run.id === readyValidationRunId);
+    if (!validation?.parityEvidence) throw new Error("Expected validation parity fixture.");
+    validation.parityEvidence.formalInference.guardrail =
+      `${validation.parityEvidence.formalInference.guardrail} tampered`;
+
+    const claimPackage = buildPackage(db);
+    expect(claimPackage.status).toBe("exploratory-only");
+    expect(claimPackage.blockers).toEqual(expect.arrayContaining([
+      "validation-parity-readiness-required",
+      "validation-formal-inference-readiness-required"
+    ]));
+  });
+
   it("keeps a human-approved but machine-ineligible reliability run exploratory", () => {
     const db = structuredClone(baseDb);
     db.reliabilityRuns = db.reliabilityRuns.filter((run) => run.id !== eligibleReliabilityRunId);
