@@ -15,7 +15,11 @@ import {
   type SenaFigureRasterTarget,
   type SenaPublicationFigure
 } from "./publication-figure";
-import { buildSenaMarkdownReport } from "./report";
+import {
+  buildSenaMarkdownReport,
+  isSenaReportHumanReviewComplete,
+  normalizeSenaCodingReliabilityGate
+} from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { importSenaProjectSnapshot } from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
@@ -1009,9 +1013,18 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
       "publication_export_model_card_blocked"
     );
   }
-  if (renderGate.status === "ready") return;
+  const codingReliabilityGate = normalizeSenaCodingReliabilityGate(report.codingReliabilityGate);
+  const missingReadiness = Array.from(new Set([
+    ...renderGate.missingSectionIds,
+    ...(codingReliabilityGate.status === "ready" ? [] : ["coding-reliability"]),
+    ...(isSenaReportHumanReviewComplete(report.humanReview) ? [] : ["human-review"]),
+    ...(report.completenessAudit.status === "complete" ? [] : ["report-completeness"]),
+    ...(report.pilotReadinessAudit.status === "ready" ? [] : ["pilot-readiness"]),
+    ...(report.claimReadinessGate.status === "ready" ? [] : ["claim-readiness"])
+  ]));
+  if (renderGate.status === "ready" && missingReadiness.length === 0) return;
   throw new SenaEnterpriseError(
-    `Publication export blocked until the SENA model card is complete: ${renderGate.missingSectionIds.join(", ") || "unknown"}.`,
+    `Publication export blocked until the SENA model card and derived research-readiness evidence are complete: ${missingReadiness.join(", ") || "unknown"}.`,
     409,
     "publication_export_model_card_blocked"
   );

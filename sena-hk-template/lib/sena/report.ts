@@ -99,6 +99,18 @@ const defaultNullModelIterations = 12;
 const nullModelSeed = 20260608;
 const runtimeProvenance = senaRuntimeProvenance;
 
+export function isSenaReportHumanReviewTextPresent(value: string) {
+  return Boolean(value.trim()) && value.trim() !== pendingReviewText;
+}
+
+export function isSenaReportHumanReviewComplete(review: SenaReportHumanReview) {
+  return review.status === "human-reviewed" &&
+    isSenaReportHumanReviewTextPresent(review.reviewer) &&
+    isSenaReportHumanReviewTextPresent(review.interpretation) &&
+    isSenaReportHumanReviewTextPresent(review.limitations) &&
+    isSenaReportHumanReviewTextPresent(review.nextActions);
+}
+
 const interpretationGuardrails: SenaInterpretationGuardrail[] = [
   {
     id: "typed-graph-not-causality",
@@ -830,14 +842,7 @@ export function buildSenaReportCompletenessAudit({
       fingerprint.shape.includes("x")
     ));
   const fusionMatrixFingerprint = fusionMathAudit.matrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion");
-  const humanReviewComplete = humanReview.status === "human-reviewed" &&
-    Boolean(humanReview.reviewer.trim()) &&
-    Boolean(humanReview.interpretation.trim()) &&
-    Boolean(humanReview.limitations.trim()) &&
-    Boolean(humanReview.nextActions.trim()) &&
-    humanReview.interpretation !== pendingReviewText &&
-    humanReview.limitations !== pendingReviewText &&
-    humanReview.nextActions !== pendingReviewText;
+  const humanReviewComplete = isSenaReportHumanReviewComplete(humanReview);
   const dataGovernanceUsageConstraints = Array.isArray(dataGovernance?.usageConstraints)
     ? dataGovernance.usageConstraints.map((constraint) => String(constraint).trim()).filter(Boolean)
     : [];
@@ -1222,7 +1227,26 @@ export function isCurrentSenaCodingReliabilityGate(value: unknown): value is Sen
 export function normalizeSenaCodingReliabilityGate(
   value: SenaCodingReliabilityGateReadModel | unknown
 ): SenaCodingReliabilityGate {
-  if (isSenaCodingReliabilityGateV2ReadModel(value)) return structuredClone(value);
+  if (isSenaCodingReliabilityGateV2ReadModel(value)) {
+    if (value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate) {
+      return structuredClone(value);
+    }
+    const canonical = buildSenaCodingReliabilityGate({
+      generatedAt: value.review.reviewedAt,
+      codingReliability: value.review
+    }, value.review.reviewedAt);
+    const status = canonical.blockers.length === 0 && value.machineClaimEligibility.eligible
+      ? "ready" as const
+      : "review" as const;
+    return {
+      ...structuredClone(value),
+      status,
+      claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
+      review: canonical.review,
+      evidence: canonical.evidence,
+      blockers: canonical.blockers
+    };
+  }
   if (!isGenuineSenaCodingReliabilityGateV1(value)) {
     throw new Error("SENA coding reliability gate must be a complete v2 contract or the genuine v1 contract without machine eligibility.");
   }
@@ -1386,7 +1410,7 @@ export function buildSenaCodingReliabilityGate(
 }
 
 function resolveHumanReview(options: SenaReportOptions, generatedAt: string): SenaReportHumanReview {
-  return {
+  const review: SenaReportHumanReview = {
     status: options.humanReview?.status ?? "draft",
     reviewer: options.humanReview?.reviewer?.trim() ?? "",
     reviewedAt: options.humanReview?.reviewedAt || generatedAt,
@@ -1394,6 +1418,9 @@ function resolveHumanReview(options: SenaReportOptions, generatedAt: string): Se
     limitations: options.humanReview?.limitations?.trim() || pendingReviewText,
     nextActions: options.humanReview?.nextActions?.trim() || pendingReviewText
   };
+  return review.status === "human-reviewed" && !isSenaReportHumanReviewComplete(review)
+    ? { ...review, status: "draft" }
+    : review;
 }
 
 function mergeBuildOptions(model: SenaModel, overrides: Partial<SenaBuildOptions> = {}): SenaBuildOptions {

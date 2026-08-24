@@ -2,9 +2,60 @@ import { describe, expect, it } from "vitest";
 import {
   buildSenaModel,
   buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
+  buildSenaRuntimeBundle,
+  importSenaJsonContract,
   lessonStudySenaContract
 } from "../index";
 import { buildSenaPublicationExport } from "../publication-export";
+import { reliabilityDashboardToReview } from "../reliability";
+import { importSenaProjectSnapshot } from "../snapshot";
+import { importSenaRuntimeBundle } from "../statistical-leaf-read";
+
+function readyCurrentV2Snapshot() {
+  const imported = importSenaJsonContract(lessonStudySenaContract);
+  const dashboard = buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+  ]);
+  return buildSenaProjectSnapshot(buildSenaModel(imported.dataset), {
+    title: "Current v2 publication readiness fixture",
+    generatedAt: "2026-08-25T00:00:00.000Z",
+    sourceDataset: imported.dataset,
+    humanReview: {
+      status: "human-reviewed",
+      reviewer: "Publication readiness reviewer",
+      interpretation: "Current-v2 readiness fixture interpretation.",
+      limitations: "Synthetic fixture only.",
+      nextActions: "Keep every readiness surface derived from the reviewed evidence."
+    },
+    codingReliability: reliabilityDashboardToReview(dashboard, "Publication reliability reviewer"),
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic publication readiness fixture only.",
+      retentionPolicy: "Delete generated fixture state after the test run.",
+      usageConstraints: ["Do not use as real participant evidence."],
+      dataSteward: "Publication readiness reviewer"
+    }
+  });
+}
+
+function readyCurrentV2RuntimeBundle() {
+  const snapshot = readyCurrentV2Snapshot();
+  return buildSenaRuntimeBundle(
+    buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions),
+    {
+      title: "Current v2 runtime readiness fixture",
+      generatedAt: snapshot.generatedAt,
+      sourceDataset: snapshot.source.sourceDataset,
+      humanReview: snapshot.report.humanReview,
+      codingReliability: snapshot.report.codingReliabilityGate.review,
+      dataGovernance: snapshot.report.dataGovernance
+    }
+  );
+}
 
 describe("SENA publication export model-card gate", () => {
   it("blocks publication artifacts when the model card render gate is incomplete", async () => {
@@ -24,5 +75,124 @@ describe("SENA publication export model-card gate", () => {
       status: 409,
       code: "publication_export_model_card_blocked"
     });
+  });
+
+  it("recomputes current-v2 reliability readiness when machine evidence is eligible but human documentation is empty", () => {
+    const source = readyCurrentV2Snapshot();
+    expect(source.report.codingReliabilityGate.machineClaimEligibility.eligible).toBe(true);
+    expect(source.report.codingReliabilityGate.status).toBe("ready");
+    expect(source.report.claimReadinessGate.status).toBe("ready");
+    expect(source.report.modelCard.renderGate.status).toBe("ready");
+
+    const forged = structuredClone(source);
+    forged.report.codingReliabilityGate.review.reviewer = "";
+    const restored = importSenaProjectSnapshot(forged);
+
+    expect(restored.report.codingReliabilityGate.machineClaimEligibility.eligible).toBe(true);
+    expect(restored.report.codingReliabilityGate).toEqual(expect.objectContaining({
+      status: "review",
+      claimUse: "coding-reliability-needed",
+      blockers: expect.arrayContaining(["Reliability reviewer is missing."])
+    }));
+    expect(restored.report.completenessAudit.items).toContainEqual(expect.objectContaining({
+      id: "coding-reliability",
+      status: "review"
+    }));
+    expect(restored.report.pilotReadinessAudit.items).toContainEqual(expect.objectContaining({
+      id: "coding-reliability",
+      status: "review"
+    }));
+    expect(restored.report.claimReadinessGate).toEqual(expect.objectContaining({
+      status: "exploratory",
+      claimUse: "exploratory-only"
+    }));
+    expect(restored.report.modelCard.reliability.status).toBe("needs-review");
+    expect(restored.report.modelCard.sections).toContainEqual(expect.objectContaining({
+      id: "coding-reliability",
+      status: "needs-review"
+    }));
+    expect(restored.report.modelCard.renderGate).toEqual(expect.objectContaining({
+      status: "blocked",
+      missingSectionIds: expect.arrayContaining(["coding-reliability"])
+    }));
+  });
+
+  it("recomputes a current-v2 runtime bundle top-level model card from its normalized reliability gate", () => {
+    const source = readyCurrentV2RuntimeBundle();
+    expect(source.codingReliabilityGate.status).toBe("ready");
+    expect(source.modelCard.renderGate.status).toBe("ready");
+    expect(importSenaRuntimeBundle(source)).toEqual(source);
+
+    const forged = JSON.parse(JSON.stringify(source)) as typeof source;
+    forged.codingReliabilityGate.review.reviewer = "";
+    expect(forged.report.codingReliabilityGate.status).toBe("ready");
+    expect(forged.report.codingReliabilityGate.review.reviewer).toBe("Publication reliability reviewer");
+    expect(forged.modelCard.renderGate.status).toBe("ready");
+
+    const restored = importSenaRuntimeBundle(forged);
+    expect(restored.codingReliabilityGate).toEqual(expect.objectContaining({
+      status: "review",
+      claimUse: "coding-reliability-needed"
+    }));
+    expect(restored.report.codingReliabilityGate).toEqual(restored.codingReliabilityGate);
+    expect(restored.modelCard.reliability.status).toBe("needs-review");
+    expect(restored.modelCard.sections).toContainEqual(expect.objectContaining({
+      id: "coding-reliability",
+      status: "needs-review"
+    }));
+    expect(restored.modelCard.renderGate).toEqual(expect.objectContaining({
+      status: "blocked",
+      missingSectionIds: expect.arrayContaining(["coding-reliability"])
+    }));
+    expect(restored.report.modelCard.reliability.status).toBe("needs-review");
+    expect(restored.report.modelCard.sections).toContainEqual(expect.objectContaining({
+      id: "coding-reliability",
+      status: "needs-review"
+    }));
+    expect(restored.report.modelCard.renderGate).toEqual(expect.objectContaining({
+      status: "blocked",
+      missingSectionIds: expect.arrayContaining(["coding-reliability"])
+    }));
+    expect(restored.pilotReadinessAudit.status).toBe("needs-review");
+    expect(restored.claimReadinessGate.status).toBe("exploratory");
+    expect(restored.report.pilotReadinessAudit.status).toBe("needs-review");
+    expect(restored.report.claimReadinessGate.status).toBe("exploratory");
+  });
+
+  it.each(["", "Pending human review."])(
+    "blocks direct publication when a cached-ready current-v2 snapshot carries incomplete human review text %j",
+    async (interpretation) => {
+      const source = readyCurrentV2Snapshot();
+      const forged = structuredClone(source);
+      forged.report.humanReview.interpretation = interpretation;
+
+      expect(forged.report.humanReview.status).toBe("human-reviewed");
+      expect(forged.report.completenessAudit.status).toBe("complete");
+      expect(forged.report.pilotReadinessAudit.status).toBe("ready");
+      expect(forged.report.claimReadinessGate.status).toBe("ready");
+      expect(forged.report.modelCard.renderGate.status).toBe("ready");
+
+      const restored = importSenaProjectSnapshot(forged);
+      expect(restored.report.humanReview.status).toBe("draft");
+      expect(restored.report.completenessAudit.status).toBe("needs-review");
+      expect(restored.report.pilotReadinessAudit.status).toBe("needs-review");
+      expect(restored.report.pilotReadinessAudit.items).toContainEqual(expect.objectContaining({
+        id: "human-review",
+        evidence: expect.arrayContaining(["interpretation=missing"])
+      }));
+      expect(restored.report.claimReadinessGate.status).toBe("exploratory");
+      await expect(buildSenaPublicationExport(forged, "html")).rejects.toMatchObject({
+        status: 409,
+        code: "publication_export_model_card_blocked"
+      });
+    }
+  );
+
+  it("preserves and exports a semantically complete current-v2 ready snapshot", async () => {
+    const source = readyCurrentV2Snapshot();
+    expect(importSenaProjectSnapshot(source)).toEqual(source);
+    await expect(buildSenaPublicationExport(source, "html")).resolves.toEqual(expect.objectContaining({
+      contentType: "text/html; charset=utf-8"
+    }));
   });
 });

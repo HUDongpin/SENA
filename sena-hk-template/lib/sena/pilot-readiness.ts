@@ -54,15 +54,16 @@ function auditItemPassed(audit: SenaReportCompletenessAudit, id: string) {
   return audit.items.find((item) => item.id === id)?.status === "pass";
 }
 
+function humanReviewTextPresent(value: string) {
+  return Boolean(value.trim()) && value.trim() !== "Pending human review.";
+}
+
 function humanReviewComplete(humanReview: SenaReportHumanReview) {
   return humanReview.status === "human-reviewed" &&
-    Boolean(humanReview.reviewer.trim()) &&
-    Boolean(humanReview.interpretation.trim()) &&
-    Boolean(humanReview.limitations.trim()) &&
-    Boolean(humanReview.nextActions.trim()) &&
-    humanReview.interpretation !== "Pending human review." &&
-    humanReview.limitations !== "Pending human review." &&
-    humanReview.nextActions !== "Pending human review.";
+    humanReviewTextPresent(humanReview.reviewer) &&
+    humanReviewTextPresent(humanReview.interpretation) &&
+    humanReviewTextPresent(humanReview.limitations) &&
+    humanReviewTextPresent(humanReview.nextActions);
 }
 
 type ClaimGateConfig = {
@@ -383,9 +384,9 @@ export function buildSenaPilotReadinessAudit({
       humanReview.status === "human-reviewed" ? `Reviewed by ${humanReview.reviewer || "unassigned"}` : "Draft interpretation",
       [
         `reviewer=${humanReview.reviewer || "unassigned"}`,
-        `interpretation=${humanReview.interpretation.trim() ? "present" : "missing"}`,
-        `limitations=${humanReview.limitations.trim() ? "present" : "missing"}`,
-        `nextActions=${humanReview.nextActions.trim() ? "present" : "missing"}`
+        `interpretation=${humanReviewTextPresent(humanReview.interpretation) ? "present" : "missing"}`,
+        `limitations=${humanReviewTextPresent(humanReview.limitations) ? "present" : "missing"}`,
+        `nextActions=${humanReviewTextPresent(humanReview.nextActions) ? "present" : "missing"}`
       ],
       "Mark as human-reviewed only after interpretation, limitations, and next actions are filled."
     )

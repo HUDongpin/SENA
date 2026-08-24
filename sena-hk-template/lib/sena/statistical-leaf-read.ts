@@ -3,7 +3,11 @@ import {
   type SenaFusionMathAuditEvidence
 } from "./fusion-math";
 import { buildSenaClaimReadinessGate } from "./pilot-readiness";
-import { normalizeSenaCodingReliabilityGate } from "./report";
+import {
+  isSenaReportHumanReviewComplete,
+  isSenaReportHumanReviewTextPresent,
+  normalizeSenaCodingReliabilityGate
+} from "./report";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
   assertSenaReportHolderStructure,
@@ -19,6 +23,7 @@ import type {
   SenaPilotReadinessAudit,
   SenaReport,
   SenaReportCompletenessAudit,
+  SenaReportHumanReview,
   SenaRuntimeBundle
 } from "./types";
 
@@ -44,9 +49,12 @@ function parseSource(source: string | unknown) {
 function markPilotReadinessForStatisticalReview(
   value: SenaPilotReadinessAudit,
   state: SenaStatisticalLeafReadState,
-  completenessAudit?: SenaReportCompletenessAudit
+  completenessAudit?: SenaReportCompletenessAudit,
+  codingReliabilityGate?: SenaCodingReliabilityGate,
+  humanReview?: SenaReportHumanReview
 ): SenaPilotReadinessAudit {
   const audit = structuredClone(value);
+  let reconciled = false;
   const reasons = new Map<string, { reason: string; blocker: string }>();
   if (state.legacyFusionMath) {
     reasons.set("fusion-math", {
@@ -61,57 +69,103 @@ function markPilotReadinessForStatisticalReview(
     });
   }
   audit.items = audit.items.map((item) => {
-    if (item.id === "report-completeness" && completenessAudit?.status === "needs-review") {
-      return {
+    if (item.id === "report-completeness" && completenessAudit) {
+      const next = {
         ...item,
-        status: "review" as const,
+        status: completenessAudit.status === "complete" ? "ready" as const : "review" as const,
         summary: `${completenessAudit.passed} report checks passed; ${completenessAudit.reviewNeeded} need review`,
-        evidence: completenessAudit.items.flatMap((entry) => [
-          `${entry.label}: ${entry.status}`,
-          ...entry.evidence.filter((evidence) => evidence.startsWith("current-v2-"))
-        ]),
-        nextAction: "Resolve every normalized report-completeness review item before treating this restored artifact as ready."
+        evidence: completenessAudit.items.map((entry) => `${entry.label}: ${entry.status}`),
+        nextAction: "Complete every report section before sharing a pilot export."
       };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
     }
     const invalidation = reasons.get(item.id);
-    return invalidation ? {
-      ...item,
-      status: "review" as const,
-      summary: invalidation.reason,
-      evidence: [
-        "legacy-statistical-contract-normalized",
-        invalidation.blocker,
-        invalidation.reason
-      ],
-      nextAction: "Attach current v2 statistical evidence before treating this restored artifact as ready."
-    } : item;
+    if (invalidation) {
+      const next = {
+        ...item,
+        status: "review" as const,
+        summary: invalidation.reason,
+        evidence: [
+          "legacy-statistical-contract-normalized",
+          invalidation.blocker,
+          invalidation.reason
+        ],
+        nextAction: "Attach current v2 statistical evidence before treating this restored artifact as ready."
+      };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
+    }
+    if (item.id === "coding-reliability" && codingReliabilityGate) {
+      const next = {
+        ...item,
+        status: codingReliabilityGate.status === "ready" ? "ready" as const : "review" as const,
+        summary: codingReliabilityGate.status === "ready"
+          ? `Coding reliability documented by ${codingReliabilityGate.review.reviewer}`
+          : `${codingReliabilityGate.blockers.length} coding-reliability blocker${codingReliabilityGate.blockers.length === 1 ? "" : "s"}`,
+        evidence: [codingReliabilityGate.schemaVersion, ...codingReliabilityGate.evidence],
+        nextAction: "Document the coding scheme, coding unit, coder count, agreement metric/value, adjudication notes, and limitations before treating SENA patterns as research claims."
+      };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
+    }
+    if (item.id === "human-review" && humanReview) {
+      const complete = isSenaReportHumanReviewComplete(humanReview);
+      const next = {
+        ...item,
+        status: complete ? "ready" as const : "review" as const,
+        summary: humanReview.status === "human-reviewed"
+          ? `Reviewed by ${humanReview.reviewer || "unassigned"}`
+          : "Draft interpretation",
+        evidence: [
+          `reviewer=${humanReview.reviewer || "unassigned"}`,
+          `interpretation=${isSenaReportHumanReviewTextPresent(humanReview.interpretation) ? "present" : "missing"}`,
+          `limitations=${isSenaReportHumanReviewTextPresent(humanReview.limitations) ? "present" : "missing"}`,
+          `nextActions=${isSenaReportHumanReviewTextPresent(humanReview.nextActions) ? "present" : "missing"}`
+        ],
+        nextAction: "Mark as human-reviewed only after interpretation, limitations, and next actions are filled."
+      };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
+    }
+    return item;
   });
   const passed = audit.items.filter((item) => item.status === "ready").length;
+  const status = passed === audit.items.length ? "ready" as const : "needs-review" as const;
+  reconciled ||= audit.status !== status || audit.passed !== passed || audit.reviewNeeded !== audit.items.length - passed;
   return {
     ...audit,
-    status: passed === audit.items.length ? "ready" : "needs-review",
+    status,
     passed,
     reviewNeeded: audit.items.length - passed,
-    notes: Array.from(new Set([
-      ...audit.notes,
-      "Restore normalization never upgrades historical statistical evidence to current-ready status."
-    ]))
+    notes: state.needsCurrentEvidence || reconciled
+      ? Array.from(new Set([
+          ...audit.notes,
+          "Restore normalization never upgrades historical statistical evidence to current-ready status."
+        ]))
+      : audit.notes
   };
 }
 
 function invalidatedReadiness(
   pilotReadinessAudit: SenaPilotReadinessAudit,
   state: SenaStatisticalLeafReadState,
-  completenessAudit?: SenaReportCompletenessAudit
+  completenessAudit?: SenaReportCompletenessAudit,
+  codingReliabilityGate?: SenaCodingReliabilityGate,
+  humanReview?: SenaReportHumanReview
 ): { pilotReadinessAudit: SenaPilotReadinessAudit; claimReadinessGate: SenaClaimReadinessGate } {
-  const normalizedPilot = state.needsCurrentEvidence
-    ? markPilotReadinessForStatisticalReview(pilotReadinessAudit, state, completenessAudit)
+  const normalizedPilot = state.needsCurrentEvidence || completenessAudit || codingReliabilityGate || humanReview
+    ? markPilotReadinessForStatisticalReview(
+        pilotReadinessAudit,
+        state,
+        completenessAudit,
+        codingReliabilityGate,
+        humanReview
+      )
     : structuredClone(pilotReadinessAudit);
   return {
     pilotReadinessAudit: normalizedPilot,
-    claimReadinessGate: state.needsCurrentEvidence
-      ? buildSenaClaimReadinessGate(normalizedPilot)
-      : structuredClone(buildSenaClaimReadinessGate(normalizedPilot))
+    claimReadinessGate: buildSenaClaimReadinessGate(normalizedPilot)
   };
 }
 
@@ -127,12 +181,14 @@ function reconcileReportCompleteness(
   value: SenaReportCompletenessAudit,
   fusionMathAudit: SenaFusionMathAudit,
   codingReliabilityGate: SenaCodingReliabilityGate,
+  humanReview: SenaReportHumanReview,
   state: SenaStatisticalLeafReadState
 ): SenaReportCompletenessAudit {
   const audit = structuredClone(value);
+  let reconciled = false;
   audit.items = audit.items.map((item) => {
     if (item.id === "fusion-math-audit" && state.legacyFusionMath) {
-      return {
+      const next = {
         ...item,
         status: "review" as const,
         summary: `${fusionMathAudit.passed} formula checks passed; ${fusionMathAudit.reviewNeeded} need review`,
@@ -141,9 +197,11 @@ function reconcileReportCompleteness(
           ...fusionMathAudit.items.map((entry) => `${entry.label}: ${entry.status}`)
         ]
       };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
     }
     if (item.id === "coding-reliability" && state.legacyCodingReliability) {
-      return {
+      const next = {
         ...item,
         status: "review" as const,
         summary: "Current v2 coding-reliability machine evidence is required.",
@@ -153,66 +211,141 @@ function reconcileReportCompleteness(
           ...codingReliabilityGate.machineClaimEligibility.blockers
         ]
       };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
+    }
+    if (item.id === "coding-reliability") {
+      const review = codingReliabilityGate.review;
+      const present = (value: string) => Boolean(value.trim()) && value.trim() !== "Pending coding reliability documentation.";
+      const next = {
+        ...item,
+        status: codingReliabilityGate.status === "ready" ? "pass" as const : "review" as const,
+        summary: codingReliabilityGate.status === "ready"
+          ? `Coding reliability documented by ${review.reviewer}`
+          : "Coding reliability evidence is incomplete",
+        evidence: [
+          `status=${review.status}`,
+          `reviewer=${review.reviewer || "unassigned"}`,
+          `codingScheme=${present(review.codingScheme) ? "present" : "missing"}`,
+          `unitOfCoding=${present(review.unitOfCoding) ? "present" : "missing"}`,
+          `coderCount=${review.coderCount}`,
+          `agreementMetric=${present(review.agreementMetric) ? "present" : "missing"}`,
+          `agreementValue=${present(review.agreementValue) ? "present" : "missing"}`,
+          `adjudication=${present(review.adjudicationNotes) ? "present" : "missing"}`
+        ]
+      };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
+    }
+    if (item.id === "human-review") {
+      const complete = isSenaReportHumanReviewComplete(humanReview);
+      const next = {
+        ...item,
+        status: complete ? "pass" as const : "review" as const,
+        summary: complete ? `Reviewed by ${humanReview.reviewer}` : "Draft or incomplete human-review fields",
+        evidence: [
+          `status=${humanReview.status}`,
+          `reviewer=${humanReview.reviewer || "unassigned"}`,
+          `interpretation=${isSenaReportHumanReviewTextPresent(humanReview.interpretation) ? "present" : "missing"}`,
+          `limitations=${isSenaReportHumanReviewTextPresent(humanReview.limitations) ? "present" : "missing"}`,
+          `nextActions=${isSenaReportHumanReviewTextPresent(humanReview.nextActions) ? "present" : "missing"}`
+        ]
+      };
+      reconciled ||= JSON.stringify(next) !== JSON.stringify(item);
+      return next;
     }
     return item;
   });
   const passed = audit.items.filter((item) => item.status === "pass").length;
+  const status = passed === audit.items.length ? "complete" as const : "needs-review" as const;
+  reconciled ||= audit.status !== status || audit.passed !== passed || audit.reviewNeeded !== audit.items.length - passed;
   return {
     ...audit,
-    status: passed === audit.items.length ? "complete" : "needs-review",
+    status,
     passed,
     reviewNeeded: audit.items.length - passed,
-    notes: Array.from(new Set([
-      ...audit.notes,
-      "Restored completeness is reconciled from normalized statistical leaves before readiness is evaluated."
-    ]))
+    notes: state.needsCurrentEvidence || reconciled
+      ? Array.from(new Set([
+          ...audit.notes,
+          "Restored completeness is reconciled from normalized statistical leaves before readiness is evaluated."
+        ]))
+      : audit.notes
   };
+}
+
+function reconcileModelCardReliability(
+  modelCard: SenaReport["modelCard"],
+  codingReliabilityGate: SenaCodingReliabilityGate,
+  state: SenaStatisticalLeafReadState
+) {
+  const codingReliabilityReady = codingReliabilityGate.status === "ready";
+  modelCard.sections = modelCard.sections.map((section) => section.id === "coding-reliability"
+    ? {
+        ...section,
+        status: codingReliabilityReady ? "complete" as const : "needs-review" as const,
+        evidence: state.legacyCodingReliability
+          ? Array.from(new Set([
+              `status=${codingReliabilityGate.status}`,
+              ...codingReliabilityGate.evidence,
+              "current-v2-reliability-evidence-required",
+              "legacy statistical read projection cannot establish publication readiness"
+            ]))
+          : [`status=${codingReliabilityGate.status}`, ...codingReliabilityGate.evidence]
+      }
+    : section);
+  modelCard.reliability = state.legacyCodingReliability
+    ? {
+        status: "needs-review",
+        summary: "Historical v1 reliability evidence cannot establish current publication readiness.",
+        evidence: Array.from(new Set([
+          ...codingReliabilityGate.evidence,
+          "current-v2-reliability-evidence-required"
+        ]))
+      }
+    : {
+        status: codingReliabilityReady ? "complete" : "needs-review",
+        summary: codingReliabilityReady
+          ? codingReliabilityGate.guardrail
+          : "Coding reliability evidence is incomplete; keep claims exploratory.",
+        evidence: [...codingReliabilityGate.evidence]
+      };
+  const missingSectionIds = modelCard.sections
+    .filter((section) => section.status !== "complete")
+    .map((section) => section.id);
+  modelCard.renderGate = {
+    status: missingSectionIds.length === 0 ? "ready" : "blocked",
+    missingSectionIds,
+    message: missingSectionIds.length === 0
+      ? "Model card complete - rendering permitted."
+      : `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
+  };
+  return modelCard;
 }
 
 export function reconcileSenaReportStatisticalSurfaces(
   report: SenaReport,
   state: SenaStatisticalLeafReadState
 ): SenaReport {
-  if (!state.needsCurrentEvidence) return report;
+  if (report.humanReview.status === "human-reviewed" && !isSenaReportHumanReviewComplete(report.humanReview)) {
+    report.humanReview = { ...report.humanReview, status: "draft" };
+  }
   report.completenessAudit = reconcileReportCompleteness(
     report.completenessAudit,
     report.fusionMathAudit,
     report.codingReliabilityGate,
+    report.humanReview,
     state
   );
-  const readiness = invalidatedReadiness(report.pilotReadinessAudit, state, report.completenessAudit);
+  const readiness = invalidatedReadiness(
+    report.pilotReadinessAudit,
+    state,
+    report.completenessAudit,
+    report.codingReliabilityGate,
+    report.humanReview
+  );
   report.pilotReadinessAudit = readiness.pilotReadinessAudit;
   report.claimReadinessGate = readiness.claimReadinessGate;
-  if (state.legacyCodingReliability) {
-    report.modelCard.sections = report.modelCard.sections.map((section) => section.id === "coding-reliability"
-      ? {
-          ...section,
-          status: "needs-review" as const,
-          evidence: Array.from(new Set([
-            ...section.evidence,
-            "current-v2-reliability-evidence-required",
-            "legacy statistical read projection cannot establish publication readiness"
-          ]))
-        }
-      : section);
-    report.modelCard.reliability = {
-      status: "needs-review",
-      summary: "Historical v1 reliability evidence cannot establish current publication readiness.",
-      evidence: Array.from(new Set([
-        ...report.modelCard.reliability.evidence,
-        "current-v2-reliability-evidence-required"
-      ]))
-    };
-    const missingSectionIds = Array.from(new Set([
-      ...report.modelCard.renderGate.missingSectionIds,
-      "coding-reliability" as const
-    ]));
-    report.modelCard.renderGate = {
-      status: "blocked",
-      missingSectionIds,
-      message: `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
-    };
-  }
+  reconcileModelCardReliability(report.modelCard, report.codingReliabilityGate, state);
   return report;
 }
 
@@ -357,26 +490,46 @@ export function reconcileSenaRuntimeBundleStatisticalSurfaces(
   runtimeBundle: SenaRuntimeBundle,
   state: SenaStatisticalLeafReadState
 ) {
-  if (!state.needsCurrentEvidence) return runtimeBundle;
+  if (runtimeBundle.codingReliabilityGate.status !== "ready" ||
+    runtimeBundle.report.codingReliabilityGate.status !== "ready") {
+    const failClosedGate = runtimeBundle.codingReliabilityGate.status !== "ready"
+      ? runtimeBundle.codingReliabilityGate
+      : runtimeBundle.report.codingReliabilityGate;
+    runtimeBundle.codingReliabilityGate = structuredClone(failClosedGate);
+    runtimeBundle.report.codingReliabilityGate = structuredClone(failClosedGate);
+  }
   reconcileSenaReportStatisticalSurfaces(runtimeBundle.report, state);
+  const priorReadiness = JSON.stringify({
+    pilotReadinessAudit: runtimeBundle.pilotReadinessAudit,
+    claimReadinessGate: runtimeBundle.claimReadinessGate
+  });
   const readiness = invalidatedReadiness(
     runtimeBundle.pilotReadinessAudit,
     state,
-    runtimeBundle.report.completenessAudit
+    runtimeBundle.report.completenessAudit,
+    runtimeBundle.codingReliabilityGate,
+    runtimeBundle.report.humanReview
   );
   runtimeBundle.pilotReadinessAudit = readiness.pilotReadinessAudit;
   runtimeBundle.claimReadinessGate = readiness.claimReadinessGate;
+  reconcileModelCardReliability(runtimeBundle.modelCard, runtimeBundle.codingReliabilityGate, state);
   runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
   runtimeBundle.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
-  reconcileDemoWalkthrough(runtimeBundle.demoWalkthrough, runtimeBundle.pilotReadinessAudit);
-  reconcileDemoVerification(runtimeBundle.demoVerification, runtimeBundle.pilotReadinessAudit);
-  reconcileDevelopmentPlan(
-    runtimeBundle.developmentPlan,
-    runtimeBundle.pilotReadinessAudit,
-    runtimeBundle.demoWalkthrough,
-    runtimeBundle.demoVerification,
-    state
-  );
+  const readinessChanged = priorReadiness !== JSON.stringify({
+    pilotReadinessAudit: runtimeBundle.pilotReadinessAudit,
+    claimReadinessGate: runtimeBundle.claimReadinessGate
+  });
+  if (state.needsCurrentEvidence || readinessChanged) {
+    reconcileDemoWalkthrough(runtimeBundle.demoWalkthrough, runtimeBundle.pilotReadinessAudit);
+    reconcileDemoVerification(runtimeBundle.demoVerification, runtimeBundle.pilotReadinessAudit);
+    reconcileDevelopmentPlan(
+      runtimeBundle.developmentPlan,
+      runtimeBundle.pilotReadinessAudit,
+      runtimeBundle.demoWalkthrough,
+      runtimeBundle.demoVerification,
+      state
+    );
+  }
   return runtimeBundle;
 }
 
@@ -454,9 +607,8 @@ export function normalizeSenaRuntimeBundleStatisticalLeaves(
     legacyCodingReliability: bundleState.legacyCodingReliability || normalizedReport.state.legacyCodingReliability,
     needsCurrentEvidence: bundleState.needsCurrentEvidence || normalizedReport.state.needsCurrentEvidence
   };
+  reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle as SenaRuntimeBundle, state);
   if (state.needsCurrentEvidence) {
-    reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle as SenaRuntimeBundle, state);
-
     if (Array.isArray(runtimeBundle.artifactEvidence)) {
       runtimeBundle.artifactEvidence = runtimeBundle.artifactEvidence.map((entry) => {
         if (entry.filename === "sena-fusion-math-audit.json") {
