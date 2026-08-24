@@ -294,6 +294,10 @@ describe("SENA API documentation contract", () => {
       .toContain("metric_exact");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
       .toContain("dataset_version");
+    const publicationEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export");
+    expect(publicationEndpoint?.summary).toContain("Async requests fail closed");
+    expect(publicationEndpoint?.request).toContain("publication_export_async_worker_unavailable");
+    expect(publicationEndpoint?.responses).not.toContain("sena-enterprise-server-job/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-source-snapshot-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
@@ -327,9 +331,9 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("modelCard.renderGate.status");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
-      .toContain("x-sena-job-payload-sha256");
+      .not.toContain("x-sena-job-payload-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
-      .toContain("x-sena-job-queue-delivery");
+      .not.toContain("x-sena-job-queue-delivery");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
       .toContain("mark-running|mark-succeeded|mark-failed|retry|dead-letter");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
@@ -365,7 +369,7 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-data-governance-metadata/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
-      .toContain("sena-enterprise-server-job/v1");
+      .not.toContain("sena-enterprise-server-job/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-snapshot-restore")).toEqual(expect.objectContaining({
       auth: "public",
       methods: ["POST"],

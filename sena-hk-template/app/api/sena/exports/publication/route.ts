@@ -1,10 +1,6 @@
-import { NextResponse } from "next/server";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
-import {
-  getEnterpriseProjectAsync,
-  type SenaEnterpriseProject
-} from "@/lib/sena/enterprise/team-project";
+import { type SenaEnterpriseProject } from "@/lib/sena/enterprise/team-project";
 import {
   type SenaEnterpriseReliabilityRun
 } from "@/lib/sena/enterprise/reliability-runs";
@@ -15,18 +11,18 @@ import {
 import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
-import { requireEnterprisePermission } from "@/lib/sena/enterprise/access-control";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
 import {
-  assertServerJobPayloadAllowed,
-  enqueueEnterpriseServerJob,
-  serverJobHeaders,
-  serverJobQueueStatus,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
-import { buildSenaPublicationExport, type SenaPublicationEnterpriseProjectEvidence, type SenaPublicationFormat } from "@/lib/sena/publication-export";
+import {
+  assertSenaPublicationModelCardReady,
+  buildSenaPublicationExport,
+  type SenaPublicationEnterpriseProjectEvidence,
+  type SenaPublicationFormat
+} from "@/lib/sena/publication-export";
 import { buildSenaModel } from "@/lib/sena/model";
 import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
@@ -118,70 +114,25 @@ export async function POST(request: Request) {
     const format = formats.has(requestBody.format) ? requestBody.format : "html";
     const projectId = requestBody.projectId ? String(requestBody.projectId) : "";
     if (shouldQueueServerJob(request, requestBody)) {
-      const queue = serverJobQueueStatus();
-      assertServerJobPayloadAllowed({
-        projectId,
-        hasInlinePayload: Boolean(requestBody.snapshot),
-        queue
-      });
-      let teamId = String(requestBody.teamId || context.teams[0]?.id || "");
-      let projectVersion: number | undefined;
-      let source: "project" | "snapshot" = "snapshot";
       if (projectId) {
-        const project = await getEnterpriseProjectAsync(context, projectId);
-        teamId = project.teamId;
-        projectVersion = project.currentVersion;
-        source = "project";
-      } else if (!requestBody.snapshot) {
+        const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+        const queuedPublication = publicationSnapshotForProject(
+          publicationState.project,
+          publicationState.reliabilityRun,
+          publicationState.reliabilityReviewProjection
+        );
+        assertSenaPublicationModelCardReady(queuedPublication.snapshot.report);
+      } else if (requestBody.snapshot) {
+        const queuedSnapshot = importSenaProjectSnapshot(requestBody.snapshot);
+        assertSenaPublicationModelCardReady(queuedSnapshot.report);
+      } else {
         throw new SenaEnterpriseError("Provide projectId or snapshot for publication export.", 400, "publication_export_source_required");
       }
-      requireEnterprisePermission(context, teamId, "export:create");
-      const job = await enqueueEnterpriseServerJob({
-        kind: "publication-export",
-        teamId,
-        projectId: projectId || undefined,
-        actorUserId: context.user.id,
-        payload: {
-          action: "run-publication-export",
-          teamId,
-          projectId: projectId || undefined,
-          projectVersion,
-          format,
-          inlineSnapshot: queue.inlinePayloadAllowed ? requestBody.snapshot : undefined
-        },
-        payloadSummary: {
-          source,
-          projectVersion,
-          format,
-          hasInlineSnapshot: Boolean(requestBody.snapshot),
-          hasInlineDataset: false,
-          payloadValuesExcluded: true
-        },
-        queue
-      });
-      await recordEnterpriseAuditAsync({
-        event: "export.queue",
-        userId: context.user.id,
-        teamId,
-        projectId: projectId || undefined,
-        detail: {
-          serverJobId: job.id,
-          serverJobKind: job.kind,
-          queueProvider: job.provider.mode,
-          queueDelivery: job.delivery.webhookStatus,
-          queueHttpStatus: job.delivery.httpStatus ?? null,
-          queueProductionReady: job.provider.productionReady,
-          payloadSha256: job.payloadSha256,
-          source,
-          format,
-          inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
-          projectVersion: projectVersion ?? null
-        }
-      });
-      return NextResponse.json(job, {
-        status: 202,
-        headers: serverJobHeaders(job)
-      });
+      throw new SenaEnterpriseError(
+        "Queued publication export is unavailable until an evidence-bound publication worker can revalidate the complete state, reliability, adjudication, and derivation lease before producing artifacts.",
+        503,
+        "publication_export_async_worker_unavailable"
+      );
     }
     let snapshot: SenaProjectSnapshot;
     let teamId = String(requestBody.teamId || context.teams[0]?.id || "");

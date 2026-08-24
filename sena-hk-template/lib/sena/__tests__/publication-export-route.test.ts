@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +14,7 @@ import {
 
 const publicationExportRouteTestTimeoutMs = 30_000;
 
-function routeSnapshot() {
+function routeSnapshot(dataGovernanceComplete = true) {
   const imported = importSenaJsonContract(lessonStudySenaContract);
   const model = buildSenaModel(imported.dataset);
   return buildSenaProjectSnapshot(model, {
@@ -40,7 +39,7 @@ function routeSnapshot() {
       consentScope: "Synthetic route export fixture only.",
       retentionPolicy: "Delete generated route fixture state after the test run.",
       usageConstraints: ["Do not use as real participant evidence."],
-      dataSteward: "Route test"
+      dataSteward: dataGovernanceComplete ? "Route test" : ""
     }
   });
 }
@@ -220,7 +219,7 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
-  it("queues project-scoped publication exports for the configured server job queue", async () => {
+  it("blocks queued project publication before every side effect when approved current reliability evidence is missing", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-queue-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -278,165 +277,23 @@ describe("SENA publication export route", () => {
         })
       }));
 
-      expect(response.status).toBe(202);
-      const body = await response.json() as {
-        schemaVersion?: string;
-        id?: string;
-        kind?: string;
-        status?: string;
-        teamId?: string;
-        projectId?: string;
-        payloadSha256?: string;
-        payloadSummary?: {
-          source?: string;
-          projectVersion?: number;
-          format?: string;
-          payloadValuesExcluded?: boolean;
-        };
-        provider?: {
-          schemaVersion?: string;
-          mode?: string;
-          configured?: boolean;
-          productionReady?: boolean;
-          endpointHash?: string;
-          secretConfigured?: boolean;
-        };
-        worker?: {
-          expectedAction?: string;
-          payloadDelivery?: string;
-          execution?: string;
-          statusCallback?: string;
-        };
-        lifecycle?: {
-          attempts?: number;
-          maxAttempts?: number;
-          retryable?: boolean;
-        };
-        delivery?: {
-          webhookStatus?: string;
-          httpStatus?: number;
-          endpointHash?: string;
-        };
-      };
-      expect(body.schemaVersion).toBe("sena-enterprise-server-job/v1");
-      expect(body.kind).toBe("publication-export");
-      expect(body.status).toBe("queued");
-      expect(body.teamId).toBe(project.teamId);
-      expect(body.projectId).toBe(project.id);
-      expect(body.payloadSha256).toMatch(/^[a-f0-9]{64}$/);
-      expect(body.payloadSummary).toEqual(expect.objectContaining({
-        source: "project",
-        projectVersion: project.currentVersion,
-        format: "package",
-        payloadValuesExcluded: true
-      }));
-      expect(body.provider).toEqual(expect.objectContaining({
-        schemaVersion: "sena-enterprise-server-job-queue/v1",
-        mode: "managed",
-        configured: true,
-        productionReady: true,
-        secretConfigured: true,
-        endpointHash: expect.stringMatching(/^[a-f0-9]{64}$/)
-      }));
-      expect(body.worker).toEqual(expect.objectContaining({
-        expectedAction: "run-publication-export",
-        payloadDelivery: "project-pointer",
-        execution: "external-worker-required",
-        statusCallback: "/api/sena/ops/jobs"
-      }));
-      expect(body.lifecycle).toEqual(expect.objectContaining({
-        attempts: 0,
-        maxAttempts: 3,
-        retryable: false
-      }));
-      expect(body.delivery).toEqual(expect.objectContaining({
-        webhookStatus: "delivered",
-        httpStatus: 202,
-        endpointHash: body.provider?.endpointHash
-      }));
-      expect(response.headers.get("x-sena-server-job-id")).toBe(body.id);
-      expect(response.headers.get("x-sena-server-job-kind")).toBe("publication-export");
-      expect(response.headers.get("x-sena-server-job-status")).toBe("queued");
-      expect(response.headers.get("x-sena-job-queue-provider")).toBe("managed");
-      expect(response.headers.get("x-sena-job-payload-sha256")).toBe(body.payloadSha256);
-      expect(response.headers.get("x-sena-job-queue-delivery")).toBe("delivered");
-      expect(response.headers.get("x-sena-job-queue-http-status")).toBe("202");
-      expect(queueRequests).toHaveLength(1);
-      expect(queueRequests[0].url).toBe("https://jobs.example.test/sena");
-      expect(queueRequests[0].headers["x-sena-webhook-event"]).toBe("server_job.queue");
-      expect(queueRequests[0].headers["x-sena-server-job-id"]).toBe(body.id);
-      expect(queueRequests[0].headers["x-sena-server-job-kind"]).toBe("publication-export");
-      expect(queueRequests[0].headers["x-sena-job-payload-sha256"]).toBe(body.payloadSha256);
-      const queueTimestamp = queueRequests[0].headers["x-sena-webhook-timestamp"];
-      expect(queueRequests[0].headers["x-sena-webhook-signature"])
-        .toBe(`sha256=${createHmac("sha256", "sena-test-job-secret").update(`${queueTimestamp}.${queueRequests[0].body}`).digest("hex")}`);
-      const queuePayload = JSON.parse(queueRequests[0].body) as {
-        schemaVersion?: string;
-        job?: { id?: string; delivery?: unknown; payloadSha256?: string };
-        workerPayload?: {
-          action?: string;
-          projectId?: string;
-          format?: string;
-          inlineSnapshot?: unknown;
-        };
-        delivery?: { payloadSha256?: string; secretConfigured?: boolean };
-        redaction?: { responsePayloadValuesExcluded?: boolean; auditPayloadValuesExcluded?: boolean };
-      };
-      expect(queuePayload.schemaVersion).toBe("sena-enterprise-server-job-queue-webhook/v1");
-      expect(queuePayload.job).toEqual(expect.objectContaining({
-        id: body.id,
-        payloadSha256: body.payloadSha256
-      }));
-      expect(queuePayload.job?.delivery).toBeUndefined();
-      expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
-        action: "run-publication-export",
-        projectId: project.id,
-        format: "package"
-      }));
-      expect(queuePayload.workerPayload?.inlineSnapshot).toBeUndefined();
-      expect(queuePayload.delivery).toEqual(expect.objectContaining({
-        payloadSha256: body.payloadSha256,
-        secretConfigured: true
-      }));
-      expect(queuePayload.redaction).toEqual(expect.objectContaining({
-        responsePayloadValuesExcluded: true,
-        auditPayloadValuesExcluded: true
-      }));
+      expect(response.status).toBe(409);
+      const body = await response.json() as { code?: string; error?: string };
+      expect(body.code).toBe("publication_export_model_card_blocked");
+      expect(body.error).toContain("approved, current, machine-eligible reliability run");
+      expect(queueRequests).toHaveLength(0);
 
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
         event: "export.queue",
         projectId: project.id,
         limit: 5
       });
-      expect(audit.events[0]).toEqual(expect.objectContaining({
-        projectId: project.id,
-        teamId: project.teamId
-      }));
-      expect(audit.events[0].detail).toEqual(expect.objectContaining({
-        serverJobId: body.id,
-        serverJobKind: "publication-export",
-        queueProvider: "managed",
-        queueDelivery: "delivered",
-        queueHttpStatus: 202,
-        queueProductionReady: true,
-        payloadSha256: body.payloadSha256,
-        source: "project",
-        format: "package",
-        inlinePayloadAllowed: false,
-        projectVersion: project.currentVersion
-      }));
+      expect(audit.events).toHaveLength(0);
       const jobs = await enterprise.listEnterpriseServerJobs({
         projectId: project.id
       });
-      expect(jobs.summary).toEqual(expect.objectContaining({
-        total: 1,
-        queued: 1
-      }));
-      expect(jobs.jobs[0]).toEqual(expect.objectContaining({
-        id: body.id,
-        status: "queued",
-        payloadSha256: body.payloadSha256
-      }));
+      expect(jobs.summary.total).toBe(0);
+      expect(jobs.jobs).toHaveLength(0);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_JOB_QUEUE_ADAPTER;
@@ -448,12 +305,20 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
-  it("requires the async queue for publication exports when the production performance path is enabled", async () => {
+  it("fails closed without queue side effects when production requires the unavailable publication worker", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-required-queue-route-"));
     let sessionToken = "";
     vi.resetModules();
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_REQUIRE_ASYNC_HEAVY_JOBS = "1";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
+    const queueRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      queueRequests.push(String(input));
+      return new Response("", { status: 202 });
+    }));
     vi.doMock("next/headers", () => ({
       cookies: () => ({
         get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
@@ -480,6 +345,14 @@ describe("SENA publication export route", () => {
         title: "Required Queue Publication Project",
         snapshot: routeSnapshot()
       });
+      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Required queue publication reliability reviewer")
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+        status: "approved",
+        notes: "Approved machine-eligible evidence for the current project revision."
+      });
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -496,14 +369,76 @@ describe("SENA publication export route", () => {
 
       expect(response.status).toBe(503);
       const body = await response.json() as { code?: string; error?: string };
-      expect(body.code).toBe("server_job_queue_not_configured");
-      expect(body.error).toContain("server job queue is not configured");
-      const jobs = await enterprise.listEnterpriseServerJobs({ projectId: project.id });
+      expect(body.code).toBe("publication_export_async_worker_unavailable");
+      expect(body.error).toContain("evidence-bound publication worker");
+      expect(queueRequests).toHaveLength(0);
+      const inlineResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          teamId: project.teamId,
+          snapshot: routeSnapshot(),
+          format: "html",
+          queue: true
+        })
+      }));
+      expect(inlineResponse.status).toBe(503);
+      await expect(inlineResponse.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_async_worker_unavailable"
+      }));
+      expect(queueRequests).toHaveLength(0);
+      const incompleteProject = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Incomplete Queued Publication Project",
+        snapshot: routeSnapshot(false)
+      });
+      const incompleteReliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(
+          incompleteProject,
+          incompleteProject.snapshot,
+          "Incomplete queue publication reliability reviewer"
+        )
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, incompleteReliabilityRun.id, {
+        status: "approved",
+        notes: "Approved reliability cannot override an incomplete human-review model-card section."
+      });
+      const incompleteResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          projectId: incompleteProject.id,
+          format: "package",
+          queue: true
+        })
+      }));
+      expect(incompleteResponse.status).toBe(409);
+      await expect(incompleteResponse.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_model_card_blocked"
+      }));
+      expect(queueRequests).toHaveLength(0);
+      const jobs = await enterprise.listEnterpriseServerJobs({});
       expect(jobs.summary.total).toBe(0);
+      const audit = enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.queue",
+        limit: 5
+      });
+      expect(audit.events).toHaveLength(0);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_REQUIRE_ASYNC_HEAVY_JOBS;
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_URL;
+      delete process.env.SENA_JOB_QUEUE_SECRET;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.unstubAllGlobals();
       vi.resetModules();
     }
   }, publicationExportRouteTestTimeoutMs);
