@@ -5,6 +5,7 @@ import {
 } from "./inference";
 import {
   normalizeSenaReliabilityDashboard,
+  type SenaReliabilityDashboard,
   type SenaReliabilityDashboardReadModel
 } from "./reliability";
 import { senaProductionPostureFrom } from "./enterprise/auth-config";
@@ -62,7 +63,7 @@ import {
   supportedPostgresUrlEnvNamesLabel
 } from "./enterprise/postgres-url-env";
 import type { SenaEnterpriseDb } from "./enterprise/state";
-import { assertEnterpriseReliabilityRunCurrentProject } from "./enterprise/reliability-integrity";
+import { resolveEnterpriseReliabilityRunProjectScope } from "./enterprise/reliability-integrity";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
@@ -1144,6 +1145,12 @@ type SenaEnterpriseReliabilityProjectSource = {
 
 type SenaEnterpriseReliabilityReadContext = {
   project?: SenaEnterpriseReliabilityProjectSource;
+  projectRevisions?: Array<{
+    projectId: string;
+    teamId: string;
+    version: number;
+    snapshot: SenaProjectSnapshot;
+  }>;
   expectedProjectId?: string;
   expectedTeamId?: string;
   expectedTeamIds?: string[];
@@ -1195,8 +1202,26 @@ function normalizeStoredReliabilityRun(
     storedIntegrityFailure("row.status");
   }
 
-  const dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
-  const normalized: SenaEnterpriseReliabilityRun = {
+  let dashboard: SenaReliabilityDashboard;
+  if (payload.projectId) {
+    if (!context.project) {
+      storedIntegrityFailure("payload.projectBinding", "current-project-source-required");
+    }
+    try {
+      dashboard = resolveEnterpriseReliabilityRunProjectScope(
+        payload,
+        context.project,
+        context.projectRevisions ?? []
+      ).dashboard;
+    } catch {
+      storedIntegrityFailure("payload.projectBinding", "current-project-binding-mismatch");
+    }
+  } else if (context.project) {
+    storedIntegrityFailure("row.project_id");
+  } else {
+    dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
+  }
+  return {
     ...payload,
     dashboard,
     meanPairwiseKappa: dashboard.meanPairwiseKappa,
@@ -1204,19 +1229,6 @@ function normalizeStoredReliabilityRun(
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
-  if (payload.projectId) {
-    if (!context.project) {
-      storedIntegrityFailure("payload.projectBinding", "current-project-source-required");
-    }
-    try {
-      assertEnterpriseReliabilityRunCurrentProject(normalized, context.project);
-    } catch {
-      storedIntegrityFailure("payload.projectBinding", "current-project-binding-mismatch");
-    }
-  } else if (context.project) {
-    storedIntegrityFailure("row.project_id");
-  }
-  return normalized;
 }
 
 type SenaEnterpriseValidationProjectSource = {
@@ -2172,6 +2184,12 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
     teamId?: string;
     projectId?: string;
     project?: SenaEnterpriseReliabilityProjectSource;
+    projectRevisions?: Array<{
+      projectId: string;
+      teamId: string;
+      version: number;
+      snapshot: SenaProjectSnapshot;
+    }>;
     status?: SenaEnterpriseReliabilityRunStatus;
     limit?: number;
   } = {}) {
@@ -2204,6 +2222,7 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
     `, values);
     return result.rows.map((row) => normalizeStoredReliabilityRun(row, {
       project: inputFilters.project,
+      projectRevisions: inputFilters.projectRevisions,
       expectedProjectId: inputFilters.projectId,
       expectedTeamId: inputFilters.teamId,
       expectedTeamIds: inputFilters.teamIds,

@@ -37,8 +37,11 @@ import {
 } from "./reliability-runs";
 import {
   assertEnterpriseReliabilityAdjudicationRecord,
+  assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope,
   assertEnterpriseReliabilityRunCurrentProject,
-  buildEnterpriseReliabilityAdjudicationCoverage
+  buildEnterpriseReliabilityAdjudicationCoverage,
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
 import {
   parseSenaReliabilityAdjudicationDecision,
@@ -728,24 +731,42 @@ function buildEnterpriseProjectCollaborationFromDb(
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
   const adjudications = evidence.adjudications.filter((record) => record.projectId === projectId);
+  const reliabilityScopeByRunId = new Map<string, ReturnType<
+    typeof resolveEnterpriseReliabilityRunProjectScope
+  >>();
   const reliabilityRuns = evidence.reliabilityRuns
     .filter((run) => run.projectId === projectId)
-    .map((run) => ({
-      ...run,
-      adjudicationCoverage: buildEnterpriseReliabilityAdjudicationCoverage(run, project, adjudications)
-    }));
+    .map((run) => {
+      const resolved = resolveEnterpriseReliabilityRunProjectScope(
+        run,
+        project,
+        db.projectRevisions
+      );
+      reliabilityScopeByRunId.set(run.id, resolved);
+      return {
+        ...run,
+        dashboard: resolved.dashboard,
+        projectBinding: resolved.dashboard.projectBinding,
+        adjudicationCoverage: buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+          run,
+          resolved,
+          adjudications
+        )
+      };
+    });
   for (const record of adjudications) {
     const run = record.reliabilityRunId
       ? reliabilityRuns.find((candidate) => candidate.id === record.reliabilityRunId)
       : undefined;
-    if (!run) {
+    const reliabilityScope = run ? reliabilityScopeByRunId.get(run.id) : undefined;
+    if (!run || !reliabilityScope) {
       throw new SenaEnterpriseError(
         "Project adjudication is not bound to a current reliability run.",
         409,
         "reliability_adjudication_binding_invalid"
       );
     }
-    assertEnterpriseReliabilityAdjudicationRecord(run, project, record);
+    assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(reliabilityScope, record);
   }
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.projectCollaboration,
@@ -821,6 +842,9 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
         return adapter.listReliabilityRuns({
           projectId,
           project: db.projects.find((candidate) => candidate.id === projectId),
+          projectRevisions: db.projectRevisions.filter((revision) => (
+            revision.projectId === projectId
+          )),
           limit: 1000
         });
       })()

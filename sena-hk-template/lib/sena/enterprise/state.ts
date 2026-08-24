@@ -14,8 +14,9 @@ import {
 } from "../reliability";
 import { SenaEnterpriseError } from "./errors";
 import {
-  assertEnterpriseReliabilityAdjudicationRecord,
-  buildEnterpriseReliabilityAdjudicationCoverage
+  assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope,
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
 import type {
   SenaEnterpriseAnalysisRun,
@@ -345,9 +346,28 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     ...normalizedProjectSnapshotFields(revision.snapshot)
   }));
   const adjudications = db.adjudications ?? [];
-  const reliabilityProjectByRunId = new Map<string, SenaEnterpriseProject>();
+  const reliabilityScopeByRunId = new Map<string, ReturnType<
+    typeof resolveEnterpriseReliabilityRunProjectScope
+  >>();
   const reliabilityRuns = (db.reliabilityRuns ?? []).map((run) => {
-    const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+    const project = run.projectId
+      ? projects.find((candidate) => candidate.id === run.projectId)
+      : undefined;
+    if (run.projectId && !project) {
+      throw new SenaEnterpriseError(
+        "Stored project-bound reliability run has no current project.",
+        409,
+        "reliability_stored_project_missing"
+      );
+    }
+    const resolvedScope = project
+      ? resolveEnterpriseReliabilityRunProjectScope(
+        run,
+        project,
+        projectRevisions
+      )
+      : undefined;
+    const dashboard = resolvedScope?.dashboard ?? normalizeSenaReliabilityDashboard(run.dashboard);
     const normalizedRun: SenaEnterpriseReliabilityRun = {
       ...run,
       dashboard,
@@ -361,37 +381,13 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       disagreementCount: dashboard.disagreementCount,
       status: run.status ?? (dashboard.disagreementCount > 0 ? "pending-adjudication" : "pending-review")
     };
-    const project = normalizedRun.projectId
-      ? projects.find((candidate) => candidate.id === normalizedRun.projectId)
-      : undefined;
-    if (normalizedRun.projectId && !project) {
-      throw new SenaEnterpriseError(
-        "Stored project-bound reliability run has no current project.",
-        409,
-        "reliability_stored_project_missing"
-      );
-    }
-    const bindingVersion = normalizedRun.projectBinding?.projectVersion;
-    const historicalRevision = project && bindingVersion !== project.currentVersion
-      ? projectRevisions.find((revision) => (
-        revision.projectId === project.id && revision.version === bindingVersion
-      ))
-      : undefined;
-    const coverageProject = project && bindingVersion === project.currentVersion
-      ? project
-      : project && historicalRevision
-        ? { ...project, currentVersion: historicalRevision.version, snapshot: historicalRevision.snapshot }
-        : undefined;
-    if (project && !coverageProject) {
-      throw new SenaEnterpriseError(
-        "Stored reliability run cannot be bound to a current or retained project revision.",
-        409,
-        "reliability_stored_project_binding_invalid"
-      );
-    }
-    if (coverageProject) reliabilityProjectByRunId.set(normalizedRun.id, coverageProject);
-    const adjudicationCoverage = coverageProject
-      ? buildEnterpriseReliabilityAdjudicationCoverage(normalizedRun, coverageProject, adjudications)
+    if (resolvedScope) reliabilityScopeByRunId.set(normalizedRun.id, resolvedScope);
+    const adjudicationCoverage = resolvedScope
+      ? buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+        normalizedRun,
+        resolvedScope,
+        adjudications
+      )
       : {
         schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
         queuedDisagreements: dashboard.adjudicationQueue.length,
@@ -407,15 +403,15 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     const run = record.reliabilityRunId
       ? reliabilityRuns.find((candidate) => candidate.id === record.reliabilityRunId)
       : undefined;
-    const project = run ? reliabilityProjectByRunId.get(run.id) : undefined;
-    if (!run || !project) {
+    const resolvedScope = run ? reliabilityScopeByRunId.get(run.id) : undefined;
+    if (!run || !resolvedScope) {
       throw new SenaEnterpriseError(
         "Stored adjudication is not bound to a current project reliability run.",
         409,
         "reliability_adjudication_binding_invalid"
       );
     }
-    assertEnterpriseReliabilityAdjudicationRecord(run, project, record);
+    assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(resolvedScope, record);
   }
   return {
     ...db,

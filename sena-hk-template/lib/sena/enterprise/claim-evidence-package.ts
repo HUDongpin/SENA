@@ -33,7 +33,10 @@ import type {
   SenaEnterpriseReliabilityRunStatus
 } from "./reliability-runs";
 import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
-import { buildEnterpriseReliabilityAdjudicationCoverage } from "./reliability-integrity";
+import {
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  resolveEnterpriseReliabilityRunProjectScope
+} from "./reliability-integrity";
 import type {
   SenaEnterpriseValidationParityEvidence,
   SenaEnterpriseValidationPreregistrationPlan,
@@ -297,10 +300,24 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
   ));
   const projectReliabilityRuns = db.reliabilityRuns
     .filter((run) => run.projectId === project.id)
-    .map((run) => ({
-      ...run,
-      adjudicationCoverage: buildEnterpriseReliabilityAdjudicationCoverage(run, project, db.adjudications)
-    }));
+    .flatMap((run) => {
+      const resolved = resolveEnterpriseReliabilityRunProjectScope(
+        run,
+        project,
+        db.projectRevisions
+      );
+      const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+        run,
+        resolved,
+        db.adjudications
+      );
+      return resolved.scope === "current" ? [{
+        ...run,
+        dashboard: resolved.dashboard,
+        projectBinding: resolved.dashboard.projectBinding,
+        adjudicationCoverage
+      }] : [];
+    });
   const projectValidationRuns = db.validationRuns.filter((run) => run.projectId === project.id);
   const projectExpertReviews = db.expertReviews.filter((review) => review.projectId === project.id);
   const approvedReliabilityRuns = projectReliabilityRuns.filter((run) => run.status === "approved");
@@ -509,6 +526,9 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
       reliabilityRuns = await adapter.listReliabilityRuns({
         projectId: input.projectId,
         project: db.projects.find((candidate) => candidate.id === input.projectId),
+        projectRevisions: db.projectRevisions.filter((revision) => (
+          revision.projectId === input.projectId
+        )),
         limit: 1000
       });
     }

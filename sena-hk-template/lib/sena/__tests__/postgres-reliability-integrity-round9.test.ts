@@ -185,6 +185,33 @@ describe("Postgres reliability and adjudication row integrity", () => {
     } as never), "payload.projectBinding", project.id);
   });
 
+  it("revalidates a retained historical reliability row against its exact project revision", async () => {
+    const { project, run, row } = reliabilityFixture();
+    const adapter = createEnterprisePostgresReliabilityRunAdapter({ query: adapterQuery(row) });
+    const currentProject = {
+      ...project,
+      currentVersion: 2,
+      snapshot: snapshot(true)
+    };
+
+    const historicalRuns = await adapter.listReliabilityRuns({
+      projectId: project.id,
+      project: currentProject,
+      projectRevisions: [{
+        projectId: project.id,
+        teamId: project.teamId,
+        version: 1,
+        snapshot: project.snapshot
+      }]
+    });
+
+    expect(historicalRuns).toHaveLength(1);
+    expect(historicalRuns[0]).toEqual(expect.objectContaining({
+      id: run.id,
+      projectBinding: expect.objectContaining({ projectVersion: 1 })
+    }));
+  });
+
   it.each([
     ["id", "id", "row.id"],
     ["team", "team_id", "row.team_id"],

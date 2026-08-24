@@ -3,9 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  buildEnterpriseClaimEvidencePackageFromDb,
+  type SenaEnterpriseClaimEvidencePackage
+} from "../enterprise/claim-evidence-package";
+import {
   createEnterpriseAdjudicationRecord,
   createEnterpriseProject,
   createEnterpriseReliabilityRun,
+  listEnterpriseProjectCollaboration,
   registerEnterpriseUser,
   reviewEnterpriseReliabilityRun,
   updateEnterpriseProject
@@ -15,6 +20,7 @@ import { buildSenaModel } from "../model";
 import {
   bindSenaReliabilityAnnotationsToProject,
   buildSenaReliabilityDashboard,
+  normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
   type SenaCoderAnnotation
 } from "../reliability";
@@ -187,6 +193,87 @@ describe("enterprise reliability adjudication canonical binding", () => {
       decision: "include",
       coderValues: disagreement.values
     })).toThrow(/revision|stale|snapshot|binding/i);
+  });
+
+  it("rejects a historical run whose retained revision belongs to another team", () => {
+    const { registered, project } = setupProjectRun();
+    updateEnterpriseProject(registered.context, project.id, {
+      expectedVersion: project.currentVersion,
+      snapshot: snapshot()
+    });
+    const db = readEnterpriseDb();
+    const retainedRevision = db.projectRevisions.find((revision) => (
+      revision.projectId === project.id && revision.version === project.currentVersion
+    ));
+    if (!retainedRevision) throw new Error("retained project revision fixture missing");
+    retainedRevision.teamId = "team-forged-retained-revision";
+    writeEnterpriseDb(db);
+
+    expect(() => readEnterpriseDb()).toThrow(/current or retained project revision|binding/i);
+  });
+
+  it("lists a retained historical run in project collaboration after the project advances", () => {
+    const { registered, project, run } = setupProjectRun();
+    const updatedProject = updateEnterpriseProject(registered.context, project.id, {
+      expectedVersion: project.currentVersion,
+      snapshot: snapshot()
+    });
+
+    const collaboration = listEnterpriseProjectCollaboration(registered.context, project.id);
+
+    expect(updatedProject.currentVersion).toBe(project.currentVersion + 1);
+    expect(collaboration.reliabilityRuns).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: run.id,
+        projectBinding: expect.objectContaining({ projectVersion: project.currentVersion })
+      })
+    ]));
+  });
+
+  it("rebuilds each reliability dashboard only once during current claim aggregation", () => {
+    const { registered, project, run } = setupProjectRun();
+    const db = readEnterpriseDb();
+    const storedRun = db.reliabilityRuns.find((candidate) => candidate.id === run.id);
+    if (!storedRun?.dashboard.derivationEvidence) {
+      throw new Error("current reliability derivation fixture missing");
+    }
+    const instrumentDashboard = () => {
+      const dashboard = structuredClone(storedRun.dashboard);
+      const derivationEvidence = dashboard.derivationEvidence;
+      if (!derivationEvidence) throw new Error("instrumented derivation fixture missing");
+      const annotations = derivationEvidence.annotations;
+      let reads = 0;
+      Object.defineProperty(derivationEvidence, "annotations", {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          reads += 1;
+          return annotations;
+        }
+      });
+      return { dashboard, reads: () => reads };
+    };
+    const baseline = instrumentDashboard();
+    normalizeSenaReliabilityDashboard(baseline.dashboard);
+    const aggregation = instrumentDashboard();
+    storedRun.dashboard = aggregation.dashboard;
+    const evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"] = {
+      reliabilityRuns: "file-json",
+      validationRuns: "file-json",
+      expertReviews: "file-json",
+      adjudications: "file-json",
+      evidence: []
+    };
+
+    buildEnterpriseClaimEvidencePackageFromDb(
+      db,
+      registered.context,
+      { projectId: project.id },
+      evidenceSource
+    );
+
+    expect(baseline.reads()).toBeGreaterThan(0);
+    expect(aggregation.reads()).toBe(baseline.reads());
   });
 
   it("revalidates persisted adjudication truth before approval instead of trusting cached coverage", () => {

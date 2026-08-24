@@ -5,7 +5,8 @@ import {
   isValidSenaReliabilityProjectBinding,
   normalizeSenaReliabilityDashboard,
   reliabilityDashboardToReview,
-  type SenaReliabilityDashboard
+  type SenaReliabilityDashboard,
+  type SenaReliabilityDashboardReadModel
 } from "../reliability";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SenaEnterpriseError } from "./errors";
@@ -14,8 +15,35 @@ import type {
   SenaEnterpriseReliabilityRun
 } from "./reliability-runs";
 import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
-import type { SenaEnterpriseProject } from "./team-project";
-import type { SenaCodingReliabilityReview } from "../types";
+import type { SenaEnterpriseProject, SenaEnterpriseProjectRevision } from "./team-project";
+import type {
+  SenaCodingReliabilityReview,
+  SenaReliabilityProjectBinding
+} from "../types";
+
+type SenaEnterpriseReliabilityRunScopeSource = Pick<
+  SenaEnterpriseReliabilityRun,
+  "id" | "teamId" | "projectId" | "projectBinding"
+> & {
+  dashboard: SenaReliabilityDashboardReadModel;
+};
+
+type SenaEnterpriseReliabilityProjectScope = Pick<
+  SenaEnterpriseProject,
+  "id" | "teamId" | "currentVersion" | "snapshot"
+>;
+
+export type SenaEnterpriseResolvedReliabilityRunProjectScope = {
+  scope: "current" | "retained-history";
+  project: SenaEnterpriseReliabilityProjectScope;
+  dashboard: SenaReliabilityDashboard;
+  runIdentity: {
+    id: string;
+    teamId: string;
+    projectId?: string;
+    projectBinding?: SenaReliabilityProjectBinding;
+  };
+};
 
 function exactStringArray(left: unknown, right: string[]) {
   return Array.isArray(left) && left.length === right.length &&
@@ -47,11 +75,12 @@ function adjudicationBindingError() {
   );
 }
 
-export function assertEnterpriseReliabilityRunCurrentProject(
-  run: SenaEnterpriseReliabilityRun,
-  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">
-): SenaReliabilityDashboard {
-  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+function resolvedReliabilityRunProjectScope(
+  run: SenaEnterpriseReliabilityRunScopeSource,
+  dashboard: SenaReliabilityDashboard,
+  project: SenaEnterpriseReliabilityProjectScope,
+  scope: SenaEnterpriseResolvedReliabilityRunProjectScope["scope"]
+): SenaEnterpriseResolvedReliabilityRunProjectScope {
   const binding = run.projectBinding;
   if (!run.projectId || run.projectId !== project.id || run.teamId !== project.teamId ||
     !isValidSenaReliabilityProjectBinding(binding) ||
@@ -67,21 +96,81 @@ export function assertEnterpriseReliabilityRunCurrentProject(
   } catch {
     throw adjudicationBindingError();
   }
-  return dashboard;
+  return {
+    scope,
+    project,
+    dashboard,
+    runIdentity: {
+      id: run.id,
+      teamId: run.teamId,
+      projectId: run.projectId,
+      projectBinding: structuredClone(binding)
+    }
+  };
 }
 
-export function assertEnterpriseReliabilityAdjudicationRecord(
-  run: SenaEnterpriseReliabilityRun,
-  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+export function assertEnterpriseReliabilityRunCurrentProject(
+  run: SenaEnterpriseReliabilityRunScopeSource,
+  project: SenaEnterpriseReliabilityProjectScope
+): SenaReliabilityDashboard {
+  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+  return resolvedReliabilityRunProjectScope(run, dashboard, project, "current").dashboard;
+}
+
+export function resolveEnterpriseReliabilityRunProjectScope(
+  run: SenaEnterpriseReliabilityRunScopeSource,
+  currentProject: SenaEnterpriseReliabilityProjectScope,
+  projectRevisions: Array<Pick<SenaEnterpriseProjectRevision, "projectId" | "teamId" | "version" | "snapshot">>
+): SenaEnterpriseResolvedReliabilityRunProjectScope {
+  const bindingVersion = run.projectBinding?.projectVersion;
+  if (bindingVersion === currentProject.currentVersion) {
+    const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+    return resolvedReliabilityRunProjectScope(run, dashboard, currentProject, "current");
+  }
+  const retainedRevision = projectRevisions.find((revision) => (
+    revision.projectId === currentProject.id &&
+    revision.teamId === currentProject.teamId &&
+    revision.version === bindingVersion
+  ));
+  if (!retainedRevision) {
+    throw new SenaEnterpriseError(
+      "Stored reliability run cannot be bound to a current or retained project revision.",
+      409,
+      "reliability_stored_project_binding_invalid"
+    );
+  }
+  const retainedProject = {
+    id: currentProject.id,
+    teamId: currentProject.teamId,
+    currentVersion: retainedRevision.version,
+    snapshot: retainedRevision.snapshot
+  };
+  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+  return resolvedReliabilityRunProjectScope(run, dashboard, retainedProject, "retained-history");
+}
+
+function assertResolvedReliabilityRunIdentity(
+  run: Pick<SenaEnterpriseReliabilityRun, "id" | "teamId" | "projectId" | "projectBinding">,
+  resolved: SenaEnterpriseResolvedReliabilityRunProjectScope
+) {
+  if (run.id !== resolved.runIdentity.id || run.teamId !== resolved.runIdentity.teamId ||
+    run.projectId !== resolved.runIdentity.projectId ||
+    JSON.stringify(run.projectBinding) !== JSON.stringify(resolved.runIdentity.projectBinding)) {
+    throw adjudicationBindingError();
+  }
+}
+
+export function assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(
+  resolved: SenaEnterpriseResolvedReliabilityRunProjectScope,
   record: SenaEnterpriseAdjudicationRecord
 ) {
-  const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
+  const { dashboard, project, runIdentity } = resolved;
   const disagreement = dashboard.adjudicationQueue.find((candidate) => (
     candidate.itemId === record.itemId && candidate.codeId === record.codeId
   ));
   if (!disagreement || record.projectId !== project.id || record.teamId !== project.teamId ||
-    record.reliabilityRunId !== run.id || record.projectVersion !== project.currentVersion ||
-    record.snapshotFingerprint !== run.projectBinding?.snapshotFingerprint ||
+    record.reliabilityRunId !== runIdentity.id || record.projectVersion !== project.currentVersion ||
+    record.snapshotFingerprint !== runIdentity.projectBinding?.snapshotFingerprint ||
     !exactStringArray(record.coderIds, dashboard.coderIds) ||
     !exactCoderValues(record.coderValues, disagreement.values, dashboard.coderIds) ||
     !["include", "exclude", "revise"].includes(record.decision) ||
@@ -89,6 +178,16 @@ export function assertEnterpriseReliabilityAdjudicationRecord(
     typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt))) {
     throw adjudicationBindingError();
   }
+}
+
+export function assertEnterpriseReliabilityAdjudicationRecord(
+  run: SenaEnterpriseReliabilityRun,
+  project: SenaEnterpriseReliabilityProjectScope,
+  record: SenaEnterpriseAdjudicationRecord
+) {
+  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+  const resolved = resolvedReliabilityRunProjectScope(run, dashboard, project, "current");
+  assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(resolved, record);
 }
 
 function roundedCoverageRate(resolved: number, queued: number) {
@@ -102,11 +201,25 @@ function canonicalDisagreementKey(itemId: string, codeId: string) {
 
 export function buildEnterpriseReliabilityAdjudicationCoverage(
   run: SenaEnterpriseReliabilityRun,
-  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  project: SenaEnterpriseReliabilityProjectScope,
   adjudications: SenaEnterpriseAdjudicationRecord[]
 ): SenaEnterpriseReliabilityAdjudicationCoverage {
-  const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
-  const queueKeys = new Set(dashboard.adjudicationQueue.map((entry) => (
+  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+  const resolved = resolvedReliabilityRunProjectScope(run, dashboard, project, "current");
+  return buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+    run,
+    resolved,
+    adjudications
+  );
+}
+
+export function buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+  run: SenaEnterpriseReliabilityRun,
+  resolved: SenaEnterpriseResolvedReliabilityRunProjectScope,
+  adjudications: SenaEnterpriseAdjudicationRecord[]
+): SenaEnterpriseReliabilityAdjudicationCoverage {
+  assertResolvedReliabilityRunIdentity(run, resolved);
+  const queueKeys = new Set(resolved.dashboard.adjudicationQueue.map((entry) => (
     canonicalDisagreementKey(entry.itemId, entry.codeId)
   )));
   const latestByDisagreement = new Map<string, SenaEnterpriseAdjudicationRecord>();
@@ -114,7 +227,7 @@ export function buildEnterpriseReliabilityAdjudicationCoverage(
     .filter((record) => record.reliabilityRunId === run.id)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .forEach((record) => {
-      assertEnterpriseReliabilityAdjudicationRecord(run, project, record);
+      assertEnterpriseReliabilityAdjudicationRecordFromResolvedScope(resolved, record);
       const key = canonicalDisagreementKey(record.itemId, record.codeId);
       if (!queueKeys.has(key)) throw adjudicationBindingError();
       latestByDisagreement.set(key, record);
@@ -140,17 +253,18 @@ export function buildEnterpriseReliabilityAdjudicationCoverage(
 
 export function buildEnterpriseReliabilityPublicationReviewProjection(
   run: SenaEnterpriseReliabilityRun,
-  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  project: SenaEnterpriseReliabilityProjectScope,
   adjudications: SenaEnterpriseAdjudicationRecord[]
 ): {
   dashboard: SenaReliabilityDashboard;
   adjudicationCoverage: SenaEnterpriseReliabilityAdjudicationCoverage;
   review: Partial<SenaCodingReliabilityReview>;
 } {
-  const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
-  const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
+  const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+  const resolved = resolvedReliabilityRunProjectScope(run, dashboard, project, "current");
+  const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
     run,
-    project,
+    resolved,
     adjudications
   );
   const canonicalReview = reliabilityDashboardToReview(dashboard, run.reviewer);
