@@ -153,7 +153,7 @@ export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
 });
 
 export type SenaReliabilityUniverseLimitIssue = {
-  path: "annotations" | "files" | "uploadIds";
+  path: "annotations" | "skippedCells" | "files" | "uploadIds";
   rule: string;
   actual: number | "safe-integer-overflow";
   maximum: number;
@@ -657,6 +657,7 @@ function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
 }
 
 function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
+  assertSenaReliabilitySkippedCellsWithinLimits(skippedCells);
   const byCoder = new Map<string, Map<string, Set<string>>>();
   for (const cell of skippedCells) {
     let byItem = byCoder.get(cell.coderId);
@@ -720,6 +721,7 @@ export function bindSenaReliabilityAnnotationsToProject(
     skippedCells?: SenaSkippedCoderCell[];
   }
 ): { annotations: SenaCoderAnnotation[]; binding: SenaReliabilityProjectBinding } {
+  assertSenaReliabilitySkippedCellsWithinLimits(project.skippedCells ?? []);
   const issues: SenaReliabilityProjectBindingIssue[] = [];
   if (!project.projectId.trim() || !Number.isInteger(project.projectVersion) || project.projectVersion < 1) {
     issues.push({ path: "project", code: "invalid-project-context" });
@@ -819,6 +821,14 @@ export function bindSenaReliabilityAnnotationsToProject(
 export function isValidSenaReliabilityProjectBinding(value: unknown): value is SenaReliabilityProjectBinding {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const binding = value as Partial<SenaReliabilityProjectBinding>;
+  if (!Array.isArray(binding.annotationCoverage) ||
+    binding.annotationCoverage.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    !Array.isArray(binding.skippedCellCoverage)) return false;
+  try {
+    assertSenaReliabilitySkippedCellsWithinLimits(binding.skippedCellCoverage);
+  } catch {
+    return false;
+  }
   if (binding.status !== "bound-current-project" || binding.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
     typeof binding.projectId !== "string" || binding.projectId.length === 0 ||
     !Number.isInteger(binding.projectVersion) || Number(binding.projectVersion) < 1 ||
@@ -828,11 +838,11 @@ export function isValidSenaReliabilityProjectBinding(value: unknown): value is S
     !Array.isArray(binding.itemUniverse) || !binding.itemUniverse.every((entry) => (
       entry && typeof entry.id === "string" && (entry.kind === "utterance" || entry.kind === "coded-segment")
     )) ||
-    !Array.isArray(binding.annotationCoverage) || !binding.annotationCoverage.every((entry) => (
+    !binding.annotationCoverage.every((entry) => (
       entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
       typeof entry.codeId === "string" && typeof entry.value === "boolean"
     )) ||
-    !Array.isArray(binding.skippedCellCoverage) || !binding.skippedCellCoverage.every((entry) => (
+    !binding.skippedCellCoverage.every((entry) => (
       entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
       Array.isArray(entry.codeIds) && entry.codeIds.every((codeId) => typeof codeId === "string")
     )) ||
@@ -956,6 +966,43 @@ export type SenaSkippedCoderCell = {
   itemId: string;
   codeIds: string[];
 };
+
+/**
+ * Bounds direct-call and persisted skipped-cell evidence before any code-id
+ * mapping, canonical Set construction, hashing, or missing-cell indexing.
+ * Parser-originated skipped cells already share the same 200,000 emitted-cell
+ * ceiling; this closes the equivalent library/read-model boundary.
+ */
+export function assertSenaReliabilitySkippedCellsWithinLimits(
+  skippedCells: readonly unknown[]
+) {
+  const maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows;
+  if (skippedCells.length > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "skippedCells",
+      rule: `skipped-cell-row-count-at-most-${maximum}`,
+      actual: skippedCells.length,
+      maximum
+    }]);
+  }
+  let codeIdCount = 0;
+  for (const cell of skippedCells) {
+    if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
+    const codeIds = (cell as { codeIds?: unknown }).codeIds;
+    if (!Array.isArray(codeIds)) continue;
+    const next = codeIdCount + codeIds.length;
+    if (next > maximum) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: "skippedCells",
+        rule: `skipped-cell-code-id-count-at-most-${maximum}`,
+        actual: next,
+        maximum
+      }]);
+    }
+    codeIdCount = next;
+  }
+  return { skippedCellRows: skippedCells.length, skippedCellCodeIds: codeIdCount };
+}
 
 export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
   annotations: SenaCoderAnnotation[];
@@ -1955,16 +2002,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isValidSenaReliabilityDerivationEvidence(value: unknown): value is SenaReliabilityDerivationEvidence {
-  if (!isRecord(value) || value.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
+  if (!isRecord(value) || !Array.isArray(value.annotations) ||
+    value.annotations.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    !Array.isArray(value.skippedCells)) return false;
+  try {
+    assertSenaReliabilitySkippedCellsWithinLimits(value.skippedCells);
+  } catch {
+    return false;
+  }
+  if (value.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
     typeof value.annotationCoverageHash !== "string" || !/^0x[a-f0-9]{8}$/.test(value.annotationCoverageHash) ||
     typeof value.skippedCellCoverageHash !== "string" || !/^0x[a-f0-9]{8}$/.test(value.skippedCellCoverageHash) ||
-    !Array.isArray(value.annotations) || !value.annotations.every((entry) => (
+    !value.annotations.every((entry) => (
       isRecord(entry) && typeof entry.coderId === "string" && entry.coderId.length > 0 &&
       typeof entry.itemId === "string" && entry.itemId.length > 0 &&
       typeof entry.codeId === "string" && entry.codeId.length > 0 &&
       typeof entry.value === "boolean"
     )) ||
-    !Array.isArray(value.skippedCells) || !value.skippedCells.every((entry) => (
+    !value.skippedCells.every((entry) => (
       isRecord(entry) && typeof entry.coderId === "string" && entry.coderId.length > 0 &&
       typeof entry.itemId === "string" && entry.itemId.length > 0 &&
       Array.isArray(entry.codeIds) && entry.codeIds.length > 0 &&

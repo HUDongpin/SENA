@@ -242,7 +242,7 @@ describe("enterprise auth security state serialization", () => {
 });
 
 describe("enterprise file-state crash lock recovery", () => {
-  it("reclaims the real lock left after its owning process is killed", async () => {
+  it("fails closed on the real lock left after its owning process is killed", async () => {
     const dbDir = tempDir("sena-killed-file-lock-");
     const coordinationDir = tempDir("sena-killed-file-lock-coordination-");
     const readyPath = path.join(coordinationDir, "lock-held");
@@ -250,9 +250,9 @@ describe("enterprise file-state crash lock recovery", () => {
     const state = await import("../enterprise/state");
     const store = state.createFileEnterpriseStateStore({
       dbDir,
-      lockTimeoutMs: 500,
+      lockTimeoutMs: 100,
       lockPollMs: 5,
-      lockStaleMs: 10,
+      lockStaleMs: 0,
       createEmptyDb: state.emptyEnterpriseDb
     });
     store.read();
@@ -276,29 +276,31 @@ describe("enterprise file-state crash lock recovery", () => {
       await closed;
       await new Promise((resolve) => setTimeout(resolve, 20));
 
-      expect(() => store.mutateAtomically((db) => db.users.length)).not.toThrow();
-      expect(existsSync(store.paths.lockPath)).toBe(false);
+      const orphanedLock = readFileSync(store.paths.lockPath, "utf8");
+      expect(() => store.mutateAtomically((db) => db.users.length)).toThrow(/Timed out/);
+      expect(readFileSync(store.paths.lockPath, "utf8")).toBe(orphanedLock);
     } finally {
       if (holder.exitCode === null && holder.signalCode === null) holder.kill("SIGKILL");
     }
   }, 20_000);
 
-  it("reclaims a stale lock owned by a dead process before the lock timeout", async () => {
+  it("does not unlink a stale lock owned by a dead process", async () => {
     const dbDir = tempDir("sena-dead-file-lock-");
     vi.resetModules();
     const state = await import("../enterprise/state");
     const store = state.createFileEnterpriseStateStore({
       dbDir,
-      lockTimeoutMs: 250,
+      lockTimeoutMs: 50,
       lockPollMs: 10,
-      lockStaleMs: 10,
+      lockStaleMs: 0,
       createEmptyDb: state.emptyEnterpriseDb
     } as never);
     store.read();
     writeFileSync(store.paths.lockPath, `99999999:${Date.now() - 10_000}:dead-owner`);
 
-    expect(() => store.mutateAtomically((db) => db.users.length)).not.toThrow();
-    expect(existsSync(store.paths.lockPath)).toBe(false);
+    const orphanedLock = readFileSync(store.paths.lockPath, "utf8");
+    expect(() => store.mutateAtomically((db) => db.users.length)).toThrow(/Timed out/);
+    expect(readFileSync(store.paths.lockPath, "utf8")).toBe(orphanedLock);
   });
 
   it("does not reclaim an old lock while its owning process is alive", async () => {

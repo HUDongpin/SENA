@@ -839,6 +839,10 @@ export type SenaFileEnterpriseStateStoreOptions = {
   fileName?: string;
   lockTimeoutMs?: number;
   lockPollMs?: number;
+  /**
+   * @deprecated Retained for caller compatibility but never authorizes
+   * automatic stale-lock deletion. File-state locking now fails closed.
+   */
   lockStaleMs?: number;
   createEmptyDb: () => SenaEnterpriseDb;
   validateDb?: (db: SenaEnterpriseDbReadModel) => void;
@@ -851,52 +855,11 @@ function sleepSync(ms: number) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function fileLockOwnerAlive(pid: number) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    const code = typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code?: unknown }).code)
-      : "";
-    // EPERM still proves that a process owns this pid; only ESRCH is a
-    // positive dead-owner signal.
-    return code !== "ESRCH";
-  }
-}
-
-function reclaimStaleFileStateLock(lockPath: string, staleMs: number) {
-  try {
-    const observed = readFileSync(lockPath, "utf8");
-    const match = /^(\d+):(\d+):/.exec(observed);
-    const ownerPid = match ? Number(match[1]) : undefined;
-    const acquiredAt = match ? Number(match[2]) : undefined;
-    const statAge = Math.max(0, Date.now() - statSync(lockPath).mtimeMs);
-    const declaredAge = Number.isSafeInteger(acquiredAt) && acquiredAt! >= 0
-      ? Math.max(0, Date.now() - acquiredAt!)
-      : statAge;
-    if (Math.max(statAge, declaredAge) < staleMs) return false;
-    if (ownerPid !== undefined && fileLockOwnerAlive(ownerPid)) return false;
-    // Re-read the owner token immediately before unlinking. A prior owner may
-    // have released the path and a new writer acquired it during inspection.
-    if (readFileSync(lockPath, "utf8") !== observed) return false;
-    unlinkSync(lockPath);
-    return true;
-  } catch (error) {
-    const code = typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code?: unknown }).code)
-      : "";
-    return code === "ENOENT";
-  }
-}
-
 function acquireFileStateLock(input: {
   dbDir: string;
   lockPath: string;
   timeoutMs: number;
   pollMs: number;
-  staleMs: number;
   lockTimeoutError?: () => Error;
 }) {
   if (!existsSync(input.dbDir)) mkdirSync(input.dbDir, { recursive: true });
@@ -909,7 +872,11 @@ function acquireFileStateLock(input: {
     } catch (error) {
       const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
       if (code !== "EEXIST") throw error;
-      if (reclaimStaleFileStateLock(input.lockPath, input.staleMs)) continue;
+      // Never unlink a lock based on an observed owner token. A second process
+      // can replace the path between token verification and unlink (ABA),
+      // causing the new active lock to be deleted and admitting two writers.
+      // File-backed research-pilot state therefore fails closed; an operator
+      // must verify ownership before explicitly recovering an orphaned lock.
       if (Date.now() - startedAt >= input.timeoutMs) {
         throw input.lockTimeoutError?.() ?? new Error("Timed out waiting for SENA enterprise database write lock.");
       }
@@ -1019,10 +986,11 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
   const lockPath = `${dbPath}.lock`;
   const timeoutMs = options.lockTimeoutMs ?? 5000;
   const pollMs = options.lockPollMs ?? 25;
-  const staleMs = options.lockStaleMs ?? Math.max(1000, timeoutMs);
+  const deprecatedStaleMs = options.lockStaleMs;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 ||
     !Number.isSafeInteger(pollMs) || pollMs <= 0 ||
-    !Number.isSafeInteger(staleMs) || staleMs < 0) {
+    (deprecatedStaleMs !== undefined &&
+      (!Number.isSafeInteger(deprecatedStaleMs) || deprecatedStaleMs < 0))) {
     throw new Error("Enterprise file-state lock timing options must be safe non-negative integers.");
   }
   const normalizeDb = (db: SenaEnterpriseDbReadModel) => normalizeEnterpriseDb(
@@ -1088,7 +1056,6 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       lockPath,
       timeoutMs,
       pollMs,
-      staleMs,
       lockTimeoutError: options.lockTimeoutError
     });
   };
@@ -1267,7 +1234,6 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
           lockPath,
           timeoutMs: Math.min(250, timeoutMs),
           pollMs,
-          staleMs,
           lockTimeoutError: options.lockTimeoutError
         });
         return { lockProbe: "pass", lockTimeoutMs: timeoutMs };

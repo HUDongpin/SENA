@@ -384,6 +384,10 @@ Expected current baseline after the research pilot package work:
 - Browser smoke downloads and schema-checks the main declared research artifacts, including runtime bundle artifact evidence coverage for jENA/jSNA, matrix-fingerprint handoff coverage, pilot asset integrity, standalone metric-provenance artifact, standalone coding-reliability gate, data-contract audit, temporal runtime trace, evidence ledger, walkthrough, verification, compatibility audit, production page contract, development plan, pilot-readiness audit, review packet with archived method protocol, visual grammar, and fusion math audit records, report JSON/Markdown with coding-reliability gate, jENA manifest, standalone jENA report, jSNA manifest, SNA report, and G report
 - `/workspace/sena` is statically generated
 
+## File-state lock recovery
+
+The local file-state lock never auto-deletes a lock that merely appears stale: it fails closed on timeout to avoid deleting a replacement writer's lock. After a hard process exit, an operator must first verify that no process owns the exact lock before explicitly recovering it; multi-process deployments should use the managed Postgres state path.
+
 ## Runtime Provenance
 
 SENA uses local JavaScript analysis packages:
