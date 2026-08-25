@@ -347,17 +347,28 @@ function validCurrentFusionAuditItems(items: SenaFusionMathAuditItem[], fingerpr
   const codeCount = concept.rowLabels.length;
   const fusionSize = peopleCount + codeCount;
   const pairCount = pairs.columnLabels.length;
+  const exactEmptyFusion = peopleCount === 0 && codeCount === 0 && fusionSize === 0;
   const dimensions = byId.get("labels-and-dimensions");
   const finite = byId.get("finite-values");
   const nonnegative = byId.get("nonnegative-values");
   const gCoverage = byId.get("g-pair-coverage");
   if (!dimensions || !finite || !nonnegative || !gCoverage) return false;
+  const expectedDimensionsDetail = [
+    "S labels match B rows: true",
+    "W labels match B columns: true",
+    "B_PC labels match B: true",
+    "B_CP labels match W x S: true",
+    "Fusion labels match [people, codes]: true",
+    ...(exactEmptyFusion
+      ? ["Empty 0x0 fusion universe cannot verify labels and dimensions."]
+      : [])
+  ];
   if (
-    dimensions.status !== "pass" ||
+    dimensions.status !== (exactEmptyFusion ? "review" : "pass") ||
     dimensions.expected !== `${peopleCount} S labels + ${codeCount} W labels => ${fusionSize}x${fusionSize} A_fusion` ||
     dimensions.actual !== `${fusionSize} fusion labels; ${fusionSize}x${fusionSize}` ||
     dimensions.maxDelta !== undefined || dimensions.tolerance !== undefined ||
-    dimensions.detail.length !== 5 || dimensions.detail.some((entry) => !entry.endsWith(": true"))
+    !sameStrings(dimensions.detail, expectedDimensionsDetail)
   ) return false;
 
   const weightMatch = /^alpha=(.+), beta=(.+), gamma=(.+)$/.exec(finite.actual);
@@ -586,6 +597,7 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
   const expectedLabels = [...model.matrices.S.labels, ...model.matrices.W.labels];
   const codePairCount = (codeCount * Math.max(0, codeCount - 1)) / 2;
   const fusionSize = peopleCount + codeCount;
+  const exactEmptyFusion = peopleCount === 0 && codeCount === 0 && fusionSize === 0;
 
   const matrixShapesPass = exactMatrixShape(model.matrices.S.raw, peopleCount, peopleCount) &&
     exactMatrixShape(model.matrices.S.normalized, peopleCount, peopleCount) &&
@@ -600,7 +612,7 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
     exactMatrixShape(model.matrices.G.raw, peopleCount, codePairCount) &&
     exactMatrixShape(model.matrices.G.normalized, peopleCount, codePairCount) &&
     exactMatrixShape(fusion, fusionSize, fusionSize);
-  const dimensionsPass = sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
+  const labelsAndShapesPass = sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
     sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels) &&
     sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) &&
     sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels) &&
@@ -608,6 +620,11 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
     sameStrings(model.matrices.S.labels, model.matrices.B_CP.columnLabels) &&
     sameStrings(expectedLabels, model.matrices.fusion.labels) &&
     matrixShapesPass;
+  const dimensionsPass = !exactEmptyFusion && labelsAndShapesPass;
+  // Finite/nonnegative checks are vacuously valid for the one exact 0x0
+  // analytical universe, while labels-and-dimensions remains fail-closed.
+  // Other malformed label/shape states still fail every dependent domain check.
+  const scalarMatrixDomainPass = exactEmptyFusion || dimensionsPass;
 
   const auditedMatrices = [
     ["S.raw", model.matrices.S.raw],
@@ -624,9 +641,9 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
     ["G.normalized", model.matrices.G.normalized],
     ["A_fusion.values", fusion]
   ] as const;
-  const allFinite = dimensionsPass && auditedMatrices.every(([, values]) => finiteMatrix(values)) &&
+  const allFinite = scalarMatrixDomainPass && auditedMatrices.every(([, values]) => finiteMatrix(values)) &&
     [options.alpha, options.beta, options.gamma].every(Number.isFinite);
-  const allNonnegative = dimensionsPass && auditedMatrices.every(([, values]) => nonnegativeMatrix(values)) &&
+  const allNonnegative = scalarMatrixDomainPass && auditedMatrices.every(([, values]) => nonnegativeMatrix(values)) &&
     [options.alpha, options.beta, options.gamma].every((value) => Number.isFinite(value) && value >= 0);
 
   const socialDelta = maxDeltaForBlock({
@@ -690,7 +707,10 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
         `W labels match B columns: ${sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels)}`,
         `B_PC labels match B: ${sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) && sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels)}`,
         `B_CP labels match W x S: ${sameStrings(model.matrices.W.labels, model.matrices.B_CP.rowLabels) && sameStrings(model.matrices.S.labels, model.matrices.B_CP.columnLabels)}`,
-        `Fusion labels match [people, codes]: ${sameStrings(expectedLabels, model.matrices.fusion.labels)}`
+        `Fusion labels match [people, codes]: ${sameStrings(expectedLabels, model.matrices.fusion.labels)}`,
+        ...(exactEmptyFusion
+          ? ["Empty 0x0 fusion universe cannot verify labels and dimensions."]
+          : [])
       ]
     ),
     item(

@@ -307,6 +307,99 @@ function normalizeReleaseVerificationEvidence(
   };
 }
 
+type SenaEnterpriseIdentityEvidenceHolders = Pick<
+  SenaEnterpriseDb,
+  | "sessions"
+  | "uploads"
+  | "collaborationEvents"
+  | "releaseGateReviews"
+  | "notifications"
+  | "emailDeliveries"
+  | "auditLog"
+>;
+
+/**
+ * Project only the legacy defaults consumed by authentication identity and
+ * operations evidence. Each affected row is copied shallowly so adding these
+ * defaults does not mutate the persisted row. Untouched nested evidence stays
+ * by reference and is not changed here. Project and revision snapshots are
+ * deliberately outside this helper and remain raw by reference.
+ */
+function projectEnterpriseIdentityEvidenceHolders(
+  db: SenaEnterpriseDbReadModel
+): SenaEnterpriseIdentityEvidenceHolders {
+  return {
+    sessions: (db.sessions ?? []).map(projectPersistedEnterpriseSession),
+    collaborationEvents: (db.collaborationEvents ?? []).map((event) => ({
+      ...event,
+      detail: event.detail ?? {},
+      delivery: {
+        ...(event.delivery ?? {}),
+        provider: event.delivery?.provider ?? "webhook",
+        status: event.delivery?.status ?? "pending",
+        endpointHash: event.delivery?.endpointHash ?? collaborationPubSubEndpointHash() ?? "",
+        queuedAt: event.delivery?.queuedAt ?? event.createdAt,
+        attempts: event.delivery?.attempts ?? 0,
+        maxAttempts: event.delivery?.maxAttempts ?? collaborationPubSubMaxAttempts()
+      }
+    })),
+    releaseGateReviews: (db.releaseGateReviews ?? []).map((review) => ({
+      ...review,
+      verificationEvidence: normalizeReleaseVerificationEvidence(
+        review.verificationEvidence,
+        review.verificationCommand,
+        review.updatedAt ?? review.createdAt,
+        `Legacy release gate ${review.releaseVersion} was recorded before verification evidence capture.`
+      )
+    })),
+    notifications: (db.notifications ?? []).map((notification) => ({
+      ...notification,
+      detail: notification.detail ?? {},
+      ...(notification.webhookDelivery
+        ? {
+            webhookDelivery: {
+              ...notification.webhookDelivery,
+              attempts: notification.webhookDelivery.attempts ?? 0,
+              maxAttempts: notification.webhookDelivery.maxAttempts ?? notificationWebhookMaxAttempts()
+            }
+          }
+        : {})
+    })),
+    emailDeliveries: (db.emailDeliveries ?? []).map((delivery) => ({
+      ...delivery,
+      attempts: delivery.attempts ?? 0,
+      maxAttempts: delivery.maxAttempts ?? emailWebhookMaxAttempts()
+    })),
+    auditLog: (db.auditLog ?? []).map((entry) => ({
+      ...entry,
+      detail: entry.detail ?? {},
+      ...(entry.webhookDelivery
+        ? {
+            webhookDelivery: {
+              ...entry.webhookDelivery,
+              attempts: entry.webhookDelivery.attempts ?? 0,
+              maxAttempts: entry.webhookDelivery.maxAttempts ?? auditWebhookMaxAttempts()
+            }
+          }
+        : {})
+    })),
+    uploads: (db.uploads ?? []).map((upload) => ({
+      ...upload,
+      scanStatus: upload.scanStatus ?? "passed",
+      scanEngine: upload.scanEngine ?? defaultUploadScanEngine,
+      scanFindings: upload.scanFindings ?? [],
+      ...(upload.objectStorageCustody
+        ? {
+            objectStorageCustody: {
+              ...upload.objectStorageCustody,
+              status: upload.objectStorageCustody.status ?? "pending"
+            }
+          }
+        : {})
+    }))
+  };
+}
+
 function authLockoutWindowMs() {
   return authLockoutWindowMinutes * 60 * 1000;
 }
@@ -421,26 +514,15 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
       );
     }
   }
+  const identityEvidenceHolders = projectEnterpriseIdentityEvidenceHolders(db);
   return {
     ...db,
-    sessions: (db.sessions ?? []).map(projectPersistedEnterpriseSession),
+    sessions: identityEvidenceHolders.sessions,
     projectRevisions,
     projectComments: db.projectComments ?? [],
     projectPresence: db.projectPresence ?? [],
     adjudications,
-    collaborationEvents: (db.collaborationEvents ?? []).map((event) => ({
-      ...event,
-      detail: event.detail ?? {},
-      delivery: {
-        ...(event.delivery ?? {}),
-        provider: event.delivery?.provider ?? "webhook",
-        status: event.delivery?.status ?? "pending",
-        endpointHash: event.delivery?.endpointHash ?? collaborationPubSubEndpointHash() ?? "",
-        queuedAt: event.delivery?.queuedAt ?? event.createdAt,
-        attempts: event.delivery?.attempts ?? 0,
-        maxAttempts: event.delivery?.maxAttempts ?? collaborationPubSubMaxAttempts()
-      }
-    })),
+    collaborationEvents: identityEvidenceHolders.collaborationEvents,
     ssoStates: db.ssoStates ?? [],
     authLockouts: db.authLockouts ?? [],
     apiRateLimits: db.apiRateLimits ?? [],
@@ -449,50 +531,13 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     mfaChallenges: db.mfaChallenges ?? [],
     passwordResetRequests: db.passwordResetRequests ?? [],
     platformDecisionAcceptances: db.platformDecisionAcceptances ?? [],
-    releaseGateReviews: (db.releaseGateReviews ?? []).map((review) => ({
-      ...review,
-      verificationEvidence: normalizeReleaseVerificationEvidence(
-        review.verificationEvidence,
-        review.verificationCommand,
-        review.updatedAt ?? review.createdAt,
-        `Legacy release gate ${review.releaseVersion} was recorded before verification evidence capture.`
-      )
-    })),
+    releaseGateReviews: identityEvidenceHolders.releaseGateReviews,
     postCutoverObservations: db.postCutoverObservations ?? [],
     goLiveAttestations: db.goLiveAttestations ?? [],
-    notifications: (db.notifications ?? []).map((notification) => ({
-      ...notification,
-      detail: notification.detail ?? {},
-      webhookDelivery: notification.webhookDelivery ? {
-        ...notification.webhookDelivery,
-        attempts: notification.webhookDelivery.attempts ?? 0,
-        maxAttempts: notification.webhookDelivery.maxAttempts ?? notificationWebhookMaxAttempts()
-      } : undefined
-    })),
-    emailDeliveries: (db.emailDeliveries ?? []).map((delivery) => ({
-      ...delivery,
-      attempts: delivery.attempts ?? 0,
-      maxAttempts: delivery.maxAttempts ?? emailWebhookMaxAttempts()
-    })),
-    auditLog: (db.auditLog ?? []).map((entry) => ({
-      ...entry,
-      detail: entry.detail ?? {},
-      webhookDelivery: entry.webhookDelivery ? {
-        ...entry.webhookDelivery,
-        attempts: entry.webhookDelivery.attempts ?? 0,
-        maxAttempts: entry.webhookDelivery.maxAttempts ?? auditWebhookMaxAttempts()
-      } : undefined
-    })),
-    uploads: (db.uploads ?? []).map((upload) => ({
-      ...upload,
-      scanStatus: upload.scanStatus ?? "passed",
-      scanEngine: upload.scanEngine ?? defaultUploadScanEngine,
-      scanFindings: upload.scanFindings ?? [],
-      objectStorageCustody: upload.objectStorageCustody ? {
-        ...upload.objectStorageCustody,
-        status: upload.objectStorageCustody.status ?? "pending"
-      } : undefined
-    })),
+    notifications: identityEvidenceHolders.notifications,
+    emailDeliveries: identityEvidenceHolders.emailDeliveries,
+    auditLog: identityEvidenceHolders.auditLog,
+    uploads: identityEvidenceHolders.uploads,
     importRuns: (db.importRuns ?? []).map((run) => ({
       ...run,
       cleaningManifest: run.cleaningManifest
@@ -1529,7 +1574,7 @@ export async function readEnterpriseIdentityEvidenceState(): Promise<{
       projected[key] = defaultValue;
     }
   }
-  projected.sessions = (persistedDb.sessions ?? []).map(projectPersistedEnterpriseSession);
+  Object.assign(projected, projectEnterpriseIdentityEvidenceHolders(persistedDb));
   return {
     db: projected as unknown as SenaEnterpriseDb,
     snapshotSource: runtime.activePrimary === "postgres"

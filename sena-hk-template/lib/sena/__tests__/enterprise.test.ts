@@ -97,7 +97,14 @@ function requireCompletedLogin<T extends { mfaRequired?: true } | { context: unk
   return result as Extract<T, { context: unknown }>;
 }
 
-function sampleSnapshot() {
+const sampleSnapshotCache = new Map<string, ReturnType<typeof buildSenaProjectSnapshot>>();
+let sampleSnapshotBuildCount = 0;
+
+function sampleSnapshot(title = "Enterprise Test Snapshot") {
+  const cached = sampleSnapshotCache.get(title);
+  // Callers mutate snapshot carriers in several lifecycle scenarios, so the
+  // canonical fixture cache is never exposed by reference.
+  if (cached) return structuredClone(cached);
   const imported = importSenaJsonContract(lessonStudySenaContract);
   const model = buildSenaModel(imported.dataset);
   const reliability = buildSenaReliabilityDashboard([
@@ -106,8 +113,8 @@ function sampleSnapshot() {
     { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
     { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
   ]);
-  return buildSenaProjectSnapshot(model, {
-    title: "Enterprise Test Snapshot",
+  const snapshot = buildSenaProjectSnapshot(model, {
+    title,
     generatedAt: "2026-06-11T00:00:00.000Z",
     sourceDataset: imported.dataset,
     humanReview: {
@@ -126,6 +133,9 @@ function sampleSnapshot() {
       dataSteward: "Enterprise test"
     }
   });
+  sampleSnapshotCache.set(title, snapshot);
+  sampleSnapshotBuildCount += 1;
+  return structuredClone(snapshot);
 }
 
 describe("SENA enterprise runtime", () => {
@@ -1167,6 +1177,20 @@ describe("SENA enterprise runtime", () => {
     delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
     const enterprise = await import("../enterprise");
     const scim = await import("../scim");
+    // Resolve one current state image per compound assertion. Do not cache the
+    // result across mutations: these helpers only prevent nested convenience
+    // APIs from rereading and reprojecting the same persisted snapshots.
+    const readCurrentGovernanceStatus = () => {
+      const db = enterprise.readEnterpriseDb();
+      const opsStatus = enterprise.getEnterpriseOpsStatus({ db });
+      return enterprise.getEnterpriseGovernanceStatus({ db, opsStatus });
+    };
+    const readCurrentOrganizationDeploymentPackage = () => {
+      const db = enterprise.readEnterpriseDb();
+      const opsStatus = enterprise.getEnterpriseOpsStatus({ db });
+      const governance = enterprise.getEnterpriseGovernanceStatus({ db, opsStatus });
+      return enterprise.getEnterpriseOrganizationDeploymentPackage({ db, opsStatus, governance });
+    };
 
     const registered = enterprise.registerEnterpriseUser({
       name: "Dr Enterprise",
@@ -1358,7 +1382,7 @@ describe("SENA enterprise runtime", () => {
     expect(scimGroupsList.totalResults).toBe(3);
     expect(scimGroupsList.Resources.find((resource) => resource.displayName === "SCIM Cohort")?.members)
       .toEqual(expect.arrayContaining([expect.objectContaining({ type: "pi", active: true })]));
-    const scimGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const scimGovernance = readCurrentGovernanceStatus();
     const provisioningEvidence = scimGovernance.checks.find((check: { id: string }) => check.id === "organization-provisioning")?.evidence ?? [];
     expect(provisioningEvidence).toContain("scimApi=/api/sena/scim/v2");
     expect(provisioningEvidence).toContain("scimSchemas=User|Group|EnterpriseUser|SENAUser|SENAGroup");
@@ -1530,7 +1554,7 @@ describe("SENA enterprise runtime", () => {
       email: "lockout-reviewer@example.edu",
       password: "sena-secure-123"
     })).toThrow(/too many failed/i);
-    const authGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const authGovernance = readCurrentGovernanceStatus();
     expect(authGovernance.auth.loginLockout.maxFailures).toBe(3);
     expect(authGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("loginLockout=maxFailures:3/windowMinutes:15/lockoutMinutes:15");
@@ -1559,7 +1583,7 @@ describe("SENA enterprise runtime", () => {
     expect(sessionRevocation.revokedSessionIds).toContain(secondSessionLogin.context.session.id);
     expect(sessionRevocation.currentSessionRevoked).toBe(false);
     expect(sessionRevocation.remainingSessions.some((session: { id: string }) => session.id === secondSessionLogin.context.session.id)).toBe(false);
-    const sessionGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const sessionGovernance = readCurrentGovernanceStatus();
     expect(sessionGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("sessionLifecycleApi=/api/auth/sessions");
     expect(sessionGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
@@ -1614,7 +1638,7 @@ describe("SENA enterprise runtime", () => {
       limit: 2,
       windowSeconds: 60
     })).toThrow(/too many requests/i);
-    const rateLimitGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const rateLimitGovernance = readCurrentGovernanceStatus();
     expect(rateLimitGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("rateLimitEvents=1");
     // Registration and password-reset now also take a per-subject bucket (A2), and
@@ -1717,7 +1741,7 @@ describe("SENA enterprise runtime", () => {
     expect(passwordResetAudit.events).toHaveLength(1);
     expect(passwordResetAudit.events[0].detail.emailHash).toHaveLength(64);
     expect("resetToken" in passwordResetAudit.events[0].detail).toBe(false);
-    const passwordResetGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const passwordResetGovernance = readCurrentGovernanceStatus();
     expect(passwordResetGovernance.auth.passwordReset.delivery).toBe("local-token");
     expect(passwordResetGovernance.auth.passwordPolicy).toEqual(expect.objectContaining({
       schemaVersion: "sena-enterprise-password-policy/v1",
@@ -1783,7 +1807,7 @@ describe("SENA enterprise runtime", () => {
     });
     expect(mfaAudit.events.length).toBeGreaterThanOrEqual(3);
     expect(mfaAudit.events.every((event: { detail: Record<string, unknown> }) => !("secret" in event.detail))).toBe(true);
-    const mfaGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const mfaGovernance = readCurrentGovernanceStatus();
     expect(mfaGovernance.auth.mfa.enabledUsers).toBe(1);
     expect(mfaGovernance.checks.find((check: { id: string }) => check.id === "auth-session")?.evidence)
       .toContain("mfa=totp/enabledUsers:1/challengeMinutes:5/setupMinutes:10");
@@ -1828,7 +1852,7 @@ describe("SENA enterprise runtime", () => {
       email: "reviewer@example.edu",
       password: "sena-secure-123"
     }));
-    const teamLifecycleGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const teamLifecycleGovernance = readCurrentGovernanceStatus();
     expect(teamLifecycleGovernance.checks.map((check: { id: string }) => check.id)).toContain("team-lifecycle-governance");
 
     const oidcKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -1865,7 +1889,7 @@ describe("SENA enterprise runtime", () => {
     expect(idTokenValidationCheck?.status).toBe("pass");
     expect(idTokenValidationCheck?.evidence).toContain("issuerHash=d2cee98e88da343aa5279aa57a95d380bad428c50dbbeb1e730f5839b0d46672");
     expect(idTokenValidationCheck?.evidence).toContain("jwksHash=1b108c6f1e42634632d9887e25b44525badafc3ea915c9bab01b439ab8f3a2c0");
-    const ssoPreflightGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const ssoPreflightGovernance = readCurrentGovernanceStatus();
     const ssoGovernanceEvidence = ssoPreflightGovernance.checks.find((check: { id: string }) => check.id === "oauth-oidc-sso")?.evidence ?? [];
     expect(ssoGovernanceEvidence).toContain("preflightApi=/api/auth/sso?status=1&preflight=1");
     expect(ssoGovernanceEvidence).toContain("preflightSchema=sena-enterprise-sso-preflight/v1");
@@ -2240,7 +2264,7 @@ describe("SENA enterprise runtime", () => {
     expect(pubSubPayloads.every((payload) => payload.event.projectId === project.id)).toBe(true);
     expect(pubSubPayloads.every((payload) => payload.delivery.endpointHash.length === 64)).toBe(true);
     expect(pubSubPayloads.every((payload) => payload.delivery.maxAttempts === 2)).toBe(true);
-    const governance = enterprise.getEnterpriseGovernanceStatus();
+    const governance = readCurrentGovernanceStatus();
     expect(governance.schemaVersion).toBe("sena-enterprise-governance/v1");
     expect(governance.checks.map((check: { id: string }) => check.id)).toContain("collaboration-governance");
     expect(governance.checks.map((check: { id: string }) => check.id)).toContain("notification-delivery");
@@ -2313,10 +2337,8 @@ describe("SENA enterprise runtime", () => {
     expect(securityPosture.controls.find((control: { id: string }) => control.id === "security-response-headers")?.source).toBe("governance");
     expect(securityPosture.controls.find((control: { id: string }) => control.id === "ops-bearer-token")?.source).toBe("readiness");
     expect(securityPosture.runbook.api).toBe("/api/sena/governance/security");
-    const concurrentBaseSnapshot = sampleSnapshot();
-    concurrentBaseSnapshot.title = "Concurrent Base Snapshot";
-    const concurrentNextSnapshot = sampleSnapshot();
-    concurrentNextSnapshot.title = "Concurrent Next Snapshot";
+    const concurrentBaseSnapshot = sampleSnapshot("Concurrent Base Snapshot");
+    const concurrentNextSnapshot = sampleSnapshot("Concurrent Next Snapshot");
     const concurrentProject = enterprise.createEnterpriseProject(registered.context, {
       teamId: registered.context.teams[0].id,
       title: "Concurrent Save Project",
@@ -2360,6 +2382,16 @@ describe("SENA enterprise runtime", () => {
     expect(projectCreateAudit.schemaVersion).toBe("sena-enterprise-audit-log/v1");
     expect(projectCreateAudit.events.some((event: { projectId?: string }) => event.projectId === project.id)).toBe(true);
     expect(projectCreateAudit.pagination.limit).toBe(5);
+    const concurrentProjectDeletion = enterprise.deleteEnterpriseProject(
+      registered.context,
+      concurrentProject.id
+    );
+    expect(concurrentProjectDeletion).toMatchObject({
+      schemaVersion: "sena-project-delete/v1",
+      projectId: concurrentProject.id,
+      projectVersion: 3,
+      deleted: true
+    });
     const auditIntegrity = enterprise.verifyEnterpriseAuditIntegrity(registered.context, {
       teamId: registered.context.teams[0].id
     });
@@ -2556,7 +2588,7 @@ describe("SENA enterprise runtime", () => {
       limit: 5
     });
     expect(restoreAudit.events).toHaveLength(1);
-    const backupGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const backupGovernance = readCurrentGovernanceStatus();
     expect(backupGovernance.checks.map((check: { id: string }) => check.id)).toContain("backup-restore-rehearsal");
     expect(backupGovernance.checks.find((check: { id: string }) => check.id === "backup-restore-rehearsal")?.evidence)
       .toContain("restoreEvents=1");
@@ -2604,7 +2636,7 @@ describe("SENA enterprise runtime", () => {
     expect(opsMetrics).toContain('queue="emailPendingWebhook"');
     expect(opsMetrics).toContain('queue="collaborationPubSubPending"');
     expect(opsMetrics).toContain('queue="auditPendingWebhook"');
-    const opsGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const opsGovernance = readCurrentGovernanceStatus();
     expect(opsGovernance.checks.find((check: { id: string }) => check.id === "deployment-monitoring")?.evidence)
       .toContain("statusApi=/api/sena/ops/status");
     expect(opsGovernance.checks.find((check: { id: string }) => check.id === "deployment-monitoring")?.evidence)
@@ -3375,7 +3407,7 @@ describe("SENA enterprise runtime", () => {
         acceptedBridge: true
       })
     ]);
-    const acceptedOrganizationDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage() as typeof organizationDeployment & {
+    const acceptedOrganizationDeployment = readCurrentOrganizationDeploymentPackage() as typeof organizationDeployment & {
       summary: typeof organizationDeployment.summary & { acceptedPlatformDecisions: number };
       platformDecisionRegister: typeof platformDecisionRegister;
     };
@@ -3404,7 +3436,7 @@ describe("SENA enterprise runtime", () => {
       ])
     }));
     process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED = "1";
-    const envApprovedOnlyDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment & {
+    const envApprovedOnlyDeployment = readCurrentOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment & {
       saasOperationsReadiness: NonNullable<typeof deploymentSaasOperations.saasOperationsReadiness>;
     };
     expect(envApprovedOnlyDeployment.saasOperationsReadiness.schemaVersion).toBe("sena-enterprise-saas-operations-readiness/v1");
@@ -3458,7 +3490,7 @@ describe("SENA enterprise runtime", () => {
         })
       })
     ]);
-    const releaseGateGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const releaseGateGovernance = readCurrentGovernanceStatus();
     expect(releaseGateGovernance.counts.releaseGateReviews).toBe(1);
     expect(releaseGateGovernance.checks.find((check: { id: string }) => check.id === "release-gate-review")?.evidence)
       .toContain("releaseGateReviews=1");
@@ -3466,7 +3498,7 @@ describe("SENA enterprise runtime", () => {
       .toContain("verificationEvidence=sena-enterprise-release-verification-evidence/v1");
     expect(releaseGateGovernance.checks.find((check: { id: string }) => check.id === "release-gate-review")?.evidence)
       .toContain("latestVerificationStatus=passed");
-    const releaseGateDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment & {
+    const releaseGateDeployment = readCurrentOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment & {
       releaseGate: {
         schemaVersion: "sena-enterprise-release-gate-reviews/v1";
         summary: { total: number; latestStatus?: string };
@@ -3541,7 +3573,7 @@ describe("SENA enterprise runtime", () => {
     expect(auditSiemAcceptance.acceptedBridge).toBe(true);
     expect(backupAcceptance.decisionId).toBe("native-managed-backup-storage");
     expect(backupAcceptance.acceptedBridge).toBe(true);
-    const acceptedGovernanceAdaptersDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment;
+    const acceptedGovernanceAdaptersDeployment = readCurrentOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment;
     expect(acceptedGovernanceAdaptersDeployment.platformDecisionRegister?.summary.acceptedBridge).toBe(3);
     expect(acceptedGovernanceAdaptersDeployment.nativeAdapterCertification.summary.acceptedBridge).toBe(3);
     expect(acceptedGovernanceAdaptersDeployment.nativeAdapterCertification.adapters.find((adapter) => adapter.id === "institution-audit-siem-adapter")).toEqual(expect.objectContaining({
@@ -3620,46 +3652,9 @@ describe("SENA enterprise runtime", () => {
     expect(alertPayload.alerts.ownership.owner).toBe("SENA platform rotation");
     expect(alertPayload.delivery.endpointHash).toHaveLength(64);
     expect(alertPayload.delivery.secretConfigured).toBe(true);
-    const alertGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const alertGovernance = readCurrentGovernanceStatus();
     expect(alertGovernance.checks.find((check: { id: string }) => check.id === "deployment-monitoring")?.evidence)
       .toContain("alertDeliverEvents=1");
-
-    const analysisRun = buildSenaAnalysisRun({
-      snapshot: project.snapshot,
-      title: "Server-side SENA Analysis",
-      includeRuntimeBundle: true
-    });
-    expect(analysisRun.schemaVersion).toBe("sena-analysis-run/v1");
-    expect(analysisRun.summary.people).toBeGreaterThan(0);
-    expect(analysisRun.report.schemaVersion).toBe("sena-report/v1");
-    expect(analysisRun.projectSnapshot.schemaVersion).toBe("sena-project-snapshot/v1");
-    expect(analysisRun.runtimeBundle?.schemaVersion).toBe("sena-runtime-bundle/v1");
-    const analyzedProject = enterprise.createEnterpriseProject(registered.context, {
-      teamId: registered.context.teams[0].id,
-      title: analysisRun.summary.title,
-      snapshot: analysisRun.projectSnapshot
-    });
-    expect(analyzedProject.claimUse).toBe(analysisRun.summary.claimUse);
-    const enterpriseAnalysisRun = enterprise.createEnterpriseAnalysisRun(registered.context, {
-      teamId: registered.context.teams[0].id,
-      projectId: project.id,
-      persistedProjectId: analyzedProject.id,
-      run: analysisRun
-    });
-    expect(enterpriseAnalysisRun.sourceKind).toBe("snapshot");
-    expect(enterpriseAnalysisRun.includeRuntimeBundle).toBe(true);
-    expect(enterpriseAnalysisRun.artifactFingerprints.reportSha256).toHaveLength(64);
-    expect(enterpriseAnalysisRun.artifactFingerprints.projectSnapshotSha256).toHaveLength(64);
-    expect(enterpriseAnalysisRun.artifactFingerprints.runtimeBundleSha256).toHaveLength(64);
-    expect(enterprise.listEnterpriseAnalysisRuns(registered.context, { projectId: project.id })[0].id).toBe(enterpriseAnalysisRun.id);
-    expect(enterprise.listEnterpriseTeamState(registered.context).analysisRuns.map((run: { id: string }) => run.id)).toContain(enterpriseAnalysisRun.id);
-    const analysisGovernance = enterprise.getEnterpriseGovernanceStatus();
-    expect(analysisGovernance.counts.analysisRuns).toBe(1);
-    expect(analysisGovernance.checks.map((check: { id: string }) => check.id)).toContain("analysis-run-history");
-    expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
-      .toContain("schema=sena-analysis-run/v1");
-    expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
-      .toContain("historyApi=GET:/api/sena/analyze");
 
     const workbookBuffer = await buildXlsxWorkbookBuffer([
       {
@@ -3840,7 +3835,7 @@ describe("SENA enterprise runtime", () => {
         bytes: Buffer.from("MZblocked", "utf8")
       }]
     })).toThrow(/not allowed|executable/i);
-    const uploadGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const uploadGovernance = readCurrentGovernanceStatus();
     expect(uploadGovernance.checks.map((check: { id: string }) => check.id)).toContain("upload-registry");
     expect(uploadGovernance.checks.map((check: { id: string }) => check.id)).toContain("upload-security-scan");
     expect(uploadGovernance.checks.map((check: { id: string }) => check.id)).toContain("upload-storage-integrity");
@@ -3869,7 +3864,7 @@ describe("SENA enterprise runtime", () => {
     expect(enterprise.listEnterpriseImportRuns(registered.context, registered.context.teams[0].id)[0].cleaningManifest?.schemaVersion)
       .toBe("sena-import-cleaning-manifest/v1");
     expect(enterprise.listEnterpriseTeamState(registered.context).importRuns.map((run: { id: string }) => run.id)).toContain(importRun.id);
-    const importGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const importGovernance = readCurrentGovernanceStatus();
     expect(importGovernance.counts.importRuns).toBe(1);
     expect(importGovernance.checks.map((check: { id: string }) => check.id)).toContain("import-run-history");
     expect(importGovernance.checks.find((check: { id: string }) => check.id === "import-run-history")?.evidence)
@@ -3907,6 +3902,16 @@ describe("SENA enterprise runtime", () => {
     const importProjectTeamState = enterprise.listEnterpriseTeamState(registered.context);
     expect(importProjectTeamState.importRuns.map((run: { id: string }) => run.id)).toContain(importRun.id);
     expect(importProjectTeamState.analysisRuns.map((run: { id: string }) => run.id)).toContain(importedAnalysisRun.id);
+    const importedProjectDeletion = enterprise.deleteEnterpriseProject(
+      registered.context,
+      importedProject.id
+    );
+    expect(importedProjectDeletion).toMatchObject({
+      schemaVersion: "sena-project-delete/v1",
+      projectId: importedProject.id,
+      projectVersion: 1,
+      deleted: true
+    });
 
     const parsedReliability = parseCoderAnnotationsFromRows([
       { coder_id: "c1", item_id: "u1", code_id: "Evidence", value: "1" },
@@ -3995,7 +4000,7 @@ describe("SENA enterprise runtime", () => {
     expect(enterprise.listEnterpriseNotifications(registered.context, { kind: "reliability.review" }).notifications.some((notification: { detail: Record<string, unknown> }) => (
       notification.detail.reliabilityRunId === reliabilityRun.id && notification.detail.status === "approved"
     ))).toBe(true);
-    const reliabilityGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const reliabilityGovernance = readCurrentGovernanceStatus();
     expect(reliabilityGovernance.counts.reliabilityRuns).toBe(1);
     expect(reliabilityGovernance.checks.map((check: { id: string }) => check.id)).toContain("reliability-run-history");
     expect(reliabilityGovernance.checks.find((check: { id: string }) => check.id === "reliability-run-history")?.evidence)
@@ -4006,6 +4011,43 @@ describe("SENA enterprise runtime", () => {
       .toContain("adjudicationCoverage=sena-reliability-adjudication-coverage/v1");
     expect(reliabilityGovernance.checks.find((check: { id: string }) => check.id === "reliability-run-history")?.evidence)
       .toContain("latestAdjudicationCoverage=1");
+
+    const analysisRun = buildSenaAnalysisRun({
+      snapshot: project.snapshot,
+      title: "Server-side SENA Analysis",
+      includeRuntimeBundle: true
+    });
+    expect(analysisRun.schemaVersion).toBe("sena-analysis-run/v1");
+    expect(analysisRun.summary.people).toBeGreaterThan(0);
+    expect(analysisRun.report.schemaVersion).toBe("sena-report/v1");
+    expect(analysisRun.projectSnapshot.schemaVersion).toBe("sena-project-snapshot/v1");
+    expect(analysisRun.runtimeBundle?.schemaVersion).toBe("sena-runtime-bundle/v1");
+    const analyzedProject = enterprise.createEnterpriseProject(registered.context, {
+      teamId: registered.context.teams[0].id,
+      title: analysisRun.summary.title,
+      snapshot: analysisRun.projectSnapshot
+    });
+    expect(analyzedProject.claimUse).toBe(analysisRun.summary.claimUse);
+    const enterpriseAnalysisRun = enterprise.createEnterpriseAnalysisRun(registered.context, {
+      teamId: registered.context.teams[0].id,
+      projectId: project.id,
+      persistedProjectId: analyzedProject.id,
+      run: analysisRun
+    });
+    expect(enterpriseAnalysisRun.sourceKind).toBe("snapshot");
+    expect(enterpriseAnalysisRun.includeRuntimeBundle).toBe(true);
+    expect(enterpriseAnalysisRun.artifactFingerprints.reportSha256).toHaveLength(64);
+    expect(enterpriseAnalysisRun.artifactFingerprints.projectSnapshotSha256).toHaveLength(64);
+    expect(enterpriseAnalysisRun.artifactFingerprints.runtimeBundleSha256).toHaveLength(64);
+    expect(enterprise.listEnterpriseAnalysisRuns(registered.context, { projectId: project.id })[0].id).toBe(enterpriseAnalysisRun.id);
+    expect(enterprise.listEnterpriseTeamState(registered.context).analysisRuns.map((run: { id: string }) => run.id)).toContain(enterpriseAnalysisRun.id);
+    const analysisGovernance = readCurrentGovernanceStatus();
+    expect(analysisGovernance.counts.analysisRuns).toBe(1);
+    expect(analysisGovernance.checks.map((check: { id: string }) => check.id)).toContain("analysis-run-history");
+    expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
+      .toContain("schema=sena-analysis-run/v1");
+    expect(analysisGovernance.checks.find((check: { id: string }) => check.id === "analysis-run-history")?.evidence)
+      .toContain("historyApi=GET:/api/sena/analyze");
 
     const comparison = buildSenaGroupComparison({
       dataset: lessonStudySenaContract,
@@ -4178,7 +4220,7 @@ describe("SENA enterprise runtime", () => {
     expect(enterprise.listEnterpriseNotifications(registered.context, { kind: "expert.review" }).notifications.some((notification: { detail: Record<string, unknown> }) => (
       notification.detail.expertReviewId === expertReview.id && notification.detail.status === "approved"
     ))).toBe(true);
-    const validationGovernance = enterprise.getEnterpriseGovernanceStatus();
+    const validationGovernance = readCurrentGovernanceStatus();
     expect(validationGovernance.counts.validationRuns).toBe(2);
     expect(validationGovernance.counts.expertReviews).toBe(1);
     expect(validationGovernance.checks.map((check: { id: string }) => check.id)).toContain("validation-run-history");
@@ -4435,6 +4477,7 @@ describe("SENA enterprise runtime", () => {
     expect(publicationManifest.artifacts.map((artifact) => artifact.format)).toEqual(["svg", "png", "html", "xlsx", "docx", "pdf"]);
     expect(publicationManifest.artifacts.every((artifact) => artifact.sha256.length === 64 && artifact.bytes > 0 && artifact.bodyBase64.length > 0)).toBe(true);
     expect(Buffer.from(publicationManifest.artifacts.find((artifact) => artifact.format === "png")?.bodyBase64 ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(sampleSnapshotBuildCount).toBe(3);
 
     delete process.env.SENA_SSO_GOOGLE_CLIENT_ID;
     delete process.env.SENA_SSO_GOOGLE_CLIENT_SECRET;

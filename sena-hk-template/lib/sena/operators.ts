@@ -718,6 +718,9 @@ export function senaSchoenbergMdsDiagnostics(
 ): SenaSchoenbergMdsDiagnostics {
   const tolerance = options.tolerance ?? 1e-9;
   const dimensions = Math.max(1, Math.floor(options.dimensions));
+  if (delta.length === 0) {
+    throw new Error("Classical MDS is unavailable because the fusion graph has zero vertices.");
+  }
   const centeredGram = centeredGramFromDissimilarity(delta);
   const decomposition = senaSymmetricEigenDecomposition(centeredGram);
   const descendingPairs = decomposition.values
@@ -747,12 +750,7 @@ export function senaSchoenbergMdsDiagnostics(
     }
   }
 
-  // The empty Gram matrix has no negative eigenvalue. Avoid Math.min(...[])
-  // producing Infinity, which is not a JSON value and cannot be persisted in
-  // an edge-free current snapshot.
-  const minCenteredGramEigenvalue = decomposition.values.length > 0
-    ? Math.min(...decomposition.values)
-    : 0;
+  const minCenteredGramEigenvalue = Math.min(...decomposition.values);
   const euclidean = minCenteredGramEigenvalue >= -tolerance;
   const metricExact = euclidean && maxDistortion <= tolerance;
 

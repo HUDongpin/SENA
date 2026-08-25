@@ -1262,7 +1262,8 @@ describe("SENA enterprise module boundaries", () => {
     expect(expertReviewRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
     expect(claimPackageRouteSource).toContain("@/lib/sena/enterprise/claim-evidence-package");
     expect(claimPackageRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
-    expect(publicationStateBindingSource.match(/\breadEnterpriseState\s*\(/g)).toHaveLength(1);
+    expect(publicationStateBindingSource.match(/\breadEnterprisePublicationState\s*\(/g)).toHaveLength(1);
+    expect(publicationStateBindingSource).not.toMatch(/\breadEnterpriseState\s*\(/);
     expect(publicationRouteSource).toContain("@/lib/sena/enterprise/publication-state-binding");
     expect(publicationRouteSource).not.toContain("getEnterpriseClaimEvidencePackageWithPostgresEvidence");
     expect(publicationRouteSource).not.toContain("findEnterprisePublicationReliabilityRunAsync");

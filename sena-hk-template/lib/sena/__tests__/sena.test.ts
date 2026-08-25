@@ -45,6 +45,7 @@ import {
   importSenaJsonContract,
   importSenaProjectSnapshot,
   importSenaReviewPacket,
+  isCurrentSenaFusionMathAudit,
   isSenaDemoVerification,
   isSenaProjectSnapshot,
   isSenaReviewPacket,
@@ -70,6 +71,7 @@ import {
   scopeSenaDatasetToWindow,
   type SenaImportTable
 } from "../index";
+import { buildSenaPublicationExport } from "../publication-export";
 import { exampleSenaContract } from "../sample-data";
 import { projectSenaPilotPackageArtifactCatalog } from "../artifact-catalog";
 import {
@@ -4654,13 +4656,40 @@ describe("SENA model builder", () => {
     });
   }
 
-  it("handles empty and single-actor edge cases without NaN or crashes", () => {
+  it("handles empty and single-actor edge cases without NaN or crashes", async () => {
     const empty = buildSenaModel(createEmptySenaDataset());
     expect(empty.summary.people).toBe(0);
     expect(empty.summary.socialAnalysis.density).toBe(0);
     expect(empty.summary.socialAnalysis.connected).toBe(true);
     expect(empty.temporal.windows).toHaveLength(0);
+    expect(empty.operatorDiagnostics.embedding.mds).toMatchObject({
+      available: false,
+      metricExact: false,
+      coordinates: null,
+      stress: null,
+      maxDistortion: null,
+      minCenteredGramEigenvalue: null
+    });
+    expect(empty.operatorDiagnostics.embedding.mds.warnings).toContain(
+      "Classical MDS is unavailable because the fusion graph has zero vertices."
+    );
     const emptyReport = buildSenaReport(empty);
+    const emptyDimensionsAudit = emptyReport.fusionMathAudit.items.find(
+      (item) => item.id === "labels-and-dimensions"
+    );
+    expect(emptyDimensionsAudit).toMatchObject({
+      status: "review",
+      actual: "0 fusion labels; 0x0"
+    });
+    expect(emptyDimensionsAudit?.detail).toContain(
+      "Empty 0x0 fusion universe cannot verify labels and dimensions."
+    );
+    expect(emptyReport.fusionMathAudit).toMatchObject({
+      status: "needs-review",
+      passed: 7,
+      reviewNeeded: 1
+    });
+    expect(isCurrentSenaFusionMathAudit(emptyReport.fusionMathAudit)).toBe(true);
     expect(emptyReport.validation.stability.temporal.variants[0]?.utteranceCoverage).toBe(1);
     expect(emptyReport.dataContractAudit.status).toBe("needs-review");
     expect(emptyReport.dataContractAudit.items.find((item) => item.id === "five-table-shape")?.status).toBe("review");
@@ -4668,6 +4697,7 @@ describe("SENA model builder", () => {
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "data-contract-audit")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "jena-manifest")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "jsna-manifest")?.status).toBe("review");
+    expect(emptyReport.completenessAudit.items.find((item) => item.id === "fusion-math-audit")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "human-review")?.status).toBe("review");
     expect(emptyReport.runtimeConsistencyAudit.status).toBe("needs-review");
     expect(emptyReport.runtimeConsistencyAudit.items.find((item) => item.id === "jena-status")?.status).toBe("pass");
@@ -4685,7 +4715,50 @@ describe("SENA model builder", () => {
     expect(emptyReport.claimReadinessGate.status).toBe("exploratory");
     expect(emptyReport.claimReadinessGate.claimUse).toBe("exploratory-only");
     expect(emptyReport.claimReadinessGate.blockers).toContain("Data contract");
+    expect(emptyReport.claimReadinessGate.blockers).toContain("Fusion math");
     expect(emptyReport.claimReadinessGate.blockers).toContain("Human review");
+    expect(emptyReport.pilotReadinessAudit.items.find((item) => item.id === "fusion-math")?.status).toBe("review");
+    expect(emptyReport.modelCard.renderGate.status).toBe("blocked");
+    expect(emptyReport.modelCard.embedding).toMatchObject({
+      operator: "layout-only",
+      dimensions: null,
+      metricExact: false,
+      stress: null,
+      maxDistortion: null
+    });
+
+    const emptySnapshot = buildSenaProjectSnapshot(empty, {
+      title: "Empty current JSON carrier",
+      generatedAt: "2026-08-25T00:00:00.000Z",
+      sourceDataset: empty.dataset
+    });
+    const nonJsonPaths: string[] = [];
+    const serializedEmptySnapshot = JSON.stringify(emptySnapshot, (key, value: unknown) => {
+      if (value === undefined || (typeof value === "number" && !Number.isFinite(value))) {
+        nonJsonPaths.push(key);
+      }
+      return value;
+    });
+    expect(nonJsonPaths).toEqual([]);
+    expect(importSenaProjectSnapshot(emptySnapshot)).toEqual(emptySnapshot);
+    expect(importSenaProjectSnapshot(serializedEmptySnapshot)).toEqual(emptySnapshot);
+    await expect(buildSenaPublicationExport(emptySnapshot, "html")).rejects.toMatchObject({
+      code: "publication_export_model_card_blocked",
+      message: expect.stringContaining("fusion-math-audit")
+    });
+
+    const forgedNonemptyAudit = structuredClone(
+      buildSenaFusionMathAudit(buildSenaModel(lessonStudySenaContract))
+    );
+    const forgedDimensions = forgedNonemptyAudit.items.find(
+      (item) => item.id === "labels-and-dimensions"
+    );
+    if (!forgedDimensions) throw new Error("Nonempty fusion audit fixture is missing dimensions evidence.");
+    forgedDimensions.status = "review";
+    forgedNonemptyAudit.passed -= 1;
+    forgedNonemptyAudit.reviewNeeded += 1;
+    forgedNonemptyAudit.status = "needs-review";
+    expect(isCurrentSenaFusionMathAudit(forgedNonemptyAudit)).toBe(false);
 
     const single = buildSenaModel({
       people: [{ id: "solo", label: "Solo", role: "Learner", group: "Solo", initials: "S" }],

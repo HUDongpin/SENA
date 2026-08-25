@@ -58,7 +58,7 @@ function invalidSourceSnapshot(): SenaProjectSnapshot {
 
 type Round9InvalidSnapshotKind =
   | "null-person"
-  | "nan-confidence"
+  | "out-of-range-confidence"
   | "missing-person-reference"
   | "count-mismatch"
   | "infinite-active-window"
@@ -67,7 +67,7 @@ type Round9InvalidSnapshotKind =
 function round9InvalidSnapshot(kind: Round9InvalidSnapshotKind): SenaProjectSnapshot {
   const snapshot = validSnapshot();
   if (kind === "null-person") snapshot.dataset.people[0] = null as never;
-  if (kind === "nan-confidence") snapshot.dataset.coded_segments[0].confidence = Number.NaN;
+  if (kind === "out-of-range-confidence") snapshot.dataset.coded_segments[0].confidence = 2;
   if (kind === "missing-person-reference") snapshot.dataset.utterances[0].personId = "round9-missing-person";
   if (kind === "count-mismatch") snapshot.source.sourceDatasetCounts.people += 1;
   if (kind === "infinite-active-window") {
@@ -236,7 +236,7 @@ describe("enterprise project canonical snapshot boundaries", () => {
 
   it.each([
     ["sync", false, "null-person", { path: "dataset.people[0]", rule: "object" }],
-    ["async", true, "nan-confidence", { path: "dataset.coded_segments[0].confidence", rule: "finite-probability" }]
+    ["async", true, "out-of-range-confidence", { path: "dataset.coded_segments[0].confidence", rule: "finite-probability" }]
   ] as const)("Round 9 validates %s create before any state side effect", async (_label, asynchronous, kind, issue) => {
     const registered = registeredOwner();
     const before = rawState();
