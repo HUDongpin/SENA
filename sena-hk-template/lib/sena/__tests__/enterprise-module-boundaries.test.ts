@@ -106,6 +106,25 @@ describe("SENA enterprise module boundaries", () => {
     expect(createFileEnterpriseStateStore).toBeTypeOf("function");
   });
 
+  it.each([
+    ["governance", "ops-governance.ts", "getEnterpriseGovernanceStatus"],
+    ["organization deployment", "ops-deployment.ts", "getEnterpriseOrganizationDeploymentPackage"],
+    ["capability audit", "ops-capability-audit.ts", "getEnterpriseCapabilityAudit"]
+  ] as const)("keeps the %s default aggregator on one enterprise state image", (_label, filename, functionName) => {
+    const source = readFileSync(
+      path.join(process.cwd(), "lib", "sena", "enterprise", filename),
+      "utf8"
+    );
+    const functionStart = source.indexOf(`export function ${functionName}(`);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    const functionPrelude = source.slice(functionStart, functionStart + 1_000);
+
+    expect(functionPrelude.match(/\breadEnterpriseDb\s*\(\)/g)).toHaveLength(1);
+    expect(functionPrelude).toContain(
+      "const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });"
+    );
+  });
+
   it("owns enterprise error helpers in the errors module", () => {
     const errorsSource = readFileSync(path.join(process.cwd(), "lib", "sena", "enterprise", "errors.ts"), "utf8");
     const response = enterpriseErrorResponse(new SenaEnterpriseError("Denied.", 403, "permission_denied"));

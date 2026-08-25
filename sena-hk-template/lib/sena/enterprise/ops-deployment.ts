@@ -204,7 +204,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
 } = {}): SenaEnterpriseOrganizationDeploymentPackage {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
   const db = input.db ?? readEnterpriseDb();
-  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });
   const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
   const governance = input.governance ?? getEnterpriseGovernanceStatus({ db, opsStatus });
   const postgresConfig = resolveEnterprisePostgresConfig();

@@ -123,7 +123,7 @@ export function getEnterpriseCapabilityAudit(input: {
 } = {}): SenaEnterpriseCapabilityAudit {
   const db = input.db ?? readEnterpriseDb();
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });
   const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
   const deployment = input.deployment ?? getEnterpriseOrganizationDeploymentPackage({
     teamId: input.teamId,

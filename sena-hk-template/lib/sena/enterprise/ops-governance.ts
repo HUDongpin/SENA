@@ -162,7 +162,7 @@ export function getEnterpriseGovernanceStatus(input: {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
   const configuredDirectory = process.env.SENA_ENTERPRISE_DB_DIR ? "env-configured" : "default-local";
   const postgresConfig = resolveEnterprisePostgresConfig();
-  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });
   const storageEngine = opsStatus.storage.engine;
   const postgresStorage = opsStatus.storage.postgres;
   const primaryStateRuntime = opsStatus.storage.primaryStateRuntime;
