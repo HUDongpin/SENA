@@ -131,6 +131,40 @@ describe("SENA API documentation contract", () => {
     }
   });
 
+  it("publishes the stable snapshot and publication complexity failures as typed 413 responses", () => {
+    const expected = [
+      ["sena-snapshot-restore", "snapshot_restore_source_too_complex"],
+      ["sena-publication-export", "publication_export_derivation_too_complex"]
+    ] as const;
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        responses: Record<string, {
+          content?: Record<string, { schema?: { properties?: { code?: { enum?: string[] } } } }>;
+        }>;
+      }>>;
+    };
+
+    for (const [endpointId, code] of expected) {
+      const fact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === endpointId) as
+        | (typeof SENA_API_ENDPOINT_FACTS[number] & {
+            errorResponses?: Array<{ status: number; code: string; description: string }>;
+          })
+        | undefined;
+      const endpoint = documentation.endpoints.find((candidate) => candidate.id === endpointId) as
+        | (typeof documentation.endpoints[number] & {
+            errorResponses?: Array<{ status: number; code: string; description: string }>;
+          })
+        | undefined;
+      expect(fact?.errorResponses).toContainEqual(expect.objectContaining({ status: 413, code }));
+      expect(endpoint?.errorResponses).toContainEqual(expect.objectContaining({ status: 413, code }));
+      expect(SENA_API_EVIDENCE_NOTES[fact!.evidenceNoteId!]).toContain(code);
+      const operation = openApi.paths[fact!.path].post;
+      expect(operation.responses["413"].content?.["application/json"].schema?.properties?.code?.enum)
+        .toContain(code);
+    }
+  });
+
   it("requires CSRF enforcement for documented session mutating routes", () => {
     const sessionMutatingRoutes = SENA_IMPLEMENTED_API_ROUTES.filter((route) => (
       (route.auth === "session" || route.auth === "session-or-ops-bearer") &&

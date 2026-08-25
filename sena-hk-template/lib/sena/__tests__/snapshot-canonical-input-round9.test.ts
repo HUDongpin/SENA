@@ -6,10 +6,13 @@ import { buildSenaModel } from "../model";
 import { importSenaJsonContract } from "../import";
 import { lessonStudySenaContract } from "../pilot-assets";
 import {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  assertSenaProjectSnapshotAdmission,
   buildSenaProjectSnapshot,
   importSenaProjectSnapshot
 } from "../snapshot";
 import { senaReliabilitySnapshotFingerprint } from "../reliability";
+import { buildSenaTemporalRuntimeTrace } from "../temporal-runtime";
 import type { SenaProjectSnapshot } from "../types";
 
 function validSnapshot(): SenaProjectSnapshot {
@@ -66,11 +69,6 @@ const invalidCases: InvalidCase[] = [
     issue: { path: "dataset.utterances[0].personId", rule: "canonical-string" }
   },
   {
-    label: "nonfinite interaction weight",
-    mutate: (snapshot) => { snapshot.dataset.interactions[0].weight = Number.POSITIVE_INFINITY; },
-    issue: { path: "dataset.interactions[0].weight", rule: "finite-nonnegative" }
-  },
-  {
     label: "utterance person reference",
     mutate: (snapshot) => { snapshot.dataset.utterances[0].personId = "person-does-not-exist"; },
     issue: { path: "dataset.utterances[0].personId", rule: "reference" }
@@ -111,11 +109,6 @@ const invalidCases: InvalidCase[] = [
     issue: { path: "dataset.coded_segments[0].codes[0]", rule: "canonical-string" }
   },
   {
-    label: "NaN confidence",
-    mutate: (snapshot) => { snapshot.dataset.coded_segments[0].confidence = Number.NaN; },
-    issue: { path: "dataset.coded_segments[0].confidence", rule: "finite-probability" }
-  },
-  {
     label: "null codebook row",
     mutate: (snapshot) => { snapshot.dataset.codebook[0] = null as never; },
     issue: { path: "dataset.codebook[0]", rule: "object" }
@@ -145,14 +138,6 @@ const invalidCases: InvalidCase[] = [
       snapshot.source.sourceDataset.interactions[0].target = ` ${snapshot.source.sourceDataset.interactions[0].target} `;
     },
     issue: { path: "source.sourceDataset.interactions[0].target", rule: "canonical-string" }
-  },
-  {
-    label: "overflow temporal window turn",
-    mutate: (snapshot) => {
-      if (!snapshot.source.activeTemporalWindow) throw new Error("fixture active window missing");
-      snapshot.source.activeTemporalWindow.startTurn = JSON.parse("1e309") as number;
-    },
-    issue: { path: "source.activeTemporalWindow.startTurn", rule: "integer-range" }
   },
   {
     label: "malformed temporal window string array",
@@ -208,6 +193,15 @@ describe("Round 9 canonical snapshot input contract", () => {
     }
   });
 
+  it("applies the same 64-container depth ceiling to direct objects", () => {
+    let excessiveDepth: unknown = null;
+    for (let depth = 0; depth < 65; depth += 1) excessiveDepth = [excessiveDepth];
+
+    expect(() => assertSenaProjectSnapshotAdmission(excessiveDepth)).toThrow(
+      /structural admission limit/i
+    );
+  });
+
   it("allows shared aliases but rejects a true object cycle before structuredClone", () => {
     const aliased = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
     const shared = { evidence: "shared immutable carrier" };
@@ -222,6 +216,84 @@ describe("Round 9 canonical snapshot input contract", () => {
     const clone = vi.spyOn(globalThis, "structuredClone");
     try {
       expect(() => importSenaProjectSnapshot(cyclic)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("charges shared alias DAGs by their bounded JSON expansion before structuredClone", () => {
+    const snapshot = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    let expandedAlias: Record<string, unknown> = { evidence: "bounded leaf" };
+    for (let depth = 0; depth < 21; depth += 1) {
+      expandedAlias = { left: expandedAlias, right: expandedAlias };
+    }
+    snapshot.expandedAlias = expandedAlias;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it.each([
+    ["symbol", Symbol("not-json")],
+    ["bigint", BigInt(1)],
+    ["NaN", Number.NaN],
+    ["infinity", Number.POSITIVE_INFINITY],
+    ["function", () => "not-json"]
+  ])("rejects a non-JSON %s value before structuredClone", (_label, invalidValue) => {
+    const snapshot = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    snapshot.invalidJsonValue = invalidValue;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      label: "nonfinite interaction weight",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.dataset.interactions[0].weight = Number.POSITIVE_INFINITY;
+      }
+    },
+    {
+      label: "NaN confidence",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.dataset.coded_segments[0].confidence = Number.NaN;
+      }
+    },
+    {
+      label: "overflow temporal window turn",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        if (!snapshot.source.activeTemporalWindow) throw new Error("fixture active window missing");
+        snapshot.source.activeTemporalWindow.startTurn = JSON.parse("1e309") as number;
+      }
+    }
+  ])("rejects a direct-object $label at structural admission", ({ mutate }) => {
+    const snapshot = validSnapshot();
+    mutate(snapshot);
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("rejects a parsed overflow number before clone or canonical hashing", () => {
+    const serialized = JSON.stringify(validSnapshot());
+    const source = `${serialized.slice(0, -1)},"overflowNumber":1e999}`;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(source)).toThrow(/structural admission limit/i);
       expect(clone).not.toHaveBeenCalled();
     } finally {
       clone.mockRestore();
@@ -279,6 +351,35 @@ describe("Round 9 canonical snapshot input contract", () => {
     }
   });
 
+  it("counts every active-window baseline rebuild in the cumulative route reservation", () => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    const model = buildSenaModel(dataset);
+    const snapshot = buildSenaProjectSnapshot(model, {
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      sourceDataset: dataset,
+      activeTemporalWindow: model.temporal.windows[0] ?? null,
+      nullModelIterations: 1
+    });
+    const extraSegments = Array.from({ length: 184 }, (_, index) => ({
+      ...structuredClone(snapshot.dataset.coded_segments[0]),
+      segmentId: `active-budget-segment-${index}`
+    }));
+    snapshot.dataset.coded_segments.push(...extraSegments);
+    snapshot.source.sourceDataset?.coded_segments.push(...structuredClone(extraSegments));
+    snapshot.source.sourceDatasetCounts.codedSegments += extraSegments.length;
+
+    const withoutActiveWindow = structuredClone(snapshot);
+    withoutActiveWindow.source.activeTemporalWindow = null;
+    expect(() => assertSenaProjectSnapshotPublicationDerivationWorkBudget(
+      withoutActiveWindow,
+      { scope: "route-request" }
+    )).not.toThrow();
+    expect(() => assertSenaProjectSnapshotPublicationDerivationWorkBudget(
+      snapshot,
+      { scope: "route-request" }
+    )).toThrow(/canonical analysis work budget/i);
+  });
+
   it("requires current-v2 root data governance to match the report exactly", () => {
     const missing = validSnapshot();
     delete (missing as Partial<SenaProjectSnapshot>).dataGovernance;
@@ -299,6 +400,157 @@ describe("Round 9 canonical snapshot input contract", () => {
     expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
       /persisted analysis does not match the canonical dataset and build options/i
     );
+  });
+
+  it("requires the full-source temporal trace for every current-v2 snapshot", () => {
+    const snapshot = validSnapshot();
+    delete snapshot.analysis.temporalRuntimeTrace;
+
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /temporalRuntimeTrace|required.*temporal runtime trace|persisted analysis/i
+    );
+  });
+
+  it("binds the current-v2 temporal trace timestamp to snapshot provenance", () => {
+    const snapshot = validSnapshot();
+    if (!snapshot.analysis.temporalRuntimeTrace) {
+      throw new Error("Snapshot fixture has no temporal runtime trace.");
+    }
+    snapshot.analysis.temporalRuntimeTrace.generatedAt = "2026-08-21T00:00:01.000Z";
+
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("builds snapshot trace provenance from the canonical snapshot clock", () => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    const model = buildSenaModel(dataset);
+    const attackerTrace = buildSenaTemporalRuntimeTrace(dataset, model.options, {
+      generatedAt: "2099-01-01T00:00:00.000Z"
+    });
+    const snapshot = buildSenaProjectSnapshot(model, {
+      generatedAt: "2026-08-21T00:00:00.000Z",
+      sourceDataset: dataset,
+      temporalRuntimeTrace: attackerTrace
+    });
+
+    expect(snapshot.analysis.temporalRuntimeTrace?.generatedAt).toBe(snapshot.generatedAt);
+    expect(snapshot.analysis.temporalRuntimeTrace).not.toEqual(attackerTrace);
+  });
+
+  it.each([
+    {
+      label: "null-model sample",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.validation.nullModels.permutation.samplesPreview[0] += 0.25;
+      }
+    },
+    {
+      label: "social-community figure",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.figures.socialCommunities[0].label =
+          `${snapshot.report.figures.socialCommunities[0].label} (forged)`;
+      }
+    },
+    {
+      label: "visual-grammar figure",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.figures.visualGrammar[0].label =
+          `${snapshot.report.figures.visualGrammar[0].label} (forged)`;
+      }
+    },
+    {
+      label: "model-card deterministic evidence",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.modelCard.sections[0].evidence.push("forged-ready-evidence");
+      }
+    },
+    {
+      label: "completeness cache",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.completenessAudit.items[0].summary = "Forged complete cache.";
+      }
+    },
+    {
+      label: "pilot-readiness cache",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        snapshot.report.pilotReadinessAudit.items[0].summary = "Forged ready cache.";
+      }
+    }
+  ])("rejects forged deterministic current-v2 $label", ({ mutate }) => {
+    const snapshot = validSnapshot();
+    mutate(snapshot);
+
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("does not let authoritative review reconciliation hide forged unrelated model-card evidence", () => {
+    const snapshot = validSnapshot();
+    snapshot.report.humanReview = {
+      ...snapshot.report.humanReview,
+      status: "human-reviewed",
+      reviewer: "",
+      interpretation: "",
+      limitations: "",
+      nextActions: ""
+    };
+    const unrelatedSection = snapshot.report.modelCard.sections.find(
+      (section) => section.id === "validation"
+    ) ?? snapshot.report.modelCard.sections[0];
+    unrelatedSection.evidence.push("forged-unrelated-ready-evidence");
+
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("rejects non-enumerable accessors before structuredClone without invoking the getter", () => {
+    const snapshot = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    let getterCalls = 0;
+    Object.defineProperty(snapshot, "hiddenAccessor", {
+      configurable: true,
+      enumerable: false,
+      get() {
+        getterCalls += 1;
+        return "not-json-data";
+      }
+    });
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/structural admission|JSON-compatible/i);
+      expect(getterCalls).toBe(0);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("documents the runtime Proxy boundary and rejects before clone or derivation", () => {
+    const snapshot = validSnapshot();
+    let ownKeysTrapCalls = 0;
+    const proxy = new Proxy(snapshot, {
+      ownKeys(target) {
+        ownKeysTrapCalls += 1;
+        return Reflect.ownKeys(target);
+      }
+    });
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(proxy)).toThrow(/structural admission|JSON-compatible|clone/i);
+      const nodeProxyDetectorAvailable = typeof process.getBuiltinModule === "function" &&
+        Boolean((process.getBuiltinModule("node:util") as typeof import("node:util")).types?.isProxy);
+      // Node's trap-free detector rejects before introspection. Browser/client
+      // runtimes have no universal detector, so their strongest descriptor
+      // checks may execute ownKeys while still rejecting before clone/model.
+      if (nodeProxyDetectorAvailable) expect(ownKeysTrapCalls).toBe(0);
+      else expect(ownKeysTrapCalls).toBeGreaterThan(0);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
   });
 
   it.each([

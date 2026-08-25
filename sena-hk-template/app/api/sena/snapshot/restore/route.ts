@@ -12,7 +12,11 @@ export async function POST(request: Request) {
   try {
     assertSenaSnapshotRestoreSameOrigin(request);
     const input = await readSenaSnapshotRestoreRequest(request);
-    const result = buildSenaSnapshotRestoreResult(input.source, input.sourcePayloadSha256);
+    const result = buildSenaSnapshotRestoreResult(
+      input.source,
+      input.sourcePayloadSha256,
+      input.snapshotAdmissionLimits
+    );
     return NextResponse.json(result, {
       headers: {
         "cache-control": "no-store",

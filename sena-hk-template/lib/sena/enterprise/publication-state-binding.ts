@@ -11,7 +11,10 @@ import {
   findEnterprisePublicationReliabilityEvidenceFromDb,
   type SenaEnterpriseReliabilityRun
 } from "./reliability-runs";
-import { readEnterpriseState, type SenaEnterpriseStateRead } from "./state";
+import {
+  readEnterprisePublicationState,
+  type SenaEnterpriseStateRead
+} from "./state";
 import type { SenaEnterpriseProject } from "./team-project";
 import type { SenaCodingReliabilityReview } from "../types";
 
@@ -79,6 +82,11 @@ export type SenaEnterprisePublicationStateBundle = {
   reliabilityRun?: SenaEnterpriseReliabilityRun;
   reliabilityReviewProjection?: Partial<SenaCodingReliabilityReview>;
   stateBinding: SenaEnterprisePublicationStateBinding;
+};
+
+export type SenaEnterprisePublicationPreNormalizationBudgetInput = {
+  targetSnapshot: unknown;
+  stateNormalizationSnapshots: unknown[];
 };
 
 export function resolveEnterprisePublicationStateBundleFromState(
@@ -189,8 +197,29 @@ export function resolveEnterprisePublicationStateBundleFromState(
 
 export async function resolveEnterprisePublicationStateBundle(
   context: SenaEnterpriseSessionContext,
-  projectId: string
+  projectId: string,
+  options: {
+    beforeNormalize?: (
+      input: SenaEnterprisePublicationPreNormalizationBudgetInput
+    ) => void;
+  } = {}
 ) {
-  const state = await readEnterpriseState();
+  const state = await readEnterprisePublicationState({
+    beforeReadProjection: (persistedDb) => {
+      const project = persistedDb.projects.find((candidate) => candidate.id === projectId);
+      if (!project) {
+        throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+      }
+      requireEnterprisePermission(context, project.teamId, "project:read");
+      requireEnterprisePermission(context, project.teamId, "export:create");
+      options.beforeNormalize?.({
+        targetSnapshot: project.snapshot,
+        // This publication-specific raw-state path performs no implicit
+        // project/revision imports. All canonical model/report work is
+        // reserved in the target route derivation below.
+        stateNormalizationSnapshots: []
+      });
+    }
+  });
   return resolveEnterprisePublicationStateBundleFromState(context, projectId, state);
 }

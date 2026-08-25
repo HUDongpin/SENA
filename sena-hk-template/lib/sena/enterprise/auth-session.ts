@@ -8,6 +8,7 @@ import { appendAudit } from "./ops-audit";
 import {
   mutateEnterpriseDbAtomically,
   mutateEnterpriseStateAtomically,
+  readEnterpriseAuthState,
   readEnterpriseDb,
   readEnterpriseState,
   type SenaEnterpriseDb,
@@ -151,7 +152,10 @@ function liveUserSessions(db: SenaEnterpriseDb, userId: string) {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function contextFromDb(db: SenaEnterpriseDb, session: SenaEnterpriseSession): SenaEnterpriseSessionContext {
+export function contextFromDb(
+  db: Pick<SenaEnterpriseDb, "users" | "sessions" | "memberships" | "teams">,
+  session: SenaEnterpriseSession
+): SenaEnterpriseSessionContext {
   if (Date.parse(session.expiresAt) <= Date.now()) throw new SenaEnterpriseError("Session expired.", 401, "session_expired");
   const user = db.users.find((candidate) => candidate.id === session.userId);
   if (!user) throw new SenaEnterpriseError("Session user no longer exists.", 401, "session_user_missing");
@@ -362,10 +366,10 @@ export function getEnterpriseSession(token: string | undefined): SenaEnterpriseS
 
 export async function getEnterpriseSessionAsync(token: string | undefined): Promise<SenaEnterpriseSessionContext | null> {
   if (!token) return null;
-  const state = await readEnterpriseState();
-  const session = state.db.sessions.find((candidate) => candidate.tokenHash === tokenHash(token));
+  const authState = await readEnterpriseAuthState();
+  const session = authState.sessions.find((candidate) => candidate.tokenHash === tokenHash(token));
   if (!session) return null;
-  return contextFromDb(state.db, session);
+  return contextFromDb(authState, session);
 }
 
 export function requireEnterpriseSession(token: string | undefined): SenaEnterpriseSessionContext {

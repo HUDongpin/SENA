@@ -365,6 +365,54 @@ describe("SENA publication export model-card gate", () => {
     });
   });
 
+  it("blocks an unknown extra model-card section in both the direct gate and exporter", async () => {
+    const forged = readyCurrentV2Snapshot();
+    forged.report.modelCard.sections.push({
+      ...structuredClone(forged.report.modelCard.sections[0]),
+      id: "forged-publication-ready-section"
+    } as never);
+    expect(forged.report.modelCard.renderGate.status).toBe("ready");
+
+    expect(() => assertSenaPublicationModelCardReady(forged.report)).toThrow(
+      /model card|publication export blocked/i
+    );
+    await expect(buildSenaPublicationExport(forged, "html")).rejects.toMatchObject({
+      status: 409,
+      code: "publication_export_model_card_blocked"
+    });
+  });
+
+  it.each([
+    { label: "null", member: null },
+    { label: "a primitive", member: 7 },
+    { label: "an object without id", member: { status: "complete" } }
+  ])("blocks $label model-card member in both the direct gate and exporter", async ({ member }) => {
+    const forged = readyCurrentV2Snapshot();
+    forged.report.modelCard.sections.push(member as never);
+
+    expect(() => assertSenaPublicationModelCardReady(forged.report)).toThrow(
+      /model card|publication export blocked/i
+    );
+    await expect(buildSenaPublicationExport(forged, "html")).rejects.toMatchObject({
+      status: 409,
+      code: "publication_export_model_card_blocked"
+    });
+  });
+
+  it("never exports forged deterministic validation behind coordinated ready caches", async () => {
+    const forged = readyCurrentV2Snapshot();
+    expect(forged.report.modelCard.renderGate.status).toBe("ready");
+    expect(forged.report.completenessAudit.status).toBe("complete");
+    expect(forged.report.pilotReadinessAudit.status).toBe("ready");
+    expect(forged.report.claimReadinessGate.status).toBe("ready");
+    forged.report.validation.nullModels.permutation.pValueGreaterOrEqual = 0;
+    forged.report.validation.nullModels.permutation.samplesPreview = [9_999];
+
+    await expect(buildSenaPublicationExport(forged, "html")).rejects.toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
   it.each(["", "Pending human review."])(
     "blocks direct publication when a cached-ready current-v2 snapshot carries incomplete human review text %j",
     async (interpretation) => {

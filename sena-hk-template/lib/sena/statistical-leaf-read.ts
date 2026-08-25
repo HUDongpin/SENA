@@ -583,15 +583,25 @@ function reconcileModelCardReliability(
   const sectionIntegrity = inspectSenaModelCardSections(modelCard.sections);
   const missingSectionIds = sectionIntegrity.blockingIds;
   const sectionMembershipInconsistent = sectionIntegrity.missingIds.length > 0 ||
-    sectionIntegrity.duplicateIds.length > 0;
+    sectionIntegrity.duplicateIds.length > 0 ||
+    sectionIntegrity.unknownIds.length > 0 ||
+    sectionIntegrity.malformedIndexes.length > 0;
+  const renderBlocked = missingSectionIds.length > 0 ||
+    sectionIntegrity.unknownIds.length > 0 ||
+    sectionIntegrity.malformedIndexes.length > 0;
+  const renderedBlockers = [
+    ...missingSectionIds,
+    ...sectionIntegrity.unknownIds.map((id) => `unknown:${id}`),
+    ...sectionIntegrity.malformedIndexes.map((index) => `malformed:${index}`)
+  ];
   modelCard.renderGate = {
-    status: missingSectionIds.length === 0 ? "ready" : "blocked",
+    status: renderBlocked ? "blocked" : "ready",
     missingSectionIds,
-    message: missingSectionIds.length === 0
+    message: !renderBlocked
       ? "Model card complete - rendering permitted."
       : sectionMembershipInconsistent
-        ? `Model card incomplete or inconsistent - rendering blocked: ${missingSectionIds.join(", ")}.`
-        : `Model card incomplete - rendering blocked: ${missingSectionIds.join(", ")}.`
+        ? `Model card incomplete or inconsistent - rendering blocked: ${renderedBlockers.join(", ")}.`
+        : `Model card incomplete - rendering blocked: ${renderedBlockers.join(", ")}.`
   };
   return modelCard;
 }

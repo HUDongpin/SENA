@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { importSenaProjectSnapshotFromHandoff } from "./project-handoff";
 import { importSenaReviewPacket } from "./review-packet";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { SenaProjectSnapshotResourceLimitError } from "./snapshot";
+import {
+  assertSenaProjectSnapshotAdmission,
+  SenaProjectSnapshotResourceLimitError,
+  type SenaProjectSnapshotAdmissionLimits
+} from "./snapshot";
 import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
@@ -110,25 +114,36 @@ function scaledSnapshotRestoreLimit(defaultLimit: number, maxBytes: number) {
   );
 }
 
-function assertSenaSnapshotRestoreJsonComplexity(raw: string, maxBytes: number) {
+function snapshotRestoreAdmissionLimits(maxBytes: number): SenaProjectSnapshotAdmissionLimits {
+  return Object.freeze({
+    maxJsonBytes: maxBytes,
+    maxJsonDepth: SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH,
+    maxJsonTokens: Math.max(
+      SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+      Math.floor(maxBytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
+    ),
+    maxJsonContainers: scaledSnapshotRestoreLimit(
+      SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS,
+      maxBytes
+    ),
+    maxJsonContainerMembers: scaledSnapshotRestoreLimit(
+      SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS,
+      maxBytes
+    ),
+    maxJsonTotalMembers: scaledSnapshotRestoreLimit(
+      SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS,
+      maxBytes
+    )
+  });
+}
+
+function assertSenaSnapshotRestoreJsonComplexity(
+  raw: string,
+  limits: SenaProjectSnapshotAdmissionLimits
+) {
   type ContainerFrame = { hasContent: boolean; members: number };
   const frames: ContainerFrame[] = [];
-  const maxContainers = scaledSnapshotRestoreLimit(
-    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINERS,
-    maxBytes
-  );
-  const maxContainerMembers = scaledSnapshotRestoreLimit(
-    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS,
-    maxBytes
-  );
-  const maxTotalMembers = scaledSnapshotRestoreLimit(
-    SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS,
-    maxBytes
-  );
-  const absoluteStructuralTokenBudget = Math.max(
-    SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
-    Math.floor(maxBytes / SENA_SNAPSHOT_RESTORE_JSON_BYTES_PER_STRUCTURAL_TOKEN)
-  );
+  const maxBytes = limits.maxJsonBytes;
   let structuralTokens = 0;
   let carrierUnits = 0;
   let containers = 0;
@@ -138,8 +153,8 @@ function assertSenaSnapshotRestoreJsonComplexity(raw: string, maxBytes: number) 
 
   const assertMemberBounds = (frame: ContainerFrame) => {
     if (
-      frame.members > maxContainerMembers ||
-      totalMembers > maxTotalMembers
+      frame.members > limits.maxJsonContainerMembers ||
+      totalMembers > limits.maxJsonTotalMembers
     ) {
       throw requestTooComplex();
     }
@@ -179,9 +194,9 @@ function assertSenaSnapshotRestoreJsonComplexity(raw: string, maxBytes: number) 
       markCurrentContainerContent();
       structuralTokens += 1;
       containers += 1;
-      if (containers > maxContainers) throw requestTooComplex();
+      if (containers > limits.maxJsonContainers) throw requestTooComplex();
       frames.push({ hasContent: false, members: 0 });
-      if (frames.length > SENA_SNAPSHOT_RESTORE_MAX_JSON_DEPTH) throw requestTooComplex();
+      if (frames.length > limits.maxJsonDepth) throw requestTooComplex();
     } else if (character === "}" || character === "]") {
       structuralTokens += 1;
       frames.pop();
@@ -199,7 +214,7 @@ function assertSenaSnapshotRestoreJsonComplexity(raw: string, maxBytes: number) 
     } else if (!isJsonWhitespace(character)) {
       markCurrentContainerContent();
     }
-    if (structuralTokens > absoluteStructuralTokenBudget) throw requestTooComplex();
+    if (structuralTokens > limits.maxJsonTokens) throw requestTooComplex();
   }
 
   if (structuralTokens > snapshotRestoreStructuralTokenBudget(carrierUnits, maxBytes)) {
@@ -270,7 +285,8 @@ export async function readSenaSnapshotRestoreRequest(
   request: Request,
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
 ) {
-  const maxBytes = configuredMaxBytes(env);
+  const snapshotAdmissionLimits = snapshotRestoreAdmissionLimits(configuredMaxBytes(env));
+  const maxBytes = snapshotAdmissionLimits.maxJsonBytes;
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) throw requestTooLarge(maxBytes);
   if (!request.body) {
@@ -306,7 +322,7 @@ export async function readSenaSnapshotRestoreRequest(
   }
 
   const raw = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
-  assertSenaSnapshotRestoreJsonComplexity(raw, maxBytes);
+  assertSenaSnapshotRestoreJsonComplexity(raw, snapshotAdmissionLimits);
   let body: unknown;
   try {
     body = JSON.parse(raw) as unknown;
@@ -332,22 +348,33 @@ export async function readSenaSnapshotRestoreRequest(
   }
   return {
     source: root.source,
-    sourcePayloadSha256: sha256(jsonText(root.source))
+    sourcePayloadSha256: sha256(jsonText(root.source)),
+    snapshotAdmissionLimits
   };
 }
 
 export function buildSenaSnapshotRestoreResult(
   source: unknown,
-  sourcePayloadSha256 = sha256(jsonText(source))
+  sourcePayloadSha256?: string,
+  snapshotAdmissionLimits?: SenaProjectSnapshotAdmissionLimits
 ): SenaSnapshotRestoreResult {
-  const root = record(source);
   let sourceKind: SenaSnapshotRestoreResult["sourceKind"];
   let snapshot: SenaProjectSnapshot;
   let reviewPacket: SenaSnapshotRestoreResult["reviewPacket"] = null;
+  let resolvedSourcePayloadSha256: string;
 
   try {
+    // The direct helper is a public library boundary too. Admit the complete
+    // carrier before shallow property reads or the optional default hash,
+    // because JSON.stringify can invoke getters and expand shared alias DAGs.
+    assertSenaProjectSnapshotAdmission(source, {
+      admissionLimits: snapshotAdmissionLimits
+    });
+    const root = record(source);
     if (root?.schemaVersion === SENA_SCHEMA_VERSIONS.reviewPacket) {
-      const packet = importSenaReviewPacket(source);
+      const packet = importSenaReviewPacket(source, {
+        snapshotAdmissionLimits
+      });
       sourceKind = "review-packet";
       snapshot = packet.contents.projectSnapshot;
       reviewPacket = {
@@ -358,8 +385,11 @@ export function buildSenaSnapshotRestoreResult(
       sourceKind = root?.schemaVersion === SENA_SCHEMA_VERSIONS.projectSnapshot
         ? "project-snapshot"
         : "project-handoff";
-      snapshot = importSenaProjectSnapshotFromHandoff(source);
+      snapshot = importSenaProjectSnapshotFromHandoff(source, {
+        admissionLimits: snapshotAdmissionLimits
+      });
     }
+    resolvedSourcePayloadSha256 = sourcePayloadSha256 ?? sha256(jsonText(source));
   } catch (error) {
     if (error instanceof SenaProjectSnapshotResourceLimitError) {
       throw new SenaSnapshotRestoreRequestError(
@@ -382,7 +412,7 @@ export function buildSenaSnapshotRestoreResult(
     reviewPacket,
     integrity: {
       hashAlgorithm: "sha256",
-      sourcePayloadSha256,
+      sourcePayloadSha256: resolvedSourcePayloadSha256,
       normalizedSnapshotSha256: sha256(jsonText(snapshot))
     },
     processing: {

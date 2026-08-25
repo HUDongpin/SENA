@@ -39,6 +39,12 @@ export type SenaApiQueryParameter = {
   defaultValue?: string;
 };
 
+export type SenaApiErrorResponseFact = {
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503;
+  code: string;
+  description: string;
+};
+
 export type SenaApiEndpointFact = {
   id: string;
   group: SenaApiGroupId;
@@ -48,6 +54,7 @@ export type SenaApiEndpointFact = {
   summary: string;
   evidenceNoteId?: SenaApiEvidenceNoteId;
   responses: string[];
+  errorResponses?: SenaApiErrorResponseFact[];
   actions?: string[];
   queryParameters?: SenaApiQueryParameter[];
   /**
@@ -218,7 +225,12 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "public",
     summary: "Stateless same-origin canonical validation and read projection for a project snapshot or review-packet restore source; no project, audit, or raw payload is persisted.",
     evidenceNoteId: "sena-snapshot-restore",
-    responses: ["sena-snapshot-restore-result/v1"]
+    responses: ["sena-snapshot-restore-result/v1"],
+    errorResponses: [{
+      status: 413,
+      code: "snapshot_restore_source_too_complex",
+      description: "The admitted restore source exceeds the fixed canonical analysis budget or its resolved structural admission limits."
+    }]
   },
   {
     id: "sena-projects",
@@ -375,7 +387,12 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Generate project-bound publication-ready SENA artifacts; projectId is required, inline snapshots are rejected, and every format embeds sena-publication-derivation-manifest/v2 binding the project, claim package, approved current reliability evidence, persisted/read-projection/publication hashes, and adjudication coverage to one primary-state revision. Async requests fail closed after the same project-bound evidence gate until an evidence-bound publication worker is implemented.",
     evidenceNoteId: "sena-publication-export",
-    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-publication-derivation-manifest/v2", "sena-publication-state-binding/v1", "sena-data-governance-metadata/v1"]
+    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-publication-derivation-manifest/v2", "sena-publication-state-binding/v1", "sena-data-governance-metadata/v1"],
+    errorResponses: [{
+      status: 413,
+      code: "publication_export_derivation_too_complex",
+      description: "The persisted project snapshot exceeds the request-wide canonical publication derivation budget before report, export, audit, job, or webhook side effects."
+    }]
   },
   {
     id: "sena-notifications",

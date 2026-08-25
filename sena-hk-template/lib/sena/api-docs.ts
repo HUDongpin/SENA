@@ -148,6 +148,34 @@ function requestBodyDocumented(endpoint: SenaApiEndpoint, method: SenaApiMethod)
   return (endpoint.requestBodyMethods ?? DEFAULT_REQUEST_BODY_METHODS).includes(method);
 }
 
+function openApiErrorResponses(endpoint: SenaApiEndpoint) {
+  const grouped = new Map<number, NonNullable<SenaApiEndpoint["errorResponses"]>>();
+  for (const error of endpoint.errorResponses ?? []) {
+    grouped.set(error.status, [...(grouped.get(error.status) ?? []), error]);
+  }
+  return Object.fromEntries(Array.from(grouped, ([status, errors]) => [
+    String(status),
+    {
+      description: errors.map((error) => `${error.code}: ${error.description}`).join("; "),
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["error", "code"],
+            properties: {
+              error: { type: "string" },
+              code: {
+                type: "string",
+                enum: errors.map((error) => error.code)
+              }
+            }
+          }
+        }
+      }
+    }
+  ]));
+}
+
 export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of SENA_API_ENDPOINTS) {
@@ -180,7 +208,8 @@ export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
                 }
               }
             }
-          }
+          },
+          ...openApiErrorResponses(endpoint)
         }
       };
     }

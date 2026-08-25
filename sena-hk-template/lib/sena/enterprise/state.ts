@@ -722,7 +722,13 @@ export type SenaFileEnterpriseStateWriteOptions = {
 export type SenaFileEnterpriseStateStore = Omit<SenaEnterpriseStateStore, "read" | "write" | "save"> & {
   adapter: "file-backed-json";
   read: () => SenaEnterpriseDb;
-  readState: () => {
+  readPersistedState: () => {
+    persistedDb: SenaEnterpriseDbReadModel;
+    revision: string;
+  };
+  readState: (options?: {
+    beforeNormalize?: (persistedDb: SenaEnterpriseDbReadModel) => void;
+  }) => {
     db: SenaEnterpriseDb;
     persistedDb: SenaEnterpriseDbReadModel;
     revision: string;
@@ -735,6 +741,14 @@ export type SenaFileEnterpriseStateStore = Omit<SenaEnterpriseStateStore, "read"
    * thrown callback leaves the persisted database unchanged.
    */
   mutateAtomically: <Result>(mutator: (db: SenaEnterpriseDb) => Result) => Result;
+  /**
+   * Runs a storage-only mutation against the exact persisted carrier while
+   * holding the same cross-process lock. The callback must not require the
+   * normalized project/report read model.
+   */
+  mutatePersistedAtomically: <Result>(
+    mutator: (db: SenaEnterpriseDbReadModel) => Result
+  ) => Result;
   paths: {
     dbDir: string;
     dbPath: string;
@@ -1107,7 +1121,24 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
     }
   };
 
-  const readState = () => {
+  const mutatePersistedAtomically = <Result>(
+    mutator: (db: SenaEnterpriseDbReadModel) => Result
+  ) => {
+    const lockId = acquireWriteLock();
+    try {
+      const current = existsSync(dbPath) ? parsePersistedRaw() : {
+        persistedDb: options.createEmptyDb() as SenaEnterpriseDbReadModel,
+        revision: missingRevision
+      };
+      const result = mutator(current.persistedDb);
+      persistWithoutLock(current.persistedDb);
+      return result;
+    } finally {
+      releaseFileStateLock(lockPath, lockId);
+    }
+  };
+
+  const readPersistedState = () => {
     // Do not create the store directory on the read path: serverless runtimes
     // (Vercel) have a read-only cwd, and non-persisting reads must return the
     // empty state without touching the filesystem. write() creates the
@@ -1116,13 +1147,7 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       const db = options.createEmptyDb();
       if (enterpriseFileStateWritePolicy().blocked || postgresPrimaryStateActiveForFileBackend()) {
         const persistedDb = cloneStateValue(db) as SenaEnterpriseDbReadModel;
-        const normalized = normalizeDb(cloneStateValue(persistedDb));
-        trackedStates.set(normalized, {
-          revision: missingRevision,
-          persistedDb,
-          normalizedBaseline: cloneStateValue(normalized)
-        });
-        return { db: normalized, persistedDb, revision: missingRevision };
+        return { persistedDb, revision: missingRevision };
       }
       const lockId = acquireWriteLock();
       try {
@@ -1132,7 +1157,20 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       }
     }
 
-    const state = parsePersisted();
+    return parsePersistedRaw();
+  };
+
+  const readState = (readOptions: {
+    beforeNormalize?: (persistedDb: SenaEnterpriseDbReadModel) => void;
+  } = {}) => {
+    const persisted = readPersistedState();
+    // Publication admission hooks execute on the exact persisted carrier
+    // before normalizeEnterpriseDb imports any project/revision snapshot.
+    readOptions.beforeNormalize?.(persisted.persistedDb);
+    const state = {
+      ...persisted,
+      db: normalizeDb(cloneStateValue(persisted.persistedDb))
+    };
     trackedStates.set(state.db, {
       revision: state.revision,
       persistedDb: cloneStateValue(state.persistedDb),
@@ -1166,10 +1204,12 @@ export function createFileEnterpriseStateStore(options: SenaFileEnterpriseStateS
       lockPath
     },
     read,
+    readPersistedState,
     readState,
     write,
     save,
     mutateAtomically,
+    mutatePersistedAtomically,
     probeLock: () => {
       let lockId = "";
       try {
@@ -1334,6 +1374,12 @@ export function mutateEnterpriseDbAtomically<Result>(mutator: (db: SenaEnterpris
   return enterpriseStateStore().mutateAtomically(mutator);
 }
 
+export function mutateEnterprisePersistedDbAtomically<Result>(
+  mutator: (db: SenaEnterpriseDbReadModel) => Result
+) {
+  return enterpriseStateStore().mutatePersistedAtomically(mutator);
+}
+
 type SenaEnterpriseStateMutationOutcome<Result> =
   | { ok: true; result: Result }
   | { ok: false; error: unknown };
@@ -1418,11 +1464,97 @@ export function createConfiguredFileEnterpriseStateStore(): SenaFileEnterpriseSt
   return enterpriseStateStore();
 }
 
-export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
+export type SenaEnterpriseAuthState = Pick<
+  SenaEnterpriseDb,
+  "users" | "sessions" | "memberships" | "teams"
+>;
+
+/**
+ * Authentication does not require project/report read projection. Reading
+ * these four persisted holder arrays directly prevents an authenticated
+ * publication request from rebuilding project snapshots before its explicit
+ * request-wide derivation reservation.
+ */
+export async function readEnterpriseAuthState(): Promise<SenaEnterpriseAuthState> {
+  const runtime = getEnterprisePrimaryStateRuntime();
+  let persistedDb: SenaEnterpriseDbReadModel;
+  if (runtime.activePrimary === "postgres") {
+    try {
+      persistedDb = (await postgresPrimaryStateStore().adapter.readState()).db;
+    } catch (error) {
+      normalizePostgresStateError(error);
+    }
+  } else {
+    persistedDb = enterpriseStateStore().readPersistedState().persistedDb;
+  }
+  return {
+    users: persistedDb.users ?? [],
+    sessions: persistedDb.sessions ?? [],
+    memberships: persistedDb.memberships ?? [],
+    teams: persistedDb.teams ?? []
+  };
+}
+
+function projectEnterprisePublicationDb(
+  persistedDb: SenaEnterpriseDbReadModel
+): SenaEnterpriseDb {
+  // Publication receives its exact selected snapshot from the persisted
+  // carrier and performs the canonical import itself. Only supply the shallow
+  // collection defaults historically supplied by normalizeEnterpriseDb;
+  // never import, clone, or normalize any project/revision snapshot here.
+  return {
+    ...persistedDb,
+    projects: persistedDb.projects ?? [],
+    projectRevisions: persistedDb.projectRevisions ?? [],
+    adjudications: persistedDb.adjudications ?? [],
+    reliabilityRuns: (persistedDb.reliabilityRuns ?? []) as SenaEnterpriseReliabilityRun[],
+    validationRuns: (persistedDb.validationRuns ?? []) as SenaEnterpriseValidationRun[],
+    expertReviews: persistedDb.expertReviews ?? []
+  };
+}
+
+/**
+ * Publication uses the persisted revision as its provenance boundary and
+ * performs its own bounded canonical rebuild. Returning that exact raw state
+ * avoids the generic enterprise read projection importing every stored
+ * project/revision before publication's request-wide reservation.
+ */
+export async function readEnterprisePublicationState(options: {
+  beforeReadProjection?: (persistedDb: SenaEnterpriseDbReadModel) => void;
+} = {}): Promise<SenaEnterpriseStateRead> {
   const runtime = getEnterprisePrimaryStateRuntime();
   if (runtime.activePrimary === "postgres") {
     try {
       const state = await postgresPrimaryStateStore().adapter.readState();
+      options.beforeReadProjection?.(state.db);
+      return {
+        db: projectEnterprisePublicationDb(state.db),
+        persistedDb: state.db,
+        revision: state.revision,
+        runtime
+      };
+    } catch (error) {
+      normalizePostgresStateError(error);
+    }
+  }
+  const state = enterpriseStateStore().readPersistedState();
+  options.beforeReadProjection?.(state.persistedDb);
+  return {
+    db: projectEnterprisePublicationDb(state.persistedDb),
+    persistedDb: state.persistedDb,
+    fileRevision: state.revision,
+    runtime
+  };
+}
+
+export async function readEnterpriseState(options: {
+  beforeNormalize?: (persistedDb: SenaEnterpriseDbReadModel) => void;
+} = {}): Promise<SenaEnterpriseStateRead> {
+  const runtime = getEnterprisePrimaryStateRuntime();
+  if (runtime.activePrimary === "postgres") {
+    try {
+      const state = await postgresPrimaryStateStore().adapter.readState();
+      options.beforeNormalize?.(state.db);
       const persistedDb = cloneStateValue(state.db) as SenaEnterpriseDbReadModel;
       return {
         db: normalizeEnterpriseDb(cloneStateValue(persistedDb)),
@@ -1434,7 +1566,9 @@ export async function readEnterpriseState(): Promise<SenaEnterpriseStateRead> {
       normalizePostgresStateError(error);
     }
   }
-  const state = enterpriseStateStore().readState();
+  const state = enterpriseStateStore().readState({
+    beforeNormalize: options.beforeNormalize
+  });
   return {
     db: state.db,
     persistedDb: state.persistedDb,

@@ -1926,7 +1926,10 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
   // buildActiveWindowComparison.
   const timelineDataset = options.sourceDataset ?? model.dataset;
   const timelineModel = options.sourceDataset ? buildSenaModel(options.sourceDataset, model.options) : model;
-  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(timelineDataset, model.options, { timelineModel });
+  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(timelineDataset, model.options, {
+    timelineModel,
+    generatedAt
+  });
   const temporalRuntimeNarrative = buildTemporalRuntimeNarrative(timelineModel, temporalRuntimeTrace);
   const activeWindowComparison = buildActiveWindowComparison(model, options.sourceDataset, options.activeTemporalWindow ?? null);
   const pilotReadinessAudit = buildSenaPilotReadinessAudit({
@@ -2001,7 +2004,7 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
       temporalRuntimeNarrative,
       temporalRuntimeTransitions: temporalRuntimeTrace.transitions,
       socialCommunities: model.socialReport.communities,
-      visualGrammar: senaVisualGrammar
+      visualGrammar: structuredClone(senaVisualGrammar)
     },
     socialReport: model.socialReport,
     pairReport: model.pairReport,

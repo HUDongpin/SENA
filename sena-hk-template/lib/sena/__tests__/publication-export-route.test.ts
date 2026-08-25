@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -11,8 +11,50 @@ import {
   lessonStudySenaContract,
   reliabilityDashboardToReview
 } from "../index";
+import { assertSenaProjectSnapshotPublicationDerivationWorkBudget } from "../snapshot";
 
 const publicationExportRouteTestTimeoutMs = 30_000;
+
+function mutatePersistedProjectSnapshot(
+  enterpriseDbDir: string,
+  projectId: string,
+  mutate: (snapshot: ReturnType<typeof routeSnapshot>) => void
+) {
+  const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+  const db = JSON.parse(readFileSync(dbPath, "utf8")) as {
+    projects: Array<{ id: string; currentVersion: number; snapshot: ReturnType<typeof routeSnapshot> }>;
+    projectRevisions: Array<{ projectId: string; version: number; snapshot: ReturnType<typeof routeSnapshot> }>;
+    auditLog: Array<{ event: string; projectId?: string }>;
+    serverJobs: Array<{ projectId?: string }>;
+  };
+  const project = db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new Error("Persisted route-test project was not found.");
+  mutate(project.snapshot);
+  const revision = db.projectRevisions.find((candidate) =>
+    candidate.projectId === projectId && candidate.version === project.currentVersion
+  );
+  if (!revision) throw new Error("Persisted route-test project revision was not found.");
+  mutate(revision.snapshot);
+  writeFileSync(dbPath, JSON.stringify(db, null, 2));
+  return { dbPath };
+}
+
+function persistedPublicationSideEffects(dbPath: string, projectId: string) {
+  const db = JSON.parse(readFileSync(dbPath, "utf8")) as {
+    auditLog: Array<{
+      event: string;
+      projectId?: string;
+      teamId?: string;
+      detail?: Record<string, unknown>;
+    }>;
+    serverJobs: Array<{ projectId?: string }>;
+  };
+  return {
+    auditEvents: db.auditLog.filter((event) => event.projectId === projectId &&
+      (event.event === "export.run" || event.event === "export.queue")),
+    jobs: db.serverJobs.filter((job) => job.projectId === projectId)
+  };
+}
 
 function routeSnapshot(dataGovernanceComplete = true, codingReliabilityComplete = true) {
   const imported = importSenaJsonContract(lessonStudySenaContract);
@@ -118,6 +160,11 @@ describe("SENA publication export route", () => {
         title: "Route Publication Project",
         snapshot: sourceSnapshot
       });
+      const unrelatedProject = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Unrelated route publication project",
+        snapshot: routeSnapshot()
+      });
       const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
         registered.context,
         projectReliabilityRunInput(project, project.snapshot, "Route publication reliability reviewer")
@@ -126,6 +173,39 @@ describe("SENA publication export route", () => {
         status: "approved",
         notes: "Approved machine-eligible evidence for the current project revision."
       });
+
+      // Persisted enterprise DBs created before these evidence collections
+      // were introduced remain readable. Publication's pre-budget raw-state
+      // boundary must supply only shallow empty-array defaults; it must not
+      // fall back to generic snapshot normalization.
+      const legacyDbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+      const legacyDb = JSON.parse(readFileSync(legacyDbPath, "utf8")) as {
+        adjudications?: unknown[];
+        validationRuns?: unknown[];
+        expertReviews?: unknown[];
+        projects?: Array<{
+          id: string;
+          snapshot: ReturnType<typeof routeSnapshot>;
+        }>;
+        projectRevisions?: Array<{
+          projectId: string;
+          snapshot: ReturnType<typeof routeSnapshot>;
+        }>;
+      };
+      delete legacyDb.adjudications;
+      delete legacyDb.validationRuns;
+      delete legacyDb.expertReviews;
+      // The selected publication is independent of unrelated broken state.
+      // Any generic state projection after the request-wide gate would import
+      // this snapshot (and its initial revision) and fail the successful
+      // request, proving that work escaped the reservation.
+      for (const snapshot of [
+        legacyDb.projects?.find((candidate) => candidate.id === unrelatedProject.id)?.snapshot,
+        legacyDb.projectRevisions?.find((candidate) => candidate.projectId === unrelatedProject.id)?.snapshot
+      ]) {
+        if (snapshot) delete snapshot.analysis.temporalRuntimeTrace;
+      }
+      writeFileSync(legacyDbPath, JSON.stringify(legacyDb, null, 2));
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -201,16 +281,16 @@ describe("SENA publication export route", () => {
       expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
         .not.toBe(body.enterpriseProjectEvidence?.sourceSnapshotSha256);
       expect(body.manifest?.formats).toContain("pdf");
-      const audit = enterprise.listEnterpriseAuditLog(registered.context, {
-        event: "export.run",
-        projectId: project.id,
-        limit: 5
-      });
-      expect(audit.events[0]).toEqual(expect.objectContaining({
+      // Inspect the persisted audit carrier directly. A generic audit-list
+      // read would intentionally normalize the deliberately broken unrelated
+      // fixture and obscure whether the publication request itself stayed
+      // inside its reserved derivation boundary.
+      const audit = persistedPublicationSideEffects(legacyDbPath, project.id).auditEvents;
+      expect(audit[0]).toEqual(expect.objectContaining({
         projectId: project.id,
         teamId: registered.context.teams[0].id
       }));
-      expect(audit.events[0].detail).toEqual(expect.objectContaining({
+      expect(audit[0].detail).toEqual(expect.objectContaining({
         source: "project",
         format: "package",
         title: "Route Publication Project",
@@ -254,7 +334,7 @@ describe("SENA publication export route", () => {
       const budgetDataset = structuredClone(baseSnapshot.dataset);
       budgetDataset.people = [
         ...budgetDataset.people,
-        ...Array.from({ length: 10 - budgetDataset.people.length }, (_, index) => ({
+        ...Array.from({ length: 6 - budgetDataset.people.length }, (_, index) => ({
           id: `publication-budget-person-${index}`,
           label: `Publication budget person ${index}`,
           role: "Synthetic publication load",
@@ -268,11 +348,22 @@ describe("SENA publication export route", () => {
         humanReview: baseSnapshot.report.humanReview,
         dataGovernance: baseSnapshot.dataGovernance
       });
+      // Each existing phase-local reservation is still below the ceiling. The
+      // route must reject because the complete request repeats canonical
+      // import/report/validation/export derivations under one 50M budget.
+      expect(() => assertSenaProjectSnapshotPublicationDerivationWorkBudget(budgetSnapshot))
+        .not.toThrow();
       const project = enterprise.createEnterpriseProject(registered.context, {
         teamId: registered.context.teams[0].id,
         title: "Publication Budget Project",
         snapshot: budgetSnapshot
       });
+      const unrelatedProject = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Unrelated publication state project",
+        snapshot: baseSnapshot
+      });
+      expect(unrelatedProject.id).not.toBe(project.id);
       const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
         registered.context,
         projectReliabilityRunInput(project, project.snapshot, "Publication budget reliability reviewer")
@@ -282,14 +373,24 @@ describe("SENA publication export route", () => {
         notes: "Approved only to exercise route-level derivation admission."
       });
       const route = await import("../../../app/api/sena/exports/publication/route");
-      const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-sena-csrf-token": csrf.token
-        },
-        body: JSON.stringify({ projectId: project.id, format: "html" })
-      }));
+      const clone = vi.spyOn(globalThis, "structuredClone");
+      let response: Response;
+      try {
+        response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({ projectId: project.id, format: "html" })
+        }));
+        // The state contains two projects and their initial revisions. Raw auth
+        // and publication reads must reach the selected request-wide admission
+        // without invoking generic state normalization or snapshot import.
+        expect(clone).not.toHaveBeenCalled();
+      } finally {
+        clone.mockRestore();
+      }
 
       expect(response.status).toBe(413);
       await expect(response.json()).resolves.toEqual(expect.objectContaining({
@@ -309,7 +410,7 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
-  it("blocks sync and queued publication before side effects when persisted model-card membership is empty", async () => {
+  it("blocks sync and queued publication before side effects when persisted model-card membership is empty or malformed", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-model-card-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -340,13 +441,10 @@ describe("SENA publication export route", () => {
       });
       sessionToken = registered.token;
       const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
-      const forgedSnapshot = routeSnapshot();
-      forgedSnapshot.report.modelCard.sections = [];
-      expect(forgedSnapshot.report.modelCard.renderGate.status).toBe("ready");
       const project = enterprise.createEnterpriseProject(registered.context, {
         teamId: registered.context.teams[0].id,
         title: "Empty Model Card Publication Project",
-        snapshot: forgedSnapshot
+        snapshot: routeSnapshot()
       });
       const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
         registered.context,
@@ -356,6 +454,14 @@ describe("SENA publication export route", () => {
         status: "approved",
         notes: "Reliability projection cannot repair persisted model-card section membership."
       });
+      const { dbPath } = mutatePersistedProjectSnapshot(
+        enterpriseDbDir,
+        project.id,
+        (snapshot) => {
+          snapshot.report.modelCard.sections = [];
+          expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
+        }
+      );
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -375,19 +481,25 @@ describe("SENA publication export route", () => {
           code: "publication_export_model_card_blocked"
         }));
       }
+      for (const sections of [
+        [null],
+        [7],
+        [{ status: "complete" }]
+      ]) {
+        mutatePersistedProjectSnapshot(enterpriseDbDir, project.id, (snapshot) => {
+          snapshot.report.modelCard.sections = sections as never;
+        });
+        const malformedResponse = await route.POST(request(false));
+        expect(malformedResponse.status).toBe(409);
+        await expect(malformedResponse.json()).resolves.toEqual(expect.objectContaining({
+          code: "publication_export_model_card_blocked"
+        }));
+      }
       expect(queueRequests).toHaveLength(0);
-      expect(enterprise.listEnterpriseAuditLog(registered.context, {
-        event: "export.run",
-        projectId: project.id,
-        limit: 5
-      }).events).toHaveLength(0);
-      expect(enterprise.listEnterpriseAuditLog(registered.context, {
-        event: "export.queue",
-        projectId: project.id,
-        limit: 5
-      }).events).toHaveLength(0);
-      const jobs = await enterprise.listEnterpriseServerJobs({ projectId: project.id });
-      expect(jobs.jobs).toHaveLength(0);
+      expect(persistedPublicationSideEffects(dbPath, project.id)).toEqual({
+        auditEvents: [],
+        jobs: []
+      });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
@@ -513,14 +625,10 @@ describe("SENA publication export route", () => {
       });
       sessionToken = registered.token;
       const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
-      const forgedSnapshot = routeSnapshot();
-      forgedSnapshot.report.humanReview.interpretation = "Pending human review.";
-      expect(forgedSnapshot.report.humanReview.status).toBe("human-reviewed");
-      expect(forgedSnapshot.report.modelCard.renderGate.status).toBe("ready");
       const project = enterprise.createEnterpriseProject(registered.context, {
         teamId: registered.context.teams[0].id,
         title: "Incomplete Human Review Publication Project",
-        snapshot: forgedSnapshot
+        snapshot: routeSnapshot()
       });
       const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
         registered.context,
@@ -530,6 +638,15 @@ describe("SENA publication export route", () => {
         status: "approved",
         notes: "Machine eligibility cannot substitute for complete publication human review."
       });
+      const { dbPath } = mutatePersistedProjectSnapshot(
+        enterpriseDbDir,
+        project.id,
+        (snapshot) => {
+          snapshot.report.humanReview.interpretation = "Pending human review.";
+          expect(snapshot.report.humanReview.status).toBe("human-reviewed");
+          expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
+        }
+      );
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -550,18 +667,10 @@ describe("SENA publication export route", () => {
         }));
       }
       expect(queueRequests).toHaveLength(0);
-      expect(enterprise.listEnterpriseAuditLog(registered.context, {
-        event: "export.run",
-        projectId: project.id,
-        limit: 5
-      }).events).toHaveLength(0);
-      expect(enterprise.listEnterpriseAuditLog(registered.context, {
-        event: "export.queue",
-        projectId: project.id,
-        limit: 5
-      }).events).toHaveLength(0);
-      const jobs = await enterprise.listEnterpriseServerJobs({ projectId: project.id });
-      expect(jobs.jobs).toHaveLength(0);
+      expect(persistedPublicationSideEffects(dbPath, project.id)).toEqual({
+        auditEvents: [],
+        jobs: []
+      });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

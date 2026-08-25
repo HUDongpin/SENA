@@ -26,7 +26,8 @@ import {
 import { buildSenaModel } from "@/lib/sena/model";
 import { inspectSenaModelCardSections } from "@/lib/sena/model-card";
 import {
-  assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  assertSenaEnterprisePublicationRequestDerivationWorkBudget,
+  assertSenaProjectSnapshotPublicationSourceContract,
   buildSenaProjectSnapshot,
   SenaProjectSnapshotResourceLimitError
 } from "@/lib/sena/snapshot";
@@ -58,11 +59,14 @@ function assertPersistedModelCardSectionMembership(snapshot: SenaProjectSnapshot
       "publication_export_model_card_blocked"
     );
   }
-  const { missingIds, duplicateIds } = inspectSenaModelCardSections(sections);
-  if (missingIds.length === 0 && duplicateIds.length === 0) return;
+  const { missingIds, duplicateIds, unknownIds, malformedIndexes } = inspectSenaModelCardSections(sections);
+  if (missingIds.length === 0 && duplicateIds.length === 0 && unknownIds.length === 0 &&
+    malformedIndexes.length === 0) return;
   const membershipBlockers = [
     ...missingIds.map((id) => `missing:${id}`),
-    ...duplicateIds.map((id) => `duplicate:${id}`)
+    ...duplicateIds.map((id) => `duplicate:${id}`),
+    ...unknownIds.map((id) => `unknown:${id}`),
+    ...malformedIndexes.map((index) => `malformed:${index}`)
   ];
   throw new SenaEnterpriseError(
     `Publication export blocked because persisted model-card section membership is incomplete or inconsistent: ${membershipBlockers.join(", ")}.`,
@@ -78,18 +82,6 @@ function snapshotWithReliabilityEvidence(
 ) {
   assertEnterpriseReliabilityRunCurrentProject(reliabilityRun, project);
   const sourceSnapshot = project.snapshot;
-  try {
-    assertSenaProjectSnapshotPublicationDerivationWorkBudget(sourceSnapshot);
-  } catch (error) {
-    if (error instanceof SenaProjectSnapshotResourceLimitError) {
-      throw new SenaEnterpriseError(
-        "Publication export exceeds the supported canonical derivation budget.",
-        413,
-        "publication_export_derivation_too_complex"
-      );
-    }
-    throw error;
-  }
   const model = buildSenaModel(sourceSnapshot.dataset, sourceSnapshot.reproducibility.buildOptions);
   return buildSenaProjectSnapshot(model, {
     title: sourceSnapshot.title,
@@ -99,7 +91,38 @@ function snapshotWithReliabilityEvidence(
     demoVerificationManualReviews: sourceSnapshot.workspaceState?.demoVerificationManualReviews,
     humanReview: sourceSnapshot.report.humanReview,
     codingReliability: reliabilityReviewProjection,
+    evidenceLimit: Math.max(1, sourceSnapshot.report.evidenceSnippets.length),
+    nullModelIterations: sourceSnapshot.report.validation.nullModels.permutation.iterations,
     dataGovernance: sourceSnapshot.dataGovernance ?? sourceSnapshot.report.dataGovernance
+  });
+}
+
+function publicationDerivationBudgetError(error: unknown): never {
+  if (error instanceof SenaProjectSnapshotResourceLimitError) {
+    throw new SenaEnterpriseError(
+      "Publication export exceeds the supported canonical derivation budget.",
+      413,
+      "publication_export_derivation_too_complex"
+    );
+  }
+  throw error;
+}
+
+async function resolvePublicationStateBeforeDerivation(
+  context: Awaited<ReturnType<typeof requireApiSessionForMutation>>,
+  projectId: string
+) {
+  return resolveEnterprisePublicationStateBundle(context, projectId, {
+    beforeNormalize: ({ targetSnapshot, stateNormalizationSnapshots }) => {
+      try {
+        assertSenaEnterprisePublicationRequestDerivationWorkBudget(
+          targetSnapshot,
+          stateNormalizationSnapshots
+        );
+      } catch (error) {
+        publicationDerivationBudgetError(error);
+      }
+    }
   });
 }
 
@@ -108,6 +131,32 @@ function publicationSnapshotForProject(
   reliabilityRun?: SenaEnterpriseReliabilityRun,
   reliabilityReviewProjection?: SenaEnterpriseReliabilityRun["reviewPatch"]
 ) {
+  const persistedFusionAudit = project.snapshot.report.fusionMathAudit;
+  const persistedReliabilityGate = project.snapshot.report.codingReliabilityGate;
+  if (
+    persistedFusionAudit.schemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
+    persistedFusionAudit.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
+    persistedReliabilityGate.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate ||
+    persistedReliabilityGate.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate
+  ) {
+    throw new SenaEnterpriseError(
+      "Publication export requires exact current-v2 statistical provenance; legacy read projections are import-only.",
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
+  try {
+    assertSenaProjectSnapshotPublicationSourceContract(project.snapshot);
+  } catch (error) {
+    if (error instanceof SenaProjectSnapshotResourceLimitError) {
+      publicationDerivationBudgetError(error);
+    }
+    throw new SenaEnterpriseError(
+      "Publication export requires a structurally valid current canonical project snapshot.",
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
   // The enterprise reliability projection is allowed to refresh the
   // coding-reliability section, but it must never reconstruct missing or
   // duplicate persisted section membership into an apparently valid card.
@@ -170,7 +219,7 @@ export async function POST(request: Request) {
       );
     }
     if (shouldQueueServerJob(request, requestBody)) {
-      const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+      const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
       const queuedPublication = publicationSnapshotForProject(
         publicationState.project,
         publicationState.reliabilityRun,
@@ -183,7 +232,7 @@ export async function POST(request: Request) {
         "publication_export_async_worker_unavailable"
       );
     }
-    const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId);
+    const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
     const { project, claimPackage, stateBinding } = publicationState;
     const publicationSource = publicationSnapshotForProject(
       project,

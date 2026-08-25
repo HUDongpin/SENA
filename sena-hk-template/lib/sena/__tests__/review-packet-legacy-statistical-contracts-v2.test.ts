@@ -1216,6 +1216,18 @@ describe("review-packet statistical contract compatibility", () => {
     }
     expect(imported.summary.pilotReadinessStatus).toBe("needs-review");
     expect(imported.contents.claimReadinessGate.status).toBe("exploratory");
+    expect(imported.contents.projectSnapshot.report.pilotReadinessAudit.notes).toContain(
+      "Current-v2 review-packet readiness was conservatively reconciled across canonical holders."
+    );
+    const projectedSnapshot = structuredClone(imported.contents.projectSnapshot);
+    expect(() => importSenaProjectSnapshot(projectedSnapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+    (projectedSnapshot as typeof projectedSnapshot & Record<string, unknown>)
+      .allowReviewPacketReadinessProjection = true;
+    expect(() => importSenaProjectSnapshot(projectedSnapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options|structural admission limit/i
+    );
     expect(importSenaReviewPacket(structuredClone(imported))).toEqual(imported);
   });
 

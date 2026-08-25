@@ -38,16 +38,33 @@ export const SENA_MODEL_CARD_SECTION_IDS = Object.freeze(
 );
 
 export function inspectSenaModelCardSections(
-  sections: ReadonlyArray<SenaModelCardSection>
+  sections: ReadonlyArray<unknown>
 ) {
+  const expectedIds = new Set<string>(SENA_MODEL_CARD_SECTION_IDS);
   const counts = new Map<SenaModelCardSectionId, number>();
-  for (const section of sections) {
-    counts.set(section.id, (counts.get(section.id) ?? 0) + 1);
+  const unknownIds: string[] = [];
+  const malformedIndexes: number[] = [];
+  const recognizedSections: Array<{ id: SenaModelCardSectionId; status: unknown }> = [];
+  for (const [index, value] of sections.entries()) {
+    if (typeof value !== "object" || value === null || Array.isArray(value) ||
+      typeof (value as { id?: unknown }).id !== "string") {
+      malformedIndexes.push(index);
+      continue;
+    }
+    const section = value as { id: string; status?: unknown };
+    const id = section.id;
+    if (!expectedIds.has(id)) {
+      unknownIds.push(id);
+      continue;
+    }
+    const expectedId = id as SenaModelCardSectionId;
+    counts.set(expectedId, (counts.get(expectedId) ?? 0) + 1);
+    recognizedSections.push({ id: expectedId, status: section.status });
   }
   const missingIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => !counts.has(id));
   const duplicateIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => (counts.get(id) ?? 0) > 1);
   const incompleteIds = SENA_MODEL_CARD_SECTION_IDS.filter((id) => {
-    const matching = sections.filter((section) => section.id === id);
+    const matching = recognizedSections.filter((section) => section.id === id);
     return matching.length === 1 && matching[0].status !== "complete";
   });
   const blockingSet = new Set<SenaModelCardSectionId>([
@@ -59,6 +76,8 @@ export function inspectSenaModelCardSections(
     missingIds,
     duplicateIds,
     incompleteIds,
+    unknownIds,
+    malformedIndexes,
     blockingIds: SENA_MODEL_CARD_SECTION_IDS.filter((id) => blockingSet.has(id))
   };
 }

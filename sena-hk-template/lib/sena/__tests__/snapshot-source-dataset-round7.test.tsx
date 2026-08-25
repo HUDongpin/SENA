@@ -11,7 +11,11 @@ import { buildSenaModel } from "../model";
 import { lessonStudySenaContract } from "../pilot-assets";
 import { importSenaProjectSnapshotFromHandoff } from "../project-handoff";
 import { buildSenaPublicationExport } from "../publication-export";
-import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "../snapshot";
+import {
+  buildSenaProjectSnapshot,
+  importSenaProjectSnapshot,
+  SenaProjectSnapshotResourceLimitError
+} from "../snapshot";
 import type { SenaProjectSnapshot } from "../types";
 
 type SourceMutation = {
@@ -95,8 +99,17 @@ describe("SENA snapshot sourceDataset analytical validation", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(sourceMutations)("rejects a $label on direct snapshot import", (mutation) => {
+  it.each(sourceMutations.filter((mutation) => mutation.label !== "non-finite interaction weight"))(
+    "rejects a $label on direct snapshot import",
+    (mutation) => {
     expectTypedSourceIssue(() => importSenaProjectSnapshot(forgedSourceSnapshot(mutation)), mutation);
+    }
+  );
+
+  it("rejects a non-finite direct-object value at admission before semantic normalization", () => {
+    const mutation = sourceMutations[1];
+    expect(() => importSenaProjectSnapshot(forgedSourceSnapshot(mutation)))
+      .toThrow(SenaProjectSnapshotResourceLimitError);
   });
 
   it("rejects a sourceDataset forgery at project handoff restore", () => {

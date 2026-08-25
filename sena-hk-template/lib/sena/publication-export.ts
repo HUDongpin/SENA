@@ -25,6 +25,7 @@ import {
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
   assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  assertSenaProjectSnapshotPublicationSourceContract,
   importSenaProjectSnapshot
 } from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
@@ -1061,6 +1062,8 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
   const missingReadiness = Array.from(new Set([
     ...renderGate.missingSectionIds,
     ...modelCardSectionIntegrity.blockingIds,
+    ...modelCardSectionIntegrity.unknownIds.map((id) => `unknown-model-card-section:${id}`),
+    ...modelCardSectionIntegrity.malformedIndexes.map((index) => `malformed-model-card-section:${index}`),
     ...(codingReliabilityGate.status === "ready" ? [] : ["coding-reliability"]),
     ...(dataGovernance.status === "complete" ? [] : ["data-governance"]),
     ...(report.dataGovernance.schemaVersion === SENA_SCHEMA_VERSIONS.dataGovernanceMetadata
@@ -1329,6 +1332,13 @@ export async function buildSenaPublicationExport(
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
 ): Promise<SenaPublicationExport> {
   assertSenaProjectSnapshotPublicationDerivationWorkBudget(snapshot);
+  // Reject malformed persisted source data before consulting presentation
+  // readiness. This preflight is bounded and side-effect-free; the canonical
+  // importer below still rebuilds and exact-compares every derived surface.
+  assertSenaProjectSnapshotPublicationSourceContract(snapshot);
+  // Preserve the stable typed publication gate for malformed section
+  // membership before canonical import rejects the forged report ledger.
+  assertSenaPublicationModelCardReady(snapshot.report);
   snapshot = importSenaProjectSnapshot(snapshot);
   const model = buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions);
   const report = snapshot.report;

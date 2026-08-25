@@ -16,6 +16,7 @@ import {
 import type { SenaEnterpriseDb } from "./state";
 import {
   getEnterprisePrimaryStateRuntime,
+  mutateEnterprisePersistedDbAtomically,
   readEnterpriseDb,
   readEnterpriseState,
   saveDb,
@@ -886,9 +887,22 @@ export async function recordEnterpriseAuditAsync(entry: Omit<SenaEnterpriseAudit
     await postgresAuditStore().appendEntry(buildAuditEntry(entry));
     return;
   }
-  const state = await readEnterpriseState();
-  appendAudit(state.db, entry);
-  await saveEnterpriseState(state, state.db);
+  // Audit append is a storage-only side effect. Reading the generic
+  // enterprise projection here would canonically import every persisted
+  // project and revision *after* publication's request-wide derivation gate.
+  // Mutate only the raw audit holder under the existing file lock instead.
+  mutateEnterprisePersistedDbAtomically((persistedDb) => {
+    const raw = persistedDb as unknown as Record<string, unknown>;
+    if (raw.auditLog === undefined) raw.auditLog = [];
+    if (!Array.isArray(raw.auditLog)) {
+      throw new SenaEnterpriseError(
+        "Stored enterprise audit evidence is malformed.",
+        409,
+        "enterprise_audit_log_invalid"
+      );
+    }
+    appendAudit(persistedDb as unknown as SenaEnterpriseDb, entry);
+  });
 }
 
 function buildAuditEntry(entry: Omit<SenaEnterpriseAuditLogEntry, "id" | "createdAt">): SenaEnterpriseAuditLogEntry {

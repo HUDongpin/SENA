@@ -1,5 +1,9 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildSenaModel } from "../model";
+import {
+  buildSenaAnalysisConfigHash,
+  buildSenaDatasetContentHash
+} from "../data-contract-audit";
 import { lessonStudySenaContract } from "../pilot-assets";
 import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet";
 
@@ -14,6 +18,67 @@ beforeAll(() => {
 });
 
 describe("Round 23 review-packet import work bounds", () => {
+  it.each([
+    {
+      label: "sparse",
+      mutate: (packet: typeof basePacket) => {
+        packet.contents.projectSnapshot.analysis.pairReport = new Array(16) as never;
+      }
+    },
+    {
+      label: "cyclic",
+      mutate: (packet: typeof basePacket) => {
+        const cycle: Record<string, unknown> = {};
+        cycle.self = cycle;
+        (packet.contents.projectSnapshot as typeof packet.contents.projectSnapshot & Record<string, unknown>)
+          .restoreCycle = cycle;
+      }
+    }
+  ])("admits the $label embedded snapshot before outer packet clone/normalization", ({ mutate }) => {
+    const packet = structuredClone(basePacket);
+    mutate(packet);
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaReviewPacket(packet)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("runs embedded canonical work admission before any outer compatibility clone", () => {
+    const packet = structuredClone(basePacket);
+    const snapshot = packet.contents.projectSnapshot;
+    snapshot.dataset.codebook = Array.from({ length: 100 }, (_, index) => ({
+      id: `active-code-${index}`,
+      label: `Active code ${index}`,
+      family: "Review packet work admission",
+      description: "Every declared code is connected in one segment.",
+      color: "#64748b"
+    }));
+    snapshot.dataset.coded_segments[0].codes = snapshot.dataset.codebook.map((code) => code.id);
+    snapshot.source.sourceDataset = structuredClone(snapshot.dataset);
+    snapshot.source.sourceDatasetCounts.codes = 100;
+    const runIdentity = {
+      hashAlgorithm: "sena-stable-fnv1a32/v1" as const,
+      datasetVersion: snapshot.dataset.metadata?.datasetVersion ?? "unversioned",
+      datasetContentHash: buildSenaDatasetContentHash(snapshot.dataset),
+      configHash: buildSenaAnalysisConfigHash(snapshot.reproducibility.buildOptions)
+    };
+    packet.contents.runtimeBundle.runtimes.sena.operatorDiagnostics.runIdentity = runIdentity;
+    packet.contents.runtimeBundle.report.operatorDiagnostics.runIdentity = structuredClone(runIdentity);
+    packet.contents.reportJson.operatorDiagnostics.runIdentity = structuredClone(runIdentity);
+    snapshot.report.operatorDiagnostics.runIdentity = structuredClone(runIdentity);
+
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaReviewPacket(packet)).toThrow(/canonical analysis work budget/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
   it("rejects oversized pilot export-artifact membership before accepting extra schema keys", () => {
     const packet = structuredClone(basePacket);
     const manifest = packet.contents.pilotPackageManifest;

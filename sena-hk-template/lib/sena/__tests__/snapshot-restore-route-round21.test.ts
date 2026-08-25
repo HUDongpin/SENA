@@ -6,6 +6,7 @@ import {
   SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_CONTAINER_MEMBERS,
   SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_JSON_TOTAL_MEMBERS,
   SENA_SNAPSHOT_RESTORE_MIN_JSON_STRUCTURAL_TOKENS,
+  buildSenaSnapshotRestoreResult,
   SenaSnapshotRestoreRequestError,
   readSenaSnapshotRestoreRequest,
   type SenaSnapshotRestoreResult
@@ -15,6 +16,7 @@ import { lessonStudySenaContract } from "../pilot-assets";
 import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "../snapshot";
+import type { SenaProjectSnapshot } from "../types";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 
 const endpoint = "https://sena.example.test/api/sena/snapshot/restore";
@@ -74,6 +76,32 @@ function canonicalHundredCodeSnapshot() {
 }
 
 describe("SENA stateless snapshot restore route", () => {
+  it("admits direct helper sources before computing the default source hash", () => {
+    const source = currentSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    let getterCalls = 0;
+    Object.defineProperty(source, "hashHazard", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return "must-not-run";
+      }
+    });
+
+    let thrown: unknown;
+    try {
+      buildSenaSnapshotRestoreResult(source);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SenaSnapshotRestoreRequestError);
+    expect((thrown as SenaSnapshotRestoreRequestError).status).toBe(413);
+    expect((thrown as SenaSnapshotRestoreRequestError).code).toBe(
+      "snapshot_restore_source_too_complex"
+    );
+    expect(getterCalls).toBe(0);
+  });
+
   it("returns an independently hashable canonical snapshot without persistence or audit semantics", async () => {
     const source = structuredClone(currentSnapshot());
     const response = await POST(restoreRequest(source));
@@ -470,7 +498,59 @@ describe("SENA stateless snapshot restore route", () => {
       SENA_SNAPSHOT_RESTORE_MAX_BYTES: String(32 * 1024 * 1024)
     });
     expect(accepted.source).toHaveLength(70_000);
+    expect(accepted.snapshotAdmissionLimits).toEqual({
+      maxJsonBytes: 32 * 1024 * 1024,
+      maxJsonDepth: 64,
+      maxJsonTokens: 8_388_608,
+      maxJsonContainers: 524_288,
+      maxJsonContainerMembers: 131_072,
+      maxJsonTotalMembers: 4_194_304
+    });
   });
+
+  it("threads the configured 32 MiB structural limits through canonical snapshot import", async () => {
+    const source = currentSnapshot() as ReturnType<typeof currentSnapshot> & {
+      restoreAdmissionProbe?: null[];
+    };
+    source.restoreAdmissionProbe = Array.from({ length: 70_000 }, () => null);
+
+    expect(() => importSenaProjectSnapshot(source)).toThrow(/structural admission limit/i);
+
+    vi.stubEnv("SENA_SNAPSHOT_RESTORE_MAX_BYTES", String(32 * 1024 * 1024));
+    try {
+      const response = await POST(restoreRequest(source));
+      expect(response.status).toBe(200);
+      const result = await response.json() as SenaSnapshotRestoreResult;
+      expect((result.snapshot as SenaSnapshotRestoreResult["snapshot"] & {
+        restoreAdmissionProbe?: null[];
+      }).restoreAdmissionProbe).toHaveLength(70_000);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 60_000);
+
+  it("threads the configured structural limits through an embedded review-packet snapshot", async () => {
+    const source = currentReviewPacket();
+    (source.contents.projectSnapshot as typeof source.contents.projectSnapshot & {
+      restoreAdmissionProbe?: null[];
+    }).restoreAdmissionProbe = Array.from({ length: 70_000 }, () => null);
+
+    vi.stubEnv("SENA_SNAPSHOT_RESTORE_MAX_BYTES", String(32 * 1024 * 1024));
+    try {
+      const admitted = await readSenaSnapshotRestoreRequest(restoreRequest(source));
+      expect(() => importSenaReviewPacket(source, {
+        snapshotAdmissionLimits: admitted.snapshotAdmissionLimits
+      })).not.toThrow();
+      const response = await POST(restoreRequest(source));
+      expect(response.status).toBe(200);
+      const result = await response.json() as SenaSnapshotRestoreResult;
+      expect((result.snapshot as SenaSnapshotRestoreResult["snapshot"] & {
+        restoreAdmissionProbe?: null[];
+      }).restoreAdmissionProbe).toHaveLength(70_000);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 60_000);
 
   it("rejects excessive JSON depth before invoking the parser", async () => {
     const nestedSource = `${"[".repeat(65)}null${"]".repeat(65)}`;
