@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { SENA_API_ENDPOINT_FACTS, type SenaApiMethod } from "../api-route-facts";
 
 /**
  * T2 coverage for Ledger row FA22-01 — "GET /api/sena/docs and ?format=openapi
@@ -283,12 +284,24 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
           expect([where, typeof operation.operationId]).toEqual([where, "string"]);
           expect([where, typeof operation.summary]).toEqual([where, "string"]);
           expect([where, operation.tags?.length]).toEqual([where, 1]);
-          // `responses` is REQUIRED on an Operation Object in 3.1, and each
-          // response needs a description.
-          expect([where, Object.keys(operation.responses ?? {})]).toEqual([where, ["200"]]);
-          expect([where, typeof operation.responses?.["200"]?.description]).toEqual([where, "string"]);
-          expect([where, Object.keys(operation.responses?.["200"]?.content ?? {})])
-            .toEqual([where, ["application/json"]]);
+          // `responses` is REQUIRED on an Operation Object in 3.1. Keep the
+          // route-level document exact against the endpoint facts, including
+          // typed non-2xx responses, and require every response to be usable.
+          const endpointFact = SENA_API_ENDPOINT_FACTS.find((endpoint) => (
+            endpoint.path === pathKey && endpoint.methods.includes(method.toUpperCase() as SenaApiMethod)
+          ));
+          const expectedStatuses = [
+            "200",
+            ...new Set((endpointFact?.errorResponses ?? []).map((response) => String(response.status)))
+          ].sort();
+          const responses = operation.responses ?? {};
+          expect([where, Boolean(endpointFact)]).toEqual([where, true]);
+          expect([where, Object.keys(responses).sort()]).toEqual([where, expectedStatuses]);
+          for (const [status, response] of Object.entries(responses)) {
+            expect([where, status, typeof response.description]).toEqual([where, status, "string"]);
+            expect([where, status, Object.keys(response.content ?? {})])
+              .toEqual([where, status, ["application/json"]]);
+          }
           operationIds.push(String(operation.operationId));
         }
       }

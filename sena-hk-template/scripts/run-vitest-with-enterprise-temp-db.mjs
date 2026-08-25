@@ -23,20 +23,45 @@ function resolveInstalledPackageFile(packageName, relativePath) {
 const providedDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
 const enterpriseDbDir = providedDbDir || mkdtempSync(join(tmpdir(), "sena-vitest-enterprise-db-"));
 
-try {
-  const result = spawnSync(process.execPath, [
-    resolveInstalledPackageFile("vitest", "vitest.mjs"),
-    "run",
-    ...process.argv.slice(2)
-  ], {
+// These end-to-end files each pass inside their declared 120/180-second test
+// timeout when run alone, but can exceed it when they contend with the default
+// multi-worker full suite. Keep the broad suite parallel, then run only these
+// known long files serially. Explicit CLI arguments preserve the wrapper's
+// original single-invocation behaviour for focused developer runs.
+const serialTestFiles = [
+  "lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
+  "lib/sena/__tests__/enterprise-go-live.test.ts",
+  "lib/sena/__tests__/enterprise.test.ts"
+];
+
+function runVitest(vitestFile, args) {
+  return spawnSync(process.execPath, [vitestFile, "run", ...args], {
     stdio: "inherit",
     env: {
       ...process.env,
       SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
     }
-  });
+  }).status ?? 1;
+}
 
-  process.exitCode = result.status ?? 1;
+try {
+  const vitestFile = resolveInstalledPackageFile("vitest", "vitest.mjs");
+  const requestedArgs = process.argv.slice(2);
+  const phases = requestedArgs.length > 0
+    ? [requestedArgs]
+    : [
+        serialTestFiles.flatMap((testFile) => ["--exclude", testFile]),
+        ["--no-file-parallelism", ...serialTestFiles]
+      ];
+
+  process.exitCode = 0;
+  for (const phaseArgs of phases) {
+    const status = runVitest(vitestFile, phaseArgs);
+    if (status !== 0) {
+      process.exitCode = status;
+      break;
+    }
+  }
 } finally {
   if (!providedDbDir) {
     rmSync(enterpriseDbDir, { force: true, recursive: true });
