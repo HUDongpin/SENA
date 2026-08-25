@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import {
@@ -1437,6 +1438,8 @@ export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_WORK_UNITS = 50_000
 export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_RESULTS = 1_000;
 export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_SOURCES = 1_000;
 export const SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS = 50_000_000;
+export const SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
+export const SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_WORK_UNITS = 5_000_000;
 const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES = 65_536;
 const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES = 16 * 1024 * 1024;
 
@@ -1466,6 +1469,186 @@ function safeAdmissionWorkSum(values: number[]) {
 
 function isDenseBoundedSourceModelArray(value: unknown, maximum: number): value is unknown[] {
   return isBoundedDenseCarrierArray(value, 0, maximum);
+}
+
+type SenaGroupComparisonSourceDigestMeasurement = {
+  textBytes: number;
+  digestBytes: number;
+  workUnits: number;
+};
+
+function safeSourceDigestAdd(current: number, increment: number) {
+  if (!Number.isSafeInteger(increment) || increment < 0 ||
+    current > Number.MAX_SAFE_INTEGER - increment) {
+    throw new Error("SENA group-comparison source digest scan budget is not safely representable.");
+  }
+  return current + increment;
+}
+
+function sourceDigestScalarToken(value: unknown) {
+  if (value === undefined) return "u";
+  if (value === null) return "z";
+  if (typeof value === "boolean") return value ? "b1" : "b0";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "nNaN";
+    if (value === Number.POSITIVE_INFINITY) return "nInfinity";
+    if (value === Number.NEGATIVE_INFINITY) return "n-Infinity";
+    if (Object.is(value, -0)) return "n-0";
+    return `n${String(value)}`;
+  }
+  if (typeof value === "bigint") return `i${value.toString()}`;
+  return undefined;
+}
+
+/**
+ * Measures every source string and every byte/work unit that the streaming
+ * identity digest will consume. This phase never constructs a full canonical
+ * string and completes before createHash() is called.
+ */
+function measureSenaGroupComparisonSourceDigest(
+  source: SenaGroupComparisonSourceContext,
+  maximumTextBytes: number
+): SenaGroupComparisonSourceDigestMeasurement {
+  const measurement: SenaGroupComparisonSourceDigestMeasurement = {
+    textBytes: 0,
+    digestBytes: 0,
+    workUnits: 0
+  };
+  const ancestors = new WeakSet<object>();
+  const reserveDigestText = (value: string, countsAsSourceText: boolean) => {
+    if (countsAsSourceText && value.length > maximumTextBytes) {
+      throw new Error("SENA group-comparison source model text budget exceeded.");
+    }
+    const bytes = Buffer.byteLength(value, "utf8");
+    if (countsAsSourceText) {
+      if (bytes > maximumTextBytes - measurement.textBytes) {
+        throw new Error("SENA group-comparison source model text budget exceeded.");
+      }
+      measurement.textBytes += bytes;
+    }
+    measurement.digestBytes = safeSourceDigestAdd(measurement.digestBytes, bytes);
+    measurement.workUnits = safeSourceDigestAdd(measurement.workUnits, 1);
+    return bytes;
+  };
+  const reserveToken = (value: string) => {
+    reserveDigestText(value, false);
+  };
+  const visit = (value: unknown) => {
+    if (typeof value === "string") {
+      const bytes = reserveDigestText(value, true);
+      reserveToken(`s${bytes}:`);
+      return;
+    }
+    const scalar = sourceDigestScalarToken(value);
+    if (scalar !== undefined) {
+      reserveToken(scalar);
+      return;
+    }
+    if (!value || typeof value !== "object" || ancestors.has(value)) {
+      invalidSourceDatasetCarrier();
+    }
+    ancestors.add(value);
+    try {
+      if (Array.isArray(value)) {
+        const descriptors = carrierOwnDataDescriptors(value, Array.prototype);
+        const lengthDescriptor = descriptors?.length;
+        const length = lengthDescriptor && "value" in lengthDescriptor
+          ? lengthDescriptor.value
+          : undefined;
+        if (!descriptors || !Number.isSafeInteger(length) || (length as number) < 0 ||
+          (length as number) > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES ||
+          !isDenseBoundedSourceModelArray(
+            value,
+            SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES
+          )) invalidSourceDatasetCarrier();
+        reserveToken(`a${String(length)}[`);
+        for (let index = 0; index < (length as number); index += 1) {
+          visit(descriptors[String(index)].value);
+        }
+        reserveToken("]");
+        return;
+      }
+      const descriptors = carrierOwnDataDescriptors(value, Object.prototype);
+      if (!descriptors) invalidSourceDatasetCarrier();
+      const keys = Reflect.ownKeys(descriptors);
+      if (keys.some((key) => typeof key !== "string")) invalidSourceDatasetCarrier();
+      const orderedKeys = (keys as string[]).sort();
+      reserveToken(`o${orderedKeys.length}{`);
+      for (const key of orderedKeys) {
+        const descriptor = descriptors[key];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+          invalidSourceDatasetCarrier();
+        }
+        const keyBytes = reserveDigestText(key, false);
+        reserveToken(`k${keyBytes}:`);
+        visit(descriptor.value);
+      }
+      reserveToken("}");
+    } finally {
+      ancestors.delete(value);
+    }
+  };
+  visit(source);
+  return measurement;
+}
+
+function senaGroupComparisonSourceDigest(source: SenaGroupComparisonSourceContext) {
+  const hash = createHash("sha256");
+  const ancestors = new WeakSet<object>();
+  const update = (value: string) => {
+    hash.update(value, "utf8");
+  };
+  const visit = (value: unknown) => {
+    if (typeof value === "string") {
+      const bytes = Buffer.byteLength(value, "utf8");
+      update(`s${bytes}:`);
+      update(value);
+      return;
+    }
+    const scalar = sourceDigestScalarToken(value);
+    if (scalar !== undefined) {
+      update(scalar);
+      return;
+    }
+    if (!value || typeof value !== "object" || ancestors.has(value)) {
+      invalidSourceDatasetCarrier();
+    }
+    ancestors.add(value);
+    try {
+      if (Array.isArray(value)) {
+        const descriptors = carrierOwnDataDescriptors(value, Array.prototype);
+        const length = descriptors?.length && "value" in descriptors.length
+          ? descriptors.length.value
+          : undefined;
+        if (!descriptors || !Number.isSafeInteger(length)) invalidSourceDatasetCarrier();
+        update(`a${String(length)}[`);
+        for (let index = 0; index < (length as number); index += 1) {
+          visit(descriptors[String(index)].value);
+        }
+        update("]");
+        return;
+      }
+      const descriptors = carrierOwnDataDescriptors(value, Object.prototype);
+      if (!descriptors) invalidSourceDatasetCarrier();
+      const orderedKeys = Reflect.ownKeys(descriptors).map(String).sort();
+      update(`o${orderedKeys.length}{`);
+      for (const key of orderedKeys) {
+        const descriptor = descriptors[key];
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+          invalidSourceDatasetCarrier();
+        }
+        const keyBytes = Buffer.byteLength(key, "utf8");
+        update(`k${keyBytes}:`);
+        update(key);
+        visit(descriptor.value);
+      }
+      update("}");
+    } finally {
+      ancestors.delete(value);
+    }
+  };
+  visit(source);
+  return hash.digest("hex");
 }
 
 const sourceBuildOptionKeys = [
@@ -1857,15 +2040,25 @@ function currentComparisonVerificationKeyBody(
  */
 export class SenaGroupComparisonSourceVerificationCache {
   private readonly sources = new Map<string, SenaGroupComparisonCachedSource>();
-  private readonly sourceKeys = new WeakMap<object, Map<string, string>>();
+  private readonly sourceKeys = new WeakMap<object, {
+    withoutBuildOptions?: string;
+    byBuildOptions: WeakMap<object, string>;
+  }>();
   private readonly reservedResultKeys = new Set<string>();
   private readonly maximumWorkUnits: number;
   private readonly maximumUniqueResults: number;
   private readonly maximumUniqueSources: number;
   private readonly maximumSourceModelWorkUnits: number;
+  private readonly maximumSourceTextBytes: number;
+  private readonly maximumSourceDigestBytes: number;
+  private readonly maximumSourceDigestWorkUnits: number;
   private reservedWorkUnits = 0;
   private reservedSourceCount = 0;
   private reservedSourceModelWorkUnits = 0;
+  private reservedSourceDigestBytes = 0;
+  private reservedSourceDigestWorkUnits = 0;
+  private sourceDigestScans = 0;
+  private lastMeasuredSourceTextBytes = 0;
   private modelBuilds = 0;
   private evidenceBuilds = 0;
   private resultReplays = 0;
@@ -1875,6 +2068,9 @@ export class SenaGroupComparisonSourceVerificationCache {
     maxUniqueResults?: number;
     maxUniqueSources?: number;
     maxSourceModelWorkUnits?: number;
+    maxSourceTextBytes?: number;
+    maxSourceDigestBytes?: number;
+    maxSourceDigestWorkUnits?: number;
   } = {}) {
     this.maximumWorkUnits = options.maxDeterministicWorkUnits ??
       SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_WORK_UNITS;
@@ -1884,10 +2080,20 @@ export class SenaGroupComparisonSourceVerificationCache {
       SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_SOURCES;
     this.maximumSourceModelWorkUnits = options.maxSourceModelWorkUnits ??
       SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS;
+    this.maximumSourceTextBytes = options.maxSourceTextBytes ??
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES;
+    this.maximumSourceDigestBytes = options.maxSourceDigestBytes ??
+      SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_BYTES;
+    this.maximumSourceDigestWorkUnits = options.maxSourceDigestWorkUnits ??
+      SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_WORK_UNITS;
     if (!Number.isSafeInteger(this.maximumWorkUnits) || this.maximumWorkUnits < 1 ||
       !Number.isSafeInteger(this.maximumUniqueResults) || this.maximumUniqueResults < 1 ||
       !Number.isSafeInteger(this.maximumUniqueSources) || this.maximumUniqueSources < 1 ||
-      !Number.isSafeInteger(this.maximumSourceModelWorkUnits) || this.maximumSourceModelWorkUnits < 1) {
+      !Number.isSafeInteger(this.maximumSourceModelWorkUnits) || this.maximumSourceModelWorkUnits < 1 ||
+      !Number.isSafeInteger(this.maximumSourceTextBytes) || this.maximumSourceTextBytes < 1 ||
+      !Number.isSafeInteger(this.maximumSourceDigestBytes) || this.maximumSourceDigestBytes < 1 ||
+      !Number.isSafeInteger(this.maximumSourceDigestWorkUnits) ||
+      this.maximumSourceDigestWorkUnits < 1) {
       throw new Error("SENA group-comparison source replay budget must use positive safe integers.");
     }
   }
@@ -1920,6 +2126,22 @@ export class SenaGroupComparisonSourceVerificationCache {
     return this.reservedSourceModelWorkUnits;
   }
 
+  get sourceDigestBytesReserved() {
+    return this.reservedSourceDigestBytes;
+  }
+
+  get sourceDigestWorkUnitsReserved() {
+    return this.reservedSourceDigestWorkUnits;
+  }
+
+  get sourceDigestScanCount() {
+    return this.sourceDigestScans;
+  }
+
+  get lastSourceTextBytesMeasured() {
+    return this.lastMeasuredSourceTextBytes;
+  }
+
   private reserveResultReplay(resultKey: string, leaves: SenaGroupComparisonVerificationLeaf[]) {
     if (this.reservedResultKeys.has(resultKey)) return;
     let workUnits = 0;
@@ -1942,32 +2164,49 @@ export class SenaGroupComparisonSourceVerificationCache {
     assertSenaGroupComparisonSourceContextCarrier(source);
     const datasetObject = source.dataset as object;
     const buildOptions = Object.hasOwn(source, "buildOptions") ? source.buildOptions : undefined;
-    const buildOptionsKey = stableJson(buildOptions ?? {});
-    // State and Postgres readers intentionally clone their JSON carriers. An
-    // object-identity WeakMap therefore rebuilt the same immutable holder model
-    // on every read inside one request. Bind the cache to a collision-resistant
-    // canonical source digest instead; the request budget still caps distinct
-    // source digests and model work before construction.
-    let sourceKeysByBuildOptions = this.sourceKeys.get(datasetObject);
-    if (!sourceKeysByBuildOptions) {
-      sourceKeysByBuildOptions = new Map();
-      this.sourceKeys.set(datasetObject, sourceKeysByBuildOptions);
+    let sourceIdentityKeys = this.sourceKeys.get(datasetObject);
+    if (!sourceIdentityKeys) {
+      sourceIdentityKeys = { byBuildOptions: new WeakMap() };
+      this.sourceKeys.set(datasetObject, sourceIdentityKeys);
     }
-    let sourceKey = sourceKeysByBuildOptions.get(buildOptionsKey);
+    const buildOptionsObject = buildOptions as object | undefined;
+    let sourceKey = buildOptionsObject
+      ? sourceIdentityKeys.byBuildOptions.get(buildOptionsObject)
+      : sourceIdentityKeys.withoutBuildOptions;
+    let sourceModelWorkUnits: number | undefined;
     if (!sourceKey) {
-      sourceKey = createHash("sha256")
-        .update(stableJson({ dataset: source.dataset, buildOptions: buildOptionsKey }))
-        .digest("hex");
-      sourceKeysByBuildOptions.set(buildOptionsKey, sourceKey);
+      const measurement = measureSenaGroupComparisonSourceDigest(
+        source,
+        this.maximumSourceTextBytes
+      );
+      this.lastMeasuredSourceTextBytes = measurement.textBytes;
+      sourceModelWorkUnits = estimateSenaGroupComparisonSourceModelWorkUnits(
+        source,
+        this.maximumSourceModelWorkUnits
+      );
+      if (measurement.digestBytes >
+          this.maximumSourceDigestBytes - this.reservedSourceDigestBytes ||
+        measurement.workUnits >
+          this.maximumSourceDigestWorkUnits - this.reservedSourceDigestWorkUnits) {
+        throw new Error("SENA group-comparison source digest scan budget exceeded.");
+      }
+      // Reserve the complete scan before the first hash.update. Cache hits by
+      // content still consume this reservation when they arrived as clones.
+      this.reservedSourceDigestBytes += measurement.digestBytes;
+      this.reservedSourceDigestWorkUnits += measurement.workUnits;
+      sourceKey = senaGroupComparisonSourceDigest(source);
+      this.sourceDigestScans += 1;
+      if (buildOptionsObject) sourceIdentityKeys.byBuildOptions.set(buildOptionsObject, sourceKey);
+      else sourceIdentityKeys.withoutBuildOptions = sourceKey;
     }
     let entry = this.sources.get(sourceKey);
     if (!entry) {
       if (this.reservedSourceCount >= this.maximumUniqueSources) {
         throw new Error("SENA group-comparison source verification unique-source budget exceeded.");
       }
-      const sourceModelWorkUnits = estimateSenaGroupComparisonSourceModelWorkUnits(
+      sourceModelWorkUnits ??= estimateSenaGroupComparisonSourceModelWorkUnits(
         source,
-        this.maximumSourceModelWorkUnits - this.reservedSourceModelWorkUnits
+        this.maximumSourceModelWorkUnits
       );
       if (sourceModelWorkUnits >
         this.maximumSourceModelWorkUnits - this.reservedSourceModelWorkUnits) {

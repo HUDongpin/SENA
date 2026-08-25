@@ -105,6 +105,34 @@ const SENA_ENTERPRISE_VALIDATION_RUN_OPTIONAL_KEYS = [
   "validationRunEvidenceSchemaVersion", "validationRunEvidenceHash",
   "preregistrationPlan", "parityEvidence"
 ] as const;
+const SENA_ENTERPRISE_VALIDATION_ANALYSIS_SOURCE_REQUIRED_KEYS = [
+  "id", "teamId", "artifactFingerprints"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_ANALYSIS_SOURCE_OPTIONAL_KEYS = [
+  "projectId", "persistedProjectId", "userId", "sourceKind", "title",
+  "includeRuntimeBundle", "datasetCounts", "analysisDatasetCounts",
+  "activeTemporalWindow", "summary", "createdAt"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_ANALYSIS_FINGERPRINT_REQUIRED_KEYS = [
+  "reportSha256", "projectSnapshotSha256"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_ANALYSIS_FINGERPRINT_OPTIONAL_KEYS = [
+  "projectSnapshotBindingSha256", "runtimeBundleSha256"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_PROJECT_SOURCE_REQUIRED_KEYS = [
+  "id", "teamId", "currentVersion", "snapshot"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_PROJECT_SOURCE_OPTIONAL_KEYS = [
+  "ownerId", "title", "description", "datasetCounts", "activeWindowLabel",
+  "claimUse", "createdAt", "updatedAt"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_REQUIRED_KEYS = [
+  "projectId", "teamId", "version", "snapshot"
+] as const;
+const SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_OPTIONAL_KEYS = [
+  "id", "userId", "summary", "datasetCounts", "activeWindowLabel",
+  "claimUse", "createdAt"
+] as const;
 
 function isEvidenceRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -551,27 +579,39 @@ function projectEnterpriseValidationAnalysisRunSources(
   const projected: SenaEnterpriseValidationAnalysisRunSource[] = [];
   const ids = new Set<string>();
   for (const candidate of raw) {
-    if (!isEvidenceRecord(candidate) ||
+    if (!hasExactEvidenceKeys(
+      candidate,
+      SENA_ENTERPRISE_VALIDATION_ANALYSIS_SOURCE_REQUIRED_KEYS,
+      SENA_ENTERPRISE_VALIDATION_ANALYSIS_SOURCE_OPTIONAL_KEYS
+    )) return validationIntegrityFailure("resourceAdmission");
+    const artifactFingerprints = candidate.artifactFingerprints;
+    if (!hasExactEvidenceKeys(
+      artifactFingerprints,
+      SENA_ENTERPRISE_VALIDATION_ANALYSIS_FINGERPRINT_REQUIRED_KEYS,
+      SENA_ENTERPRISE_VALIDATION_ANALYSIS_FINGERPRINT_OPTIONAL_KEYS
+    ) ||
       !isBoundedEvidenceText(candidate.id) || !candidate.id.trim() ||
       !isBoundedEvidenceText(candidate.teamId) || !candidate.teamId.trim() ||
       (candidate.projectId !== undefined &&
         (!isBoundedEvidenceText(candidate.projectId) || !candidate.projectId.trim())) ||
       (candidate.persistedProjectId !== undefined &&
         (!isBoundedEvidenceText(candidate.persistedProjectId) || !candidate.persistedProjectId.trim())) ||
-      !isEvidenceRecord(candidate.artifactFingerprints) ||
-      !isSha256(candidate.artifactFingerprints.reportSha256) ||
-      !isSha256(candidate.artifactFingerprints.projectSnapshotSha256) ||
-      (candidate.artifactFingerprints.projectSnapshotBindingSha256 !== undefined &&
-        !isSha256(candidate.artifactFingerprints.projectSnapshotBindingSha256)) ||
+      !isSha256(artifactFingerprints.reportSha256) ||
+      !isSha256(artifactFingerprints.projectSnapshotSha256) ||
+      (artifactFingerprints.projectSnapshotBindingSha256 !== undefined &&
+        !isSha256(artifactFingerprints.projectSnapshotBindingSha256)) ||
+      (artifactFingerprints.runtimeBundleSha256 !== undefined &&
+        !isSha256(artifactFingerprints.runtimeBundleSha256)) ||
       ids.has(candidate.id)) return validationIntegrityFailure("resourceAdmission");
     for (const text of [
       candidate.id,
       candidate.teamId,
       candidate.projectId,
       candidate.persistedProjectId,
-      candidate.artifactFingerprints.reportSha256,
-      candidate.artifactFingerprints.projectSnapshotSha256,
-      candidate.artifactFingerprints.projectSnapshotBindingSha256
+      artifactFingerprints.reportSha256,
+      artifactFingerprints.projectSnapshotSha256,
+      artifactFingerprints.projectSnapshotBindingSha256,
+      artifactFingerprints.runtimeBundleSha256
     ]) {
       if (text !== undefined) reserveEnterpriseValidationSourceIdentityText(text, budget);
     }
@@ -584,13 +624,16 @@ function projectEnterpriseValidationAnalysisRunSources(
         ? { persistedProjectId: candidate.persistedProjectId }
         : {}),
       artifactFingerprints: {
-        reportSha256: candidate.artifactFingerprints.reportSha256,
-        projectSnapshotSha256: candidate.artifactFingerprints.projectSnapshotSha256,
-        ...(candidate.artifactFingerprints.projectSnapshotBindingSha256 !== undefined
+        reportSha256: artifactFingerprints.reportSha256,
+        projectSnapshotSha256: artifactFingerprints.projectSnapshotSha256,
+        ...(artifactFingerprints.projectSnapshotBindingSha256 !== undefined
           ? {
               projectSnapshotBindingSha256:
-                candidate.artifactFingerprints.projectSnapshotBindingSha256
+                artifactFingerprints.projectSnapshotBindingSha256
             }
+          : {}),
+        ...(artifactFingerprints.runtimeBundleSha256 !== undefined
+          ? { runtimeBundleSha256: artifactFingerprints.runtimeBundleSha256 }
           : {})
       }
     });
@@ -600,7 +643,7 @@ function projectEnterpriseValidationAnalysisRunSources(
 
 function projectEnterpriseValidationProjectRevisionSources(
   raw: unknown,
-  requiredIdentities: ReadonlySet<string>,
+  requiredIdentities: ReadonlySet<string> | undefined,
   budget: SenaEnterpriseValidationSourceCarrierBudget,
   snapshotHashCache: SenaEnterpriseValidationSnapshotHashCache
 ): SenaEnterpriseValidationProjectRevisionSource[] {
@@ -609,7 +652,11 @@ function projectEnterpriseValidationProjectRevisionSources(
   }
   const projected: SenaEnterpriseValidationProjectRevisionSource[] = [];
   for (const candidate of raw) {
-    if (!isEvidenceRecord(candidate) ||
+    if (!hasExactEvidenceKeys(
+      candidate,
+      SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_REQUIRED_KEYS,
+      SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_OPTIONAL_KEYS
+    ) ||
       !isBoundedEvidenceText(candidate.projectId) || !candidate.projectId.trim() ||
       !isBoundedEvidenceText(candidate.teamId) || !candidate.teamId.trim() ||
       !isSafeIntegerBetween(candidate.version, 1, Number.MAX_SAFE_INTEGER) ||
@@ -621,7 +668,7 @@ function projectEnterpriseValidationProjectRevisionSources(
       teamId: candidate.teamId,
       version: candidate.version
     });
-    if (!requiredIdentities.has(identityKey)) continue;
+    if (requiredIdentities && !requiredIdentities.has(identityKey)) continue;
     // Preserve every bounded candidate for the semantic index below. The
     // binding hash may disambiguate historical rows that share an identity,
     // while an exact duplicate must remain ambiguous and fail projectBinding.
@@ -655,7 +702,11 @@ function projectEnterpriseValidationProjects(
     "id" | "teamId" | "currentVersion" | "snapshot"
   >> = [];
   for (const candidate of raw) {
-    if (!isEvidenceRecord(candidate) ||
+    if (!hasExactEvidenceKeys(
+      candidate,
+      SENA_ENTERPRISE_VALIDATION_PROJECT_SOURCE_REQUIRED_KEYS,
+      SENA_ENTERPRISE_VALIDATION_PROJECT_SOURCE_OPTIONAL_KEYS
+    ) ||
       !isBoundedEvidenceText(candidate.id) || !candidate.id.trim() ||
       !isBoundedEvidenceText(candidate.teamId) || !candidate.teamId.trim() ||
       !isSafeIntegerBetween(candidate.currentVersion, 1, Number.MAX_SAFE_INTEGER) ||
@@ -783,7 +834,13 @@ export class SenaEnterpriseValidationProjectRevisionIndex {
     revisions: SenaEnterpriseValidationProjectRevisionSource[],
     private readonly snapshotHashCache: SenaEnterpriseValidationSnapshotHashCache = new WeakMap()
   ) {
-    for (const revision of revisions) {
+    const admitted = projectEnterpriseValidationProjectRevisionSources(
+      revisions,
+      undefined,
+      { identityBytes: 0, snapshotBytes: 0 },
+      this.snapshotHashCache
+    );
+    for (const revision of admitted) {
       const key = SenaEnterpriseValidationProjectRevisionIndex.identityKey(revision);
       const candidates = this.byIdentity.get(key) ?? [];
       candidates.push(revision);
@@ -838,7 +895,11 @@ export class SenaEnterpriseValidationAnalysisRunIndex {
   private lookups = 0;
 
   constructor(runs: SenaEnterpriseValidationAnalysisRunSource[]) {
-    for (const run of runs) {
+    const admitted = projectEnterpriseValidationAnalysisRunSources(runs, {
+      identityBytes: 0,
+      snapshotBytes: 0
+    });
+    for (const run of admitted) {
       this.candidateInspections += 1;
       const projectIds = new Set([run.projectId, run.persistedProjectId]);
       const id = run.id;
@@ -1585,6 +1646,15 @@ export function normalizeEnterpriseValidationRunEvidence(
   if (!hasBoundedValidationRunEvidenceCarriers(run)) {
     return validationIntegrityFailure("resourceAdmission");
   }
+  const contextualSnapshotHashCache = options.snapshotHashCache ?? new WeakMap();
+  if (project) {
+    project = projectEnterpriseValidationProjects(
+      [project],
+      new Set(run.projectId ? [run.projectId] : []),
+      { identityBytes: 0, snapshotBytes: 0 },
+      contextualSnapshotHashCache
+    )[0];
+  }
   const hashMode = options.evidenceHash ?? "optional";
   const storedHash = run.validationRunEvidenceHash;
   const hasStoredHash = storedHash !== undefined;
@@ -1634,13 +1704,13 @@ export function normalizeEnterpriseValidationRunEvidence(
       binding.projectVersion === project.currentVersion &&
       binding.snapshotSha256 === validationSnapshotHashes(
         project.snapshot,
-        options.snapshotHashCache
+        contextualSnapshotHashCache
       ).bindingSha256;
     if (!currentMatches) {
       const revisionIndex = options.projectRevisionIndex ??
         new SenaEnterpriseValidationProjectRevisionIndex(
           options.projectRevisions ?? [],
-          options.snapshotHashCache
+          contextualSnapshotHashCache
         );
       const retained = project?.teamId === run.teamId
         ? revisionIndex.matchingRevision({
@@ -1666,7 +1736,7 @@ export function normalizeEnterpriseValidationRunEvidence(
     const walkthrough = run.parityEvidence?.walkthrough;
     const expectedWalkthroughHash = validationSnapshotHashes(
       validationSource.snapshot,
-      options.snapshotHashCache
+      contextualSnapshotHashCache
     ).bindingSha256;
     let sourceBound = walkthrough?.source === "project-snapshot" &&
       walkthrough.sourceId === validationSource.id;

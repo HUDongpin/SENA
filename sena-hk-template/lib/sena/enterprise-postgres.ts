@@ -3513,6 +3513,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         lifecycle = $2::jsonb,
         updated_at = $3
       WHERE id = $1 AND status = 'queued'
+        AND delivery->>'sourceReady' = 'true'
       RETURNING *
     `, [job.id, roundTripJson(job.lifecycle), job.updatedAt]);
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
@@ -3549,6 +3550,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     kind?: SenaEnterpriseServerJobKind;
     teamId?: string;
     projectId?: string;
+    claimableOnly?: boolean;
   }) {
     const values: unknown[] = [];
     const clauses: string[] = [];
@@ -3560,6 +3562,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     if (inputFilters.kind) add("kind = ?", inputFilters.kind);
     if (inputFilters.teamId) add("team_id = ?", inputFilters.teamId);
     if (inputFilters.projectId) add("project_id = ?", inputFilters.projectId);
+    if (inputFilters.claimableOnly) clauses.push("delivery->>'sourceReady' = 'true'");
     return {
       values,
       where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""
@@ -3571,6 +3574,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     kind?: SenaEnterpriseServerJobKind;
     teamId?: string;
     projectId?: string;
+    claimableOnly?: boolean;
     limit?: number;
   } = {}): Promise<SenaEnterpriseServerJobList> {
     await ensureSchema();

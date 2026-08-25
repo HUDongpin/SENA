@@ -573,67 +573,34 @@ describe("validation source verification replay budget", () => {
     );
   });
 
-  it("indexes same-id analysis candidates by the complete binding key", () => {
+  it("indexes exact analysis candidates by the complete binding key", () => {
     const artifactHash = "a".repeat(64);
-    let bindingPropertyReads = 0;
     const runs = Array.from({ length: 1000 }, (_unused, candidateIndex) => {
       const target = candidateIndex === 999;
       const artifactFingerprints = {
-        projectSnapshotSha256: "f".repeat(64)
-      } as {
+        reportSha256: "e".repeat(64),
+        projectSnapshotSha256: "f".repeat(64),
+        projectSnapshotBindingSha256: target
+          ? artifactHash
+          : String(candidateIndex).padStart(64, "0")
+      } satisfies {
+        reportSha256: string;
         projectSnapshotSha256: string;
         projectSnapshotBindingSha256: string;
       };
-      Object.defineProperty(artifactFingerprints, "projectSnapshotBindingSha256", {
-        enumerable: true,
-        get() {
-          bindingPropertyReads += 1;
-          return target ? artifactHash : String(candidateIndex).padStart(64, "0");
-        }
-      });
-      const candidate = {
-        id: "shared-analysis-id",
+      return {
+        id: target ? "analysis-target" : `analysis-foreign-${candidateIndex}`,
+        teamId: target ? "team-target" : `team-foreign-${candidateIndex}`,
+        projectId: target ? "project-target" : `project-foreign-${candidateIndex}`,
+        persistedProjectId: undefined,
         artifactFingerprints
-      } as {
-        id: string;
-        teamId: string;
-        projectId: string;
-        persistedProjectId?: string;
-        artifactFingerprints: {
-          projectSnapshotSha256: string;
-          projectSnapshotBindingSha256: string;
-        };
       };
-      Object.defineProperties(candidate, {
-        teamId: {
-          enumerable: true,
-          get() {
-            bindingPropertyReads += 1;
-            return target ? "team-target" : `team-foreign-${candidateIndex}`;
-          }
-        },
-        projectId: {
-          enumerable: true,
-          get() {
-            bindingPropertyReads += 1;
-            return target ? "project-target" : `project-foreign-${candidateIndex}`;
-          }
-        },
-        persistedProjectId: {
-          enumerable: true,
-          get() {
-            bindingPropertyReads += 1;
-            return undefined;
-          }
-        }
-      });
-      return candidate;
     });
     const index = new SenaEnterpriseValidationAnalysisRunIndex(runs as never[]);
 
     for (let lookup = 0; lookup < 1000; lookup += 1) {
       expect(index.matchingCount({
-        id: "shared-analysis-id",
+        id: "analysis-target",
         teamId: "team-target",
         projectId: "project-target",
         projectSnapshotArtifactSha256: artifactHash
@@ -641,7 +608,204 @@ describe("validation source verification replay budget", () => {
     }
     expect(index.candidateInspectionCount).toBe(1000);
     expect(index.lookupCount).toBe(1000);
-    expect(bindingPropertyReads).toBeLessThanOrEqual(5000);
+  });
+
+  it.each([
+    ["enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate.unexpected = "extra";
+    }],
+    ["non-enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(candidate, "unexpected", { value: "hidden", enumerable: false });
+    }],
+    ["symbol extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate[Symbol("unexpected")] = "symbol";
+    }],
+    ["fingerprint enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      (candidate.artifactFingerprints as Record<PropertyKey, unknown>).unexpected = "extra";
+    }],
+    ["fingerprint non-enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(candidate.artifactFingerprints as object, "unexpected", {
+        value: "hidden",
+        enumerable: false
+      });
+    }],
+    ["fingerprint symbol extra", (candidate: Record<PropertyKey, unknown>) => {
+      (candidate.artifactFingerprints as Record<PropertyKey, unknown>)[Symbol("unexpected")] = "symbol";
+    }],
+    ["allowed id accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "id", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("analysis id getter executed");
+        }
+      });
+    }],
+    ["allowed teamId accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "teamId", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("analysis teamId getter executed");
+        }
+      });
+    }],
+    ["fingerprint accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate.artifactFingerprints as object, "projectSnapshotBindingSha256", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("analysis fingerprint getter executed");
+        }
+      });
+    }]
+  ] as const)("rejects an analysis authority wrapper with %s before reading it", (_label, mutate) => {
+    const reads = { count: 0 };
+    const candidate: Record<PropertyKey, unknown> = {
+      id: "analysis-exact-carrier",
+      teamId: "team-exact-carrier",
+      projectId: "project-exact-carrier",
+      persistedProjectId: undefined,
+      artifactFingerprints: {
+        reportSha256: "a".repeat(64),
+        projectSnapshotSha256: "b".repeat(64),
+        projectSnapshotBindingSha256: "c".repeat(64)
+      }
+    };
+    mutate(candidate, reads);
+
+    expect(() => new SenaEnterpriseValidationAnalysisRunIndex([candidate] as never[]))
+      .toThrow(/resourceAdmission|carrier|canonically bound/i);
+    expect(reads.count).toBe(0);
+  });
+
+  it.each([
+    ["enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate.unexpected = "extra";
+    }],
+    ["non-enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(candidate, "unexpected", { value: "hidden", enumerable: false });
+    }],
+    ["symbol extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate[Symbol("unexpected")] = "symbol";
+    }],
+    ["allowed id accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "id", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("project id getter executed");
+        }
+      });
+    }],
+    ["allowed currentVersion accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "currentVersion", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("project currentVersion getter executed");
+        }
+      });
+    }],
+    ["allowed snapshot accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "snapshot", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("project snapshot getter executed");
+        }
+      });
+    }]
+  ] as const)("rejects a project authority wrapper with %s before reading it", (_label, mutate) => {
+    const fixture = createValidationEvidenceFixture(`project-wrapper-${_label.replaceAll(" ", "-")}`);
+    const reads = { count: 0 };
+    const candidate = structuredClone(fixture.project) as unknown as Record<PropertyKey, unknown>;
+    mutate(candidate, reads);
+
+    expect(() => normalizeEnterpriseValidationRunCollectionEvidence({
+      runs: [fixture.run],
+      projects: [candidate as never],
+      analysisRuns: []
+    })).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+    expect(reads.count).toBe(0);
+  });
+
+  it.each([
+    ["enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate.unexpected = "extra";
+    }],
+    ["non-enumerable extra", (candidate: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(candidate, "unexpected", { value: "hidden", enumerable: false });
+    }],
+    ["symbol extra", (candidate: Record<PropertyKey, unknown>) => {
+      candidate[Symbol("unexpected")] = "symbol";
+    }],
+    ["allowed projectId accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "projectId", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("revision projectId getter executed");
+        }
+      });
+    }],
+    ["allowed teamId accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "teamId", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("revision teamId getter executed");
+        }
+      });
+    }],
+    ["allowed snapshot accessor", (candidate: Record<PropertyKey, unknown>, reads: { count: number }) => {
+      Object.defineProperty(candidate, "snapshot", {
+        enumerable: true,
+        get() {
+          reads.count += 1;
+          throw new Error("revision snapshot getter executed");
+        }
+      });
+    }]
+  ] as const)("rejects a revision authority wrapper with %s before reading it", (_label, mutate) => {
+    const fixture = createValidationEvidenceFixture(`revision-wrapper-${_label.replaceAll(" ", "-")}`);
+    const db = readEnterpriseDb();
+    const revision = db.projectRevisions.find((candidate) => (
+      candidate.projectId === fixture.project.id &&
+      candidate.version === fixture.run.projectBinding?.projectVersion
+    ));
+    if (!revision) throw new Error("Expected project revision authority fixture.");
+    const reads = { count: 0 };
+    const candidate = structuredClone(revision) as unknown as Record<PropertyKey, unknown>;
+    mutate(candidate, reads);
+
+    expect(() => normalizeEnterpriseValidationRunCollectionEvidence({
+      runs: [fixture.run],
+      projects: [fixture.project],
+      projectRevisions: [candidate as never],
+      analysisRuns: []
+    })).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+    expect(reads.count).toBe(0);
+  });
+
+  it("applies exact project-wrapper admission in the direct single-run normalizer", () => {
+    const fixture = createValidationEvidenceFixture("direct-project-wrapper");
+    const candidate = structuredClone(fixture.project);
+    let getterReads = 0;
+    Object.defineProperty(candidate, "currentVersion", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("direct project currentVersion getter executed");
+      }
+    });
+
+    expect(() => normalizeEnterpriseValidationRunEvidence(
+      fixture.run,
+      candidate,
+      { evidenceHash: "required" }
+    )).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+    expect(getterReads).toBe(0);
   });
 
   it("rejects an oversized foreign metric universe before traversing or replaying it", () => {
@@ -725,6 +889,173 @@ describe("validation source verification replay budget", () => {
     expect(cache.sourceEvidenceBuildCount).toBe(1);
     expect(cache.canonicalResultReplayCount).toBe(1);
     expect(cache.uniqueSourceReservationCount).toBe(1);
+  });
+
+  it.each([
+    ["utterance text", (dataset: typeof lessonStudySenaContract, text: string) => {
+      dataset.utterances[0].text += text;
+    }],
+    ["coded-segment text", (dataset: typeof lessonStudySenaContract, text: string) => {
+      dataset.coded_segments[0].text += text;
+    }],
+    ["codebook description", (dataset: typeof lessonStudySenaContract, text: string) => {
+      dataset.codebook[0].description += text;
+    }],
+    ["interaction evidence", (dataset: typeof lessonStudySenaContract, text: string) => {
+      dataset.interactions[0].evidence += text;
+    }]
+  ] as const)("rejects aggregate source %s before canonical digest or model construction", (_label, mutate) => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      probe
+    )).not.toThrow();
+    const dataset = structuredClone(lessonStudySenaContract);
+    mutate(dataset, "xx");
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceTextBytes: probe.lastSourceTextBytesMeasured + 1
+    });
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset },
+      cache
+    )).toThrow(/source model text budget exceeded/i);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(cache.sourceDigestBytesReserved).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it("charges every cloned source digest scan against one cumulative request budget", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      probe
+    )).not.toThrow();
+    const oneDigestScan = probe.sourceDigestBytesReserved;
+    expect(oneDigestScan).toBeGreaterThan(0);
+
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceDigestBytes: oneDigestScan
+    });
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).toThrow(/source digest scan budget exceeded/i);
+    expect(cache.sourceDigestScanCount).toBe(1);
+    expect(cache.sourceDigestBytesReserved).toBe(oneDigestScan);
+    expect(cache.modelBuildCount).toBe(1);
+  });
+
+  it("charges every cloned source digest traversal against one cumulative work budget", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      probe
+    )).not.toThrow();
+    const oneDigestTraversal = probe.sourceDigestWorkUnitsReserved;
+    expect(oneDigestTraversal).toBeGreaterThan(0);
+
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceDigestWorkUnits: oneDigestTraversal
+    });
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).toThrow(/source digest scan budget exceeded/i);
+    expect(cache.sourceDigestScanCount).toBe(1);
+    expect(cache.sourceDigestWorkUnitsReserved).toBe(oneDigestTraversal);
+    expect(cache.modelBuildCount).toBe(1);
+  });
+
+  it("measures the full source text budget in UTF-8 bytes instead of UTF-16 code units", () => {
+    const baselineResult = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(baselineResult),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      probe
+    )).not.toThrow();
+
+    const dataset = structuredClone(lessonStudySenaContract);
+    dataset.people[0].label = `${dataset.people[0].label}界`;
+    const result = buildSenaGroupComparisonSuite({
+      dataset,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceTextBytes: probe.lastSourceTextBytesMeasured + 2
+    });
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset },
+      cache
+    )).toThrow(/source model text budget exceeded/i);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
   });
 
   it("shares one cumulative replay budget across unrelated validation reads in a request scope", () => {

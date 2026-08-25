@@ -912,6 +912,7 @@ export async function drainEnterpriseServerJobQueue(input: {
   return runWithSenaValidationRequestScope(async () => {
     const queued = await listEnterpriseServerJobs({
       status: "queued",
+      claimableOnly: true,
       kind: input.kind,
       teamId: input.teamId,
       limit: input.limit ?? 25

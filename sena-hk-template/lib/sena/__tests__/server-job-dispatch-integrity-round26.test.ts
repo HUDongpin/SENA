@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const envNames = [
   "SENA_ENTERPRISE_DB_DIR",
   "SENA_JOB_QUEUE_ADAPTER",
+  "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_URL",
   "SENA_JOB_QUEUE_SECRET"
 ];
@@ -16,6 +17,20 @@ function configureManagedQueue(dbDir: string) {
   process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
   process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
   process.env.SENA_JOB_QUEUE_SECRET = "round26-queue-secret";
+}
+
+function configureLocalQueue(dbDir: string) {
+  process.env.SENA_ENTERPRISE_DB_DIR = dbDir;
+  process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+  process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
 }
 
 function queueInput() {
@@ -95,6 +110,128 @@ describe("SENA server-job dispatch integrity round 26", () => {
     expect(job.delivery.webhookStatus).toBe("delivered");
   });
 
+  it("keeps a durable source-preparation receipt invisible to the polling worker until the source is ready", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-source-claimability-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
+    const sourcePersistenceEntered = deferred();
+    const releaseSourcePersistence = deferred();
+
+    const enqueue = queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      kind: "validation",
+      payload: {
+        action: "run-validation",
+        teamId: "team_round26",
+        projectId: "project_round26"
+      },
+      beforeDispatch: async () => {
+        sourcePersistenceEntered.resolve();
+        await releaseSourcePersistence.promise;
+      }
+    });
+
+    await sourcePersistenceEntered.promise;
+    const pending = await queue.listEnterpriseServerJobs({ status: "queued", limit: 10 });
+    expect(pending.jobs).toHaveLength(1);
+    expect(pending.jobs[0].delivery).toEqual(expect.objectContaining({
+      webhookStatus: "pending",
+      sourceReady: false
+    }));
+
+    const prematureDrain = await worker.drainEnterpriseServerJobQueue({ limit: 10 });
+    expect(prematureDrain).toEqual(expect.objectContaining({
+      scanned: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: 0
+    }));
+
+    releaseSourcePersistence.resolve();
+    const job = await enqueue;
+    expect(job.delivery).toEqual(expect.objectContaining({
+      webhookStatus: "local-sink",
+      sourceReady: true
+    }));
+    const readyDrain = await worker.drainEnterpriseServerJobQueue({ limit: 10 });
+    expect(readyDrain.scanned).toBe(1);
+    expect(readyDrain.skipped).toBe(1);
+  });
+
+  it("does not grant a file-store claim before source persistence reaches its durable ready transition", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-file-claimability-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const sourcePersistenceEntered = deferred();
+    const releaseSourcePersistence = deferred();
+
+    const enqueue = queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      beforeDispatch: async () => {
+        sourcePersistenceEntered.resolve();
+        await releaseSourcePersistence.promise;
+      }
+    });
+    await sourcePersistenceEntered.promise;
+
+    const prematureClaim = await queue.claimEnterpriseServerJob({
+      jobId: (await queue.listEnterpriseServerJobs({ limit: 10 })).jobs[0].id,
+      workerRunId: "round26-premature-file-worker"
+    });
+    releaseSourcePersistence.resolve();
+    const job = await enqueue;
+    const readyClaims = await Promise.all([
+      queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "round26-ready-file-left" }),
+      queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "round26-ready-file-right" })
+    ]);
+
+    expect(prematureClaim).toEqual(expect.objectContaining({
+      claimed: false,
+      reason: "server_job_worker_source_not_ready"
+    }));
+    expect(readyClaims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(readyClaims.filter((claim) => !claim.claimed)).toHaveLength(1);
+  });
+
+  it("rejects a status-callback mark-running transition while source persistence is still pending", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-status-claimability-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const sourcePersistenceEntered = deferred();
+    const releaseSourcePersistence = deferred();
+
+    const enqueue = queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      beforeDispatch: async () => {
+        sourcePersistenceEntered.resolve();
+        await releaseSourcePersistence.promise;
+      }
+    });
+    await sourcePersistenceEntered.promise;
+    const pendingJob = (await queue.listEnterpriseServerJobs({ limit: 10 })).jobs[0];
+    let transitionError: unknown;
+    try {
+      await queue.updateEnterpriseServerJobStatus({
+        jobId: pendingJob.id,
+        action: "mark-running",
+        workerRunId: "round26-premature-status-worker"
+      });
+    } catch (error) {
+      transitionError = error;
+    }
+    releaseSourcePersistence.resolve();
+    await enqueue;
+
+    expect(transitionError).toEqual(expect.objectContaining({
+      code: "server_job_worker_source_not_ready",
+      status: 409
+    }));
+  });
+
   it("retains a durable failed-dispatch receipt when the queue rejects delivery", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-dispatch-failure-"));
     cleanupDirs.push(dbDir);
@@ -149,10 +286,24 @@ describe("SENA server-job dispatch integrity round 26", () => {
       delivery: expect.objectContaining({
         attempted: false,
         webhookStatus: "failed",
+        sourceReady: false,
         failureStage: "source-persistence",
         errorCode: "server_job_source_persistence_failed"
       }),
       lifecycle: expect.objectContaining({ statusReason: "source-artifact-persistence-failed" })
+    }));
+    const retried = await queue.updateEnterpriseServerJobStatus({
+      jobId: stored.jobs[0].id,
+      action: "retry",
+      reason: "operator-review"
+    });
+    expect(retried.job.status).toBe("queued");
+    await expect(queue.claimEnterpriseServerJob({
+      jobId: stored.jobs[0].id,
+      workerRunId: "round26-source-failure-worker"
+    })).resolves.toEqual(expect.objectContaining({
+      claimed: false,
+      reason: "server_job_worker_source_not_ready"
     }));
   });
 

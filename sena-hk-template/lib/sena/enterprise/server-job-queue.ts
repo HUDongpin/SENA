@@ -325,6 +325,12 @@ export type SenaEnterpriseServerJob = {
 export type SenaEnterpriseServerJobQueueDelivery = {
   attempted: boolean;
   webhookStatus: "pending" | "delivered" | "failed" | "local-sink";
+  /**
+   * Durable claimability fence. A queued record is visible for recovery while
+   * its upload/source artifacts are being written, but no worker may claim it
+   * until this flag has been persisted as true.
+   */
+  sourceReady: boolean;
   attemptedAt?: string;
   endpointHash?: string;
   httpStatus?: number;
@@ -1172,6 +1178,7 @@ async function dispatchServerJobQueueWebhook(input: {
     return {
       attempted: true,
       webhookStatus: "local-sink",
+      sourceReady: true,
       attemptedAt,
       endpointHash: input.job.provider.endpointHash
     };
@@ -1211,6 +1218,7 @@ async function dispatchServerJobQueueWebhook(input: {
     return {
       attempted: true,
       webhookStatus: response.ok ? "delivered" : "failed",
+      sourceReady: true,
       attemptedAt,
       endpointHash: input.job.provider.endpointHash,
       httpStatus: response.status,
@@ -1221,6 +1229,7 @@ async function dispatchServerJobQueueWebhook(input: {
     return {
       attempted: true,
       webhookStatus: "failed",
+      sourceReady: true,
       attemptedAt,
       endpointHash: input.job.provider.endpointHash,
       failureStage: "queue-dispatch",
@@ -1544,6 +1553,7 @@ export async function listEnterpriseServerJobs(input: {
   teamId?: string;
   projectId?: string;
   limit?: number;
+  claimableOnly?: boolean;
   callerScope?: SenaEnterpriseServerJobCallerScope;
 } = {}): Promise<SenaEnterpriseServerJobList> {
   // Resolved before either store is touched: a scoped caller's team is not an
@@ -1557,6 +1567,7 @@ export async function listEnterpriseServerJobs(input: {
   const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
   const allJobs = sortServerJobs((state.db.serverJobs ?? [])
     .filter((job) => !input.status || job.status === input.status)
+    .filter((job) => !input.claimableOnly || job.delivery.sourceReady === true)
     .filter((job) => !input.kind || job.kind === input.kind)
     .filter((job) => !teamId || job.teamId === teamId)
     .filter((job) => !input.projectId || job.projectId === input.projectId));
@@ -1660,6 +1671,9 @@ export async function claimEnterpriseServerJob(input: {
     if (current.status !== "queued") {
       return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
     }
+    if (current.delivery.sourceReady !== true) {
+      return { claimed: false as const, reason: "server_job_worker_source_not_ready", job: current };
+    }
     const lifecycle = updatedLifecycle({
       job: current,
       action: "mark-running",
@@ -1688,6 +1702,9 @@ export async function claimEnterpriseServerJob(input: {
     }
     if (current.status !== "queued") {
       return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
+    }
+    if (current.delivery.sourceReady !== true) {
+      return { claimed: false as const, reason: "server_job_worker_source_not_ready", job: current };
     }
     const lifecycle = updatedLifecycle({
       job: current,
@@ -1779,6 +1796,14 @@ export async function updateEnterpriseServerJobStatus(input: {
   // Ownership is checked before any lifecycle validation or write, so a scoped
   // caller cannot mark another tenant's job running, succeeded, or failed.
   assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
+  if (input.action === "mark-running" && current.status === "queued" &&
+    current.delivery.sourceReady !== true) {
+    throw new SenaEnterpriseError(
+      "SENA server job source artifacts are not ready for worker execution.",
+      409,
+      "server_job_worker_source_not_ready"
+    );
+  }
   if (input.action === "retry" && current.status !== "failed" && current.status !== "dead-lettered") {
     throw new SenaEnterpriseError("Only failed or dead-lettered SENA server jobs can be retried.", 409, "server_job_retry_not_allowed");
   }
@@ -1958,6 +1983,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     delivery: {
       attempted: true,
       webhookStatus: "delivered",
+      sourceReady: true,
       attemptedAt: generatedAt,
       endpointHash: queue.endpointHash,
       httpStatus: 202
@@ -2078,12 +2104,14 @@ export async function enqueueEnterpriseServerJob(input: {
     delivery: {
       attempted: false,
       webhookStatus: "pending",
+      sourceReady: false,
       endpointHash: job.provider.endpointHash
     }
   };
-  // The worker is allowed to claim the job as soon as it receives the
-  // webhook. Persist the complete claimable record first; otherwise a fast
-  // receiver observes a valid signed delivery for a job that does not exist.
+  // Persist the complete recovery receipt before source persistence begins.
+  // It deliberately remains non-claimable until the source-ready transition;
+  // otherwise a local poller could execute a pointer whose artifacts do not
+  // exist yet.
   await writeServerJob(pendingJob);
   if (input.beforeDispatch) {
     try {
@@ -2092,6 +2120,7 @@ export async function enqueueEnterpriseServerJob(input: {
       await finalizeServerJobQueueDelivery(job.id, {
         attempted: false,
         webhookStatus: "failed",
+        sourceReady: false,
         endpointHash: job.provider.endpointHash,
         failureStage: "source-persistence",
         errorCode: "server_job_source_persistence_failed",
@@ -2104,6 +2133,16 @@ export async function enqueueEnterpriseServerJob(input: {
       );
     }
   }
+  // Source artifacts and reviewer envelopes are now durable. Publish that
+  // fact before dispatch so a fast webhook receiver can claim immediately,
+  // while a local poller can never observe the earlier preparation window as
+  // executable work.
+  await finalizeServerJobQueueDelivery(job.id, {
+    attempted: false,
+    webhookStatus: "pending",
+    sourceReady: true,
+    endpointHash: job.provider.endpointHash
+  });
   let delivery: SenaEnterpriseServerJobQueueDelivery;
   try {
     delivery = await dispatchServerJobQueueWebhook({
@@ -2114,6 +2153,7 @@ export async function enqueueEnterpriseServerJob(input: {
     delivery = {
       attempted: false,
       webhookStatus: "failed",
+      sourceReady: true,
       endpointHash: job.provider.endpointHash,
       failureStage: "queue-dispatch",
       errorCode: error instanceof SenaEnterpriseError ? error.code : "queue_dispatch_setup_failed",

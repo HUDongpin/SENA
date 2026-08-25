@@ -83,6 +83,51 @@ describe("SENA server job Postgres store", () => {
       project_id: "project_postgres_jobs"
     }));
 
+    let releaseSourcePersistence!: () => void;
+    let sourcePersistenceEntered!: () => void;
+    const sourcePersistenceGate = new Promise<void>((resolve) => {
+      releaseSourcePersistence = resolve;
+    });
+    const sourcePersistenceStarted = new Promise<void>((resolve) => {
+      sourcePersistenceEntered = resolve;
+    });
+    const preparingJobPromise = enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_preparing",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_preparing" },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      },
+      beforeDispatch: async () => {
+        sourcePersistenceEntered();
+        await sourcePersistenceGate;
+      }
+    });
+    await sourcePersistenceStarted;
+    const preparingRow = pg.serverJobs.find((row) => row.project_id === "project_postgres_jobs_preparing");
+    expect(preparingRow).toBeDefined();
+    const prematurePostgresClaim = await serverJobs.claimEnterpriseServerJob({
+      jobId: String(preparingRow?.id),
+      workerRunId: "worker_run_pg_premature"
+    });
+    releaseSourcePersistence();
+    const preparedJob = await preparingJobPromise;
+    const readyPostgresClaims = await Promise.all([
+      serverJobs.claimEnterpriseServerJob({ jobId: preparedJob.id, workerRunId: "worker_run_pg_ready_left" }),
+      serverJobs.claimEnterpriseServerJob({ jobId: preparedJob.id, workerRunId: "worker_run_pg_ready_right" })
+    ]);
+    expect(prematurePostgresClaim).toEqual(expect.objectContaining({
+      claimed: false,
+      reason: "server_job_worker_source_not_ready"
+    }));
+    expect(readyPostgresClaims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(readyPostgresClaims.filter((claim) => !claim.claimed)).toHaveLength(1);
+
     const route = await import("../../../app/api/sena/ops/jobs/route");
     const authHeaders = {
       authorization: "Bearer sena-test-ops-token"
@@ -167,6 +212,7 @@ describe("SENA server job Postgres store", () => {
     expect(pg.queries.some((query) => (
       /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
       /WHERE id = \$1 AND status = 'queued'/i.test(query) &&
+      /delivery->>'sourceReady'/i.test(query) &&
       /RETURNING \*/i.test(query)
     ))).toBe(true);
 

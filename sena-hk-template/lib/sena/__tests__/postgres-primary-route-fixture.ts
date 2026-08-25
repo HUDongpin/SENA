@@ -39,6 +39,11 @@ export class RouteMemoryPostgres {
       const projectId = values[valueIndex++];
       rows = rows.filter((record) => record.project_id === projectId);
     }
+    if (/delivery->>'sourceReady'/i.test(sql)) {
+      rows = rows.filter((record) => (
+        record.delivery as { sourceReady?: boolean } | undefined
+      )?.sourceReady === true);
+    }
     return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
   }
 
@@ -267,7 +272,10 @@ export class RouteMemoryPostgres {
     if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
       /WHERE id = \$1 AND status = 'queued'/i.test(normalizedSql)) {
       const current = this.serverJobs.find((record) => record.id === values[0]);
-      if (!current || current.status !== "queued") return { rows: [], rowCount: 0 };
+      if (!current || current.status !== "queued" ||
+        (current.delivery as { sourceReady?: boolean } | undefined)?.sourceReady !== true) {
+        return { rows: [], rowCount: 0 };
+      }
       const claimed: Record<string, unknown> = {
         ...current,
         status: "running",
