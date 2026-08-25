@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { requireEnterprisePermission, type SenaEnterpriseRole } from "./access-control";
 import { recordEnterpriseUploadWarningCountsAsync } from "./import-analysis";
 import { SenaEnterpriseError } from "./errors";
@@ -164,7 +164,9 @@ export type SenaEnterpriseServerJobQueueContract = {
     signatureHeader: "x-sena-webhook-signature";
     signatureAlgorithm: "hmac-sha256";
     timestampHeader: "x-sena-webhook-timestamp";
-    payloadHashHeader: "x-sena-job-payload-sha256";
+    transportPayloadHashHeader: "x-sena-job-payload-sha256";
+    workerPayloadHashHeader: "x-sena-worker-payload-sha256";
+    hashSemantics: "exact-body-and-canonical-worker-payload-separated";
     statusCallback: "/api/sena/ops/jobs";
     acceptedJobKinds: SenaEnterpriseServerJobKind[];
     payloadPolicy: "project-or-upload-pointer-default";
@@ -279,7 +281,8 @@ export type SenaEnterpriseServerJobPayloadSummary = {
 };
 
 export type SenaEnterpriseServerJob = {
-  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJob;
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJob |
+    typeof SENA_LEGACY_SCHEMA_VERSIONS.enterpriseServerJob;
   id: string;
   kind: SenaEnterpriseServerJobKind;
   status: SenaEnterpriseServerJobStatus;
@@ -321,12 +324,13 @@ export type SenaEnterpriseServerJob = {
 
 export type SenaEnterpriseServerJobQueueDelivery = {
   attempted: boolean;
-  webhookStatus: "delivered" | "failed" | "local-sink";
-  attemptedAt: string;
+  webhookStatus: "pending" | "delivered" | "failed" | "local-sink";
+  attemptedAt?: string;
   endpointHash?: string;
   httpStatus?: number;
   errorCode?: string;
   errorHash?: string;
+  failureStage?: "source-persistence" | "queue-dispatch";
 };
 
 export type SenaEnterpriseServerJobQueueWebhook = {
@@ -338,7 +342,7 @@ export type SenaEnterpriseServerJobQueueWebhook = {
     provider: SenaEnterpriseServerJobQueueMode;
     endpointHash?: string;
     secretConfigured: boolean;
-    payloadSha256: string;
+    workerPayloadSha256: string;
   };
   redaction: {
     responsePayloadValuesExcluded: true;
@@ -790,7 +794,9 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
       signatureHeader: "x-sena-webhook-signature",
       signatureAlgorithm: "hmac-sha256",
       timestampHeader: "x-sena-webhook-timestamp",
-      payloadHashHeader: "x-sena-job-payload-sha256",
+      transportPayloadHashHeader: "x-sena-job-payload-sha256",
+      workerPayloadHashHeader: "x-sena-worker-payload-sha256",
+      hashSemantics: "exact-body-and-canonical-worker-payload-separated",
       statusCallback: "/api/sena/ops/jobs",
       acceptedJobKinds: [...senaEnterpriseServerJobKinds],
       payloadPolicy: "project-or-upload-pointer-default",
@@ -815,7 +821,9 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
       `serverJobQueueContractActiveStore=${store.activeStore}`,
       `serverJobQueueContractPostgresPrimaryActive=${store.postgresPrimaryActive}`,
       "serverJobQueueContractSignature=hmac-sha256",
-      "serverJobQueueContractPayloadHash=x-sena-job-payload-sha256",
+      "serverJobQueueContractTransportPayloadHash=x-sena-job-payload-sha256",
+      "serverJobQueueContractWorkerPayloadHash=x-sena-worker-payload-sha256",
+      "serverJobQueueContractHashSemantics=exact-body-and-canonical-worker-payload-separated",
       "serverJobQueueContractStatusCallback=/api/sena/ops/jobs",
       "serverJobQueueContractPayloadPolicy=project-or-upload-pointer-default",
       "serverJobQueueContractInlinePayloadRequires=SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
@@ -1098,7 +1106,7 @@ function serverJobQueueWebhookPayload(input: {
       provider: input.job.provider.mode,
       endpointHash: input.job.provider.endpointHash,
       secretConfigured: input.job.provider.secretConfigured,
-      payloadSha256: input.job.payloadSha256
+      workerPayloadSha256: input.job.payloadSha256
     },
     redaction: {
       responsePayloadValuesExcluded: true,
@@ -1114,6 +1122,7 @@ function serverJobQueueRequestHeaders(input: {
   attemptedAt: string;
   body: string;
   payloadSha256: string;
+  workerPayloadSha256?: string;
   jobId?: string;
   jobKind?: SenaEnterpriseServerJobKind;
   schemaVersion?: string;
@@ -1123,6 +1132,9 @@ function serverJobQueueRequestHeaders(input: {
     "x-sena-webhook-timestamp": input.attemptedAt,
     "x-sena-job-payload-sha256": input.payloadSha256
   };
+  if (input.workerPayloadSha256) {
+    senaHeaders["x-sena-worker-payload-sha256"] = input.workerPayloadSha256;
+  }
   if (input.jobId) senaHeaders["x-sena-server-job-id"] = input.jobId;
   if (input.jobKind) senaHeaders["x-sena-server-job-kind"] = input.jobKind;
   if (input.schemaVersion) senaHeaders["x-sena-schema-version"] = input.schemaVersion;
@@ -1175,12 +1187,14 @@ async function dispatchServerJobQueueWebhook(input: {
     workerPayload: input.workerPayload,
     generatedAt: attemptedAt
   }));
+  const transportPayloadSha256 = createHash("sha256").update(body).digest("hex");
   const headers = serverJobQueueRequestHeaders({
     mode: input.job.provider.mode,
     event: "server_job.queue",
     attemptedAt,
     body,
-    payloadSha256: input.job.payloadSha256,
+    payloadSha256: transportPayloadSha256,
+    workerPayloadSha256: input.job.payloadSha256,
     jobId: input.job.id,
     jobKind: input.job.kind
   });
@@ -1200,7 +1214,8 @@ async function dispatchServerJobQueueWebhook(input: {
       attemptedAt,
       endpointHash: input.job.provider.endpointHash,
       httpStatus: response.status,
-      errorCode: response.ok ? undefined : `http_${response.status}`
+      errorCode: response.ok ? undefined : `http_${response.status}`,
+      failureStage: response.ok ? undefined : "queue-dispatch"
     };
   } catch (error) {
     return {
@@ -1208,6 +1223,7 @@ async function dispatchServerJobQueueWebhook(input: {
       webhookStatus: "failed",
       attemptedAt,
       endpointHash: input.job.provider.endpointHash,
+      failureStage: "queue-dispatch",
       errorCode: error instanceof Error && error.name === "AbortError" ? "timeout" : "network_error",
       errorHash: webhookErrorHash(error)
     };
@@ -1455,6 +1471,71 @@ async function writeServerJob(job: SenaEnterpriseServerJob) {
   ].slice(0, 2000);
   await writeEnterpriseState(state, db);
   return job;
+}
+
+async function finalizeServerJobQueueDelivery(
+  jobId: string,
+  delivery: SenaEnterpriseServerJobQueueDelivery
+) {
+  const timestamp = now();
+  const failureReason = delivery.failureStage === "source-persistence"
+    ? "source-artifact-persistence-failed"
+    : "queue-dispatch-failed";
+  if (isPostgresServerJobStoreActive()) {
+    const current = await getEnterpriseServerJob(jobId);
+    const failQueuedJob = delivery.webhookStatus === "failed" && current.status === "queued";
+    const failedLifecycle = failQueuedJob
+      ? {
+          ...current.lifecycle,
+          retryable: true,
+          lastTransition: "mark-failed" as const,
+          finishedAt: timestamp,
+          lastErrorCode: delivery.errorCode,
+          lastErrorHash: delivery.errorHash,
+          statusReason: failureReason
+        }
+      : current.lifecycle;
+    const updated = await postgresServerJobStore().finalizeDelivery({
+      jobId,
+      delivery,
+      failQueuedJob,
+      failedLifecycle,
+      updatedAt: timestamp
+    });
+    if (!updated) {
+      throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+    }
+    return updated;
+  }
+  return mutateEnterpriseDbAtomically((db) => {
+    const current = (db.serverJobs ?? []).find((candidate) => candidate.id === jobId);
+    if (!current) {
+      throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+    }
+    const failQueuedJob = delivery.webhookStatus === "failed" && current.status === "queued";
+    const updated: SenaEnterpriseServerJob = {
+      ...current,
+      status: failQueuedJob ? "failed" : current.status,
+      updatedAt: timestamp,
+      delivery,
+      lifecycle: failQueuedJob
+        ? {
+            ...current.lifecycle,
+            retryable: true,
+            lastTransition: "mark-failed",
+            finishedAt: timestamp,
+            lastErrorCode: delivery.errorCode,
+            lastErrorHash: delivery.errorHash,
+            statusReason: failureReason
+          }
+        : current.lifecycle
+    };
+    db.serverJobs = [
+      updated,
+      ...(db.serverJobs ?? []).filter((candidate) => candidate.id !== updated.id)
+    ].slice(0, 2000);
+    return updated;
+  });
 }
 
 export async function listEnterpriseServerJobs(input: {
@@ -1989,29 +2070,60 @@ export async function enqueueEnterpriseServerJob(input: {
   payload: unknown;
   payloadSummary: SenaEnterpriseServerJobPayloadSummary;
   queue?: SenaEnterpriseServerJobQueueStatus;
+  beforeDispatch?: (job: SenaEnterpriseServerJob) => Promise<void>;
 }): Promise<SenaEnterpriseServerJob> {
   const job = serverJobWithoutDelivery(input);
-  const delivery = await dispatchServerJobQueueWebhook({
-    job,
-    workerPayload: input.payload
-  });
-  const timestamp = now();
-  const queuedJob: SenaEnterpriseServerJob = {
+  const pendingJob: SenaEnterpriseServerJob = {
     ...job,
-    status: delivery.webhookStatus === "failed" ? "failed" : "queued",
-    updatedAt: timestamp,
-    lifecycle: {
-      ...job.lifecycle,
-      retryable: delivery.webhookStatus === "failed",
-      lastTransition: delivery.webhookStatus === "failed" ? "mark-failed" : "enqueue",
-      finishedAt: delivery.webhookStatus === "failed" ? timestamp : undefined,
-      lastErrorCode: delivery.errorCode,
-      lastErrorHash: delivery.errorHash,
-      statusReason: delivery.webhookStatus === "failed" ? "queue-dispatch-failed" : undefined
-    },
-    delivery
+    delivery: {
+      attempted: false,
+      webhookStatus: "pending",
+      endpointHash: job.provider.endpointHash
+    }
   };
-  await writeServerJob(queuedJob);
+  // The worker is allowed to claim the job as soon as it receives the
+  // webhook. Persist the complete claimable record first; otherwise a fast
+  // receiver observes a valid signed delivery for a job that does not exist.
+  await writeServerJob(pendingJob);
+  if (input.beforeDispatch) {
+    try {
+      await input.beforeDispatch(pendingJob);
+    } catch (error) {
+      await finalizeServerJobQueueDelivery(job.id, {
+        attempted: false,
+        webhookStatus: "failed",
+        endpointHash: job.provider.endpointHash,
+        failureStage: "source-persistence",
+        errorCode: "server_job_source_persistence_failed",
+        errorHash: webhookErrorHash(error)
+      });
+      throw new SenaEnterpriseError(
+        "SENA server job source persistence failed before queue dispatch.",
+        503,
+        "server_job_source_persistence_failed"
+      );
+    }
+  }
+  let delivery: SenaEnterpriseServerJobQueueDelivery;
+  try {
+    delivery = await dispatchServerJobQueueWebhook({
+      job,
+      workerPayload: input.payload
+    });
+  } catch (error) {
+    delivery = {
+      attempted: false,
+      webhookStatus: "failed",
+      endpointHash: job.provider.endpointHash,
+      failureStage: "queue-dispatch",
+      errorCode: error instanceof SenaEnterpriseError ? error.code : "queue_dispatch_setup_failed",
+      errorHash: webhookErrorHash(error)
+    };
+  }
+  // Merge delivery evidence into the current durable record. A receiver may
+  // already have advanced queued -> running -> succeeded before fetch returns;
+  // never overwrite that lifecycle with the stale pre-dispatch job value.
+  const queuedJob = await finalizeServerJobQueueDelivery(job.id, delivery);
   if (delivery.webhookStatus === "failed") {
     throw new SenaEnterpriseError(
       "SENA server job queue dispatch failed.",

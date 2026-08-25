@@ -31,6 +31,7 @@ import type {
   SenaEnterpriseValidationPreregistrationPlan,
   SenaEnterpriseValidationRun
 } from "./validation-runs";
+import { senaValidationSourceVerificationCache } from "./validation-request-scope";
 
 export type SenaEnterpriseValidationRunSummary = Pick<
   SenaEnterpriseValidationRun,
@@ -109,6 +110,37 @@ function isEvidenceRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function evidenceRuntimeIdentifiesProxy(value: object) {
+  try {
+    const runtimeProcess = (globalThis as typeof globalThis & {
+      process?: {
+        getBuiltinModule?: (id: string) => unknown;
+      };
+    }).process;
+    const util = runtimeProcess?.getBuiltinModule?.("node:util") as {
+      types?: { isProxy?: (candidate: unknown) => boolean };
+    } | undefined;
+    return util?.types?.isProxy?.(value) === true;
+  } catch {
+    return false;
+  }
+}
+
+function evidenceOwnDataDescriptors(value: object, expectedPrototype: object | null) {
+  if (evidenceRuntimeIdentifiesProxy(value)) return undefined;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== expectedPrototype && prototype !== null) return undefined;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const descriptor of Object.values(descriptors)) {
+      if (!("value" in descriptor)) return undefined;
+    }
+    return descriptors;
+  } catch {
+    return undefined;
+  }
+}
+
 function hasExactEvidenceKeys(
   value: unknown,
   required: readonly string[],
@@ -116,25 +148,35 @@ function hasExactEvidenceKeys(
 ): value is Record<string, unknown> {
   if (!isEvidenceRecord(value)) return false;
   const allowed = new Set([...required, ...optional]);
-  const ownKeys = Reflect.ownKeys(value);
+  const descriptors = evidenceOwnDataDescriptors(value, Object.prototype);
+  if (!descriptors) return false;
+  const ownKeys = Reflect.ownKeys(descriptors);
   if (ownKeys.length > allowed.size) return false;
   for (const key of ownKeys) {
     if (typeof key !== "string" || !allowed.has(key)) return false;
+    const descriptor = descriptors[key];
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return false;
   }
-  return required.every((key) => Object.hasOwn(value, key));
+  return required.every((key) => Object.hasOwn(descriptors, key));
 }
 
 function isDenseEvidenceArray(value: unknown, maximum: number): value is unknown[] {
-  if (!Array.isArray(value) || value.length > maximum) return false;
+  if (!Array.isArray(value)) return false;
+  const descriptors = evidenceOwnDataDescriptors(value, Array.prototype);
+  const lengthDescriptor = descriptors?.length;
+  const length = lengthDescriptor && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (!descriptors || !Number.isSafeInteger(length) || (length as number) > maximum) return false;
   let ownIndexes = 0;
-  for (const key of Reflect.ownKeys(value)) {
+  for (const key of Reflect.ownKeys(descriptors)) {
     if (key === "length") continue;
     if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) return false;
     const index = Number(key);
-    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) return false;
+    const descriptor = descriptors[key];
+    if (!Number.isSafeInteger(index) || index < 0 || index >= (length as number) || String(index) !== key ||
+      !descriptor || !("value" in descriptor) || !descriptor.enumerable) return false;
     ownIndexes += 1;
   }
-  return ownIndexes === value.length;
+  return ownIndexes === length;
 }
 
 function isBoundedEvidenceText(value: unknown): value is string {
@@ -347,13 +389,15 @@ function hasBoundedValidationRunEvidenceCarriers(
   run: SenaEnterpriseValidationRun,
   options: { resultAlreadyAdmitted?: boolean } = {}
 ) {
-  const resultComparisonCount = validationResultComparisonCount(run.result);
   if (!hasExactEvidenceKeys(
     run,
     SENA_ENTERPRISE_VALIDATION_RUN_REQUIRED_KEYS,
     SENA_ENTERPRISE_VALIDATION_RUN_OPTIONAL_KEYS
-  ) || (!options.resultAlreadyAdmitted &&
-    !isSenaGroupComparisonValidationCarrierAdmitted(run.result)) ||
+  )) return false;
+  if (!options.resultAlreadyAdmitted &&
+    !isSenaGroupComparisonValidationCarrierAdmitted(run.result)) return false;
+  const resultComparisonCount = validationResultComparisonCount(run.result);
+  if (
     resultComparisonCount === undefined ||
     !isBoundedEvidenceText(run.id) || !isBoundedEvidenceText(run.teamId) ||
     !isBoundedEvidenceText(run.userId) || !isBoundedEvidenceText(run.preregistrationNote) ||
@@ -695,7 +739,7 @@ export function normalizeEnterpriseValidationRunCollectionEvidence(input: {
     snapshotHashCache
   );
   const sourceVerificationCache = input.sourceVerificationCache ??
-    new SenaGroupComparisonSourceVerificationCache();
+    senaValidationSourceVerificationCache();
   const analysisRunIndex = new SenaEnterpriseValidationAnalysisRunIndex(analysisRuns);
   return runs.map((run) => {
     const project = run.projectId ? projectById.get(run.projectId) : undefined;

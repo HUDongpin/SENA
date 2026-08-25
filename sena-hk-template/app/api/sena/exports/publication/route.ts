@@ -1,10 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
-import { type SenaEnterpriseProject } from "@/lib/sena/enterprise/team-project";
-import {
-  type SenaEnterpriseReliabilityRun
-} from "@/lib/sena/enterprise/reliability-runs";
-import { assertEnterpriseReliabilityRunCurrentProject } from "@/lib/sena/enterprise/reliability-integrity";
 import {
   resolveEnterprisePublicationStateBundle
 } from "@/lib/sena/enterprise/publication-state-binding";
@@ -23,12 +18,8 @@ import {
   type SenaPublicationEnterpriseProjectEvidence,
   type SenaPublicationFormat
 } from "@/lib/sena/publication-export";
-import { buildSenaModel } from "@/lib/sena/model";
-import { inspectSenaModelCardSections } from "@/lib/sena/model-card";
 import {
   assertSenaEnterprisePublicationRequestDerivationWorkBudget,
-  assertSenaProjectSnapshotPublicationSourceContract,
-  buildSenaProjectSnapshot,
   SenaProjectSnapshotResourceLimitError
 } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
@@ -53,6 +44,14 @@ function publicationRequestContentTypeInvalid(): never {
     "Publication export request media type must be application/json.",
     400,
     "publication_export_content_type_invalid"
+  );
+}
+
+function publicationFormatInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export format must be one of html, svg, png, xlsx, docx, pdf, or package.",
+    400,
+    "publication_export_format_invalid"
   );
 }
 
@@ -158,53 +157,6 @@ function sha256Json(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function assertPersistedModelCardSectionMembership(snapshot: SenaProjectSnapshot) {
-  const sections = snapshot.report?.modelCard?.sections;
-  if (!Array.isArray(sections)) {
-    throw new SenaEnterpriseError(
-      "Publication export blocked because the persisted model card has no section-membership evidence.",
-      409,
-      "publication_export_model_card_blocked"
-    );
-  }
-  const { missingIds, duplicateIds, unknownIds, malformedIndexes } = inspectSenaModelCardSections(sections);
-  if (missingIds.length === 0 && duplicateIds.length === 0 && unknownIds.length === 0 &&
-    malformedIndexes.length === 0) return;
-  const membershipBlockers = [
-    ...missingIds.map((id) => `missing:${id}`),
-    ...duplicateIds.map((id) => `duplicate:${id}`),
-    ...unknownIds.map((id) => `unknown:${id}`),
-    ...malformedIndexes.map((index) => `malformed:${index}`)
-  ];
-  throw new SenaEnterpriseError(
-    `Publication export blocked because persisted model-card section membership is incomplete or inconsistent: ${membershipBlockers.join(", ")}.`,
-    409,
-    "publication_export_model_card_blocked"
-  );
-}
-
-function snapshotWithReliabilityEvidence(
-  project: SenaEnterpriseProject,
-  reliabilityRun: SenaEnterpriseReliabilityRun,
-  reliabilityReviewProjection: SenaEnterpriseReliabilityRun["reviewPatch"]
-) {
-  assertEnterpriseReliabilityRunCurrentProject(reliabilityRun, project);
-  const sourceSnapshot = project.snapshot;
-  const model = buildSenaModel(sourceSnapshot.dataset, sourceSnapshot.reproducibility.buildOptions);
-  return buildSenaProjectSnapshot(model, {
-    title: sourceSnapshot.title,
-    generatedAt: sourceSnapshot.generatedAt,
-    sourceDataset: sourceSnapshot.source.sourceDataset ?? sourceSnapshot.dataset,
-    activeTemporalWindow: sourceSnapshot.source.activeTemporalWindow,
-    demoVerificationManualReviews: sourceSnapshot.workspaceState?.demoVerificationManualReviews,
-    humanReview: sourceSnapshot.report.humanReview,
-    codingReliability: reliabilityReviewProjection,
-    evidenceLimit: Math.max(1, sourceSnapshot.report.evidenceSnippets.length),
-    nullModelIterations: sourceSnapshot.report.validation.nullModels.permutation.iterations,
-    dataGovernance: sourceSnapshot.dataGovernance ?? sourceSnapshot.report.dataGovernance
-  });
-}
-
 function publicationDerivationBudgetError(error: unknown): never {
   if (error instanceof SenaProjectSnapshotResourceLimitError) {
     throw new SenaEnterpriseError(
@@ -229,54 +181,6 @@ async function resolvePublicationStateBeforeDerivation(
       }
     }
   });
-}
-
-function publicationSnapshotForProject(
-  project: SenaEnterpriseProject,
-  reliabilityRun?: SenaEnterpriseReliabilityRun,
-  reliabilityReviewProjection?: SenaEnterpriseReliabilityRun["reviewPatch"]
-) {
-  const persistedFusionAudit = project.snapshot.report.fusionMathAudit;
-  const persistedReliabilityGate = project.snapshot.report.codingReliabilityGate;
-  if (
-    persistedFusionAudit.schemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
-    persistedFusionAudit.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.fusionMathAudit ||
-    persistedReliabilityGate.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate ||
-    persistedReliabilityGate.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate
-  ) {
-    throw new SenaEnterpriseError(
-      "Publication export requires exact current-v2 statistical provenance; legacy read projections are import-only.",
-      409,
-      "publication_export_model_card_blocked"
-    );
-  }
-  try {
-    assertSenaProjectSnapshotPublicationSourceContract(project.snapshot);
-  } catch (error) {
-    if (error instanceof SenaProjectSnapshotResourceLimitError) {
-      publicationDerivationBudgetError(error);
-    }
-    throw new SenaEnterpriseError(
-      "Publication export requires a structurally valid current canonical project snapshot.",
-      409,
-      "publication_export_model_card_blocked"
-    );
-  }
-  // The enterprise reliability projection is allowed to refresh the
-  // coding-reliability section, but it must never reconstruct missing or
-  // duplicate persisted section membership into an apparently valid card.
-  assertPersistedModelCardSectionMembership(project.snapshot);
-  if (!reliabilityRun || !reliabilityReviewProjection) {
-    throw new SenaEnterpriseError(
-      "Publication export blocked until an approved, current, machine-eligible reliability run is available for this project revision.",
-      409,
-      "publication_export_model_card_blocked"
-    );
-  }
-  return {
-    snapshot: snapshotWithReliabilityEvidence(project, reliabilityRun, reliabilityReviewProjection),
-    reliabilityRun
-  };
 }
 
 function publicationPackageHeaders(format: SenaPublicationFormat, body: string | Buffer) {
@@ -308,11 +212,15 @@ export async function POST(request: Request) {
     const context = await requireApiSessionForMutation(request);
     assertPublicationRequestContentType(request);
     const requestBody = await readBoundedPublicationRequest(request);
-    const requestedFormat = typeof requestBody.format === "string"
+    const hasExplicitFormat = Object.prototype.hasOwnProperty.call(requestBody, "format");
+    if (hasExplicitFormat && (
+      typeof requestBody.format !== "string" ||
+      !formats.has(requestBody.format as SenaPublicationFormat)
+    )) {
+      publicationFormatInvalid();
+    }
+    const format: SenaPublicationFormat = hasExplicitFormat
       ? requestBody.format as SenaPublicationFormat
-      : undefined;
-    const format: SenaPublicationFormat = requestedFormat && formats.has(requestedFormat)
-      ? requestedFormat
       : "html";
     const projectId = requestBody.projectId ? String(requestBody.projectId).trim() : "";
     if (!projectId) {
@@ -331,12 +239,7 @@ export async function POST(request: Request) {
     }
     if (shouldQueueServerJob(request, requestBody)) {
       const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
-      const queuedPublication = publicationSnapshotForProject(
-        publicationState.project,
-        publicationState.reliabilityRun,
-        publicationState.reliabilityReviewProjection
-      );
-      assertSenaPublicationModelCardReady(queuedPublication.snapshot.report);
+      assertSenaPublicationModelCardReady(publicationState.publicationSnapshot.report);
       throw new SenaEnterpriseError(
         "Queued publication export is unavailable until an evidence-bound publication worker can revalidate the complete state, reliability, adjudication, and derivation lease before producing artifacts.",
         503,
@@ -345,12 +248,7 @@ export async function POST(request: Request) {
     }
     const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
     const { project, claimPackage, stateBinding } = publicationState;
-    const publicationSource = publicationSnapshotForProject(
-      project,
-      publicationState.reliabilityRun,
-      publicationState.reliabilityReviewProjection
-    );
-    const snapshot: SenaProjectSnapshot = publicationSource.snapshot;
+    const snapshot: SenaProjectSnapshot = publicationState.publicationSnapshot;
     const teamId = project.teamId;
     const source = "project";
     const projectVersion = project.currentVersion;
@@ -367,13 +265,13 @@ export async function POST(request: Request) {
         sourceSnapshotSha256,
         reportSha256,
         stateBinding,
-        ...(publicationSource.reliabilityRun ? {
+        ...(publicationState.reliabilityRun ? {
           publicationDerivation: {
             kind: "current-project-reliability-run",
-            reliabilityRunId: publicationSource.reliabilityRun.id,
-            reliabilityRunSha256: sha256Json(publicationSource.reliabilityRun),
-            reliabilityDashboardSchemaVersion: publicationSource.reliabilityRun.dashboard.schemaVersion,
-            projectVersion: publicationSource.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
+            reliabilityRunId: publicationState.reliabilityRun.id,
+            reliabilityRunSha256: sha256Json(publicationState.reliabilityRun),
+            reliabilityDashboardSchemaVersion: publicationState.reliabilityRun.dashboard.schemaVersion,
+            projectVersion: publicationState.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
             persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
             readProjectionSourceSnapshotSha256: stateBinding.project.readProjectionSnapshotSha256,
             derivedPublicationSnapshotSha256: sourceSnapshotSha256
@@ -386,7 +284,10 @@ export async function POST(request: Request) {
           warnings: claimPackage.summary.warnings,
           sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
           persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
-          sha256: stateBinding.claimPackage.sha256
+          claimReadinessKind: claimPackage.claimReadinessEvidence.kind,
+          claimReadinessSnapshotSha256: claimPackage.claimReadinessEvidence.snapshotSha256,
+          sha256: stateBinding.claimPackage.sha256,
+          payload: structuredClone(claimPackage)
         }
       };
     const result = await buildSenaPublicationExport(snapshot, format, enterpriseProjectEvidence);
@@ -437,6 +338,12 @@ export async function POST(request: Request) {
           : {}),
         ...(enterpriseProjectEvidence?.reportSha256 ? { "x-sena-report-sha256": enterpriseProjectEvidence.reportSha256 } : {}),
         ...(enterpriseProjectEvidence?.claimPackage.status ? { "x-sena-claim-package-status": enterpriseProjectEvidence.claimPackage.status } : {}),
+        "x-sena-claim-package-sha256": stateBinding.claimPackage.sha256,
+        "x-sena-validation-run-id": stateBinding.validationRun.runId,
+        "x-sena-validation-evidence-sha256": stateBinding.validationRun.validationRunEvidenceHash,
+        "x-sena-expert-review-id": stateBinding.expertReview.reviewId,
+        "x-sena-expert-receipt-sha256": stateBinding.expertReview.receiptSha256,
+        "x-sena-expert-receipt-key-id": stateBinding.expertReview.receipt.keyId,
         ...(enterpriseProjectEvidence?.stateBinding.stateRevisionSha256
           ? { "x-sena-publication-state-revision-sha256": enterpriseProjectEvidence.stateBinding.stateRevisionSha256 }
           : {}),

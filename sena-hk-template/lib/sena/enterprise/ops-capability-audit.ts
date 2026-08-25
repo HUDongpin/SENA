@@ -521,11 +521,11 @@ export function getEnterpriseCapabilityAudit(input: {
         "parityEvidence=sena-validation-parity-evidence/v1",
         "preregistration=sena-validation-preregistration-plan/v1",
         "formalInference=sena-formal-inference-readiness/v1",
-        "claimPackage=sena-enterprise-claim-evidence-package/v1",
+        "claimPackage=sena-enterprise-claim-evidence-package/v2",
         "expertReview=sena-enterprise-expert-review/v1"
       ],
       endpoints: ["/api/sena/validation/group-comparison", "/api/sena/validation/expert-review", "/api/sena/validation/claim-package"],
-      requiredArtifacts: ["sena-validation-parity-evidence/v1", "sena-validation-preregistration-plan/v1", "sena-formal-inference-readiness/v1", "sena-enterprise-expert-review/v1", "sena-enterprise-claim-evidence-package/v1"],
+      requiredArtifacts: ["sena-validation-parity-evidence/v1", "sena-validation-preregistration-plan/v1", "sena-formal-inference-readiness/v1", "sena-enterprise-expert-review/v1", "sena-enterprise-claim-evidence-package/v2"],
       productionContractTestIds: ["enterprise-validation-parity-evidence", "enterprise-validation-inference-reference", "enterprise-formal-inference-readiness", "enterprise-expert-review-dossier-export"],
       remainingPlatformDecisions: [],
       nextAction: "Keep formal validation evidence scoped to exploratory or claim-ready-with-limits decisions."

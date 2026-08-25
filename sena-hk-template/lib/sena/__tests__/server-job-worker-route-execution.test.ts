@@ -26,6 +26,9 @@ function signedQueueRequest(input: { body: string; signature?: string; timestamp
   const timestamp = input.timestamp ?? new Date().toISOString();
   const signature = input.signature ??
     `sha256=${createHmac("sha256", queueSecret).update(`${timestamp}.${input.body}`).digest("hex")}`;
+  const workerPayloadSha256 = String((JSON.parse(input.body) as {
+    job?: { payloadSha256?: unknown };
+  }).job?.payloadSha256 ?? "");
   return new Request("https://sena.example.test/api/sena/ops/jobs/worker", {
     method: "POST",
     headers: {
@@ -33,6 +36,7 @@ function signedQueueRequest(input: { body: string; signature?: string; timestamp
       "x-sena-webhook-event": "server_job.queue",
       "x-sena-webhook-timestamp": timestamp,
       "x-sena-job-payload-sha256": createHash("sha256").update(input.body).digest("hex"),
+      "x-sena-worker-payload-sha256": workerPayloadSha256,
       "x-sena-webhook-signature": signature
     },
     body: input.body
@@ -102,14 +106,14 @@ async function queuedAnalysisJob() {
 
   const { delivery: _delivery, ...jobWithoutDelivery } = job;
   const body = JSON.stringify({
-    schemaVersion: "sena-enterprise-server-job-queue-webhook/v1",
+    schemaVersion: "sena-enterprise-server-job-queue-webhook/v2",
     generatedAt: "2026-08-15T00:00:00.000Z",
     job: jobWithoutDelivery,
     workerPayload,
     delivery: {
       provider: job.provider.mode,
       secretConfigured: true,
-      payloadSha256: job.payloadSha256
+      workerPayloadSha256: job.payloadSha256
     },
     redaction: {
       responsePayloadValuesExcluded: true,
@@ -189,6 +193,27 @@ describe("SENA server job worker route execution", () => {
       teamId: fixture.teamId
     });
     expect(runs).toHaveLength(0);
+  });
+
+  it("rejects a correctly signed body whose worker payload no longer matches the durable job hash", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const forged = JSON.parse(fixture.body) as {
+      workerPayload: { title?: string };
+    };
+    forged.workerPayload.title = "tampered after enqueue";
+    const forgedBody = JSON.stringify(forged);
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({ body: forgedBody }));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      code: "server_job_worker_worker_payload_hash_invalid"
+    });
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("queued");
+    expect(stored.lifecycle.attempts).toBe(0);
   });
 
   it("rejects a correctly signed queue webhook replayed outside the skew window and executes nothing", async () => {

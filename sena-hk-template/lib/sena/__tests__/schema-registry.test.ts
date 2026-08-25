@@ -12,6 +12,7 @@ import {
   hasSenaSchemaVersion,
   isSenaSchemaVersion,
   listSenaSchemaVersions,
+  SENA_LEGACY_SCHEMA_VERSIONS,
   SENA_SCHEMA_VERSIONS
 } from "../schema-registry";
 
@@ -36,6 +37,11 @@ function collectProductionSourceFiles(directory: string): string[] {
 }
 
 describe("SENA schema registry", () => {
+  it("keeps the pre-durable-dispatch server-job receipt as an explicit read-only legacy schema", () => {
+    expect(SENA_LEGACY_SCHEMA_VERSIONS.enterpriseServerJob).toBe("sena-enterprise-server-job/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJob).toBe("sena-enterprise-server-job/v2");
+  });
+
   it("centralizes core v1 contract identifiers without changing emitted schemas", () => {
     expect(SENA_SCHEMA_VERSIONS.productionPageContract).toBe("sena-production-page-contract/v1");
     expect(SENA_SCHEMA_VERSIONS.runtimeBundle).toBe("sena-runtime-bundle/v1");
@@ -48,18 +54,18 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.enterpriseGoLiveRehearsal).toBe("sena-enterprise-go-live-rehearsal/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseGoLiveCloseoutCheck).toBe("sena-go-live-closeout-check/v1");
     expect(SENA_SCHEMA_VERSIONS.enterprisePrimaryStateRuntime).toBe("sena-enterprise-primary-state-runtime/v1");
-    expect(SENA_SCHEMA_VERSIONS.publicationStateBinding).toBe("sena-publication-state-binding/v1");
-    expect(SENA_SCHEMA_VERSIONS.publicationDerivationManifest).toBe("sena-publication-derivation-manifest/v2");
+    expect(SENA_SCHEMA_VERSIONS.publicationStateBinding).toBe("sena-publication-state-binding/v2");
+    expect(SENA_SCHEMA_VERSIONS.publicationDerivationManifest).toBe("sena-publication-derivation-manifest/v3");
     expect(SENA_SCHEMA_VERSIONS.snapshotRestoreRequest).toBe("sena-snapshot-restore-request/v1");
     expect(SENA_SCHEMA_VERSIONS.snapshotRestoreResult).toBe("sena-snapshot-restore-result/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseAuditStoreRuntime).toBe("sena-enterprise-audit-store-runtime/v1");
-    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJob).toBe("sena-enterprise-server-job/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJob).toBe("sena-enterprise-server-job/v2");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobList).toBe("sena-enterprise-server-job-list/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate).toBe("sena-enterprise-server-job-status-update/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueue).toBe("sena-enterprise-server-job-queue/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueContract).toBe("sena-enterprise-server-job-queue-contract/v1");
-    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhook).toBe("sena-enterprise-server-job-queue-webhook/v1");
-    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhookReceipt).toBe("sena-enterprise-server-job-queue-webhook-receipt/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhook).toBe("sena-enterprise-server-job-queue-webhook/v2");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhookReceipt).toBe("sena-enterprise-server-job-queue-webhook-receipt/v2");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueProbe).toBe("sena-enterprise-server-job-queue-probe/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobStoreRuntime).toBe("sena-enterprise-server-job-store-runtime/v1");
     expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract).toBe("sena-enterprise-server-job-worker-contract/v1");

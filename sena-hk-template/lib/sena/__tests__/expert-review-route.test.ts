@@ -119,6 +119,9 @@ describe("SENA expert review route", () => {
       expect(createResponse.headers.get("x-sena-expert-review-target-kind")).toBe("project");
       expect(createResponse.headers.get("x-sena-expert-review-target-id")).toBe(project.id);
       expect(createResponse.headers.get("x-sena-expert-review-interpretation-validity")).toBe("2");
+      expect(createResponse.headers.get("x-sena-expert-review-receipt-present")).toBe("false");
+      expect(createResponse.headers.get("x-sena-expert-review-receipt-sha256")).toBeNull();
+      expect(createResponse.headers.get("x-sena-expert-review-target-validation-evidence-sha256")).toBeNull();
 
       const updateCsrf = enterprise.createEnterpriseCsrfToken(registered.context);
       const updateResponse = await route.PATCH(new Request("https://sena.example.test/api/sena/validation/expert-review", {
@@ -158,6 +161,7 @@ describe("SENA expert review route", () => {
       expect(updateResponse.headers.get("x-sena-expert-review-status")).toBe("approved");
       expect(updateResponse.headers.get("x-sena-expert-review-claim-scope")).toBe("claim-ready-with-limits");
       expect(updateResponse.headers.get("x-sena-expert-review-interpretation-validity")).toBe("5");
+      expect(updateResponse.headers.get("x-sena-expert-review-receipt-present")).toBe("false");
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

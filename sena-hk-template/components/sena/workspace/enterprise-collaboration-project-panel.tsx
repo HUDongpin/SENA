@@ -430,7 +430,7 @@ export function EnterpriseCollaborationProjectPanel({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-xs font-black uppercase text-muted">Enterprise claim package</div>
-              <div className="text-xs font-semibold text-muted">sena-enterprise-claim-evidence-package/v1</div>
+              <div className="text-xs font-semibold text-muted">sena-enterprise-claim-evidence-package/v2</div>
             </div>
             <button type="button" onClick={() => void onRefreshEnterpriseCollaboration()} disabled={!activeEnterpriseProjectId || busy} className={buttonStyles({ variant: "secondary", size: "sm" })}>
               <ShieldCheck className="h-4 w-4" /> Refresh package

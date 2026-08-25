@@ -209,6 +209,61 @@ function roundedCoverageRate(resolved: number, queued: number) {
   return Number((resolved / queued).toFixed(4));
 }
 
+export function normalizeEnterpriseReliabilityAdjudicationCoverageSummary(
+  dashboard: SenaReliabilityDashboard,
+  value: unknown
+): SenaEnterpriseReliabilityAdjudicationCoverage {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw adjudicationBindingError();
+  }
+  const coverage = value as Record<string, unknown>;
+  if (Object.keys(coverage).sort().join("|") !==
+    "coverageRate|decisions|queuedDisagreements|resolvedDisagreements|schemaVersion|unresolvedDisagreements|updatedAt") {
+    throw adjudicationBindingError();
+  }
+  const decisionsValue = coverage.decisions;
+  if (!decisionsValue || typeof decisionsValue !== "object" || Array.isArray(decisionsValue) ||
+    Object.keys(decisionsValue).sort().join("|") !== "exclude|include|revise") {
+    throw adjudicationBindingError();
+  }
+  const decisions = decisionsValue as Record<string, unknown>;
+  const include = decisions.include;
+  const exclude = decisions.exclude;
+  const revise = decisions.revise;
+  if (![include, exclude, revise].every((count) => (
+    typeof count === "number" && Number.isSafeInteger(count) && count >= 0
+  ))) {
+    throw adjudicationBindingError();
+  }
+  const resolvedDisagreements = (include as number) + (exclude as number) + (revise as number);
+  const queuedDisagreements = dashboard.adjudicationQueue.length;
+  const unresolvedDisagreements = Math.max(queuedDisagreements - resolvedDisagreements, 0);
+  const coverageRate = roundedCoverageRate(resolvedDisagreements, queuedDisagreements);
+  const updatedAt = coverage.updatedAt;
+  if (coverage.schemaVersion !== SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage ||
+    coverage.queuedDisagreements !== queuedDisagreements ||
+    coverage.resolvedDisagreements !== resolvedDisagreements ||
+    resolvedDisagreements > queuedDisagreements ||
+    coverage.unresolvedDisagreements !== unresolvedDisagreements ||
+    coverage.coverageRate !== coverageRate ||
+    typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) {
+    throw adjudicationBindingError();
+  }
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
+    queuedDisagreements,
+    resolvedDisagreements,
+    unresolvedDisagreements,
+    coverageRate,
+    decisions: {
+      include: include as number,
+      exclude: exclude as number,
+      revise: revise as number
+    },
+    updatedAt
+  };
+}
+
 export function senaReliabilityDisagreementKey(itemId: string, codeId: string) {
   return [itemId, codeId].map((part) => `${part.length}:${part}`).join("");
 }

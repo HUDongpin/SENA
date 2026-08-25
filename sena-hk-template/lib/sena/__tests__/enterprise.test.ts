@@ -1136,6 +1136,9 @@ describe("SENA enterprise runtime", () => {
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_APP_URL = "https://sena.example.test";
     process.env.SENA_MFA_ENCRYPTION_KEY = "sena-test-mfa-encryption-key";
+    process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET =
+      "8c53de6a907f4c21b8a63d34e1429af8812f1f04a06b70c6d619e8a4812cbb79";
+    process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = "enterprise-runtime-test-v1";
     process.env.SENA_AUTH_LOCKOUT_MAX_FAILURES = "3";
     process.env.SENA_AUTH_LOCKOUT_WINDOW_MINUTES = "15";
     process.env.SENA_AUTH_LOCKOUT_MINUTES = "15";
@@ -4078,13 +4081,15 @@ describe("SENA enterprise runtime", () => {
       schemaVersion: "sena-validation-parity-evidence/v1",
       status: "ready-for-review",
       walkthrough: expect.objectContaining({
-        datasetLabel: "analysis:Server-side SENA Analysis",
-        datasetHash: enterpriseAnalysisRun.artifactFingerprints.projectSnapshotSha256,
-        source: "analysis-run",
-        sourceId: enterpriseAnalysisRun.id,
+        datasetLabel: "project:Saved Enterprise Project",
+        datasetHash: validationRun.projectBinding?.snapshotSha256,
+        source: "project-snapshot",
+        sourceId: project.id,
         status: "attached"
       })
     }));
+    expect(validationRun.parityEvidence?.walkthrough.datasetHash)
+      .not.toBe(enterpriseAnalysisRun.artifactFingerprints.projectSnapshotBindingSha256);
     expect((validationRun as { preregistrationPlan?: { schemaVersion: string; planHash: string; evidence: string[] } }).preregistrationPlan)
       .toEqual(expect.objectContaining({
         schemaVersion: "sena-validation-preregistration-plan/v1",
@@ -4145,8 +4150,10 @@ describe("SENA enterprise runtime", () => {
       status: "ready-for-review",
       validationRunHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       walkthrough: expect.objectContaining({
-        datasetLabel: "lesson-study sample walkthrough",
-        datasetHash: "walkthrough-fixture-sha256",
+        datasetLabel: "project:Saved Enterprise Project",
+        datasetHash: validationSuiteRun.projectBinding?.snapshotSha256,
+        source: "project-snapshot",
+        sourceId: project.id,
         status: "attached"
       }),
       runtimeParity: expect.arrayContaining([
@@ -4181,6 +4188,8 @@ describe("SENA enterprise runtime", () => {
         expect.objectContaining({ id: "study-specific-inference", status: "attached" })
       ])
     }));
+    expect(validationSuiteRun.parityEvidence?.walkthrough.datasetHash)
+      .not.toBe("walkthrough-fixture-sha256");
     expect((validationSuiteRun as { preregistrationPlan?: { evidence: string[] } }).preregistrationPlan?.evidence)
       .toEqual(expect.arrayContaining(["analysis=holm-suite", "correction=holm", "comparisons=3"]));
     const reviewedValidationSuiteRun = enterprise.reviewEnterpriseValidationRun(registered.context, validationSuiteRun.id, {
@@ -4283,7 +4292,7 @@ describe("SENA enterprise runtime", () => {
     expect(approvedEligibleReliabilityRun.status).toBe("approved");
 
     const claimPackage = enterprise.getEnterpriseClaimEvidencePackage(registered.context, { projectId: project.id });
-    expect(claimPackage.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v1");
+    expect(claimPackage.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v2");
     expect(claimPackage.project.id).toBe(project.id);
     expect(claimPackage.sourceSnapshotEvidence).toEqual(expect.objectContaining({
       schemaVersion: "sena-enterprise-claim-source-snapshot/v1",
@@ -4488,6 +4497,8 @@ describe("SENA enterprise runtime", () => {
     delete process.env.SENA_SSO_GOOGLE_JWKS_URL;
     delete process.env.SENA_APP_URL;
     delete process.env.SENA_MFA_ENCRYPTION_KEY;
+    delete process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+    delete process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
     delete process.env.SENA_AUTH_LOCKOUT_MAX_FAILURES;
     delete process.env.SENA_AUTH_LOCKOUT_WINDOW_MINUTES;
     delete process.env.SENA_AUTH_LOCKOUT_MINUTES;

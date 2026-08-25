@@ -35,7 +35,6 @@ import {
   buildSenaGroupComparisonSuite,
   isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult,
-  SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,
@@ -52,6 +51,7 @@ import {
   normalizeEnterpriseValidationRunEvidence,
   sealEnterpriseValidationRunEvidence
 } from "./validation-integrity";
+import { senaValidationSourceVerificationCache } from "./validation-request-scope";
 
 export {
   enterpriseValidationParityEvidenceHash,
@@ -356,7 +356,7 @@ function createEnterpriseValidationRunInDb(
   input: CreateEnterpriseValidationRunInput,
   db: ReturnType<typeof readEnterpriseDb>
 ) {
-  const sourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
+  const sourceVerificationCache = senaValidationSourceVerificationCache();
   input = {
     ...input,
     result: normalizeSenaGroupComparisonValidationResult(input.result)
@@ -505,7 +505,7 @@ function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext
   const project = run.projectId
     ? db.projects.find((candidate) => candidate.id === run.projectId)
     : undefined;
-  const sourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
+  const sourceVerificationCache = senaValidationSourceVerificationCache();
   const verifiedRun = normalizeEnterpriseValidationRunEvidence(run, project, {
     evidenceHash: "optional",
     projectRevisions: db.projectRevisions,

@@ -185,6 +185,52 @@ describe("Postgres reliability and adjudication row integrity", () => {
     } as never), "payload.projectBinding", project.id);
   });
 
+  it.each([
+    ["annotation count", "annotationCount", "annotation_count", 99],
+    ["coder count", "coderCount", "coder_count", 99],
+    ["item count", "itemCount", "item_count", 99],
+    ["code count", "codeCount", "code_count", 99],
+    ["mean pairwise kappa", "meanPairwiseKappa", "mean_pairwise_kappa", 0.75],
+    ["Krippendorff alpha", "krippendorffAlphaNominal", "krippendorff_alpha_nominal", 0.75],
+    ["disagreement count", "disagreementCount", "disagreement_count", 99]
+  ] as const)("rejects a coordinated payload/row %s forgery against the canonical dashboard", async (
+    _label,
+    payloadField,
+    rowField,
+    forgedValue
+  ) => {
+    const { project, run, row } = reliabilityFixture();
+    (run as unknown as Record<string, unknown>)[payloadField] = forgedValue;
+    row[rowField] = forgedValue;
+    const adapter = createEnterprisePostgresReliabilityRunAdapter({ query: adapterQuery(row) });
+
+    await expectStoredIntegrity(adapter.listReliabilityRuns({
+      projectId: project.id,
+      project
+    }), `payload.${payloadField}`);
+  });
+
+  it("rejects coordinated payload/row adjudication coverage forged beyond the canonical queue", async () => {
+    const { project, run, row } = reliabilityFixture();
+    run.adjudicationCoverage = {
+      ...run.adjudicationCoverage,
+      queuedDisagreements: 99,
+      resolvedDisagreements: 99,
+      unresolvedDisagreements: 0,
+      coverageRate: 1,
+      decisions: { include: 99, exclude: 0, revise: 0 }
+    };
+    row.adjudication_coverage_rate = 1;
+    row.unresolved_disagreements = 0;
+    const adapter = createEnterprisePostgresReliabilityRunAdapter({ query: adapterQuery(row) });
+
+    await expectStoredIntegrity(adapter.listReliabilityRuns({
+      projectId: project.id,
+      project,
+      adjudications: []
+    } as never), "payload.adjudicationCoverage");
+  });
+
   it("revalidates a retained historical reliability row against its exact project revision", async () => {
     const { project, run, row } = reliabilityFixture();
     const adapter = createEnterprisePostgresReliabilityRunAdapter({ query: adapterQuery(row) });

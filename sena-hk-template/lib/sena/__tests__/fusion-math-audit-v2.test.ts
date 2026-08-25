@@ -8,9 +8,42 @@ function modelCopy(): SenaModel {
   return structuredClone(buildSenaModel(lessonStudySenaContract));
 }
 
+function postgresJsonbRoundTrip<T>(value: T): T {
+  const reorder = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(reorder);
+    if (entry && typeof entry === "object") {
+      return Object.fromEntries(
+        Object.entries(entry as Record<string, unknown>)
+          .sort(([left], [right]) => left === right ? 0 : left < right ? 1 : -1)
+          .map(([key, child]) => [key, reorder(child)])
+      );
+    }
+    return entry;
+  };
+  return reorder(JSON.parse(JSON.stringify(value))) as T;
+}
+
 describe("SENA fusion math audit v2", () => {
   it("emits the v2 audit contract while keeping the artifact envelope separate", () => {
     expect(buildSenaFusionMathAudit(modelCopy()).schemaVersion).toBe("sena-fusion-math-audit/v2");
+  });
+
+  it("accepts a value-identical current-v2 audit after a JSONB-style key reorder", () => {
+    const model = modelCopy();
+    const audit = buildSenaFusionMathAudit(model);
+    const reordered = Object.fromEntries(Object.entries(audit).reverse()) as typeof audit;
+
+    expect(normalizeSenaFusionMathAudit(reordered, model)).toEqual(reordered);
+  });
+
+  it("accepts a current-v2 audit and evidence after a recursive JSONB round trip", () => {
+    const model = modelCopy();
+    const audit = buildSenaFusionMathAudit(model);
+    const persistedModel = postgresJsonbRoundTrip(model);
+    const persistedAudit = postgresJsonbRoundTrip(audit);
+
+    expect(buildSenaFusionMathAudit(persistedModel)).toEqual(persistedAudit);
+    expect(normalizeSenaFusionMathAudit(persistedAudit, persistedModel)).toEqual(persistedAudit);
   });
 
   it.each([

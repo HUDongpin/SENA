@@ -52,6 +52,8 @@ export type SenaApiErrorResponseFact = {
   status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503;
   code: string;
   description: string;
+  /** Methods that can emit this error. Omit only when every method can. */
+  methods?: SenaApiMethod[];
 };
 
 export type SenaApiNormalResponseStatus = 200 | 201 | 202 | 204 | 307;
@@ -387,13 +389,20 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Run server-side SENA analysis, optionally persist the result as a team project, or queue the heavy run for an external worker with queue:true / Prefer: respond-async.",
     evidenceNoteId: "sena-analyze",
-    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1", "sena-analysis-provenance-envelope/v1", "sena-enterprise-server-job/v1"],
+    responses: ["sena-analysis-run-list/v1", "sena-analysis-run/v1", "sena-analysis-provenance-envelope/v1", "sena-enterprise-server-job/v2"],
     normalResponsesByMethod: {
       POST: [
         { status: 200, contentTypes: ["application/json"] },
         { status: 202, contentTypes: ["application/json"] }
       ]
-    }
+    },
+    errorResponses: [
+      { status: 400, code: "analysis_request_content_type_invalid", description: "The analysis mutation media type is not application/json.", methods: ["POST"] },
+      { status: 400, code: "analysis_request_invalid", description: "The admitted analysis request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST"] },
+      { status: 400, code: "analysis_request_fields_invalid", description: "Analysis control metadata contains unsupported fields or exceeds its structural/text budgets.", methods: ["POST"] },
+      { status: 413, code: "analysis_request_too_large", description: "Declared or actual analysis request bytes exceed 33554432.", methods: ["POST"] },
+      { status: 413, code: "analysis_request_too_fragmented", description: "The analysis request stream exceeds 8192 chunks.", methods: ["POST"] }
+    ]
   },
   {
     id: "sena-uploads",
@@ -422,7 +431,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Import Excel, LMS/forum JSON/CSV/XLSX exports, CSV, SENA contract, TXT/MD transcripts, or SRT/VTT subtitle transcripts with cleaning manifests, or queue uploaded import files for an external worker with upload-pointer payloads.",
     evidenceNoteId: "sena-import",
-    responses: ["sena-import-run-list/v1", "sena-import-response/v1", "sena-analysis-run/v1", "sena-project/v1", "sena-enterprise-server-job/v1"],
+    responses: ["sena-import-run-list/v1", "sena-import-response/v1", "sena-analysis-run/v1", "sena-project/v1", "sena-enterprise-server-job/v2"],
     normalResponsesByMethod: {
       POST: [
         { status: 200, contentTypes: ["application/json"] },
@@ -432,7 +441,15 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     },
     requestBodyContentTypesByMethod: {
       POST: ["multipart/form-data"]
-    }
+    },
+    errorResponses: [
+      { status: 400, code: "import_request_content_type_invalid", description: "The import mutation media type is not multipart/form-data with a valid boundary.", methods: ["POST"] },
+      { status: 400, code: "import_request_invalid", description: "The admitted multipart stream, boundary, headers, or declared length is invalid.", methods: ["POST"] },
+      { status: 400, code: "import_request_fields_invalid", description: "The import form has unsupported or duplicate fields, invalid file carriers, or unsupported JSON control fields.", methods: ["POST"] },
+      { status: 413, code: "import_request_too_large", description: "Declared or actual multipart request bytes exceed 134217728.", methods: ["POST"] },
+      { status: 413, code: "import_request_too_fragmented", description: "The multipart request stream exceeds 8192 chunks.", methods: ["POST"] },
+      { status: 413, code: "import_request_multipart_limits_exceeded", description: "The request exceeds the 100-file, configured per-file, 104857600 aggregate-file-byte, or bounded text-field limits before form parsing.", methods: ["POST"] }
+    ]
   },
   {
     id: "sena-reliability",
@@ -442,7 +459,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Create reliability dashboards with code-level diagnostics from coder files, list run history, review, generate adjudications with run-level coverage, or queue reliability jobs with upload-pointer payloads.",
     evidenceNoteId: "sena-reliability",
-    responses: ["sena-reliability-run-list/v1", "sena-reliability-response/v1", "sena-reliability-run-review/v1", "sena-reliability-adjudication-response/v1", "sena-reliability-adjudication-coverage/v1", "sena-enterprise-server-job/v1"],
+    responses: ["sena-reliability-run-list/v1", "sena-reliability-response/v1", "sena-reliability-run-review/v1", "sena-reliability-adjudication-response/v1", "sena-reliability-adjudication-coverage/v1", "sena-enterprise-server-job/v2"],
     normalResponsesByMethod: {
       POST: [
         { status: 200, contentTypes: ["application/json"] },
@@ -466,13 +483,20 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session",
     summary: "Run or queue single/suite group comparisons with permutation p values, bootstrap intervals, Holm correction, preregistration plan fingerprints, validation parity evidence, and formal inference readiness manifests that can inherit project-linked analysis-run walkthrough hashes.",
     evidenceNoteId: "sena-validation-group-comparison",
-    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v2", "sena-group-comparison-suite/v2", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1", "sena-enterprise-server-job/v1"],
+    responses: ["sena-validation-run-list/v1", "sena-group-comparison/v2", "sena-group-comparison-suite/v2", "sena-formal-inference-readiness/v1", "sena-validation-run-review/v1", "sena-enterprise-server-job/v2"],
     normalResponsesByMethod: {
       POST: [
         { status: 200, contentTypes: ["application/json"] },
         { status: 202, contentTypes: ["application/json"] }
       ]
-    }
+    },
+    errorResponses: [
+      { status: 400, code: "validation_request_content_type_invalid", description: "The validation mutation media type is not application/json.", methods: ["POST", "PATCH"] },
+      { status: 400, code: "validation_request_invalid", description: "The admitted validation request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST", "PATCH"] },
+      { status: 400, code: "validation_request_fields_invalid", description: "The validation control envelope has unsupported fields, exceeds the 40-comparison fan-out limit, or exceeds its text/structure budgets.", methods: ["POST", "PATCH"] },
+      { status: 413, code: "validation_request_too_large", description: "Declared or actual bytes exceed 33554432 for POST or 65536 for PATCH.", methods: ["POST", "PATCH"] },
+      { status: 413, code: "validation_request_too_fragmented", description: "The request stream exceeds 8192 chunks for POST or 1024 for PATCH.", methods: ["POST", "PATCH"] }
+    ]
   },
   {
     id: "sena-validation-expert-review",
@@ -480,9 +504,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/validation/expert-review",
     methods: ["GET", "POST", "PATCH"],
     auth: "session",
-    summary: "Capture domain expert sign-off, concern/recommendation evidence, and review decisions.",
+    summary: "Capture domain expert sign-off, concern/recommendation evidence, exact sealed-validation targets, and receipt-authenticated approval decisions.",
     evidenceNoteId: "sena-validation-expert-review",
-    responses: ["sena-expert-review-list/v1", "sena-expert-review-response/v1"]
+    responses: ["sena-expert-review-list/v1", "sena-expert-review-response/v1", "sena-enterprise-expert-review-receipt/v1"],
+    errorResponses: [
+      { status: 400, code: "expert_review_request_content_type_invalid", description: "The expert-review mutation media type is not application/json.", methods: ["POST", "PATCH"] },
+      { status: 400, code: "expert_review_request_invalid", description: "The admitted expert-review request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST", "PATCH"] },
+      { status: 400, code: "expert_review_request_fields_invalid", description: "The review envelope has unsupported fields or exceeds identifier, label, narrative, or structure budgets.", methods: ["POST", "PATCH"] },
+      { status: 413, code: "expert_review_request_too_large", description: "Declared or actual expert-review request bytes exceed 65536.", methods: ["POST", "PATCH"] },
+      { status: 413, code: "expert_review_request_too_fragmented", description: "The expert-review request stream exceeds 1024 chunks.", methods: ["POST", "PATCH"] }
+    ]
   },
   {
     id: "sena-validation-claim-package",
@@ -490,7 +521,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/validation/claim-package",
     methods: ["GET"],
     auth: "session",
-    summary: "Return a project-scoped claim evidence package with approved reliability, validation, preregistration, validation parity, domain expert review, source snapshot provenance evidence, x-sena-source-snapshot-sha256/x-sena-report-sha256, and x-sena-claim-evidence-reliability-source/x-sena-claim-evidence-validation-source/x-sena-claim-evidence-expert-review-source/x-sena-claim-evidence-adjudication-source response headers.",
+    summary: "Return a project-scoped claim evidence package atomically derived from one active primary-state revision, with approved reliability, sealed validation, receipt-authenticated domain expert review, source snapshot provenance, x-sena-source-snapshot-sha256/x-sena-persisted-source-snapshot-sha256/x-sena-claim-state-revision-sha256/x-sena-report-sha256, and x-sena-claim-evidence-reliability-source/x-sena-claim-evidence-validation-source/x-sena-claim-evidence-expert-review-source/x-sena-claim-evidence-adjudication-source response headers.",
     evidenceNoteId: "sena-validation-claim-package",
     queryParameters: [
       {
@@ -500,7 +531,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
         description: "Identifier of the durable SENA project whose claim evidence package is returned."
       }
     ],
-    responses: ["sena-enterprise-claim-evidence-package/v1", "sena-enterprise-claim-source-snapshot/v1"]
+    responses: ["sena-enterprise-claim-evidence-package/v2", "sena-enterprise-claim-source-snapshot/v1"]
   },
   {
     id: "sena-publication-export",
@@ -508,9 +539,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/exports/publication",
     methods: ["POST"],
     auth: "session",
-    summary: "Generate project-bound publication-ready SENA artifacts; projectId is required, inline snapshots are rejected, and every format embeds sena-publication-derivation-manifest/v2 binding the project, claim package, approved current reliability evidence, persisted/read-projection/publication hashes, and adjudication coverage to one primary-state revision. Async requests fail closed after the same project-bound evidence gate until an evidence-bound publication worker is implemented.",
+    summary: "Generate project-bound claim-ready-with-limits SENA artifacts only after approved current reliability, sealed current validation, and receipt-authenticated expert evidence are atomically bound to one primary-state revision; projectId is required, inline snapshots and explicit unsupported formats are rejected, and every format embeds sena-publication-derivation-manifest/v3 with the complete claim package and derivation chain. Async requests fail closed after the same evidence gate until an evidence-bound publication worker is implemented.",
     evidenceNoteId: "sena-publication-export",
-    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v1", "sena-publication-derivation-manifest/v2", "sena-publication-state-binding/v1", "sena-data-governance-metadata/v1"],
+    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v2", "sena-publication-derivation-manifest/v3", "sena-publication-state-binding/v2", "sena-data-governance-metadata/v1"],
     normalResponsesByMethod: {
       POST: [{
         status: 200,
@@ -541,6 +572,11 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       },
       {
         status: 400,
+        code: "publication_export_format_invalid",
+        description: "An explicitly supplied format is not one of html, svg, png, xlsx, docx, pdf, or package; only an absent format defaults to html."
+      },
+      {
+        status: 400,
         code: "publication_export_project_required",
         description: "A non-empty persisted projectId is required for enterprise publication."
       },
@@ -548,6 +584,36 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
         status: 400,
         code: "publication_export_inline_snapshot_forbidden",
         description: "Inline snapshots cannot establish approved atomic enterprise publication evidence."
+      },
+      {
+        status: 404,
+        code: "project_not_found",
+        description: "The requested persisted enterprise project does not exist in the active primary state."
+      },
+      {
+        status: 409,
+        code: "publication_claim_evidence_not_ready",
+        description: "The project lacks one blocker-free claim-ready package with approved current reliability, sealed validation, and receipt-authenticated expert evidence."
+      },
+      {
+        status: 409,
+        code: "validation_run_evidence_invalid",
+        description: "Stored validation evidence is not canonically bound to its reviewed result."
+      },
+      {
+        status: 409,
+        code: "publication_state_binding_invalid",
+        description: "Project, claim package, reliability, validation, and expert evidence do not share the asserted primary-state revision."
+      },
+      {
+        status: 409,
+        code: "publication_export_model_card_blocked",
+        description: "The persisted or export-only derived snapshot does not satisfy current model-card and research-readiness requirements."
+      },
+      {
+        status: 409,
+        code: "publication_derivation_manifest_binding_invalid",
+        description: "The generated derivation manifest does not match the selected snapshot and atomic enterprise evidence binding."
       },
       {
         status: 413,
@@ -563,6 +629,11 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
         status: 413,
         code: "publication_export_derivation_too_complex",
         description: "The persisted project snapshot exceeds the request-wide canonical publication derivation budget before report, export, audit, job, or webhook side effects."
+      },
+      {
+        status: 503,
+        code: "publication_export_async_worker_unavailable",
+        description: "Async publication is unavailable until a worker can revalidate the complete state and evidence lease before artifact generation."
       }
     ]
   },
@@ -637,7 +708,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     auth: "session-or-ops-bearer",
     summary: "List indexed Postgres-backed server job queue state or let workers update running, success, failure, retry, and dead-letter status.",
     evidenceNoteId: "sena-ops-jobs",
-    responses: ["sena-enterprise-server-job-list/v1", "sena-enterprise-server-job-status-update/v1", "sena-enterprise-server-job/v1"],
+    responses: ["sena-enterprise-server-job-list/v1", "sena-enterprise-server-job-status-update/v1", "sena-enterprise-server-job/v2"],
     normalResponsesByMethod: {
       POST: [
         { status: 200, contentTypes: ["application/json"] },
@@ -677,6 +748,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       { status: 400, code: "server_job_worker_queue_schema_invalid", description: "A queue event does not carry the queue webhook schema." },
       { status: 401, code: "server_job_worker_payload_hash_required", description: "The request has no payload digest header." },
       { status: 401, code: "server_job_worker_payload_hash_invalid", description: "The payload digest is malformed or does not match the exact body." },
+      { status: 401, code: "server_job_worker_worker_payload_hash_invalid", description: "A queue delivery's canonical worker payload digest is missing, malformed, or inconsistent across its header, job, delivery, and workerPayload carriers." },
       { status: 401, code: "server_job_worker_timestamp_required", description: "The request has no signed timestamp." },
       { status: 401, code: "server_job_worker_timestamp_invalid", description: "The signed timestamp is not an ISO-8601 instant." },
       { status: 401, code: "server_job_worker_timestamp_outside_window", description: "The signed timestamp is outside the replay window." },
@@ -689,6 +761,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     ],
     headerParameters: [
       { name: "x-sena-job-payload-sha256", required: true, description: "Lowercase SHA-256 hex digest of the exact request body." },
+      { name: "x-sena-worker-payload-sha256", required: false, description: "Required for server_job.queue: lowercase SHA-256 of the canonical workerPayload; probes omit it." },
       { name: "x-sena-webhook-timestamp", required: true, description: "Signed ISO-8601 delivery instant within the configured replay window." },
       { name: "x-sena-webhook-signature", required: true, description: "sha256=<hex> HMAC of '<timestamp>.<exact request body>' using SENA_JOB_QUEUE_SECRET." },
       { name: "x-sena-webhook-event", required: true, allowedValues: ["server_job.queue", "server_job.queue.probe"], description: "Queue delivery event bound to the declared payload schema." }

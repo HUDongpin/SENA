@@ -68,6 +68,7 @@ import {
   getEnterpriseProjectReadOnlyAsync,
   updateEnterpriseProjectAsync
 } from "./team-project";
+import { runWithSenaValidationRequestScope } from "./validation-request-scope";
 
 /**
  * The in-repo executor for queued SENA server jobs.
@@ -908,33 +909,35 @@ export async function drainEnterpriseServerJobQueue(input: {
   teamId?: string;
   kind?: SenaEnterpriseServerJobKind;
 } = {}): Promise<SenaServerJobWorkerDrainReport> {
-  const queued = await listEnterpriseServerJobs({
-    status: "queued",
-    kind: input.kind,
-    teamId: input.teamId,
-    limit: input.limit ?? 25
+  return runWithSenaValidationRequestScope(async () => {
+    const queued = await listEnterpriseServerJobs({
+      status: "queued",
+      kind: input.kind,
+      teamId: input.teamId,
+      limit: input.limit ?? 25
+    });
+    const outcomes: SenaServerJobWorkerOutcome[] = [];
+    for (const job of queued.jobs) {
+      if (!isExecutableKind(job.kind)) {
+        outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
+        continue;
+      }
+      const workerPayload = await reproducedWorkerPayload(job);
+      if (!workerPayload) {
+        outcomes.push(skipped(job, "server_job_worker_payload_not_reproducible"));
+        continue;
+      }
+      outcomes.push(await runEnterpriseServerJob({ job, workerPayload }));
+    }
+    return {
+      generatedAt: now(),
+      scanned: queued.jobs.length,
+      succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
+      failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+      skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+      outcomes
+    };
   });
-  const outcomes: SenaServerJobWorkerOutcome[] = [];
-  for (const job of queued.jobs) {
-    if (!isExecutableKind(job.kind)) {
-      outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
-      continue;
-    }
-    const workerPayload = await reproducedWorkerPayload(job);
-    if (!workerPayload) {
-      outcomes.push(skipped(job, "server_job_worker_payload_not_reproducible"));
-      continue;
-    }
-    outcomes.push(await runEnterpriseServerJob({ job, workerPayload }));
-  }
-  return {
-    generatedAt: now(),
-    scanned: queued.jobs.length,
-    succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
-    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
-    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
-    outcomes
-  };
 }
 
 /**
@@ -949,11 +952,13 @@ export async function runEnterpriseServerJobFromQueueWebhook(input: {
   jobId: string;
   workerPayload: unknown;
 }): Promise<SenaServerJobWorkerOutcome> {
-  const job = await getEnterpriseServerJob(input.jobId);
-  if (stableServerJobPayloadSha256(input.workerPayload) !== job.payloadSha256) {
-    return skipped(job, "server_job_worker_payload_sha256_mismatch");
-  }
-  return runEnterpriseServerJob({ job, workerPayload: input.workerPayload });
+  return runWithSenaValidationRequestScope(async () => {
+    const job = await getEnterpriseServerJob(input.jobId);
+    if (stableServerJobPayloadSha256(input.workerPayload) !== job.payloadSha256) {
+      return skipped(job, "server_job_worker_payload_sha256_mismatch");
+    }
+    return runEnterpriseServerJob({ job, workerPayload: input.workerPayload });
+  });
 }
 
 export function serverJobWorkerInlineExecutionEnabled() {

@@ -2494,7 +2494,7 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"export-publication-pdf\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"export-publication-package\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-claim-evidence-package\"");
-    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("sena-enterprise-claim-evidence-package/v1");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("sena-enterprise-claim-evidence-package/v2");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-expert-review-dossier-export\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-validation-parity-evidence\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"enterprise-validation-parity-evidence\"");

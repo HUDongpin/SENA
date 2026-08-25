@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 import {
   buildSenaGroupComparisonSuite,
@@ -13,8 +13,15 @@ import {
   reliabilityDashboardToReview
 } from "../index";
 import { assertSenaProjectSnapshotPublicationDerivationWorkBudget } from "../snapshot";
+import {
+  configurePublicationAuthorizationSigning,
+  createClaimReadyPublicationEvidence,
+  createClaimReadyPublicationEvidenceAsync
+} from "./publication-authorization-fixture";
 
 const publicationExportRouteTestTimeoutMs = 30_000;
+const originalExpertSigningSecret = process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+const originalExpertSigningKeyId = process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
 
 function mutatePersistedProjectSnapshot(
   enterpriseDbDir: string,
@@ -164,7 +171,14 @@ function projectReliabilityRunInput(
 }
 
 describe("SENA publication export route", () => {
-  it("exports publication packages directly from a persisted projectId", async () => {
+  afterEach(() => {
+    if (originalExpertSigningSecret === undefined) delete process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+    else process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET = originalExpertSigningSecret;
+    if (originalExpertSigningKeyId === undefined) delete process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
+    else process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = originalExpertSigningKeyId;
+  });
+
+  it("rejects legacy project publication when validation and expert authority are absent", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -258,83 +272,16 @@ describe("SENA publication export route", () => {
         })
       }));
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toContain("application/vnd.sena.publication-package+json");
-      const body = await response.json() as {
-        schemaVersion?: string;
-        sourceSnapshotEvidence?: { snapshotSchemaVersion?: string; snapshotTitle?: string };
-        enterpriseProjectEvidence?: {
-          schemaVersion?: string;
-          projectId?: string;
-          teamId?: string;
-          currentVersion?: number;
-          sourceSnapshotSha256?: string;
-          reportSha256?: string;
-          claimPackage?: {
-            schemaVersion?: string;
-            status?: string;
-            blockers?: number;
-            warnings?: number;
-            sourceSnapshotSha256?: string;
-          };
-        };
-        manifest?: {
-          formats?: string[];
-          artifactCount?: number;
-          packageSha256?: string;
-          reportSha256?: string;
-        };
-        verificationCertificate?: { status?: string };
-      };
-      expect(body.schemaVersion).toBe("sena-publication-package/v1");
-      expect(body.sourceSnapshotEvidence?.snapshotSchemaVersion).toBe("sena-project-snapshot/v1");
-      expect(body.sourceSnapshotEvidence?.snapshotTitle).toBe("Route Publication Project");
-      expect(body.enterpriseProjectEvidence).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-enterprise-project-evidence/v1",
-        projectId: project.id,
-        teamId: project.teamId,
-        currentVersion: project.currentVersion,
-        sourceSnapshotSha256: expect.any(String)
-      }));
-      expect(body.enterpriseProjectEvidence?.sourceSnapshotSha256).toBe((body.sourceSnapshotEvidence as { snapshotSha256?: string })?.snapshotSha256);
-      expect(response.headers.get("x-sena-export-source")).toBe("project");
-      expect(response.headers.get("x-sena-project-id")).toBe(project.id);
-      expect(response.headers.get("x-sena-project-version")).toBe(String(project.currentVersion));
-      expect(response.headers.get("x-sena-source-snapshot-sha256")).toBe(body.enterpriseProjectEvidence?.sourceSnapshotSha256);
-      expect(response.headers.get("x-sena-report-sha256")).toBe(body.enterpriseProjectEvidence?.reportSha256);
-      expect(response.headers.get("x-sena-claim-package-status")).toBe("exploratory-only");
-      expect(response.headers.get("x-sena-export-format")).toBe("package");
-      expect(response.headers.get("x-sena-export-filename")).toBe("route-publication-project.sena-publication-package.json");
-      expect(Number(response.headers.get("x-sena-export-bytes"))).toBeGreaterThan(0);
-      expect(response.headers.get("x-sena-export-sha256")).toMatch(/^[a-f0-9]{64}$/);
-      expect(response.headers.get("x-sena-publication-package-sha256")).toBe(body.manifest?.packageSha256);
-      expect(response.headers.get("x-sena-publication-artifact-count")).toBe(String(body.manifest?.artifactCount));
-      expect(response.headers.get("x-sena-publication-formats")).toBe(body.manifest?.formats?.join(","));
-      expect(response.headers.get("x-sena-publication-verification-status")).toBe(body.verificationCertificate?.status);
-      expect(body.enterpriseProjectEvidence?.claimPackage).toEqual(expect.objectContaining({
-        schemaVersion: "sena-enterprise-claim-evidence-package/v1",
-        status: "exploratory-only",
-        sourceSnapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
-      }));
-      expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
-        .not.toBe(body.enterpriseProjectEvidence?.sourceSnapshotSha256);
-      expect(body.manifest?.formats).toContain("pdf");
-      // Inspect the persisted audit carrier directly. A generic audit-list
-      // read would intentionally normalize the deliberately broken unrelated
-      // fixture and obscure whether the publication request itself stayed
-      // inside its reserved derivation boundary.
-      const audit = persistedPublicationSideEffects(legacyDbPath, project.id).auditEvents;
-      expect(audit[0]).toEqual(expect.objectContaining({
-        projectId: project.id,
-        teamId: registered.context.teams[0].id
-      }));
-      expect(audit[0].detail).toEqual(expect.objectContaining({
-        source: "project",
-        format: "package",
-        title: "Route Publication Project",
-        projectVersion: project.currentVersion,
-        sourceSnapshotSha256: body.enterpriseProjectEvidence?.sourceSnapshotSha256
-      }));
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: "Publication export requires one claim-ready package with approved current reliability, sealed validation, and receipt-authenticated expert evidence.",
+        code: "publication_claim_evidence_not_ready"
+      });
+      expect(response.headers.get("x-sena-export-source")).toBeNull();
+      expect(persistedPublicationSideEffects(legacyDbPath, project.id)).toEqual({
+        auditEvents: [],
+        jobs: []
+      });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
@@ -500,6 +447,8 @@ describe("SENA publication export route", () => {
           expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
         }
       );
+      configurePublicationAuthorizationSigning("publication-membership-test-v1");
+      createClaimReadyPublicationEvidence(enterprise, registered.context, project, "Publication membership");
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -516,7 +465,7 @@ describe("SENA publication export route", () => {
       for (const response of [syncResponse, queuedResponse]) {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual(expect.objectContaining({
-          code: "publication_export_model_card_blocked"
+          code: "validation_run_evidence_invalid"
         }));
       }
       for (const sections of [
@@ -530,7 +479,7 @@ describe("SENA publication export route", () => {
         const malformedResponse = await route.POST(request(false));
         expect(malformedResponse.status).toBe(409);
         await expect(malformedResponse.json()).resolves.toEqual(expect.objectContaining({
-          code: "publication_export_model_card_blocked"
+          code: "validation_run_evidence_invalid"
         }));
       }
       expect(queueRequests).toHaveLength(0);
@@ -712,8 +661,8 @@ describe("SENA publication export route", () => {
 
       expect(response.status).toBe(409);
       const body = await response.json() as { code?: string; error?: string };
-      expect(body.code).toBe("publication_export_model_card_blocked");
-      expect(body.error).toContain("approved, current, machine-eligible reliability run");
+      expect(body.code).toBe("publication_claim_evidence_not_ready");
+      expect(body.error).toContain("approved current reliability, sealed validation, and receipt-authenticated expert evidence");
       expect(queueRequests).toHaveLength(0);
 
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
@@ -791,6 +740,8 @@ describe("SENA publication export route", () => {
           expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
         }
       );
+      configurePublicationAuthorizationSigning("publication-human-review-test-v1");
+      createClaimReadyPublicationEvidence(enterprise, registered.context, project, "Publication human review");
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -807,7 +758,7 @@ describe("SENA publication export route", () => {
       for (const response of [syncResponse, queuedResponse]) {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual(expect.objectContaining({
-          code: "publication_export_model_card_blocked"
+          code: "validation_run_evidence_invalid"
         }));
       }
       expect(queueRequests).toHaveLength(0);
@@ -871,8 +822,28 @@ describe("SENA publication export route", () => {
         status: "approved",
         notes: "Approved machine-eligible evidence for the current project revision."
       });
+      configurePublicationAuthorizationSigning("publication-worker-test-v1");
+      createClaimReadyPublicationEvidence(enterprise, registered.context, project, "Publication worker");
 
       const route = await import("../../../app/api/sena/exports/publication/route");
+      const invalidFormatResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          format: "zip"
+        })
+      }));
+      expect(invalidFormatResponse.status).toBe(400);
+      await expect(invalidFormatResponse.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_format_invalid"
+      }));
+      expect(invalidFormatResponse.headers.get("x-sena-export-source")).toBeNull();
+      expect(queueRequests).toHaveLength(0);
+
       const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
         method: "POST",
         headers: {
@@ -957,6 +928,12 @@ describe("SENA publication export route", () => {
         status: "approved",
         notes: "Approved reliability cannot override an incomplete human-review model-card section."
       });
+      createClaimReadyPublicationEvidence(
+        enterprise,
+        registered.context,
+        incompleteProject,
+        "Incomplete publication worker"
+      );
       const incompleteResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
         method: "POST",
         headers: {
@@ -971,7 +948,7 @@ describe("SENA publication export route", () => {
       }));
       expect(incompleteResponse.status).toBe(409);
       await expect(incompleteResponse.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
       expect(queueRequests).toHaveLength(0);
       const jobs = await enterprise.listEnterpriseServerJobs({});
@@ -1056,6 +1033,12 @@ describe("SENA publication export route", () => {
           notes: "Approved Postgres machine-eligible evidence for the current project revision."
         }
       );
+      configurePublicationAuthorizationSigning("publication-postgres-test-v1");
+      await createClaimReadyPublicationEvidenceAsync(
+        registered.context,
+        project,
+        "Postgres publication"
+      );
 
       const route = await import("../../../app/api/sena/exports/publication/route");
       const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
@@ -1089,7 +1072,7 @@ describe("SENA publication export route", () => {
         projectId: project.id,
         currentVersion: 1
       }));
-      expect(body.enterpriseProjectEvidence?.claimPackage?.status).toBe("exploratory-only");
+      expect(body.enterpriseProjectEvidence?.claimPackage?.status).toBe("claim-ready-with-limits");
       expect(body.enterpriseProjectEvidence?.stateBinding).toEqual(expect.objectContaining({
         activePrimary: "postgres",
         stateRevisionKind: "postgres-row-revision",

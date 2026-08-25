@@ -116,7 +116,7 @@ async function manifestFromPdf(body: Buffer) {
     if (!(object instanceof PDFRawStream)) continue;
     try {
       const decoded = Buffer.from(decodePDFRawStream(object).decode()).toString("utf8");
-      if (decoded.includes('"schemaVersion":"sena-publication-derivation-manifest/v2"')) {
+      if (decoded.includes('"schemaVersion":"sena-publication-derivation-manifest/v3"')) {
         return JSON.parse(decoded) as SenaPublicationDerivationManifest;
       }
     } catch {
@@ -151,7 +151,7 @@ describe("publication derivation manifest embedding", () => {
       const embedded = await extractManifest(format, result.body);
       expect(embedded).toEqual(result.derivationManifest);
       expect(embedded).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-derivation-manifest/v2",
+        schemaVersion: "sena-publication-derivation-manifest/v3",
         sourceKind: "inline-snapshot",
         derivationKind: "inline-snapshot",
         manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/)

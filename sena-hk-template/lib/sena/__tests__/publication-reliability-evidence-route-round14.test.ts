@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSenaModel,
   buildSenaProjectSnapshot,
@@ -19,8 +19,14 @@ import {
   buildSenaPublicationExport,
   type SenaPublicationEnterpriseProjectEvidence
 } from "../publication-export";
+import {
+  configurePublicationAuthorizationSigning,
+  createClaimReadyPublicationEvidence
+} from "./publication-authorization-fixture";
 
 const routeTestTimeoutMs = 30_000;
+const originalExpertSigningSecret = process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+const originalExpertSigningKeyId = process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
 
 function publicationCandidateSnapshot() {
   const imported = importSenaJsonContract(lessonStudySenaContract);
@@ -122,6 +128,13 @@ function persistedReadyPublicationSnapshot() {
 }
 
 describe("enterprise publication current-v2 reliability evidence", () => {
+  afterEach(() => {
+    if (originalExpertSigningSecret === undefined) delete process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+    else process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET = originalExpertSigningSecret;
+    if (originalExpertSigningKeyId === undefined) delete process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
+    else process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = originalExpertSigningKeyId;
+  });
+
   it("publishes a statistically eligible run after real adjudication without rewriting its raw disagreement evidence", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-live-adjudication-route-"));
     let sessionToken = "";
@@ -288,6 +301,13 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         }
       ));
       expect(approval.status).toBe(200);
+      configurePublicationAuthorizationSigning("publication-live-adjudication-v1");
+      createClaimReadyPublicationEvidence(
+        enterprise,
+        registered.context,
+        project,
+        "Live adjudication publication"
+      );
 
       const exported = await publicationRoute.POST(new Request(
         "https://sena.example.test/api/sena/exports/publication",
@@ -418,7 +438,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       const missingRun = await publicationRoute.POST(projectRequest());
       expect(missingRun.status).toBe(409);
       await expect(missingRun.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
 
       const directSnapshot = await publicationRoute.POST(new Request(
@@ -432,9 +452,9 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           body: JSON.stringify({ snapshot, format: "html" })
         }
       ));
-      expect(directSnapshot.status).toBe(400);
+      expect(directSnapshot.status).toBe(413);
       await expect(directSnapshot.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_project_required"
+        code: "publication_export_request_too_large"
       }));
       expect(directSnapshot.headers.get("x-sena-export-source")).toBeNull();
       expect(directSnapshot.headers.get("x-sena-publication-reliability-run-id")).toBeNull();
@@ -478,6 +498,13 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         })
       }));
       expect(approval.status).toBe(200);
+      configurePublicationAuthorizationSigning("publication-ready-project-v1");
+      createClaimReadyPublicationEvidence(
+        enterprise,
+        registered.context,
+        project,
+        "Ready project publication"
+      );
 
       const exported = await publicationRoute.POST(projectRequest());
       expect(exported.status).toBe(200);
@@ -509,6 +536,10 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           })
         })
       }));
+      expect(
+        (body.derivationManifest?.enterpriseProjectEvidence as SenaPublicationEnterpriseProjectEvidence | undefined)
+          ?.claimPackage.payload
+      ).toEqual(evidence.claimPackage.payload);
       expect(exported.headers.get("x-sena-publication-reliability-run-id")).toBe(selectedRunId);
       const htmlArtifact = body.artifacts?.find((artifact) => artifact.format === "html");
       const html = Buffer.from(htmlArtifact?.bodyBase64 ?? "", "base64").toString("utf8");
@@ -612,7 +643,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       const blocked = await publicationRoute.POST(publicationRequest());
       expect(blocked.status).toBe(409);
       await expect(blocked.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
 
       const reliabilityRoute = await import("../../../app/api/sena/reliability/route");
@@ -644,7 +675,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       const pendingReview = await publicationRoute.POST(publicationRequest());
       expect(pendingReview.status).toBe(409);
       await expect(pendingReview.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
 
       const approval = await reliabilityRoute.PATCH(new Request("https://sena.example.test/api/sena/reliability", {
@@ -663,6 +694,13 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       await expect(approval.json()).resolves.toEqual(expect.objectContaining({
         reliabilityRun: expect.objectContaining({ status: "approved" })
       }));
+      configurePublicationAuthorizationSigning("publication-current-v2-v1");
+      createClaimReadyPublicationEvidence(
+        enterprise,
+        registered.context,
+        project,
+        "Current v2 publication"
+      );
 
       const exported = await publicationRoute.POST(publicationRequest());
       expect(exported.status).toBe(200);
@@ -731,7 +769,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       expect(body.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256)
         .not.toBe(body.sourceSnapshotEvidence?.snapshotSha256);
       expect(body.enterpriseProjectEvidence?.stateBinding).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-state-binding/v1",
+        schemaVersion: "sena-publication-state-binding/v2",
         activePrimary: "file",
         stateRevision: expect.any(String),
         stateRevisionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -753,10 +791,44 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
           projectVersion: project.currentVersion,
           unresolvedDisagreements: 0
+        }),
+        validationRun: expect.objectContaining({
+          status: "approved",
+          validationRunEvidenceSchemaVersion: "sena-enterprise-validation-run-evidence/v1",
+          validationRunEvidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+        }),
+        expertReview: expect.objectContaining({
+          status: "approved",
+          claimScope: "claim-ready-with-limits",
+          receiptSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          receipt: expect.objectContaining({
+            schemaVersion: "sena-enterprise-expert-review-receipt/v1",
+            keyId: "publication-current-v2-v1",
+            signature: expect.stringMatching(/^[a-f0-9]{64}$/)
+          })
         })
       }));
+      const completeEvidence = body.enterpriseProjectEvidence as SenaPublicationEnterpriseProjectEvidence | undefined;
+      expect(completeEvidence?.claimPackage.payload).toEqual(expect.objectContaining({
+        schemaVersion: "sena-enterprise-claim-evidence-package/v2",
+        status: "claim-ready-with-limits",
+        blockers: [],
+        evidence: expect.objectContaining({
+          reliability: expect.objectContaining({ runId: reliabilityBody.reliabilityRun?.id }),
+          validation: expect.objectContaining({
+            runId: completeEvidence?.stateBinding.validationRun.runId,
+            validationRunEvidenceHash: completeEvidence?.stateBinding.validationRun.validationRunEvidenceHash
+          }),
+          expertReview: expect.objectContaining({
+            reviewId: completeEvidence?.stateBinding.expertReview.reviewId,
+            evidenceReceipt: completeEvidence?.stateBinding.expertReview.receipt
+          })
+        })
+      }));
+      expect(sha256Json(completeEvidence?.claimPackage.payload))
+        .toBe(completeEvidence?.claimPackage.sha256);
       expect(body.derivationManifest).toEqual(expect.objectContaining({
-        schemaVersion: "sena-publication-derivation-manifest/v2",
+        schemaVersion: "sena-publication-derivation-manifest/v3",
         sourceKind: "enterprise-project",
         derivationKind: "current-project-reliability-run",
         manifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -779,6 +851,18 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         .toBe(body.derivationManifest?.hashBoundaries?.readProjectionSnapshotSha256);
       expect(exported.headers.get("x-sena-source-snapshot-sha256"))
         .toBe(body.derivationManifest?.hashBoundaries?.publicationSnapshotSha256);
+      expect(exported.headers.get("x-sena-claim-package-sha256"))
+        .toBe(completeEvidence?.claimPackage.sha256);
+      expect(exported.headers.get("x-sena-validation-run-id"))
+        .toBe(completeEvidence?.stateBinding.validationRun.runId);
+      expect(exported.headers.get("x-sena-validation-evidence-sha256"))
+        .toBe(completeEvidence?.stateBinding.validationRun.validationRunEvidenceHash);
+      expect(exported.headers.get("x-sena-expert-review-id"))
+        .toBe(completeEvidence?.stateBinding.expertReview.reviewId);
+      expect(exported.headers.get("x-sena-expert-receipt-sha256"))
+        .toBe(completeEvidence?.stateBinding.expertReview.receiptSha256);
+      expect(exported.headers.get("x-sena-expert-receipt-key-id"))
+        .toBe(completeEvidence?.stateBinding.expertReview.receipt.keyId);
       expect(enterprise.getEnterpriseProject(registered.context, project.id).currentVersion).toBe(project.currentVersion);
 
       const viewerEmail = "current-v2-publication-viewer@example.edu";
@@ -857,7 +941,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       const unresolvedPublication = await publicationRoute.POST(publicationRequest());
       expect(unresolvedPublication.status).toBe(409);
       await expect(unresolvedPublication.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
 
       const completedAdjudication = enterprise.createEnterpriseReliabilityAdjudications(
@@ -908,7 +992,7 @@ describe("enterprise publication current-v2 reliability evidence", () => {
       expect(stalePublication.status).toBe(409);
       expect(stalePublication.headers.get("x-sena-publication-reliability-run-id")).toBeNull();
       await expect(stalePublication.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_model_card_blocked"
+        code: "publication_claim_evidence_not_ready"
       }));
 
       const currentReliability = await reliabilityRoute.POST(new Request(
@@ -950,6 +1034,12 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         }
       ));
       expect(currentApproval.status).toBe(200);
+      createClaimReadyPublicationEvidence(
+        enterprise,
+        registered.context,
+        updatedProject,
+        "Current revision publication"
+      );
 
       const currentPublication = await publicationRoute.POST(publicationRequest());
       expect(currentPublication.status).toBe(200);

@@ -30,6 +30,7 @@ import {
 } from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
 import type { SenaEnterprisePublicationStateBinding } from "./enterprise/publication-state-binding";
+import type { SenaEnterpriseClaimEvidencePackage } from "./enterprise/claim-evidence-package";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
 export type SenaPublicationFormat = "html" | "svg" | "png" | "xlsx" | "docx" | "pdf" | "package";
@@ -69,7 +70,10 @@ export type SenaPublicationEnterpriseProjectEvidence = {
     warnings: number;
     sourceSnapshotSha256: string;
     persistedSourceSnapshotSha256: string;
+    claimReadinessKind: SenaEnterpriseClaimEvidencePackage["claimReadinessEvidence"]["kind"];
+    claimReadinessSnapshotSha256: string;
     sha256: string;
+    payload: SenaEnterpriseClaimEvidencePackage;
   };
 };
 
@@ -131,7 +135,13 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
   const { bindingSha256, ...bindingCore } = evidence.stateBinding;
   const binding = evidence.stateBinding;
   const reliability = binding.reliabilityRun;
+  const validation = binding.validationRun;
+  const expert = binding.expertReview;
   const derivation = evidence.publicationDerivation;
+  const claimPackage = evidence.claimPackage.payload;
+  const claimReliability = claimPackage.evidence.reliability;
+  const claimValidation = claimPackage.evidence.validation;
+  const claimExpert = claimPackage.evidence.expertReview;
   return (
     sha256Json(bindingCore) === bindingSha256 &&
     binding.project.projectId === evidence.projectId &&
@@ -140,12 +150,50 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
     binding.claimPackage.projectVersion === evidence.currentVersion &&
     binding.claimPackage.sourceSnapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
     binding.claimPackage.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    binding.claimPackage.claimReadinessKind === evidence.claimPackage.claimReadinessKind &&
+    binding.claimPackage.claimReadinessSnapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
+    sha256Json(claimPackage) === evidence.claimPackage.sha256 &&
+    claimPackage.schemaVersion === evidence.claimPackage.schemaVersion &&
+    claimPackage.status === "claim-ready-with-limits" &&
+    claimPackage.blockers.length === 0 &&
+    claimPackage.summary.blockers === 0 &&
+    claimPackage.project.id === evidence.projectId &&
+    claimPackage.project.currentVersion === evidence.currentVersion &&
+    claimPackage.sourceSnapshotEvidence.snapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
+    claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    claimPackage.claimReadinessEvidence.kind === evidence.claimPackage.claimReadinessKind &&
+    claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
+    claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.sourceSnapshotSha256 &&
     binding.claimPackage.reliabilityRunId === (reliability?.runId ?? null) &&
+    claimReliability?.status === "approved" &&
+    claimReliability.runId === reliability?.runId &&
+    claimValidation?.status === "approved" &&
+    claimValidation.runId === validation.runId &&
+    claimValidation.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    sha256Json(claimValidation) === validation.sha256 &&
+    claimExpert?.status === "approved" &&
+    claimExpert.reviewId === expert.reviewId &&
+    claimExpert.claimScope === "claim-ready-with-limits" &&
+    claimExpert.target.kind === "validation-run" &&
+    claimExpert.target.id === validation.runId &&
+    claimExpert.target.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    sha256Json(claimExpert) === expert.sha256 &&
+    sha256Json(claimExpert.evidenceReceipt) === expert.receiptSha256 &&
+    expert.receiptSha256 === sha256Json(expert.receipt) &&
     (!reliability || (
       reliability.status === "approved" &&
       reliability.projectVersion === evidence.currentVersion &&
       reliability.unresolvedDisagreements === 0
     )) &&
+    validation.status === "approved" &&
+    validation.projectBinding?.projectId === evidence.projectId &&
+    validation.projectBinding?.projectVersion === evidence.currentVersion &&
+    expert.status === "approved" &&
+    expert.projectBinding?.projectId === evidence.projectId &&
+    expert.projectBinding?.projectVersion === evidence.currentVersion &&
+    expert.targetValidationRunId === validation.runId &&
+    expert.targetValidationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    expert.receipt.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
     (reliability ? Boolean(derivation) : !derivation) &&
     (!reliability || !derivation || (
       derivation.kind === "current-project-reliability-run" &&

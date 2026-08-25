@@ -1,4 +1,5 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { senaJsonValuesEqual } from "./canonical-json";
 import type {
   SenaFusionMathAudit,
   SenaFusionMathAuditArtifact,
@@ -116,12 +117,23 @@ function matrixFingerprint({
   normalized?: number[][];
   values?: number[][];
 }): SenaMatrixFingerprint {
+  // JSONB is free to reorder object keys. Re-project pair descriptors into the
+  // contract's canonical field order before hashing so a database round trip
+  // cannot change the otherwise value-identical G fingerprint. This preserves
+  // the existing v1 checksum for descriptors produced by buildSenaModel, which
+  // already uses this id/codeA/codeB/label order.
+  const stablePairDescriptors = pairDescriptors?.map((pair) => ({
+    id: pair.id,
+    codeA: pair.codeA,
+    codeB: pair.codeB,
+    label: pair.label
+  }));
   const payload = {
     id,
     rowLabels,
     columnLabels,
     pairIds,
-    pairDescriptors,
+    pairDescriptors: stablePairDescriptors,
     raw: raw ? stableMatrix(raw) : undefined,
     normalized: normalized ? stableMatrix(normalized) : undefined,
     values: values ? stableMatrix(values) : undefined
@@ -150,7 +162,7 @@ function matrixFingerprint({
     rowLabels,
     columnLabels,
     ...(pairIds ? { pairIds } : {}),
-    ...(pairDescriptors ? { pairDescriptors } : {})
+    ...(stablePairDescriptors ? { pairDescriptors: stablePairDescriptors } : {})
   };
 }
 
@@ -506,7 +518,7 @@ export function normalizeSenaFusionMathAudit(
       } catch {
         throw new Error("SENA fusion math audit evidence could not be recomputed from the canonical matrices.");
       }
-      if (JSON.stringify(expected) !== JSON.stringify(value)) {
+      if (!senaJsonValuesEqual(expected, value)) {
         throw new Error("SENA fusion math audit does not match the canonical matrix semantics and fingerprints.");
       }
     }

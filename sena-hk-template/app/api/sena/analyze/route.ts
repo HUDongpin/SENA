@@ -30,6 +30,7 @@ import {
   type SenaAnalysisApiBody
 } from "@/lib/sena/analysis-api";
 import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
+import { admitSenaAnalysisMutationRequest } from "@/lib/sena/enterprise/heavy-request-admission";
 
 export const runtime = "nodejs";
 
@@ -49,8 +50,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-analyze" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json() as SenaAnalysisApiBody;
+    const admitted = await admitSenaAnalysisMutationRequest(request);
+    const context = await requireApiSessionForMutation(admitted.request);
+    const body = admitted.body as SenaAnalysisApiBody;
     const sourceProject = body.projectId ? await getEnterpriseProjectAsync(context, String(body.projectId)) : null;
     const runInput = buildSenaAnalysisRunRequestInput({ body, sourceProject });
     const effectiveSource = resolveSenaAnalysisRunSource(runInput);
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
       sourceProject,
       fallbackTeamId: context.teams[0]?.id
     });
-    if (shouldQueueServerJob(request, body)) {
+    if (shouldQueueServerJob(admitted.request, body)) {
       if (sourceProject && teamId !== sourceProject.teamId) {
         throw new SenaEnterpriseError("Queued analysis team does not match the project team.", 400, "analysis_project_team_mismatch");
       }

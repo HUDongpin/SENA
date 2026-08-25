@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -303,7 +303,7 @@ describe("SENA analyze route", () => {
           endpointHash?: string;
         };
       };
-      expect(body.schemaVersion).toBe("sena-enterprise-server-job/v1");
+      expect(body.schemaVersion).toBe("sena-enterprise-server-job/v2");
       expect(body.kind).toBe("analysis");
       expect(body.status).toBe("queued");
       expect(body.teamId).toBe(project.teamId);
@@ -355,7 +355,9 @@ describe("SENA analyze route", () => {
       expect(queueRequests[0].headers["x-sena-webhook-event"]).toBe("server_job.queue");
       expect(queueRequests[0].headers["x-sena-server-job-id"]).toBe(body.id);
       expect(queueRequests[0].headers["x-sena-server-job-kind"]).toBe("analysis");
-      expect(queueRequests[0].headers["x-sena-job-payload-sha256"]).toBe(body.payloadSha256);
+      expect(queueRequests[0].headers["x-sena-job-payload-sha256"])
+        .toBe(createHash("sha256").update(queueRequests[0].body).digest("hex"));
+      expect(queueRequests[0].headers["x-sena-worker-payload-sha256"]).toBe(body.payloadSha256);
       const queueTimestamp = queueRequests[0].headers["x-sena-webhook-timestamp"];
       expect(queueRequests[0].headers["x-sena-webhook-signature"])
         .toBe(`sha256=${createHmac("sha256", "sena-test-job-secret").update(`${queueTimestamp}.${queueRequests[0].body}`).digest("hex")}`);
@@ -370,10 +372,10 @@ describe("SENA analyze route", () => {
           inlineSnapshot?: unknown;
           inlineDataset?: unknown;
         };
-        delivery?: { payloadSha256?: string; secretConfigured?: boolean };
+        delivery?: { workerPayloadSha256?: string; secretConfigured?: boolean };
         redaction?: { responsePayloadValuesExcluded?: boolean; auditPayloadValuesExcluded?: boolean };
       };
-      expect(queuePayload.schemaVersion).toBe("sena-enterprise-server-job-queue-webhook/v1");
+      expect(queuePayload.schemaVersion).toBe("sena-enterprise-server-job-queue-webhook/v2");
       expect(queuePayload.job).toEqual(expect.objectContaining({
         id: body.id,
         payloadSha256: body.payloadSha256
@@ -388,7 +390,7 @@ describe("SENA analyze route", () => {
       expect(queuePayload.workerPayload?.inlineDataset).toBeUndefined();
       expect(queuePayload.workerPayload?.codingReliability?.machineEvidence).toBeUndefined();
       expect(queuePayload.delivery).toEqual(expect.objectContaining({
-        payloadSha256: body.payloadSha256,
+        workerPayloadSha256: body.payloadSha256,
         secretConfigured: true
       }));
       expect(queuePayload.redaction).toEqual(expect.objectContaining({

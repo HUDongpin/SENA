@@ -124,11 +124,13 @@ describe("SENA claim package route", () => {
         project?: { id?: string; currentVersion?: number };
         sourceSnapshotEvidence?: {
           snapshotSha256?: string;
+          persistedSnapshotSha256?: string;
+          stateRevisionSha256?: string;
           reportSha256?: string;
           revisionMatchesCurrentVersion?: boolean;
         };
       };
-      expect(body.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v1");
+      expect(body.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v2");
       expect(body.project?.id).toBe(project.id);
       expect(body.status).toBe("exploratory-only");
       expect(body.sourceSnapshotEvidence?.revisionMatchesCurrentVersion).toBe(true);
@@ -138,8 +140,12 @@ describe("SENA claim package route", () => {
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-project-version")).toBe(String(body.project?.currentVersion));
       expect(response.headers.get("x-sena-source-snapshot-sha256")).toBe(body.sourceSnapshotEvidence?.snapshotSha256);
+      expect(response.headers.get("x-sena-persisted-source-snapshot-sha256"))
+        .toBe(body.sourceSnapshotEvidence?.persistedSnapshotSha256);
+      expect(response.headers.get("x-sena-claim-state-revision-sha256"))
+        .toBe(body.sourceSnapshotEvidence?.stateRevisionSha256);
       expect(response.headers.get("x-sena-report-sha256")).toBe(body.sourceSnapshotEvidence?.reportSha256);
-      expect(response.headers.get("x-sena-claim-evidence-adjudication-source")).toBe("file-json");
+      expect(response.headers.get("x-sena-claim-evidence-adjudication-source")).toBe("file-primary-state");
 
       const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
       const persisted = JSON.parse(readFileSync(dbPath, "utf8")) as {

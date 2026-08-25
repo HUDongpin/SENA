@@ -154,7 +154,7 @@ describe("enterprise legacy state read projections", () => {
     }
   });
 
-  it("binds publication persisted and read-projection hashes to the same raw file revision", () => {
+  it("refuses publication from an unauthorized legacy projection without mutating either hash boundary", () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-state-read-projection-publication-"));
     try {
       const dbPath = path.join(dbDir, "enterprise-db.json");
@@ -164,7 +164,12 @@ describe("enterprise legacy state read projections", () => {
       const context = {
         memberships: [{ teamId: "team_projection", role: "owner", status: "active" }]
       } as SenaEnterpriseSessionContext;
-      const bundle = resolveEnterprisePublicationStateBundleFromState(
+      const rawProject = (JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb).projects[0];
+      const persistedSnapshotSha256 = sha256(rawProject.snapshot);
+      const readProjectionSnapshotSha256 = sha256(state.db.projects[0].snapshot);
+
+      expect(persistedSnapshotSha256).not.toBe(readProjectionSnapshotSha256);
+      expect(() => resolveEnterprisePublicationStateBundleFromState(
         context,
         "project_legacy_projection",
         {
@@ -173,21 +178,16 @@ describe("enterprise legacy state read projections", () => {
           fileRevision: state.revision,
           runtime: { activePrimary: "file" } as never
         }
-      );
-      const rawProject = (JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb).projects[0];
-
-      expect(bundle.stateBinding.stateRevision).toBe(state.revision);
-      expect(bundle.stateBinding.project.persistedSnapshotSha256).toBe(sha256(rawProject.snapshot));
-      expect(bundle.stateBinding.project.readProjectionSnapshotSha256).toBe(sha256(state.db.projects[0].snapshot));
-      expect(bundle.stateBinding.project.persistedSnapshotSha256)
-        .not.toBe(bundle.stateBinding.project.readProjectionSnapshotSha256);
-      expect(bundle.claimPackage.sourceSnapshotEvidence).toEqual(expect.objectContaining({
-        persistedSnapshotSha256: bundle.stateBinding.project.persistedSnapshotSha256,
-        readProjectionSnapshotSha256: bundle.stateBinding.project.readProjectionSnapshotSha256,
-        stateRevisionSha256: bundle.stateBinding.stateRevisionSha256
+      )).toThrowError(expect.objectContaining({
+        status: 409,
+        code: "publication_claim_evidence_not_ready"
       }));
-      expect(bundle.stateBinding.claimPackage.reliabilityRunId).toBeNull();
-      expect(bundle.stateBinding.reliabilityRun).toBeNull();
+
+      const after = store.readState();
+      const afterRawProject = (JSON.parse(readFileSync(dbPath, "utf8")) as SenaEnterpriseDb).projects[0];
+      expect(after.revision).toBe(state.revision);
+      expect(sha256(afterRawProject.snapshot)).toBe(persistedSnapshotSha256);
+      expect(sha256(after.db.projects[0].snapshot)).toBe(readProjectionSnapshotSha256);
     } finally {
       rmSync(dbDir, { recursive: true, force: true });
     }

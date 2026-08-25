@@ -873,8 +873,15 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
   const source = enterpriseProjectCollaborationRuntime();
   const pools: Array<{ end?: () => Promise<void> }> = [];
   try {
-    const reliabilityRunsPromise = source.reliabilityRuns === "postgres-table"
+    const adjudicationsPromise = source.adjudications === "postgres-table"
       ? (() => {
+        const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
+        pools.push(pool);
+        return adapter.listAdjudications({ projectId, limit: 1000 });
+      })()
+      : Promise.resolve(db.adjudications);
+    const reliabilityRunsPromise = source.reliabilityRuns === "postgres-table"
+      ? (async () => {
         const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
         pools.push(pool);
         return adapter.listReliabilityRuns({
@@ -883,6 +890,7 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
           projectRevisions: db.projectRevisions.filter((revision) => (
             revision.projectId === projectId && revision.teamId === project.teamId
           )),
+          adjudications: await adjudicationsPromise,
           limit: 1000
         });
       })()
@@ -912,13 +920,6 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
         return adapter.listExpertReviews({ projectId, teamId: project.teamId, limit: 1000 });
       })()
       : Promise.resolve(db.expertReviews);
-    const adjudicationsPromise = source.adjudications === "postgres-table"
-      ? (() => {
-        const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
-        pools.push(pool);
-        return adapter.listAdjudications({ projectId, limit: 1000 });
-      })()
-      : Promise.resolve(db.adjudications);
     const commentsPromise = source.comments === "postgres-table"
       ? (() => {
         const { adapter, pool } = createEnterprisePostgresProjectCommentAdapterFromEnv({});

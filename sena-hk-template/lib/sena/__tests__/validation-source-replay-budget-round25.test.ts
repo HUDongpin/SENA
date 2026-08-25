@@ -56,6 +56,10 @@ import {
   normalizeSenaGroupComparisonValidationResult,
   SenaGroupComparisonSourceVerificationCache
 } from "../inference";
+import {
+  runWithSenaValidationRequestScope,
+  senaValidationSourceVerificationCache
+} from "../enterprise/validation-request-scope";
 
 let enterpriseDbDir = "";
 const previousEnterpriseDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
@@ -275,6 +279,129 @@ describe("validation source verification replay budget", () => {
     expect(() => normalizeEnterpriseValidationRunEvidence(run, project, {
       evidenceHash: "required"
     })).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+  });
+
+  it("rejects an allowed validation field accessor without invoking it", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    let getterReads = 0;
+    Object.defineProperty(result.comparisons[0], "groupA", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("allowed validation getter was invoked");
+      }
+    });
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(result)).toThrow(/carrier|shape/i);
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects an allowed validation array index accessor without invoking it", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    let getterReads = 0;
+    Object.defineProperty(result.comparisons[0].permutation.samplesPreview, 0, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("allowed validation array getter was invoked");
+      }
+    });
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(result)).toThrow(/carrier|shape/i);
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects an allowed sealed-evidence field accessor without invoking it", () => {
+    const { project, run } = createValidationEvidenceFixture("allowed-evidence-field-accessor");
+    let getterReads = 0;
+    Object.defineProperty(run.preregistrationPlan!.parameters, "permutationIterations", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("allowed sealed-evidence getter was invoked");
+      }
+    });
+
+    expect(() => normalizeEnterpriseValidationRunEvidence(run, project, {
+      evidenceHash: "required"
+    })).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects an allowed sealed-evidence array index accessor without invoking it", () => {
+    const { project, run } = createValidationEvidenceFixture("allowed-evidence-index-accessor");
+    let getterReads = 0;
+    Object.defineProperty(run.parityEvidence!.notes, 0, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("allowed sealed-evidence index getter was invoked");
+      }
+    });
+
+    expect(() => normalizeEnterpriseValidationRunEvidence(run, project, {
+      evidenceHash: "required"
+    })).toThrowError(expect.objectContaining({ path: "resourceAdmission" }));
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects extra holder source-record fields without traversing their values", () => {
+    const dataset = structuredClone(lessonStudySenaContract) as typeof lessonStudySenaContract & {
+      people: Array<(typeof lessonStudySenaContract.people)[number] & { unexpected?: unknown }>;
+    };
+    let getterReads = 0;
+    const nested = {};
+    Object.defineProperty(nested, "secret", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("unknown source-record value was traversed");
+      }
+    });
+    dataset.people[0].unexpected = nested;
+
+    expect(() => estimateSenaGroupComparisonSourceModelWorkUnits({ dataset }))
+      .toThrow(/holder dataset|source model|carrier/i);
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects an allowed holder source-record accessor without invoking it", () => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    let getterReads = 0;
+    Object.defineProperty(dataset.people[0], "id", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("allowed source-record getter was invoked");
+      }
+    });
+
+    expect(() => estimateSenaGroupComparisonSourceModelWorkUnits({ dataset }))
+      .toThrow(/holder dataset|source model|carrier/i);
+    expect(getterReads).toBe(0);
   });
 
   it.each([
@@ -568,6 +695,75 @@ describe("validation source verification replay budget", () => {
     expect(cache.modelBuildCount).toBe(1);
     expect(cache.sourceEvidenceBuildCount).toBe(1);
     expect(cache.canonicalResultReplayCount).toBe(1);
+  });
+
+  it("reuses one canonical holder model across cloned source carriers", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+
+    expect(cache.modelBuildCount).toBe(1);
+    expect(cache.sourceEvidenceBuildCount).toBe(1);
+    expect(cache.canonicalResultReplayCount).toBe(1);
+    expect(cache.uniqueSourceReservationCount).toBe(1);
+  });
+
+  it("shares one cumulative replay budget across unrelated validation reads in a request scope", () => {
+    const first = createValidationEvidenceFixture("request-budget-first", 20260901);
+    const second = createValidationEvidenceFixture("request-budget-second", 20260902);
+    const leaf = first.run.result.schemaVersion === "sena-group-comparison-suite/v2"
+      ? first.run.result.comparisons[0]
+      : first.run.result;
+    const oneReplayWork = (leaf.permutation.iterations + leaf.bootstrap.iterations) *
+      leaf.diagnostics.comparedPeople;
+
+    runWithSenaValidationRequestScope(() => {
+      expect(() => normalizeEnterpriseValidationRunCollectionEvidence({
+        runs: [structuredClone(first.run)],
+        projects: [structuredClone(first.project)],
+        analysisRuns: []
+      })).not.toThrow();
+
+      // A nested helper must inherit the existing request scope instead of
+      // minting a fresh budget for an unrelated state read/retry.
+      expect(() => runWithSenaValidationRequestScope(() => (
+        normalizeEnterpriseValidationRunCollectionEvidence({
+          runs: [structuredClone(second.run)],
+          projects: [structuredClone(second.project)],
+          analysisRuns: []
+        })
+      ))).toThrow(expect.objectContaining({
+        name: "SenaEnterpriseValidationRunIntegrityError",
+        path: "result"
+      }));
+
+      const cache = senaValidationSourceVerificationCache();
+      expect(cache.deterministicWorkUnitsReserved).toBe(oneReplayWork);
+      expect(cache.uniqueResultReservationCount).toBe(1);
+    }, {
+      maxDeterministicWorkUnits: oneReplayWork,
+      maxUniqueResults: 1000,
+      maxUniqueSources: 1000
+    });
   });
 
   it("reserves trusted holder work before replaying a distinct source-valid result", () => {

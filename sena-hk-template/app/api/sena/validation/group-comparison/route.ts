@@ -24,6 +24,7 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { admitSenaValidationMutationRequest } from "@/lib/sena/enterprise/heavy-request-admission";
 
 export const runtime = "nodejs";
 
@@ -41,11 +42,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json() as Record<string, unknown>;
+    const admitted = await admitSenaValidationMutationRequest(request, "POST");
+    const context = await requireApiSessionForMutation(admitted.request);
+    const body = admitted.body;
     const projectId = body.projectId ? String(body.projectId) : undefined;
     const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-    const queued = shouldQueueServerJob(request, body);
+    const queued = shouldQueueServerJob(admitted.request, body);
     const queue = queued ? serverJobQueueStatus() : null;
     if (queued && !projectId && !queue?.inlinePayloadAllowed) {
       throw new SenaEnterpriseError(
@@ -128,8 +130,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json();
+    const admitted = await admitSenaValidationMutationRequest(request, "PATCH");
+    const context = await requireApiSessionForMutation(admitted.request);
+    const body = admitted.body;
     const response = await buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync(context, body);
     return NextResponse.json(response.body, { headers: response.headers });
   });

@@ -201,12 +201,31 @@ describe("SENA group-comparison strict v2 read semantics", () => {
       status: "zero-variance-separated"
     };
     result.primary = result.comparisons[0];
+    const primary = result.primary;
     const db = emptyEnterpriseDb();
     db.validationRuns = [{
+      id: "validation_round6_coordinated_forgery",
+      teamId: "team_round6",
+      userId: "user_round6",
+      status: "pending-review",
+      preregistrationNote: "Round 6 strict-read fixture.",
+      methodNote: result.guardrail,
+      metric: primary.metric,
+      groupField: primary.groupField,
+      groupA: primary.groupA,
+      groupB: primary.groupB,
+      iterations: primary.permutation.iterations,
+      seed: primary.permutation.seed,
+      pTwoSided: primary.permutation.pTwoSided,
+      observedDifference: primary.observedDifference,
+      createdAt: "2026-08-21T00:00:00.000Z",
       result
     } as never];
 
-    expect(() => normalizeEnterpriseDb(db)).toThrow(/group-comparison/i);
+    expect(() => normalizeEnterpriseDb(db)).toThrowError(expect.objectContaining({
+      code: "validation_run_evidence_invalid",
+      path: "result"
+    }));
   });
 
   it("rejects a coordinated suite forgery during Postgres restore", async () => {

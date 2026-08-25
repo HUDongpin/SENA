@@ -166,9 +166,11 @@ function requestBodyDocumented(endpoint: SenaApiEndpoint, method: SenaApiMethod)
   return (endpoint.requestBodyMethods ?? DEFAULT_REQUEST_BODY_METHODS).includes(method);
 }
 
-function openApiErrorResponses(endpoint: SenaApiEndpoint) {
+function openApiErrorResponses(endpoint: SenaApiEndpoint, method: SenaApiMethod) {
   const grouped = new Map<number, NonNullable<SenaApiEndpoint["errorResponses"]>>();
-  for (const error of endpoint.errorResponses ?? []) {
+  for (const error of (endpoint.errorResponses ?? []).filter((candidate) => (
+    !candidate.methods || candidate.methods.includes(method)
+  ))) {
     grouped.set(error.status, [...(grouped.get(error.status) ?? []), error]);
   }
   return Object.fromEntries(Array.from(grouped, ([status, errors]) => [
@@ -247,7 +249,7 @@ export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
         } : {}),
         responses: {
           ...openApiNormalResponses(endpoint, method),
-          ...openApiErrorResponses(endpoint)
+          ...openApiErrorResponses(endpoint, method)
         }
       };
     }

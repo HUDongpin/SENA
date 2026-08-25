@@ -105,7 +105,7 @@ describe("SENA server job queue live probe", () => {
       attempted: true,
       httpStatus: 202,
       payloadSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v1",
+      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v2",
       probePayloadSchema: "sena-enterprise-server-job-queue-probe/v1"
     }));
     expect(requests).toHaveLength(1);
@@ -160,11 +160,14 @@ describe("SENA server job queue live probe", () => {
       postgresPrimaryActive: true
     }));
     expect(contract.dispatch).toEqual(expect.objectContaining({
-      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v1",
+      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v2",
       probeSchema: "sena-enterprise-server-job-queue-probe/v1",
       enqueueEvent: "server_job.queue",
       probeEvent: "server_job.queue.probe",
       signatureAlgorithm: "hmac-sha256",
+      transportPayloadHashHeader: "x-sena-job-payload-sha256",
+      workerPayloadHashHeader: "x-sena-worker-payload-sha256",
+      hashSemantics: "exact-body-and-canonical-worker-payload-separated",
       statusCallback: "/api/sena/ops/jobs",
       rawPayloadPersistedInJobStore: false
     }));

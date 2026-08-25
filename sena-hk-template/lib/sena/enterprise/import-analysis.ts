@@ -577,8 +577,20 @@ type CreateEnterpriseUploadsInput = {
     bytes: Buffer;
     importProfile?: string;
     warningCount?: number;
+    reservedId?: string;
   }>;
 };
+
+export function reserveEnterpriseUploadIds(count: number) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 1_024) {
+    throw new SenaEnterpriseError(
+      "SENA upload reservation count is invalid.",
+      400,
+      "upload_reservation_count_invalid"
+    );
+  }
+  return Array.from({ length: count }, () => id("upload"));
+}
 
 function createEnterpriseUploadsInDb(
   context: SenaEnterpriseSessionContext,
@@ -596,8 +608,20 @@ function createEnterpriseUploadsInDb(
   mkdirSync(uploadDir, { recursive: true });
   const timestamp = now();
   const auditDetails: Array<Record<string, string | number | boolean | null>> = [];
+  const reservedIds = input.files
+    .map((file) => file.reservedId)
+    .filter((uploadId): uploadId is string => uploadId !== undefined);
+  if (reservedIds.some((uploadId) => !/^upload_[a-f0-9]{24}$/.test(uploadId)) ||
+    new Set(reservedIds).size !== reservedIds.length ||
+    reservedIds.some((uploadId) => db.uploads.some((upload) => upload.id === uploadId))) {
+    throw new SenaEnterpriseError(
+      "SENA upload reservation is invalid or already used.",
+      409,
+      "upload_reservation_invalid"
+    );
+  }
   const uploads = input.files.map((file) => {
-    const uploadId = id("upload");
+    const uploadId = file.reservedId ?? id("upload");
     const scan = scanEnterpriseUploadFile(file);
     const originalName = scan.originalName;
     const storedName = `${uploadId}-${originalName}`;

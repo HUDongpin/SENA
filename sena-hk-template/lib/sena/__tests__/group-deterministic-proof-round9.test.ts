@@ -98,11 +98,33 @@ describe("group-comparison deterministic proof obligations", () => {
   });
 
   it("rejects the coordinated forgery during file-state normalization", () => {
+    const forged = coordinatedResamplingForgery(result());
     const db = emptyEnterpriseDb();
-    db.validationRuns = [{ result: coordinatedResamplingForgery(result()) } as never];
+    db.validationRuns = [{
+      id: "validation_round9_coordinated_forgery",
+      teamId: "team_round9",
+      userId: "user_round9",
+      status: "pending-review",
+      preregistrationNote: "Round 9 deterministic proof fixture.",
+      methodNote: forged.guardrail,
+      metric: forged.metric,
+      groupField: forged.groupField,
+      groupA: forged.groupA,
+      groupB: forged.groupB,
+      iterations: forged.permutation.iterations,
+      seed: forged.permutation.seed,
+      pTwoSided: forged.permutation.pTwoSided,
+      comparisonCount: 1,
+      observedDifference: forged.observedDifference,
+      createdAt: "2026-08-21T00:00:00.000Z",
+      result: forged
+    } as never];
 
-    expect(() => normalizeEnterpriseDb(db))
-      .toThrow(/deterministic|permutation|bootstrap|group-comparison|source evidence/i);
+    expect(() => normalizeEnterpriseDb(db)).toThrowError(expect.objectContaining({
+      name: "SenaEnterpriseValidationRunIntegrityError",
+      code: "validation_run_evidence_invalid",
+      path: "result"
+    }));
   });
 
   it("rejects the coordinated forgery during Postgres normalization", async () => {

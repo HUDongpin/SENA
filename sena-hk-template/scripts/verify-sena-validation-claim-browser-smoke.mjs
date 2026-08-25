@@ -303,7 +303,7 @@ async function createApprovedExpertReview(page, csrf, projectId, validationRunId
 
 async function verifyClaimReadyPackage(page, projectId, reliabilityRunId, validationRunId, expertReviewId) {
   const claim = await fetchJson(page, `/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`);
-  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v1") {
+  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v2") {
     throw new Error(`Claim package request failed: ${JSON.stringify(claim)}.`);
   }
   requireHeader(claim.headers, "x-sena-claim-package-status", "claim-ready-with-limits");

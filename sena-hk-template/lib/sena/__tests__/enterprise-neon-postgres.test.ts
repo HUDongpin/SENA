@@ -1031,7 +1031,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     expect(JSON.stringify({ opsStatus, governance, metrics })).not.toContain("example.neon.tech");
   });
 
-  it("builds claim evidence packages from indexed Postgres reliability validation expert review and adjudication tables", async () => {
+  it("builds claim evidence packages atomically from one Postgres primary-state revision", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-neon-claim-package-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_ENTERPRISE_DB_ADAPTER = "neon";
@@ -1160,6 +1160,10 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     }));
 
     const enterprise = await import("../enterprise");
+    const reliabilityRuns = await import("../enterprise/reliability-runs");
+    const collaborationRuntime = await import("../enterprise/team-collaboration");
+    const validationRuns = await import("../enterprise/validation-runs");
+    const expertReviews = await import("../enterprise/expert-review");
     const registered = enterprise.registerEnterpriseUser({
       name: "Neon Claim PI",
       email: "neon-claim-pi@example.edu",
@@ -1220,7 +1224,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     expect(dashboard.meanPairwiseKappa).toBeGreaterThanOrEqual(0.8);
     expect(dashboard.krippendorffAlphaNominal).toBeGreaterThanOrEqual(0.8);
     expect(dashboard.disagreementCount).toBe(1);
-    const reliabilityRun = await enterprise.createEnterpriseReliabilityRunWithPostgresMirror(registered.context, {
+    const reliabilityRun = await reliabilityRuns.createEnterpriseReliabilityRunWithPostgresMirrorAsync(registered.context, {
       teamId,
       projectId: project.id,
       reviewer: "Claim Reliability Reviewer",
@@ -1232,7 +1236,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       dashboard,
       reviewPatch: reliabilityDashboardToReview(dashboard, "Claim Reliability Reviewer")
     });
-    const adjudication = await enterprise.createEnterpriseAdjudicationRecordWithPostgresMirror(registered.context, project.id, {
+    const adjudication = await collaborationRuntime.createEnterpriseAdjudicationRecordWithPostgresMirrorAsync(registered.context, project.id, {
       reliabilityRunId: reliabilityRun.id,
       itemId: "u1",
       codeId: "evidence",
@@ -1240,7 +1244,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       notes: "Indexed adjudication evidence for claim package.",
       coderValues: { c1: true, c2: false }
     });
-    await enterprise.reviewEnterpriseReliabilityRunWithPostgresMirror(registered.context, reliabilityRun.id, {
+    await reliabilityRuns.reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(registered.context, reliabilityRun.id, {
       status: "approved",
       notes: "The canonical disagreement is bound and resolved for the claim evidence package."
     });
@@ -1253,7 +1257,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       iterations: 100,
       bootstrapIterations: 100
     });
-    const validationRun = await enterprise.createEnterpriseValidationRunWithPostgresMirror(registered.context, {
+    const validationRun = await validationRuns.createEnterpriseValidationRunWithPostgresMirrorAsync(registered.context, {
       teamId,
       projectId: project.id,
       preregistrationNote: "Claim package preregistration fixture.",
@@ -1264,12 +1268,12 @@ describe("SENA enterprise Neon Postgres readiness", () => {
         studySpecificInferenceReference: "prereg:claim-package-postgres-v1"
       }
     });
-    await enterprise.reviewEnterpriseValidationRunWithPostgresMirror(registered.context, validationRun.id, {
+    await validationRuns.reviewEnterpriseValidationRunWithPostgresMirrorAsync(registered.context, validationRun.id, {
       status: "approved",
       notes: "Approved validation evidence for claim package."
     });
 
-    const expertReview = await enterprise.createEnterpriseExpertReviewWithPostgresMirror(registered.context, {
+    const expertReview = await expertReviews.createEnterpriseExpertReviewWithPostgresMirrorAsync(registered.context, {
       projectId: project.id,
       target: { kind: "validation-run", id: validationRun.id, label: "Approved validation run" },
       reviewerName: "Domain Expert",
@@ -1284,17 +1288,23 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       limitations: "Single project evidence package."
     });
 
+    const claimReadQueryStart = queries.length;
     const claimPackage = await enterprise.getEnterpriseClaimEvidencePackageWithPostgresEvidence(registered.context, {
       projectId: project.id
     });
+    const claimReadQueries = queries.slice(claimReadQueryStart);
 
     expect(claimPackage.blockers).toEqual([]);
     expect(claimPackage.status).toBe("claim-ready-with-limits");
     expect(claimPackage.evidenceSource).toEqual(expect.objectContaining({
-      reliabilityRuns: "postgres-table",
-      validationRuns: "postgres-table",
-      expertReviews: "postgres-table",
-      adjudications: "postgres-table"
+      reliabilityRuns: "postgres-primary-state",
+      validationRuns: "postgres-primary-state",
+      expertReviews: "postgres-primary-state",
+      adjudications: "postgres-primary-state"
+    }));
+    expect(claimPackage.sourceSnapshotEvidence).toEqual(expect.objectContaining({
+      persistedSnapshotSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      stateRevisionSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
     }));
     expect(claimPackage.evidence.reliability?.runId).toBe(reliabilityRun.id);
     expect(claimPackage.evidence.reliability?.adjudications).toBe(1);
@@ -1306,13 +1316,13 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       expertReview: "approved",
       blockers: 0
     }));
-    expect(queries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_reliability_runs"/.test(query.sql))).toBe(true);
-    expect(queries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_validation_runs"/.test(query.sql))).toBe(true);
-    expect(queries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_expert_reviews"/.test(query.sql))).toBe(true);
+    expect(claimReadQueries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_reliability_runs"/.test(query.sql))).toBe(false);
+    expect(claimReadQueries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_validation_runs"/.test(query.sql))).toBe(false);
+    expect(claimReadQueries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_expert_reviews"/.test(query.sql))).toBe(false);
     expect(queries.some((query) => /CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_adjudications"/.test(query.sql))).toBe(true);
     expect(queries.some((query) => /CREATE INDEX IF NOT EXISTS "sena_enterprise_adjudications_project_created_idx"/.test(query.sql))).toBe(true);
     expect(queries.some((query) => /INSERT INTO "public"\."sena_enterprise_adjudications"/.test(query.sql))).toBe(true);
-    expect(queries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_adjudications"/.test(query.sql))).toBe(true);
+    expect(claimReadQueries.some((query) => /SELECT \* FROM "public"\."sena_enterprise_adjudications"/.test(query.sql))).toBe(false);
     expect(adjudicationPayloads.get(adjudication.id)).toEqual(expect.objectContaining({
       id: adjudication.id,
       projectId: project.id,
@@ -1335,9 +1345,12 @@ describe("SENA enterprise Neon Postgres readiness", () => {
       ...validationPayloads.get(validationRun.id),
       result: alternateClaimResult
     });
-    await expect(enterprise.getEnterpriseClaimEvidencePackageWithPostgresEvidence(registered.context, {
+    const mirrorSkewedPackage = await enterprise.getEnterpriseClaimEvidencePackageWithPostgresEvidence(registered.context, {
       projectId: project.id
-    })).rejects.toThrow(/group-comparison|project|source|evidence/i);
+    });
+    expect(mirrorSkewedPackage.status).toBe("claim-ready-with-limits");
+    expect(mirrorSkewedPackage.evidence.validation?.validationRunEvidenceHash)
+      .toBe(claimPackage.evidence.validation?.validationRunEvidenceHash);
   });
 
   it("loads project collaboration evidence from indexed Postgres reliability validation expert review and adjudication tables", async () => {

@@ -202,29 +202,67 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_project_comments"/i.test(normalizedSql)) {
-      this.projectComments.unshift({
+      const row = {
         id: values[0],
         projectId: values[1],
         teamId: values[2],
         userId: values[3],
+        project_id: values[1],
+        team_id: values[2],
+        user_id: values[3],
+        target_kind: values[4],
+        target_id: values[5],
+        target_label: values[6],
         status: values[7],
-        payload: values[8]
-      });
+        payload: values[8],
+        created_at: values[9],
+        updated_at: values[10]
+      };
+      this.projectComments = [
+        row,
+        ...this.projectComments.filter((record) => record.id !== row.id)
+      ];
       return { rows: [], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_project_presence"/i.test(normalizedSql)) {
       this.projectPresence = this.projectPresence.filter((record) => (
         record.projectId !== values[1] || record.userId !== values[3]
       ));
-      this.projectPresence.unshift({
+      const row = {
         id: values[0],
         projectId: values[1],
         teamId: values[2],
         userId: values[3],
+        project_id: values[1],
+        team_id: values[2],
+        user_id: values[3],
         activeView: values[4],
-        payload: values[6]
-      });
+        active_view: values[4],
+        cursor_label: values[5],
+        payload: values[6],
+        updated_at: values[7],
+        expires_at: values[8]
+      };
+      this.projectPresence.unshift(row);
       return { rows: [], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /SET delivery = \$2::jsonb/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      if (!current) return { rows: [], rowCount: 0 };
+      const failQueuedJob = current.status === "queued" && values[2] === true;
+      const finalized: Record<string, unknown> = {
+        ...current,
+        delivery: values[1],
+        status: failQueuedJob ? "failed" : current.status,
+        lifecycle: failQueuedJob ? values[3] : current.lifecycle,
+        updated_at: values[4]
+      };
+      this.serverJobs = [
+        finalized,
+        ...this.serverJobs.filter((record) => record.id !== finalized.id)
+      ];
+      return { rows: [finalized], rowCount: 1 };
     }
     if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
       /WHERE id = \$1 AND status = 'queued'/i.test(normalizedSql)) {
@@ -345,19 +383,31 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 0 };
     }
     if (/SELECT \* FROM "public"\."sena_enterprise_project_comments"/i.test(normalizedSql)) {
+      const teamMatch = normalizedSql.match(/team_id = \$(\d+)/i);
+      const projectMatch = normalizedSql.match(/project_id = \$(\d+)/i);
+      const statusMatch = normalizedSql.match(/status = \$(\d+)/i);
+      const rows = this.projectComments.filter((record) => (
+        (!teamMatch || record.teamId === values[Number(teamMatch[1]) - 1]) &&
+        (!projectMatch || record.projectId === values[Number(projectMatch[1]) - 1]) &&
+        (!statusMatch || record.status === values[Number(statusMatch[1]) - 1])
+      ));
       return {
-        rows: this.projectComments
-          .filter((record) => !values[0] || record.projectId === values[0])
-          .map((record) => ({ payload: record.payload })),
-        rowCount: this.projectComments.length
+        rows,
+        rowCount: rows.length
       };
     }
     if (/SELECT \* FROM "public"\."sena_enterprise_project_presence"/i.test(normalizedSql)) {
+      const teamMatch = normalizedSql.match(/team_id = \$(\d+)/i);
+      const projectMatch = normalizedSql.match(/project_id = \$(\d+)/i);
+      const activeMatch = normalizedSql.match(/expires_at > \$(\d+)/i);
+      const rows = this.projectPresence.filter((record) => (
+        (!teamMatch || record.teamId === values[Number(teamMatch[1]) - 1]) &&
+        (!projectMatch || record.projectId === values[Number(projectMatch[1]) - 1]) &&
+        (!activeMatch || String(record.expires_at) > String(values[Number(activeMatch[1]) - 1]))
+      ));
       return {
-        rows: this.projectPresence
-          .filter((record) => !values[0] || record.projectId === values[0])
-          .map((record) => ({ payload: record.payload })),
-        rowCount: this.projectPresence.length
+        rows,
+        rowCount: rows.length
       };
     }
     throw new Error(`Unexpected Postgres query in route primary-state test: ${normalizedSql}`);

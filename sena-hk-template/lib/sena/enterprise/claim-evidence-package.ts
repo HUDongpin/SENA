@@ -1,12 +1,5 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import {
-  createEnterprisePostgresAdjudicationAdapterFromEnv,
-  createEnterprisePostgresExpertReviewAdapterFromEnv,
-  createEnterprisePostgresReliabilityRunAdapterFromEnv,
-  createEnterprisePostgresValidationRunAdapterFromEnv,
-  SenaEnterpriseStoredIntegrityError
-} from "../enterprise-postgres";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import { requireEnterprisePermission, type SenaEnterprisePermission } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
@@ -21,7 +14,6 @@ import {
   readEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
-import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
 import { enterpriseAdjudicationRegistryRuntime } from "./team-collaboration";
 import type {
   SenaEnterpriseProject,
@@ -31,9 +23,9 @@ import type {
 import { enterpriseProjectEvidenceBindingMatches } from "./team-project";
 import {
   isCurrentSenaGroupComparisonValidationResult,
-  SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonMetric
 } from "../inference";
+import { senaValidationSourceVerificationCache } from "./validation-request-scope";
 import { buildSenaClaimReadinessGate } from "../pilot-readiness";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaProjectSnapshot } from "../types";
@@ -125,6 +117,15 @@ export type SenaEnterpriseClaimEvidencePackage = {
       sha256: string;
     }>;
   };
+  claimReadinessEvidence: {
+    kind: "persisted-project-snapshot" | "current-project-reliability-run";
+    snapshotSchemaVersion: string;
+    snapshotSha256: string;
+    reportSha256: string;
+    claimUse: string;
+    gateStatus: string;
+    reliabilityRunId: string | null;
+  };
   summary: {
     reliability: "approved" | "missing" | "pending-or-rejected";
     validation: "approved" | "missing" | "pending-or-rejected";
@@ -152,6 +153,7 @@ export type SenaEnterpriseClaimEvidencePackage = {
     validation?: {
       runId: string;
       status: SenaEnterpriseValidationRunStatus;
+      resultSchemaVersion: SenaEnterpriseValidationRun["result"]["schemaVersion"];
       validationRunEvidenceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence;
       validationRunEvidenceHash: string;
       projectBinding?: SenaEnterpriseProjectEvidenceBinding;
@@ -231,11 +233,11 @@ function validationCorrection(run: SenaEnterpriseValidationRun): "holm" | undefi
   return run.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? run.result.correction : undefined;
 }
 
-function projectSnapshotIsResearchClaimReady(project: SenaEnterpriseProject) {
-  const report = project.snapshot.report;
+function snapshotIsResearchClaimReady(snapshot: SenaProjectSnapshot, expectedClaimUse: string) {
+  const report = snapshot.report;
   const gate = report.claimReadinessGate;
   const canonicalGate = buildSenaClaimReadinessGate(report.pilotReadinessAudit);
-  return project.claimUse === "research-claim-ready" &&
+  return expectedClaimUse === "research-claim-ready" &&
     gate.status === "ready" &&
     gate.claimUse === "research-claim-ready" &&
     gate.reviewNeeded === 0 &&
@@ -371,6 +373,8 @@ export type SenaEnterpriseClaimEvidencePackageBuildOptions = {
   approvedReliabilityRunId?: string | null;
   persistedSnapshotSha256?: string;
   stateRevisionSha256?: string;
+  claimReadinessSnapshot?: SenaProjectSnapshot;
+  claimReadinessReliabilityRunId?: string;
 };
 
 export function buildEnterpriseClaimEvidencePackageFromDb(
@@ -381,7 +385,7 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
   options: SenaEnterpriseClaimEvidencePackageBuildOptions = {}
 ): SenaEnterpriseClaimEvidencePackage {
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
-  const validationSourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
+  const validationSourceVerificationCache = senaValidationSourceVerificationCache();
   const currentRevisionCandidates = db.projectRevisions.filter((revision) => (
     revision.projectId === project.id && revision.version === project.currentVersion
   ));
@@ -550,7 +554,14 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
   if (approvedReliability?.adjudicationCoverage.unresolvedDisagreements) {
     blockers.push("approved-reliability-adjudication-coverage-required");
   }
-  if (!projectSnapshotIsResearchClaimReady(project) || !currentRevisionMatchesProject) {
+  const claimReadinessSnapshot = options.claimReadinessSnapshot ?? project.snapshot;
+  const claimReadinessExpectedUse = options.claimReadinessSnapshot
+    ? claimReadinessSnapshot.report.claimReadinessGate.claimUse
+    : project.claimUse;
+  if (!snapshotIsResearchClaimReady(claimReadinessSnapshot, claimReadinessExpectedUse) ||
+    !currentRevisionMatchesProject ||
+    (options.claimReadinessReliabilityRunId !== undefined &&
+      options.claimReadinessReliabilityRunId !== approvedReliability?.id)) {
     blockers.push("project-claim-readiness-required");
   }
   if (!approvedValidation && !validationIntegrityBlocker) blockers.push("approved-validation-run-required");
@@ -599,6 +610,7 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
     evidence.validation = {
       runId: approvedValidation.id,
       status: approvedValidation.status,
+      resultSchemaVersion: approvedValidation.result.schemaVersion,
       validationRunEvidenceSchemaVersion: approvedValidation.validationRunEvidenceSchemaVersion!,
       validationRunEvidenceHash: approvedValidation.validationRunEvidenceHash!,
       projectBinding: approvedValidation.projectBinding
@@ -705,6 +717,17 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
       datasetCounts: project.datasetCounts
     },
     sourceSnapshotEvidence: claimPackageSourceSnapshotEvidence(project, currentRevision, options),
+    claimReadinessEvidence: {
+      kind: options.claimReadinessSnapshot
+        ? "current-project-reliability-run"
+        : "persisted-project-snapshot",
+      snapshotSchemaVersion: claimReadinessSnapshot.schemaVersion,
+      snapshotSha256: artifactSha256(claimReadinessSnapshot),
+      reportSha256: artifactSha256(claimReadinessSnapshot.report),
+      claimUse: claimReadinessSnapshot.report.claimReadinessGate.claimUse,
+      gateStatus: claimReadinessSnapshot.report.claimReadinessGate.status,
+      reliabilityRunId: options.claimReadinessReliabilityRunId ?? null
+    },
     summary: {
       reliability: claimEvidenceStatus(projectReliabilityRuns, approvedReliability),
       validation: claimEvidenceStatus(projectValidationRuns, approvedValidation),
@@ -750,99 +773,41 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
   const state = await readEnterpriseState();
   const db = state.db;
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
-  const evidenceSource = enterpriseClaimEvidencePackageRuntime();
-  let reliabilityRuns: SenaEnterpriseReliabilityRun[] = db.reliabilityRuns.filter((run) => run.projectId === input.projectId);
-  let validationRuns: SenaEnterpriseValidationRun[] = db.validationRuns.filter((run) => run.projectId === input.projectId);
-  let expertReviews: SenaEnterpriseExpertReview[] = db.expertReviews.filter((review) => review.projectId === input.projectId);
-  let adjudications: SenaEnterpriseAdjudicationRecord[] = db.adjudications.filter((record) => record.projectId === input.projectId);
-  const pools: Array<{ end?: () => Promise<void> }> = [];
-
-  try {
-    if (evidenceSource.reliabilityRuns === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
-      pools.push(pool);
-      reliabilityRuns = await adapter.listReliabilityRuns({
-        projectId: input.projectId,
-        project: db.projects.find((candidate) => candidate.id === input.projectId),
-        projectRevisions: db.projectRevisions.filter((revision) => (
-          revision.projectId === input.projectId
-        )),
-        limit: 1000
-      });
-    }
-    if (evidenceSource.expertReviews === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
-      pools.push(pool);
-      try {
-        expertReviews = await adapter.listExpertReviews({
-          projectId: input.projectId,
-          teamId: project.teamId,
-          limit: 1000
-        });
-      } catch (error) {
-        if (error instanceof SenaEnterpriseStoredIntegrityError) {
-          throw new SenaEnterpriseError(
-            "Stored expert-review evidence failed indexed integrity validation.",
-            409,
-            "expert_review_evidence_invalid"
-          );
-        }
-        throw error;
-      }
-    }
-    if (evidenceSource.validationRuns === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
-      pools.push(pool);
-      try {
-        const approvedExpertTarget = latestByTimestamp(
-          expertReviews.filter((review) => (
-            review.teamId === project.teamId &&
-            review.projectId === project.id &&
-            review.status === "approved" &&
-            review.target.kind === "validation-run"
-          ))
-        )?.target;
-        validationRuns = await adapter.listValidationRuns({
-          teamId: project.teamId,
-          projectId: project.id,
-          ...(approvedExpertTarget?.kind === "validation-run"
-            ? { runId: approvedExpertTarget.id }
-            : {}),
-          status: "approved",
-          project,
-          projectRevisions: db.projectRevisions.filter((revision) => (
-            revision.projectId === project.id
-          )),
-          analysisRuns: db.analysisRuns.filter((run) => (
-            run.projectId === project.id || run.persistedProjectId === project.id
-          )),
-          limit: 1
-        });
-      } catch (error) {
-        if (error instanceof SenaEnterpriseStoredIntegrityError) {
-          throw new SenaEnterpriseError(
-            "Stored validation evidence is not canonically bound to its reviewed result.",
-            409,
-            "validation_run_evidence_invalid"
-          );
-        }
-        throw error;
-      }
-    }
-    if (evidenceSource.adjudications === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
-      pools.push(pool);
-      adjudications = await adapter.listAdjudications({ projectId: input.projectId, limit: 1000 });
-    }
-  } finally {
-    await Promise.all(pools.map((pool) => pool.end?.()));
+  const activePrimary = state.runtime.activePrimary;
+  const primarySource = activePrimary === "postgres"
+    ? "postgres-primary-state" as const
+    : "file-primary-state" as const;
+  const revision = activePrimary === "postgres" ? state.revision : state.fileRevision;
+  if (revision === undefined) {
+    throw new SenaEnterpriseError(
+      "Claim evidence could not be bound to one primary-state revision.",
+      409,
+      "claim_evidence_state_binding_invalid"
+    );
   }
-
-  return buildEnterpriseClaimEvidencePackageFromDb({
-    ...db,
-    adjudications,
-    reliabilityRuns,
-    validationRuns,
-    expertReviews
-  }, context, input, evidenceSource);
+  const persistedProject = (state.persistedDb ?? db).projects.find((candidate) => candidate.id === project.id);
+  if (!persistedProject || persistedProject.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Claim evidence project is inconsistent with the selected primary-state revision.",
+      409,
+      "claim_evidence_state_binding_invalid"
+    );
+  }
+  const stateRevision = String(revision);
+  const stateRevisionSha256 = artifactSha256({ activePrimary, stateRevision });
+  return buildEnterpriseClaimEvidencePackageFromDb(db, context, input, {
+    reliabilityRuns: primarySource,
+    validationRuns: primarySource,
+    expertReviews: primarySource,
+    adjudications: primarySource,
+    evidence: [
+      `claimEvidencePrimary=${activePrimary}`,
+      `claimEvidenceStateRevisionSha256=${stateRevisionSha256}`,
+      "claimEvidenceAtomicRead=true",
+      "claimEvidenceIndexedTables=ops-mirrors-only"
+    ]
+  }, {
+    persistedSnapshotSha256: artifactSha256(persistedProject.snapshot),
+    stateRevisionSha256
+  });
 }

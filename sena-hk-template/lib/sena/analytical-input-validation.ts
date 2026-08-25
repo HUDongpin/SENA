@@ -103,6 +103,26 @@ function collectSenaDatasetContractIssues(
     return;
   }
 
+  const exactFields = (record: Record<string, unknown>, allowedFields: readonly string[], rowPath: string) => {
+    const allowed = new Set(allowedFields);
+    for (const key of Reflect.ownKeys(record)) {
+      if (typeof key !== "string") {
+        add(rowPath, "supported-value");
+      } else if (!allowed.has(key)) {
+        add(`${rowPath}.${key}`, "supported-value");
+      }
+    }
+  };
+  exactFields(value, [
+    "metadata",
+    "people",
+    "interactions",
+    "utterances",
+    "coded_segments",
+    "codebook",
+    "warnings"
+  ], path);
+
   const table = (name: "people" | "interactions" | "utterances" | "coded_segments" | "codebook") => {
     const candidate = value[name];
     if (!Array.isArray(candidate)) {
@@ -156,6 +176,7 @@ function collectSenaDatasetContractIssues(
       add(rowPath, "object");
       return;
     }
+    exactFields(row, ["id", "label", "role", "group", "initials", "actorType"], rowPath);
     registerId(row, "id", rowPath, personIds);
     for (const field of ["label", "role", "group"]) requiredString(row, field, rowPath);
     optionalString(row, "initials", rowPath);
@@ -171,6 +192,7 @@ function collectSenaDatasetContractIssues(
       add(rowPath, "object");
       return;
     }
+    exactFields(row, ["id", "label", "family", "description", "color"], rowPath);
     registerId(row, "id", rowPath, codeIds);
     for (const field of ["label", "family", "description", "color"]) requiredString(row, field, rowPath);
   });
@@ -182,6 +204,16 @@ function collectSenaDatasetContractIssues(
       add(rowPath, "object");
       return;
     }
+    exactFields(row, [
+      "id",
+      "personId",
+      "unitId",
+      "stanzaId",
+      "stage",
+      "turnIndex",
+      "text",
+      "timestamp"
+    ], rowPath);
     registerId(row, "id", rowPath, utteranceIds);
     for (const field of ["personId", "unitId", "stanzaId", "stage", "text"]) requiredString(row, field, rowPath);
     optionalString(row, "timestamp", rowPath);
@@ -195,6 +227,19 @@ function collectSenaDatasetContractIssues(
       add(rowPath, "object");
       return;
     }
+    exactFields(row, [
+      "segmentId",
+      "utteranceId",
+      "personId",
+      "targetPersonIds",
+      "unitId",
+      "stanzaId",
+      "stage",
+      "turnIndex",
+      "text",
+      "codes",
+      "confidence"
+    ], rowPath);
     registerId(row, "segmentId", rowPath, segmentIds);
     if (isNonemptyString(row.segmentId) && utteranceIds.has(row.segmentId.trim())) {
       add(`${rowPath}.segmentId`, "distinct-values");
@@ -250,6 +295,7 @@ function collectSenaDatasetContractIssues(
       add(rowPath, "object");
       return;
     }
+    exactFields(row, ["source", "target", "weight", "channel", "stage", "turnIndex", "evidence"], rowPath);
     for (const field of ["source", "target", "channel", "stage", "evidence"]) requiredString(row, field, rowPath);
     for (const field of ["source", "target"]) canonicalField(row, field, rowPath);
     integer(row, "turnIndex", rowPath, true);

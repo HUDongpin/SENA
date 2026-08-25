@@ -389,7 +389,7 @@ describe("SENA browser smoke manifest", () => {
       "sena-group-comparison-suite/v2",
       "sena-validation-run-review/v1",
       "sena-expert-review-response/v1",
-      "sena-enterprise-claim-evidence-package/v1"
+      "sena-enterprise-claim-evidence-package/v2"
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.headers).toEqual(expect.arrayContaining([
       "x-sena-validation-run-id",

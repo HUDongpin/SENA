@@ -62,6 +62,7 @@ import { senaRuntimeProvenance } from "./runtime-constants";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
+import { senaJsonValuesEqual } from "./canonical-json";
 import {
   deriveSenaReliabilityMachineClaimEligibility,
   isSemanticallyValidSenaReliabilityMachineEvidence
@@ -1227,8 +1228,8 @@ function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCo
       machine.status === reviewMachineEvidence.status &&
       machine.dashboardSchemaVersion === reviewMachineEvidence.dashboardSchemaVersion &&
       machine.sourceSchemaVersion === reviewMachineEvidence.sourceSchemaVersion &&
-      JSON.stringify(machine.threshold) === JSON.stringify(expected.threshold) &&
-      JSON.stringify(machine.checks) === JSON.stringify(expected.checks) &&
+      senaJsonValuesEqual(machine.threshold, expected.threshold) &&
+      senaJsonValuesEqual(machine.checks, expected.checks) &&
       JSON.stringify(machine.blockers) === JSON.stringify(expected.blockers) &&
       (expected.eligible || (
         record.status === "review" &&

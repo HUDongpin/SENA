@@ -1,4 +1,4 @@
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
   SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonValidationReadModel
@@ -49,6 +49,7 @@ import type {
   SenaEnterpriseServerJob,
   SenaEnterpriseServerJobKind,
   SenaEnterpriseServerJobList,
+  SenaEnterpriseServerJobQueueDelivery,
   SenaEnterpriseServerJobStatus
 } from "./enterprise/server-job-queue";
 import type { SenaEnterpriseObservedRequest } from "./enterprise/ops-observability";
@@ -63,7 +64,11 @@ import {
   supportedPostgresUrlEnvNamesLabel
 } from "./enterprise/postgres-url-env";
 import type { SenaEnterpriseDb } from "./enterprise/state";
-import { resolveEnterpriseReliabilityRunProjectScope } from "./enterprise/reliability-integrity";
+import {
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  normalizeEnterpriseReliabilityAdjudicationCoverageSummary,
+  resolveEnterpriseReliabilityRunProjectScope
+} from "./enterprise/reliability-integrity";
 import {
   normalizeEnterpriseValidationRunEvidence,
   projectEnterpriseValidationRunReadCarrier,
@@ -71,6 +76,7 @@ import {
   SenaEnterpriseValidationRunIntegrityError,
   type SenaEnterpriseValidationSnapshotHashCache
 } from "./enterprise/validation-integrity";
+import { senaValidationSourceVerificationCache } from "./enterprise/validation-request-scope";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
@@ -1069,8 +1075,13 @@ function storedDateToIso(value: unknown) {
 }
 
 function normalizeStoredServerJob(row: Record<string, unknown>): SenaEnterpriseServerJob {
+  const schemaVersion = String(row.schema_version);
+  if (schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseServerJob &&
+    schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.enterpriseServerJob) {
+    storedIntegrityFailure("row.schema_version");
+  }
   return {
-    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJob,
+    schemaVersion: schemaVersion as SenaEnterpriseServerJob["schemaVersion"],
     id: String(row.id),
     kind: String(row.kind) as SenaEnterpriseServerJobKind,
     status: String(row.status) as SenaEnterpriseServerJobStatus,
@@ -1162,6 +1173,7 @@ type SenaEnterpriseReliabilityReadContext = {
   expectedTeamId?: string;
   expectedTeamIds?: string[];
   expectedStatus?: SenaEnterpriseReliabilityRunStatus;
+  adjudications?: SenaEnterpriseAdjudicationRecord[];
 };
 
 function normalizeStoredReliabilityRun(
@@ -1172,7 +1184,7 @@ function normalizeStoredReliabilityRun(
     dashboard: SenaReliabilityDashboardReadModel;
   }>(row.payload);
 
-  const rowFields: Array<[string, unknown, { date?: boolean }?]> = [
+  const identityRowFields: Array<[string, unknown, { date?: boolean }?]> = [
     ["id", payload.id],
     ["team_id", payload.teamId],
     ["project_id", payload.projectId],
@@ -1182,19 +1194,10 @@ function normalizeStoredReliabilityRun(
     ["reviewed_at", payload.reviewedAt, { date: true }],
     ["reviewer", payload.reviewer],
     ["file_count", payload.fileCount],
-    ["annotation_count", payload.annotationCount],
-    ["coder_count", payload.coderCount],
-    ["item_count", payload.itemCount],
-    ["code_count", payload.codeCount],
-    ["mean_pairwise_kappa", payload.meanPairwiseKappa],
-    ["krippendorff_alpha_nominal", payload.krippendorffAlphaNominal],
-    ["disagreement_count", payload.disagreementCount],
-    ["adjudication_coverage_rate", payload.adjudicationCoverage?.coverageRate],
-    ["unresolved_disagreements", payload.adjudicationCoverage?.unresolvedDisagreements],
     ["input_files", payload.inputFiles],
     ["created_at", payload.createdAt, { date: true }]
   ];
-  rowFields.forEach(([column, value, options]) => assertStoredField(row, column, value, options));
+  identityRowFields.forEach(([column, value, options]) => assertStoredField(row, column, value, options));
 
   if (context.expectedProjectId !== undefined && payload.projectId !== context.expectedProjectId) {
     storedIntegrityFailure("row.project_id");
@@ -1210,16 +1213,18 @@ function normalizeStoredReliabilityRun(
   }
 
   let dashboard: SenaReliabilityDashboard;
+  let resolvedScope: ReturnType<typeof resolveEnterpriseReliabilityRunProjectScope> | undefined;
   if (payload.projectId) {
     if (!context.project) {
       storedIntegrityFailure("payload.projectBinding", "current-project-source-required");
     }
     try {
-      dashboard = resolveEnterpriseReliabilityRunProjectScope(
+      resolvedScope = resolveEnterpriseReliabilityRunProjectScope(
         payload,
         context.project,
         context.projectRevisions ?? []
-      ).dashboard;
+      );
+      dashboard = resolvedScope.dashboard;
     } catch {
       storedIntegrityFailure("payload.projectBinding", "current-project-binding-mismatch");
     }
@@ -1228,11 +1233,56 @@ function normalizeStoredReliabilityRun(
   } else {
     dashboard = normalizeSenaReliabilityDashboard(payload.dashboard);
   }
+  const canonicalDerivedFields = {
+    annotationCount: dashboard.derivationEvidence?.annotations.length ?? payload.annotationCount,
+    coderCount: dashboard.coderCount,
+    itemCount: dashboard.itemCount,
+    codeCount: dashboard.codeCount,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    disagreementCount: dashboard.disagreementCount
+  };
+  for (const [field, canonicalValue] of Object.entries(canonicalDerivedFields)) {
+    if (!storedValuesMatch(payload[field as keyof typeof payload], canonicalValue)) {
+      storedIntegrityFailure(`payload.${field}`);
+    }
+  }
+  let adjudicationCoverage: SenaEnterpriseReliabilityRun["adjudicationCoverage"];
+  try {
+    adjudicationCoverage = resolvedScope && context.adjudications !== undefined
+      ? buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+          { ...payload, dashboard },
+          resolvedScope,
+          context.adjudications
+        )
+      : normalizeEnterpriseReliabilityAdjudicationCoverageSummary(
+          dashboard,
+          payload.adjudicationCoverage
+        );
+  } catch {
+    storedIntegrityFailure("payload.adjudicationCoverage");
+  }
+  if (!storedValuesMatch(payload.adjudicationCoverage, adjudicationCoverage)) {
+    storedIntegrityFailure("payload.adjudicationCoverage");
+  }
+  const derivedRowFields: Array<[string, unknown]> = [
+    ["annotation_count", canonicalDerivedFields.annotationCount],
+    ["coder_count", canonicalDerivedFields.coderCount],
+    ["item_count", canonicalDerivedFields.itemCount],
+    ["code_count", canonicalDerivedFields.codeCount],
+    ["mean_pairwise_kappa", canonicalDerivedFields.meanPairwiseKappa],
+    ["krippendorff_alpha_nominal", canonicalDerivedFields.krippendorffAlphaNominal],
+    ["disagreement_count", canonicalDerivedFields.disagreementCount],
+    ["adjudication_coverage_rate", adjudicationCoverage.coverageRate],
+    ["unresolved_disagreements", adjudicationCoverage.unresolvedDisagreements]
+  ];
+  derivedRowFields.forEach(([column, value]) => assertStoredField(row, column, value));
   return {
     ...payload,
     dashboard,
-    meanPairwiseKappa: dashboard.meanPairwiseKappa,
-    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    projectBinding: dashboard.projectBinding,
+    ...canonicalDerivedFields,
+    adjudicationCoverage,
     createdAt: storedDateToIso(payload.createdAt),
     reviewedAt: payload.reviewedAt ? storedDateToIso(payload.reviewedAt) : undefined
   };
@@ -2350,6 +2400,7 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
       SenaEnterpriseAnalysisRun,
       "id" | "teamId" | "projectId" | "persistedProjectId" | "artifactFingerprints"
     >>;
+    adjudications?: SenaEnterpriseAdjudicationRecord[];
     status?: SenaEnterpriseReliabilityRunStatus;
     limit?: number;
   } = {}) {
@@ -2386,7 +2437,8 @@ export function createEnterprisePostgresReliabilityRunAdapter(input: {
       expectedProjectId: inputFilters.projectId,
       expectedTeamId: inputFilters.teamId,
       expectedTeamIds: inputFilters.teamIds,
-      expectedStatus: inputFilters.status
+      expectedStatus: inputFilters.status,
+      adjudications: inputFilters.adjudications
     }));
   }
 
@@ -2621,7 +2673,7 @@ export function createEnterprisePostgresValidationRunAdapter(input: {
       LIMIT $${values.length}
     `, values);
     const snapshotHashCache: SenaEnterpriseValidationSnapshotHashCache = new WeakMap();
-    const sourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
+    const sourceVerificationCache = senaValidationSourceVerificationCache();
     const analysisRunIndex = new SenaEnterpriseValidationAnalysisRunIndex(inputFilters.analysisRuns ?? []);
     return result.rows.slice(0, limit).map((row) => normalizeStoredValidationRun(row, {
       project: inputFilters.project,
@@ -3466,6 +3518,32 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
+  async function finalizeDelivery(inputDelivery: {
+    jobId: string;
+    delivery: SenaEnterpriseServerJobQueueDelivery;
+    failQueuedJob: boolean;
+    failedLifecycle: SenaEnterpriseServerJob["lifecycle"];
+    updatedAt: string;
+  }) {
+    await ensureSchema();
+    const result = await input.query<Record<string, unknown>>(`
+      UPDATE ${tableRef}
+      SET delivery = $2::jsonb,
+        status = CASE WHEN status = 'queued' AND $3::boolean THEN 'failed' ELSE status END,
+        lifecycle = CASE WHEN status = 'queued' AND $3::boolean THEN $4::jsonb ELSE lifecycle END,
+        updated_at = $5
+      WHERE id = $1
+      RETURNING *
+    `, [
+      inputDelivery.jobId,
+      roundTripJson(inputDelivery.delivery),
+      inputDelivery.failQueuedJob,
+      roundTripJson(inputDelivery.failedLifecycle),
+      inputDelivery.updatedAt
+    ]);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
   function filterClauses(inputFilters: {
     status?: SenaEnterpriseServerJobStatus;
     kind?: SenaEnterpriseServerJobKind;
@@ -3566,6 +3644,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     ensureSchema,
     upsertJob,
     claimQueuedJob,
+    finalizeDelivery,
     listJobs,
     getJob
   };

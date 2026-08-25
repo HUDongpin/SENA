@@ -22,6 +22,8 @@ const goLiveEnvNames = [
   "SENA_MFA_ENCRYPTION_KEY",
   "SENA_CSRF_SECRET",
   "SENA_SESSION_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_KEY_ID",
   "SENA_PROVISIONING_TOKEN",
   "SENA_PROVISIONING_TOKEN_SECRET_REF",
   "SENA_PROVISIONING_TOKEN_VERSION",
@@ -214,6 +216,9 @@ function configureGoLiveEnv(enterpriseDbDir: string) {
   process.env.SENA_MFA_ENCRYPTION_KEY = "sena-test-mfa-encryption-key";
   process.env.SENA_CSRF_SECRET = "sena-test-csrf-secret";
   process.env.SENA_SESSION_SECRET = "sena-test-session-secret";
+  process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET =
+    "8c53de6a907f4c21b8a63d34e1429af8812f1f04a06b70c6d619e8a4812cbb79";
+  process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = "enterprise-go-live-test-v1";
   process.env.SENA_PROVISIONING_TOKEN = "sena_prov_2026_9f4c2a1d8e7b6c5a4f3e2d1c0b9a8765";
   process.env.SENA_PROVISIONING_TOKEN_SECRET_REF = "institution-vault/sena/provisioning-token";
   process.env.SENA_PROVISIONING_TOKEN_VERSION = "provisioning-token-rotation-2026-06";

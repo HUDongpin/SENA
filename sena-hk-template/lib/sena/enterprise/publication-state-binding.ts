@@ -16,7 +16,9 @@ import {
   type SenaEnterpriseStateRead
 } from "./state";
 import type { SenaEnterpriseProject } from "./team-project";
+import { enterpriseProjectEvidenceBindingMatches } from "./team-project";
 import type { SenaCodingReliabilityReview } from "../types";
+import { buildEnterprisePublicationSnapshot } from "./publication-snapshot";
 
 function sha256Json(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -28,6 +30,73 @@ function publicationStateBindingError() {
     409,
     "publication_state_binding_invalid"
   );
+}
+
+function publicationClaimEvidenceNotReady(): never {
+  throw new SenaEnterpriseError(
+    "Publication export requires one claim-ready package with approved current reliability, sealed validation, and receipt-authenticated expert evidence.",
+    409,
+    "publication_claim_evidence_not_ready"
+  );
+}
+
+function assertPublicationAuthorizationEvidence(
+  claimPackage: SenaEnterpriseClaimEvidencePackage,
+  project: SenaEnterpriseProject,
+  reliabilityRun: SenaEnterpriseReliabilityRun | undefined
+) {
+  const reliability = claimPackage.evidence.reliability;
+  const validation = claimPackage.evidence.validation;
+  const expert = claimPackage.evidence.expertReview;
+  const receipt = expert?.evidenceReceipt;
+  if (
+    claimPackage.summary.reliability !== "approved" ||
+    claimPackage.summary.validation !== "approved" ||
+    claimPackage.summary.expertReview !== "approved" ||
+    !reliability ||
+    reliability.status !== "approved" ||
+    !reliabilityRun ||
+    reliability.runId !== reliabilityRun.id ||
+    reliabilityRun.status !== "approved" ||
+    reliability.adjudicationCoverage.unresolvedDisagreements !== 0 ||
+    !validation ||
+    validation.status !== "approved" ||
+    validation.validationRunEvidenceSchemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence ||
+    !/^[a-f0-9]{64}$/.test(validation.validationRunEvidenceHash) ||
+    !enterpriseProjectEvidenceBindingMatches(validation.projectBinding, project) ||
+    !expert ||
+    expert.status !== "approved" ||
+    expert.claimScope !== "claim-ready-with-limits" ||
+    !enterpriseProjectEvidenceBindingMatches(expert.projectBinding, project) ||
+    expert.target.kind !== "validation-run" ||
+    expert.target.id !== validation.runId ||
+    expert.target.validationRunEvidenceHash !== validation.validationRunEvidenceHash ||
+    !receipt ||
+    receipt.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseExpertReviewReceipt ||
+    receipt.algorithm !== "hmac-sha256" ||
+    receipt.keySource !== "env-configured" ||
+    receipt.validationRunEvidenceHash !== validation.validationRunEvidenceHash ||
+    receipt.signedAt !== expert.reviewedAt ||
+    !/^[a-f0-9]{64}$/.test(receipt.signature)
+  ) {
+    publicationClaimEvidenceNotReady();
+  }
+  return { reliability, validation, expert, receipt };
+}
+
+function assertPublicationClaimEvidenceReady(
+  claimPackage: SenaEnterpriseClaimEvidencePackage,
+  project: SenaEnterpriseProject,
+  reliabilityRun: SenaEnterpriseReliabilityRun | undefined
+) {
+  if (
+    claimPackage.status !== "claim-ready-with-limits" ||
+    claimPackage.blockers.length !== 0 ||
+    claimPackage.summary.blockers !== 0
+  ) {
+    publicationClaimEvidenceNotReady();
+  }
+  return assertPublicationAuthorizationEvidence(claimPackage, project, reliabilityRun);
 }
 
 function stateRevisionEvidence(state: SenaEnterpriseStateRead) {
@@ -62,6 +131,8 @@ export type SenaEnterprisePublicationStateBinding = {
     projectVersion: number;
     sourceSnapshotSha256: string;
     persistedSnapshotSha256: string;
+    claimReadinessKind: SenaEnterpriseClaimEvidencePackage["claimReadinessEvidence"]["kind"];
+    claimReadinessSnapshotSha256: string;
     reliabilityRunId: string | null;
   };
   reliabilityRun: {
@@ -73,6 +144,27 @@ export type SenaEnterprisePublicationStateBinding = {
     unresolvedDisagreements: number;
     adjudicationCoverageSha256: string;
   } | null;
+  validationRun: {
+    runId: string;
+    status: "approved";
+    sha256: string;
+    resultSchemaVersion: string;
+    validationRunEvidenceSchemaVersion: string;
+    validationRunEvidenceHash: string;
+    projectBinding: NonNullable<SenaEnterpriseClaimEvidencePackage["evidence"]["validation"]>["projectBinding"];
+    reviewedAt?: string;
+  };
+  expertReview: {
+    reviewId: string;
+    status: "approved";
+    sha256: string;
+    claimScope: "claim-ready-with-limits";
+    projectBinding: NonNullable<SenaEnterpriseClaimEvidencePackage["evidence"]["expertReview"]>["projectBinding"];
+    targetValidationRunId: string;
+    targetValidationRunEvidenceHash: string;
+    receipt: NonNullable<SenaEnterpriseClaimEvidencePackage["evidence"]["expertReview"]>["evidenceReceipt"];
+    receiptSha256: string;
+  };
   bindingSha256: string;
 };
 
@@ -81,6 +173,7 @@ export type SenaEnterprisePublicationStateBundle = {
   claimPackage: SenaEnterpriseClaimEvidencePackage;
   reliabilityRun?: SenaEnterpriseReliabilityRun;
   reliabilityReviewProjection?: Partial<SenaCodingReliabilityReview>;
+  publicationSnapshot: SenaEnterpriseProject["snapshot"];
   stateBinding: SenaEnterprisePublicationStateBinding;
 };
 
@@ -109,34 +202,59 @@ export function resolveEnterprisePublicationStateBundleFromState(
   const primarySource = revisionEvidence.activePrimary === "postgres"
     ? "postgres-primary-state" as const
     : "file-primary-state" as const;
-  const claimPackage = buildEnterpriseClaimEvidencePackageFromDb(
+  const evidenceSource = {
+    reliabilityRuns: primarySource,
+    validationRuns: primarySource,
+    expertReviews: primarySource,
+    adjudications: primarySource,
+    evidence: [
+      `publicationClaimEvidencePrimary=${revisionEvidence.activePrimary}`,
+      `publicationClaimEvidenceStateRevisionSha256=${revisionEvidence.stateRevisionSha256}`,
+      "publicationClaimEvidenceAtomicRead=true"
+    ]
+  };
+  const baseOptions = {
+    approvedReliabilityRunId: reliabilityRun?.id ?? null,
+    persistedSnapshotSha256,
+    stateRevisionSha256: revisionEvidence.stateRevisionSha256
+  };
+  const preliminaryClaimPackage = buildEnterpriseClaimEvidencePackageFromDb(
     state.db,
     context,
     { projectId },
-    {
-      reliabilityRuns: primarySource,
-      validationRuns: primarySource,
-      expertReviews: primarySource,
-      adjudications: primarySource,
-      evidence: [
-        `publicationClaimEvidencePrimary=${revisionEvidence.activePrimary}`,
-        `publicationClaimEvidenceStateRevisionSha256=${revisionEvidence.stateRevisionSha256}`,
-        "publicationClaimEvidenceAtomicRead=true"
-      ]
-    },
-    {
-      approvedReliabilityRunId: reliabilityRun?.id ?? null,
-      persistedSnapshotSha256,
-      stateRevisionSha256: revisionEvidence.stateRevisionSha256
-    }
+    evidenceSource,
+    baseOptions
   );
-  if (claimPackage.blockers.includes("validation-run-integrity-required")) {
+  if (preliminaryClaimPackage.blockers.includes("validation-run-integrity-required")) {
     throw new SenaEnterpriseError(
       "Stored validation evidence is not canonically bound to its reviewed result.",
       409,
       "validation_run_evidence_invalid"
     );
   }
+  const nonDerivableBlockers = preliminaryClaimPackage.blockers.filter((blocker) => (
+    blocker !== "project-claim-readiness-required"
+  ));
+  if (nonDerivableBlockers.length > 0) publicationClaimEvidenceNotReady();
+  assertPublicationAuthorizationEvidence(preliminaryClaimPackage, project, reliabilityRun);
+
+  const publicationSnapshot = buildEnterprisePublicationSnapshot(
+    project,
+    reliabilityRun,
+    reliabilityEvidence?.reviewProjection
+  );
+  const claimPackage = buildEnterpriseClaimEvidencePackageFromDb(
+    state.db,
+    context,
+    { projectId },
+    evidenceSource,
+    {
+      ...baseOptions,
+      claimReadinessSnapshot: publicationSnapshot,
+      claimReadinessReliabilityRunId: reliabilityRun?.id
+    }
+  );
+  const authorization = assertPublicationClaimEvidenceReady(claimPackage, project, reliabilityRun);
 
   const claimReliabilityRunId = claimPackage.evidence.reliability?.runId ?? null;
   if (
@@ -169,6 +287,29 @@ export function resolveEnterprisePublicationStateBundleFromState(
   )) {
     throw publicationStateBindingError();
   }
+  if (!reliabilityBinding) publicationClaimEvidenceNotReady();
+
+  const validationBinding = {
+    runId: authorization.validation.runId,
+    status: "approved" as const,
+    sha256: sha256Json(authorization.validation),
+    resultSchemaVersion: authorization.validation.resultSchemaVersion,
+    validationRunEvidenceSchemaVersion: authorization.validation.validationRunEvidenceSchemaVersion,
+    validationRunEvidenceHash: authorization.validation.validationRunEvidenceHash,
+    projectBinding: structuredClone(authorization.validation.projectBinding),
+    reviewedAt: authorization.validation.reviewedAt
+  };
+  const expertBinding = {
+    reviewId: authorization.expert.reviewId,
+    status: "approved" as const,
+    sha256: sha256Json(authorization.expert),
+    claimScope: "claim-ready-with-limits" as const,
+    projectBinding: structuredClone(authorization.expert.projectBinding),
+    targetValidationRunId: authorization.validation.runId,
+    targetValidationRunEvidenceHash: authorization.validation.validationRunEvidenceHash,
+    receipt: structuredClone(authorization.receipt),
+    receiptSha256: sha256Json(authorization.receipt)
+  };
 
   const bindingCore = {
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationStateBinding,
@@ -184,9 +325,13 @@ export function resolveEnterprisePublicationStateBundleFromState(
       projectVersion: claimPackage.project.currentVersion,
       sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
       persistedSnapshotSha256,
+      claimReadinessKind: claimPackage.claimReadinessEvidence.kind,
+      claimReadinessSnapshotSha256: claimPackage.claimReadinessEvidence.snapshotSha256,
       reliabilityRunId: claimReliabilityRunId
     },
-    reliabilityRun: reliabilityBinding
+    reliabilityRun: reliabilityBinding,
+    validationRun: validationBinding,
+    expertReview: expertBinding
   };
 
   return {
@@ -194,6 +339,7 @@ export function resolveEnterprisePublicationStateBundleFromState(
     claimPackage,
     reliabilityRun,
     reliabilityReviewProjection: reliabilityEvidence?.reviewProjection,
+    publicationSnapshot,
     stateBinding: {
       ...bindingCore,
       bindingSha256: sha256Json(bindingCore)

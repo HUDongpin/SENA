@@ -10,7 +10,8 @@ import {
   SENA_RELIABILITY_PATCH_REQUEST_BYTE_LIMIT
 } from "@/lib/sena/enterprise/reliability-runs";
 import {
-  createEnterpriseUploadsWithPostgresMirrorAsync
+  createEnterpriseUploadsWithPostgresMirrorAsync,
+  reserveEnterpriseUploadIds
 } from "@/lib/sena/enterprise/import-analysis";
 import { senaReliabilityServerSourceByteLimit } from "@/lib/sena/enterprise/upload-limits";
 import { readSenaReliabilityBoundedTransportRequest } from "@/lib/sena/enterprise/reliability-transport";
@@ -102,24 +103,22 @@ function fileSummary(file: BufferedReliabilityFile) {
   };
 }
 
-async function createQueuedReviewerEnvelope(
+function planQueuedReviewerEnvelope(
   context: Awaited<ReturnType<typeof requireApiSessionForMutation>>,
-  teamId: string,
-  reviewerValue: unknown
+  reviewerValue: unknown,
+  uploadId: string
 ) {
   const envelope = buildSenaReliabilityReviewerEnvelope(reviewerValue, context.user.name);
-  const [upload] = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
-    teamId,
-    files: [{
+  return {
+    uploadId,
+    sha256: createHash("sha256").update(envelope.bytes).digest("hex"),
+    file: {
       name: SENA_RELIABILITY_REVIEWER_ENVELOPE_NAME,
       contentType: "application/json",
       bytes: envelope.bytes,
-      importProfile: SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
-    }]
-  });
-  return {
-    uploadId: upload.id,
-    sha256: upload.sha256
+      importProfile: SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE,
+      reservedId: uploadId
+    }
   };
 }
 
@@ -240,12 +239,13 @@ export async function POST(request: Request) {
         // admitted logical JSON source through the encrypted upload registry,
         // preserving file/alias boundaries and raw skipped/invalid rows while
         // keeping only opaque pointers in the public job receipt.
+        let queuedSourceFiles: Array<(typeof queuedJsonUploads)[number] & { reservedId: string }> = [];
         if (queue.mode === "local" && uploadIds.length === 0 && queuedJsonUploads.length > 0) {
-          const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
-            teamId,
-            files: queuedJsonUploads
-          });
-          uploadIds = uploads.map((upload) => upload.id);
+          uploadIds = reserveEnterpriseUploadIds(queuedJsonUploads.length);
+          queuedSourceFiles = queuedJsonUploads.map((file, index) => ({
+            ...file,
+            reservedId: uploadIds[index]
+          }));
         }
         if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !preparedInline)) {
           throw new SenaEnterpriseError(
@@ -254,7 +254,12 @@ export async function POST(request: Request) {
             "reliability_queue_source_required"
           );
         }
-        const reviewerEnvelope = await createQueuedReviewerEnvelope(context, teamId, body.reviewer);
+        const [reviewerEnvelopeUploadId] = reserveEnterpriseUploadIds(1);
+        const reviewerEnvelope = planQueuedReviewerEnvelope(
+          context,
+          body.reviewer,
+          reviewerEnvelopeUploadId
+        );
         const canonicalPointerPayload = {
           action: "run-reliability",
           teamId,
@@ -296,7 +301,13 @@ export async function POST(request: Request) {
             hasInlineDataset: queue.mode === "local" ? false : Boolean(preparedInline),
             payloadValuesExcluded: true
           },
-          queue
+          queue,
+          beforeDispatch: async () => {
+            await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+              teamId,
+              files: [...queuedSourceFiles, reviewerEnvelope.file]
+            });
+          }
         });
         await recordEnterpriseAuditAsync({
           event: "reliability.queue",
@@ -356,20 +367,8 @@ export async function POST(request: Request) {
       const preflightRows = parsedForPreflight.flatMap((file) => file.rows);
       const preflightAnnotations = parseCoderAnnotationsFromRows(preflightRows);
       preflightSenaReliabilityAnnotations(preflightAnnotations.annotations);
-      const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
-        teamId,
-        files: bufferedFiles.map((file) => ({
-          name: file.name,
-          contentType: "application/octet-stream",
-          bytes: file.bytes,
-          // No warningCount at enqueue: neither the local nor external worker
-          // has parsed the file yet, so the registry must not assert a clean
-          // parse before the eventual worker reports it.
-          importProfile: "reliability"
-        }))
-      });
       const queue = serverJobQueueStatus();
-      const uploadIds = uploads.map((upload) => upload.id);
+      const uploadIds = reserveEnterpriseUploadIds(bufferedFiles.length);
       const snapshotFingerprint = project ? senaReliabilitySnapshotFingerprint(project.snapshot) : undefined;
       if (uploadIds.length === 0) {
         throw new SenaEnterpriseError(
@@ -378,7 +377,12 @@ export async function POST(request: Request) {
           "reliability_queue_source_required"
         );
       }
-      const reviewerEnvelope = await createQueuedReviewerEnvelope(context, teamId, form.get("reviewer"));
+      const [reviewerEnvelopeUploadId] = reserveEnterpriseUploadIds(1);
+      const reviewerEnvelope = planQueuedReviewerEnvelope(
+        context,
+        form.get("reviewer"),
+        reviewerEnvelopeUploadId
+      );
       const canonicalPointerPayload = {
         action: "run-reliability",
         teamId,
@@ -411,12 +415,30 @@ export async function POST(request: Request) {
           uploadIds,
           reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
           reviewerEnvelopeSha256: reviewerEnvelope.sha256,
-          fileCount: uploads.length,
+          fileCount: bufferedFiles.length,
           hasInlineSnapshot: false,
           hasInlineDataset: false,
           payloadValuesExcluded: true
         },
-        queue
+        queue,
+        beforeDispatch: async () => {
+          await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+            teamId,
+            files: [
+              ...bufferedFiles.map((file, index) => ({
+                name: file.name,
+                contentType: "application/octet-stream",
+                bytes: file.bytes,
+                // No warningCount at enqueue: neither the local nor external worker
+                // has parsed the file yet, so the registry must not assert a clean
+                // parse before the eventual worker reports it.
+                importProfile: "reliability",
+                reservedId: uploadIds[index]
+              })),
+              reviewerEnvelope.file
+            ]
+          });
+        }
       });
       await recordEnterpriseAuditAsync({
         event: "reliability.queue",
@@ -431,7 +453,7 @@ export async function POST(request: Request) {
           queueHttpStatus: job.delivery.httpStatus ?? null,
           queueProductionReady: job.provider.productionReady,
           payloadSha256: job.payloadSha256,
-          uploadCount: uploads.length,
+          uploadCount: bufferedFiles.length,
           inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
           projectVersion: project?.currentVersion ?? null
         }

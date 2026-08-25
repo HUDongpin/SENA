@@ -28,6 +28,21 @@ function annotations(valuesByCoder: Record<string, boolean[]>): SenaCoderAnnotat
   })));
 }
 
+function postgresJsonbRoundTrip<T>(value: T): T {
+  const reorder = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(reorder);
+    if (entry && typeof entry === "object") {
+      return Object.fromEntries(
+        Object.entries(entry as Record<string, unknown>)
+          .sort(([left], [right]) => left === right ? 0 : left < right ? 1 : -1)
+          .map(([key, child]) => [key, reorder(child)])
+      );
+    }
+    return entry;
+  };
+  return reorder(JSON.parse(JSON.stringify(value))) as T;
+}
+
 function historicalReliabilityDashboardV1(): SenaReliabilityDashboardV1 {
   const pair = {
     coderA: "c1",
@@ -345,6 +360,19 @@ describe("SENA coding reliability v2", () => {
     }, "2026-08-21T00:00:00.000Z");
     expect(documentationOnly.machineClaimEligibility.eligible).toBe(false);
     expect(documentationOnly.machineClaimEligibility.status).toBe("legacy-ambiguous");
+  });
+
+  it("normalizes a current-v2 coding reliability gate after a recursive JSONB round trip", () => {
+    const dashboard = buildSenaReliabilityDashboard(annotations({
+      c1: [true, false],
+      c2: [true, false]
+    }));
+    const gate = buildSenaCodingReliabilityGate({
+      codingReliability: reliabilityDashboardToReview(dashboard, "Reliability reviewer")
+    }, "2026-08-21T00:00:00.000Z");
+    const persistedGate = postgresJsonbRoundTrip(gate);
+
+    expect(normalizeSenaCodingReliabilityGate(persistedGate)).toEqual(persistedGate);
   });
 
   it.each([

@@ -4,7 +4,8 @@ import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
 import {
   serverJobWebhookTimestampFreshness,
-  serverJobWebhookTimestampSkewSeconds
+  serverJobWebhookTimestampSkewSeconds,
+  stableServerJobPayloadSha256
 } from "@/lib/sena/enterprise/server-job-queue";
 import {
   runEnterpriseServerJobFromQueueWebhook,
@@ -129,6 +130,7 @@ function preflightWorkerTransport(request: Request) {
   return {
     event: event as "server_job.queue" | "server_job.queue.probe",
     receivedHash,
+    receivedWorkerPayloadHash: request.headers.get("x-sena-worker-payload-sha256")?.trim(),
     timestamp,
     signature,
     secret: configuredQueueSecret()
@@ -224,8 +226,9 @@ function parsePayload(body: string) {
   try {
     const parsed = JSON.parse(body) as {
       schemaVersion?: unknown;
-      job?: { id?: unknown; kind?: unknown };
+      job?: { id?: unknown; kind?: unknown; payloadSha256?: unknown };
       workerPayload?: unknown;
+      delivery?: { workerPayloadSha256?: unknown };
       probe?: { dispatchEvent?: unknown };
     };
     if (typeof parsed.schemaVersion !== "string") {
@@ -236,6 +239,31 @@ function parsePayload(body: string) {
     if (error instanceof SenaEnterpriseError) throw error;
     throw new SenaEnterpriseError("SENA job queue payload is not valid JSON.", 400, "server_job_worker_payload_invalid");
   }
+}
+
+function verifyWorkerPayloadHash(
+  event: "server_job.queue" | "server_job.queue.probe",
+  payload: ReturnType<typeof parsePayload>,
+  receivedHash?: string
+) {
+  if (event === "server_job.queue.probe") return undefined;
+  const jobHash = payload.job?.payloadSha256;
+  const deliveryHash = payload.delivery?.workerPayloadSha256;
+  const expectedHash = stableServerJobPayloadSha256(payload.workerPayload);
+  if (!receivedHash ||
+    !/^[a-f0-9]{64}$/i.test(receivedHash) ||
+    typeof jobHash !== "string" ||
+    typeof deliveryHash !== "string" ||
+    receivedHash.toLowerCase() !== expectedHash ||
+    jobHash.toLowerCase() !== expectedHash ||
+    deliveryHash.toLowerCase() !== expectedHash) {
+    throw new SenaEnterpriseError(
+      "SENA job queue worker payload hash is invalid.",
+      401,
+      "server_job_worker_worker_payload_hash_invalid"
+    );
+  }
+  return expectedHash;
 }
 
 function acceptedEvent(event: "server_job.queue" | "server_job.queue.probe", payload: ReturnType<typeof parsePayload>) {
@@ -336,6 +364,11 @@ export async function POST(request: Request) {
     ));
     const payload = parsePayload(body);
     const event = acceptedEvent(transport.event, payload);
+    const workerPayloadSha256 = verifyWorkerPayloadHash(
+      event,
+      payload,
+      transport.receivedWorkerPayloadHash
+    );
     const jobIdHash = typeof payload.job?.id === "string" ? sha256Text(payload.job.id) : undefined;
     const jobKind = typeof payload.job?.kind === "string" ? payload.job.kind : undefined;
     const execution = await executeDeliveredJob(event, payload);
@@ -356,7 +389,8 @@ export async function POST(request: Request) {
       },
       execution,
       delivery: {
-        payloadSha256,
+        transportPayloadSha256: payloadSha256,
+        workerPayloadSha256,
         signatureVerified: true,
         timestampVerified: true,
         timestampSkewSeconds: serverJobWebhookTimestampSkewSeconds(),
@@ -375,7 +409,10 @@ export async function POST(request: Request) {
         "x-sena-server-job-worker-signature": "verified",
         "x-sena-server-job-worker-timestamp": "verified",
         "x-sena-server-job-worker-execution": execution.status,
-        "x-sena-server-job-worker-payload-sha256": payloadSha256,
+        "x-sena-server-job-worker-transport-payload-sha256": payloadSha256,
+        ...(workerPayloadSha256
+          ? { "x-sena-server-job-worker-payload-sha256": workerPayloadSha256 }
+          : {}),
         "x-sena-server-job-worker-url-values": "excluded"
       }
     });

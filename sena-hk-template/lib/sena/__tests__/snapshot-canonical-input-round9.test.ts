@@ -64,6 +64,13 @@ const invalidCases: InvalidCase[] = [
     issue: { path: "dataset.people[0]", rule: "object" }
   },
   {
+    label: "unknown person source field",
+    mutate: (snapshot) => {
+      (snapshot.dataset.people[0] as unknown as Record<string, unknown>).unexpected = "ignored-field";
+    },
+    issue: { path: "dataset.people[0].unexpected", rule: "supported-value" }
+  },
+  {
     label: "duplicate person id",
     mutate: (snapshot) => { snapshot.dataset.people[1].id = snapshot.dataset.people[0].id; },
     issue: { path: "dataset.people[1].id", rule: "distinct-values" }
