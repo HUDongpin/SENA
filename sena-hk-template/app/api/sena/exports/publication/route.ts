@@ -113,12 +113,9 @@ async function resolvePublicationStateBeforeDerivation(
   projectId: string
 ) {
   return resolveEnterprisePublicationStateBundle(context, projectId, {
-    beforeNormalize: ({ targetSnapshot, stateNormalizationSnapshots }) => {
+    beforeNormalize: ({ targetSnapshot }) => {
       try {
-        assertSenaEnterprisePublicationRequestDerivationWorkBudget(
-          targetSnapshot,
-          stateNormalizationSnapshots
-        );
+        assertSenaEnterprisePublicationRequestDerivationWorkBudget(targetSnapshot);
       } catch (error) {
         publicationDerivationBudgetError(error);
       }

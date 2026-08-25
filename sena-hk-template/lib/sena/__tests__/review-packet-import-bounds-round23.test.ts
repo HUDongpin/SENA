@@ -9,6 +9,26 @@ import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet"
 
 let basePacket: ReturnType<typeof buildSenaReviewPacket>;
 
+function nonJsonValuePaths(value: unknown) {
+  const paths: string[] = [];
+  const visit = (candidate: unknown, path: string) => {
+    if (candidate === undefined ||
+      (typeof candidate === "number" && !Number.isFinite(candidate)) ||
+      typeof candidate === "bigint" ||
+      typeof candidate === "symbol" ||
+      typeof candidate === "function") {
+      paths.push(`${path}=${String(candidate)} (${typeof candidate})`);
+      return;
+    }
+    if (candidate === null || typeof candidate !== "object") return;
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(candidate))) {
+      if (descriptor.enumerable && "value" in descriptor) visit(descriptor.value, `${path}.${key}`);
+    }
+  };
+  visit(value, "$packet");
+  return paths;
+}
+
 beforeAll(() => {
   basePacket = buildSenaReviewPacket(buildSenaModel(lessonStudySenaContract), {
     generatedAt: "2026-08-23T00:00:00.000Z",
@@ -37,6 +57,20 @@ describe("Round 23 review-packet import work bounds", () => {
   ])("admits the $label embedded snapshot before outer packet clone/normalization", ({ mutate }) => {
     const packet = structuredClone(basePacket);
     mutate(packet);
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaReviewPacket(packet)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("rejects an undefined embedded-snapshot member before outer packet clone/normalization", () => {
+    const packet = structuredClone(basePacket);
+    expect(nonJsonValuePaths(packet)).toEqual([]);
+    (packet.contents.projectSnapshot as typeof packet.contents.projectSnapshot & Record<string, unknown>)
+      .undefinedCarrier = undefined;
     const clone = vi.spyOn(globalThis, "structuredClone");
     try {
       expect(() => importSenaReviewPacket(packet)).toThrow(/structural admission limit/i);

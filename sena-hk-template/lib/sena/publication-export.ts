@@ -1300,7 +1300,7 @@ export async function buildSenaPublicationPackage(
     claimEvidence,
     figureEvidence,
     verificationCertificate,
-    enterpriseProjectEvidence,
+    ...(enterpriseProjectEvidence ? { enterpriseProjectEvidence } : {}),
     derivationManifest
   };
   return {
@@ -1318,7 +1318,7 @@ export async function buildSenaPublicationPackage(
     claimEvidence,
     sourceSnapshotEvidence,
     figureEvidence,
-    enterpriseProjectEvidence,
+    ...(enterpriseProjectEvidence ? { enterpriseProjectEvidence } : {}),
     derivationManifest,
     artifactManifest,
     verificationCertificate,

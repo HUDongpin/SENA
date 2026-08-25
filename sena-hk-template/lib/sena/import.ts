@@ -355,7 +355,9 @@ function normalizeInteractions(rows: SenaImportRow[], mapping: SenaColumnMapping
       weight: parseAnalyticalNumber(readField(row, mapping, "weight"), 1),
       channel: readField(row, mapping, "channel") || "interaction",
       stage: readField(row, mapping, "stage") || "Unstaged",
-      turnIndex: turnIndex ? parseNumber(turnIndex, index + 1, warnings, `interactions row ${index + 1} turnIndex`) : undefined,
+      ...(turnIndex ? {
+        turnIndex: parseNumber(turnIndex, index + 1, warnings, `interactions row ${index + 1} turnIndex`)
+      } : {}),
       evidence: readField(row, mapping, "evidence") || `${source} -> ${target}`
     }];
   });
@@ -377,7 +379,9 @@ function normalizeUtterances(rows: SenaImportRow[], mapping: SenaColumnMapping, 
       stage: readField(row, mapping, "stage") || "Unstaged",
       turnIndex: parseNumber(readField(row, mapping, "turnIndex"), index + 1, warnings, `utterances row ${index + 1} turnIndex`),
       text: readField(row, mapping, "text") || "",
-      timestamp: readField(row, mapping, "timestamp") || undefined
+      ...(readField(row, mapping, "timestamp") ? {
+        timestamp: readField(row, mapping, "timestamp")
+      } : {})
     }];
   });
 }
@@ -459,10 +463,10 @@ function normalizeSegments(
       turnIndex: parseNumber(readField(row, mapping, "turnIndex"), utterance?.turnIndex ?? index + 1, warnings, `coded_segments row ${index + 1} turnIndex`),
       text: readField(row, mapping, "text") || utterance?.text || "",
       codes,
-      targetPersonIds: targetPersonIds.length > 0 ? targetPersonIds : undefined,
-      confidence: readField(row, mapping, "confidence")
-        ? parseAnalyticalNumber(readField(row, mapping, "confidence"), 1)
-        : undefined
+      ...(targetPersonIds.length > 0 ? { targetPersonIds } : {}),
+      ...(readField(row, mapping, "confidence") ? {
+        confidence: parseAnalyticalNumber(readField(row, mapping, "confidence"), 1)
+      } : {})
     }];
   });
 }

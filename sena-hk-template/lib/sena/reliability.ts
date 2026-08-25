@@ -1818,7 +1818,9 @@ export function buildSenaReliabilityDashboard(
     derivationEvidence,
     interpretation,
     warnings,
-    projectBinding: options.projectBinding ? structuredClone(options.projectBinding) : undefined
+    ...(options.projectBinding ? {
+      projectBinding: structuredClone(options.projectBinding)
+    } : {})
   };
 }
 
@@ -2325,8 +2327,10 @@ export function reliabilityDashboardToReview(
       allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 && dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
       claimEligibilityInputs: structuredClone(dashboard.claimEligibilityInputs),
       claimEligibility: dashboard.claimEligibility,
-      projectBindingRequired: dashboard.projectBinding ? true : undefined,
-      projectBinding: dashboard.projectBinding ? structuredClone(dashboard.projectBinding) : undefined
+      ...(dashboard.projectBinding ? {
+        projectBindingRequired: true as const,
+        projectBinding: structuredClone(dashboard.projectBinding)
+      } : {})
     }
   };
 }

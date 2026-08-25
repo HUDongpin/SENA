@@ -4053,7 +4053,7 @@ describe("SENA model builder", () => {
           ...packet.contents.pilotPackageManifest,
           exportArtifactSchemas: {
             ...packet.contents.pilotPackageManifest.exportArtifactSchemas,
-            "sena-sna-report.json": undefined
+            "sena-sna-report.json": null as never
           }
         }
       }

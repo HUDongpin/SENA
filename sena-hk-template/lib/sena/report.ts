@@ -591,6 +591,10 @@ export function buildActiveWindowComparison(
   const baselineConceptEdges = rankedEdges(baselineModel, "concept");
   const baselineBridgeEdges = rankedEdges(baselineModel, "bridge");
   const baselineGPairs = rankedGPairs(baselineModel);
+  const currentTopConceptTie = edgeHighlight(model.summary.strongestConceptTie);
+  const baselineTopConceptTie = edgeHighlight(baselineModel.summary.strongestConceptTie);
+  const currentTopGPairHighlight = pairHighlight(currentTopGPair);
+  const baselineTopGPairHighlight = pairHighlight(baselineTopGPair);
   const metricInputs: Array<Omit<SenaActiveWindowComparison["metrics"][number], "delta" | "share">> = [
     {
       id: "sna-density",
@@ -641,10 +645,10 @@ export function buildActiveWindowComparison(
       share: shareOf(metric.current, metric.baseline)
     })),
     topSignals: {
-      currentTopConceptTie: edgeHighlight(model.summary.strongestConceptTie),
-      baselineTopConceptTie: edgeHighlight(baselineModel.summary.strongestConceptTie),
-      currentTopGPair: pairHighlight(currentTopGPair),
-      baselineTopGPair: pairHighlight(baselineTopGPair)
+      ...(currentTopConceptTie ? { currentTopConceptTie } : {}),
+      ...(baselineTopConceptTie ? { baselineTopConceptTie } : {}),
+      ...(currentTopGPairHighlight ? { currentTopGPair: currentTopGPairHighlight } : {}),
+      ...(baselineTopGPairHighlight ? { baselineTopGPair: baselineTopGPairHighlight } : {})
     },
     rankingContext: [
       edgeRankingContext({
@@ -1344,7 +1348,7 @@ export function buildSenaCodingReliabilityGate(
     agreementValue: options.codingReliability?.agreementValue?.trim() || pendingReliabilityText,
     adjudicationNotes: options.codingReliability?.adjudicationNotes?.trim() || pendingReliabilityText,
     limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText,
-    machineEvidence: validMachineEvidence
+    ...(validMachineEvidence ? { machineEvidence: validMachineEvidence } : {})
   };
   const machineEvidence = review.machineEvidence;
   const currentMachineEvidence = machineEvidence?.dashboardSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
@@ -1520,6 +1524,7 @@ function strongestScaledEdge(model: SenaModel): SenaSensitivityVariant["stronges
 
 function sensitivityVariant(model: SenaModel, id: string, label: string, baselineFusionTotal: number): SenaSensitivityVariant {
   const totals = fusionLayerTotals(model);
+  const strongest = strongestScaledEdge(model);
   return {
     id,
     label,
@@ -1528,7 +1533,7 @@ function sensitivityVariant(model: SenaModel, id: string, label: string, baselin
     fusionTotalDelta: totals.total - baselineFusionTotal,
     socialDensity: model.summary.socialAnalysis.density,
     communityCount: model.summary.socialAnalysis.communityCount,
-    strongestScaledEdge: strongestScaledEdge(model)
+    ...(strongest ? { strongestScaledEdge: strongest } : {})
   };
 }
 
@@ -2175,10 +2180,10 @@ export function buildTemporalRuntimeNarrative(
     matrixTotals: entry.sena.matrixTotals,
     matrixFingerprints: entry.sena.matrixFingerprints,
     activeGPairs: entry.sena.activeGPairs,
-    strongestSocialTie: entry.sena.strongestSocialTie,
-    strongestConceptTie: entry.sena.strongestConceptTie,
-    strongestBridgeTie: entry.sena.strongestBridgeTie,
-    strongestGPair: entry.sena.strongestGPair
+    ...(entry.sena.strongestSocialTie ? { strongestSocialTie: entry.sena.strongestSocialTie } : {}),
+    ...(entry.sena.strongestConceptTie ? { strongestConceptTie: entry.sena.strongestConceptTie } : {}),
+    ...(entry.sena.strongestBridgeTie ? { strongestBridgeTie: entry.sena.strongestBridgeTie } : {}),
+    ...(entry.sena.strongestGPair ? { strongestGPair: entry.sena.strongestGPair } : {})
   }));
 }
 

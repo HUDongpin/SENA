@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SenaInputValidationError
 } from "../analytical-input-validation";
-import { buildSenaModel } from "../model";
-import { importSenaJsonContract } from "../import";
+import { buildSenaModel, scopeSenaDatasetToWindow } from "../model";
+import { createEmptySenaDataset, importSenaJsonContract } from "../import";
+import { importSenaEnterpriseFiles } from "../import-adapters";
 import { lessonStudySenaContract } from "../pilot-assets";
+import { buildSenaReviewPacket } from "../review-packet";
+import { buildSenaRuntimeBundle } from "../runtime-bundle";
 import {
   assertSenaProjectSnapshotPublicationDerivationWorkBudget,
   assertSenaProjectSnapshotAdmission,
@@ -24,6 +27,28 @@ function validSnapshot(): SenaProjectSnapshot {
     sourceDataset: dataset,
     activeTemporalWindow: model.temporal.windows[0] ?? null
   });
+}
+
+function nonJsonValuePaths(value: unknown) {
+  const paths: string[] = [];
+  const visit = (candidate: unknown, path: string) => {
+    if (candidate === undefined ||
+      (typeof candidate === "number" && !Number.isFinite(candidate)) ||
+      typeof candidate === "bigint" ||
+      typeof candidate === "symbol" ||
+      typeof candidate === "function") {
+      paths.push(`${path}=${String(candidate)} (${typeof candidate})`);
+      return;
+    }
+    if (candidate === null || typeof candidate !== "object") return;
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(candidate))) {
+      if (descriptor.enumerable && "value" in descriptor) {
+        visit(descriptor.value, `${path}.${key}`);
+      }
+    }
+  };
+  visit(value, "$snapshot");
+  return paths;
 }
 
 type InvalidCase = {
@@ -254,6 +279,86 @@ describe("Round 9 canonical snapshot input contract", () => {
     } finally {
       clone.mockRestore();
     }
+  });
+
+  it("rejects an own enumerable undefined member before structuredClone", () => {
+    const snapshot = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    expect(nonJsonValuePaths(snapshot)).toEqual([]);
+    snapshot.undefinedCarrier = undefined;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("keeps the current edge-free builder JSON-admissible and round-trippable", () => {
+    const dataset = createEmptySenaDataset();
+    const snapshot = buildSenaProjectSnapshot(buildSenaModel(dataset), {
+      title: "Round 9 edge-free canonical snapshot",
+      generatedAt: "2026-08-25T00:00:00.000Z",
+      sourceDataset: dataset
+    });
+
+    expect(nonJsonValuePaths(snapshot)).toEqual([]);
+    expect(importSenaProjectSnapshot(snapshot)).toEqual(snapshot);
+    expect(importSenaProjectSnapshot(JSON.stringify(snapshot))).toEqual(snapshot);
+  });
+
+  it("keeps optional-free CSV and untimestamped transcript imports JSON-admissible through snapshot round-trip", async () => {
+    const upload = (name: string, text: string) => ({
+      name,
+      text: async () => text,
+      arrayBuffer: async () => new TextEncoder().encode(text).buffer as ArrayBuffer
+    });
+    const csv = await importSenaEnterpriseFiles([
+      upload("people.csv", "id,label\nP1,Alice\nP2,Bob"),
+      upload("interactions.csv", "source,target,weight,channel,stage,evidence\nP1,P2,1,discussion,Teach,Alice replies"),
+      upload("utterances.csv", "id,personId,unitId,stanzaId,stage,turnIndex,text\nU1,P1,L1,S1,Teach,1,Evidence offered"),
+      upload("coded_segments.csv", "segmentId,utteranceId,personId,unitId,stanzaId,stage,turnIndex,text,codes\nS1,U1,P1,L1,S1,Teach,1,Evidence offered,Evidence"),
+      upload("codebook.csv", "id,label\nEvidence,Evidence")
+    ]);
+    const transcript = await importSenaEnterpriseFiles([
+      upload("lesson.txt", "Alice: [Evidence] I found a pattern.\nBob: [Explanation] The pattern follows the example.")
+    ]);
+
+    for (const [label, dataset] of [["csv", csv.dataset], ["transcript", transcript.dataset]] as const) {
+      const timelineModel = buildSenaModel(dataset);
+      const snapshot = buildSenaProjectSnapshot(timelineModel, {
+        title: `Round 9 ${label} JSON carrier`,
+        generatedAt: "2026-08-25T00:00:00.000Z",
+        sourceDataset: dataset
+      });
+      expect(nonJsonValuePaths(snapshot)).toEqual([]);
+      expect(importSenaProjectSnapshot(snapshot)).toEqual(snapshot);
+      expect(importSenaProjectSnapshot(JSON.stringify(snapshot))).toEqual(snapshot);
+
+      const activeWindow = timelineModel.temporal.windows[0];
+      if (!activeWindow) throw new Error(`${label} fixture did not produce an active window.`);
+      const activeSnapshot = buildSenaProjectSnapshot(
+        buildSenaModel(scopeSenaDatasetToWindow(dataset, activeWindow), timelineModel.options),
+        {
+          title: `Round 9 ${label} active-window JSON carrier`,
+          generatedAt: "2026-08-25T00:00:00.000Z",
+          sourceDataset: dataset,
+          activeTemporalWindow: activeWindow
+        }
+      );
+      expect(nonJsonValuePaths(activeSnapshot)).toEqual([]);
+      expect(importSenaProjectSnapshot(activeSnapshot)).toEqual(activeSnapshot);
+      expect(importSenaProjectSnapshot(JSON.stringify(activeSnapshot))).toEqual(activeSnapshot);
+    }
+
+    const sparseModel = buildSenaModel(csv.dataset);
+    const carrierOptions = {
+      title: "Round 9 sparse wrapper JSON carrier",
+      generatedAt: "2026-08-25T00:00:00.000Z",
+      sourceDataset: csv.dataset
+    };
+    expect(nonJsonValuePaths(buildSenaRuntimeBundle(sparseModel, carrierOptions))).toEqual([]);
+    expect(nonJsonValuePaths(buildSenaReviewPacket(sparseModel, carrierOptions))).toEqual([]);
   });
 
   it.each([

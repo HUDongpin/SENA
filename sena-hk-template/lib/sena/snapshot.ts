@@ -362,13 +362,13 @@ function assertSenaProjectSnapshotObjectAdmission(
     return current + increment;
   };
   const primitiveSummary = (candidate: unknown): AdmissionSummary => {
-    if (candidate === null || candidate === undefined) {
-      // Current builders use enumerable `undefined` for omitted optional
-      // fields. Charge it conservatively as JSON null (object serialization
-      // may omit it; array serialization emits null) while rejecting the
-      // clone/hash hazards below.
+    if (candidate === null) {
       return { containers: 0, members: 0, tokens: 1, jsonBytes: 4, containerDepth: 0 };
     }
+    // JSON has no undefined value. Admitting it would let two distinct direct
+    // carriers collapse to the same canonical serialization/hash when an
+    // object member is omitted (or to null when it appears in an array).
+    if (candidate === undefined) throw snapshotAdmissionError();
     if (typeof candidate === "string") {
       const jsonBytes = jsonStringUtf8Bytes(candidate, limits.maxJsonBytes);
       if (jsonBytes > limits.maxJsonBytes) throw snapshotAdmissionError();
@@ -744,44 +744,18 @@ export function assertSenaProjectSnapshotPublicationDerivationWorkBudget(
 }
 
 /**
- * Reserves the complete enterprise publication request before enterprise read
- * projection imports the first persisted project/revision. The target's route
- * derivation and every snapshot import performed by state normalization share
- * one 50M counter; no phase receives a fresh ceiling.
+ * Reserves the complete enterprise publication request against the selected
+ * raw project snapshot before the publication-specific read projection begins.
+ * That path performs no generic project/revision normalization imports; this
+ * single preflight therefore accounts for the route plus importer/export work
+ * without granting any downstream phase a fresh 50M ceiling.
  */
 export function assertSenaEnterprisePublicationRequestDerivationWorkBudget(
-  targetSnapshot: unknown,
-  stateNormalizationSnapshots: readonly unknown[]
+  targetSnapshot: unknown
 ) {
-  const reservation = { work: 0 };
-  for (const snapshot of stateNormalizationSnapshots) {
-    assertSenaProjectSnapshotAdmission(snapshot);
-    const root = recordOrNull(snapshot);
-    if (!root) continue;
-    const report = recordOrNull(root.report);
-    const currentV2 = recordOrNull(report?.fusionMathAudit)?.schemaVersion ===
-        SENA_SCHEMA_VERSIONS.fusionMathAudit &&
-      recordOrNull(report?.codingReliabilityGate)?.schemaVersion ===
-        SENA_SCHEMA_VERSIONS.codingReliabilityGate;
-    assertSenaProjectSnapshotCanonicalAnalysisWorkBudget(
-      root,
-      currentV2 ? {
-        fullModelBuilds: 1,
-        validationModelBuilds: declaredSnapshotValidationModelBuilds(root),
-        temporalTraceBuilds: 2,
-        activeWindowBaselineBuilds: 2
-      } : undefined,
-      reservation
-    );
-  }
-
-  assertSenaProjectSnapshotAdmission(targetSnapshot);
-  assertSenaProjectSnapshotCanonicalAnalysisWorkBudget(targetSnapshot, {
-    fullModelBuilds: 3,
-    validationModelBuilds: declaredSnapshotValidationModelBuilds(targetSnapshot) * 2,
-    temporalTraceBuilds: 4,
-    activeWindowBaselineBuilds: 3
-  }, reservation);
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget(targetSnapshot, {
+    scope: "route-request"
+  });
 }
 
 /**

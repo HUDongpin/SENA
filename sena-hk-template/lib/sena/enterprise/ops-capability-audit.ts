@@ -135,9 +135,11 @@ export function getEnterpriseCapabilityAudit(input: {
   const security = getEnterpriseSecurityPosture({ governance, readiness });
   const goLiveRehearsal = input.goLiveRehearsal ?? getEnterpriseGoLiveRehearsal({
     teamId: input.teamId,
+    db,
     deployment,
     readiness,
-    opsStatus
+    opsStatus,
+    governance
   });
   const readinessItem = (id: string) => [...readiness.blocking, ...readiness.advisory].find((item) => item.id === id);
   const governanceItem = (id: string) => governance.checks.find((check) => check.id === id);

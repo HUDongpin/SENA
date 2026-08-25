@@ -122,8 +122,8 @@ function buildTransitions(windows: SenaTemporalRuntimeTrace["windows"]): SenaTem
         to: toEntry.sna.status
       },
       strongestGPair: {
-        from: fromTopPair,
-        to: toTopPair,
+        ...(fromTopPair ? { from: fromTopPair } : {}),
+        ...(toTopPair ? { to: toTopPair } : {}),
         changed: (fromTopPair?.id ?? null) !== (toTopPair?.id ?? null)
       },
       interpretationGuardrail: "Temporal transitions summarize adjacent-window S/W/B/B_PC/B_CP/G deltas for inspection; they are not causal evidence without temporal design, coding reliability, and human review."
@@ -146,6 +146,10 @@ export function buildSenaTemporalRuntimeTrace(
     const strongestGPair = [...scopedModel.pairReport]
       .filter((pair) => pair.totalContribution > 0)
       .sort((a, b) => b.totalContribution - a.totalContribution || a.label.localeCompare(b.label))[0];
+    const strongestSocialTie = edgeHighlight(scopedModel.summary.strongestSocialTie);
+    const strongestConceptTie = edgeHighlight(scopedModel.summary.strongestConceptTie);
+    const strongestBridgeTie = edgeHighlight(scopedModel.summary.strongestBridgeTie);
+    const strongestGPairHighlight = gPairHighlight(strongestGPair);
     const warnings = uniqueWarnings(scopedModel.summary.warnings, enaManifest.warnings, snaManifest.warnings);
 
     return {
@@ -170,10 +174,10 @@ export function buildSenaTemporalRuntimeTrace(
           fusion: matrixTotal(scopedModel.matrices.fusion.values)
         },
         matrixFingerprints: buildSenaMatrixFingerprints(scopedModel),
-        strongestSocialTie: edgeHighlight(scopedModel.summary.strongestSocialTie),
-        strongestConceptTie: edgeHighlight(scopedModel.summary.strongestConceptTie),
-        strongestBridgeTie: edgeHighlight(scopedModel.summary.strongestBridgeTie),
-        strongestGPair: gPairHighlight(strongestGPair),
+        ...(strongestSocialTie ? { strongestSocialTie } : {}),
+        ...(strongestConceptTie ? { strongestConceptTie } : {}),
+        ...(strongestBridgeTie ? { strongestBridgeTie } : {}),
+        ...(strongestGPairHighlight ? { strongestGPair: strongestGPairHighlight } : {}),
         warnings: scopedModel.summary.warnings
       },
       ena: {
@@ -188,7 +192,7 @@ export function buildSenaTemporalRuntimeTrace(
       sna: {
         status: snaManifest.status,
         datasetCounts: snaManifest.datasetCounts,
-        graph: snaManifest.outputs?.graph,
+        ...(snaManifest.outputs?.graph ? { graph: snaManifest.outputs.graph } : {}),
         warnings: snaManifest.warnings
       },
       warnings

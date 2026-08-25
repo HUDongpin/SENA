@@ -86,7 +86,6 @@ export type SenaEnterprisePublicationStateBundle = {
 
 export type SenaEnterprisePublicationPreNormalizationBudgetInput = {
   targetSnapshot: unknown;
-  stateNormalizationSnapshots: unknown[];
 };
 
 export function resolveEnterprisePublicationStateBundleFromState(
@@ -213,11 +212,7 @@ export async function resolveEnterprisePublicationStateBundle(
       requireEnterprisePermission(context, project.teamId, "project:read");
       requireEnterprisePermission(context, project.teamId, "export:create");
       options.beforeNormalize?.({
-        targetSnapshot: project.snapshot,
-        // This publication-specific raw-state path performs no implicit
-        // project/revision imports. All canonical model/report work is
-        // reserved in the target route derivation below.
-        stateNormalizationSnapshots: []
+        targetSnapshot: project.snapshot
       });
     }
   });

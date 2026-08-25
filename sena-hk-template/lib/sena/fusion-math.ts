@@ -138,19 +138,19 @@ function matrixFingerprint({
       ...(values ? ["values" as const] : [])
     ],
     totals: {
-      raw: raw ? matrixTotal(raw) : undefined,
-      normalized: normalized ? matrixTotal(normalized) : undefined,
-      values: values ? matrixTotal(values) : undefined
+      ...(raw ? { raw: matrixTotal(raw) } : {}),
+      ...(normalized ? { normalized: matrixTotal(normalized) } : {}),
+      ...(values ? { values: matrixTotal(values) } : {})
     },
     nonZero: {
-      raw: raw ? matrixNonZero(raw) : undefined,
-      normalized: normalized ? matrixNonZero(normalized) : undefined,
-      values: values ? matrixNonZero(values) : undefined
+      ...(raw ? { raw: matrixNonZero(raw) } : {}),
+      ...(normalized ? { normalized: matrixNonZero(normalized) } : {}),
+      ...(values ? { values: matrixNonZero(values) } : {})
     },
     rowLabels,
     columnLabels,
-    pairIds,
-    pairDescriptors
+    ...(pairIds ? { pairIds } : {}),
+    ...(pairDescriptors ? { pairDescriptors } : {})
   };
 }
 
@@ -311,8 +311,7 @@ function validFusionFingerprints(value: unknown, requirePairDescriptors: boolean
   const conceptRows = concept.rowLabels as string[];
   const pairColumns = pairs.columnLabels as string[];
   const expectedPairCount = (conceptRows.length * Math.max(0, conceptRows.length - 1)) / 2;
-  return socialRows.length > 0 && conceptRows.length > 0 &&
-    sameStrings(socialRows, social.columnLabels as string[]) &&
+  return sameStrings(socialRows, social.columnLabels as string[]) &&
     sameStrings(conceptRows, concept.columnLabels as string[]) &&
     sameStrings(socialRows, bridge.rowLabels as string[]) &&
     sameStrings(conceptRows, bridge.columnLabels as string[]) &&
@@ -571,8 +570,7 @@ function item(
     status: passed ? "pass" : "review",
     expected,
     actual,
-    maxDelta,
-    tolerance: maxDelta === undefined ? undefined : tolerance,
+    ...(maxDelta === undefined ? {} : { maxDelta, tolerance }),
     detail
   };
 }
@@ -602,8 +600,7 @@ export function buildSenaFusionMathAudit(model: SenaFusionMathAuditEvidence, tol
     exactMatrixShape(model.matrices.G.raw, peopleCount, codePairCount) &&
     exactMatrixShape(model.matrices.G.normalized, peopleCount, codePairCount) &&
     exactMatrixShape(fusion, fusionSize, fusionSize);
-  const dimensionsPass = peopleCount > 0 && codeCount > 0 &&
-    sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
+  const dimensionsPass = sameStrings(model.matrices.S.labels, model.matrices.B.rowLabels) &&
     sameStrings(model.matrices.W.labels, model.matrices.B.columnLabels) &&
     sameStrings(model.matrices.B.rowLabels, model.matrices.B_PC.rowLabels) &&
     sameStrings(model.matrices.B.columnLabels, model.matrices.B_PC.columnLabels) &&

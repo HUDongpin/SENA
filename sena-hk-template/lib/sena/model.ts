@@ -1241,7 +1241,7 @@ function buildTemporalWindow({
     index,
     startTurn,
     endTurn,
-    centerTurn,
+    ...(centerTurn === undefined ? {} : { centerTurn }),
     stages,
     utteranceIds: utterances.map((utterance) => utterance.id),
     segmentIds: segments.map((segment) => segment.segmentId),
@@ -1391,7 +1391,7 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
     coded_segments: codedSegments.map((segment) => ({
       ...segment,
       codes: [...segment.codes],
-      targetPersonIds: segment.targetPersonIds ? [...segment.targetPersonIds] : undefined
+      ...(segment.targetPersonIds ? { targetPersonIds: [...segment.targetPersonIds] } : {})
     })),
     interactions: dataset.interactions
       // Stage windows are defined by stage membership in buildTemporalWindows, so
@@ -1406,7 +1406,7 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
           : interactionInTurnWindow(interaction, window.startTurn, window.endTurn, stages)
       ))
       .map((interaction) => ({ ...interaction })),
-    warnings: dataset.warnings ? [...dataset.warnings] : undefined
+    ...(dataset.warnings ? { warnings: [...dataset.warnings] } : {})
   };
 }
 
@@ -1661,6 +1661,9 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
   const directionDiagnostics = buildDirectionDiagnostics(options, bridge.B, bridge.Bcp, bridge.hasIndependentCpEvidence);
   const attributionDiagnostics = buildAttributionDiagnostics(dataset, pairContribution.G, personIndex, codeIndex, participation);
   const typedCentralityDiagnostics = buildTypedCentralityDiagnostics(dataset, social.S, concept.W, bridge.B, degreeVector);
+  const strongestSocialTie = strongest(edges, "social");
+  const strongestConceptTie = strongest(edges, "concept");
+  const strongestBridgeTie = strongest(edges, "bridge");
 
   return {
     dataset,
@@ -1761,9 +1764,9 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
         averagePathLength: socialAnalysis.averagePathLength,
         communityCount: socialAnalysis.communityCount
       },
-      strongestSocialTie: strongest(edges, "social"),
-      strongestConceptTie: strongest(edges, "concept"),
-      strongestBridgeTie: strongest(edges, "bridge"),
+      ...(strongestSocialTie ? { strongestSocialTie } : {}),
+      ...(strongestConceptTie ? { strongestConceptTie } : {}),
+      ...(strongestBridgeTie ? { strongestBridgeTie } : {}),
       warnings: [...(dataset.warnings ?? []), ...social.warnings, ...concept.warnings, ...bridge.warnings]
     }
   };

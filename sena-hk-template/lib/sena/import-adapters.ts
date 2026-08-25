@@ -236,7 +236,7 @@ function cleanTranscriptText(text: string, name: string): { dataset: SenaDataset
       stage,
       turnIndex,
       text: rawText,
-      timestamp: match[1] || undefined
+      ...(match[1] ? { timestamp: match[1] } : {})
     });
 
     if (previousSpeaker && previousSpeaker !== personId) {

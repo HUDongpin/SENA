@@ -22,6 +22,7 @@ import {
 } from "./enterprise/ops-observability";
 import { getEnterpriseIdentityProductionEvidence } from "./enterprise/identity-production-evidence";
 import type { SenaEnterpriseIdentityInstitutionActionPlan } from "./enterprise/identity-action-plan";
+import { readEnterpriseIdentityEvidenceState } from "./enterprise/state";
 
 export function sessionCookieOptions(maxAgeSeconds = 7 * 24 * 60 * 60) {
   return {
@@ -243,7 +244,7 @@ export function authSessionHeaders(context: SenaEnterpriseSessionContext, input:
   provider?: string;
   ssoProvider?: string;
   ssoMode?: "oauth-oidc" | "local-pilot-fallback";
-}) {
+}, identityEvidence = getEnterpriseIdentityProductionEvidence()) {
   const primaryTeam = context.teams[0];
   const primaryMembership = context.memberships.find((membership) => membership.teamId === primaryTeam?.id) ?? context.memberships[0];
   return {
@@ -257,12 +258,13 @@ export function authSessionHeaders(context: SenaEnterpriseSessionContext, input:
     ...(input.provider ? { "x-sena-auth-provider": input.provider } : {}),
     ...(input.ssoProvider ? { "x-sena-sso-provider": input.ssoProvider } : {}),
     ...(input.ssoMode ? { "x-sena-sso-mode": input.ssoMode } : {}),
-    ...authProductionGateHeaders()
+    ...authProductionGateHeaders(identityEvidence)
   };
 }
 
-export function authProductionGateHeaders() {
-  const identityEvidence = getEnterpriseIdentityProductionEvidence();
+export function authProductionGateHeaders(
+  identityEvidence = getEnterpriseIdentityProductionEvidence()
+) {
   return {
     "x-sena-auth-production-gate": identityEvidence.status,
     "x-sena-identity-production-status": identityEvidence.status,
@@ -306,10 +308,19 @@ export function identityOwnerRunbookHeaders(
   };
 }
 
-export function sessionJson(
+export async function sessionJson(
   context: SenaEnterpriseSessionContext,
   status = 200,
-  headers: Record<string, string> = authSessionHeaders(context, { flow: "session-read" })
+  headers?: Record<string, string>
 ) {
-  return NextResponse.json(sanitizeEnterpriseContext(context), { status, headers });
+  const identityState = headers ? undefined : await readEnterpriseIdentityEvidenceState();
+  const resolvedHeaders = headers ?? authSessionHeaders(
+    context,
+    { flow: "session-read" },
+    getEnterpriseIdentityProductionEvidence({
+      db: identityState?.db,
+      snapshotSource: identityState?.snapshotSource
+    })
+  );
+  return NextResponse.json(sanitizeEnterpriseContext(context), { status, headers: resolvedHeaders });
 }

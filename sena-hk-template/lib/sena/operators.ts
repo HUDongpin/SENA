@@ -747,7 +747,12 @@ export function senaSchoenbergMdsDiagnostics(
     }
   }
 
-  const minCenteredGramEigenvalue = Math.min(...decomposition.values);
+  // The empty Gram matrix has no negative eigenvalue. Avoid Math.min(...[])
+  // producing Infinity, which is not a JSON value and cannot be persisted in
+  // an edge-free current snapshot.
+  const minCenteredGramEigenvalue = decomposition.values.length > 0
+    ? Math.min(...decomposition.values)
+    : 0;
   const euclidean = minCenteredGramEigenvalue >= -tolerance;
   const metricExact = euclidean && maxDistortion <= tolerance;
 

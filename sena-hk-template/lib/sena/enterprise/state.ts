@@ -221,6 +221,14 @@ const dbLockPollMs = 25;
 const authLockoutWindowMinutes = positiveIntegerEnv("SENA_AUTH_LOCKOUT_WINDOW_MINUTES", 15);
 const defaultUploadScanEngine = "sena-local-upload-scan/v1" as const;
 
+function projectPersistedEnterpriseSession(session: SenaEnterpriseSession): SenaEnterpriseSession {
+  return {
+    ...session,
+    sessionProfile: session.sessionProfile ?? "standard",
+    ttlDays: session.ttlDays ?? sessionDays
+  };
+}
+
 function positiveIntegerEnv(key: string, fallback: number) {
   const parsed = Number(process.env[key]);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
@@ -415,11 +423,7 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
   }
   return {
     ...db,
-    sessions: (db.sessions ?? []).map((session) => ({
-      ...session,
-      sessionProfile: session.sessionProfile ?? "standard",
-      ttlDays: session.ttlDays ?? sessionDays
-    })),
+    sessions: (db.sessions ?? []).map(projectPersistedEnterpriseSession),
     projectRevisions,
     projectComments: db.projectComments ?? [],
     projectPresence: db.projectPresence ?? [],
@@ -1469,6 +1473,27 @@ export type SenaEnterpriseAuthState = Pick<
   "users" | "sessions" | "memberships" | "teams"
 >;
 
+async function readTargetedPersistedEnterpriseDb(): Promise<{
+  persistedDb: SenaEnterpriseDbReadModel;
+  runtime: SenaEnterprisePrimaryStateRuntime;
+}> {
+  const runtime = getEnterprisePrimaryStateRuntime();
+  if (runtime.activePrimary === "postgres") {
+    try {
+      return {
+        persistedDb: (await postgresPrimaryStateStore().adapter.readState()).db,
+        runtime
+      };
+    } catch (error) {
+      normalizePostgresStateError(error);
+    }
+  }
+  return {
+    persistedDb: enterpriseStateStore().readPersistedState().persistedDb,
+    runtime
+  };
+}
+
 /**
  * Authentication does not require project/report read projection. Reading
  * these four persisted holder arrays directly prevents an authenticated
@@ -1476,22 +1501,40 @@ export type SenaEnterpriseAuthState = Pick<
  * request-wide derivation reservation.
  */
 export async function readEnterpriseAuthState(): Promise<SenaEnterpriseAuthState> {
-  const runtime = getEnterprisePrimaryStateRuntime();
-  let persistedDb: SenaEnterpriseDbReadModel;
-  if (runtime.activePrimary === "postgres") {
-    try {
-      persistedDb = (await postgresPrimaryStateStore().adapter.readState()).db;
-    } catch (error) {
-      normalizePostgresStateError(error);
-    }
-  } else {
-    persistedDb = enterpriseStateStore().readPersistedState().persistedDb;
-  }
+  const { persistedDb } = await readTargetedPersistedEnterpriseDb();
   return {
     users: persistedDb.users ?? [],
-    sessions: persistedDb.sessions ?? [],
+    sessions: (persistedDb.sessions ?? []).map(projectPersistedEnterpriseSession),
     memberships: persistedDb.memberships ?? [],
     teams: persistedDb.teams ?? []
+  };
+}
+
+/**
+ * Identity headers need the persisted evidence holders, but they do not need
+ * project/revision snapshot reconstruction. This shallow read projection
+ * supplies missing collection defaults while preserving every stored snapshot
+ * carrier by reference and never persisting the projected session defaults.
+ */
+export async function readEnterpriseIdentityEvidenceState(): Promise<{
+  db: SenaEnterpriseDb;
+  snapshotSource: "file-primary-state" | "postgres-primary-state";
+}> {
+  const { persistedDb, runtime } = await readTargetedPersistedEnterpriseDb();
+  const defaults = emptyEnterpriseDb() as unknown as Record<string, unknown>;
+  const persisted = persistedDb as unknown as Record<string, unknown>;
+  const projected: Record<string, unknown> = { ...defaults, ...persisted };
+  for (const [key, defaultValue] of Object.entries(defaults)) {
+    if (Array.isArray(defaultValue) && persisted[key] === undefined) {
+      projected[key] = defaultValue;
+    }
+  }
+  projected.sessions = (persistedDb.sessions ?? []).map(projectPersistedEnterpriseSession);
+  return {
+    db: projected as unknown as SenaEnterpriseDb,
+    snapshotSource: runtime.activePrimary === "postgres"
+      ? "postgres-primary-state"
+      : "file-primary-state"
   };
 }
 

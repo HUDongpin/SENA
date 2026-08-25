@@ -754,7 +754,7 @@ export async function verifyEnterpriseUploadStorageAsync(
   return verifyEnterpriseUploadStorageFromDb(state.db, context, input);
 }
 
-function verifyEnterpriseUploadStorageFromDb(
+export function verifyEnterpriseUploadStorageFromDb(
   db: ReturnType<typeof readEnterpriseDb>,
   context?: SenaEnterpriseSessionContext,
   input: { teamId?: string } = {}
@@ -1055,16 +1055,27 @@ function summarizeUploadObjectStorageCustodyFromUploads(
   };
 }
 
-export function summarizeEnterpriseUploadObjectStorageCustody(input: { teamId?: string } = {}): SenaEnterpriseUploadObjectStorageCustodySummary {
-  const db = readEnterpriseDb();
+export function summarizeEnterpriseUploadObjectStorageCustodyFromDb(
+  db: ReturnType<typeof readEnterpriseDb>,
+  input: {
+    teamId?: string;
+    source?: SenaEnterpriseUploadObjectStorageCustodySummary["source"];
+  } = {}
+): SenaEnterpriseUploadObjectStorageCustodySummary {
   const uploads = db.uploads.filter((upload) => !input.teamId || upload.teamId === input.teamId);
+  const source = input.source ?? "file-json";
   return summarizeUploadObjectStorageCustodyFromUploads(uploads, {
-    source: "file-json",
+    source,
     evidence: [
       "uploadCustodyRead=pass",
-      "uploadCustodyStore=file-json"
+      `uploadCustodyStore=${source}`
     ]
   });
+}
+
+export function summarizeEnterpriseUploadObjectStorageCustody(input: { teamId?: string } = {}): SenaEnterpriseUploadObjectStorageCustodySummary {
+  const db = readEnterpriseDb();
+  return summarizeEnterpriseUploadObjectStorageCustodyFromDb(db, input);
 }
 
 export async function summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence(
