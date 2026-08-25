@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { SENA_API_ENDPOINT_FACTS, type SenaApiMethod } from "../api-route-facts";
+import { SENA_API_ENDPOINT_FACTS } from "../api-route-facts";
 
 /**
  * T2 coverage for Ledger row FA22-01 — "GET /api/sena/docs and ?format=openapi
@@ -228,6 +228,28 @@ describe("GET /api/sena/docs (default JSON contract)", () => {
 });
 
 describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
+  it("keeps method-specific normal-response facts internally valid", () => {
+    for (const endpoint of SENA_API_ENDPOINT_FACTS) {
+      for (const [method, responses] of Object.entries(endpoint.normalResponsesByMethod ?? {})) {
+        expect(endpoint.methods).toContain(method);
+        expect(responses?.length).toBeGreaterThan(0);
+        expect(new Set(responses?.map((response) => response.status)).size)
+          .toBe(responses?.length);
+        for (const response of responses ?? []) {
+          expect(response.status).toBeGreaterThanOrEqual(200);
+          expect(response.status).toBeLessThan(400);
+          expect(new Set(response.contentTypes).size).toBe(response.contentTypes.length);
+          expect(response.contentTypes.every((contentType) => contentType.trim().length > 0)).toBe(true);
+          if (response.status === 204 || response.status === 307) {
+            expect(response.contentTypes).toEqual([]);
+          } else {
+            expect(response.contentTypes.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    }
+  });
+
   it("returns an OpenAPI 3.1 document whose paths carry exactly the manifest's methods", async () => {
     await withDocsRoute("sena-docs-route-openapi-", async ({ route, manifest }) => {
       const response = await route.GET(new Request(`${docsUrl}?format=openapi`));
@@ -284,23 +306,19 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
           expect([where, typeof operation.operationId]).toEqual([where, "string"]);
           expect([where, typeof operation.summary]).toEqual([where, "string"]);
           expect([where, operation.tags?.length]).toEqual([where, 1]);
-          // `responses` is REQUIRED on an Operation Object in 3.1. Keep the
-          // route-level document exact against the endpoint facts, including
-          // typed non-2xx responses, and require every response to be usable.
-          const endpointFact = SENA_API_ENDPOINT_FACTS.find((endpoint) => (
-            endpoint.path === pathKey && endpoint.methods.includes(method.toUpperCase() as SenaApiMethod)
-          ));
-          const expectedStatuses = [
-            "200",
-            ...new Set((endpointFact?.errorResponses ?? []).map((response) => String(response.status)))
-          ].sort();
+          // `responses` is REQUIRED on an Operation Object in 3.1. Exact
+          // non-default success contracts are asserted below against an
+          // independently maintained route ledger rather than inferred from
+          // the generator's own facts.
           const responses = operation.responses ?? {};
-          expect([where, Boolean(endpointFact)]).toEqual([where, true]);
-          expect([where, Object.keys(responses).sort()]).toEqual([where, expectedStatuses]);
+          expect([where, Object.keys(responses).length > 0]).toEqual([where, true]);
+          const normalResponses = Object.keys(responses).filter((status) => {
+            const numericStatus = Number(status);
+            return numericStatus >= 200 && numericStatus < 400;
+          });
+          expect([where, normalResponses.length > 0]).toEqual([where, true]);
           for (const [status, response] of Object.entries(responses)) {
             expect([where, status, typeof response.description]).toEqual([where, status, "string"]);
-            expect([where, status, Object.keys(response.content ?? {})])
-              .toEqual([where, status, ["application/json"]]);
           }
           operationIds.push(String(operation.operationId));
         }
@@ -312,7 +330,7 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
       // security scheme an operation names exists in components.
       const declaredTags = new Set((document.tags ?? []).map((tag) => tag.name));
       const declaredSchemes = new Set(Object.keys(document.components?.securitySchemes ?? {}));
-      expect(declaredSchemes).toEqual(new Set(["sessionCookie", "opsBearer", "provisioningBearer", "scimBearer"]));
+      expect(declaredSchemes).toEqual(new Set(["sessionCookie", "opsBearer", "jobWorkerHmac", "provisioningBearer", "scimBearer"]));
       for (const [pathKey, item] of Object.entries(paths)) {
         for (const [method, operation] of Object.entries(item)) {
           const where = `${method.toUpperCase()} ${pathKey}`;
@@ -326,6 +344,96 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
           }
         }
       }
+    });
+  });
+
+  it("documents the independently audited non-default success-response ledger", async () => {
+    await withDocsRoute("sena-docs-route-success-ledger-", async ({ route }) => {
+      const document = await (await route.GET(new Request(`${docsUrl}?format=openapi`))).json() as OpenApiDocument;
+      const expected = [
+        ["POST", "/api/auth/login", "200", ["application/json"]],
+        ["POST", "/api/auth/login", "202", ["application/json"]],
+        ["POST", "/api/auth/register", "201", ["application/json"]],
+        ["POST", "/api/auth/mfa", "200", ["application/json"]],
+        ["POST", "/api/auth/mfa", "201", ["application/json"]],
+        ["POST", "/api/auth/password-reset", "200", ["application/json"]],
+        ["POST", "/api/auth/password-reset", "202", ["application/json"]],
+        ["GET", "/api/auth/sso", "200", ["application/json"]],
+        ["GET", "/api/auth/sso", "307", []],
+        ["GET", "/api/auth/sso/callback", "307", []],
+        ["POST", "/api/sena/projects", "201", ["application/json"]],
+        ["POST", "/api/sena/projects/{projectId}/collaboration", "200", ["application/json"]],
+        ["POST", "/api/sena/projects/{projectId}/collaboration", "201", ["application/json"]],
+        ["GET", "/api/sena/projects/{projectId}/collaboration/stream", "200", ["text/event-stream"]],
+        ["POST", "/api/sena/team/invitations", "201", ["application/json"]],
+        ["POST", "/api/sena/analyze", "200", ["application/json"]],
+        ["POST", "/api/sena/analyze", "202", ["application/json"]],
+        ["POST", "/api/sena/uploads", "200", ["application/json"]],
+        ["POST", "/api/sena/uploads", "201", ["application/json"]],
+        ["POST", "/api/sena/import", "200", ["application/json"]],
+        ["POST", "/api/sena/import", "201", ["application/json"]],
+        ["POST", "/api/sena/import", "202", ["application/json"]],
+        ["POST", "/api/sena/reliability", "200", ["application/json"]],
+        ["POST", "/api/sena/reliability", "202", ["application/json"]],
+        ["PATCH", "/api/sena/reliability", "200", ["application/json"]],
+        ["PATCH", "/api/sena/reliability", "201", ["application/json"]],
+        ["POST", "/api/sena/validation/group-comparison", "200", ["application/json"]],
+        ["POST", "/api/sena/validation/group-comparison", "202", ["application/json"]],
+        ["GET", "/api/sena/governance/audit", "200", ["application/json", "text/csv"]],
+        ["POST", "/api/sena/exports/publication", "200", [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.sena.publication-package+json",
+          "image/png",
+          "image/svg+xml",
+          "text/html"
+        ]],
+        ["POST", "/api/sena/ops/jobs", "200", ["application/json"]],
+        ["POST", "/api/sena/ops/jobs", "202", ["application/json"]],
+        ["POST", "/api/sena/ops/jobs/worker", "202", ["application/json"]],
+        ["GET", "/api/sena/ops/metrics", "200", ["text/plain; version=0.0.4"]],
+        ["POST", "/api/sena/ops/go-live-rehearsal", "200", ["application/json"]],
+        ["POST", "/api/sena/ops/go-live-rehearsal", "201", ["application/json"]],
+        ["POST", "/api/sena/ops/platform-decisions", "201", ["application/json"]],
+        ["POST", "/api/sena/ops/release-gate", "201", ["application/json"]],
+        ["POST", "/api/sena/scim/v2/Users", "200", ["application/json"]],
+        ["POST", "/api/sena/scim/v2/Users", "201", ["application/json"]],
+        ["DELETE", "/api/sena/scim/v2/Users/{resourceId}", "204", []],
+        ["POST", "/api/sena/scim/v2/Groups", "200", ["application/json"]],
+        ["POST", "/api/sena/scim/v2/Groups", "201", ["application/json"]],
+        ["DELETE", "/api/sena/scim/v2/Groups/{resourceId}", "204", []]
+      ] as const;
+
+      for (const [method, pathKey, status, contentTypes] of expected) {
+        const operation = document.paths?.[pathKey]?.[method.toLowerCase()];
+        const response = operation?.responses?.[status];
+        expect([method, pathKey, status, Boolean(response)]).toEqual([method, pathKey, status, true]);
+        expect([method, pathKey, status, Object.keys(response?.content ?? {}).sort()])
+          .toEqual([method, pathKey, status, [...contentTypes].sort()]);
+      }
+
+      const actualSpecial: Array<[string, string, string, string[]]> = [];
+      for (const [pathKey, pathItem] of Object.entries(document.paths ?? {})) {
+        for (const [method, operation] of Object.entries(pathItem)) {
+          const normal = Object.entries(operation.responses ?? {})
+            .filter(([status]) => Number(status) >= 200 && Number(status) < 400)
+            .map(([status, response]) => [
+              method.toUpperCase(),
+              pathKey,
+              status,
+              Object.keys(response.content ?? {}).sort()
+            ] as [string, string, string, string[]]);
+          const defaultOnly = normal.length === 1 && normal[0][2] === "200" &&
+            normal[0][3].length === 1 && normal[0][3][0] === "application/json";
+          if (!defaultOnly) actualSpecial.push(...normal);
+        }
+      }
+      const stable = (entry: readonly unknown[]) => JSON.stringify(entry);
+      expect(actualSpecial.sort((left, right) => stable(left).localeCompare(stable(right))))
+        .toEqual(expected.map(([method, pathKey, status, contentTypes]) => (
+          [method, pathKey, status, [...contentTypes].sort()]
+        )).sort((left, right) => stable(left).localeCompare(stable(right))));
     });
   });
 

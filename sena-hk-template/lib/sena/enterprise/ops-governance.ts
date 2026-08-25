@@ -734,7 +734,7 @@ export function getEnterpriseGovernanceStatus(input: {
     {
       id: "domain-expert-review",
       label: "Domain expert review workflow",
-      status: "pass",
+      status: expertReviewRegistryRuntime.receiptSigningReady ? "pass" : "review",
       evidence: [
         `expertReviews=${db.expertReviews.length}`,
         `approved=${db.expertReviews.filter((review) => review.status === "approved").length}`,
@@ -746,7 +746,9 @@ export function getEnterpriseGovernanceStatus(input: {
         "targets=project|validation-run|reliability-run|claim",
         "signoff=requested|approved|changes-requested|rejected"
       ],
-      nextAction: "Require at least one approved domain expert review before treating SENA patterns as publication-facing claims."
+      nextAction: expertReviewRegistryRuntime.receiptSigningReady
+        ? "Require at least one receipt-authenticated approved domain expert review before treating SENA patterns as publication-facing claims."
+        : "Configure a dedicated 32+ character SENA_EXPERT_REVIEW_SIGNING_SECRET and an opaque key id before expert approval can authorize claim-ready evidence."
     },
     {
       id: "collaboration-governance",

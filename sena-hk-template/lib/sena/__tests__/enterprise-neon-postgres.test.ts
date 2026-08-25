@@ -23,7 +23,9 @@ const envNames = [
   "POSTGRES_PRISMA_URL",
   "NEON_DATABASE_URL",
   "SENA_OBJECT_STORAGE_WEBHOOK_URL",
-  "SENA_OBJECT_STORAGE_WEBHOOK_SECRET"
+  "SENA_OBJECT_STORAGE_WEBHOOK_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_KEY_ID"
 ];
 
 function reliabilitySqlRow(payload: Record<string, unknown>) {
@@ -100,6 +102,63 @@ function validationSqlRow(payload: Record<string, unknown>) {
     formal_inference_status: formalInference?.status ?? null,
     payload,
     created_at: payload.createdAt
+  };
+}
+
+function expertReviewSqlRow(payload: Record<string, unknown>) {
+  const target = payload.target as Record<string, unknown>;
+  const ratings = payload.ratings as Record<string, unknown>;
+  return {
+    id: payload.id,
+    team_id: payload.teamId,
+    project_id: payload.projectId,
+    user_id: payload.userId,
+    status: payload.status,
+    target_kind: target.kind,
+    target_id: target.id ?? null,
+    target_label: target.label ?? null,
+    reviewer_name: payload.reviewerName,
+    reviewer_role: payload.reviewerRole,
+    expertise_area: payload.expertiseArea,
+    claim_scope: payload.claimScope,
+    data_adequacy: ratings.dataAdequacy,
+    method_fit: ratings.methodFit,
+    interpretation_validity: ratings.interpretationValidity,
+    payload,
+    reviewed_at: payload.reviewedAt ?? null,
+    created_at: payload.createdAt,
+    updated_at: payload.updatedAt
+  };
+}
+
+function projectCommentSqlRow(payload: Record<string, unknown>) {
+  const target = payload.target as Record<string, unknown>;
+  return {
+    id: payload.id,
+    project_id: payload.projectId,
+    team_id: payload.teamId,
+    user_id: payload.userId,
+    target_kind: target.kind,
+    target_id: target.id ?? null,
+    target_label: target.label ?? null,
+    status: payload.status,
+    payload,
+    created_at: payload.createdAt,
+    updated_at: payload.updatedAt
+  };
+}
+
+function projectPresenceSqlRow(payload: Record<string, unknown>) {
+  return {
+    id: payload.id,
+    project_id: payload.projectId,
+    team_id: payload.teamId,
+    user_id: payload.userId,
+    active_view: payload.activeView,
+    cursor_label: payload.cursorLabel,
+    payload,
+    updated_at: payload.updatedAt,
+    expires_at: payload.expiresAt
   };
 }
 
@@ -978,6 +1037,9 @@ describe("SENA enterprise Neon Postgres readiness", () => {
     process.env.SENA_ENTERPRISE_DB_ADAPTER = "neon";
     process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
     process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+    process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET =
+      "1f3c8eaeb065a3c467404e14c6c90d360d7940f20f47be9c1281e6c06929211d";
+    process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = "neon-claim-test-v1";
 
     const queries: Array<{ sql: string; values: unknown[] }> = [];
     const reliabilityPayloads = new Map<string, Record<string, unknown>>();
@@ -1050,7 +1112,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_validation_runs"/.test(normalizedSql)) {
             return {
               rows: Array.from(validationPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
+                .filter((payload) => values.includes(payload.projectId))
                 .map((payload) => validationSqlRow(payload)),
               rowCount: validationPayloads.size
             };
@@ -1058,8 +1120,8 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_expert_reviews"/.test(normalizedSql)) {
             return {
               rows: Array.from(expertReviewPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .filter((payload) => values.includes(payload.projectId))
+                .map((payload) => expertReviewSqlRow(payload)),
               rowCount: expertReviewPayloads.size
             };
           }
@@ -1074,17 +1136,17 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_project_comments"/.test(normalizedSql)) {
             return {
               rows: Array.from(projectCommentPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .filter((payload) => payload.teamId === values[0] && payload.projectId === values[1])
+                .map((payload) => projectCommentSqlRow(payload)),
               rowCount: projectCommentPayloads.size
             };
           }
           if (/SELECT \* FROM "public"\."sena_enterprise_project_presence"/.test(normalizedSql)) {
             return {
               rows: Array.from(projectPresencePayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .filter((payload) => !values[1] || Date.parse(String(payload.expiresAt)) > Date.parse(String(values[1])))
-                .map((payload) => ({ payload })),
+                .filter((payload) => payload.teamId === values[0] && payload.projectId === values[1])
+                .filter((payload) => !values[2] || Date.parse(String(payload.expiresAt)) > Date.parse(String(values[2])))
+                .map((payload) => projectPresenceSqlRow(payload)),
               rowCount: projectPresencePayloads.size
             };
           }
@@ -1326,7 +1388,7 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_validation_runs"/.test(normalizedSql)) {
             return {
               rows: Array.from(validationPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
+                .filter((payload) => values.includes(payload.projectId))
                 .map((payload) => validationSqlRow(payload)),
               rowCount: validationPayloads.size
             };
@@ -1334,8 +1396,8 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_expert_reviews"/.test(normalizedSql)) {
             return {
               rows: Array.from(expertReviewPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .filter((payload) => values.includes(payload.projectId))
+                .map((payload) => expertReviewSqlRow(payload)),
               rowCount: expertReviewPayloads.size
             };
           }
@@ -1350,17 +1412,17 @@ describe("SENA enterprise Neon Postgres readiness", () => {
           if (/SELECT \* FROM "public"\."sena_enterprise_project_comments"/.test(normalizedSql)) {
             return {
               rows: Array.from(projectCommentPayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .map((payload) => ({ payload })),
+                .filter((payload) => payload.teamId === values[0] && payload.projectId === values[1])
+                .map((payload) => projectCommentSqlRow(payload)),
               rowCount: projectCommentPayloads.size
             };
           }
           if (/SELECT \* FROM "public"\."sena_enterprise_project_presence"/.test(normalizedSql)) {
             return {
               rows: Array.from(projectPresencePayloads.values())
-                .filter((payload) => payload.projectId === values[0])
-                .filter((payload) => !values[1] || Date.parse(String(payload.expiresAt)) > Date.parse(String(values[1])))
-                .map((payload) => ({ payload })),
+                .filter((payload) => payload.teamId === values[0] && payload.projectId === values[1])
+                .filter((payload) => !values[2] || Date.parse(String(payload.expiresAt)) > Date.parse(String(values[2])))
+                .map((payload) => projectPresenceSqlRow(payload)),
               rowCount: projectPresencePayloads.size
             };
           }

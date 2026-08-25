@@ -43,6 +43,17 @@ function oversizedCodeIds(codeId: string) {
   });
 }
 
+function unreadableCarrierArray<T>(length: number): T[] {
+  return new Proxy(new Array(length) as T[], {
+    get(target, property, receiver) {
+      if (typeof property === "string" && /^(0|[1-9]\d*)$/.test(property)) {
+        throw new Error("oversized project-binding carrier was traversed");
+      }
+      return Reflect.get(target, property, receiver);
+    }
+  });
+}
+
 describe("Round24 skipped-cell direct-boundary admission", () => {
   it("accepts the exact cumulative skipped code-id limit", () => {
     const skippedCells: SenaSkippedCoderCell[] = [{
@@ -146,6 +157,43 @@ describe("Round24 skipped-cell direct-boundary admission", () => {
       valid = isValidSenaReliabilityProjectBinding(forged);
     }).not.toThrow();
     expect(valid).toBe(false);
+  });
+
+  it.each([
+    ["codebook universe", (binding: Record<string, unknown>) => {
+      binding.codebookUniverse = unreadableCarrierArray(SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits + 1);
+    }],
+    ["derived code ids", (binding: Record<string, unknown>) => {
+      binding.codebookIds = unreadableCarrierArray(SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits + 1);
+    }],
+    ["coder ids", (binding: Record<string, unknown>) => {
+      binding.coderIds = unreadableCarrierArray(64);
+    }],
+    ["code-by-item cartesian universe", (binding: Record<string, unknown>) => {
+      binding.codebookUniverse = unreadableCarrierArray(25_001);
+      binding.itemUniverse = unreadableCarrierArray(2);
+    }]
+  ] as const)("rejects an oversized persisted %s before traversing carrier entries", (_label, forge) => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    const snapshot = buildSenaProjectSnapshot(buildSenaModel(dataset), {
+      generatedAt: "2026-08-25T00:00:00.000Z",
+      sourceDataset: dataset
+    });
+    const itemId = dataset.utterances[0].id;
+    const codeId = dataset.codebook[0].id;
+    const { binding } = bindSenaReliabilityAnnotationsToProject([
+      { coderId: "coder-a", itemId, codeId, value: true },
+      { coderId: "coder-b", itemId, codeId, value: false }
+    ], {
+      projectId: "round25-carrier-preflight",
+      projectVersion: 1,
+      snapshot
+    });
+    const forged = structuredClone(binding) as unknown as Record<string, unknown>;
+    forge(forged);
+
+    expect(() => isValidSenaReliabilityProjectBinding(forged)).not.toThrow();
+    expect(isValidSenaReliabilityProjectBinding(forged)).toBe(false);
   });
 
   it("rejects oversized persisted dashboard evidence before reading code-id entries", () => {

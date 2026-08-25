@@ -2,6 +2,7 @@ import { SENA_API_EVIDENCE_NOTES } from "./api-evidence-notes";
 import {
   SENA_API_ENDPOINT_FACTS,
   SENA_API_GROUPS,
+  senaApiNormalResponsesFor,
   type SenaApiAuthMode,
   type SenaApiEndpointFact,
   type SenaApiMethod
@@ -57,6 +58,7 @@ export function buildSenaApiDocumentation(input: { baseUrl?: string } = {}) {
 }
 function securityFor(auth: SenaApiAuthMode) {
   if (auth === "public") return [];
+  if (auth === "job-worker-hmac") return [{ jobWorkerHmac: [] }];
   if (auth === "provisioning-bearer") return [{ provisioningBearer: [] }];
   if (auth === "scim-bearer") return [{ scimBearer: [] }];
   if (auth === "session-or-ops-bearer") return [{ sessionCookie: [] }, { opsBearer: [] }];
@@ -112,6 +114,21 @@ function queryParametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): O
     }));
 }
 
+function headerParametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenApiParameter[] {
+  return (endpoint.headerParameters ?? [])
+    .filter((parameter) => !parameter.methods || parameter.methods.includes(method))
+    .map((parameter) => ({
+      name: parameter.name,
+      in: "header" as const,
+      required: parameter.required ?? false,
+      schema: {
+        type: "string",
+        ...(parameter.allowedValues ? { enum: parameter.allowedValues } : {})
+      },
+      description: parameter.description
+    }));
+}
+
 function csrfParametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenApiParameter[] {
   if (!csrfRequiredForMethod(endpoint, method)) return [];
   return [{
@@ -133,6 +150,7 @@ function parametersFor(endpoint: SenaApiEndpoint, method: SenaApiMethod): OpenAp
   return [
     ...pathParametersFor(endpoint.path),
     ...queryParametersFor(endpoint, method),
+    ...headerParametersFor(endpoint, method),
     ...csrfParametersFor(endpoint, method)
   ];
 }
@@ -176,6 +194,36 @@ function openApiErrorResponses(endpoint: SenaApiEndpoint) {
   ]));
 }
 
+function openApiNormalResponseSchema(contentType: string) {
+  if (contentType === "application/json" || contentType.endsWith("+json")) {
+    return { type: "object" };
+  }
+  if (contentType.startsWith("text/") || contentType === "image/svg+xml") {
+    return { type: "string" };
+  }
+  return { type: "string", format: "binary" };
+}
+
+function openApiNormalResponses(endpoint: SenaApiEndpoint, method: SenaApiMethod) {
+  return Object.fromEntries(senaApiNormalResponsesFor(endpoint, method).map((response) => [
+    String(response.status),
+    {
+      description: response.description ?? endpoint.responses.join("; "),
+      ...(response.contentTypes.length > 0 ? {
+        content: Object.fromEntries(response.contentTypes.map((contentType) => [
+          contentType,
+          {
+            schema: {
+              ...openApiNormalResponseSchema(contentType),
+              description: endpoint.responses.join("; ")
+            }
+          }
+        ]))
+      } : {})
+    }
+  ]));
+}
+
 export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
   const paths: Record<string, Record<string, unknown>> = {};
   for (const endpoint of SENA_API_ENDPOINTS) {
@@ -191,24 +239,14 @@ export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
         ...(requestBodyDocumented(endpoint, method) ? {
           requestBody: {
             required: method !== "DELETE",
-            content: {
-              "application/json": { schema: { type: "object", description: endpoint.request } },
-              "multipart/form-data": { schema: { type: "object", description: endpoint.request } }
-            }
+            content: Object.fromEntries(
+              (endpoint.requestBodyContentTypesByMethod?.[method] ?? ["application/json"])
+                .map((contentType) => [contentType, { schema: { type: "object", description: endpoint.request } }])
+            )
           }
         } : {}),
         responses: {
-          "200": {
-            description: endpoint.responses.join("; "),
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  description: endpoint.responses.join("; ")
-                }
-              }
-            }
-          },
+          ...openApiNormalResponses(endpoint, method),
           ...openApiErrorResponses(endpoint)
         }
       };
@@ -236,6 +274,12 @@ export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
           type: "http",
           scheme: "bearer",
           description: "Set SENA_OPS_TOKEN for deployment monitors."
+        },
+        jobWorkerHmac: {
+          type: "apiKey",
+          in: "header",
+          name: "x-sena-webhook-signature",
+          description: "HMAC-SHA256 over '<x-sena-webhook-timestamp>.<exact request body>' using SENA_JOB_QUEUE_SECRET; the payload SHA-256, timestamp, and event headers are also required."
         },
         provisioningBearer: {
           type: "http",

@@ -7,7 +7,8 @@ import {
   createEnterprisePostgresProjectPresenceAdapterFromEnv,
   createEnterprisePostgresReliabilityRunAdapterFromEnv,
   createEnterprisePostgresValidationRunAdapterFromEnv,
-  resolveEnterprisePostgresConfig
+  resolveEnterprisePostgresConfig,
+  SenaEnterpriseStoredIntegrityError
 } from "../enterprise-postgres";
 import {
   requireEnterprisePermission,
@@ -729,6 +730,46 @@ function buildEnterpriseProjectCollaborationFromDb(
   }
 ) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
+  const projectRevisionCandidates = db.projectRevisions.filter((revision) => revision.projectId === projectId);
+  const commentCandidates = evidence.comments.filter((comment) => comment.projectId === projectId);
+  const presenceCandidates = evidence.presence.filter((presence) => presence.projectId === projectId);
+  const validationRunCandidates = evidence.validationRuns.filter((run) => run.projectId === projectId);
+  const expertReviewCandidates = evidence.expertReviews.filter((review) => review.projectId === projectId);
+  if (projectRevisionCandidates.some((revision) => revision.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project collaboration revisions failed team ownership validation.",
+      409,
+      "project_collaboration_revision_integrity_invalid"
+    );
+  }
+  if (validationRunCandidates.some((run) => run.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project collaboration validation evidence failed team ownership validation.",
+      409,
+      "project_collaboration_validation_integrity_invalid"
+    );
+  }
+  if (expertReviewCandidates.some((review) => review.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project collaboration expert-review evidence failed team ownership validation.",
+      409,
+      "project_collaboration_expert_review_integrity_invalid"
+    );
+  }
+  if (commentCandidates.some((comment) => comment.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project collaboration comments failed team ownership validation.",
+      409,
+      "project_collaboration_comment_integrity_invalid"
+    );
+  }
+  if (presenceCandidates.some((presence) => presence.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project collaboration presence failed team ownership validation.",
+      409,
+      "project_collaboration_presence_integrity_invalid"
+    );
+  }
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
   const adjudications = evidence.adjudications.filter((record) => record.projectId === projectId);
   const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(adjudications);
@@ -779,21 +820,19 @@ function buildEnterpriseProjectCollaborationFromDb(
       currentVersion: project.currentVersion,
       updatedAt: project.updatedAt
     },
-    revisions: db.projectRevisions
-      .filter((revision) => revision.projectId === projectId)
+    revisions: projectRevisionCandidates
       .sort((a, b) => b.version - a.version)
       .map(({ snapshot: _snapshot, ...revision }) => ({
         ...revision,
         user: userById.get(revision.userId) ?? null
       })),
-    comments: evidence.comments
-      .filter((comment) => comment.projectId === projectId)
+    comments: commentCandidates
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map((comment) => ({
         ...comment,
         user: userById.get(comment.userId) ?? null
       })),
-    presence: visiblePresenceRecords(evidence.presence, projectId).map((presence) => ({
+    presence: visiblePresenceRecords(presenceCandidates, projectId).map((presence) => ({
       ...presence,
       user: userById.get(presence.userId) ?? null
     })),
@@ -805,11 +844,9 @@ function buildEnterpriseProjectCollaborationFromDb(
       })),
     reliabilityRuns: reliabilityRuns
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    validationRuns: evidence.validationRuns
-      .filter((run) => run.projectId === projectId)
+    validationRuns: validationRunCandidates
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    expertReviews: evidence.expertReviews
-      .filter((review) => review.projectId === projectId)
+    expertReviews: expertReviewCandidates
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   };
 }
@@ -832,7 +869,7 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
   projectId: string,
   db: SenaEnterpriseDb
 ) {
-  requireProjectPermissionFromDb(db, context, projectId, "project:read");
+  const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
   const source = enterpriseProjectCollaborationRuntime();
   const pools: Array<{ end?: () => Promise<void> }> = [];
   try {
@@ -842,9 +879,9 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
         pools.push(pool);
         return adapter.listReliabilityRuns({
           projectId,
-          project: db.projects.find((candidate) => candidate.id === projectId),
+          project,
           projectRevisions: db.projectRevisions.filter((revision) => (
-            revision.projectId === projectId
+            revision.projectId === projectId && revision.teamId === project.teamId
           )),
           limit: 1000
         });
@@ -856,7 +893,14 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
         pools.push(pool);
         return adapter.listValidationRuns({
           projectId,
-          project: db.projects.find((candidate) => candidate.id === projectId),
+          project,
+          projectRevisions: db.projectRevisions.filter((revision) => (
+            revision.projectId === projectId && revision.teamId === project.teamId
+          )),
+          analysisRuns: db.analysisRuns.filter((run) => (
+            run.teamId === project.teamId &&
+            (run.projectId === projectId || run.persistedProjectId === projectId)
+          )),
           limit: 1000
         });
       })()
@@ -865,7 +909,7 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
       ? (() => {
         const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
         pools.push(pool);
-        return adapter.listExpertReviews({ projectId, limit: 1000 });
+        return adapter.listExpertReviews({ projectId, teamId: project.teamId, limit: 1000 });
       })()
       : Promise.resolve(db.expertReviews);
     const adjudicationsPromise = source.adjudications === "postgres-table"
@@ -879,24 +923,37 @@ async function listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(
       ? (() => {
         const { adapter, pool } = createEnterprisePostgresProjectCommentAdapterFromEnv({});
         pools.push(pool);
-        return adapter.listProjectComments({ projectId, limit: 1000 });
+        return adapter.listProjectComments({ projectId, teamId: project.teamId, limit: 1000 });
       })()
       : Promise.resolve(db.projectComments);
     const presencePromise = source.presence === "postgres-table"
       ? (() => {
         const { adapter, pool } = createEnterprisePostgresProjectPresenceAdapterFromEnv({});
         pools.push(pool);
-        return adapter.listProjectPresence({ projectId, activeOnly: true, limit: 500 });
+        return adapter.listProjectPresence({ projectId, teamId: project.teamId, activeOnly: true, limit: 500 });
       })()
       : Promise.resolve(db.projectPresence);
-    const [reliabilityRuns, validationRuns, expertReviews, adjudications, comments, presence] = await Promise.all([
-      reliabilityRunsPromise,
-      validationRunsPromise,
-      expertReviewsPromise,
-      adjudicationsPromise,
-      commentsPromise,
-      presencePromise
-    ]);
+    let evidenceRows;
+    try {
+      evidenceRows = await Promise.all([
+        reliabilityRunsPromise,
+        validationRunsPromise,
+        expertReviewsPromise,
+        adjudicationsPromise,
+        commentsPromise,
+        presencePromise
+      ] as const);
+    } catch (error) {
+      if (error instanceof SenaEnterpriseStoredIntegrityError) {
+        throw new SenaEnterpriseError(
+          "Stored project collaboration evidence failed indexed integrity validation.",
+          409,
+          "project_collaboration_evidence_invalid"
+        );
+      }
+      throw error;
+    }
+    const [reliabilityRuns, validationRuns, expertReviews, adjudications, comments, presence] = evidenceRows;
     return buildEnterpriseProjectCollaborationFromDb(context, db, projectId, {
       comments,
       presence,
@@ -926,9 +983,17 @@ export async function listEnterpriseProjectCollaborationWithPostgresEvidenceAsyn
   return listEnterpriseProjectCollaborationWithPostgresEvidenceFromDb(context, projectId, state.db);
 }
 
-function projectPresenceResponseFromDb(db: SenaEnterpriseDb, projectId: string) {
+function projectPresenceResponseFromDb(db: SenaEnterpriseDb, projectId: string, teamId: string) {
+  const candidates = db.projectPresence.filter((presence) => presence.projectId === projectId);
+  if (candidates.some((presence) => presence.teamId !== teamId)) {
+    throw new SenaEnterpriseError(
+      "Project presence failed team ownership validation.",
+      409,
+      "project_presence_integrity_invalid"
+    );
+  }
   const userById = new Map(db.users.map((user) => [user.id, publicUser(user)]));
-  return visiblePresenceRecords(db.projectPresence, projectId).map((presence) => ({
+  return visiblePresenceRecords(candidates, projectId).map((presence) => ({
     ...presence,
     user: userById.get(presence.userId) ?? null
   }));
@@ -939,9 +1004,17 @@ function touchEnterpriseProjectPresenceInDb(context: SenaEnterpriseSessionContex
   cursorLabel?: string;
 }, db: SenaEnterpriseDb) {
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:read");
+  const projectPresenceCandidates = db.projectPresence.filter((presence) => presence.projectId === projectId);
+  if (projectPresenceCandidates.some((presence) => presence.teamId !== project.teamId)) {
+    throw new SenaEnterpriseError(
+      "Project presence failed team ownership validation.",
+      409,
+      "project_presence_integrity_invalid"
+    );
+  }
   const timestamp = now();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000).toISOString();
-  const existing = db.projectPresence.find((presence) => presence.projectId === projectId && presence.userId === context.user.id);
+  const existing = projectPresenceCandidates.find((presence) => presence.userId === context.user.id);
   if (existing) {
     existing.activeView = input.activeView?.trim() || existing.activeView;
     existing.cursorLabel = input.cursorLabel?.trim() || existing.cursorLabel;
@@ -970,7 +1043,7 @@ function touchEnterpriseProjectPresenceInDb(context: SenaEnterpriseSessionContex
       cursorLabel: input.cursorLabel?.trim() || "SENA workspace"
     }
   });
-  return projectPresenceResponseFromDb(db, projectId);
+  return projectPresenceResponseFromDb(db, projectId, project.teamId);
 }
 
 export function touchEnterpriseProjectPresence(context: SenaEnterpriseSessionContext, projectId: string, input: {
@@ -1093,6 +1166,13 @@ function resolveEnterpriseProjectCommentInDb(
   const project = requireProjectPermissionFromDb(db, context, projectId, "project:comment");
   const comment = db.projectComments.find((candidate) => candidate.id === commentId && candidate.projectId === projectId);
   if (!comment) throw new SenaEnterpriseError("Comment was not found.", 404, "comment_not_found");
+  if (comment.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Project comment failed team ownership validation.",
+      409,
+      "project_comment_integrity_invalid"
+    );
+  }
   comment.status = "resolved";
   comment.updatedAt = now();
   appendAudit(db, { event: "project.comment.resolve", userId: context.user.id, teamId: project.teamId, projectId, detail: { commentId } });

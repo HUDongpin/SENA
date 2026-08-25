@@ -48,6 +48,7 @@ import {
 import {
   getEnterpriseServerJobWorkerContract
 } from "./server-job-worker-contract";
+import { enterpriseExpertReviewReceiptRuntime } from "./expert-review-receipt";
 import {
   deploymentEnv,
   deploymentWebhookEnv,
@@ -227,6 +228,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
   const governanceCheckById = new Map(governance.checks.map((check) => [check.id, check]));
   const mfaKeyConfigured = Boolean(envValue("SENA_MFA_ENCRYPTION_KEY") || envValue("SENA_SESSION_SECRET"));
   const fullSaasBackendApproved = envValue("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED") === "1";
+  const expertReviewReceiptRuntime = enterpriseExpertReviewReceiptRuntime();
   const identityEvidenceHostAllowlist = identityEvidenceAllowedHostConfig();
   const identityEvidenceHostAllowlistConfigured = identityEvidenceHostAllowlist.configured &&
     identityEvidenceHostAllowlist.hosts.length > 0 &&
@@ -292,6 +294,31 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       configured: mfaKeyConfigured,
       secret: true,
       purpose: "Production auth/MFA secret material"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+      category: "auth",
+      required: fullSaasBackendApproved,
+      configured: expertReviewReceiptRuntime.ready,
+      secret: true,
+      purpose: "Dedicated 32+ character HMAC trust root for exact validation-target expert-review receipts"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_SIGNING_KEY_ID",
+      category: "auth",
+      required: fullSaasBackendApproved,
+      configured: expertReviewReceiptRuntime.ready,
+      secret: false,
+      value: envValue("SENA_EXPERT_REVIEW_SIGNING_KEY_ID"),
+      purpose: "Required opaque active expert-review signing key id; every secret rotation must use a new id"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_VERIFICATION_KEYS_JSON",
+      category: "auth",
+      required: false,
+      configured: expertReviewReceiptRuntime.historicalKeyCount > 0,
+      secret: true,
+      purpose: "Optional redacted historical expert-review verification keyring; active key-id collisions fail closed"
     }),
     deploymentEnv({
       name: "SENA_OPS_TOKEN",

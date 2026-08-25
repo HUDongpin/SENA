@@ -7,6 +7,7 @@ import {
   SenaProjectSnapshotResourceLimitError,
   type SenaProjectSnapshotAdmissionLimits
 } from "./snapshot";
+import { SenaReliabilityUniverseLimitError } from "./reliability";
 import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
@@ -391,7 +392,8 @@ export function buildSenaSnapshotRestoreResult(
     }
     resolvedSourcePayloadSha256 = sourcePayloadSha256 ?? sha256(jsonText(source));
   } catch (error) {
-    if (error instanceof SenaProjectSnapshotResourceLimitError) {
+    if (error instanceof SenaProjectSnapshotResourceLimitError ||
+      error instanceof SenaReliabilityUniverseLimitError) {
       throw new SenaSnapshotRestoreRequestError(
         "Snapshot restore source exceeds the supported canonical complexity limit.",
         413,

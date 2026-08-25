@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { senaJsonValuesEqual } from "../canonical-json";
 import {
   readEnterpriseDb,
   readEnterpriseState,
@@ -19,6 +18,7 @@ import type {
 } from "./team-project";
 import {
   buildEnterpriseProjectEvidenceBinding,
+  enterpriseProjectBindingSnapshotSha256,
   getEnterpriseProject,
   getEnterpriseProjectAsync
 } from "./team-project";
@@ -33,7 +33,9 @@ import {
 import {
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,
+  isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult,
+  SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,
@@ -41,10 +43,22 @@ import {
 } from "../inference";
 import { importSenaJsonContract } from "../import";
 import { validateSenaAnalyticalInputs } from "../analytical-input-validation";
-import { senaRuntimeProvenance } from "../runtime-constants";
 import { importSenaProjectSnapshot } from "../snapshot";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaBuildOptions, SenaDataset, SenaRuntimeProvenance } from "../types";
+import {
+  buildEnterpriseValidationParityEvidence,
+  buildEnterpriseValidationPreregistrationPlan,
+  normalizeEnterpriseValidationRunEvidence,
+  sealEnterpriseValidationRunEvidence
+} from "./validation-integrity";
+
+export {
+  enterpriseValidationParityEvidenceHash,
+  enterpriseValidationPreregistrationPlanHash,
+  isEnterpriseValidationParityEvidenceHashValid,
+  isEnterpriseValidationPreregistrationPlanHashValid
+} from "./validation-integrity";
 
 export type SenaEnterpriseValidationRunStatus = "pending-review" | "approved" | "rejected";
 
@@ -181,6 +195,9 @@ export type SenaEnterpriseValidationRun = {
   minHolmAdjustedP?: number;
   significantHolmCount?: number;
   observedDifference: number;
+  /** Historical reviewed runs may not carry the v1 seal and remain exploratory. */
+  validationRunEvidenceSchemaVersion?: typeof SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence;
+  validationRunEvidenceHash?: string;
   preregistrationPlan?: SenaEnterpriseValidationPreregistrationPlan;
   parityEvidence?: SenaEnterpriseValidationParityEvidence;
   result: SenaGroupComparisonValidationResult;
@@ -237,166 +254,8 @@ async function upsertValidationRunsToPostgresIfConfigured(runs: SenaEnterpriseVa
   }
 }
 
-function sha256Text(value: string | undefined) {
-  return value ? createHash("sha256").update(value).digest("hex") : undefined;
-}
-
 function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function validationComparisonHashBody(
-  comparison: SenaEnterpriseValidationPreregistrationPlan["primary"]
-) {
-  return {
-    metric: comparison.metric,
-    groupField: comparison.groupField,
-    groupA: comparison.groupA,
-    groupB: comparison.groupB
-  };
-}
-
-function validationParametersHashBody(
-  parameters: SenaEnterpriseValidationPreregistrationPlan["parameters"]
-) {
-  return {
-    permutationIterations: parameters.permutationIterations,
-    bootstrapIterations: parameters.bootstrapIterations,
-    seed: parameters.seed,
-    ...(parameters.alpha === undefined ? {} : { alpha: parameters.alpha }),
-    ...(parameters.correction === undefined ? {} : { correction: parameters.correction })
-  };
-}
-
-function validationPreregistrationPlanHashBody(
-  plan: Omit<SenaEnterpriseValidationPreregistrationPlan, "planHash">
-) {
-  return {
-    schemaVersion: plan.schemaVersion,
-    hashAlgorithm: plan.hashAlgorithm,
-    analysis: plan.analysis,
-    primary: validationComparisonHashBody(plan.primary),
-    comparisons: plan.comparisons.map(validationComparisonHashBody),
-    parameters: validationParametersHashBody(plan.parameters),
-    protocolNoteHash: plan.protocolNoteHash,
-    methodNoteHash: plan.methodNoteHash,
-    guardrail: plan.guardrail,
-    evidence: plan.evidence
-  };
-}
-
-export function enterpriseValidationPreregistrationPlanHash(
-  plan: Omit<SenaEnterpriseValidationPreregistrationPlan, "planHash">
-) {
-  return artifactSha256(validationPreregistrationPlanHashBody(plan));
-}
-
-function validationFormalInferenceHashBody(
-  formal: SenaEnterpriseFormalInferenceReadiness
-) {
-  return {
-    schemaVersion: formal.schemaVersion,
-    status: formal.status,
-    resultSchemaVersion: formal.resultSchemaVersion,
-    analysis: formal.analysis,
-    preregistrationPlanHash: formal.preregistrationPlanHash,
-    studySpecificInferenceReference: formal.studySpecificInferenceReference,
-    comparisonCount: formal.comparisonCount,
-    minGroupSize: formal.minGroupSize,
-    smallSampleComparisons: formal.smallSampleComparisons,
-    permutationIterations: formal.permutationIterations,
-    bootstrapIterations: formal.bootstrapIterations,
-    alpha: formal.alpha,
-    correction: formal.correction,
-    checks: formal.checks.map((check) => ({
-      id: check.id,
-      label: check.label,
-      status: check.status,
-      evidence: check.evidence
-    })),
-    blockers: formal.blockers,
-    warnings: formal.warnings,
-    guardrail: formal.guardrail
-  };
-}
-
-function validationParityEvidenceHashBody(
-  parity: Omit<SenaEnterpriseValidationParityEvidence, "status" | "validationRunHash">
-) {
-  return {
-    schemaVersion: parity.schemaVersion,
-    hashAlgorithm: parity.hashAlgorithm,
-    analysis: parity.analysis,
-    preregistrationPlanHash: parity.preregistrationPlanHash,
-    runtimeParity: parity.runtimeParity.map((entry) => ({
-      id: entry.id,
-      referenceRuntime: entry.referenceRuntime,
-      fixturePath: entry.fixturePath,
-      status: entry.status,
-      coverage: entry.coverage,
-      sampleHash: entry.sampleHash,
-      interpretation: entry.interpretation
-    })),
-    walkthrough: {
-      datasetLabel: parity.walkthrough.datasetLabel,
-      datasetHash: parity.walkthrough.datasetHash,
-      source: parity.walkthrough.source,
-      sourceId: parity.walkthrough.sourceId,
-      status: parity.walkthrough.status
-    },
-    inference: {
-      resultSchemaVersion: parity.inference.resultSchemaVersion,
-      guardrail: parity.inference.guardrail,
-      comparisonCount: parity.inference.comparisonCount,
-      permutationIterations: parity.inference.permutationIterations,
-      bootstrapIterations: parity.inference.bootstrapIterations,
-      alpha: parity.inference.alpha,
-      correction: parity.inference.correction,
-      studySpecificInferenceReference: parity.inference.studySpecificInferenceReference
-    },
-    formalInference: validationFormalInferenceHashBody(parity.formalInference),
-    gates: parity.gates.map((gate) => ({
-      id: gate.id,
-      label: gate.label,
-      status: gate.status,
-      evidence: gate.evidence
-    })),
-    notes: parity.notes
-  };
-}
-
-export function enterpriseValidationParityEvidenceHash(
-  parity: Omit<SenaEnterpriseValidationParityEvidence, "status" | "validationRunHash">
-) {
-  return artifactSha256(validationParityEvidenceHashBody(parity));
-}
-
-export function isEnterpriseValidationPreregistrationPlanHashValid(
-  plan: SenaEnterpriseValidationPreregistrationPlan | undefined
-) {
-  if (!plan || !/^[a-f0-9]{64}$/.test(plan.planHash)) return false;
-  try {
-    const { planHash, ...storedBody } = plan;
-    const expectedBody = validationPreregistrationPlanHashBody(plan);
-    return senaJsonValuesEqual(storedBody, expectedBody) &&
-      planHash === artifactSha256(expectedBody);
-  } catch {
-    return false;
-  }
-}
-
-export function isEnterpriseValidationParityEvidenceHashValid(
-  parity: SenaEnterpriseValidationParityEvidence | undefined
-) {
-  if (!parity || !/^[a-f0-9]{64}$/.test(parity.validationRunHash)) return false;
-  try {
-    const { status: _status, validationRunHash, ...storedBody } = parity;
-    const expectedBody = validationParityEvidenceHashBody(parity);
-    return senaJsonValuesEqual(storedBody, expectedBody) &&
-      validationRunHash === artifactSha256(expectedBody);
-  } catch {
-    return false;
-  }
 }
 
 function latestByTimestamp<T extends { createdAt: string; updatedAt?: string }>(records: T[]) {
@@ -422,94 +281,43 @@ function validationRunSummary(result: SenaGroupComparisonValidationResult) {
   };
 }
 
-function comparisonPlanRow(result: SenaGroupComparisonResult) {
-  return {
-    metric: result.metric,
-    groupField: result.groupField,
-    groupA: result.groupA,
-    groupB: result.groupB
-  };
-}
-
-function buildValidationPreregistrationPlan(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationNote?: string;
-  methodNote?: string;
-}): SenaEnterpriseValidationPreregistrationPlan {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const protocolNote = input.preregistrationNote?.trim() ?? "";
-  const methodNote = input.methodNote?.trim() ?? "";
-  const analysis: SenaEnterpriseValidationPreregistrationPlan["analysis"] = suite ? "holm-suite" : "single-comparison";
-  const comparisons = suite
-    ? suite.comparisons.map(comparisonPlanRow)
-    : [comparisonPlanRow(primary)];
-  const parameters: SenaEnterpriseValidationPreregistrationPlan["parameters"] = {
-    permutationIterations: primary.permutation.iterations,
-    bootstrapIterations: primary.bootstrap.iterations,
-    seed: primary.permutation.seed,
-    ...(suite ? { alpha: suite.alpha, correction: suite.correction } : {})
-  };
-  const evidence = [
-    `protocolNote=${protocolNote ? "present" : "missing"}`,
-    `methodNote=${methodNote ? "present" : "missing"}`,
-    `analysis=${analysis}`,
-    `comparisons=${comparisons.length}`,
-    ...(suite ? [`correction=${suite.correction}`] : []),
-    `permutationIterations=${parameters.permutationIterations}`,
-    `bootstrapIterations=${parameters.bootstrapIterations}`,
-    `seed=${parameters.seed}`
-  ];
-  const planBody = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.validationPreregistrationPlan,
-    hashAlgorithm: "sha256" as const,
-    analysis,
-    primary: comparisonPlanRow(primary),
-    comparisons,
-    parameters,
-    protocolNoteHash: sha256Text(protocolNote),
-    methodNoteHash: sha256Text(methodNote),
-    guardrail: input.result.guardrail,
-    evidence
-  };
-  return {
-    ...planBody,
-    planHash: enterpriseValidationPreregistrationPlanHash(planBody)
-  };
-}
-
 function deriveValidationParityEvidenceFromProject(
   db: ReturnType<typeof readEnterpriseDb>,
   project: SenaEnterpriseProject | undefined
 ): SenaEnterpriseValidationParityEvidenceInput | undefined {
   if (!project) return undefined;
+  const projectSnapshotBindingSha256 = enterpriseProjectBindingSnapshotSha256(project.snapshot);
   const linkedAnalysisRuns = db.analysisRuns.filter((run) => (
-    run.projectId === project.id || run.persistedProjectId === project.id
+    run.teamId === project.teamId &&
+    (run.projectId === project.id || run.persistedProjectId === project.id) &&
+    run.artifactFingerprints.projectSnapshotBindingSha256 === projectSnapshotBindingSha256
   ));
   const analysisRun = latestByTimestamp(linkedAnalysisRuns);
   if (analysisRun) {
     return {
       walkthroughDatasetLabel: `analysis:${analysisRun.title}`,
-      walkthroughDatasetHash: analysisRun.artifactFingerprints.projectSnapshotSha256,
+      walkthroughDatasetHash: projectSnapshotBindingSha256,
       walkthroughSource: "analysis-run",
       walkthroughSourceId: analysisRun.id,
       notes: [
         `walkthroughSource=analysis-run:${analysisRun.id}`,
         `analysisSourceKind=${analysisRun.sourceKind}`,
         `reportSha256=${analysisRun.artifactFingerprints.reportSha256}`,
-        `projectSnapshotSha256=${analysisRun.artifactFingerprints.projectSnapshotSha256}`,
+        `analysisProjectSnapshotArtifactSha256=${analysisRun.artifactFingerprints.projectSnapshotSha256}`,
+        `analysisProjectSnapshotBindingSha256=${analysisRun.artifactFingerprints.projectSnapshotBindingSha256 ?? "legacy-missing"}`,
+        `projectBindingSnapshotSha256=${projectSnapshotBindingSha256}`,
         ...(analysisRun.artifactFingerprints.runtimeBundleSha256 ? [`runtimeBundleSha256=${analysisRun.artifactFingerprints.runtimeBundleSha256}`] : [])
       ]
     };
   }
   return {
     walkthroughDatasetLabel: `project:${project.title}`,
-    walkthroughDatasetHash: artifactSha256(project.snapshot),
+    walkthroughDatasetHash: projectSnapshotBindingSha256,
     walkthroughSource: "project-snapshot",
     walkthroughSourceId: project.id,
     notes: [
       `walkthroughSource=project-snapshot:${project.id}`,
-      `projectSnapshotSha256=${artifactSha256(project.snapshot)}`
+      `projectBindingSnapshotSha256=${projectSnapshotBindingSha256}`
     ]
   };
 }
@@ -520,10 +328,10 @@ function mergeValidationParityEvidenceInput(
 ): SenaEnterpriseValidationParityEvidenceInput | undefined {
   if (!automaticEvidence && !manualEvidence) return undefined;
   return {
-    walkthroughDatasetLabel: manualEvidence?.walkthroughDatasetLabel ?? automaticEvidence?.walkthroughDatasetLabel,
-    walkthroughDatasetHash: manualEvidence?.walkthroughDatasetHash ?? automaticEvidence?.walkthroughDatasetHash,
-    walkthroughSource: manualEvidence?.walkthroughSource ?? automaticEvidence?.walkthroughSource,
-    walkthroughSourceId: manualEvidence?.walkthroughSourceId ?? automaticEvidence?.walkthroughSourceId,
+    walkthroughDatasetLabel: automaticEvidence?.walkthroughDatasetLabel ?? manualEvidence?.walkthroughDatasetLabel,
+    walkthroughDatasetHash: automaticEvidence?.walkthroughDatasetHash ?? manualEvidence?.walkthroughDatasetHash,
+    walkthroughSource: automaticEvidence?.walkthroughSource ?? manualEvidence?.walkthroughSource,
+    walkthroughSourceId: automaticEvidence?.walkthroughSourceId ?? manualEvidence?.walkthroughSourceId,
     expertReviewRequired: manualEvidence?.expertReviewRequired ?? automaticEvidence?.expertReviewRequired,
     studySpecificInferenceReference: manualEvidence?.studySpecificInferenceReference ?? automaticEvidence?.studySpecificInferenceReference,
     runtimeParityIds: manualEvidence?.runtimeParityIds ?? automaticEvidence?.runtimeParityIds,
@@ -531,230 +339,6 @@ function mergeValidationParityEvidenceInput(
       ...(automaticEvidence?.notes ?? []),
       ...(manualEvidence?.notes ?? [])
     ]
-  };
-}
-
-function buildFormalInferenceReadiness(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationPlan: SenaEnterpriseValidationPreregistrationPlan;
-  inference: SenaEnterpriseValidationParityEvidence["inference"];
-  gates: SenaEnterpriseValidationParityEvidence["gates"];
-}): SenaEnterpriseFormalInferenceReadiness {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const minGroupSize = suite?.diagnostics.minGroupSize ?? primary.diagnostics.minGroupSize;
-  const smallSampleComparisons = suite?.diagnostics.smallSampleComparisons ?? (primary.diagnostics.smallSample ? 1 : 0);
-  const runtimeParityPassed = input.gates
-    .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity")
-    .every((gate) => gate.status === "passed");
-  const walkthroughPassed = input.gates.some((gate) => gate.id === "real-data-walkthrough" && gate.status === "passed");
-  const studySpecificInferenceReference = input.inference.studySpecificInferenceReference?.trim();
-  const checks: SenaEnterpriseFormalInferenceReadiness["checks"] = [
-    {
-      id: "preregistration-plan",
-      label: "Preregistration plan hash",
-      status: input.preregistrationPlan.planHash ? "passed" : "required",
-      evidence: [
-        `schema=${input.preregistrationPlan.schemaVersion}`,
-        `planHash=${input.preregistrationPlan.planHash || "missing"}`,
-        `analysis=${input.preregistrationPlan.analysis}`
-      ]
-    },
-    {
-      id: "study-specific-model",
-      label: "Study-specific inferential model reference",
-      status: studySpecificInferenceReference ? "passed" : "required",
-      evidence: [`reference=${studySpecificInferenceReference || "required-before-publication-claim"}`]
-    },
-    {
-      id: "runtime-parity",
-      label: "rENA and R sna parity fixtures",
-      status: runtimeParityPassed ? "passed" : "required",
-      evidence: input.gates
-        .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity")
-        .map((gate) => `${gate.id}:${gate.status}`)
-    },
-    {
-      id: "real-data-walkthrough",
-      label: "Real-data walkthrough anchor",
-      status: walkthroughPassed ? "passed" : "required",
-      evidence: input.gates.find((gate) => gate.id === "real-data-walkthrough")?.evidence ?? ["walkthrough=missing"]
-    },
-    {
-      id: "multiplicity-control",
-      label: "Multiple-comparison control",
-      status: suite ? suite.correction === "holm" ? "passed" : "required" : "passed",
-      evidence: suite
-        ? [`correction=${suite.correction}`, `comparisons=${suite.comparisonCount}`, `alpha=${suite.alpha}`]
-        : ["singleComparison=true"]
-    },
-    {
-      id: "sample-size",
-      label: "Group-size diagnostic",
-      status: smallSampleComparisons > 0 || minGroupSize < 5 ? "review" : "passed",
-      evidence: [`minGroupSize=${minGroupSize}`, `smallSampleComparisons=${smallSampleComparisons}`]
-    }
-  ];
-  const blockers = checks
-    .filter((check) => check.status === "required")
-    .map((check) => check.id);
-  const warnings = [
-    ...(smallSampleComparisons > 0 ? [`small-sample-comparisons=${smallSampleComparisons}`] : []),
-    ...(minGroupSize < 5 ? [`minGroupSize=${minGroupSize}`] : [])
-  ];
-  const status: SenaEnterpriseFormalInferenceReadiness["status"] = !runtimeParityPassed || !walkthroughPassed || !input.preregistrationPlan.planHash
-    ? "incomplete"
-    : studySpecificInferenceReference
-      ? "model-referenced"
-      : "model-required";
-
-  return {
-    schemaVersion: SENA_SCHEMA_VERSIONS.formalInferenceReadiness,
-    status,
-    resultSchemaVersion: input.result.schemaVersion,
-    analysis: input.preregistrationPlan.analysis,
-    preregistrationPlanHash: input.preregistrationPlan.planHash,
-    studySpecificInferenceReference: studySpecificInferenceReference || undefined,
-    comparisonCount: suite?.comparisonCount ?? 1,
-    minGroupSize,
-    smallSampleComparisons,
-    permutationIterations: input.inference.permutationIterations,
-    bootstrapIterations: input.inference.bootstrapIterations,
-    alpha: input.inference.alpha,
-    correction: input.inference.correction,
-    checks,
-    blockers,
-    warnings,
-    guardrail: "Formal inference readiness records whether SENA validation has preregistration, runtime parity, real-data walkthrough, multiplicity control, and a study-specific model reference; it does not replace the model or domain review."
-  };
-}
-
-function buildValidationParityEvidence(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationPlan: SenaEnterpriseValidationPreregistrationPlan;
-  parityEvidence?: SenaEnterpriseValidationParityEvidenceInput;
-}): SenaEnterpriseValidationParityEvidence {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const requestedRuntimeIds = new Set(input.parityEvidence?.runtimeParityIds?.map((runtimeId) => runtimeId.trim()).filter(Boolean));
-  const runtimeEvidence = senaRuntimeProvenance.parityEvidence
-    .filter((evidence) => requestedRuntimeIds.size === 0 || requestedRuntimeIds.has(evidence.id))
-    .map((evidence) => ({
-      id: evidence.id,
-      referenceRuntime: evidence.referenceRuntime,
-      fixturePath: evidence.fixturePath,
-      status: evidence.status,
-      coverage: evidence.coverage,
-      sampleHash: artifactSha256(evidence.sample),
-      interpretation: evidence.interpretation
-    }));
-  const jenaParity = runtimeEvidence.find((evidence) => evidence.id === "jena-rena-sample-parity");
-  const jsnaParity = runtimeEvidence.find((evidence) => evidence.id === "jsna-r-sna-social-parity");
-  const walkthroughLabel = input.parityEvidence?.walkthroughDatasetLabel?.trim() || "missing walkthrough dataset";
-  const walkthroughHash = input.parityEvidence?.walkthroughDatasetHash?.trim();
-  const walkthroughStatus: SenaEnterpriseValidationParityEvidence["walkthrough"]["status"] = walkthroughHash ? "attached" : "missing";
-  const walkthroughSource: SenaEnterpriseValidationParityEvidence["walkthrough"]["source"] = walkthroughHash
-    ? input.parityEvidence?.walkthroughSource ?? "input"
-    : "missing";
-  const walkthroughSourceId = input.parityEvidence?.walkthroughSourceId?.trim();
-  const expertReviewRequired = input.parityEvidence?.expertReviewRequired ?? true;
-  const studySpecificInferenceReference = input.parityEvidence?.studySpecificInferenceReference?.trim();
-  const inference: SenaEnterpriseValidationParityEvidence["inference"] = {
-    resultSchemaVersion: input.result.schemaVersion,
-    guardrail: input.result.guardrail,
-    comparisonCount: suite?.comparisonCount ?? 1,
-    permutationIterations: primary.permutation.iterations,
-    bootstrapIterations: primary.bootstrap.iterations,
-    alpha: suite?.alpha,
-    correction: suite?.correction,
-    studySpecificInferenceReference
-  };
-  const gates: SenaEnterpriseValidationParityEvidence["gates"] = [
-    {
-      id: "rena-parity",
-      label: "jENA/rENA parity fixture evidence",
-      status: jenaParity?.status === "covered" ? "passed" : "missing",
-      evidence: jenaParity ? [
-        `runtime=${jenaParity.referenceRuntime}`,
-        `fixture=${jenaParity.fixturePath}`,
-        `coverage=${jenaParity.coverage.join("|")}`,
-        `sampleHash=${jenaParity.sampleHash}`
-      ] : ["runtimeParity=missing"]
-    },
-    {
-      id: "r-sna-parity",
-      label: "jSNA/R sna parity fixture evidence",
-      status: jsnaParity?.status === "covered" ? "passed" : "missing",
-      evidence: jsnaParity ? [
-        `runtime=${jsnaParity.referenceRuntime}`,
-        `fixture=${jsnaParity.fixturePath}`,
-        `coverage=${jsnaParity.coverage.join("|")}`,
-        `sampleHash=${jsnaParity.sampleHash}`
-      ] : ["runtimeParity=missing"]
-    },
-    {
-      id: "real-data-walkthrough",
-      label: "Real dataset walkthrough evidence",
-      status: walkthroughStatus === "attached" ? "passed" : "missing",
-      evidence: [
-        `datasetLabel=${walkthroughLabel}`,
-        `datasetHash=${walkthroughHash ?? "missing"}`,
-        `source=${walkthroughSource}`,
-        ...(walkthroughSourceId ? [`sourceId=${walkthroughSourceId}`] : [])
-      ]
-    },
-    {
-      id: "domain-expert-review",
-      label: "Domain expert review requirement",
-      status: expertReviewRequired ? "required" : "attached",
-      evidence: [`required=${expertReviewRequired}`]
-    },
-    {
-      id: "study-specific-inference",
-      label: "Study-specific inferential model requirement",
-      status: studySpecificInferenceReference ? "attached" : "required",
-      evidence: [
-        `reference=${studySpecificInferenceReference || "required-before-publication-claim"}`,
-        `guardrail=${input.result.guardrail}`
-      ]
-    }
-  ];
-  const passedFoundation = gates
-    .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity" || gate.id === "real-data-walkthrough")
-    .every((gate) => gate.status === "passed");
-  const formalInference = buildFormalInferenceReadiness({
-    result: input.result,
-    preregistrationPlan: input.preregistrationPlan,
-    inference,
-    gates
-  });
-  const notes = [
-    "This manifest links an enterprise validation run to runtime parity, walkthrough, expert-review, and inference guardrail evidence.",
-    "Required expert-review and study-specific inference gates are claim-readiness requirements, not automatic blockers for storing descriptive validation output.",
-    ...(input.parityEvidence?.notes?.map((note) => note.trim()).filter(Boolean) ?? [])
-  ];
-  const manifestBody = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.validationParityEvidence,
-    hashAlgorithm: "sha256" as const,
-    analysis: input.preregistrationPlan.analysis,
-    preregistrationPlanHash: input.preregistrationPlan.planHash,
-    runtimeParity: runtimeEvidence,
-    walkthrough: {
-      datasetLabel: walkthroughLabel,
-      datasetHash: walkthroughHash,
-      source: walkthroughSource,
-      sourceId: walkthroughSourceId,
-      status: walkthroughStatus
-    },
-    inference,
-    formalInference,
-    gates,
-    notes
-  };
-  return {
-    ...manifestBody,
-    status: passedFoundation ? "ready-for-review" : "incomplete",
-    validationRunHash: enterpriseValidationParityEvidenceHash(manifestBody)
   };
 }
 
@@ -772,10 +356,18 @@ function createEnterpriseValidationRunInDb(
   input: CreateEnterpriseValidationRunInput,
   db: ReturnType<typeof readEnterpriseDb>
 ) {
+  const sourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
   input = {
     ...input,
     result: normalizeSenaGroupComparisonValidationResult(input.result)
   };
+  if (!isCurrentSenaGroupComparisonValidationResult(input.result)) {
+    throw new SenaEnterpriseError(
+      "New enterprise validation runs require current-v2 source-bound group-comparison evidence.",
+      400,
+      "validation_current_result_required"
+    );
+  }
   requireEnterprisePermission(context, input.teamId, "analysis:run");
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
@@ -794,32 +386,34 @@ function createEnterpriseValidationRunInDb(
       result: normalizeSenaGroupComparisonValidationResult(input.result, {
         dataset: project.snapshot.dataset,
         buildOptions: project.snapshot.reproducibility.buildOptions
-      })
+      }, sourceVerificationCache)
     };
   }
   const summary = validationRunSummary(input.result);
   const primary = summary.primary;
-  const preregistrationPlan = buildValidationPreregistrationPlan({
+  const preregistrationNote = input.preregistrationNote?.trim() ?? "";
+  const methodNote = input.methodNote?.trim() || input.result.guardrail;
+  const preregistrationPlan = buildEnterpriseValidationPreregistrationPlan({
     result: input.result,
-    preregistrationNote: input.preregistrationNote,
-    methodNote: input.methodNote
+    preregistrationNote,
+    methodNote
   });
   const derivedParityEvidence = deriveValidationParityEvidenceFromProject(db, project);
-  const parityEvidence = buildValidationParityEvidence({
+  const parityEvidence = buildEnterpriseValidationParityEvidence({
     result: input.result,
     preregistrationPlan,
     parityEvidence: mergeValidationParityEvidenceInput(derivedParityEvidence, input.parityEvidence)
   });
 
-  const run: SenaEnterpriseValidationRun = {
+  const unsealedRun: SenaEnterpriseValidationRun = {
     id: id("val"),
     teamId: input.teamId,
     projectId: input.projectId,
     projectBinding: project ? buildEnterpriseProjectEvidenceBinding(project) : undefined,
     userId: context.user.id,
     status: "pending-review",
-    preregistrationNote: input.preregistrationNote?.trim() ?? "",
-    methodNote: input.methodNote?.trim() || input.result.guardrail,
+    preregistrationNote,
+    methodNote,
     metric: primary.metric,
     groupField: primary.groupField,
     groupA: primary.groupA,
@@ -836,6 +430,10 @@ function createEnterpriseValidationRunInDb(
     result: input.result,
     createdAt: now()
   };
+  const run = sealEnterpriseValidationRunEvidence(unsealedRun, project, {
+    analysisRuns: db.analysisRuns,
+    sourceVerificationCache
+  });
   db.validationRuns.unshift(run);
   db.validationRuns = db.validationRuns.slice(0, 1000);
   appendAudit(db, {
@@ -904,10 +502,28 @@ function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext
   const run = db.validationRuns.find((candidate) => candidate.id === runId);
   if (!run) throw new SenaEnterpriseError("Validation run was not found.", 404, "validation_run_not_found");
   requireEnterprisePermission(context, run.teamId, "analysis:run");
-  run.status = input.status;
-  run.reviewerId = context.user.id;
-  run.reviewedAt = now();
-  run.reviewNotes = input.notes?.trim() ?? "";
+  const project = run.projectId
+    ? db.projects.find((candidate) => candidate.id === run.projectId)
+    : undefined;
+  const sourceVerificationCache = new SenaGroupComparisonSourceVerificationCache();
+  const verifiedRun = normalizeEnterpriseValidationRunEvidence(run, project, {
+    evidenceHash: "optional",
+    projectRevisions: db.projectRevisions,
+    analysisRuns: db.analysisRuns,
+    sourceVerificationCache
+  });
+  const reviewedRun = sealEnterpriseValidationRunEvidence({
+    ...verifiedRun,
+    status: input.status,
+    reviewerId: context.user.id,
+    reviewedAt: now(),
+    reviewNotes: input.notes?.trim() ?? ""
+  }, project, {
+    projectRevisions: db.projectRevisions,
+    analysisRuns: db.analysisRuns,
+    sourceVerificationCache
+  });
+  Object.assign(run, reviewedRun);
   appendAudit(db, {
     event: "validation.review",
     userId: context.user.id,
@@ -1005,7 +621,8 @@ function listEnterpriseValidationRunsFromDb(context: SenaEnterpriseSessionContex
 
 export type SenaEnterpriseValidationRunHeaderSource = Pick<
   SenaEnterpriseValidationRun,
-  "id" | "status" | "projectId" | "comparisonCount" | "pTwoSided" | "minHolmAdjustedP" | "preregistrationPlan" | "parityEvidence"
+  "id" | "status" | "projectId" | "comparisonCount" | "pTwoSided" | "minHolmAdjustedP" |
+  "validationRunEvidenceHash" | "preregistrationPlan" | "parityEvidence"
 >;
 
 export function buildEnterpriseValidationRunHeaders(run: SenaEnterpriseValidationRunHeaderSource) {
@@ -1016,6 +633,9 @@ export function buildEnterpriseValidationRunHeaders(run: SenaEnterpriseValidatio
     "x-sena-validation-comparison-count": String(run.comparisonCount ?? 1),
     "x-sena-validation-p-two-sided": String(run.pTwoSided),
     ...(run.minHolmAdjustedP !== undefined ? { "x-sena-validation-min-holm-p": String(run.minHolmAdjustedP) } : {}),
+    ...(run.validationRunEvidenceHash ? {
+      "x-sena-validation-run-evidence-sha256": run.validationRunEvidenceHash
+    } : {}),
     ...(run.preregistrationPlan?.planHash ? { "x-sena-validation-preregistration-sha256": run.preregistrationPlan.planHash } : {}),
     ...(run.parityEvidence?.status ? { "x-sena-validation-parity-status": run.parityEvidence.status } : {}),
     ...(run.parityEvidence?.validationRunHash ? { "x-sena-validation-parity-sha256": run.parityEvidence.validationRunHash } : {}),

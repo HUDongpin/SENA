@@ -37,6 +37,114 @@ import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/ap
 export const runtime = "nodejs";
 
 const formats = new Set<SenaPublicationFormat>(["html", "svg", "png", "xlsx", "docx", "pdf", "package"]);
+const SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES = 64 * 1024;
+const SENA_PUBLICATION_EXPORT_REQUEST_MAX_CHUNKS = 1_024;
+
+function publicationRequestInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request must be a JSON object.",
+    400,
+    "publication_export_request_invalid"
+  );
+}
+
+function publicationRequestContentTypeInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request media type must be application/json.",
+    400,
+    "publication_export_content_type_invalid"
+  );
+}
+
+function assertPublicationRequestContentType(request: Request) {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") publicationRequestContentTypeInvalid();
+}
+
+function publicationRequestTooLarge(): never {
+  throw new SenaEnterpriseError(
+    `Publication export request exceeds the ${SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES}-byte limit.`,
+    413,
+    "publication_export_request_too_large"
+  );
+}
+
+function publicationRequestTooFragmented(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request uses too many streamed chunks.",
+    413,
+    "publication_export_request_too_fragmented"
+  );
+}
+
+async function cancelPublicationRequestReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) {
+  try {
+    await reader.cancel();
+  } catch {
+    // Admission errors are stable even when an untrusted stream rejects cancel.
+  }
+}
+
+async function readBoundedPublicationRequest(request: Request): Promise<Record<string, unknown>> {
+  const declaredLength = request.headers.get("content-length")?.trim();
+  if (declaredLength) {
+    if (!/^\d+$/.test(declaredLength)) publicationRequestInvalid();
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) ||
+      parsedLength > SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES) {
+      publicationRequestTooLarge();
+    }
+  }
+  if (!request.body) publicationRequestInvalid();
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let chunkCount = 0;
+  while (true) {
+    let read: ReadableStreamReadResult<Uint8Array>;
+    try {
+      read = await reader.read();
+    } catch {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestInvalid();
+    }
+    const { done, value } = read;
+    if (done) break;
+    chunkCount += 1;
+    if (chunkCount > SENA_PUBLICATION_EXPORT_REQUEST_MAX_CHUNKS) {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestTooFragmented();
+    }
+    const chunk = value ?? new Uint8Array();
+    if (chunk.byteLength > SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES - bytes) {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestTooLarge();
+    }
+    bytes += chunk.byteLength;
+    if (chunk.byteLength > 0) chunks.push(chunk);
+  }
+
+  const bodyBytes = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let parsed: unknown;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bodyBytes);
+    parsed = JSON.parse(text);
+  } catch {
+    publicationRequestInvalid();
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    publicationRequestInvalid();
+  }
+  return parsed as Record<string, unknown>;
+}
 
 function bodyBuffer(body: string | Buffer) {
   return typeof body === "string" ? Buffer.from(body, "utf8") : body;
@@ -198,8 +306,14 @@ function publicationPackageHeaders(format: SenaPublicationFormat, body: string |
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-publication-export" }, async () => {
     const context = await requireApiSessionForMutation(request);
-    const requestBody = await request.json();
-    const format = formats.has(requestBody.format) ? requestBody.format : "html";
+    assertPublicationRequestContentType(request);
+    const requestBody = await readBoundedPublicationRequest(request);
+    const requestedFormat = typeof requestBody.format === "string"
+      ? requestBody.format as SenaPublicationFormat
+      : undefined;
+    const format: SenaPublicationFormat = requestedFormat && formats.has(requestedFormat)
+      ? requestedFormat
+      : "html";
     const projectId = requestBody.projectId ? String(requestBody.projectId).trim() : "";
     if (!projectId) {
       throw new SenaEnterpriseError(

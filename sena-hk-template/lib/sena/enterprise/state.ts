@@ -4,10 +4,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { importSenaProjectSnapshot } from "../snapshot";
-import {
-  normalizeSenaGroupComparisonValidationResult,
-  type SenaGroupComparisonValidationReadModel
-} from "../inference";
+import type { SenaGroupComparisonValidationReadModel } from "../inference";
 import {
   normalizeSenaReliabilityDashboard,
   type SenaReliabilityDashboardReadModel
@@ -18,6 +15,9 @@ import {
   groupEnterpriseReliabilityAdjudicationsByRunId,
   resolveEnterpriseReliabilityRunProjectScope
 } from "./reliability-integrity";
+import {
+  normalizeEnterpriseValidationRunCollectionEvidence
+} from "./validation-integrity";
 import type {
   SenaEnterpriseAnalysisRun,
   SenaEnterpriseImportRun,
@@ -515,6 +515,13 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     }
   }
   const identityEvidenceHolders = projectEnterpriseIdentityEvidenceHolders(db);
+  const validationRuns = normalizeEnterpriseValidationRunCollectionEvidence({
+    runs: db.validationRuns ?? [],
+    projects,
+    projectRevisions,
+    analysisRuns: db.analysisRuns ?? [],
+    evidenceHash: "optional"
+  });
   return {
     ...db,
     sessions: identityEvidenceHolders.sessions,
@@ -544,29 +551,24 @@ export function normalizeEnterpriseDb(db: SenaEnterpriseDbReadModel): SenaEnterp
     })),
     analysisRuns: db.analysisRuns ?? [],
     serverJobs: db.serverJobs ?? [],
+    // Preserve signed receipts as immutable historical evidence even when the
+    // active verification key is temporarily unavailable. Claim aggregation
+    // independently requires a currently valid receipt before granting authority.
     expertReviews: db.expertReviews ?? [],
     reliabilityRuns,
-    validationRuns: (db.validationRuns ?? []).map((run) => {
-      const project = run.projectId
-        ? projects.find((candidate) => candidate.id === run.projectId)
-        : undefined;
-      const result = normalizeSenaGroupComparisonValidationResult(
-        run.result,
-        project ? {
-          dataset: project.snapshot.dataset,
-          buildOptions: project.snapshot.reproducibility.buildOptions
-        } : undefined
-      );
-      return {
-        ...run,
-        result,
-        status: run.status ?? "pending-review",
-        preregistrationNote: run.preregistrationNote ?? "",
-        methodNote: run.methodNote ?? result.guardrail ?? ""
-      };
-    }),
+    validationRuns,
     projects
   };
+}
+
+function assertEnterpriseValidationRunCollectionWritable(db: SenaEnterpriseDb) {
+  normalizeEnterpriseValidationRunCollectionEvidence({
+    runs: db.validationRuns,
+    projects: db.projects,
+    projectRevisions: db.projectRevisions,
+    analysisRuns: db.analysisRuns,
+    evidenceHash: "optional"
+  });
 }
 
 function cloneStateValue<Value>(value: Value): Value {
@@ -1382,11 +1384,16 @@ export function readEnterpriseDb(): SenaEnterpriseDb {
 }
 
 export function writeEnterpriseDb(db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) {
+  assertEnterpriseValidationRunCollectionWritable(db);
   enterpriseStateStore().write(db, options);
 }
 
 export function mutateEnterpriseDbAtomically<Result>(mutator: (db: SenaEnterpriseDb) => Result) {
-  return enterpriseStateStore().mutateAtomically(mutator);
+  return enterpriseStateStore().mutateAtomically((db) => {
+    const result = mutator(db);
+    assertEnterpriseValidationRunCollectionWritable(db);
+    return result;
+  });
 }
 
 export function mutateEnterprisePersistedDbAtomically<Result>(
@@ -1428,7 +1435,11 @@ export async function mutateEnterpriseStateAtomically<Result>(
 ): Promise<Result> {
   const runtime = getEnterprisePrimaryStateRuntime();
   if (runtime.activePrimary === "file") {
-    const outcome = enterpriseStateStore().mutateAtomically((db) => runPersistedMutation(db, mutator));
+    const outcome = enterpriseStateStore().mutateAtomically((db) => {
+      const mutationOutcome = runPersistedMutation(db, mutator);
+      assertEnterpriseValidationRunCollectionWritable(db);
+      return mutationOutcome;
+    });
     return unwrapPersistedMutation(outcome);
   }
 
@@ -1445,6 +1456,7 @@ export async function mutateEnterpriseStateAtomically<Result>(
     const db = normalizeEnterpriseDb(cloneStateValue(persistedDb));
     const normalizedBaseline = cloneStateValue(db);
     const outcome = runPersistedMutation(db, mutator);
+    assertEnterpriseValidationRunCollectionWritable(db);
     if (isDeepStrictEqual(db, normalizedBaseline)) return unwrapPersistedMutation(outcome);
     const materialized = materializePersistedEnterpriseDb({
       persisted: persistedDb,
@@ -1472,6 +1484,7 @@ export async function mutateEnterpriseStateAtomically<Result>(
 }
 
 export function saveDb(db: SenaEnterpriseDb, options?: SenaFileEnterpriseStateWriteOptions) {
+  assertEnterpriseValidationRunCollectionWritable(db);
   enterpriseStateStore().save(db, options);
 }
 
@@ -1632,6 +1645,7 @@ export async function readEnterpriseState(options: {
 }
 
 export async function writeEnterpriseState(state: SenaEnterpriseStateRead, db: SenaEnterpriseDb) {
+  assertEnterpriseValidationRunCollectionWritable(db);
   if (state.runtime.activePrimary === "postgres") {
     const persistedDb = cloneStateValue(state.persistedDb ?? state.db) as SenaEnterpriseDbReadModel;
     const materialized = materializePersistedEnterpriseDb({
@@ -1655,6 +1669,7 @@ export async function writeEnterpriseState(state: SenaEnterpriseStateRead, db: S
 }
 
 export async function saveEnterpriseState(state: SenaEnterpriseStateRead, db: SenaEnterpriseDb) {
+  assertEnterpriseValidationRunCollectionWritable(db);
   if (state.runtime.activePrimary === "postgres") {
     const persistedDb = cloneStateValue(state.persistedDb ?? state.db) as SenaEnterpriseDbReadModel;
     const materialized = materializePersistedEnterpriseDb({

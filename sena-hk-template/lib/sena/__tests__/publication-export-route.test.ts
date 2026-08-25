@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 import {
+  buildSenaGroupComparisonSuite,
   buildSenaModel,
   buildSenaProjectSnapshot,
   buildSenaReliabilityDashboard,
@@ -55,6 +56,43 @@ function persistedPublicationSideEffects(dbPath: string, projectId: string) {
     jobs: db.serverJobs.filter((job) => job.projectId === projectId)
   };
 }
+
+type PersistedPublicationValidation = {
+  pTwoSided: number;
+  validationRunEvidenceSchemaVersion?: string;
+  validationRunEvidenceHash?: string;
+};
+
+function mutatePersistedValidationRun(
+  enterpriseDbDir: string,
+  validationRunId: string,
+  mutate: (run: PersistedPublicationValidation) => void
+) {
+  const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+  const db = JSON.parse(readFileSync(dbPath, "utf8")) as {
+    validationRuns: Array<{ id: string } & PersistedPublicationValidation>;
+  };
+  const run = db.validationRuns.find((candidate) => candidate.id === validationRunId);
+  if (!run) throw new Error("Persisted validation route fixture was not found.");
+  mutate(run);
+  writeFileSync(dbPath, JSON.stringify(db, null, 2));
+  return { dbPath };
+}
+
+const publicationValidationTamperCases: Array<{
+  label: string;
+  mutate: (run: PersistedPublicationValidation) => void;
+}> = [{
+  label: "a divergent cached summary",
+  mutate: (run) => {
+    run.pTwoSided = run.pTwoSided === 0 ? 0.5 : 0;
+  }
+}, {
+  label: "a schema-only partial seal",
+  mutate: (run) => {
+    delete run.validationRunEvidenceHash;
+  }
+}];
 
 function routeSnapshot(dataGovernanceComplete = true, codingReliabilityComplete = true) {
   const imported = importSenaJsonContract(lessonStudySenaContract);
@@ -508,6 +546,112 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
+  it.each(publicationValidationTamperCases)(
+    "blocks sync and queued publication before side effects when validation evidence has $label",
+    async ({ mutate }) => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-validation-seal-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    const queueRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      queueRequests.push(String(input));
+      return new Response("", { status: 202 });
+    }));
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/publication-export", async () => await import("../publication-export"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Validation Seal Publication Exporter",
+        email: "validation-seal-publication-exporter@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Seal Publication Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Validation Seal Publication Project",
+        snapshot: routeSnapshot()
+      });
+      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Validation seal reliability reviewer")
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+        status: "approved",
+        notes: "Current machine-eligible reliability evidence."
+      });
+      const validationRun = enterprise.createEnterpriseValidationRun(registered.context, {
+        teamId: project.teamId,
+        projectId: project.id,
+        preregistrationNote: "Publication validation full-run seal fixture.",
+        methodNote: "Publication validation canonical evidence.",
+        result: buildSenaGroupComparisonSuite({
+          dataset: lessonStudySenaContract,
+          defaultGroupField: "role",
+          comparisons: [{
+            groupField: "role",
+            groupA: "Lead teacher",
+            groupB: "Curriculum designer",
+            metric: "bridgeScore"
+          }],
+          iterations: 100,
+          bootstrapIterations: 100
+        })
+      });
+      enterprise.reviewEnterpriseValidationRun(registered.context, validationRun.id, {
+        status: "approved",
+        notes: "Approved before the persisted full-run seal tamper."
+      });
+      const { dbPath } = mutatePersistedValidationRun(
+        enterpriseDbDir,
+        validationRun.id,
+        mutate
+      );
+
+      const route = await import("../../../app/api/sena/exports/publication/route");
+      const request = (queue: boolean) => new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({ projectId: project.id, format: "html", queue })
+      });
+      const syncResponse = await route.POST(request(false));
+      const queuedResponse = await route.POST(request(true));
+
+      for (const response of [syncResponse, queuedResponse]) {
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+          error: "Stored validation evidence is not canonically bound to its reviewed result.",
+          code: "validation_run_evidence_invalid"
+        });
+      }
+      expect(queueRequests).toHaveLength(0);
+      expect(persistedPublicationSideEffects(dbPath, project.id)).toEqual({
+        auditEvents: [],
+        jobs: []
+      });
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  }, publicationExportRouteTestTimeoutMs);
+
   it("blocks queued project publication before every side effect when approved current reliability evidence is missing", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-queue-route-"));
     let sessionToken = "";
@@ -759,9 +903,9 @@ describe("SENA publication export route", () => {
           queue: true
         })
       }));
-      expect(inlineResponse.status).toBe(400);
+      expect(inlineResponse.status).toBe(413);
       await expect(inlineResponse.json()).resolves.toEqual(expect.objectContaining({
-        code: "publication_export_project_required"
+        code: "publication_export_request_too_large"
       }));
       expect(inlineResponse.headers.get("x-sena-export-source")).toBeNull();
       expect(inlineResponse.headers.get("content-disposition")).toBeNull();
@@ -786,7 +930,7 @@ describe("SENA publication export route", () => {
         },
         body: JSON.stringify({
           projectId: project.id,
-          snapshot: routeSnapshot(),
+          snapshot: {},
           format: "html",
           queue: true
         })

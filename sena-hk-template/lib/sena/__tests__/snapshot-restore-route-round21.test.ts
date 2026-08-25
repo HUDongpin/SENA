@@ -16,6 +16,10 @@ import { lessonStudySenaContract } from "../pilot-assets";
 import { buildSenaReviewPacket, importSenaReviewPacket } from "../review-packet";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { buildSenaProjectSnapshot, importSenaProjectSnapshot } from "../snapshot";
+import {
+  buildSenaReliabilityDashboard,
+  reliabilityDashboardToReview
+} from "../reliability";
 import type { SenaProjectSnapshot } from "../types";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 
@@ -54,6 +58,21 @@ function currentReviewPacket() {
     generatedAt: "2026-08-23T00:00:00.000Z",
     sourceDataset: lessonStudySenaContract,
     evidenceLimit: 500
+  });
+}
+
+function currentReliabilitySnapshot() {
+  const dataset = structuredClone(lessonStudySenaContract);
+  const reliability = buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "Evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "Evidence", value: false }
+  ]);
+  return buildSenaProjectSnapshot(buildSenaModel(dataset), {
+    generatedAt: "2026-08-23T00:00:00.000Z",
+    sourceDataset: dataset,
+    codingReliability: reliabilityDashboardToReview(reliability, "Restore resource reviewer")
   });
 }
 
@@ -249,6 +268,24 @@ describe("SENA stateless snapshot restore route", () => {
       codedSegments: source.dataset.coded_segments.length,
       codes: source.dataset.codebook.length
     };
+
+    const response = await POST(restoreRequest(source));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "Snapshot restore source exceeds the supported canonical complexity limit.",
+      code: "snapshot_restore_source_too_complex"
+    });
+  });
+
+  it("rejects an over-budget reliability coder-pair universe as a sanitized 413", async () => {
+    const source = currentReliabilitySnapshot();
+    const machineEvidence = source.report.codingReliabilityGate.review.machineEvidence;
+    if (!machineEvidence) throw new Error("Expected current reliability machine evidence fixture.");
+    machineEvidence.coderIds = Array.from(
+      { length: 64 },
+      (_, index) => `restore-coder-${String(index + 1).padStart(2, "0")}`
+    );
 
     const response = await POST(restoreRequest(source));
 

@@ -130,6 +130,13 @@ export function resolveEnterprisePublicationStateBundleFromState(
       stateRevisionSha256: revisionEvidence.stateRevisionSha256
     }
   );
+  if (claimPackage.blockers.includes("validation-run-integrity-required")) {
+    throw new SenaEnterpriseError(
+      "Stored validation evidence is not canonically bound to its reviewed result.",
+      409,
+      "validation_run_evidence_invalid"
+    );
+  }
 
   const claimReliabilityRunId = claimPackage.evidence.reliability?.runId ?? null;
   if (

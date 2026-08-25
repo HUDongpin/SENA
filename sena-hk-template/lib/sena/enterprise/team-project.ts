@@ -386,6 +386,13 @@ export function restoreEnterpriseProjectRevision(context: SenaEnterpriseSessionC
       ? db.projectRevisions.find((revision) => revision.projectId === projectId && revision.version === input.version)
       : undefined;
   if (!targetRevision) throw new SenaEnterpriseError("Project revision was not found.", 404, "project_revision_not_found");
+  if (targetRevision.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Project revision failed team ownership validation.",
+      409,
+      "project_revision_integrity_invalid"
+    );
+  }
   if (targetRevision.version === project.currentVersion) {
     throw new SenaEnterpriseError("The selected revision is already the current project version.", 409, "project_revision_already_current");
   }
@@ -451,6 +458,13 @@ export async function restoreEnterpriseProjectRevisionAsync(context: SenaEnterpr
       ? db.projectRevisions.find((revision) => revision.projectId === projectId && revision.version === input.version)
       : undefined;
   if (!targetRevision) throw new SenaEnterpriseError("Project revision was not found.", 404, "project_revision_not_found");
+  if (targetRevision.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Project revision failed team ownership validation.",
+      409,
+      "project_revision_integrity_invalid"
+    );
+  }
   if (targetRevision.version === project.currentVersion) {
     throw new SenaEnterpriseError("The selected revision is already the current project version.", 409, "project_revision_already_current");
   }

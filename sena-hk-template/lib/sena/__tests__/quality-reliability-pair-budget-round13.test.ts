@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
 import {
+  assertSenaReliabilityReaderCoderPairBudget,
   assertSenaReliabilityUniverseWithinLimits,
   buildSenaReliabilityDashboard,
+  isSemanticallyValidSenaReliabilityMachineEvidence,
+  normalizeSenaReliabilityDashboard,
   preflightSenaReliabilityAnnotations,
+  reliabilityDashboardToReview,
   type SenaCoderAnnotation
 } from "../reliability";
+import { SENA_LEGACY_SCHEMA_VERSIONS } from "../schema-registry";
 
 const declaredPairCap = 2_000;
 
@@ -37,6 +42,101 @@ function expectPairCapError(error: unknown, coderCount: number) {
 }
 
 describe("Round13 bounded coding-reliability pairwise work", () => {
+  it("admits 63 persisted coders and rejects 64 before pair-key allocation", () => {
+    expect(assertSenaReliabilityReaderCoderPairBudget(63)).toBe(1_953);
+    expect(() => assertSenaReliabilityReaderCoderPairBudget(64))
+      .toThrow(expect.objectContaining({
+        name: "SenaReliabilityUniverseLimitError",
+        issues: [expect.objectContaining({
+          rule: "coder-pair-count-at-most-2000",
+          actual: 2_016,
+          maximum: 2_000
+        })]
+      }));
+  });
+
+  it("applies the persisted-reader pair budget before dashboard semantic maps", () => {
+    const dashboard = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true }
+    ]);
+    const oversized = structuredClone(dashboard);
+    oversized.coderIds = Array.from(
+      { length: 64 },
+      (_, index) => `persisted-coder-${String(index + 1).padStart(2, "0")}`
+    );
+    oversized.coderCount = oversized.coderIds.length;
+
+    expect(() => normalizeSenaReliabilityDashboard(oversized))
+      .toThrow(expect.objectContaining({
+        name: "SenaReliabilityUniverseLimitError",
+        issues: [expect.objectContaining({
+          rule: "coder-pair-count-at-most-2000"
+        })]
+      }));
+  });
+
+  it("cannot bypass the legacy persisted-reader pair budget by omitting a companion collection", () => {
+    const dashboard = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true }
+    ]);
+    const pair = dashboard.pairwiseCohenKappa[0];
+    const malformedLegacy = {
+      ...structuredClone(dashboard),
+      schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard,
+      pairwiseCohenKappa: Array.from({ length: declaredPairCap + 1 }, () => ({
+        coderA: pair.coderA,
+        coderB: pair.coderB,
+        units: pair.units,
+        observedAgreement: pair.observedAgreement,
+        expectedAgreement: pair.expectedAgreement,
+        kappa: pair.kappa
+      }))
+    } as unknown as Record<string, unknown>;
+    delete malformedLegacy.codeDiagnostics;
+
+    expect(() => normalizeSenaReliabilityDashboard(malformedLegacy as never))
+      .toThrow(expect.objectContaining({
+        name: "SenaReliabilityUniverseLimitError",
+        issues: [expect.objectContaining({
+          rule: "coder-pair-count-at-most-2000",
+          actual: 2_001,
+          maximum: 2_000
+        })]
+      }));
+  });
+
+  it("applies the machine-evidence coder-pair budget before binding and semantic validation", () => {
+    const dashboard = buildSenaReliabilityDashboard([
+      { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+      { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true }
+    ]);
+    const machineEvidence = structuredClone(
+      reliabilityDashboardToReview(dashboard, "Pair-budget reviewer").machineEvidence
+    );
+    if (!machineEvidence) throw new Error("Expected machine-evidence fixture.");
+    machineEvidence.coderIds = Array.from(
+      { length: 64 },
+      (_, index) => `machine-coder-${String(index + 1).padStart(2, "0")}`
+    );
+    machineEvidence.projectBindingRequired = true;
+    machineEvidence.projectBinding = {
+      annotationCoverage: Array.from({ length: 50_001 }, () => null),
+      skippedCellCoverage: []
+    } as never;
+
+    expect(() => isSemanticallyValidSenaReliabilityMachineEvidence(machineEvidence))
+      .toThrow(expect.objectContaining({
+        name: "SenaReliabilityUniverseLimitError",
+        issues: [expect.objectContaining({
+          rule: "coder-pair-count-at-most-2000",
+          actual: 2_016,
+          maximum: 2_000
+        })]
+      }));
+  });
+
   it("rejects the complete 50-coder by 4000-item algorithm budget", () => {
     let thrown: unknown;
     try {

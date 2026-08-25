@@ -115,6 +115,7 @@ describe("SENA validation group-comparison route", () => {
           projectId?: string;
           comparisonCount?: number;
           minHolmAdjustedP?: number;
+          validationRunEvidenceHash?: string;
           preregistrationPlan?: { planHash?: string };
           parityEvidence?: {
             status?: string;
@@ -135,6 +136,9 @@ describe("SENA validation group-comparison route", () => {
       expect(response.headers.get("x-sena-validation-status")).toBe(body.validationRun?.status);
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-validation-comparison-count")).toBe(String(body.validationRun?.comparisonCount));
+      expect(body.validationRun?.validationRunEvidenceHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(response.headers.get("x-sena-validation-run-evidence-sha256"))
+        .toBe(body.validationRun?.validationRunEvidenceHash);
       expect(response.headers.get("x-sena-validation-preregistration-sha256")).toBe(body.validationRun?.preregistrationPlan?.planHash);
       expect(response.headers.get("x-sena-validation-parity-status")).toBe(body.validationRun?.parityEvidence?.status);
       expect(response.headers.get("x-sena-validation-parity-sha256")).toBe(body.validationRun?.parityEvidence?.validationRunHash);

@@ -612,6 +612,405 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const SENA_GROUP_COMPARISON_CARRIER_MAX_TEXT_BYTES = 4 * 1024;
+const SENA_GROUP_COMPARISON_CARRIER_MAX_TOTAL_TEXT_BYTES = 8 * 1024 * 1024;
+const SENA_GROUP_COMPARISON_CARRIER_MAX_UNBOUND_METRIC_UNIVERSE = 65_536;
+const SENA_GROUP_COMPARISON_CARRIER_MAX_TOTAL_METRIC_UNIVERSE_ROWS = 200_000;
+
+export type SenaGroupComparisonCarrierBudget = {
+  textBytes: number;
+  workUnits: number;
+  metricUniverseRows: number;
+};
+
+export function createSenaGroupComparisonCarrierBudget(): SenaGroupComparisonCarrierBudget {
+  return {
+    textBytes: 0,
+    workUnits: 0,
+    metricUniverseRows: 0
+  };
+}
+
+function hasOnlyCarrierKeys(value: unknown, allowedKeys: readonly string[]): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const allowed = new Set(allowedKeys);
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length > allowed.size) return false;
+  for (const key of ownKeys) {
+    if (typeof key !== "string" || !allowed.has(key)) return false;
+  }
+  return true;
+}
+
+function hasExactCarrierKeys(
+  value: unknown,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[] = []
+): value is Record<string, unknown> {
+  if (!hasOnlyCarrierKeys(value, [...requiredKeys, ...optionalKeys])) return false;
+  return requiredKeys.every((key) => Object.hasOwn(value, key));
+}
+
+function isBoundedDenseCarrierArray(
+  value: unknown,
+  minimumEntries: number,
+  maximumEntries: number
+): value is unknown[] {
+  if (!Array.isArray(value) || !Number.isSafeInteger(value.length) ||
+    value.length < minimumEntries || value.length > maximumEntries) return false;
+  let ownEntryCount = 0;
+  for (const key of Reflect.ownKeys(value)) {
+    if (key === "length") continue;
+    if (typeof key !== "string") return false;
+    if (!/^(0|[1-9]\d*)$/.test(key)) return false;
+    const index = Number(key);
+    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+      return false;
+    }
+    ownEntryCount += 1;
+    if (ownEntryCount > value.length) return false;
+  }
+  return ownEntryCount === value.length;
+}
+
+function admitCarrierText(
+  value: unknown,
+  budget: SenaGroupComparisonCarrierBudget,
+  options: { nonempty?: boolean } = {}
+) {
+  if (typeof value !== "string" ||
+    value.length > SENA_GROUP_COMPARISON_CARRIER_MAX_TEXT_BYTES ||
+    (options.nonempty && value.trim().length === 0)) return false;
+  const bytes = new TextEncoder().encode(value).byteLength;
+  if (bytes > SENA_GROUP_COMPARISON_CARRIER_MAX_TEXT_BYTES ||
+    bytes > SENA_GROUP_COMPARISON_CARRIER_MAX_TOTAL_TEXT_BYTES - budget.textBytes) return false;
+  budget.textBytes += bytes;
+  return true;
+}
+
+function admitCarrierNumberArray(value: unknown, maximumEntries: number) {
+  if (!isBoundedDenseCarrierArray(value, 1, maximumEntries)) return false;
+  for (const entry of value) {
+    if (!isFiniteNumber(entry)) return false;
+  }
+  return true;
+}
+
+function admitCarrierTextArray(
+  value: unknown,
+  maximumEntries: number,
+  budget: SenaGroupComparisonCarrierBudget
+) {
+  if (!isBoundedDenseCarrierArray(value, 0, maximumEntries)) return false;
+  for (const entry of value) {
+    if (!admitCarrierText(entry, budget)) return false;
+  }
+  return true;
+}
+
+function admitAnalysisConfigCarrier(value: unknown, budget: SenaGroupComparisonCarrierBudget) {
+  if (!hasExactCarrierKeys(value, [
+    "alpha", "beta", "gamma", "normalization", "bridgeWeightRule", "direction",
+    "deg_convention", "delta", "Phi", "d", "seed", "undirectedSocial", "temporal"
+  ]) || !hasExactCarrierKeys(value.temporal, [
+    "mode", "movingWindowSize", "movingWindowStep", "turnWindowRadius"
+  ])) return false;
+  for (const key of ["alpha", "beta", "gamma", "d", "seed"] as const) {
+    if (!isFiniteNumber(value[key])) return false;
+  }
+  if (typeof value.undirectedSocial !== "boolean") return false;
+  for (const key of ["normalization", "bridgeWeightRule", "direction", "deg_convention", "delta", "Phi"] as const) {
+    if (!admitCarrierText(value[key], budget, { nonempty: true })) return false;
+  }
+  if (!admitCarrierText(value.temporal.mode, budget, { nonempty: true })) return false;
+  for (const key of ["movingWindowSize", "movingWindowStep", "turnWindowRadius"] as const) {
+    if (!isFiniteNumber(value.temporal[key])) return false;
+  }
+  return true;
+}
+
+function admitSufficientStatisticsCarrier(value: unknown) {
+  if (!hasExactCarrierKeys(value, ["groupA", "groupB"])) return false;
+  for (const group of [value.groupA, value.groupB]) {
+    if (!hasExactCarrierKeys(group, ["n", "sum", "sumSquares", "mean", "unbiasedVariance"])) return false;
+    if (!isPositiveInteger(group.n) || !isFiniteNumber(group.sum) ||
+      !isFiniteNumber(group.sumSquares) || !isFiniteNumber(group.mean) ||
+      !(group.unbiasedVariance === null || isFiniteNumber(group.unbiasedVariance))) return false;
+  }
+  return true;
+}
+
+function admitSourceEvidenceCarrier(
+  value: unknown,
+  comparison: Record<string, unknown>,
+  budget: SenaGroupComparisonCarrierBudget,
+  expectedPeopleCount: number | undefined,
+  countReplayWork: boolean
+) {
+  if (!hasExactCarrierKeys(value, [
+    "status", "hashAlgorithm", "datasetContentHash", "analysisConfig", "analysisConfigHash",
+    "groupDefinition", "groupDefinitionHash", "metricUniverse", "metricUniverseHash",
+    "sufficientStatistics", "evidenceHash"
+  ]) || !hasExactCarrierKeys(value.groupDefinition, ["metric", "groupField", "groupA", "groupB"]) ||
+    !admitAnalysisConfigCarrier(value.analysisConfig, budget) ||
+    !admitSufficientStatisticsCarrier(value.sufficientStatistics)) return false;
+  for (const text of [
+    value.status,
+    value.hashAlgorithm,
+    value.datasetContentHash,
+    value.analysisConfigHash,
+    value.groupDefinitionHash,
+    value.metricUniverseHash,
+    value.evidenceHash,
+    value.groupDefinition.metric,
+    value.groupDefinition.groupField,
+    value.groupDefinition.groupA,
+    value.groupDefinition.groupB
+  ]) {
+    if (!admitCarrierText(text, budget, { nonempty: true })) return false;
+  }
+  const maximumUniverse = expectedPeopleCount === undefined
+    ? SENA_GROUP_COMPARISON_CARRIER_MAX_UNBOUND_METRIC_UNIVERSE
+    : Math.min(expectedPeopleCount, SENA_GROUP_COMPARISON_CARRIER_MAX_UNBOUND_METRIC_UNIVERSE);
+  if (!isBoundedDenseCarrierArray(value.metricUniverse, 1, maximumUniverse) ||
+    (expectedPeopleCount !== undefined && value.metricUniverse.length !== expectedPeopleCount)) return false;
+  if (value.metricUniverse.length >
+    SENA_GROUP_COMPARISON_CARRIER_MAX_TOTAL_METRIC_UNIVERSE_ROWS - budget.metricUniverseRows) return false;
+  budget.metricUniverseRows += value.metricUniverse.length;
+  if ((comparison.groupField !== "group" && comparison.groupField !== "role") ||
+    typeof comparison.groupA !== "string" || typeof comparison.groupB !== "string") return false;
+  let actualGroupA = 0;
+  let actualGroupB = 0;
+  for (const entry of value.metricUniverse) {
+    if (!hasExactCarrierKeys(entry, ["personId", "group", "role", "value"]) ||
+      !admitCarrierText(entry.personId, budget, { nonempty: true }) ||
+      !admitCarrierText(entry.group, budget) || !admitCarrierText(entry.role, budget) ||
+      !isFiniteNumber(entry.value)) return false;
+    const groupValue = entry[comparison.groupField];
+    if (groupValue === comparison.groupA) actualGroupA += 1;
+    if (groupValue === comparison.groupB) actualGroupB += 1;
+  }
+  const sufficientStatistics = value.sufficientStatistics as {
+    groupA: Record<string, unknown>;
+    groupB: Record<string, unknown>;
+  };
+  if (actualGroupA !== comparison.nA || actualGroupB !== comparison.nB ||
+    sufficientStatistics.groupA.n !== actualGroupA ||
+    sufficientStatistics.groupB.n !== actualGroupB) return false;
+
+  const permutation = comparison.permutation;
+  const bootstrap = comparison.bootstrap;
+  if (!isRecord(permutation) || !isRecord(bootstrap) ||
+    !Number.isSafeInteger(permutation.iterations) || Number(permutation.iterations) < 0 ||
+    !Number.isSafeInteger(bootstrap.iterations) || Number(bootstrap.iterations) < 0) return false;
+  if (countReplayWork) {
+    const iterationTotal = Number(permutation.iterations) + Number(bootstrap.iterations);
+    const comparedPeople = actualGroupA + actualGroupB;
+    const workUnits = iterationTotal * comparedPeople;
+    if (!Number.isSafeInteger(iterationTotal) || !Number.isSafeInteger(workUnits) || workUnits < 0 ||
+      workUnits > SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_WORK_UNITS - budget.workUnits) return false;
+    budget.workUnits += workUnits;
+  }
+  return true;
+}
+
+function admitComparisonCarrier(
+  value: unknown,
+  budget: SenaGroupComparisonCarrierBudget,
+  options: {
+    suiteEntry: boolean;
+    expectedPeopleCount?: number;
+    countReplayWork: boolean;
+  }
+) {
+  const baseKeys = [
+    "schemaVersion", "sourceSchemaVersion", "metric", "groupField", "groupA", "groupB",
+    "nA", "nB", "meanA", "meanB", "observedDifference", "effectSize", "sourceEvidence",
+    "permutation", "bootstrap", "diagnostics", "guardrail"
+  ];
+  const suiteKeys = ["comparisonId", "holmRank", "holmAdjustedP", "significantAtAlpha"];
+  if (!hasOnlyCarrierKeys(value, options.suiteEntry ? [...baseKeys, ...suiteKeys] : baseKeys)) return false;
+  const currentSchema = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison;
+  const legacySchema = value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison;
+  if (!currentSchema && !legacySchema) return false;
+  const currentSource = currentSchema && value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison;
+  const normalizedLegacy = currentSchema && value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison;
+  const required = [
+    "schemaVersion", "metric", "groupField", "groupA", "groupB", "nA", "nB",
+    "meanA", "meanB", "observedDifference", "effectSize", "permutation", "bootstrap",
+    "diagnostics", "guardrail",
+    ...(currentSchema ? ["sourceSchemaVersion"] : []),
+    ...(currentSource ? ["sourceEvidence"] : []),
+    ...(options.suiteEntry ? suiteKeys : [])
+  ];
+  const optional = legacySchema ? ["sourceSchemaVersion"] : [];
+  if (!hasExactCarrierKeys(value, required, optional) ||
+    (legacySchema && value.sourceSchemaVersion !== undefined &&
+      value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparison) ||
+    (!currentSource && !normalizedLegacy && !legacySchema)) return false;
+
+  for (const text of [value.schemaVersion, value.metric, value.groupField, value.groupA, value.groupB, value.guardrail]) {
+    if (!admitCarrierText(text, budget, { nonempty: true })) return false;
+  }
+  if (value.sourceSchemaVersion !== undefined &&
+    !admitCarrierText(value.sourceSchemaVersion, budget, { nonempty: true })) return false;
+  if (!isPositiveInteger(value.nA) || !isPositiveInteger(value.nB) ||
+    !isFiniteNumber(value.meanA) || !isFiniteNumber(value.meanB) ||
+    !isFiniteNumber(value.observedDifference)) return false;
+
+  const currentEffect = currentSchema;
+  if (!hasExactCarrierKeys(
+    value.effectSize,
+    currentEffect
+      ? ["status", "cohenD", "hedgesG", "pooledStandardDeviation", "reason"]
+      : ["cohenD", "hedgesG", "pooledStandardDeviation"]
+  )) return false;
+  if (currentEffect) {
+    if (!admitCarrierText(value.effectSize.status, budget, { nonempty: true }) ||
+      !admitCarrierText(value.effectSize.reason, budget, { nonempty: true })) return false;
+  }
+  for (const key of ["cohenD", "hedgesG", "pooledStandardDeviation"] as const) {
+    if (!(value.effectSize[key] === null || isFiniteNumber(value.effectSize[key]))) return false;
+  }
+
+  if (!hasExactCarrierKeys(value.permutation, [
+    "iterations", "seed", "pTwoSided", "nullLower", "nullUpper", "samplesPreview"
+  ]) || !hasExactCarrierKeys(value.bootstrap, [
+    "iterations", "seed", "meanDifferenceLower", "meanDifferenceUpper", "samplesPreview"
+  ]) || !hasExactCarrierKeys(value.diagnostics, [
+    "totalPeople", "comparedPeople", "minGroupSize", "balancedDesign", "smallSample", "metricScale"
+  ])) return false;
+  if (!Number.isSafeInteger(value.permutation.iterations) || Number(value.permutation.iterations) < 1 ||
+    !Number.isSafeInteger(value.permutation.seed) || Number(value.permutation.seed) < 0 ||
+    !isFiniteNumber(value.permutation.pTwoSided) || !isFiniteNumber(value.permutation.nullLower) ||
+    !isFiniteNumber(value.permutation.nullUpper) ||
+    !admitCarrierNumberArray(value.permutation.samplesPreview, 20) ||
+    !Number.isSafeInteger(value.bootstrap.iterations) || Number(value.bootstrap.iterations) < 1 ||
+    !Number.isSafeInteger(value.bootstrap.seed) || Number(value.bootstrap.seed) < 0 ||
+    !isFiniteNumber(value.bootstrap.meanDifferenceLower) ||
+    !isFiniteNumber(value.bootstrap.meanDifferenceUpper) ||
+    !admitCarrierNumberArray(value.bootstrap.samplesPreview, 20)) return false;
+  for (const key of ["totalPeople", "comparedPeople", "minGroupSize"] as const) {
+    if (!Number.isSafeInteger(value.diagnostics[key]) || Number(value.diagnostics[key]) < 0) return false;
+  }
+  if (typeof value.diagnostics.balancedDesign !== "boolean" ||
+    typeof value.diagnostics.smallSample !== "boolean" ||
+    !admitCarrierText(value.diagnostics.metricScale, budget, { nonempty: true })) return false;
+
+  if (options.suiteEntry && (
+    !admitCarrierText(value.comparisonId, budget, { nonempty: true }) ||
+    !Number.isSafeInteger(value.holmRank) || Number(value.holmRank) < 1 ||
+    !isFiniteNumber(value.holmAdjustedP) || typeof value.significantAtAlpha !== "boolean"
+  )) return false;
+  if (currentSource && !admitSourceEvidenceCarrier(
+    value.sourceEvidence,
+    value,
+    budget,
+    options.expectedPeopleCount,
+    options.countReplayWork
+  )) return false;
+  return true;
+}
+
+function admitSuiteCarrier(
+  value: Record<string, unknown>,
+  budget: SenaGroupComparisonCarrierBudget,
+  expectedPeopleCount: number | undefined
+) {
+  const currentSchema = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite;
+  const legacySchema = value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite;
+  if (!currentSchema && !legacySchema) return false;
+  const required = [
+    "schemaVersion", "alpha", "correction", "comparisonCount", "significantHolmCount",
+    "primary", "comparisons", "diagnostics", "guardrail",
+    ...(currentSchema ? ["sourceSchemaVersion"] : [])
+  ];
+  const optional = legacySchema ? ["sourceSchemaVersion"] : [];
+  if (!hasExactCarrierKeys(value, required, optional) ||
+    (legacySchema && value.sourceSchemaVersion !== undefined &&
+      value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite) ||
+    !isFiniteNumber(value.alpha) || !Number.isSafeInteger(value.comparisonCount) ||
+    !Number.isSafeInteger(value.significantHolmCount) ||
+    !admitCarrierText(value.schemaVersion, budget, { nonempty: true }) ||
+    !admitCarrierText(value.correction, budget, { nonempty: true }) ||
+    !admitCarrierText(value.guardrail, budget, { nonempty: true }) ||
+    (value.sourceSchemaVersion !== undefined &&
+      !admitCarrierText(value.sourceSchemaVersion, budget, { nonempty: true })) ||
+    !isBoundedDenseCarrierArray(
+      value.comparisons,
+      1,
+      SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS
+    ) || !hasExactCarrierKeys(value.diagnostics, [
+      "metrics", "groupPairs", "minGroupSize", "smallSampleComparisons", "preregistrationEvidence"
+    ]) || !admitCarrierTextArray(value.diagnostics.metrics, SENA_GROUP_COMPARISON_METRICS.length, budget) ||
+    !isBoundedDenseCarrierArray(value.diagnostics.groupPairs, 0, value.comparisons.length) ||
+    !Number.isSafeInteger(value.diagnostics.minGroupSize) || Number(value.diagnostics.minGroupSize) < 0 ||
+    !Number.isSafeInteger(value.diagnostics.smallSampleComparisons) ||
+    Number(value.diagnostics.smallSampleComparisons) < 0 ||
+    !admitCarrierText(value.diagnostics.preregistrationEvidence, budget, { nonempty: true })) return false;
+  for (const pair of value.diagnostics.groupPairs) {
+    if (!hasExactCarrierKeys(pair, ["groupField", "groupA", "groupB"]) ||
+      !admitCarrierText(pair.groupField, budget, { nonempty: true }) ||
+      !admitCarrierText(pair.groupA, budget, { nonempty: true }) ||
+      !admitCarrierText(pair.groupB, budget, { nonempty: true })) return false;
+  }
+  for (const comparison of value.comparisons) {
+    if (!admitComparisonCarrier(comparison, budget, {
+      suiteEntry: true,
+      expectedPeopleCount,
+      countReplayWork: true
+    })) return false;
+  }
+  return admitComparisonCarrier(value.primary, budget, {
+    suiteEntry: true,
+    expectedPeopleCount,
+    countReplayWork: false
+  });
+}
+
+function assertSenaGroupComparisonValidationCarrier(
+  value: unknown,
+  expectedPeopleCount?: number,
+  sharedBudget?: SenaGroupComparisonCarrierBudget
+) {
+  const topLevelAllowed = [
+    "schemaVersion", "sourceSchemaVersion", "metric", "groupField", "groupA", "groupB",
+    "nA", "nB", "meanA", "meanB", "observedDifference", "effectSize", "sourceEvidence",
+    "permutation", "bootstrap", "diagnostics", "guardrail", "alpha", "correction",
+    "comparisonCount", "significantHolmCount", "primary", "comparisons"
+  ];
+  let admitted = false;
+  try {
+    if (!hasOnlyCarrierKeys(value, topLevelAllowed)) throw new Error("shape");
+    const budget = sharedBudget ?? createSenaGroupComparisonCarrierBudget();
+    admitted = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison ||
+      value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
+      ? admitComparisonCarrier(value, budget, {
+          suiteEntry: false,
+          expectedPeopleCount,
+          countReplayWork: true
+        })
+      : admitSuiteCarrier(value, budget, expectedPeopleCount);
+  } catch {
+    admitted = false;
+  }
+  if (!admitted) {
+    throw new Error("SENA group-comparison validation carrier exceeds its bounded suite structure or exact carrier shape.");
+  }
+}
+
+export function isSenaGroupComparisonValidationCarrierAdmitted(
+  value: unknown,
+  sharedBudget?: SenaGroupComparisonCarrierBudget
+) {
+  try {
+    assertSenaGroupComparisonValidationCarrier(value, undefined, sharedBudget);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function finiteOrNull(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -928,13 +1327,34 @@ function isCanonicalSuiteStructure(
   return value.diagnostics.preregistrationEvidence === "required-before-claim";
 }
 
-function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult {
-  if (!isRecord(value) || value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
-    value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
-    !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
-    value.guardrail !== groupComparisonSuiteGuardrail || !Array.isArray(value.comparisons) ||
+type BoundedSuiteCarrier = Record<string, unknown> & {
+  comparisons: unknown[];
+  primary: Record<string, unknown>;
+  diagnostics: Record<string, unknown> & {
+    metrics: unknown[];
+    groupPairs: unknown[];
+  };
+};
+
+function hasBoundedSuiteCarrier(value: Record<string, unknown>): value is BoundedSuiteCarrier {
+  if (!Array.isArray(value.comparisons) ||
     value.comparisons.length === 0 ||
     value.comparisons.length > SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS ||
+    !isRecord(value.primary) ||
+    !isRecord(value.diagnostics) ||
+    !Array.isArray(value.diagnostics.metrics) ||
+    value.diagnostics.metrics.length > SENA_GROUP_COMPARISON_METRICS.length ||
+    !Array.isArray(value.diagnostics.groupPairs) ||
+    value.diagnostics.groupPairs.length > value.comparisons.length) return false;
+  return true;
+}
+
+function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult {
+  if (!isRecord(value) || !hasBoundedSuiteCarrier(value) ||
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+    value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+    !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
+    value.guardrail !== groupComparisonSuiteGuardrail ||
     !value.comparisons.every(isCurrentSenaGroupComparisonResult)) return false;
   return isCanonicalSuiteStructure(
     value,
@@ -944,10 +1364,11 @@ function isCurrentSuite(value: unknown): value is SenaGroupComparisonSuiteResult
 }
 
 function isNormalizedLegacySuite(value: unknown): value is SenaGroupComparisonSuiteResult {
-  if (!isRecord(value) || value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+  if (!isRecord(value) || !hasBoundedSuiteCarrier(value) ||
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
     value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.groupComparisonSuite ||
     !isFiniteNumber(value.alpha) || value.alpha <= 0 || value.alpha > 1 || value.correction !== "holm" ||
-    typeof value.guardrail !== "string" || value.guardrail.trim().length === 0 || !Array.isArray(value.comparisons) ||
+    typeof value.guardrail !== "string" || value.guardrail.trim().length === 0 ||
     !value.comparisons.every(isNormalizedLegacyComparison)) return false;
   return isCanonicalSuiteStructure(
     value,
@@ -958,45 +1379,627 @@ function isNormalizedLegacySuite(value: unknown): value is SenaGroupComparisonSu
 
 export function assertSenaGroupComparisonValidationResultMatchesSource(
   value: SenaGroupComparisonValidationResult,
-  source: SenaGroupComparisonSourceContext
+  source: SenaGroupComparisonSourceContext,
+  verificationCache = new SenaGroupComparisonSourceVerificationCache()
 ) {
-  const comparisons = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
-    ? value.comparisons
-    : [value];
-  const currentComparisons = comparisons.filter((comparison) =>
-    comparison.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison
-  );
-  if (currentComparisons.length === 0) return;
-  const model = buildSenaModel(source.dataset, source.buildOptions ?? {});
-  for (const comparison of currentComparisons) {
-    const expected = buildSenaGroupComparisonSourceEvidence({
-      dataset: source.dataset,
-      model,
+  verificationCache.assertMatches(value, source);
+}
+
+type SenaGroupComparisonCachedSource = {
+  model: SenaModel;
+  evidenceByComparison: Map<string, SenaGroupComparisonSourceEvidence>;
+  verifiedResultsByKey: Map<string, SenaGroupComparisonValidationResult>;
+};
+
+export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_WORK_UNITS = 50_000_000;
+export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_RESULTS = 1_000;
+export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_SOURCES = 1_000;
+export const SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS = 50_000_000;
+const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES = 65_536;
+const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES = 16 * 1024 * 1024;
+
+type SenaGroupComparisonVerificationLeaf = {
+  key: string;
+  workUnits: number;
+};
+
+function safeAdmissionWorkProduct(...factors: number[]) {
+  let product = 1;
+  for (const factor of factors) {
+    if (!Number.isSafeInteger(factor) || factor < 0 ||
+      (product !== 0 && factor > Math.floor(Number.MAX_SAFE_INTEGER / product))) return undefined;
+    product *= factor;
+  }
+  return product;
+}
+
+function safeAdmissionWorkSum(values: number[]) {
+  let total = 0;
+  for (const value of values) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER - total) return undefined;
+    total += value;
+  }
+  return total;
+}
+
+function isDenseBoundedSourceModelArray(value: unknown, maximum: number): value is unknown[] {
+  if (!Array.isArray(value) || value.length > maximum) return false;
+  let indexes = 0;
+  for (const key of Reflect.ownKeys(value)) {
+    if (key === "length") continue;
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) return false;
+    const index = Number(key);
+    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) return false;
+    indexes += 1;
+  }
+  return indexes === value.length;
+}
+
+export function estimateSenaGroupComparisonSourceModelWorkUnits(
+  source: SenaGroupComparisonSourceContext,
+  maximumWorkUnits = Number.MAX_SAFE_INTEGER
+) {
+  const dataset = source.dataset;
+  const collections = [
+    dataset.people,
+    dataset.codebook,
+    dataset.interactions,
+    dataset.utterances,
+    dataset.coded_segments
+  ];
+  if (collections.some((value) => !Array.isArray(value))) {
+    throw new Error("SENA group-comparison holder dataset collections are invalid.");
+  }
+  if (!Number.isSafeInteger(maximumWorkUnits) || maximumWorkUnits < 0) {
+    throw new Error("SENA group-comparison source model work budget is invalid.");
+  }
+  const people = dataset.people.length;
+  const codes = dataset.codebook.length;
+  const interactions = dataset.interactions.length;
+  const utterances = dataset.utterances.length;
+  const codedSegments = dataset.coded_segments.length;
+  if (collections.some((value) => value.length > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES)) {
+    throw new Error("SENA group-comparison source model work budget exceeded.");
+  }
+  const nodes = safeAdmissionWorkSum([people, codes]);
+  if (nodes === undefined) throw new Error("SENA group-comparison holder model work is not safely representable.");
+  const rows = safeAdmissionWorkSum([interactions, utterances, codedSegments]);
+  const minimumWork = rows === undefined
+    ? undefined
+    : safeAdmissionWorkSum([
+        safeAdmissionWorkProduct(64, people + codes + rows) ?? Number.MAX_SAFE_INTEGER,
+        safeAdmissionWorkProduct(16, people, people, people) ?? Number.MAX_SAFE_INTEGER,
+        safeAdmissionWorkProduct(16, nodes, nodes) ?? Number.MAX_SAFE_INTEGER
+      ]);
+  if (minimumWork === undefined || minimumWork > maximumWorkUnits) {
+    throw new Error("SENA group-comparison source model work budget exceeded.");
+  }
+  if (!collections.every((value) => isDenseBoundedSourceModelArray(
+    value,
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES
+  ))) {
+    throw new Error("SENA group-comparison holder dataset collections are invalid.");
+  }
+  const pairProduct = codes < 2 ? 0 : safeAdmissionWorkProduct(codes, codes - 1);
+  const pairCount = pairProduct === undefined ? undefined : pairProduct / 2;
+  if (pairCount === undefined || !Number.isSafeInteger(pairCount)) {
+    throw new Error("SENA group-comparison holder model work is not safely representable.");
+  }
+  let segmentCodeReferences = 0;
+  let cumulativeSegmentWork = 0;
+  let sourceTextBytes = 0;
+  const reserveSourceText = (value: unknown) => {
+    if (typeof value !== "string" || value.length > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES) {
+      throw new Error("SENA group-comparison source model text budget exceeded.");
+    }
+    const bytes = new TextEncoder().encode(value).byteLength;
+    if (bytes > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES - sourceTextBytes) {
+      throw new Error("SENA group-comparison source model text budget exceeded.");
+    }
+    sourceTextBytes += bytes;
+  };
+  const referencedCodes = new Set<string>();
+  const participationWindows = new Set<string>();
+  for (const segment of dataset.coded_segments) {
+    const codeReferences = Array.isArray(segment.codes) ? segment.codes : [];
+    const targets = Array.isArray(segment.targetPersonIds) ? segment.targetPersonIds : [];
+    if (!isDenseBoundedSourceModelArray(
+      codeReferences,
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES
+    ) || !isDenseBoundedSourceModelArray(
+      targets,
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES
+    )) {
+      throw new Error("SENA group-comparison source model work budget exceeded.");
+    }
+    const segmentLowerBound = safeAdmissionWorkSum([
+      safeAdmissionWorkProduct(codeReferences.length, codeReferences.length) ?? Number.MAX_SAFE_INTEGER,
+      safeAdmissionWorkProduct(targets.length, 16) ?? Number.MAX_SAFE_INTEGER,
+      codeReferences.length,
+      targets.length
+    ]);
+    const nextSegmentWork = segmentLowerBound === undefined
+      ? undefined
+      : safeAdmissionWorkSum([cumulativeSegmentWork, segmentLowerBound]);
+    const nextReferences = safeAdmissionWorkSum([segmentCodeReferences, codeReferences.length]);
+    const nextFanout = nextReferences === undefined
+      ? undefined
+      : safeAdmissionWorkSum([codedSegments, nextReferences]);
+    const cumulativeLowerBound = nextSegmentWork === undefined || nextFanout === undefined
+      ? undefined
+      : safeAdmissionWorkSum([
+          minimumWork,
+          nextSegmentWork,
+          safeAdmissionWorkProduct(4, people, codes, nextFanout) ?? Number.MAX_SAFE_INTEGER,
+          safeAdmissionWorkProduct(6, pairCount, nextFanout) ?? Number.MAX_SAFE_INTEGER
+        ]);
+    if (segmentLowerBound === undefined || nextSegmentWork === undefined ||
+      nextReferences === undefined || cumulativeLowerBound === undefined ||
+      cumulativeLowerBound > maximumWorkUnits) {
+      throw new Error("SENA group-comparison source model work budget exceeded.");
+    }
+    cumulativeSegmentWork = nextSegmentWork;
+    segmentCodeReferences = nextReferences;
+    for (const code of codeReferences) {
+      reserveSourceText(code);
+      referencedCodes.add(code);
+    }
+    for (const target of targets) reserveSourceText(target);
+    if (typeof segment.unitId === "string" && typeof segment.stanzaId === "string") {
+      reserveSourceText(segment.unitId);
+      reserveSourceText(segment.stanzaId);
+      participationWindows.add(`${segment.unitId}::${segment.stanzaId}`);
+    }
+  }
+  const activeCodes = Math.min(codes, referencedCodes.size);
+  if (rows === undefined) throw new Error("SENA group-comparison holder model work is not safely representable.");
+  const temporalTurns = new Set<number>();
+  for (const rowsWithTurns of [dataset.utterances, dataset.coded_segments]) {
+    for (const row of rowsWithTurns) {
+      if (typeof row.turnIndex === "number" && Number.isFinite(row.turnIndex)) temporalTurns.add(row.turnIndex);
+    }
+  }
+  let temporalWindowUpperBound = temporalTurns.size;
+  if (source.buildOptions?.temporal?.mode === "stage") {
+    const stages = new Set<string>();
+    for (const rowsWithStage of [dataset.utterances, dataset.coded_segments, dataset.interactions]) {
+      for (const row of rowsWithStage) {
+        if (typeof row.stage === "string") {
+          reserveSourceText(row.stage);
+          stages.add(row.stage);
+        }
+      }
+    }
+    temporalWindowUpperBound = stages.size;
+  }
+  const segmentFanout = safeAdmissionWorkSum([dataset.coded_segments.length, segmentCodeReferences]);
+  const rowFanout = safeAdmissionWorkSum([rows, segmentCodeReferences]);
+  if (segmentFanout === undefined || rowFanout === undefined) {
+    throw new Error("SENA group-comparison holder model work is not safely representable.");
+  }
+  // Keep this aligned with the single-full-model terms in snapshot.ts. These
+  // terms bound the actual social cubic kernels, fusion/embedding passes,
+  // evidence fan-out, attribution work, and temporal scans before a holder
+  // model is constructed.
+  const workTerms = [
+    safeAdmissionWorkProduct(64, people + codes + rows),
+    cumulativeSegmentWork,
+    safeAdmissionWorkProduct(16, people, people, people),
+    safeAdmissionWorkProduct(16, nodes, nodes),
+    safeAdmissionWorkProduct(2, pairCount, codes),
+    safeAdmissionWorkProduct(2, people, pairCount),
+    safeAdmissionWorkProduct(6, pairCount, segmentFanout),
+    safeAdmissionWorkProduct(2, dataset.coded_segments.length, dataset.coded_segments.length),
+    safeAdmissionWorkProduct(4, people, participationWindows.size, codes, codes),
+    safeAdmissionWorkProduct(110, people, codes, codes),
+    safeAdmissionWorkProduct(110, people, activeCodes, activeCodes, codes),
+    safeAdmissionWorkProduct(4, people, codes, segmentFanout),
+    safeAdmissionWorkProduct(2, people, people, dataset.interactions.length),
+    safeAdmissionWorkProduct(temporalWindowUpperBound, rowFanout),
+    ...(activeCodes === codes ? [safeAdmissionWorkProduct(320, nodes, nodes, nodes)] : [])
+  ];
+  const total = workTerms.some((term) => term === undefined)
+    ? undefined
+    : safeAdmissionWorkSum(workTerms as number[]);
+  if (total === undefined) {
+    throw new Error("SENA group-comparison holder model work is not safely representable.");
+  }
+  if (total > maximumWorkUnits) {
+    throw new Error("SENA group-comparison source model work budget exceeded.");
+  }
+  return Math.max(1, total);
+}
+
+function sameBoundedJsonShape(value: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(value) && value.length === expected.length &&
+      expected.every((entry, index) => sameBoundedJsonShape(value[index], entry));
+  }
+  if (isRecord(expected)) {
+    if (!isRecord(value)) return false;
+    const expectedKeys = Object.keys(expected);
+    const valueKeys = Object.keys(value);
+    return valueKeys.length === expectedKeys.length &&
+      expectedKeys.every((key) => Object.hasOwn(value, key) && sameBoundedJsonShape(value[key], expected[key]));
+  }
+  return !Array.isArray(value) && !isRecord(value);
+}
+
+function currentComparisonVerificationKeyBody(
+  comparison: Record<string, unknown>,
+  sourceEvidenceHash: string
+) {
+  const effectSize = comparison.effectSize as Record<string, unknown>;
+  const permutation = comparison.permutation as Record<string, unknown>;
+  const bootstrap = comparison.bootstrap as Record<string, unknown>;
+  const diagnostics = comparison.diagnostics as Record<string, unknown>;
+  return {
+    schemaVersion: comparison.schemaVersion,
+    sourceSchemaVersion: comparison.sourceSchemaVersion,
+    metric: comparison.metric,
+    groupField: comparison.groupField,
+    groupA: comparison.groupA,
+    groupB: comparison.groupB,
+    nA: comparison.nA,
+    nB: comparison.nB,
+    meanA: comparison.meanA,
+    meanB: comparison.meanB,
+    observedDifference: comparison.observedDifference,
+    effectSize: {
+      status: effectSize.status,
+      cohenD: effectSize.cohenD,
+      hedgesG: effectSize.hedgesG,
+      pooledStandardDeviation: effectSize.pooledStandardDeviation,
+      reason: effectSize.reason
+    },
+    sourceEvidenceHash,
+    permutation: {
+      iterations: permutation.iterations,
+      seed: permutation.seed,
+      pTwoSided: permutation.pTwoSided,
+      nullLower: permutation.nullLower,
+      nullUpper: permutation.nullUpper,
+      samplesPreview: permutation.samplesPreview
+    },
+    bootstrap: {
+      iterations: bootstrap.iterations,
+      seed: bootstrap.seed,
+      meanDifferenceLower: bootstrap.meanDifferenceLower,
+      meanDifferenceUpper: bootstrap.meanDifferenceUpper,
+      samplesPreview: bootstrap.samplesPreview
+    },
+    diagnostics: {
+      totalPeople: diagnostics.totalPeople,
+      comparedPeople: diagnostics.comparedPeople,
+      minGroupSize: diagnostics.minGroupSize,
+      balancedDesign: diagnostics.balancedDesign,
+      smallSample: diagnostics.smallSample,
+      metricScale: diagnostics.metricScale
+    },
+    guardrail: comparison.guardrail,
+    ...(Object.hasOwn(comparison, "comparisonId") ? {
+      comparisonId: comparison.comparisonId,
+      holmRank: comparison.holmRank,
+      holmAdjustedP: comparison.holmAdjustedP,
+      significantAtAlpha: comparison.significantAtAlpha
+    } : {})
+  };
+}
+
+/**
+ * Turn-scoped verifier for immutable holder datasets and build options.
+ *
+ * The cache owns model construction and never accepts a caller-provided model
+ * or source-evidence object. Product callers create one cache per synchronous
+ * read/create/review turn, while holder snapshots and their build options are
+ * immutable for that turn. This keeps repeated sealed-run verification bounded
+ * without creating an evidence-injection surface.
+ */
+export class SenaGroupComparisonSourceVerificationCache {
+  private readonly sources = new WeakMap<object, Map<string, SenaGroupComparisonCachedSource>>();
+  private readonly reservedResultKeys = new Set<string>();
+  private readonly maximumWorkUnits: number;
+  private readonly maximumUniqueResults: number;
+  private readonly maximumUniqueSources: number;
+  private readonly maximumSourceModelWorkUnits: number;
+  private reservedWorkUnits = 0;
+  private reservedSourceCount = 0;
+  private reservedSourceModelWorkUnits = 0;
+  private modelBuilds = 0;
+  private evidenceBuilds = 0;
+  private resultReplays = 0;
+
+  constructor(options: {
+    maxDeterministicWorkUnits?: number;
+    maxUniqueResults?: number;
+    maxUniqueSources?: number;
+    maxSourceModelWorkUnits?: number;
+  } = {}) {
+    this.maximumWorkUnits = options.maxDeterministicWorkUnits ??
+      SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_WORK_UNITS;
+    this.maximumUniqueResults = options.maxUniqueResults ??
+      SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_RESULTS;
+    this.maximumUniqueSources = options.maxUniqueSources ??
+      SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_SOURCES;
+    this.maximumSourceModelWorkUnits = options.maxSourceModelWorkUnits ??
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS;
+    if (!Number.isSafeInteger(this.maximumWorkUnits) || this.maximumWorkUnits < 1 ||
+      !Number.isSafeInteger(this.maximumUniqueResults) || this.maximumUniqueResults < 1 ||
+      !Number.isSafeInteger(this.maximumUniqueSources) || this.maximumUniqueSources < 1 ||
+      !Number.isSafeInteger(this.maximumSourceModelWorkUnits) || this.maximumSourceModelWorkUnits < 1) {
+      throw new Error("SENA group-comparison source replay budget must use positive safe integers.");
+    }
+  }
+
+  get modelBuildCount() {
+    return this.modelBuilds;
+  }
+
+  get sourceEvidenceBuildCount() {
+    return this.evidenceBuilds;
+  }
+
+  get canonicalResultReplayCount() {
+    return this.resultReplays;
+  }
+
+  get deterministicWorkUnitsReserved() {
+    return this.reservedWorkUnits;
+  }
+
+  get uniqueResultReservationCount() {
+    return this.reservedResultKeys.size;
+  }
+
+  get uniqueSourceReservationCount() {
+    return this.reservedSourceCount;
+  }
+
+  get sourceModelWorkUnitsReserved() {
+    return this.reservedSourceModelWorkUnits;
+  }
+
+  private reserveResultReplay(resultKey: string, leaves: SenaGroupComparisonVerificationLeaf[]) {
+    if (this.reservedResultKeys.has(resultKey)) return;
+    let workUnits = 0;
+    for (const leaf of leaves) {
+      if (!Number.isSafeInteger(leaf.workUnits) || leaf.workUnits < 0 ||
+        workUnits > Number.MAX_SAFE_INTEGER - leaf.workUnits) {
+        throw new Error("SENA group-comparison source verification replay budget is not safely representable.");
+      }
+      workUnits += leaf.workUnits;
+    }
+    if (this.reservedResultKeys.size >= this.maximumUniqueResults ||
+      workUnits > this.maximumWorkUnits - this.reservedWorkUnits) {
+      throw new Error("SENA group-comparison source verification replay budget exceeded.");
+    }
+    this.reservedResultKeys.add(resultKey);
+    this.reservedWorkUnits += workUnits;
+  }
+
+  private sourceEntry(source: SenaGroupComparisonSourceContext) {
+    const datasetKey = source.dataset as object;
+    const buildOptionsKey = stableJson(source.buildOptions ?? {});
+    let byBuildOptions = this.sources.get(datasetKey);
+    if (!byBuildOptions) {
+      byBuildOptions = new Map();
+      this.sources.set(datasetKey, byBuildOptions);
+    }
+    let entry = byBuildOptions.get(buildOptionsKey);
+    if (!entry) {
+      if (this.reservedSourceCount >= this.maximumUniqueSources) {
+        throw new Error("SENA group-comparison source verification unique-source budget exceeded.");
+      }
+      const sourceModelWorkUnits = estimateSenaGroupComparisonSourceModelWorkUnits(
+        source,
+        this.maximumSourceModelWorkUnits - this.reservedSourceModelWorkUnits
+      );
+      if (sourceModelWorkUnits >
+        this.maximumSourceModelWorkUnits - this.reservedSourceModelWorkUnits) {
+        throw new Error("SENA group-comparison source model work budget exceeded.");
+      }
+      this.reservedSourceCount += 1;
+      this.reservedSourceModelWorkUnits += sourceModelWorkUnits;
+      entry = {
+        model: buildSenaModel(source.dataset, source.buildOptions ?? {}),
+        evidenceByComparison: new Map(),
+        verifiedResultsByKey: new Map()
+      };
+      this.modelBuilds += 1;
+      byBuildOptions.set(buildOptionsKey, entry);
+    }
+    return entry;
+  }
+
+  private currentComparisonReplayDescriptor(
+    value: unknown
+  ): SenaGroupComparisonVerificationLeaf {
+    if (!isRecord(value) ||
+      value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparison ||
+      value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparison ||
+      !isCanonicalCommonComparison(value, false) ||
+      !isCurrentEffectSize(
+        value.effectSize,
+        value.nA as number,
+        value.nB as number,
+        value.observedDifference as number
+      )) {
+      throw new Error("SENA group-comparison v2 evidence is structurally invalid before source replay.");
+    }
+    if (!isRecord(value.sourceEvidence) || typeof value.sourceEvidence.evidenceHash !== "string" ||
+      !isRecord(value.diagnostics)) {
+      throw new Error("SENA group-comparison v2 source evidence is structurally invalid before source replay.");
+    }
+    const permutationIterations = (value.permutation as Record<string, unknown>).iterations as number;
+    const bootstrapIterations = (value.bootstrap as Record<string, unknown>).iterations as number;
+    const comparedPeople = value.diagnostics.comparedPeople as number;
+    const workUnits = (permutationIterations + bootstrapIterations) * comparedPeople;
+    if (!Number.isSafeInteger(workUnits) || workUnits < 0) {
+      throw new Error("SENA group-comparison source verification replay budget is not safely representable.");
+    }
+    return {
+      key: stableJson(currentComparisonVerificationKeyBody(value, value.sourceEvidence.evidenceHash)),
+      workUnits
+    };
+  }
+
+  private verifyCurrentComparisonSource(
+    value: unknown,
+    source: SenaGroupComparisonSourceContext
+  ) {
+    if (!isRecord(value) || !isRecord(value.sourceEvidence) ||
+      !Array.isArray(value.sourceEvidence.metricUniverse) ||
+      value.sourceEvidence.metricUniverse.length !== source.dataset.people.length) {
+      throw new Error("SENA group-comparison metric universe does not match the holder people cardinality.");
+    }
+    const comparison = value as unknown as SenaGroupComparisonResult;
+    const expected = this.expectedEvidence(source, comparison);
+    if (!sameBoundedJsonShape(value.sourceEvidence, expected) ||
+      stableJson(value.sourceEvidence) !== stableJson(expected)) {
+      throw new Error("SENA group-comparison source evidence does not match the holder dataset, model configuration, and group definition.");
+    }
+  }
+
+  private currentResultVerificationKey(
+    value: SenaGroupComparisonValidationReadModel,
+    source: SenaGroupComparisonSourceContext
+  ) {
+    if (!isRecord(value)) return undefined;
+    if (
+      value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison &&
+      value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison
+    ) {
+      const leaf = this.currentComparisonReplayDescriptor(value);
+      const resultKey = `single:${leaf.key}`;
+      this.reserveResultReplay(resultKey, [leaf]);
+      this.verifyCurrentComparisonSource(value, source);
+      return resultKey;
+    }
+    if (
+      value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite ||
+      value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite
+    ) {
+      return undefined;
+    }
+    if (!Array.isArray(value.comparisons) || value.comparisons.length === 0 ||
+      value.comparisons.length > SENA_GROUP_COMPARISON_MAX_SUITE_COMPARISONS ||
+      !isRecord(value.primary) || !isRecord(value.diagnostics) ||
+      !Array.isArray(value.diagnostics.metrics) ||
+      value.diagnostics.metrics.length > SENA_GROUP_COMPARISON_METRICS.length ||
+      !Array.isArray(value.diagnostics.groupPairs) ||
+      value.diagnostics.groupPairs.length > value.comparisons.length) {
+      throw new Error("SENA group-comparison suite exceeds its bounded current-v2 structure.");
+    }
+    const comparisonLeaves = value.comparisons.map((comparison) => (
+      this.currentComparisonReplayDescriptor(comparison)
+    ));
+    const primaryLeaf = this.currentComparisonReplayDescriptor(value.primary);
+    const groupPairs = value.diagnostics.groupPairs as Array<Record<string, unknown>>;
+    const resultKey = stableJson({
+      schemaVersion: value.schemaVersion,
+      sourceSchemaVersion: value.sourceSchemaVersion,
+      alpha: value.alpha,
+      correction: value.correction,
+      comparisonCount: value.comparisonCount,
+      significantHolmCount: value.significantHolmCount,
+      primaryKey: primaryLeaf.key,
+      comparisonKeys: comparisonLeaves.map((leaf) => leaf.key),
+      diagnostics: {
+        metrics: value.diagnostics.metrics,
+        groupPairs: groupPairs.map((pair) => ({
+          groupField: pair.groupField,
+          groupA: pair.groupA,
+          groupB: pair.groupB
+        })),
+        minGroupSize: value.diagnostics.minGroupSize,
+        smallSampleComparisons: value.diagnostics.smallSampleComparisons,
+        preregistrationEvidence: value.diagnostics.preregistrationEvidence
+      },
+      guardrail: value.guardrail
+    });
+    this.reserveResultReplay(resultKey, comparisonLeaves);
+    for (const comparison of value.comparisons) {
+      this.verifyCurrentComparisonSource(comparison, source);
+    }
+    this.verifyCurrentComparisonSource(value.primary, source);
+    return resultKey;
+  }
+
+  normalizeBoundResult(
+    value: SenaGroupComparisonValidationReadModel,
+    source: SenaGroupComparisonSourceContext,
+    normalizeUnbound: () => SenaGroupComparisonValidationResult
+  ) {
+    const verificationKey = this.currentResultVerificationKey(value, source);
+    const entry = verificationKey ? this.sourceEntry(source) : undefined;
+    const cached = verificationKey ? entry?.verifiedResultsByKey.get(verificationKey) : undefined;
+    if (cached) {
+      return structuredClone(cached);
+    }
+    const normalized = normalizeUnbound();
+    this.resultReplays += 1;
+    this.assertMatches(normalized, source);
+    if (verificationKey) entry?.verifiedResultsByKey.set(verificationKey, structuredClone(normalized));
+    return normalized;
+  }
+
+  private expectedEvidence(
+    source: SenaGroupComparisonSourceContext,
+    comparison: SenaGroupComparisonResult
+  ) {
+    const entry = this.sourceEntry(source);
+    const comparisonKey = stableJson({
       metric: comparison.metric,
       groupField: comparison.groupField,
       groupA: comparison.groupA,
       groupB: comparison.groupB
     });
-    if (stableJson(comparison.sourceEvidence) !== stableJson(expected)) {
-      throw new Error("SENA group-comparison source evidence does not match the holder dataset, model configuration, and group definition.");
+    let evidence = entry.evidenceByComparison.get(comparisonKey);
+    if (!evidence) {
+      evidence = buildSenaGroupComparisonSourceEvidence({
+        dataset: source.dataset,
+        model: entry.model,
+        metric: comparison.metric,
+        groupField: comparison.groupField,
+        groupA: comparison.groupA,
+        groupB: comparison.groupB
+      });
+      this.evidenceBuilds += 1;
+      entry.evidenceByComparison.set(comparisonKey, evidence);
+    }
+    return evidence;
+  }
+
+  assertMatches(
+    value: SenaGroupComparisonValidationResult,
+    source: SenaGroupComparisonSourceContext
+  ) {
+    const comparisons = value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite
+      ? value.comparisons
+      : [value];
+    const currentComparisons = comparisons.filter((comparison) =>
+      comparison.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.groupComparison
+    );
+    if (currentComparisons.length === 0) return;
+    for (const comparison of currentComparisons) {
+      const expected = this.expectedEvidence(source, comparison);
+      if (!sameBoundedJsonShape(comparison.sourceEvidence, expected) ||
+        stableJson(comparison.sourceEvidence) !== stableJson(expected)) {
+        throw new Error("SENA group-comparison source evidence does not match the holder dataset, model configuration, and group definition.");
+      }
     }
   }
 }
 
-export function normalizeSenaGroupComparisonValidationResult(
-  value: SenaGroupComparisonValidationReadModel,
-  source?: SenaGroupComparisonSourceContext
+function normalizeSenaGroupComparisonValidationResultUnbound(
+  value: SenaGroupComparisonValidationReadModel
 ): SenaGroupComparisonValidationResult {
-  const bindSource = (normalized: SenaGroupComparisonValidationResult) => {
-    if (source) assertSenaGroupComparisonValidationResultMatchesSource(normalized, source);
-    return normalized;
-  };
   if (!isRecord(value)) throw new Error("SENA group-comparison validation result must be an object.");
   if (
     value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparison ||
     value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.groupComparison
   ) {
-    return bindSource(normalizeSenaGroupComparisonResult(value));
+    return normalizeSenaGroupComparisonResult(value);
   }
   if (
     value.schemaVersion !== SENA_SCHEMA_VERSIONS.groupComparisonSuite &&
@@ -1004,9 +2007,12 @@ export function normalizeSenaGroupComparisonValidationResult(
   ) {
     throw new Error("SENA group-comparison validation result uses an unsupported schemaVersion.");
   }
+  if (!hasBoundedSuiteCarrier(value)) {
+    throw new Error("SENA group-comparison suite exceeds its bounded suite structure.");
+  }
   if (value.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite) {
     if (isCurrentSuite(value) || isNormalizedLegacySuite(value)) {
-      return bindSource(value as unknown as SenaGroupComparisonSuiteResult);
+      return value as unknown as SenaGroupComparisonSuiteResult;
     }
     throw new Error("SENA group-comparison suite v2 deterministic leaf or Holm evidence is internally inconsistent.");
   }
@@ -1030,12 +2036,32 @@ export function normalizeSenaGroupComparisonValidationResult(
   if (!isNormalizedLegacySuite(normalized)) {
     throw new Error("SENA group-comparison suite legacy evidence is internally inconsistent.");
   }
-  return bindSource(normalized);
+  return normalized;
+}
+
+export function normalizeSenaGroupComparisonValidationResult(
+  value: SenaGroupComparisonValidationReadModel,
+  source?: SenaGroupComparisonSourceContext,
+  sourceVerificationCache?: SenaGroupComparisonSourceVerificationCache
+): SenaGroupComparisonValidationResult {
+  assertSenaGroupComparisonValidationCarrier(value, source?.dataset.people.length);
+  if (!source) return normalizeSenaGroupComparisonValidationResultUnbound(value);
+  const verificationCache = sourceVerificationCache ?? new SenaGroupComparisonSourceVerificationCache();
+  return verificationCache.normalizeBoundResult(
+    value,
+    source,
+    () => normalizeSenaGroupComparisonValidationResultUnbound(value)
+  );
 }
 
 export function isCurrentSenaGroupComparisonValidationResult(
   value: unknown
 ): value is SenaGroupComparisonValidationResult {
+  try {
+    assertSenaGroupComparisonValidationCarrier(value);
+  } catch {
+    return false;
+  }
   if (isCurrentSenaGroupComparisonResult(value)) {
     return true;
   }

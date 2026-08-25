@@ -17,7 +17,10 @@ import {
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
-import type { SenaEnterpriseProject } from "./team-project";
+import {
+  enterpriseProjectBindingSnapshotSha256,
+  type SenaEnterpriseProject
+} from "./team-project";
 import { senaEnterpriseUploadMaxBytes } from "./upload-limits";
 import {
   localWebhookSinkAttempt,
@@ -233,6 +236,8 @@ export type SenaEnterpriseAnalysisRun = {
   artifactFingerprints: {
     reportSha256: string;
     projectSnapshotSha256: string;
+    /** Canonical binding hash; legacy rows may only carry the serialization-order-sensitive artifact hash. */
+    projectSnapshotBindingSha256?: string;
     runtimeBundleSha256?: string;
   };
   createdAt: string;
@@ -1588,6 +1593,27 @@ type CreateEnterpriseAnalysisRunInput = {
   run: SenaAnalysisRunArtifact;
 };
 
+const SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT = 1000;
+
+function retainRecentAndValidationReferencedAnalysisRuns(
+  db: Pick<ReturnType<typeof readEnterpriseDb>, "analysisRuns" | "validationRuns">
+) {
+  const referencedAnalysisRunIds = new Set(db.validationRuns.flatMap((validationRun) => {
+    const walkthrough = validationRun.parityEvidence?.walkthrough;
+    return walkthrough?.source === "analysis-run" && typeof walkthrough.sourceId === "string"
+      ? [walkthrough.sourceId]
+      : [];
+  }));
+  const recent = db.analysisRuns.slice(0, SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT);
+  const retainedIds = new Set(recent.map((run) => run.id));
+  const referenced = db.analysisRuns.filter((run) => (
+    referencedAnalysisRunIds.has(run.id) && !retainedIds.has(run.id)
+  ));
+  // validationRuns is independently capped at 1000, so reference-aware
+  // retention remains bounded at 2000 while keeping every live exact source.
+  return [...recent, ...referenced];
+}
+
 function createEnterpriseAnalysisRunInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseAnalysisRunInput,
@@ -1620,12 +1646,13 @@ function createEnterpriseAnalysisRunInDb(
     artifactFingerprints: {
       reportSha256: artifactSha256(input.run.report),
       projectSnapshotSha256: artifactSha256(input.run.projectSnapshot),
+      projectSnapshotBindingSha256: enterpriseProjectBindingSnapshotSha256(input.run.projectSnapshot),
       runtimeBundleSha256: input.run.runtimeBundle ? artifactSha256(input.run.runtimeBundle) : undefined
     },
     createdAt: input.run.generatedAt
   };
   db.analysisRuns.unshift(run);
-  db.analysisRuns = db.analysisRuns.slice(0, 1000);
+  db.analysisRuns = retainRecentAndValidationReferencedAnalysisRuns(db);
   appendAudit(db, {
     event: "analysis.run",
     userId: context.user.id,

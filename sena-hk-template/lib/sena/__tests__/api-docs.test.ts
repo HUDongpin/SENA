@@ -77,6 +77,51 @@ describe("SENA API documentation contract", () => {
     expect(claimGet.requestBody).toBeUndefined();
   });
 
+  it("documents the signed worker webhook as an HMAC-authenticated JSON-only 202 operation", () => {
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        security?: Array<Record<string, unknown>>;
+        parameters?: Array<{ name: string; in: string; required: boolean; schema?: { enum?: string[] } }>;
+        requestBody?: { content?: Record<string, unknown> };
+        responses: Record<string, { content?: Record<string, unknown> }>;
+      }>>;
+      components: { securitySchemes: Record<string, { name?: string }> };
+    };
+    const operation = openApi.paths["/api/sena/ops/jobs/worker"].post;
+    expect(operation.security).toEqual([{ jobWorkerHmac: [] }]);
+    expect(openApi.components.securitySchemes.jobWorkerHmac.name).toBe("x-sena-webhook-signature");
+    expect(operation.parameters?.map((parameter) => [parameter.name, parameter.in, parameter.required]))
+      .toEqual([
+        ["x-sena-job-payload-sha256", "header", true],
+        ["x-sena-webhook-timestamp", "header", true],
+        ["x-sena-webhook-signature", "header", true],
+        ["x-sena-webhook-event", "header", true]
+      ]);
+    expect(operation.parameters?.find((parameter) => parameter.name === "x-sena-webhook-event")?.schema?.enum)
+      .toEqual(["server_job.queue", "server_job.queue.probe"]);
+    expect(Object.keys(operation.requestBody?.content ?? {})).toEqual(["application/json"]);
+    expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(["202", "400", "401", "503"]));
+    expect(operation.responses["202"].content).toHaveProperty("application/json");
+  });
+
+  it("documents exact request media types instead of granting multipart to JSON-only handlers", () => {
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        requestBody?: { content?: Record<string, unknown> };
+      }>>;
+    };
+    const bodyTypes = (path: string, method: string) => (
+      Object.keys(openApi.paths[path][method].requestBody?.content ?? {})
+    );
+
+    expect(bodyTypes("/api/sena/exports/publication", "post")).toEqual(["application/json"]);
+    expect(bodyTypes("/api/auth/login", "post")).toEqual(["application/json"]);
+    expect(bodyTypes("/api/sena/import", "post")).toEqual(["multipart/form-data"]);
+    expect(bodyTypes("/api/sena/uploads", "post")).toEqual(["application/json", "multipart/form-data"]);
+    expect(bodyTypes("/api/sena/reliability", "post")).toEqual(["application/json", "multipart/form-data"]);
+    expect(bodyTypes("/api/sena/reliability", "patch")).toEqual(["application/json"]);
+  });
+
   it("freezes the enterprise and ops API surface while analysis is decomposed along M1-M11 seams", () => {
     const frozenEndpointIds = SENA_API_ENDPOINT_FACTS
       .filter((endpoint) => SENA_API_SURFACE_MORATORIUM.freezePolicy.frozenGroups.includes(endpoint.group))
@@ -163,6 +208,36 @@ describe("SENA API documentation contract", () => {
       expect(operation.responses["413"].content?.["application/json"].schema?.properties?.code?.enum)
         .toContain(code);
     }
+  });
+
+  it("publishes bounded publication-envelope failures before publication side effects", () => {
+    const fact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-publication-export");
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        responses: Record<string, {
+          content?: Record<string, { schema?: { properties?: { code?: { enum?: string[] } } } }>;
+        }>;
+      }>>;
+    };
+    expect(fact?.errorResponses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 400, code: "publication_export_content_type_invalid" }),
+      expect.objectContaining({ status: 400, code: "publication_export_request_invalid" }),
+      expect.objectContaining({ status: 400, code: "publication_export_project_required" }),
+      expect.objectContaining({ status: 400, code: "publication_export_inline_snapshot_forbidden" }),
+      expect.objectContaining({ status: 413, code: "publication_export_request_too_large" }),
+      expect.objectContaining({ status: 413, code: "publication_export_request_too_fragmented" })
+    ]));
+    const operation = openApi.paths["/api/sena/exports/publication"].post;
+    expect(operation.responses["400"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toContain("publication_export_request_invalid");
+    expect(operation.responses["413"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toEqual(expect.arrayContaining([
+        "publication_export_request_too_large",
+        "publication_export_request_too_fragmented",
+        "publication_export_derivation_too_complex"
+      ]));
+    expect(SENA_API_EVIDENCE_NOTES["sena-publication-export"]).toContain("65536");
+    expect(SENA_API_EVIDENCE_NOTES["sena-publication-export"]).toContain("1024");
   });
 
   it("requires CSRF enforcement for documented session mutating routes", () => {

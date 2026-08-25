@@ -216,6 +216,41 @@ describe("enterprise project canonical snapshot boundaries", () => {
     expect(rawState()).toBe(before);
   });
 
+  it.each([
+    ["sync revision id", false, "revisionId"],
+    ["async version", true, "version"]
+  ] as const)("rejects a foreign-team restore target selected by %s", async (_label, asynchronous, selector) => {
+    const registered = registeredOwner();
+    const project = createEnterpriseProject(registered.context, {
+      teamId: registered.context.teams[0].id,
+      title: "Foreign revision restore source",
+      snapshot: validSnapshot()
+    });
+    updateEnterpriseProject(registered.context, project.id, {
+      expectedVersion: 1,
+      snapshot: validSnapshot()
+    });
+    const db = readEnterpriseDb();
+    const target = db.projectRevisions.find((revision) => revision.projectId === project.id && revision.version === 1);
+    if (!target) throw new Error("target revision missing");
+    target.teamId = "team-foreign-restore";
+    writeEnterpriseDb(db);
+    const before = rawState();
+    const restoreInput = selector === "revisionId"
+      ? { revisionId: target.id, expectedVersion: 2 }
+      : { version: 1, expectedVersion: 2 };
+
+    const error = await captureError(() => asynchronous
+      ? restoreEnterpriseProjectRevisionAsync(registered.context, project.id, restoreInput)
+      : restoreEnterpriseProjectRevision(registered.context, project.id, restoreInput));
+
+    expect(error).toMatchObject({
+      status: 409,
+      code: "project_revision_integrity_invalid"
+    });
+    expect(rawState()).toBe(before);
+  });
+
   it("fails closed while normalizing corrupted file-backed project state", async () => {
     const registered = registeredOwner();
     const project = createEnterpriseProject(registered.context, {

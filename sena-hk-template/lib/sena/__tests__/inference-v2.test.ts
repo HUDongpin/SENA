@@ -5,6 +5,7 @@ import {
   buildSenaGroupComparisonSuite,
   isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult,
+  SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonResultV1,
   type SenaGroupComparisonSuiteResultV1,
   type SenaGroupComparisonValidationReadModel
@@ -341,6 +342,170 @@ describe("SENA group-comparison effect-size v2", () => {
     expect("comparisons" in normalized && normalized.comparisons.every((comparison) => comparison.effectSize.status === "legacy-ambiguous")).toBe(true);
     expect(isCurrentSenaGroupComparisonValidationResult(normalized)).toBe(false);
     expect(legacy.schemaVersion).toBe("sena-group-comparison-suite/v1");
+  });
+
+  it.each(["raw-v1", "normalized-v2-with-v1-source"] as const)(
+    "rejects an oversized %s legacy suite before traversing comparison entries",
+    (shape) => {
+      const legacy = historicalGroupComparisonSuiteV1();
+      const candidate = shape === "raw-v1"
+        ? legacy
+        : normalizeSenaGroupComparisonValidationResult(legacy);
+      const comparisons = new Array(41);
+      Object.defineProperty(comparisons, 0, {
+        enumerable: true,
+        get() {
+          throw new Error("oversized legacy comparison carrier was traversed");
+        }
+      });
+      (candidate as { comparisons: unknown[] }).comparisons = comparisons;
+      (candidate as { diagnostics: { groupPairs: unknown[] } }).diagnostics.groupPairs = new Array(41);
+
+      expect(() => normalizeSenaGroupComparisonValidationResult(candidate)).toThrow(
+        /bounded suite structure/i
+      );
+    }
+  );
+
+  it.each([
+    ["comparison", (candidate: Record<string, any>, nested: object) => {
+      Object.defineProperty(candidate, "unexpected", { enumerable: true, get: () => nested });
+    }],
+    ["permutation", (candidate: Record<string, any>, nested: object) => {
+      Object.defineProperty(candidate.permutation, "unexpected", { enumerable: true, get: () => nested });
+    }],
+    ["source evidence", (candidate: Record<string, any>, nested: object) => {
+      Object.defineProperty(candidate.sourceEvidence, "unexpected", { enumerable: true, get: () => nested });
+    }]
+  ] as const)("rejects an unknown %s carrier before reading its value", (_label, mutate) => {
+    const current = buildSenaGroupComparison({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100
+    }) as unknown as Record<string, any>;
+    let getterReads = 0;
+    const nested = {};
+    Object.defineProperty(nested, "secret", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("unknown group-comparison carrier was traversed");
+      }
+    });
+    mutate(current, nested);
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(current as never)).toThrow(
+      /carrier|structure|evidence/i
+    );
+    expect(getterReads).toBe(0);
+  });
+
+  it.each([
+    ["non-enumerable", (candidate: Record<PropertyKey, unknown>) => {
+      Object.defineProperty(candidate, "unexpected", {
+        configurable: true,
+        enumerable: false,
+        value: "hidden carrier field"
+      });
+    }],
+    ["symbol", (candidate: Record<PropertyKey, unknown>) => {
+      candidate[Symbol("unexpected")] = "symbol carrier field";
+    }]
+  ] as const)("rejects an unknown %s comparison carrier field", (_label, mutate) => {
+    const current = buildSenaGroupComparison({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100
+    }) as unknown as Record<PropertyKey, unknown>;
+    mutate(current);
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(current as never)).toThrow(
+      /carrier|structure|evidence/i
+    );
+  });
+
+  it.each([
+    ["non-enumerable", (carrier: unknown[]) => {
+      Object.defineProperty(carrier, "unexpected", {
+        configurable: true,
+        enumerable: false,
+        value: "hidden array field"
+      });
+    }],
+    ["symbol", (carrier: unknown[]) => {
+      (carrier as unknown as Record<PropertyKey, unknown>)[Symbol("unexpected")] =
+        "symbol array field";
+    }]
+  ] as const)("rejects an unknown %s metric-universe array field", (_label, mutate) => {
+    const current = buildSenaGroupComparison({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+    mutate(current.sourceEvidence!.metricUniverse);
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(current)).toThrow(
+      /carrier|structure|evidence/i
+    );
+  });
+
+  it("does not let a same-key cache hit return a raw carrier alias", () => {
+    const dataset = emptyMetricDataset(["A", "A", "B", "B"]);
+    const current = buildSenaGroupComparison({
+      dataset,
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(current, { dataset }, cache)).not.toThrow();
+
+    const second = structuredClone(current) as unknown as Record<string, any>;
+    let getterReads = 0;
+    Object.defineProperty(second.permutation, "unexpected", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("cache-hit raw carrier alias was traversed");
+      }
+    });
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(second as never, { dataset }, cache)).toThrow(
+      /carrier|structure|evidence/i
+    );
+    expect(getterReads).toBe(0);
+  });
+
+  it("rejects an unbound oversized metric universe before traversal or deterministic replay", () => {
+    const current = buildSenaGroupComparison({
+      dataset: emptyMetricDataset(["A", "A", "B", "B"]),
+      groupA: "A",
+      groupB: "B",
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+    const oversized = new Array(65_537);
+    let getterReads = 0;
+    Object.defineProperty(oversized, 0, {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        throw new Error("oversized unbound universe was traversed");
+      }
+    });
+    current.sourceEvidence!.metricUniverse = oversized;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(current)).toThrow(
+      /carrier|metric universe|bounded/i
+    );
+    expect(getterReads).toBe(0);
   });
 
   it("serializes all zero-variance results without NaN or Infinity", () => {
