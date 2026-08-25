@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { importSenaProjectSnapshotFromHandoff } from "./project-handoff";
 import { importSenaReviewPacket } from "./review-packet";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SenaProjectSnapshotResourceLimitError } from "./snapshot";
 import type { SenaProjectSnapshot } from "./types";
 
 export const SENA_SNAPSHOT_RESTORE_DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
@@ -359,7 +360,14 @@ export function buildSenaSnapshotRestoreResult(
         : "project-handoff";
       snapshot = importSenaProjectSnapshotFromHandoff(source);
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof SenaProjectSnapshotResourceLimitError) {
+      throw new SenaSnapshotRestoreRequestError(
+        "Snapshot restore source exceeds the supported canonical complexity limit.",
+        413,
+        "snapshot_restore_source_too_complex"
+      );
+    }
     throw new SenaSnapshotRestoreRequestError(
       "Snapshot restore source did not pass canonical SENA validation.",
       400,

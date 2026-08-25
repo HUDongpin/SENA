@@ -25,7 +25,11 @@ import {
 } from "@/lib/sena/publication-export";
 import { buildSenaModel } from "@/lib/sena/model";
 import { inspectSenaModelCardSections } from "@/lib/sena/model-card";
-import { buildSenaProjectSnapshot } from "@/lib/sena/snapshot";
+import {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  buildSenaProjectSnapshot,
+  SenaProjectSnapshotResourceLimitError
+} from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
@@ -74,13 +78,24 @@ function snapshotWithReliabilityEvidence(
 ) {
   assertEnterpriseReliabilityRunCurrentProject(reliabilityRun, project);
   const sourceSnapshot = project.snapshot;
+  try {
+    assertSenaProjectSnapshotPublicationDerivationWorkBudget(sourceSnapshot);
+  } catch (error) {
+    if (error instanceof SenaProjectSnapshotResourceLimitError) {
+      throw new SenaEnterpriseError(
+        "Publication export exceeds the supported canonical derivation budget.",
+        413,
+        "publication_export_derivation_too_complex"
+      );
+    }
+    throw error;
+  }
   const model = buildSenaModel(sourceSnapshot.dataset, sourceSnapshot.reproducibility.buildOptions);
   return buildSenaProjectSnapshot(model, {
     title: sourceSnapshot.title,
     generatedAt: sourceSnapshot.generatedAt,
     sourceDataset: sourceSnapshot.source.sourceDataset ?? sourceSnapshot.dataset,
     activeTemporalWindow: sourceSnapshot.source.activeTemporalWindow,
-    temporalRuntimeTrace: sourceSnapshot.analysis.temporalRuntimeTrace,
     demoVerificationManualReviews: sourceSnapshot.workspaceState?.demoVerificationManualReviews,
     humanReview: sourceSnapshot.report.humanReview,
     codingReliability: reliabilityReviewProjection,

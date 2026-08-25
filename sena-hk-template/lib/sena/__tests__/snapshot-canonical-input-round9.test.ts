@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  SENA_INPUT_VALIDATION_MAX_ISSUES,
   SenaInputValidationError
 } from "../analytical-input-validation";
 import { buildSenaModel } from "../model";
@@ -198,6 +197,169 @@ const invalidCases: InvalidCase[] = [
 ];
 
 describe("Round 9 canonical snapshot input contract", () => {
+  it("enforces direct string depth admission before invoking JSON.parse", () => {
+    const parse = vi.spyOn(JSON, "parse");
+    const excessiveDepth = `${"[".repeat(65)}null${"]".repeat(65)}`;
+    try {
+      expect(() => importSenaProjectSnapshot(excessiveDepth)).toThrow(/structural admission limit/i);
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("allows shared aliases but rejects a true object cycle before structuredClone", () => {
+    const aliased = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    const shared = { evidence: "shared immutable carrier" };
+    aliased.aliasA = shared;
+    aliased.aliasB = shared;
+    expect(importSenaProjectSnapshot(aliased)).toMatchObject({ aliasA: shared, aliasB: shared });
+
+    const cyclic = validSnapshot() as SenaProjectSnapshot & Record<string, unknown>;
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    cyclic.cycle = cycle;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(cyclic)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("rejects sparse direct arrays before structuredClone", () => {
+    const sparse = validSnapshot();
+    sparse.analysis.pairReport = new Array(16) as never;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(sparse)).toThrow(/structural admission limit/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it.each(["analysis", "report"] as const)(
+    "rejects tiny-dataset oversized %s matrix payloads before structuredClone",
+    (holder) => {
+      const snapshot = validSnapshot();
+      const matrices = holder === "analysis" ? snapshot.analysis.matrices : snapshot.report.matrices;
+      matrices.S.raw = Array.from({ length: 1_000 }, () => [0]);
+      const clone = vi.spyOn(globalThis, "structuredClone");
+      try {
+        expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+          /persisted analysis does not match the canonical dataset and build options/i
+        );
+        expect(clone).not.toHaveBeenCalled();
+      } finally {
+        clone.mockRestore();
+      }
+    }
+  );
+
+  it("rejects a connected active-code worst case before rebuilding the model", () => {
+    const snapshot = validSnapshot();
+    snapshot.dataset.codebook = Array.from({ length: 100 }, (_, index) => ({
+      id: `active-code-${index}`,
+      label: `Active code ${index}`,
+      family: "Admission fixture",
+      description: "Every declared code is connected in one segment.",
+      color: "#64748b"
+    }));
+    snapshot.dataset.coded_segments[0].codes = snapshot.dataset.codebook.map((code) => code.id);
+    snapshot.source.sourceDataset = structuredClone(snapshot.dataset);
+    snapshot.source.sourceDatasetCounts.codes = 100;
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    try {
+      expect(() => importSenaProjectSnapshot(snapshot)).toThrow(/canonical analysis work budget/i);
+      expect(clone).not.toHaveBeenCalled();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it("requires current-v2 root data governance to match the report exactly", () => {
+    const missing = validSnapshot();
+    delete (missing as Partial<SenaProjectSnapshot>).dataGovernance;
+    expect(() => importSenaProjectSnapshot(missing)).toThrow(/data-governance|dataGovernance/i);
+
+    const conflicting = validSnapshot();
+    if (!conflicting.dataGovernance) throw new Error("Snapshot fixture has no root governance.");
+    conflicting.dataGovernance = structuredClone(conflicting.dataGovernance);
+    conflicting.dataGovernance.dataSteward = "Conflicting root steward";
+    expect(() => importSenaProjectSnapshot(conflicting)).toThrow(/conflicting current data-governance provenance/i);
+  });
+
+  it("rejects a stale current-v2 full-source temporal trace", () => {
+    const snapshot = validSnapshot();
+    const firstWindow = snapshot.analysis.temporalRuntimeTrace?.windows[0];
+    if (!firstWindow) throw new Error("Snapshot fixture has no temporal runtime window.");
+    firstWindow.window.label = `${firstWindow.window.label} (stale)`;
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it.each([
+    {
+      label: "active-window comparison",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        const comparison = snapshot.report.figures.activeWindowComparison;
+        if (!comparison) throw new Error("Snapshot fixture has no active-window comparison.");
+        comparison.metrics[0].current += 1;
+      }
+    },
+    {
+      label: "temporal runtime narrative",
+      mutate: (snapshot: SenaProjectSnapshot) => {
+        const narrative = snapshot.report.figures.temporalRuntimeNarrative[0];
+        if (!narrative) throw new Error("Snapshot fixture has no temporal runtime narrative.");
+        narrative.label = `${narrative.label} (stale)`;
+      }
+    }
+  ])("rejects stale scoped temporal evidence in the $label", ({ mutate }) => {
+    const snapshot = validSnapshot();
+    mutate(snapshot);
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("rejects tampered ENA positions even when the manifest remains structurally valid", () => {
+    const snapshot = validSnapshot();
+    const outputs = snapshot.report.enaManifest.outputs;
+    if (!outputs) throw new Error("Snapshot fixture has no ENA outputs.");
+    const firstPosition = outputs.nodePositions[0];
+    if (!firstPosition) throw new Error("Snapshot fixture has no ENA position.");
+    const coordinate = Object.keys(firstPosition).find((key) => typeof firstPosition[key] === "number");
+    if (!coordinate) throw new Error("Snapshot fixture ENA position has no numeric coordinate.");
+    firstPosition[coordinate] = (firstPosition[coordinate] as number) + 0.125;
+    expect(() => importSenaProjectSnapshot(snapshot)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("rejects stale evidence snippets after a coordinated dataset and run-identity change", () => {
+    const original = validSnapshot();
+    const changedDataset = structuredClone(lessonStudySenaContract);
+    changedDataset.utterances[0].text = `${changedDataset.utterances[0].text} Canonical evidence changed.`;
+    changedDataset.coded_segments[0].text =
+      `${changedDataset.coded_segments[0].text} Canonical evidence changed.`;
+    const changedModel = buildSenaModel(changedDataset);
+    const changed = buildSenaProjectSnapshot(changedModel, {
+      title: original.title,
+      generatedAt: original.generatedAt,
+      sourceDataset: changedDataset,
+      activeTemporalWindow: changedModel.temporal.windows[0] ?? null
+    });
+    changed.report.evidenceSnippets = structuredClone(original.report.evidenceSnippets);
+
+    expect(() => importSenaProjectSnapshot(changed)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
   it.each(invalidCases)("rejects $label with a sanitized typed issue", ({ mutate, issue }) => {
     const snapshot = validSnapshot();
     mutate(snapshot);
@@ -241,10 +403,9 @@ describe("Round 9 canonical snapshot input contract", () => {
       thrown = error;
     }
 
-    expect(thrown).toBeInstanceOf(SenaInputValidationError);
-    expect((thrown as SenaInputValidationError).issues.length)
-      .toBeLessThanOrEqual(SENA_INPUT_VALIDATION_MAX_ISSUES);
-    expect((thrown as SenaInputValidationError).message.length).toBeLessThan(100_000);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toMatch(/canonical analysis work budget/i);
+    expect((thrown as Error).message.length).toBeLessThan(1_000);
   });
 
   it("round-trips dangling target claims without inventing Ghost or changing the snapshot fingerprint", () => {

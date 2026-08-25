@@ -40,9 +40,10 @@ function restoreRequest(source: unknown, headers: HeadersInit = {}) {
 }
 
 function currentSnapshot() {
-  return buildSenaProjectSnapshot(buildSenaModel(lessonStudySenaContract), {
+  const dataset = structuredClone(lessonStudySenaContract);
+  return buildSenaProjectSnapshot(buildSenaModel(dataset), {
     generatedAt: "2026-08-23T00:00:00.000Z",
-    sourceDataset: lessonStudySenaContract
+    sourceDataset: dataset
   });
 }
 
@@ -74,7 +75,7 @@ function canonicalHundredCodeSnapshot() {
 
 describe("SENA stateless snapshot restore route", () => {
   it("returns an independently hashable canonical snapshot without persistence or audit semantics", async () => {
-    const source = currentSnapshot();
+    const source = structuredClone(currentSnapshot());
     const response = await POST(restoreRequest(source));
     const result = await response.json() as SenaSnapshotRestoreResult;
 
@@ -201,6 +202,32 @@ describe("SENA stateless snapshot restore route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Snapshot restore source did not pass canonical SENA validation.",
       code: "snapshot_restore_source_invalid"
+    });
+  });
+
+  it("keeps canonical resource-budget rejection as a sanitized 413", async () => {
+    const source = currentSnapshot();
+    source.dataset.people = Array.from({ length: 370 }, (_, index) => ({
+      id: `restore-budget-person-${index}`,
+      label: `Restore budget person ${index}`,
+      role: "Synthetic restore load",
+      group: "Restore budget fixture"
+    }));
+    source.source.sourceDataset = structuredClone(source.dataset);
+    source.source.sourceDatasetCounts = {
+      people: source.dataset.people.length,
+      interactions: source.dataset.interactions.length,
+      utterances: source.dataset.utterances.length,
+      codedSegments: source.dataset.coded_segments.length,
+      codes: source.dataset.codebook.length
+    };
+
+    const response = await POST(restoreRequest(source));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: "Snapshot restore source exceeds the supported canonical complexity limit.",
+      code: "snapshot_restore_source_too_complex"
     });
   });
 

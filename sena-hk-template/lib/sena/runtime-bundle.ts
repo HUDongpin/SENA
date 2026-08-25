@@ -16,8 +16,51 @@ export type SenaRuntimeBundleOptions = SenaEvidenceLedgerOptions & {
 
 const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifest;
 
-function buildRuntimeArtifactEvidence(
-  model: SenaModel,
+export const SENA_RUNTIME_ARTIFACT_FILENAME = Object.freeze({
+  jenaManifest: "sena-jena-manifest.json",
+  enaReport: "sena-ena-report.json",
+  jsnaManifest: "sena-jsna-manifest.json",
+  snaReport: "sena-sna-report.json",
+  metricProvenance: "sena-metric-provenance.json",
+  personCodePairGReport: "sena-person-code-pair-g-report.json",
+  runtimeConsistencyAudit: "sena-runtime-consistency-audit.json",
+  pilotPackageManifest: "sena-pilot-package-manifest.json",
+  codingReliabilityGate: "sena-coding-reliability-gate.json",
+  runtimeBundle: "sena-runtime-bundle.json"
+} as const);
+
+export const SENA_RUNTIME_ARTIFACT_FILENAMES = Object.freeze(
+  Object.values(SENA_RUNTIME_ARTIFACT_FILENAME)
+);
+
+export function buildSenaCodingReliabilityRuntimeArtifactEvidence(
+  report: Pick<SenaReport, "codingReliabilityGate" | "runtimeProvenance">
+): SenaRuntimeArtifactEvidenceItem {
+  const gate = report.codingReliabilityGate;
+  return {
+    filename: SENA_RUNTIME_ARTIFACT_FILENAME.codingReliabilityGate,
+    schemaVersion: gate.schemaVersion,
+    runtimeRole: "review-handoff",
+    sourceRuntime: report.runtimeProvenance.senaModel.engine,
+    downloadControl: "Export reliability gate",
+    status: gate.status === "ready" ? "ready" : "review",
+    matrixCoverage: [
+      `claimUse=${gate.claimUse}`,
+      `coderCount=${gate.review.coderCount}`,
+      `blockers=${gate.blockers.length}`
+    ],
+    evidenceCoverage: [...gate.evidence],
+    handoffChecks: [
+      "coding-reliability-gate",
+      "coding-scheme",
+      "agreement-evidence",
+      "adjudication-notes"
+    ]
+  };
+}
+
+export function buildSenaRuntimeArtifactEvidence(
+  model: Pick<SenaModel, "matrices" | "pairReport" | "socialReport">,
   report: SenaReport,
   evidenceLedger: SenaEvidenceLedger,
   temporalRuntimeTrace: SenaTemporalRuntimeTrace
@@ -37,7 +80,7 @@ function buildRuntimeArtifactEvidence(
 
   return [
     {
-      filename: "sena-jena-manifest.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.jenaManifest,
       schemaVersion: report.enaManifest.schemaVersion,
       runtimeRole: "jena-epistemic",
       sourceRuntime: report.runtimeProvenance.enaRuntime.engine,
@@ -61,7 +104,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-ena-report.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.enaReport,
       schemaVersion: SENA_SCHEMA_VERSIONS.enaReport,
       runtimeRole: "jena-epistemic",
       sourceRuntime: report.runtimeProvenance.enaRuntime.engine,
@@ -85,7 +128,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-jsna-manifest.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.jsnaManifest,
       schemaVersion: report.snaManifest.schemaVersion,
       runtimeRole: "jsna-social",
       sourceRuntime: report.runtimeProvenance.snaRuntime.engine,
@@ -109,7 +152,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-sna-report.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.snaReport,
       schemaVersion: SENA_SCHEMA_VERSIONS.snaReport,
       runtimeRole: "jsna-social",
       sourceRuntime: report.runtimeProvenance.snaRuntime.engine,
@@ -133,7 +176,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-metric-provenance.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.metricProvenance,
       schemaVersion: SENA_SCHEMA_VERSIONS.metricProvenance,
       runtimeRole: "review-handoff",
       sourceRuntime: "sna.js+sena-js+jena-js",
@@ -156,7 +199,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-person-code-pair-g-report.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.personCodePairGReport,
       schemaVersion: SENA_SCHEMA_VERSIONS.personCodePairGReport,
       runtimeRole: "sena-fusion",
       sourceRuntime: report.runtimeProvenance.senaModel.engine,
@@ -178,7 +221,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-runtime-consistency-audit.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.runtimeConsistencyAudit,
       schemaVersion: report.runtimeConsistencyAudit.schemaVersion,
       runtimeRole: "review-handoff",
       sourceRuntime: "jena-js+sna.js+sena-js",
@@ -201,7 +244,7 @@ function buildRuntimeArtifactEvidence(
       ]
     },
     {
-      filename: "sena-pilot-package-manifest.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.pilotPackageManifest,
       schemaVersion: pilotPackageManifest.schemaVersion,
       runtimeRole: "review-handoff",
       sourceRuntime: "sena-pilot-package",
@@ -223,28 +266,9 @@ function buildRuntimeArtifactEvidence(
         "sha256"
       ]
     },
+    buildSenaCodingReliabilityRuntimeArtifactEvidence(report),
     {
-      filename: "sena-coding-reliability-gate.json",
-      schemaVersion: report.codingReliabilityGate.schemaVersion,
-      runtimeRole: "review-handoff",
-      sourceRuntime: report.runtimeProvenance.senaModel.engine,
-      downloadControl: "Export reliability gate",
-      status: report.codingReliabilityGate.status === "ready" ? "ready" : "review",
-      matrixCoverage: [
-        `claimUse=${report.codingReliabilityGate.claimUse}`,
-        `coderCount=${report.codingReliabilityGate.review.coderCount}`,
-        `blockers=${report.codingReliabilityGate.blockers.length}`
-      ],
-      evidenceCoverage: report.codingReliabilityGate.evidence,
-      handoffChecks: [
-        "coding-reliability-gate",
-        "coding-scheme",
-        "agreement-evidence",
-        "adjudication-notes"
-      ]
-    },
-    {
-      filename: "sena-runtime-bundle.json",
+      filename: SENA_RUNTIME_ARTIFACT_FILENAME.runtimeBundle,
       schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,
       runtimeRole: "sena-model",
       sourceRuntime: report.runtimeProvenance.senaModel.engine,
@@ -319,7 +343,7 @@ export function buildSenaRuntimeBundle(model: SenaModel, options: SenaRuntimeBun
     demoWalkthrough,
     demoVerification
   });
-  const artifactEvidence = buildRuntimeArtifactEvidence(model, report, evidenceLedger, temporalRuntimeTrace);
+  const artifactEvidence = buildSenaRuntimeArtifactEvidence(model, report, evidenceLedger, temporalRuntimeTrace);
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.runtimeBundle,

@@ -67,6 +67,29 @@ import {
   isSemanticallyValidSenaReliabilityMachineEvidence
 } from "./reliability";
 
+export const SENA_REPORT_COMPLETENESS_ITEM_ID = Object.freeze({
+  parameters: "parameters",
+  analysisScope: "analysis-scope",
+  dataContractAudit: "data-contract-audit",
+  matrices: "matrices",
+  fusionMathAudit: "fusion-math-audit",
+  jenaManifest: "jena-manifest",
+  jsnaManifest: "jsna-manifest",
+  runtimeApiSurface: "runtime-api-surface",
+  temporalTrace: "temporal-trace",
+  evidence: "evidence",
+  validation: "validation",
+  guardrails: "guardrails",
+  codingReliability: "coding-reliability",
+  dataGovernance: "data-governance",
+  humanReview: "human-review",
+  warnings: "warnings"
+} as const);
+
+export const SENA_REPORT_COMPLETENESS_ITEM_IDS = Object.freeze(
+  Object.values(SENA_REPORT_COMPLETENESS_ITEM_ID)
+);
+
 export type SenaReportOptions = {
   title?: string;
   generatedAt?: string;
@@ -283,8 +306,11 @@ function countBy<T extends string>(values: T[]) {
   return Array.from(counts.entries()).map(([value, count]) => ({ value, count }));
 }
 
-function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: string): SenaDataGovernanceMetadata {
-  const governance = options.dataGovernance ?? {};
+export function normalizeSenaDataGovernanceMetadata(
+  value: Partial<SenaDataGovernanceMetadata> | undefined,
+  generatedAt: string
+): SenaDataGovernanceMetadata {
+  const governance = value ?? {};
   const usageConstraints = Array.isArray(governance.usageConstraints)
     ? governance.usageConstraints.map((constraint) => String(constraint).trim()).filter(Boolean)
     : [];
@@ -319,6 +345,10 @@ function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: 
     blockers,
     guardrail: "SENA data-governance metadata documents approval, consent, retention, and use constraints; it does not replace institutional ethics review."
   };
+}
+
+function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: string): SenaDataGovernanceMetadata {
+  return normalizeSenaDataGovernanceMetadata(options.dataGovernance, generatedAt);
 }
 
 function datasetCounts(dataset: SenaDataset) {
@@ -543,7 +573,7 @@ function gPairRankingContext({
   };
 }
 
-function buildActiveWindowComparison(
+export function buildActiveWindowComparison(
   model: SenaModel,
   sourceDataset: SenaDataset | undefined,
   activeWindow: SenaTemporalWindow | null | undefined
@@ -856,7 +886,7 @@ export function buildSenaReportCompletenessAudit({
 
   const items = [
     completenessItem(
-      "parameters",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.parameters,
       "Build parameters",
       hasFiniteWeights && Boolean(options.normalization) && Boolean(options.temporal.mode),
       `alpha=${formatReportNumber(options.alpha)}, beta=${formatReportNumber(options.beta)}, gamma=${formatReportNumber(options.gamma)}, normalization=${options.normalization}, temporal=${options.temporal.mode}`,
@@ -868,7 +898,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "analysis-scope",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.analysisScope,
       "Analysis scope",
       hasExplicitScope,
       scopeWindow
@@ -889,14 +919,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "data-contract-audit",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.dataContractAudit,
       "Data contract audit",
       dataContractAudit.status === "valid",
       `${dataContractAudit.passed} data-contract checks passed; ${dataContractAudit.reviewNeeded} need review`,
       dataContractAudit.items.map((auditItem) => `${auditItem.label}: ${auditItem.status}`)
     ),
     completenessItem(
-      "matrices",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.matrices,
       "S/W/B/B_PC/B_CP/Y/G/fusion matrices",
       matrixDimensionsAreComplete(model) && matrixFingerprintsComplete,
       `${model.matrices.S.labels.length} S labels, ${model.matrices.W.labels.length} W labels, ${model.matrices.Y.windowIds.length} Y windows, ${model.matrices.G.pairs.length} G pairs, ${model.matrices.fusion.labels.length} fusion labels`,
@@ -914,14 +944,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "fusion-math-audit",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.fusionMathAudit,
       "Fusion equation audit",
       fusionMathAudit.status === "verified",
       `${fusionMathAudit.passed} formula checks passed; ${fusionMathAudit.reviewNeeded} need review`,
       fusionMathAudit.items.map((item) => `${item.label}: ${item.status}`)
     ),
     completenessItem(
-      "jena-manifest",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.jenaManifest,
       "jENA manifest",
       enaManifest.status === "computed",
       `${enaManifest.engine} ${enaManifest.engineVersion}; status=${enaManifest.status}`,
@@ -933,7 +963,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "jsna-manifest",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.jsnaManifest,
       "jSNA manifest",
       snaManifest.status === "computed",
       `${snaManifest.engineAlias}/${snaManifest.engine} ${snaManifest.engineVersion}; status=${snaManifest.status}`,
@@ -946,7 +976,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "runtime-api-surface",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.runtimeApiSurface,
       "jENA/jSNA API surface audit",
       runtimeConsistencyAudit.items.some((auditItem) => auditItem.id === "jena-api-surface" && auditItem.status === "pass") &&
         runtimeConsistencyAudit.items.some((auditItem) => auditItem.id === "jsna-api-surface" && auditItem.status === "pass"),
@@ -960,21 +990,21 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "temporal-trace",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.temporalTrace,
       "Temporal trace",
       model.temporal.windows.length > 0,
       `${model.temporal.windows.length} ${model.temporal.settings.mode} windows`,
       model.temporal.windows.slice(0, 5).map((window) => `${window.label}: turns ${window.startTurn}-${window.endTurn}`)
     ),
     completenessItem(
-      "evidence",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.evidence,
       "Evidence snippets",
       evidenceSnippets.length > 0,
       `${evidenceSnippets.length} traceable evidence snippets`,
       Object.entries(evidenceCounts).map(([source, count]) => `${source}=${count}`)
     ),
     completenessItem(
-      "validation",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.validation,
       "Method validation",
       model.summary.people > 0 && model.summary.concepts > 0 && metricProvenance.length > 0,
       `${metricProvenance.length} metric provenance entries; null target ${model.matrices.G.pairs[0]?.label ?? "NA"}`,
@@ -987,14 +1017,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "guardrails",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.guardrails,
       "Interpretation guardrails",
       interpretationGuardrails.length >= 3,
       `${interpretationGuardrails.length} guardrails included`,
       interpretationGuardrails.map((guardrail) => guardrail.label)
     ),
     completenessItem(
-      "coding-reliability",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.codingReliability,
       "Coding reliability gate",
       codingReliabilityGate.status === "ready",
       codingReliabilityGate.status === "ready"
@@ -1012,7 +1042,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "data-governance",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.dataGovernance,
       "Data governance metadata",
       dataGovernanceBlockers.length === 0,
       dataGovernanceBlockers.length === 0
@@ -1030,7 +1060,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "human-review",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.humanReview,
       "Human review fields",
       humanReviewComplete,
       humanReviewComplete ? `Reviewed by ${humanReview.reviewer}` : "Draft or incomplete human-review fields",
@@ -1043,7 +1073,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "warnings",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.warnings,
       "Model warnings",
       model.summary.warnings.length === 0 && enaManifest.warnings.length === 0 && snaManifest.warnings.length === 0,
       `${model.summary.warnings.length + enaManifest.warnings.length + snaManifest.warnings.length} warnings across SENA/jENA/jSNA`,
@@ -2129,7 +2159,7 @@ function pairDriversToMarkdown(report: SenaReport) {
   }).join("\n");
 }
 
-function buildTemporalRuntimeNarrative(
+export function buildTemporalRuntimeNarrative(
   model: SenaModel,
   trace = buildSenaTemporalRuntimeTrace(model.dataset, model.options, { timelineModel: model })
 ): SenaTemporalRuntimeNarrativeWindow[] {

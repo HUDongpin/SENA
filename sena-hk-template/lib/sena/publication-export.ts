@@ -19,10 +19,14 @@ import {
 import {
   buildSenaMarkdownReport,
   isSenaReportHumanReviewComplete,
-  normalizeSenaCodingReliabilityGate
+  normalizeSenaCodingReliabilityGate,
+  normalizeSenaDataGovernanceMetadata
 } from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { importSenaProjectSnapshot } from "./snapshot";
+import {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  importSenaProjectSnapshot
+} from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
 import type { SenaEnterprisePublicationStateBinding } from "./enterprise/publication-state-binding";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
@@ -1002,6 +1006,28 @@ const packagedPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"]
 
 type PackagedPublicationFormat = typeof packagedPublicationFormats[number];
 
+function hasCompleteSenaMethodValidation(report: SenaReport) {
+  const validation = report.validation;
+  return Array.isArray(validation?.metricProvenance) && validation.metricProvenance.length > 0 &&
+    validation.sensitivity?.layerWeights?.id === "layer-weights" &&
+    validation.sensitivity.layerWeights.variants.length > 0 &&
+    validation.sensitivity?.normalization?.id === "normalization" &&
+    validation.sensitivity.normalization.variants.length > 0 &&
+    Array.isArray(validation.stability?.community?.normalizationAgreement) &&
+    validation.stability.community.normalizationAgreement.length > 0 &&
+    Array.isArray(validation.stability?.temporal?.variants) &&
+    validation.stability.temporal.variants.length > 0 &&
+    validation.nullModels?.schemaVersion === SENA_SCHEMA_VERSIONS.nullModels &&
+    Number.isSafeInteger(validation.nullModels.permutation?.iterations) &&
+    validation.nullModels.permutation.iterations > 0 &&
+    Array.isArray(validation.nullModels.permutation.samplesPreview) &&
+    validation.nullModels.permutation.samplesPreview.length > 0 &&
+    Number.isSafeInteger(validation.nullModels.bootstrap?.iterations) &&
+    validation.nullModels.bootstrap.iterations > 0 &&
+    Array.isArray(validation.nullModels.bootstrap.samplesPreview) &&
+    validation.nullModels.bootstrap.samplesPreview.length > 0;
+}
+
 export function assertSenaPublicationModelCardReady(report: SenaReport) {
   // Legacy snapshots exported before the model card existed carry no
   // report.modelCard; block them with a clear re-run hint instead of crashing
@@ -1014,16 +1040,53 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
       "publication_export_model_card_blocked"
     );
   }
+  const nonCurrentStatisticalEvidence = [
+    ...(report.fusionMathAudit.schemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit &&
+      report.fusionMathAudit.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit
+      ? [] : ["current-fusion-math-evidence"]),
+    ...(report.codingReliabilityGate.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate &&
+      report.codingReliabilityGate.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate
+      ? [] : ["current-coding-reliability-evidence"])
+  ];
+  if (nonCurrentStatisticalEvidence.length > 0) {
+    throw new SenaEnterpriseError(
+      `Publication export blocked: historical statistical read projections are not current publication evidence: ${nonCurrentStatisticalEvidence.join(", ")}.`,
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
   const codingReliabilityGate = normalizeSenaCodingReliabilityGate(report.codingReliabilityGate);
+  const dataGovernance = normalizeSenaDataGovernanceMetadata(report.dataGovernance, report.generatedAt);
   const modelCardSectionIntegrity = inspectSenaModelCardSections(report.modelCard.sections);
   const missingReadiness = Array.from(new Set([
     ...renderGate.missingSectionIds,
     ...modelCardSectionIntegrity.blockingIds,
     ...(codingReliabilityGate.status === "ready" ? [] : ["coding-reliability"]),
+    ...(dataGovernance.status === "complete" ? [] : ["data-governance"]),
+    ...(report.dataGovernance.schemaVersion === SENA_SCHEMA_VERSIONS.dataGovernanceMetadata
+      ? [] : ["current-data-governance-schema"]),
     ...(isSenaReportHumanReviewComplete(report.humanReview) ? [] : ["human-review"]),
     ...(report.completenessAudit.status === "complete" ? [] : ["report-completeness"]),
     ...(report.pilotReadinessAudit.status === "ready" ? [] : ["pilot-readiness"]),
-    ...(report.claimReadinessGate.status === "ready" ? [] : ["claim-readiness"])
+    ...(report.claimReadinessGate.status === "ready" ? [] : ["claim-readiness"]),
+    ...(report.dataContractAudit.status === "valid" &&
+      report.dataContractAudit.reviewNeeded === 0 &&
+      report.dataContractAudit.items.length > 0 &&
+      report.dataContractAudit.items.every((item) => item.status === "pass")
+      ? [] : ["data-contract-audit"]),
+    ...(report.runtimeConsistencyAudit.status === "consistent" &&
+      report.runtimeConsistencyAudit.reviewNeeded === 0 &&
+      report.runtimeConsistencyAudit.items.length > 0 &&
+      report.runtimeConsistencyAudit.items.every((item) => item.status === "pass")
+      ? [] : ["runtime-consistency-audit"]),
+    ...(report.fusionMathAudit.status === "verified" &&
+      report.fusionMathAudit.reviewNeeded === 0 &&
+      report.fusionMathAudit.items.length > 0 &&
+      report.fusionMathAudit.items.every((item) => item.status === "pass")
+      ? [] : ["fusion-math-audit"]),
+    ...(report.enaManifest.status === "computed" ? [] : ["ena-runtime"]),
+    ...(report.snaManifest.status === "computed" ? [] : ["sna-runtime"]),
+    ...(hasCompleteSenaMethodValidation(report) ? [] : ["method-validation"])
   ]));
   if (renderGate.status === "ready" && missingReadiness.length === 0) return;
   throw new SenaEnterpriseError(
@@ -1265,6 +1328,7 @@ export async function buildSenaPublicationExport(
   format: SenaPublicationFormat,
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
 ): Promise<SenaPublicationExport> {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget(snapshot);
   snapshot = importSenaProjectSnapshot(snapshot);
   const model = buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions);
   const report = snapshot.report;

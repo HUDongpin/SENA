@@ -7,9 +7,12 @@ import {
   importSenaJsonContract,
   lessonStudySenaContract
 } from "../index";
-import { buildSenaPublicationExport } from "../publication-export";
+import {
+  assertSenaPublicationModelCardReady,
+  buildSenaPublicationExport
+} from "../publication-export";
 import { reliabilityDashboardToReview } from "../reliability";
-import { importSenaProjectSnapshot } from "../snapshot";
+import { importSenaProjectSnapshot, isSenaProjectSnapshot } from "../snapshot";
 import { importSenaRuntimeBundle } from "../statistical-leaf-read";
 
 function readyCurrentV2Snapshot() {
@@ -117,7 +120,157 @@ describe("SENA publication export model-card gate", () => {
     }));
   });
 
-  it("recomputes a current-v2 runtime bundle top-level model card from its normalized reliability gate", () => {
+  it("recomputes current-v2 data-governance readiness from the persisted governance fields", () => {
+    const source = readyCurrentV2Snapshot();
+    const forged = structuredClone(source);
+    const governance = {
+      ...structuredClone(forged.report.dataGovernance),
+      status: "needs-review" as const,
+      dataSteward: "",
+      blockers: ["Data steward"]
+    };
+    forged.dataGovernance = structuredClone(governance);
+    forged.report.dataGovernance = structuredClone(governance);
+
+    expect(forged.report.completenessAudit.status).toBe("complete");
+    expect(forged.report.pilotReadinessAudit.status).toBe("ready");
+    expect(forged.report.claimReadinessGate.status).toBe("ready");
+    expect(forged.report.modelCard.renderGate.status).toBe("ready");
+
+    const restored = importSenaProjectSnapshot(forged);
+    expect(restored.report.dataGovernance).toEqual(expect.objectContaining({
+      status: "needs-review",
+      dataSteward: "",
+      blockers: ["Data steward"]
+    }));
+    expect(restored.report.completenessAudit.items).toContainEqual(expect.objectContaining({
+      id: "data-governance",
+      status: "review"
+    }));
+    expect(restored.report.pilotReadinessAudit.items).toContainEqual(expect.objectContaining({
+      id: "data-governance",
+      status: "review"
+    }));
+    expect(restored.report.claimReadinessGate).toEqual(expect.objectContaining({
+      status: "exploratory",
+      claimUse: "exploratory-only"
+    }));
+    expect(restored.report.modelCard.sections).toContainEqual(expect.objectContaining({
+      id: "data-contract",
+      status: "needs-review"
+    }));
+    expect(restored.report.modelCard.renderGate).toEqual(expect.objectContaining({
+      status: "blocked",
+      missingSectionIds: expect.arrayContaining(["data-contract"])
+    }));
+    expect(() => assertSenaPublicationModelCardReady(restored.report)).toThrow(
+      /data-governance|publication export blocked/i
+    );
+  });
+
+  it.each([
+    {
+      label: "data-contract audit",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.dataContractAudit.status = "needs-review";
+      }
+    },
+    {
+      label: "runtime-consistency audit",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.runtimeConsistencyAudit.status = "needs-review";
+      }
+    },
+    {
+      label: "fusion audit",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.fusionMathAudit.status = "needs-review";
+      }
+    },
+    {
+      label: "ENA runtime",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.enaManifest.status = "skipped";
+      }
+    },
+    {
+      label: "SNA runtime",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.snaManifest.status = "skipped";
+      }
+    },
+    {
+      label: "method validation structure",
+      mutate: (report: ReturnType<typeof readyCurrentV2Snapshot>["report"]) => {
+        report.validation.metricProvenance = [];
+      }
+    }
+  ])("blocks publication from downgraded authoritative $label despite ready caches", ({ mutate }) => {
+    const snapshot = readyCurrentV2Snapshot();
+    expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
+    expect(snapshot.report.claimReadinessGate.status).toBe("ready");
+    mutate(snapshot.report);
+
+    expect(() => assertSenaPublicationModelCardReady(snapshot.report)).toThrow(
+      /publication export blocked/i
+    );
+  });
+
+  it("never upgrades a legacy statistical read projection into publication-ready current evidence", () => {
+    const snapshot = readyCurrentV2Snapshot();
+    snapshot.report.fusionMathAudit.sourceSchemaVersion = "sena-fusion-math-audit/v1";
+    snapshot.report.codingReliabilityGate.sourceSchemaVersion = "sena-coding-reliability-gate/v1";
+    expect(snapshot.report.modelCard.renderGate.status).toBe("ready");
+    expect(snapshot.report.claimReadinessGate.status).toBe("ready");
+
+    expect(() => assertSenaPublicationModelCardReady(snapshot.report)).toThrow(
+      /current-fusion-math-evidence|current-coding-reliability-evidence/i
+    );
+  });
+
+  it("rejects a jointly forged run identity when snapshot analysis was not derived from the canonical dataset", () => {
+    const forged = structuredClone(readyCurrentV2Snapshot());
+    const interaction = forged.dataset.interactions[0];
+    if (!interaction) throw new Error("Ready fixture has no interaction to vary.");
+    interaction.weight = (interaction.weight ?? 1) + 99;
+    forged.source.sourceDataset = structuredClone(forged.dataset);
+    forged.report.operatorDiagnostics.runIdentity = buildSenaModel(
+      forged.dataset,
+      forged.reproducibility.buildOptions
+    ).operatorDiagnostics.runIdentity;
+
+    expect(isSenaProjectSnapshot(forged)).toBe(false);
+    expect(() => importSenaProjectSnapshot(forged)).toThrow(
+      /persisted analysis does not match the canonical dataset and build options/i
+    );
+  });
+
+  it("rejects excessive canonical-analysis work before rebuilding an untrusted snapshot", () => {
+    const forged = structuredClone(readyCurrentV2Snapshot());
+    forged.dataset.people = Array.from({ length: 370 }, (_, index) => ({
+      id: `budget-person-${index}`,
+      label: `Budget person ${index}`,
+      role: "Synthetic restore load",
+      group: "Budget fixture"
+    }));
+    forged.dataset.interactions = [];
+    forged.dataset.utterances = [];
+    forged.dataset.coded_segments = [];
+    forged.source.sourceDataset = structuredClone(forged.dataset);
+    forged.source.sourceDatasetCounts = {
+      people: forged.dataset.people.length,
+      interactions: 0,
+      utterances: 0,
+      codedSegments: 0,
+      codes: forged.dataset.codebook.length
+    };
+
+    expect(() => importSenaProjectSnapshot(forged)).toThrow(
+      /canonical analysis work budget/i
+    );
+  });
+
+  it("recomputes a current-v2 runtime bundle top-level model card from its consistent normalized reliability gate", () => {
     const source = readyCurrentV2RuntimeBundle();
     expect(source.codingReliabilityGate.status).toBe("ready");
     expect(source.modelCard.renderGate.status).toBe("ready");
@@ -125,8 +278,9 @@ describe("SENA publication export model-card gate", () => {
 
     const forged = JSON.parse(JSON.stringify(source)) as typeof source;
     forged.codingReliabilityGate.review.reviewer = "";
+    forged.report.codingReliabilityGate.review.reviewer = "";
     expect(forged.report.codingReliabilityGate.status).toBe("ready");
-    expect(forged.report.codingReliabilityGate.review.reviewer).toBe("Publication reliability reviewer");
+    expect(forged.report.codingReliabilityGate.review.reviewer).toBe("");
     expect(forged.modelCard.renderGate.status).toBe("ready");
 
     const restored = importSenaRuntimeBundle(forged);

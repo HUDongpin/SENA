@@ -224,6 +224,91 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
+  it("returns a sanitized 413 before publication derivation and audit side effects", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-budget-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/publication-export", async () => await import("../publication-export"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Publication Budget Exporter",
+        email: "publication-budget-exporter@example.edu",
+        password: "sena-secure-123",
+        organization: "Publication Budget Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const baseSnapshot = routeSnapshot(true, false);
+      const budgetDataset = structuredClone(baseSnapshot.dataset);
+      budgetDataset.people = [
+        ...budgetDataset.people,
+        ...Array.from({ length: 10 - budgetDataset.people.length }, (_, index) => ({
+          id: `publication-budget-person-${index}`,
+          label: `Publication budget person ${index}`,
+          role: "Synthetic publication load",
+          group: "Publication budget fixture"
+        }))
+      ];
+      const budgetSnapshot = buildSenaProjectSnapshot(buildSenaModel(budgetDataset), {
+        title: baseSnapshot.title,
+        generatedAt: baseSnapshot.generatedAt,
+        sourceDataset: budgetDataset,
+        humanReview: baseSnapshot.report.humanReview,
+        dataGovernance: baseSnapshot.dataGovernance
+      });
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Publication Budget Project",
+        snapshot: budgetSnapshot
+      });
+      const reliabilityRun = enterprise.createEnterpriseReliabilityRun(
+        registered.context,
+        projectReliabilityRunInput(project, project.snapshot, "Publication budget reliability reviewer")
+      );
+      enterprise.reviewEnterpriseReliabilityRun(registered.context, reliabilityRun.id, {
+        status: "approved",
+        notes: "Approved only to exercise route-level derivation admission."
+      });
+      const route = await import("../../../app/api/sena/exports/publication/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token
+        },
+        body: JSON.stringify({ projectId: project.id, format: "html" })
+      }));
+
+      expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toEqual(expect.objectContaining({
+        code: "publication_export_derivation_too_complex"
+      }));
+      expect(enterprise.listEnterpriseAuditLog(registered.context, {
+        event: "export.run",
+        projectId: project.id,
+        limit: 5
+      }).events).toHaveLength(0);
+      const jobs = await enterprise.listEnterpriseServerJobs({ projectId: project.id });
+      expect(jobs.jobs).toHaveLength(0);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, publicationExportRouteTestTimeoutMs);
+
   it("blocks sync and queued publication before side effects when persisted model-card membership is empty", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-model-card-route-"));
     let sessionToken = "";

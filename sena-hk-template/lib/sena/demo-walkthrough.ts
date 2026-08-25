@@ -89,6 +89,18 @@ const demoWorkflowDefinitions = [
   }
 ];
 
+export const SENA_DEMO_WALKTHROUGH_STEP_IDS = Object.freeze(
+  demoWorkflowDefinitions.map((definition) => definition.id)
+);
+
+export const SENA_DEMO_WALKTHROUGH_READINESS_IDS: Readonly<Record<string, readonly string[]>> =
+  Object.freeze(Object.fromEntries(
+    demoWorkflowDefinitions.map((definition) => [
+      definition.id,
+      Object.freeze([...definition.readinessItemIds])
+    ])
+  ));
+
 function statusForStep(
   readiness: Map<string, SenaPilotReadinessAudit["items"][number]["status"]>,
   definition: (typeof demoWorkflowDefinitions)[number],

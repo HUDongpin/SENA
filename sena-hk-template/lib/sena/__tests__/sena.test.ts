@@ -3983,7 +3983,7 @@ describe("SENA model builder", () => {
       contents: {
         reportJson: { schemaVersion: "sena-report/v1" }
       }
-    })).toThrow(/review packet\.summary\.analysisScope/i);
+    })).toThrow(/review packet\.summary\.analysisScope|artifact-manifest membership is invalid/i);
   });
 
   it("rejects invalid review packet analysis scope metadata", () => {

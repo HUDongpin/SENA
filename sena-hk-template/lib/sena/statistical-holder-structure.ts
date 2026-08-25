@@ -1,4 +1,5 @@
 import type { SenaReport, SenaRuntimeBundle } from "./types";
+import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1130,6 +1131,9 @@ function assertDataGovernance(value: unknown, context: string) {
   assertStringFields(governance, context, [
     "schemaVersion", "irbApprovalId", "consentScope", "retentionPolicy", "dataSteward", "reviewedAt", "guardrail"
   ]);
+  if (governance.schemaVersion !== SENA_SCHEMA_VERSIONS.dataGovernanceMetadata) {
+    throw new Error(`${context}.schemaVersion is not supported.`);
+  }
   enumField(governance, "status", context, ["complete", "needs-review"]);
   assertStringArrayEntries(governance, context, ["usageConstraints", "requiredEvidence", "blockers"]);
 }

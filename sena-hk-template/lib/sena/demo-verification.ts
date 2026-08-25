@@ -161,6 +161,18 @@ const verificationDefinitions: VerificationDefinition[] = [
   }
 ];
 
+export const SENA_DEMO_VERIFICATION_CHECK_IDS = Object.freeze(
+  verificationDefinitions.map((definition) => definition.id)
+);
+
+export const SENA_DEMO_VERIFICATION_READINESS_IDS: Readonly<Record<string, readonly string[]>> =
+  Object.freeze(Object.fromEntries(
+    verificationDefinitions.map((definition) => [
+      definition.id,
+      Object.freeze([...definition.readinessItemIds])
+    ])
+  ));
+
 function readinessEvidence(audit: SenaPilotReadinessAudit, readinessItemIds: string[]) {
   return readinessItemIds.flatMap((id) => {
     const item = audit.items.find((candidate) => candidate.id === id);
@@ -276,6 +288,7 @@ export function buildSenaDemoVerification(model: SenaModel, options: SenaDemoVer
       id: definition.id,
       label: definition.label,
       anchor: definition.anchor,
+      readinessItemIds: [...definition.readinessItemIds],
       status: pass ? "pass" : "review",
       manualAction: definition.manualAction,
       expectedOutcome: definition.expectedOutcome,
