@@ -189,6 +189,59 @@ describe("SENA server job Postgres store", () => {
       })
     ]));
 
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "worker_run_pg_stale",
+      errorCode: "stale-worker"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_run_mismatch"
+    });
+
+    const terminalResults = await Promise.allSettled([
+      serverJobs.updateEnterpriseServerJobStatus({
+        jobId: job.id,
+        action: "mark-succeeded",
+        workerRunId: "worker_run_pg"
+      }),
+      serverJobs.updateEnterpriseServerJobStatus({
+        jobId: job.id,
+        action: "mark-failed",
+        workerRunId: "worker_run_pg",
+        errorCode: "competing-terminal"
+      })
+    ]);
+    expect(terminalResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(terminalResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const rejectedTerminal = terminalResults.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect([
+      "server_job_status_transition_conflict",
+      "server_job_status_transition_not_allowed"
+    ]).toContain(rejectedTerminal.reason?.code);
+
+    const unclaimedJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_unclaimed",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_unclaimed" },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: unclaimedJob.id,
+      action: "mark-succeeded",
+      workerRunId: "worker_run_pg_never_claimed"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_status_transition_not_allowed"
+    });
+
     const raceJob = await enterprise.enqueueEnterpriseServerJob({
       kind: "analysis",
       teamId: "team_postgres_jobs",
@@ -198,7 +251,7 @@ describe("SENA server job Postgres store", () => {
       payloadSummary: {
         source: "project",
         hasInlineSnapshot: false,
-        hasInlineDataset: true,
+        hasInlineDataset: false,
         payloadValuesExcluded: true
       }
     });
@@ -212,7 +265,72 @@ describe("SENA server job Postgres store", () => {
     expect(pg.queries.some((query) => (
       /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
       /WHERE id = \$1 AND status = 'queued'/i.test(query) &&
-      /delivery->>'sourceReady'/i.test(query) &&
+      /delivery->'sourceReady' = 'true'::jsonb/i.test(query) &&
+      /RETURNING \*/i.test(query)
+    ))).toBe(true);
+
+    const enqueueLegacyProjectJob = (suffix: string) => enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis" as const,
+      teamId: "team_postgres_jobs",
+      projectId: `project_postgres_jobs_legacy_${suffix}`,
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: `project_postgres_jobs_legacy_${suffix}` },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const [legacyDelivered, legacyPending, invalidString] = await Promise.all([
+      enqueueLegacyProjectJob("delivered"),
+      enqueueLegacyProjectJob("pending"),
+      enqueueLegacyProjectJob("string")
+    ]);
+    const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
+    const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
+    const invalidStringRow = pg.serverJobs.find((row) => row.id === invalidString.id)!;
+    delete (deliveredRow.delivery as { sourceReady?: unknown }).sourceReady;
+    pendingRow.delivery = {
+      ...(pendingRow.delivery as Record<string, unknown>),
+      webhookStatus: "pending"
+    };
+    delete (pendingRow.delivery as { sourceReady?: unknown }).sourceReady;
+    invalidStringRow.delivery = {
+      ...(invalidStringRow.delivery as Record<string, unknown>),
+      sourceReady: "true"
+    };
+
+    await expect(serverJobs.getEnterpriseServerJob(legacyDelivered.id)).resolves.toEqual(
+      expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: true }) })
+    );
+    expect(Object.hasOwn(deliveredRow.delivery as object, "sourceReady")).toBe(false);
+    const claimableLegacyJobs = await serverJobs.listEnterpriseServerJobs({ claimableOnly: true, limit: 100 });
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(legacyDelivered.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyPending.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(invalidString.id);
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: legacyDelivered.id,
+      workerRunId: "worker_run_pg_legacy_delivered"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    for (const legacyJobId of [legacyPending.id, invalidString.id]) {
+      await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
+        expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
+      );
+      await expect(serverJobs.claimEnterpriseServerJob({
+        jobId: legacyJobId,
+        workerRunId: `worker_run_pg_blocked_${legacyJobId}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
+
+    expect(pg.queries.some((query) => (
+      /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
+      /SET status = \$\d+/i.test(query) &&
+      /WHERE id = \$1 AND status = \$\d+/i.test(query) &&
+      /lifecycle->>'workerRunId' = \$\d+/i.test(query) &&
       /RETURNING \*/i.test(query)
     ))).toBe(true);
 

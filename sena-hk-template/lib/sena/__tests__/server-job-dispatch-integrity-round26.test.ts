@@ -8,6 +8,7 @@ const envNames = [
   "SENA_ENTERPRISE_DB_DIR",
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
+  "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
   "SENA_JOB_QUEUE_URL",
   "SENA_JOB_QUEUE_SECRET"
 ];
@@ -232,6 +233,106 @@ describe("SENA server-job dispatch integrity round 26", () => {
     }));
   });
 
+  it("rejects terminal status callbacks until a ready job is owned by a running worker", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-status-machine-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const job = await queue.enqueueEnterpriseServerJob(queueInput());
+
+    await expect(queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-succeeded",
+      workerRunId: "round26-never-claimed"
+    })).rejects.toMatchObject({
+      code: "server_job_status_transition_not_allowed",
+      status: 409
+    });
+
+    const running = await queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "round26-owner-a"
+    });
+    expect(running.job.status).toBe("running");
+    await expect(queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "round26-stale-owner-b",
+      errorCode: "stale-worker"
+    })).rejects.toMatchObject({
+      code: "server_job_worker_run_mismatch",
+      status: 409
+    });
+
+    const succeeded = await queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-succeeded",
+      workerRunId: "round26-owner-a"
+    });
+    expect(succeeded.job.status).toBe("succeeded");
+    const idempotent = await queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-succeeded",
+      workerRunId: "round26-owner-a"
+    });
+    expect(idempotent.job).toEqual(succeeded.job);
+    await expect(queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "round26-owner-a"
+    })).rejects.toMatchObject({
+      code: "server_job_status_transition_not_allowed",
+      status: 409
+    });
+  });
+
+  it.each(["analysis", "validation"] as const)(
+    "refuses queued %s inline sources even when the legacy inline flag is configured",
+    async (kind) => {
+      const dbDir = mkdtempSync(path.join(tmpdir(), `sena-round26-inline-${kind}-`));
+      cleanupDirs.push(dbDir);
+      configureManagedQueue(dbDir);
+      process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+      const dispatch = vi.fn(async () => new Response("accepted", { status: 202 }));
+      vi.stubGlobal("fetch", dispatch);
+      const queue = await import("../enterprise/server-job-queue");
+
+      expect(queue.serverJobQueueStatus()).toEqual(expect.objectContaining({
+        inlinePayloadAllowed: false,
+        evidence: expect.arrayContaining([
+          "legacyInlinePayloadFlagConfigured=true",
+          "inlinePayloadCustodyPolicy=durable-pointers-only"
+        ])
+      }));
+      await expect(queue.enqueueEnterpriseServerJob({
+        kind,
+        teamId: "team_round26_inline",
+        projectId: "project_round26_inline_summary_omission",
+        actorUserId: "user_round26_inline",
+        payload: {
+          action: kind === "analysis" ? "run-analysis" : "run-validation",
+          inlineDataset: { people: [] }
+        },
+        payloadSummary: {
+          source: "dataset",
+          hasInlineSnapshot: false,
+          // The payload inspection must still reject a caller that lies in
+          // its redacted summary about the presence of inline source data.
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }
+      })).rejects.toMatchObject({
+        code: "server_job_inline_source_custody_required",
+        status: 400
+      });
+      expect(dispatch).not.toHaveBeenCalled();
+      await expect(queue.listEnterpriseServerJobs({ limit: 10 })).resolves.toEqual(
+        expect.objectContaining({ summary: expect.objectContaining({ total: 0 }) })
+      );
+    }
+  );
+
   it("retains a durable failed-dispatch receipt when the queue rejects delivery", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-dispatch-failure-"));
     cleanupDirs.push(dbDir);
@@ -292,19 +393,78 @@ describe("SENA server-job dispatch integrity round 26", () => {
       }),
       lifecycle: expect.objectContaining({ statusReason: "source-artifact-persistence-failed" })
     }));
-    const retried = await queue.updateEnterpriseServerJobStatus({
+    await expect(queue.updateEnterpriseServerJobStatus({
       jobId: stored.jobs[0].id,
       action: "retry",
       reason: "operator-review"
+    })).rejects.toMatchObject({
+      code: "server_job_source_repair_required",
+      status: 409
     });
-    expect(retried.job.status).toBe("queued");
+    await expect(queue.getEnterpriseServerJob(stored.jobs[0].id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        delivery: expect.objectContaining({ sourceReady: false })
+      })
+    );
+  });
+
+  it("projects legacy missing readiness without rewriting ambiguous receipts", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-legacy-readiness-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const state = await import("../enterprise/state");
+    const delivered = await queue.enqueueEnterpriseServerJob(queueInput());
+    const ambiguous = await queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      projectId: "project_round26_ambiguous",
+      payload: { ...queueInput().payload, projectId: "project_round26_ambiguous" }
+    });
+    const corrupted = await queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      projectId: "project_round26_corrupted",
+      payload: { ...queueInput().payload, projectId: "project_round26_corrupted" }
+    });
+    const db = state.readEnterpriseDb();
+    const deliveredRaw = db.serverJobs.find((candidate) => candidate.id === delivered.id)!;
+    const ambiguousRaw = db.serverJobs.find((candidate) => candidate.id === ambiguous.id)!;
+    const corruptedRaw = db.serverJobs.find((candidate) => candidate.id === corrupted.id)!;
+    delete (deliveredRaw.delivery as { sourceReady?: unknown }).sourceReady;
+    ambiguousRaw.delivery = {
+      attempted: false,
+      webhookStatus: "pending"
+    } as never;
+    corruptedRaw.delivery = {
+      ...corruptedRaw.delivery,
+      sourceReady: "true"
+    } as never;
+    state.saveDb(db);
+
+    await expect(queue.getEnterpriseServerJob(delivered.id)).resolves.toEqual(
+      expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: true }) })
+    );
+    const afterRead = state.readEnterpriseDb();
+    expect(Object.hasOwn(
+      afterRead.serverJobs.find((candidate) => candidate.id === delivered.id)!.delivery,
+      "sourceReady"
+    )).toBe(false);
     await expect(queue.claimEnterpriseServerJob({
-      jobId: stored.jobs[0].id,
-      workerRunId: "round26-source-failure-worker"
-    })).resolves.toEqual(expect.objectContaining({
-      claimed: false,
-      reason: "server_job_worker_source_not_ready"
-    }));
+      jobId: delivered.id,
+      workerRunId: "round26-legacy-delivered"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    for (const jobId of [ambiguous.id, corrupted.id]) {
+      await expect(queue.getEnterpriseServerJob(jobId)).resolves.toEqual(
+        expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
+      );
+      await expect(queue.claimEnterpriseServerJob({
+        jobId,
+        workerRunId: `round26-legacy-blocked-${jobId}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
   });
 
   it("does not overwrite a worker transition that completes before dispatch returns", async () => {

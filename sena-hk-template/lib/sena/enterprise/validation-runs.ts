@@ -49,7 +49,9 @@ import {
   buildEnterpriseValidationParityEvidence,
   buildEnterpriseValidationPreregistrationPlan,
   normalizeEnterpriseValidationRunEvidence,
-  sealEnterpriseValidationRunEvidence
+  sealEnterpriseValidationRunEvidence,
+  SenaEnterpriseValidationAnalysisRunIndex,
+  SenaEnterpriseValidationProjectRevisionIndex
 } from "./validation-integrity";
 import { senaValidationSourceVerificationCache } from "./validation-request-scope";
 
@@ -506,10 +508,26 @@ function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext
     ? db.projects.find((candidate) => candidate.id === run.projectId)
     : undefined;
   const sourceVerificationCache = senaValidationSourceVerificationCache();
+  const snapshotHashCache = new WeakMap<object, { bindingSha256: string }>();
+  const projectRevisionIndex = run.projectId && run.projectBinding
+    ? new SenaEnterpriseValidationProjectRevisionIndex(
+        db.projectRevisions,
+        snapshotHashCache,
+        {
+          projectId: run.projectId,
+          teamId: run.teamId,
+          version: run.projectBinding.projectVersion
+        }
+      )
+    : undefined;
+  const analysisRunIndex = new SenaEnterpriseValidationAnalysisRunIndex(db.analysisRuns);
   const verifiedRun = normalizeEnterpriseValidationRunEvidence(run, project, {
     evidenceHash: "optional",
     projectRevisions: db.projectRevisions,
+    projectRevisionIndex,
     analysisRuns: db.analysisRuns,
+    analysisRunIndex,
+    snapshotHashCache,
     sourceVerificationCache
   });
   const reviewedRun = sealEnterpriseValidationRunEvidence({
@@ -520,7 +538,10 @@ function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext
     reviewNotes: input.notes?.trim() ?? ""
   }, project, {
     projectRevisions: db.projectRevisions,
+    projectRevisionIndex,
     analysisRuns: db.analysisRuns,
+    analysisRunIndex,
+    snapshotHashCache,
     sourceVerificationCache
   });
   Object.assign(run, reviewedRun);

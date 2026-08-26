@@ -179,7 +179,7 @@ describe("Round 9 local reliability queue execution", () => {
     expect((await fixture.queue.getEnterpriseServerJob(job.id)).status).toBe("failed");
   });
 
-  it("rejects a local reliability payload that cannot be reproduced before creating a queued receipt", async () => {
+  it("rejects a local inline reliability payload without durable custody before creating a queued receipt", async () => {
     const fixture = await localRouteFixture();
     dbDir = fixture.dbDir;
     const reliability = await import("../reliability");
@@ -206,7 +206,7 @@ describe("Round 9 local reliability queue execution", () => {
         hasInlineDataset: true,
         payloadValuesExcluded: true
       }
-    })).rejects.toMatchObject({ code: "server_job_local_payload_not_reproducible" });
+    })).rejects.toMatchObject({ code: "server_job_inline_source_custody_required" });
     expect((await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.project.teamId })).jobs).toHaveLength(0);
   });
 });

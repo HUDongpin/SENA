@@ -178,18 +178,9 @@ export async function POST(request: Request) {
           skippedCells: preparedInline.skippedCells
         } : undefined;
         const queue = serverJobQueueStatus();
-        const queuedJsonUploads = preparedInline && queue.mode === "local"
+        const queuedJsonUploads = preparedInline
           ? buildEnterpriseReliabilityJsonQueueUploads(body)
           : [];
-        const managedInlineSourcePayload: Record<string, unknown> = {};
-        if (preparedInline && queue.inlinePayloadAllowed) {
-          for (const key of ["files", "annotations", "rows", "data"] as const) {
-            if (Object.prototype.hasOwnProperty.call(body, key)) managedInlineSourcePayload[key] = body[key];
-          }
-          if (Object.prototype.hasOwnProperty.call(body, "sourceName")) {
-            managedInlineSourcePayload.sourceName = body.sourceName;
-          }
-        }
         const projectId = body.projectId ? String(body.projectId) : undefined;
         const project = projectId ? await getEnterpriseProjectReadOnlyAsync(context, projectId) : null;
         const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
@@ -235,21 +226,21 @@ export async function POST(request: Request) {
             }
           }
         }
-        // The local queue has no webhook body to deliver later. Store each
+        // Every queue provider receives only durable pointers. Store each
         // admitted logical JSON source through the encrypted upload registry,
         // preserving file/alias boundaries and raw skipped/invalid rows while
         // keeping only opaque pointers in the public job receipt.
         let queuedSourceFiles: Array<(typeof queuedJsonUploads)[number] & { reservedId: string }> = [];
-        if (queue.mode === "local" && uploadIds.length === 0 && queuedJsonUploads.length > 0) {
+        if (uploadIds.length === 0 && queuedJsonUploads.length > 0) {
           uploadIds = reserveEnterpriseUploadIds(queuedJsonUploads.length);
           queuedSourceFiles = queuedJsonUploads.map((file, index) => ({
             ...file,
             reservedId: uploadIds[index]
           }));
         }
-        if (uploadIds.length === 0 && (!queue.inlinePayloadAllowed || !preparedInline)) {
+        if (uploadIds.length === 0) {
           throw new SenaEnterpriseError(
-            "Queued reliability jobs require uploadIds unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
+            "Queued reliability jobs require a registered upload source.",
             400,
             "reliability_queue_source_required"
           );
@@ -275,19 +266,7 @@ export async function POST(request: Request) {
           teamId,
           projectId,
           actorUserId: context.user.id,
-          payload: queue.mode === "local" ? canonicalPointerPayload : {
-            action: "run-reliability",
-            teamId,
-            projectId,
-            projectVersion: project?.currentVersion,
-            snapshotFingerprint,
-            uploadIds,
-            reviewerEnvelopeUploadId: reviewerEnvelope.uploadId,
-            reviewerEnvelopeSha256: reviewerEnvelope.sha256,
-            sourceName: body.sourceName ? String(body.sourceName) : undefined,
-            requestSchemaVersion: body.schemaVersion ? String(body.schemaVersion) : undefined,
-            ...managedInlineSourcePayload
-          },
+          payload: canonicalPointerPayload,
           payloadSummary: {
             source: uploadIds.length > 0 ? "upload" : "dataset",
             projectVersion: project?.currentVersion,
@@ -298,7 +277,7 @@ export async function POST(request: Request) {
             annotationCount,
             fileCount: preparedInline?.fileCount ?? uploadIds.length,
             hasInlineSnapshot: false,
-            hasInlineDataset: queue.mode === "local" ? false : Boolean(preparedInline),
+            hasInlineDataset: false,
             payloadValuesExcluded: true
           },
           queue,

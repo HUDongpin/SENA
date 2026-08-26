@@ -49,14 +49,14 @@ export async function POST(request: Request) {
     const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
     const queued = shouldQueueServerJob(admitted.request, body);
     const queue = queued ? serverJobQueueStatus() : null;
-    if (queued && !projectId && !queue?.inlinePayloadAllowed) {
+    const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+    if (queued && !projectId) {
       throw new SenaEnterpriseError(
-        "Queued validation jobs require projectId unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
+        "Queued validation sources require durable project custody; use projectId or run the inline source synchronously.",
         400,
-        "validation_queue_source_required"
+        "server_job_inline_source_custody_required"
       );
     }
-    const resolved = resolveEnterpriseGroupComparisonInput(body, project);
     if (queued && queue) {
       const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
       requireEnterprisePermission(context, teamId, "analysis:run");
@@ -85,9 +85,7 @@ export async function POST(request: Request) {
           preregistrationNote: body.preregistrationNote,
           methodNote: body.methodNote,
           parityEvidence: body.parityEvidence,
-          buildOptions: body.buildOptions,
-          inlineSnapshot: queue.inlinePayloadAllowed ? body.snapshot : undefined,
-          inlineDataset: queue.inlinePayloadAllowed ? body.dataset : undefined
+          buildOptions: body.buildOptions
         },
         payloadSummary: {
           source: project ? "project" : body.snapshot && body.dataset ? "mixed" : body.snapshot ? "snapshot" : body.dataset ? "dataset" : "unknown",

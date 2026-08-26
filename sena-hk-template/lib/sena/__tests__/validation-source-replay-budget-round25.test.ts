@@ -49,7 +49,8 @@ import {
   normalizeEnterpriseValidationRunCollectionEvidence,
   sealEnterpriseValidationRunEvidence,
   isEnterpriseValidationRunCurrentProvenance,
-  SenaEnterpriseValidationAnalysisRunIndex
+  SenaEnterpriseValidationAnalysisRunIndex,
+  SenaEnterpriseValidationProjectRevisionIndex
 } from "../enterprise/validation-integrity";
 import {
   estimateSenaGroupComparisonSourceModelWorkUnits,
@@ -1014,6 +1015,118 @@ describe("validation source verification replay budget", () => {
     expect(cache.modelBuildCount).toBe(1);
   });
 
+  it("stops a cloned-source measurement on the first work unit after the request budget is exhausted", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      probe
+    )).not.toThrow();
+    const oneDigestTraversal = probe.sourceDigestWorkUnitsReserved;
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceDigestWorkUnits: oneDigestTraversal
+    });
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+    const attemptsBefore = cache.sourceDigestMeasurementWorkUnitsAttempted;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).toThrow(/source digest scan budget exceeded/i);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted - attemptsBefore).toBe(1);
+    expect(cache.sourceDigestScanCount).toBe(1);
+    expect(cache.modelBuildCount).toBe(1);
+  });
+
+  it.each([
+    ["person label", (dataset: typeof lessonStudySenaContract) => {
+      dataset.people[0].label += "\uD800";
+    }],
+    ["person group", (dataset: typeof lessonStudySenaContract) => {
+      dataset.people[0].group += "\uDC00";
+    }],
+    ["utterance text", (dataset: typeof lessonStudySenaContract) => {
+      dataset.utterances[0].text += "\uD800";
+    }],
+    ["metadata value", (dataset: typeof lessonStudySenaContract) => {
+      if (!dataset.metadata) throw new Error("metadata fixture missing");
+      dataset.metadata.datasetVersion += "\uDC00";
+    }],
+    ["object key", (dataset: typeof lessonStudySenaContract) => {
+      Object.defineProperty(dataset.people[0], "\uD800", {
+        enumerable: true,
+        configurable: true,
+        value: "malformed-key"
+      });
+    }]
+  ] as const)("rejects ill-formed UTF-16 in source %s before digest or model construction", (_label, mutate) => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const dataset = structuredClone(lessonStudySenaContract);
+    mutate(dataset);
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset },
+      cache
+    )).toThrow(/well-formed UTF-16/i);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(cache.sourceDigestBytesReserved).toBe(0);
+    expect(cache.sourceDigestWorkUnitsReserved).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it("accepts a literal replacement character as a distinct well-formed source value", () => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    dataset.people[0].label += "\uFFFD";
+    const result = buildSenaGroupComparisonSuite({
+      dataset,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset },
+      cache
+    )).not.toThrow();
+    expect(cache.sourceDigestScanCount).toBe(1);
+    expect(cache.modelBuildCount).toBe(1);
+    expect(modelReplayProbe.buildCount).toBe(1);
+  });
+
   it("measures the full source text budget in UTF-8 bytes instead of UTF-16 code units", () => {
     const baselineResult = buildSenaGroupComparisonSuite({
       dataset: lessonStudySenaContract,
@@ -1338,6 +1451,83 @@ describe("validation source verification replay budget", () => {
       analysisRuns: []
     })).toThrow(expect.objectContaining({ path: "projectBinding" }));
     expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it("scopes direct historical revision materialization to the bound project identity", () => {
+    const fixture = createValidationEvidenceFixture("scoped-direct-revision", 20260831);
+    const db = readEnterpriseDb();
+    const revision = db.projectRevisions.find((candidate) => (
+      candidate.projectId === fixture.project.id &&
+      candidate.teamId === fixture.project.teamId &&
+      candidate.version === fixture.run.projectBinding?.projectVersion
+    ));
+    if (!revision || !fixture.run.projectBinding) throw new Error("Expected retained revision binding fixture.");
+    const advancedProject = {
+      ...structuredClone(fixture.project),
+      currentVersion: fixture.project.currentVersion + 1
+    };
+    const foreignSnapshot: Record<string, unknown> = {};
+    foreignSnapshot.self = foreignSnapshot;
+    const foreignRevision = {
+      projectId: "foreign-project-that-must-not-be-materialized",
+      teamId: "foreign-team-that-must-not-be-materialized",
+      version: 1,
+      snapshot: foreignSnapshot
+    };
+
+    expect(() => normalizeEnterpriseValidationRunEvidence(fixture.run, advancedProject, {
+      evidenceHash: "optional",
+      projectRevisions: [foreignRevision, revision] as never
+    })).not.toThrow();
+  });
+
+  it("reuses one scoped historical revision index and snapshot cache across normalize and seal", () => {
+    const fixture = createValidationEvidenceFixture("shared-direct-revision", 20260832);
+    const db = readEnterpriseDb();
+    const revision = db.projectRevisions.find((candidate) => (
+      candidate.projectId === fixture.project.id &&
+      candidate.teamId === fixture.project.teamId &&
+      candidate.version === fixture.run.projectBinding?.projectVersion
+    ));
+    if (!revision || !fixture.run.projectBinding) throw new Error("Expected retained revision binding fixture.");
+    const advancedProject = {
+      ...structuredClone(fixture.project),
+      currentVersion: fixture.project.currentVersion + 1
+    };
+    const foreignSnapshot: Record<string, unknown> = {};
+    foreignSnapshot.self = foreignSnapshot;
+    const revisions = [{
+      projectId: "foreign-project-shared-index",
+      teamId: "foreign-team-shared-index",
+      version: 1,
+      snapshot: foreignSnapshot
+    }, revision] as never;
+    const snapshotHashCache = new WeakMap<object, { bindingSha256: string }>();
+    const projectRevisionIndex = new SenaEnterpriseValidationProjectRevisionIndex(
+      revisions,
+      snapshotHashCache,
+      {
+        projectId: fixture.project.id,
+        teamId: fixture.project.teamId,
+        version: fixture.run.projectBinding.projectVersion
+      }
+    );
+
+    const normalized = normalizeEnterpriseValidationRunEvidence(fixture.run, advancedProject, {
+      evidenceHash: "optional",
+      projectRevisions: revisions,
+      projectRevisionIndex,
+      snapshotHashCache
+    });
+    expect(projectRevisionIndex.candidateInspectionCount).toBe(1);
+    expect(snapshotHashCache.has(foreignSnapshot)).toBe(false);
+    expect(() => sealEnterpriseValidationRunEvidence(normalized, advancedProject, {
+      projectRevisions: revisions,
+      projectRevisionIndex,
+      snapshotHashCache
+    })).not.toThrow();
+    expect(projectRevisionIndex.candidateInspectionCount).toBe(1);
+    expect(snapshotHashCache.has(foreignSnapshot)).toBe(false);
   });
 
   it("rejects oversized analysis identity text before building its index", () => {

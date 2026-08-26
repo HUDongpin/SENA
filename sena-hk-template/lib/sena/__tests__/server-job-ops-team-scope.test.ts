@@ -301,7 +301,7 @@ describe("SENA server job ops route tenant scope", () => {
       const response = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
         method: "POST",
         headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ action: "mark-running", jobId })
+        body: JSON.stringify({ action: "mark-running", jobId, workerRunId: `worker_run_bearer_${jobId}` })
       }));
       const body = await response.json() as { job?: { status?: string } };
       expect(response.status, JSON.stringify(body)).toBe(200);

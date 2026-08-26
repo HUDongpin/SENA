@@ -173,6 +173,64 @@ describe("SENA analytical input HTTP errors", () => {
     }
   }, routeTimeoutMs);
 
+  it("refuses otherwise-valid queued inline analysis and validation sources before receipt or dispatch", async () => {
+    vi.resetModules();
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const context = await authenticatedRouteContext("sena-inline-custody-queue-");
+    try {
+      const analyzeRoute = await import("../../../app/api/sena/analyze/route");
+      const validationRoute = await import("../../../app/api/sena/validation/group-comparison/route");
+      const headers = {
+        "content-type": "application/json",
+        "x-sena-csrf-token": context.csrf,
+        prefer: "respond-async"
+      };
+      const [analysisResponse, validationResponse] = await Promise.all([
+        analyzeRoute.POST(new Request("https://sena.example.test/api/sena/analyze", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            teamId: context.registered.context.teams[0].id,
+            dataset: lessonStudySenaContract,
+            queue: true
+          })
+        })),
+        validationRoute.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            teamId: context.registered.context.teams[0].id,
+            dataset: lessonStudySenaContract,
+            queue: true,
+            groupField: "group",
+            groupA: "Experimental",
+            groupB: "Control",
+            iterations: 100,
+            bootstrapIterations: 100
+          })
+        }))
+      ]);
+
+      for (const response of [analysisResponse, validationResponse]) {
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual(expect.objectContaining({
+          code: "server_job_inline_source_custody_required"
+        }));
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(context.enterprise.listEnterpriseServerJobs({ limit: 10 })).resolves.toEqual(
+        expect.objectContaining({ summary: expect.objectContaining({ total: 0 }) })
+      );
+    } finally {
+      context.cleanup();
+    }
+  }, routeTimeoutMs);
+
   it("returns a redacted 400 for invalid group-comparison build options", async () => {
     vi.resetModules();
     const context = await authenticatedRouteContext("sena-invalid-validation-");

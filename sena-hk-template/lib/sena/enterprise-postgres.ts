@@ -52,6 +52,7 @@ import type {
   SenaEnterpriseServerJobQueueDelivery,
   SenaEnterpriseServerJobStatus
 } from "./enterprise/server-job-queue";
+import { projectEnterpriseServerJobReadModel } from "./enterprise/server-job-contract";
 import type { SenaEnterpriseObservedRequest } from "./enterprise/ops-observability";
 import type { SenaProjectSnapshot } from "./types";
 import {
@@ -1080,7 +1081,7 @@ function normalizeStoredServerJob(row: Record<string, unknown>): SenaEnterpriseS
     schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.enterpriseServerJob) {
     storedIntegrityFailure("row.schema_version");
   }
-  return {
+  return projectEnterpriseServerJobReadModel({
     schemaVersion: schemaVersion as SenaEnterpriseServerJob["schemaVersion"],
     id: String(row.id),
     kind: String(row.kind) as SenaEnterpriseServerJobKind,
@@ -1097,7 +1098,7 @@ function normalizeStoredServerJob(row: Record<string, unknown>): SenaEnterpriseS
     worker: normalizeStoredJson<SenaEnterpriseServerJob["worker"]>(row.worker),
     lifecycle: normalizeStoredJson<SenaEnterpriseServerJob["lifecycle"]>(row.lifecycle),
     redaction: normalizeStoredJson<SenaEnterpriseServerJob["redaction"]>(row.redaction)
-  };
+  });
 }
 
 function normalizeStoredAuditLogEntry(row: Record<string, unknown>): SenaEnterpriseAuditLogEntry {
@@ -3399,6 +3400,19 @@ export function createEnterprisePostgresServerJobAdapter(input: {
   const teamIndex = indexIdentifier(`${tableName}_team_updated_idx`);
   const projectIndex = indexIdentifier(`${tableName}_project_updated_idx`);
   const kindIndex = indexIdentifier(`${tableName}_kind_status_idx`);
+  const claimableSourceSql = `(
+    delivery->'sourceReady' = 'true'::jsonb
+    OR (
+      NOT (delivery ? 'sourceReady')
+      AND (
+        delivery->>'webhookStatus' IN ('delivered', 'local-sink')
+        OR (
+          delivery->>'webhookStatus' = 'failed'
+          AND delivery->>'failureStage' = 'queue-dispatch'
+        )
+      )
+    )
+  )`;
   let schemaReady = false;
 
   async function ensureSchema() {
@@ -3513,9 +3527,40 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         lifecycle = $2::jsonb,
         updated_at = $3
       WHERE id = $1 AND status = 'queued'
-        AND delivery->>'sourceReady' = 'true'
+        AND ${claimableSourceSql}
       RETURNING *
     `, [job.id, roundTripJson(job.lifecycle), job.updatedAt]);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
+  async function transitionJobStatus(inputTransition: {
+    job: SenaEnterpriseServerJob;
+    expectedStatus: SenaEnterpriseServerJobStatus;
+    expectedWorkerRunId?: string;
+    requireSourceReady: boolean;
+  }) {
+    await ensureSchema();
+    const values: unknown[] = [
+      inputTransition.job.id,
+      inputTransition.job.status,
+      roundTripJson(inputTransition.job.lifecycle),
+      inputTransition.job.updatedAt,
+      inputTransition.expectedStatus
+    ];
+    const clauses = ["id = $1", "status = $5"];
+    if (inputTransition.expectedWorkerRunId) {
+      values.push(inputTransition.expectedWorkerRunId);
+      clauses.push(`lifecycle->>'workerRunId' = $${values.length}`);
+    }
+    if (inputTransition.requireSourceReady) clauses.push(claimableSourceSql);
+    const result = await input.query<Record<string, unknown>>(`
+      UPDATE ${tableRef}
+      SET status = $2,
+        lifecycle = $3::jsonb,
+        updated_at = $4
+      WHERE ${clauses.join(" AND ")}
+      RETURNING *
+    `, values);
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
@@ -3562,7 +3607,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     if (inputFilters.kind) add("kind = ?", inputFilters.kind);
     if (inputFilters.teamId) add("team_id = ?", inputFilters.teamId);
     if (inputFilters.projectId) add("project_id = ?", inputFilters.projectId);
-    if (inputFilters.claimableOnly) clauses.push("delivery->>'sourceReady' = 'true'");
+    if (inputFilters.claimableOnly) clauses.push(claimableSourceSql);
     return {
       values,
       where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""
@@ -3648,6 +3693,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     ensureSchema,
     upsertJob,
     claimQueuedJob,
+    transitionJobStatus,
     finalizeDelivery,
     listJobs,
     getJob

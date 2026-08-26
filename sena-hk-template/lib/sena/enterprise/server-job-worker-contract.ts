@@ -57,6 +57,7 @@ export type SenaEnterpriseServerJobWorkerContract = {
     acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"];
     acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"];
     payloadPolicy: "project-or-upload-pointer-default";
+    /** Legacy v1 metadata; not an enablement signal. Consult queue custody evidence. */
     inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1";
     rawPayloadPersistedInJobStore: false;
     retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry";
@@ -256,6 +257,7 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       "statusCallback=/api/sena/ops/jobs",
       "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation",
+      "workerInlinePayloadCustody=durable-pointers-only",
       "rawPayloadPersistedInJobStore=false",
       "parseWarningDisclosurePolicy=run-import-and-run-reliability-must-report-parse-repair-warnings",
       "uploadWarningCountSemantics=unset-until-a-parser-reports",

@@ -832,11 +832,19 @@ export class SenaEnterpriseValidationProjectRevisionIndex {
 
   constructor(
     revisions: SenaEnterpriseValidationProjectRevisionSource[],
-    private readonly snapshotHashCache: SenaEnterpriseValidationSnapshotHashCache = new WeakMap()
+    private readonly snapshotHashCache: SenaEnterpriseValidationSnapshotHashCache = new WeakMap(),
+    targetIdentity?: {
+      projectId: string;
+      teamId: string;
+      version: number;
+    }
   ) {
+    const requiredIdentities = targetIdentity
+      ? new Set([validationProjectRevisionIdentityKey(targetIdentity)])
+      : undefined;
     const admitted = projectEnterpriseValidationProjectRevisionSources(
       revisions,
-      undefined,
+      requiredIdentities,
       { identityBytes: 0, snapshotBytes: 0 },
       this.snapshotHashCache
     );
@@ -1710,7 +1718,12 @@ export function normalizeEnterpriseValidationRunEvidence(
       const revisionIndex = options.projectRevisionIndex ??
         new SenaEnterpriseValidationProjectRevisionIndex(
           options.projectRevisions ?? [],
-          contextualSnapshotHashCache
+          contextualSnapshotHashCache,
+          {
+            projectId: run.projectId,
+            teamId: run.teamId,
+            version: binding.projectVersion
+          }
         );
       const retained = project?.teamId === run.teamId
         ? revisionIndex.matchingRevision({
@@ -1825,6 +1838,7 @@ export function sealEnterpriseValidationRunEvidence(
   const normalized = normalizeEnterpriseValidationRunEvidence(run, project, {
     evidenceHash: "ignore",
     projectRevisions: options.projectRevisions,
+    projectRevisionIndex: options.projectRevisionIndex,
     analysisRuns: options.analysisRuns,
     analysisRunIndex: options.analysisRunIndex,
     snapshotHashCache: options.snapshotHashCache,

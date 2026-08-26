@@ -124,6 +124,7 @@ describe("SENA server job ops route", () => {
       body: JSON.stringify({
         action: "mark-failed",
         jobId: job.id,
+        workerRunId: "worker_run_1",
         errorCode: "worker_exit",
         errorMessage
       })
@@ -294,6 +295,17 @@ describe("SENA server job ops route", () => {
     }));
     expect(tooManyResponse.status).toBe(400);
     expect((await tooManyResponse.json() as { code?: string }).code).toBe("server_job_upload_warnings_too_many");
+
+    const runningResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: job.id,
+        workerRunId: "worker_run_warnings"
+      })
+    }));
+    expect(runningResponse.status).toBe(200);
 
     const succeededResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
       method: "POST",

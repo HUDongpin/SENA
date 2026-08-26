@@ -16,6 +16,14 @@ export class RouteMemoryPostgres {
   observedRequests: Array<Record<string, unknown>> = [];
   queries: string[] = [];
 
+  serverJobSourceReady(record: Record<string, unknown>) {
+    const delivery = record.delivery as Record<string, unknown> | undefined;
+    if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) return false;
+    if (Object.hasOwn(delivery, "sourceReady")) return delivery.sourceReady === true;
+    if (delivery.webhookStatus === "delivered" || delivery.webhookStatus === "local-sink") return true;
+    return delivery.webhookStatus === "failed" && delivery.failureStage === "queue-dispatch";
+  }
+
   serverJobRowsForSql(sql: string, values: unknown[]) {
     if (/WHERE id = \$1 LIMIT 1/i.test(sql)) {
       return this.serverJobs.filter((record) => record.id === values[0]);
@@ -39,10 +47,8 @@ export class RouteMemoryPostgres {
       const projectId = values[valueIndex++];
       rows = rows.filter((record) => record.project_id === projectId);
     }
-    if (/delivery->>'sourceReady'/i.test(sql)) {
-      rows = rows.filter((record) => (
-        record.delivery as { sourceReady?: boolean } | undefined
-      )?.sourceReady === true);
+    if (/delivery->'?sourceReady'?/i.test(sql) || /delivery \? 'sourceReady'/i.test(sql)) {
+      rows = rows.filter((record) => this.serverJobSourceReady(record));
     }
     return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
   }
@@ -273,7 +279,7 @@ export class RouteMemoryPostgres {
       /WHERE id = \$1 AND status = 'queued'/i.test(normalizedSql)) {
       const current = this.serverJobs.find((record) => record.id === values[0]);
       if (!current || current.status !== "queued" ||
-        (current.delivery as { sourceReady?: boolean } | undefined)?.sourceReady !== true) {
+        !this.serverJobSourceReady(current)) {
         return { rows: [], rowCount: 0 };
       }
       const claimed: Record<string, unknown> = {
@@ -287,6 +293,32 @@ export class RouteMemoryPostgres {
         ...this.serverJobs.filter((record) => record.id !== claimed.id)
       ];
       return { rows: [claimed], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /SET status = \$2/i.test(normalizedSql) &&
+      /WHERE id = \$1 AND status = \$5/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      const expectedStatus = values[4];
+      const workerPredicate = /lifecycle->>'workerRunId' = \$(\d+)/i.exec(normalizedSql);
+      const expectedWorkerRunId = workerPredicate ? values[Number(workerPredicate[1]) - 1] : undefined;
+      const requiresReady = /delivery->'?sourceReady'?/i.test(normalizedSql) || /delivery \? 'sourceReady'/i.test(normalizedSql);
+      const lifecycle = current?.lifecycle as { workerRunId?: unknown } | undefined;
+      if (!current || current.status !== expectedStatus ||
+        (workerPredicate && lifecycle?.workerRunId !== expectedWorkerRunId) ||
+        (requiresReady && !this.serverJobSourceReady(current))) {
+        return { rows: [], rowCount: 0 };
+      }
+      const transitioned: Record<string, unknown> = {
+        ...current,
+        status: values[1],
+        lifecycle: values[2],
+        updated_at: values[3]
+      };
+      this.serverJobs = [
+        transitioned,
+        ...this.serverJobs.filter((record) => record.id !== transitioned.id)
+      ];
+      return { rows: [transitioned], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
       const row = {

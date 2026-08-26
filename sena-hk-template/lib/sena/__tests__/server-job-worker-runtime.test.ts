@@ -320,7 +320,7 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(runs.map((run) => run.id)).toContain(outcome.result?.analysisRunId);
   });
 
-  it("executes a queued reliability job from the inline annotation payload", async () => {
+  it("rejects a managed inline reliability payload before creating a queued receipt", async () => {
     const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
     enterpriseDbDir = fixture.enterpriseDbDir;
     const reliability = await import("../reliability");
@@ -343,7 +343,10 @@ describe("SENA in-repo server job worker runtime", () => {
       sourceName: "worker-runtime-reliability.json",
       inlineAnnotations: reliabilityAnnotations
     };
-    const job = await fixture.queue.enqueueEnterpriseServerJob({
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    await expect(fixture.queue.enqueueEnterpriseServerJob({
       kind: "reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
@@ -359,20 +362,14 @@ describe("SENA in-repo server job worker runtime", () => {
         hasInlineDataset: true,
         payloadValuesExcluded: true
       }
+    })).rejects.toMatchObject({
+      status: 400,
+      code: "server_job_inline_source_custody_required"
     });
-
-    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
-
-    expect(outcome.status).toBe("succeeded");
-    expect(outcome.result?.reliabilityRunId).toMatch(/^rel_/);
-
-    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
-    expect(stored.status).toBe("succeeded");
-
-    const runs = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+    expect((await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs).toHaveLength(0);
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
       teamId: fixture.teamId
-    });
-    expect(runs.map((run) => run.id)).toContain(outcome.result?.reliabilityRunId);
+    })).toEqual(runsBefore);
   });
 
   it("rejects a queued reliability job after its bound project revision changes", async () => {
@@ -1205,18 +1202,19 @@ describe("SENA in-repo server job worker runtime", () => {
   });
 
   it.each([
-    ["object", (): unknown => ({ rows: Array.from({ length: 200_001 }, () => null) })],
+    ["object", (): unknown => ({ rows: [null] })],
     ["null", (): unknown => null],
     ["string", (): unknown => "not-a-file-array"]
   ] as const)(
-    "rejects managed inline files=%s before claim, project, reviewer, run, or audit mutation",
+    "rejects managed inline files=%s before receipt, dispatch, run, or audit mutation",
     async (_label, value) => {
       const fixture = await workerFixture({ inlinePayload: true });
       enterpriseDbDir = fixture.enterpriseDbDir;
       process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
       process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
       process.env.SENA_JOB_QUEUE_SECRET = "worker-invalid-files-secret";
-      vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      vi.stubGlobal("fetch", fetchMock);
       const reliability = await import("../reliability");
       const reviewerEnvelopeUploadId = "upload_reviewer_must_not_be_read";
       const reviewerEnvelopeSha256 = "b".repeat(64);
@@ -1230,7 +1228,16 @@ describe("SENA in-repo server job worker runtime", () => {
         reviewerEnvelopeUploadId,
         reviewerEnvelopeSha256
       };
-      const job = await fixture.queue.enqueueEnterpriseServerJob({
+      const jobsBefore = (await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs;
+      const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      });
+      const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events;
+
+      await expect(fixture.queue.enqueueEnterpriseServerJob({
         kind: "reliability",
         teamId: fixture.teamId,
         projectId: fixture.project.id,
@@ -1246,57 +1253,19 @@ describe("SENA in-repo server job worker runtime", () => {
           hasInlineDataset: true,
           payloadValuesExcluded: true
         }
+      })).rejects.toMatchObject({
+        status: 400,
+        code: "server_job_inline_source_custody_required"
       });
-      const jobBefore = structuredClone(await fixture.queue.getEnterpriseServerJob(job.id));
-      const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect((await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs).toEqual(jobsBefore);
+      expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
         teamId: fixture.teamId
-      });
-      const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      })).toEqual(runsBefore);
+      expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
         teamId: fixture.teamId,
         limit: 500
-      }).events;
-      const auditedProjectRead = vi.fn(async () => {
-        throw new Error("audited project read happened before managed inline admission");
-      });
-      const readOnlyProjectLookup = vi.fn(async () => {
-        throw new Error("read-only project lookup happened before managed inline admission");
-      });
-      const reviewerReader = vi.fn(async () => {
-        throw new Error("reviewer decrypt happened before managed inline admission");
-      });
-
-      vi.resetModules();
-      vi.doMock("../enterprise/team-project", async () => ({
-        ...await vi.importActual<typeof import("../enterprise/team-project")>("../enterprise/team-project"),
-        getEnterpriseProjectAsync: auditedProjectRead,
-        getEnterpriseProjectReadOnlyAsync: readOnlyProjectLookup
-      }));
-      vi.doMock("../enterprise/import-analysis", async () => ({
-        ...await vi.importActual<typeof import("../enterprise/import-analysis")>("../enterprise/import-analysis"),
-        readEnterpriseUploadContentsAsync: reviewerReader
-      }));
-
-      try {
-        const runtime = await import("../enterprise/server-job-worker-runtime");
-        const outcome = await runtime.runEnterpriseServerJob({ job, workerPayload: payload });
-
-        expect(outcome.status).toBe("failed");
-        expect(outcome.errorCode).toBe("invalid_sena_reliability_sources");
-        expect(auditedProjectRead).not.toHaveBeenCalled();
-        expect(readOnlyProjectLookup).not.toHaveBeenCalled();
-        expect(reviewerReader).not.toHaveBeenCalled();
-        expect(await fixture.queue.getEnterpriseServerJob(job.id)).toEqual(jobBefore);
-        expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
-          teamId: fixture.teamId
-        })).toEqual(runsBefore);
-        expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
-          teamId: fixture.teamId,
-          limit: 500
-        }).events).toEqual(auditsBefore);
-      } finally {
-        vi.doUnmock("../enterprise/team-project");
-        vi.doUnmock("../enterprise/import-analysis");
-      }
+      }).events).toEqual(auditsBefore);
     },
     30_000
   );

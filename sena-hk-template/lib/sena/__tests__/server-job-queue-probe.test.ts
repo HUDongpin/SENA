@@ -169,8 +169,10 @@ describe("SENA server job queue live probe", () => {
       workerPayloadHashHeader: "x-sena-worker-payload-sha256",
       hashSemantics: "exact-body-and-canonical-worker-payload-separated",
       statusCallback: "/api/sena/ops/jobs",
+      inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
       rawPayloadPersistedInJobStore: false
     }));
+    expect(contract.evidence).toContain("serverJobQueueContractInlinePayloadCustody=durable-pointers-only");
     expect(contract.dispatch.acceptedJobKinds).toEqual([
       "analysis",
       "import",
