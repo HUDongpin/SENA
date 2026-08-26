@@ -48,6 +48,7 @@ import {
   claimEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
+  rejectEnterpriseServerJobBeforeClaim,
   requiredWorkerRunId,
   stableServerJobPayloadSha256,
   updateEnterpriseServerJobStatus,
@@ -60,6 +61,7 @@ import { readEnterpriseState } from "./state";
 import {
   createEnterpriseProjectAsync,
   getEnterpriseProjectReadOnlyAsync,
+  getEnterpriseProjectRevisionSourceReadOnlyAsync,
   updateEnterpriseProjectAsync
 } from "./team-project";
 import { runWithSenaValidationRequestScope } from "./validation-request-scope";
@@ -509,7 +511,9 @@ async function queuedReliabilityReviewer(
 
 type SenaAnalysisJobAdmission = {
   context: SenaEnterpriseSessionContext;
-  sourceProject: Awaited<ReturnType<typeof getEnterpriseProjectReadOnlyAsync>>;
+  currentProject: Awaited<ReturnType<typeof getEnterpriseProjectRevisionSourceReadOnlyAsync>>["currentProject"];
+  sourceProject: Awaited<ReturnType<typeof getEnterpriseProjectRevisionSourceReadOnlyAsync>>["sourceProject"];
+  expectedVersion?: number;
 };
 
 async function admitAnalysisJob(
@@ -529,16 +533,48 @@ async function admitAnalysisJob(
       "server_job_worker_project_binding_invalid"
     );
   }
+  const updatesExistingProject = payload.persist === true && payload.updateProject !== false;
+  const suppliedExpectedVersion = Object.hasOwn(payload, "expectedVersion") && payload.expectedVersion !== undefined
+    ? payload.expectedVersion
+    : undefined;
+  const summaryExpectedVersion = job.payloadSummary.expectedVersion;
+  if (summaryExpectedVersion !== undefined &&
+    (!isPositiveSafeInteger(summaryExpectedVersion) || suppliedExpectedVersion !== summaryExpectedVersion)) {
+    throw new SenaEnterpriseError(
+      "Project version conflict: queued expectedVersion does not match its durable receipt.",
+      409,
+      "project_version_conflict"
+    );
+  }
+  if (updatesExistingProject && suppliedExpectedVersion !== undefined &&
+    (!isPositiveSafeInteger(suppliedExpectedVersion) || suppliedExpectedVersion !== projectVersion)) {
+    throw new SenaEnterpriseError(
+      "Project version conflict: queued expectedVersion does not match the immutable source revision.",
+      409,
+      "project_version_conflict"
+    );
+  }
   const context = await workerSessionContext(job);
-  const sourceProject = await getEnterpriseProjectReadOnlyAsync(context, projectId);
+  const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(context, projectId, projectVersion);
+  const { currentProject, sourceProject } = revisionSource;
   if (sourceProject.teamId !== job.teamId || sourceProject.currentVersion !== projectVersion) {
     throw new SenaEnterpriseError(
-      "The SENA project changed after this job was queued.",
+      "The retained SENA project revision does not match this job.",
       409,
       "server_job_worker_project_version_changed"
     );
   }
-  return { context, sourceProject };
+  const expectedVersion = updatesExistingProject
+    ? suppliedExpectedVersion === undefined ? projectVersion : suppliedExpectedVersion as number
+    : undefined;
+  if (expectedVersion !== undefined && currentProject.currentVersion !== expectedVersion) {
+    throw new SenaEnterpriseError(
+      `Project version conflict: current version is ${currentProject.currentVersion}, but the queued update was based on version ${expectedVersion}.`,
+      409,
+      "project_version_conflict"
+    );
+  }
+  return { context, currentProject, sourceProject, expectedVersion };
 }
 
 async function executeAnalysisJob(
@@ -546,7 +582,7 @@ async function executeAnalysisJob(
   payload: Record<string, unknown>,
   admission: SenaAnalysisJobAdmission
 ): Promise<SenaServerJobWorkerResult> {
-  const { context, sourceProject } = admission;
+  const { context, sourceProject, expectedVersion } = admission;
   const projectId = sourceProject.id;
 
   const body = {
@@ -570,7 +606,7 @@ async function executeAnalysisJob(
     ? updateExistingProject
       ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
         title: optionalString(payload.title),
-        expectedVersion: sourceProject.currentVersion,
+        expectedVersion,
         snapshot: run.projectSnapshot
       })
       : await createEnterpriseProjectAsync(context, {
@@ -676,6 +712,24 @@ function failedBeforeClaim(job: SenaEnterpriseServerJob, error: unknown): SenaSe
   };
 }
 
+async function rejectBeforeClaim(
+  job: SenaEnterpriseServerJob,
+  error: unknown,
+  reason = "server-job-worker-preclaim-admission-failed"
+) {
+  const errorCode = errorCodeOf(error);
+  const rejected = await rejectEnterpriseServerJobBeforeClaim({
+    jobId: job.id,
+    errorCode,
+    errorHash: errorHashOf(error),
+    reason
+  });
+  if (rejected.status !== "failed" || rejected.lifecycle.lastErrorCode !== errorCode) {
+    return skipped(rejected, "server_job_worker_job_not_queued");
+  }
+  return failedBeforeClaim(rejected, error);
+}
+
 /**
  * Takes the job out of `queued` for this worker run.
  *
@@ -724,7 +778,7 @@ export async function runEnterpriseServerJob(input: {
       try {
         analysisAdmission = await admitAnalysisJob(job, payload);
       } catch (error) {
-        return failedBeforeClaim(job, error);
+        return rejectBeforeClaim(job, error);
       }
     }
     if (job.kind === "reliability") {
@@ -817,8 +871,13 @@ async function reproduceAnalysisPayload(
 ): Promise<Record<string, unknown> | undefined> {
   const projectVersion = job.payloadSummary.projectVersion;
   if (!job.projectId || !isPositiveSafeInteger(projectVersion)) return undefined;
-  const project = await getEnterpriseProjectReadOnlyAsync(context, job.projectId).catch(() => null);
-  if (!project || project.currentVersion !== projectVersion || project.teamId !== job.teamId) return undefined;
+  const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(
+    context,
+    job.projectId,
+    projectVersion
+  ).catch(() => null);
+  const project = revisionSource?.sourceProject;
+  if (!project || project.teamId !== job.teamId) return undefined;
   return {
     action: "run-analysis",
     teamId: job.teamId,
@@ -828,7 +887,8 @@ async function reproduceAnalysisPayload(
     activeTemporalWindowId: job.payloadSummary.activeTemporalWindowId,
     includeRuntimeBundle: job.payloadSummary.includeRuntimeBundle === true,
     persist: job.payloadSummary.persist === true,
-    updateProject: job.payloadSummary.updateProject !== false
+    updateProject: job.payloadSummary.updateProject !== false,
+    expectedVersion: job.payloadSummary.expectedVersion
   };
 }
 
@@ -920,7 +980,16 @@ export async function drainEnterpriseServerJobQueue(input: {
       }
       const workerPayload = await reproducedWorkerPayload(job);
       if (!workerPayload) {
-        outcomes.push(skipped(job, "server_job_worker_payload_not_reproducible"));
+        const error = new SenaEnterpriseError(
+          "The queued SENA worker payload cannot be reproduced from retained custody.",
+          409,
+          "server_job_worker_payload_not_reproducible"
+        );
+        outcomes.push(await rejectBeforeClaim(
+          job,
+          error,
+          "server-job-worker-payload-not-reproducible"
+        ));
         continue;
       }
       outcomes.push(await runEnterpriseServerJob({ job, workerPayload }));

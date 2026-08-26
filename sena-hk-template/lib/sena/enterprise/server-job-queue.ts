@@ -269,6 +269,8 @@ export type SenaEnterpriseServerJobWorkerHeartbeat = {
 export type SenaEnterpriseServerJobPayloadSummary = {
   source: SenaEnterpriseServerJobSource;
   projectVersion?: number;
+  expectedVersion?: number;
+  projectTeamId?: string;
   snapshotFingerprint?: string;
   format?: string;
   fileCount?: number;
@@ -1904,6 +1906,64 @@ export async function claimEnterpriseServerJob(input: {
       ...(db.serverJobs ?? []).filter((candidate) => candidate.id !== claimed.id)
     ].slice(0, 2000);
     return { claimed: true as const, job: claimed };
+  });
+}
+
+/**
+ * Atomically terminalizes an immutable queued command that cannot be admitted
+ * or reproduced. No worker owns the job yet, so attempts remain zero and no
+ * workerRunId is invented. This prevents poison receipts from being accepted
+ * by push providers or rescanned forever by the local poller.
+ */
+export async function rejectEnterpriseServerJobBeforeClaim(input: {
+  jobId: string;
+  errorCode: string;
+  errorHash?: string;
+  reason: string;
+}) {
+  const timestamp = now();
+  const reject = (current: SenaEnterpriseServerJob): SenaEnterpriseServerJob => ({
+    ...current,
+    status: "failed",
+    updatedAt: timestamp,
+    lifecycle: {
+      ...current.lifecycle,
+      attempts: current.lifecycle.attempts,
+      retryable: false,
+      lastTransition: "mark-failed",
+      finishedAt: timestamp,
+      workerRunId: undefined,
+      lastErrorCode: input.errorCode,
+      lastErrorHash: input.errorHash,
+      statusReason: input.reason,
+      deadLetteredAt: undefined
+    }
+  });
+
+  if (isPostgresServerJobStoreActive()) {
+    const current = await getEnterpriseServerJob(input.jobId);
+    if (current.status !== "queued") return current;
+    const rejected = reject(current);
+    return await postgresServerJobStore().transitionJobStatus({
+      job: rejected,
+      expectedStatus: "queued",
+      requireSourceReady: false
+    }) ?? await getEnterpriseServerJob(input.jobId);
+  }
+
+  return mutateEnterpriseDbAtomically((db) => {
+    const storedCurrent = (db.serverJobs ?? []).find((candidate) => candidate.id === input.jobId);
+    if (!storedCurrent) {
+      throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+    }
+    const current = projectEnterpriseServerJobReadModel(storedCurrent);
+    if (current.status !== "queued") return current;
+    const rejected = reject(current);
+    db.serverJobs = [
+      rejected,
+      ...(db.serverJobs ?? []).filter((candidate) => candidate.id !== rejected.id)
+    ].slice(0, 2000);
+    return rejected;
   });
 }
 

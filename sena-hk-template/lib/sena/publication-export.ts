@@ -1197,7 +1197,7 @@ async function buildSingleSenaPublicationExport(
     return {
       filename: `${safeTitle}.xlsx`,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      body: await buildSenaPublicationWorkbook(model, report, derivationManifest),
+      body: Buffer.from(await buildSenaPublicationWorkbook(model, report, derivationManifest)),
       derivationManifest
     };
   }

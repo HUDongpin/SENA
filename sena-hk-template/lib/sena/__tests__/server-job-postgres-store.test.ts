@@ -301,6 +301,48 @@ describe("SENA server job Postgres store", () => {
       code: "server_job_status_transition_not_allowed"
     });
 
+    const preclaimRejectedJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_preclaim_rejected",
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_jobs_preclaim_rejected",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await expect(serverJobs.rejectEnterpriseServerJobBeforeClaim({
+      jobId: preclaimRejectedJob.id,
+      errorCode: "server_job_worker_payload_not_reproducible",
+      errorHash: "preclaim-error-hash",
+      reason: "server-job-worker-payload-not-reproducible"
+    })).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 0,
+        retryable: false,
+        lastTransition: "mark-failed",
+        lastErrorCode: "server_job_worker_payload_not_reproducible",
+        lastErrorHash: "preclaim-error-hash",
+        statusReason: "server-job-worker-payload-not-reproducible"
+      })
+    }));
+    expect((pg.serverJobs.find((row) => row.id === preclaimRejectedJob.id)?.lifecycle as {
+      workerRunId?: string;
+      deadLetteredAt?: string;
+    })).toEqual(expect.not.objectContaining({
+      workerRunId: expect.anything(),
+      deadLetteredAt: expect.anything()
+    }));
+
     const raceJob = await enterprise.enqueueEnterpriseServerJob({
       kind: "analysis",
       teamId: "team_postgres_jobs",
@@ -414,6 +456,37 @@ describe("SENA server job Postgres store", () => {
     const invalidVersionJobs = await Promise.all(
       invalidProjectVersions.map(([suffix]) => enqueueLegacyProjectJob(suffix))
     );
+    const enqueueValidationProjectJob = (
+      suffix: string,
+      projectTeamId?: string
+    ) => enterprise.enqueueEnterpriseServerJob({
+      kind: "validation" as const,
+      teamId: "team_postgres_jobs",
+      projectId: `project_postgres_jobs_validation_${suffix}`,
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-validation",
+        teamId: "team_postgres_jobs",
+        projectId: `project_postgres_jobs_validation_${suffix}`
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        projectTeamId,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const [
+      validationMatchingTeam,
+      validationMissingTeam,
+      validationMismatchedTeam
+    ] = await Promise.all([
+      enqueueValidationProjectJob("matching-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("missing-team"),
+      enqueueValidationProjectJob("mismatched-team", "team_other")
+    ]);
     const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
     const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
     const invalidStringRow = pg.serverJobs.find((row) => row.id === invalidString.id)!;
@@ -514,9 +587,16 @@ describe("SENA server job Postgres store", () => {
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toEqual(
       expect.arrayContaining(invalidVersionJobs.map((candidate) => candidate.id))
     );
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(validationMatchingTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMissingTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMismatchedTeam.id);
     await expect(serverJobs.claimEnterpriseServerJob({
       jobId: legacyDelivered.id,
       workerRunId: "worker_run_pg_legacy_delivered"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: validationMatchingTeam.id,
+      workerRunId: "worker_run_pg_validation_matching_team"
     })).resolves.toEqual(expect.objectContaining({ claimed: true }));
     for (const legacyJobId of [
       legacyPending.id,
@@ -524,6 +604,8 @@ describe("SENA server job Postgres store", () => {
       legacyInline.id,
       legacyMissingUpload.id,
       legacyNormalizedDuplicateUpload.id,
+      validationMissingTeam.id,
+      validationMismatchedTeam.id,
       ...invalidVersionJobs.map((candidate) => candidate.id)
     ]) {
       await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
@@ -544,7 +626,9 @@ describe("SENA server job Postgres store", () => {
       /payload_summary->'hasInlineSnapshot' = 'false'::jsonb/i.test(query) &&
       /payload_summary->'hasInlineDataset' = 'false'::jsonb/i.test(query) &&
       /worker->>'payloadDelivery'/i.test(query) &&
-      /kind IN \('analysis', 'validation'\)/i.test(query) &&
+      /WHEN kind = 'analysis'/i.test(query) &&
+      /WHEN kind = 'validation'/i.test(query) &&
+      /payload_summary->>'projectTeamId' = team_id/i.test(query) &&
       /jsonb_typeof\(payload_summary->'projectVersion'\) IS DISTINCT FROM 'number'/i.test(query) &&
       /9007199254740991/i.test(query) &&
       /trunc\(\(payload_summary->>'projectVersion'\)::numeric\)/i.test(query)

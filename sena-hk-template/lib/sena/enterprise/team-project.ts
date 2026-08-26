@@ -301,6 +301,52 @@ export async function getEnterpriseProjectReadOnlyAsync(
   return project;
 }
 
+/**
+ * Resolves the immutable project revision named by a queued analytical job.
+ * The active project and retained revision come from one primary-state read;
+ * duplicate exact versions are rejected instead of choosing an arbitrary row.
+ */
+export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  version: number
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.version === version
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
 export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, projectId: string, input: {
   title?: string;
   description?: string;

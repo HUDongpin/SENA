@@ -3447,12 +3447,19 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
     AND payload_summary->'hasInlineDataset' = 'false'::jsonb
     AND CASE
-      WHEN kind IN ('analysis', 'validation') THEN
+      WHEN kind = 'analysis' THEN
         payload_summary->>'source' = 'project'
         AND worker->>'payloadDelivery' = 'project-pointer'
         AND project_id IS NOT NULL
         AND btrim(project_id) <> ''
         AND ${exactProjectVersionSql}
+      WHEN kind = 'validation' THEN
+        payload_summary->>'source' = 'project'
+        AND worker->>'payloadDelivery' = 'project-pointer'
+        AND project_id IS NOT NULL
+        AND btrim(project_id) <> ''
+        AND ${exactProjectVersionSql}
+        AND payload_summary->>'projectTeamId' = team_id
       WHEN kind IN ('import', 'reliability') THEN
         worker->>'payloadDelivery' = 'upload-pointer'
         AND ${exactUploadPointersSql}

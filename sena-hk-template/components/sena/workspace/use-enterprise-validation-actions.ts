@@ -170,7 +170,7 @@ export function useEnterpriseValidationActions({
   const runValidationComparisonLocally = useCallback(async (mode: ValidationMode = "single") => {
     setEnterpriseBusy(true);
     try {
-      const { buildSenaGroupComparison, buildSenaGroupComparisonSuite } = await import("@/lib/sena/inference");
+      const { buildSenaGroupComparison, buildSenaGroupComparisonSuite } = await import("@/lib/sena/inference-client");
       const result = mode === "suite"
         ? buildSenaGroupComparisonSuite({
           dataset,

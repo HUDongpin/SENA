@@ -197,6 +197,13 @@ describe("SENA workspace module boundaries", () => {
     expect(source).not.toContain("importSenaReviewPacket");
   });
 
+  it("keeps the browser workbook adapter independent of the Node Buffer polyfill", () => {
+    const source = readFileSync(new URL("../excel-workbook.ts", import.meta.url), "utf8");
+
+    expect(source).not.toMatch(/from\s+["'](?:node:)?buffer["']/);
+    expect(source).not.toMatch(/\bBuffer\s*\./);
+  });
+
   it("declares the main workspace container boundaries as typed manifest data", () => {
     expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container).toMatchObject({
       id: "SenaFusionWorkspace",
@@ -1507,6 +1514,10 @@ describe("SENA workspace module boundaries", () => {
   it("keeps enterprise validation callbacks in a focused runtime hook", () => {
     const validationHookPath = new URL("../../../components/sena/workspace/use-enterprise-validation-actions.ts", import.meta.url);
     const validationHookSource = existsSync(validationHookPath) ? readFileSync(validationHookPath, "utf8") : "";
+    const inferenceClientPath = new URL("../inference-client.ts", import.meta.url);
+    const inferenceClientSource = existsSync(inferenceClientPath) ? readFileSync(inferenceClientPath, "utf8") : "";
+    const inferencePath = new URL("../inference.ts", import.meta.url);
+    const inferenceSource = existsSync(inferencePath) ? readFileSync(inferencePath, "utf8") : "";
     const workspaceSource = workspaceContainerSource();
     const validationHook = boundaryModule("use-enterprise-validation-actions" as SenaWorkspaceBoundaryModuleId);
 
@@ -1516,6 +1527,12 @@ describe("SENA workspace module boundaries", () => {
     expect(validationHookSource).toContain("runValidationComparisonLocally");
     expect(validationHookSource).toContain("reviewEnterpriseValidationRun");
     expect(validationHookSource).toContain("buildLocalValidationPreregistrationPlan");
+    expect(validationHookSource).toContain("import(\"@/lib/sena/inference-client\")");
+    expect(existsSync(inferenceClientPath)).toBe(true);
+    expect(inferenceClientSource).toContain("buildSenaGroupComparison");
+    expect(inferenceClientSource).toContain("buildSenaGroupComparisonSuite");
+    expect(inferenceClientSource).not.toMatch(/from\s+["']node:/);
+    expect(inferenceSource).not.toMatch(/from\s+["']node:/);
     expect(workspaceSource).not.toContain("Choose two different groups or roles before running validation.");
     expect(workspaceSource).not.toContain("Local group-comparison validation calculated without sign-in:");
     expect(workspaceSource).not.toContain("Validation run ${payload.validationRun?.id ?? \"local\"} saved:");

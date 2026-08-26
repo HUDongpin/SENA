@@ -57,8 +57,18 @@ export async function POST(request: Request) {
         "server_job_inline_source_custody_required"
       );
     }
+    const queuedTeamId = queued
+      ? String(body.teamId || project?.teamId || context.teams[0]?.id || "")
+      : undefined;
+    if (queued && project && queuedTeamId !== project.teamId) {
+      throw new SenaEnterpriseError(
+        "Validation run team does not match the project team.",
+        400,
+        "validation_project_team_mismatch"
+      );
+    }
     if (queued && queue) {
-      const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
+      const teamId = queuedTeamId ?? "";
       requireEnterprisePermission(context, teamId, "analysis:run");
       const comparisonCount = resolved.comparisons.length;
       const job = await enqueueEnterpriseServerJob({
@@ -90,6 +100,7 @@ export async function POST(request: Request) {
         payloadSummary: {
           source: project ? "project" : body.snapshot && body.dataset ? "mixed" : body.snapshot ? "snapshot" : body.dataset ? "dataset" : "unknown",
           projectVersion: project?.currentVersion,
+          projectTeamId: project?.teamId,
           comparisonCount,
           validationMethod: "group-comparison",
           hasInlineSnapshot: Boolean(body.snapshot),

@@ -116,6 +116,7 @@ describe("SENA analysis API decomposition boundaries", () => {
       payloadSummary: {
         source: "project",
         projectVersion: 7,
+        expectedVersion: 7,
         includeRuntimeBundle: true,
         persist: true,
         updateProject: false,

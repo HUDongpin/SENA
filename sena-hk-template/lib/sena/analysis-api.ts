@@ -98,6 +98,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
   const includeRuntimeBundle = body.includeRuntimeBundle === true;
   const persist = body.persist === true;
   const updateProject = body.updateProject !== false;
+  const expectedVersion = optionalNumber(body.expectedVersion);
 
   return {
     kind: "analysis",
@@ -118,7 +119,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
       dataGovernance: body.dataGovernance,
       persist,
       updateProject,
-      expectedVersion: optionalNumber(body.expectedVersion),
+      expectedVersion,
       ...(input.inlinePayloadAllowed ? {
         inlineSnapshot: body.snapshot,
         inlineDataset: body.dataset
@@ -127,6 +128,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
     payloadSummary: {
       source: analysisSource(body, sourceProject),
       projectVersion: sourceProject?.currentVersion,
+      expectedVersion,
       includeRuntimeBundle,
       persist,
       updateProject,

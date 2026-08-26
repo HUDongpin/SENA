@@ -74,11 +74,19 @@ export function enterpriseServerJobHasDurableSourcePointer(
     return false;
   }
 
-  if (job.kind === "analysis" || job.kind === "validation") {
+  if (job.kind === "analysis") {
     return ownDataValue(summary, "source") === "project" &&
       ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
       isNonemptyString(job.projectId) &&
       isPositiveSafeInteger(ownDataValue(summary, "projectVersion"));
+  }
+
+  if (job.kind === "validation") {
+    return ownDataValue(summary, "source") === "project" &&
+      ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
+      isNonemptyString(job.projectId) &&
+      isPositiveSafeInteger(ownDataValue(summary, "projectVersion")) &&
+      ownDataValue(summary, "projectTeamId") === job.teamId;
   }
 
   if (job.kind === "import" || job.kind === "reliability") {

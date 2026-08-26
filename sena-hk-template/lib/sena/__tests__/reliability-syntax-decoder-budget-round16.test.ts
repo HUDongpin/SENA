@@ -636,7 +636,7 @@ describe("queued reliability JSON envelope structural admission", () => {
 
 describe("reliability XLSX pre-decompression budget", () => {
   const preflight = async (
-    bytes: Buffer,
+    bytes: Uint8Array,
     limits: {
       maximumEntries?: number;
       maximumUncompressedBytes?: number;
@@ -646,7 +646,7 @@ describe("reliability XLSX pre-decompression budget", () => {
   ) => {
     const fn = (xlsxPreflightModule as unknown as {
       preflightXlsxWorkbook?: (
-        input: Buffer,
+        input: Uint8Array,
         options: typeof limits
       ) => Promise<unknown>;
     }).preflightXlsxWorkbook;

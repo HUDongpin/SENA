@@ -31,10 +31,16 @@ export class RouteMemoryPostgres {
       return false;
     }
     const kind = record.kind;
-    if (kind === "analysis" || kind === "validation") {
+    if (kind === "analysis") {
       return worker.payloadDelivery === "project-pointer" &&
         typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
         Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0;
+    }
+    if (kind === "validation") {
+      return worker.payloadDelivery === "project-pointer" &&
+        typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
+        Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0 &&
+        summary.projectTeamId === record.team_id;
     }
     const uploadIds = summary.uploadIds;
     const exactUploadIds = Array.isArray(uploadIds) && uploadIds.length > 0 && uploadIds.length <= 100 &&

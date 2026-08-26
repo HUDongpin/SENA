@@ -129,6 +129,10 @@ describe("SENA server-job dispatch integrity round 26", () => {
         teamId: "team_round26",
         projectId: "project_round26"
       },
+      payloadSummary: {
+        ...queueInput().payloadSummary,
+        projectTeamId: "team_round26"
+      },
       beforeDispatch: async () => {
         sourcePersistenceEntered.resolve();
         await releaseSourcePersistence.promise;
@@ -159,7 +163,19 @@ describe("SENA server-job dispatch integrity round 26", () => {
     }));
     const readyDrain = await worker.drainEnterpriseServerJobQueue({ limit: 10 });
     expect(readyDrain.scanned).toBe(1);
+    expect(readyDrain.failed).toBe(0);
     expect(readyDrain.skipped).toBe(1);
+    expect(readyDrain.outcomes[0]).toEqual(expect.objectContaining({
+      jobId: job.id,
+      status: "skipped",
+      jobStatus: "queued",
+      attempts: 0,
+      skipReason: "server_job_worker_executor_unavailable"
+    }));
+    await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 0 })
+    }));
   });
 
   it("does not grant a file-store claim before source persistence reaches its durable ready transition", async () => {
@@ -196,6 +212,55 @@ describe("SENA server-job dispatch integrity round 26", () => {
     }));
     expect(readyClaims.filter((claim) => claim.claimed)).toHaveLength(1);
     expect(readyClaims.filter((claim) => !claim.claimed)).toHaveLength(1);
+  });
+
+  it("requires an exact validation project-team binding before file-store claimability", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-validation-team-binding-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const validationInput = (suffix: string, projectTeamId?: string) => ({
+      ...queueInput(),
+      kind: "validation" as const,
+      projectId: `project_round26_validation_${suffix}`,
+      payload: {
+        action: "run-validation",
+        teamId: "team_round26",
+        projectId: `project_round26_validation_${suffix}`
+      },
+      payloadSummary: {
+        ...queueInput().payloadSummary,
+        projectTeamId
+      }
+    });
+    const matching = await queue.enqueueEnterpriseServerJob(
+      validationInput("matching", "team_round26")
+    );
+    const missing = await queue.enqueueEnterpriseServerJob(validationInput("missing"));
+    const mismatched = await queue.enqueueEnterpriseServerJob(
+      validationInput("mismatched", "team_other")
+    );
+
+    const claimable = await queue.listEnterpriseServerJobs({
+      status: "queued",
+      claimableOnly: true,
+      limit: 10
+    });
+    expect(claimable.jobs.map((job) => job.id)).toContain(matching.id);
+    expect(claimable.jobs.map((job) => job.id)).not.toContain(missing.id);
+    expect(claimable.jobs.map((job) => job.id)).not.toContain(mismatched.id);
+    for (const blocked of [missing, mismatched]) {
+      await expect(queue.getEnterpriseServerJob(blocked.id)).resolves.toEqual(expect.objectContaining({
+        delivery: expect.objectContaining({ sourceReady: false })
+      }));
+      await expect(queue.claimEnterpriseServerJob({
+        jobId: blocked.id,
+        workerRunId: `worker_run_round26_${blocked.id}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
   });
 
   it("rejects a status-callback mark-running transition while source persistence is still pending", async () => {

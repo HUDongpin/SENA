@@ -25,8 +25,8 @@ import { importSenaEnterpriseFiles } from "../import-adapters";
 import { buildSenaPublicationExport } from "../publication-export";
 import type { SenaDataset } from "../types";
 
-function uploadLike(name: string, bytes: Buffer | string) {
-  const buffer = typeof bytes === "string" ? Buffer.from(bytes, "utf8") : bytes;
+function uploadLike(name: string, bytes: Buffer | Uint8Array | string) {
+  const buffer = typeof bytes === "string" ? Buffer.from(bytes, "utf8") : Buffer.from(bytes);
   return {
     name,
     text: async () => buffer.toString("utf8"),
@@ -3718,7 +3718,7 @@ describe("SENA enterprise runtime", () => {
         {
           name: "workbook.xlsx",
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          bytes: workbookBuffer,
+          bytes: Buffer.from(workbookBuffer),
           importProfile: "excel-workbook",
           warningCount: 0
         },

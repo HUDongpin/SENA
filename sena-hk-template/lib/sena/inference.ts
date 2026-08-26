@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { Buffer } from "node:buffer";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
 import {
@@ -1491,6 +1489,7 @@ type SenaGroupComparisonCachedSource = {
 type SenaGroupComparisonSourceAdmission = {
   sourceKey: string;
   peopleCount: number;
+  canonicalSource: SenaGroupComparisonSourceContext;
   buildOptions?: Partial<SenaBuildOptions>;
   sourceModelWorkUnits: number;
 };
@@ -1528,14 +1527,6 @@ function safeAdmissionWorkSum(values: number[]) {
   return total;
 }
 
-function isDenseBoundedSourceModelArray(
-  value: unknown,
-  maximum: number,
-  traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
-): value is unknown[] {
-  return isBoundedDenseCarrierArray(value, 0, maximum, traversalBudget);
-}
-
 type SenaGroupComparisonSourceDigestMeasurement = {
   textBytes: number;
   digestBytes: number;
@@ -1567,9 +1558,28 @@ function assertWellFormedSourceDigestString(value: string) {
   }
 }
 
+const sourceDigestTextEncoder = new TextEncoder();
+
 function sourceDigestUtf8ByteLength(value: string) {
   assertWellFormedSourceDigestString(value);
-  return Buffer.byteLength(value, "utf8");
+  return sourceDigestTextEncoder.encode(value).byteLength;
+}
+
+function nodeRuntimeSha256Hash() {
+  const runtimeProcess = (globalThis as typeof globalThis & {
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  }).process;
+  const crypto = runtimeProcess?.getBuiltinModule?.("node:crypto") as {
+    createHash?: (algorithm: string) => {
+      update: (value: string, encoding?: "utf8") => void;
+      digest: (encoding: "hex") => string;
+    };
+  } | undefined;
+  const hash = crypto?.createHash?.("sha256");
+  if (!hash) {
+    throw new Error("SENA group-comparison source verification requires the Node SHA-256 runtime.");
+  }
+  return hash;
 }
 
 function sourceDigestScalarToken(value: unknown) {
@@ -1720,7 +1730,7 @@ function measureSenaGroupComparisonSourceDigest(
 }
 
 function senaGroupComparisonSourceDigest(source: SenaGroupComparisonSourceContext) {
-  const hash = createHash("sha256");
+  const hash = nodeRuntimeSha256Hash();
   const ancestors = new WeakSet<object>();
   const update = (value: string) => {
     hash.update(value, "utf8");
@@ -1800,94 +1810,187 @@ function invalidSourceDatasetCarrier(): never {
   );
 }
 
-function assertSourceMetadataCarrier(
+function projectSourceCarrierObject(
+  value: unknown,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[] = [],
+  traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
+) {
+  if (typeof value !== "object" || value === null) invalidSourceDatasetCarrier();
+  let arrayCarrier = false;
+  try {
+    arrayCarrier = Array.isArray(value);
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (arrayCarrier) invalidSourceDatasetCarrier();
+  const knownKeys = [...requiredKeys, ...optionalKeys];
+  // Reserve proxy/prototype work and every known descriptor read before the
+  // first reflective operation. Unknown own properties are deliberately never
+  // enumerated: only this schema projection becomes the canonical carrier.
+  traversalBudget?.reserveWork(knownKeys.length + 3);
+  if (carrierRuntimeIdentifiesProxy(value)) invalidSourceDatasetCarrier();
+  let prototype: object | null;
+  try {
+    prototype = Object.getPrototypeOf(value);
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (prototype !== Object.prototype && prototype !== null) invalidSourceDatasetCarrier();
+  const projected: Record<string, unknown> = {};
+  for (const key of knownKeys) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, key);
+    } catch {
+      invalidSourceDatasetCarrier();
+    }
+    if (!descriptor) {
+      if (requiredKeys.includes(key)) invalidSourceDatasetCarrier();
+      continue;
+    }
+    if (!("value" in descriptor) || !descriptor.enumerable) invalidSourceDatasetCarrier();
+    projected[key] = descriptor.value;
+  }
+  return projected;
+}
+
+function projectSourceCarrierArray<T>(
+  value: unknown,
+  minimumEntries: number,
+  maximumEntries: number,
+  projectEntry: (entry: unknown) => T,
+  traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
+) {
+  let arrayCarrier = false;
+  try {
+    arrayCarrier = Array.isArray(value);
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (!arrayCarrier) invalidSourceDatasetCarrier();
+  // Two or fewer remaining units fail before proxy/prototype/length touches.
+  traversalBudget?.reserveWork(3);
+  if (carrierRuntimeIdentifiesProxy(value as object)) invalidSourceDatasetCarrier();
+  let prototype: object | null;
+  let lengthDescriptor: PropertyDescriptor | undefined;
+  try {
+    prototype = Object.getPrototypeOf(value as object);
+    lengthDescriptor = Object.getOwnPropertyDescriptor(value as object, "length");
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (prototype !== Array.prototype && prototype !== null) invalidSourceDatasetCarrier();
+  const length = lengthDescriptor && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (!Number.isSafeInteger(length) ||
+    (length as number) < minimumEntries || (length as number) > maximumEntries) {
+    invalidSourceDatasetCarrier();
+  }
+  if ((length as number) > 0) traversalBudget?.reserveWork(length as number);
+  const projected: T[] = [];
+  for (let index = 0; index < (length as number); index += 1) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value as object, String(index));
+    } catch {
+      invalidSourceDatasetCarrier();
+    }
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+      invalidSourceDatasetCarrier();
+    }
+    projected.push(projectEntry(descriptor.value));
+  }
+  return projected;
+}
+
+function projectSourceMetadataCarrier(
   value: unknown,
   traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
 ) {
-  if (value === undefined) return;
-  if (!hasExactCarrierKeys(value, [
+  const metadata = projectSourceCarrierObject(value, [
     "datasetVersion",
     "consent",
     "retention",
     "pseudonymization",
     "codebook"
-  ], [], traversalBudget)) invalidSourceDatasetCarrier();
-  if (!hasExactCarrierKeys(value.consent, ["instrument", "date", "scope"], [], traversalBudget) ||
-    !hasExactCarrierKeys(value.retention, ["policy"], ["deleteBy"], traversalBudget) ||
-    !hasExactCarrierKeys(value.pseudonymization, ["personIdPolicy", "rosterMapping"], [], traversalBudget) ||
-    !hasExactCarrierKeys(value.codebook, ["id", "version", "contentHash"], [], traversalBudget)) {
-    invalidSourceDatasetCarrier();
-  }
+  ], [], traversalBudget);
+  return {
+    datasetVersion: metadata.datasetVersion,
+    consent: projectSourceCarrierObject(metadata.consent, ["instrument", "date", "scope"], [], traversalBudget),
+    retention: projectSourceCarrierObject(metadata.retention, ["policy"], ["deleteBy"], traversalBudget),
+    pseudonymization: projectSourceCarrierObject(
+      metadata.pseudonymization,
+      ["personIdPolicy", "rosterMapping"],
+      [],
+      traversalBudget
+    ),
+    codebook: projectSourceCarrierObject(metadata.codebook, ["id", "version", "contentHash"], [], traversalBudget)
+  } as SenaDataset["metadata"];
 }
 
-function assertSourceBuildOptionsCarrier(
+function projectSourceBuildOptionsCarrier(
   value: unknown,
   traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
 ) {
-  if (value === undefined) return;
-  if (!hasOnlyCarrierKeys(value, sourceBuildOptionKeys, traversalBudget)) invalidSourceDatasetCarrier();
-  if (Object.hasOwn(value, "temporal") && value.temporal !== undefined &&
-    !hasOnlyCarrierKeys(value.temporal, [
+  if (value === undefined) return undefined;
+  const projected = projectSourceCarrierObject(value, [], sourceBuildOptionKeys, traversalBudget);
+  if (Object.hasOwn(projected, "temporal") && projected.temporal !== undefined) {
+    projected.temporal = projectSourceCarrierObject(projected.temporal, [], [
       "mode",
       "movingWindowSize",
       "movingWindowStep",
       "turnWindowRadius"
-    ], traversalBudget)) invalidSourceDatasetCarrier();
+    ], traversalBudget);
+  }
+  return projected as Partial<SenaBuildOptions>;
 }
 
-function assertSourceDatasetRows(
+function projectSourceDatasetRows<T>(
   rows: unknown,
   requiredKeys: readonly string[],
   optionalKeys: readonly string[] = [],
-  inspect?: (row: Record<string, unknown>) => void,
+  projectRow?: (row: Record<string, unknown>) => T,
   traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
 ) {
-  if (!isDenseBoundedSourceModelArray(
+  return projectSourceCarrierArray(
     rows,
+    0,
     SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+    (entry) => {
+      const row = projectSourceCarrierObject(entry, requiredKeys, optionalKeys, traversalBudget);
+      return projectRow ? projectRow(row) : row as T;
+    },
     traversalBudget
-  )) {
-    invalidSourceDatasetCarrier();
-  }
-  for (const row of rows) {
-    if (!hasExactCarrierKeys(row, requiredKeys, optionalKeys, traversalBudget)) invalidSourceDatasetCarrier();
-    inspect?.(row);
-  }
+  );
 }
 
-function assertSenaGroupComparisonSourceContextCarrier(
+function projectSenaGroupComparisonSourceContextCarrier(
   source: SenaGroupComparisonSourceContext,
   traversalBudget?: SenaGroupComparisonCarrierTraversalBudget
 ) {
-  if (!hasExactCarrierKeys(source, ["dataset"], ["buildOptions"], traversalBudget)) {
-    invalidSourceDatasetCarrier();
-  }
-  const buildOptions = Object.hasOwn(source, "buildOptions") ? source.buildOptions : undefined;
-  assertSourceBuildOptionsCarrier(buildOptions, traversalBudget);
-  const dataset = source.dataset;
-  if (!hasExactCarrierKeys(dataset, [
+  const holder = projectSourceCarrierObject(source, ["dataset"], ["buildOptions"], traversalBudget);
+  const dataset = projectSourceCarrierObject(holder.dataset, [
     "people",
     "interactions",
     "utterances",
     "coded_segments",
     "codebook"
-  ], ["metadata", "warnings"], traversalBudget)) invalidSourceDatasetCarrier();
-  if (Object.hasOwn(dataset, "metadata")) assertSourceMetadataCarrier(dataset.metadata, traversalBudget);
-  assertSourceDatasetRows(
+  ], ["metadata", "warnings"], traversalBudget);
+  const people = projectSourceDatasetRows(
     dataset.people,
     ["id", "label", "role", "group"],
     ["initials", "actorType"],
     undefined,
     traversalBudget
-  );
-  assertSourceDatasetRows(dataset.interactions, [
+  ) as SenaDataset["people"];
+  const interactions = projectSourceDatasetRows(dataset.interactions, [
     "source",
     "target",
     "channel",
     "stage",
     "evidence"
-  ], ["weight", "turnIndex"], undefined, traversalBudget);
-  assertSourceDatasetRows(dataset.utterances, [
+  ], ["weight", "turnIndex"], undefined, traversalBudget) as SenaDataset["interactions"];
+  const utterances = projectSourceDatasetRows(dataset.utterances, [
     "id",
     "personId",
     "unitId",
@@ -1895,8 +1998,8 @@ function assertSenaGroupComparisonSourceContextCarrier(
     "stage",
     "turnIndex",
     "text"
-  ], ["timestamp"], undefined, traversalBudget);
-  assertSourceDatasetRows(dataset.coded_segments, [
+  ], ["timestamp"], undefined, traversalBudget) as SenaDataset["utterances"];
+  const codedSegments = projectSourceDatasetRows(dataset.coded_segments, [
     "segmentId",
     "utteranceId",
     "personId",
@@ -1907,49 +2010,71 @@ function assertSenaGroupComparisonSourceContextCarrier(
     "text",
     "codes"
   ], ["targetPersonIds", "confidence"], (row) => {
-    if (!isDenseBoundedSourceModelArray(
+    row.codes = projectSourceCarrierArray(
       row.codes,
+      0,
       SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+      (entry) => entry,
       traversalBudget
-    )) invalidSourceDatasetCarrier();
-    if (Object.hasOwn(row, "targetPersonIds") && row.targetPersonIds !== undefined &&
-      !isDenseBoundedSourceModelArray(
+    );
+    if (Object.hasOwn(row, "targetPersonIds") && row.targetPersonIds !== undefined) {
+      row.targetPersonIds = projectSourceCarrierArray(
         row.targetPersonIds,
+        0,
         SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+        (entry) => entry,
         traversalBudget
-      )) invalidSourceDatasetCarrier();
-  }, traversalBudget);
-  assertSourceDatasetRows(
+      );
+    }
+    return row;
+  }, traversalBudget) as SenaDataset["coded_segments"];
+  const codebook = projectSourceDatasetRows(
     dataset.codebook,
     ["id", "label", "family", "description", "color"],
     [],
     undefined,
     traversalBudget
-  );
-  if (Object.hasOwn(dataset, "warnings") && dataset.warnings !== undefined &&
-    !isDenseBoundedSourceModelArray(
-      dataset.warnings,
-      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
-      traversalBudget
-    )) invalidSourceDatasetCarrier();
-  return dataset.people.length;
-}
-
-function canonicalSenaGroupComparisonSourceContext(
-  source: SenaGroupComparisonSourceContext
-): SenaGroupComparisonSourceContext {
-  const buildOptions = Object.hasOwn(source, "buildOptions") ? source.buildOptions : undefined;
-  return buildOptions === undefined
-    ? { dataset: source.dataset }
-    : { dataset: source.dataset, buildOptions };
+  ) as SenaDataset["codebook"];
+  const projectedDataset: SenaDataset = {
+    people,
+    interactions,
+    utterances,
+    coded_segments: codedSegments,
+    codebook
+  };
+  if (Object.hasOwn(dataset, "metadata")) {
+    projectedDataset.metadata = dataset.metadata === undefined
+      ? undefined
+      : projectSourceMetadataCarrier(dataset.metadata, traversalBudget);
+  }
+  if (Object.hasOwn(dataset, "warnings")) {
+    projectedDataset.warnings = dataset.warnings === undefined
+      ? undefined
+      : projectSourceCarrierArray(
+        dataset.warnings,
+        0,
+        SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+        (entry) => entry,
+        traversalBudget
+      ) as string[];
+  }
+  const buildOptions = Object.hasOwn(holder, "buildOptions")
+    ? projectSourceBuildOptionsCarrier(holder.buildOptions, traversalBudget)
+    : undefined;
+  return {
+    source: buildOptions === undefined
+      ? { dataset: projectedDataset }
+      : { dataset: projectedDataset, buildOptions },
+    peopleCount: people.length
+  };
 }
 
 export function estimateSenaGroupComparisonSourceModelWorkUnits(
   source: SenaGroupComparisonSourceContext,
   maximumWorkUnits = Number.MAX_SAFE_INTEGER
 ) {
-  assertSenaGroupComparisonSourceContextCarrier(source);
-  return estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(source, maximumWorkUnits);
+  const projected = projectSenaGroupComparisonSourceContextCarrier(source);
+  return estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(projected.source, maximumWorkUnits);
 }
 
 function estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
@@ -2012,7 +2137,7 @@ function estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
     attemptBudget?.reserveWork(1);
     attemptBudget?.reserveTextBytes(value.length);
     assertWellFormedSourceDigestString(value);
-    const bytes = Buffer.byteLength(value, "utf8");
+    const bytes = sourceDigestTextEncoder.encode(value).byteLength;
     if (bytes > value.length) attemptBudget?.reserveTextBytes(bytes - value.length);
     if (bytes > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES - sourceTextBytes) {
       throw new Error("SENA group-comparison source model text budget exceeded.");
@@ -2368,12 +2493,12 @@ export class SenaGroupComparisonSourceVerificationCache {
       }
       this.sourceDigestBytesAttempted += bytes;
     };
-    // Exact descriptor-only admission is part of the same request-wide work
-    // budget as measurement and hashing. Unknown source values are never visited
-    // by the digest walker, and an exhausted request touches no source carrier.
+    // Schema projection is part of the same request-wide work budget as
+    // measurement and hashing. It reads only known fields and declared dense
+    // indices, so arbitrary extra own keys never need an unbounded enumeration.
     const traversalBudget = { reserveWork: reserveAttemptedWork };
-    const peopleCount = assertSenaGroupComparisonSourceContextCarrier(source, traversalBudget);
-    const canonicalSource = canonicalSenaGroupComparisonSourceContext(source);
+    const projected = projectSenaGroupComparisonSourceContextCarrier(source, traversalBudget);
+    const { source: canonicalSource, peopleCount } = projected;
     const sourceModelWorkUnits = estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
       canonicalSource,
       this.maximumSourceModelWorkUnits,
@@ -2404,6 +2529,7 @@ export class SenaGroupComparisonSourceVerificationCache {
     return {
       sourceKey,
       peopleCount,
+      canonicalSource,
       buildOptions: canonicalSource.buildOptions,
       sourceModelWorkUnits
     };
@@ -2418,7 +2544,7 @@ export class SenaGroupComparisonSourceVerificationCache {
     admittedSource?: SenaGroupComparisonSourceAdmission
   ) {
     const admission = admittedSource ?? this.admitSourceContext(source);
-    const { sourceKey, buildOptions } = admission;
+    const { sourceKey, canonicalSource, buildOptions } = admission;
     let entry = this.sources.get(sourceKey);
     if (!entry) {
       if (this.reservedSourceCount >= this.maximumUniqueSources) {
@@ -2432,7 +2558,7 @@ export class SenaGroupComparisonSourceVerificationCache {
       this.reservedSourceCount += 1;
       this.reservedSourceModelWorkUnits += sourceModelWorkUnits;
       entry = {
-        model: buildSenaModel(source.dataset, buildOptions ?? {}),
+        model: buildSenaModel(canonicalSource.dataset, buildOptions ?? {}),
         evidenceByComparison: new Map(),
         verifiedResultsByKey: new Map()
       };
@@ -2481,7 +2607,7 @@ export class SenaGroupComparisonSourceVerificationCache {
   ) {
     if (!isRecord(value) || !isRecord(value.sourceEvidence) ||
       !Array.isArray(value.sourceEvidence.metricUniverse) ||
-      value.sourceEvidence.metricUniverse.length !== source.dataset.people.length) {
+      value.sourceEvidence.metricUniverse.length !== admittedSource.peopleCount) {
       throw new Error("SENA group-comparison metric universe does not match the holder people cardinality.");
     }
     const comparison = value as unknown as SenaGroupComparisonResult;
@@ -2593,7 +2719,7 @@ export class SenaGroupComparisonSourceVerificationCache {
     let evidence = entry.evidenceByComparison.get(comparisonKey);
     if (!evidence) {
       evidence = buildSenaGroupComparisonSourceEvidence({
-        dataset: source.dataset,
+        dataset: admittedSource.canonicalSource.dataset,
         model: entry.model,
         metric: comparison.metric,
         groupField: comparison.groupField,
