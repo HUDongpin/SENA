@@ -458,7 +458,7 @@ function computeSenaGroupComparisonDeterministicFields(input: {
   };
 }
 
-export function buildSenaGroupComparison(input: {
+type SenaGroupComparisonBuildInput = {
   dataset: SenaDataset;
   buildOptions?: Partial<SenaBuildOptions>;
   groupField?: "group" | "role";
@@ -468,7 +468,11 @@ export function buildSenaGroupComparison(input: {
   iterations?: number;
   seed?: number;
   bootstrapIterations?: number;
-}): SenaGroupComparisonResult {
+};
+
+function buildSenaGroupComparisonFromCanonicalSource(
+  input: SenaGroupComparisonBuildInput
+): SenaGroupComparisonResult {
   validateSenaAnalyticalInputs({
     dataset: input.dataset,
     buildOptions: input.buildOptions,
@@ -519,6 +523,20 @@ export function buildSenaGroupComparison(input: {
   };
 }
 
+export function buildSenaGroupComparison(
+  input: SenaGroupComparisonBuildInput
+): SenaGroupComparisonResult {
+  const { source } = projectSenaGroupComparisonSourceContextCarrier({
+    dataset: input.dataset,
+    buildOptions: input.buildOptions
+  });
+  return buildSenaGroupComparisonFromCanonicalSource({
+    ...input,
+    dataset: source.dataset,
+    buildOptions: source.buildOptions
+  });
+}
+
 function comparisonId(result: SenaGroupComparisonResult) {
   return [
     result.groupField,
@@ -540,15 +558,19 @@ export function buildSenaGroupComparisonSuite(input: {
   bootstrapIterations?: number;
   alpha?: number;
 }): SenaGroupComparisonSuiteResult {
-  validateSenaAnalyticalInputs({
+  const { source } = projectSenaGroupComparisonSourceContextCarrier({
     dataset: input.dataset,
-    buildOptions: input.buildOptions,
+    buildOptions: input.buildOptions
+  });
+  validateSenaAnalyticalInputs({
+    dataset: source.dataset,
+    buildOptions: source.buildOptions,
     groupComparison: input
   });
   const alpha = input.alpha ?? 0.05;
-  const comparisons = input.comparisons.map((comparison, index) => buildSenaGroupComparison({
-    dataset: input.dataset,
-    buildOptions: input.buildOptions,
+  const comparisons = input.comparisons.map((comparison, index) => buildSenaGroupComparisonFromCanonicalSource({
+    dataset: source.dataset,
+    buildOptions: source.buildOptions,
     groupField: comparison.groupField ?? input.defaultGroupField ?? "group",
     groupA: comparison.groupA,
     groupB: comparison.groupB,
@@ -1850,6 +1872,7 @@ function projectSourceCarrierObject(
       continue;
     }
     if (!("value" in descriptor) || !descriptor.enumerable) invalidSourceDatasetCarrier();
+    if (descriptor.value === undefined && optionalKeys.includes(key)) continue;
     projected[key] = descriptor.value;
   }
   return projected;

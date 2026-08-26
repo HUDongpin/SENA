@@ -111,6 +111,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
       projectId: sourceProject?.id,
       projectVersion: sourceProject?.currentVersion,
       title: optionalString(body.title) ?? sourceProject?.title,
+      description: body.description === undefined ? undefined : String(body.description),
       activeTemporalWindowId,
       buildOptions: body.buildOptions,
       includeRuntimeBundle,

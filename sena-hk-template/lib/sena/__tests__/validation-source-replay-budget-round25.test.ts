@@ -445,6 +445,117 @@ describe("validation source verification replay budget", () => {
     }
   });
 
+  it("builds and revalidates current evidence from one canonical source projection", () => {
+    const cleanDataset = structuredClone(lessonStudySenaContract);
+    const cleanBuildOptions = { alpha: 0.5 };
+    const comparisonInput = {
+      defaultGroupField: "role" as const,
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" as const }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 20260611,
+      alpha: 0.05
+    };
+    const cleanResult = buildSenaGroupComparisonSuite({
+      dataset: cleanDataset,
+      buildOptions: cleanBuildOptions,
+      ...comparisonInput
+    });
+    const extendedDataset = structuredClone(cleanDataset) as typeof cleanDataset & {
+      people: typeof cleanDataset.people & { extensionArray?: unknown };
+    };
+    const extendedBuildOptions = { alpha: 0.5 } as typeof cleanBuildOptions & {
+      extensionOption?: unknown;
+    };
+    let unknownReads = 0;
+    const unreadable = () => {
+      unknownReads += 1;
+      throw new Error("unknown canonical-source extension was read");
+    };
+    Object.defineProperty(extendedDataset.people[0], "extensionField", {
+      configurable: true,
+      enumerable: true,
+      get: unreadable
+    });
+    Object.defineProperty(extendedDataset.people[0], "hiddenExtension", {
+      configurable: true,
+      enumerable: false,
+      value: "hidden"
+    });
+    (extendedDataset.people[0] as unknown as Record<PropertyKey, unknown>)[Symbol("extension")] = "symbol";
+    Object.defineProperty(extendedDataset.people, "extensionArray", {
+      configurable: true,
+      enumerable: true,
+      get: unreadable
+    });
+    Object.defineProperty(extendedBuildOptions, "extensionOption", {
+      configurable: true,
+      enumerable: true,
+      get: unreadable
+    });
+
+    const extendedResult = buildSenaGroupComparisonSuite({
+      dataset: extendedDataset,
+      buildOptions: extendedBuildOptions,
+      ...comparisonInput
+    });
+
+    expect(unknownReads).toBe(0);
+    expect(extendedResult).toEqual(cleanResult);
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(extendedResult),
+      { dataset: extendedDataset, buildOptions: extendedBuildOptions },
+      new SenaGroupComparisonSourceVerificationCache()
+    )).not.toThrow();
+    expect(unknownReads).toBe(0);
+  });
+
+  it("normalizes optional own-undefined source fields to the absent canonical form", () => {
+    const absentDataset = structuredClone(lessonStudySenaContract);
+    delete (absentDataset.people[0] as Partial<(typeof absentDataset.people)[number]>).initials;
+    delete (absentDataset as Partial<typeof absentDataset>).warnings;
+    const undefinedDataset = structuredClone(absentDataset);
+    undefinedDataset.people[0].initials = undefined;
+    undefinedDataset.warnings = undefined;
+    const absentBuildOptions = { alpha: 0.5, temporal: { mode: "stage" as const } };
+    const undefinedBuildOptions = {
+      alpha: 0.5,
+      beta: undefined,
+      temporal: {
+        mode: "stage" as const,
+        movingWindowSize: undefined
+      }
+    };
+    const result = buildSenaGroupComparisonSuite({
+      dataset: absentDataset,
+      buildOptions: absentBuildOptions,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      seed: 20260611,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache({ maxUniqueSources: 1 });
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: absentDataset, buildOptions: absentBuildOptions },
+      cache
+    )).not.toThrow();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: undefinedDataset, buildOptions: undefinedBuildOptions },
+      cache
+    )).not.toThrow();
+    expect(cache.modelBuildCount).toBe(1);
+    expect(cache.sourceEvidenceBuildCount).toBe(1);
+  });
+
   it("rejects an allowed holder source-record accessor without invoking it", () => {
     const dataset = structuredClone(lessonStudySenaContract);
     let getterReads = 0;

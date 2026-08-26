@@ -454,7 +454,8 @@ describe("SENA in-repo server job worker runtime", () => {
       teamId: fixture.teamId,
       projectId: currentProject.id,
       projectVersion: currentProject.currentVersion,
-      title: currentProject.title,
+      title: "Stale title must not persist",
+      description: "Stale description must not persist",
       includeRuntimeBundle: false,
       persist: true,
       updateProject: true,
@@ -503,7 +504,11 @@ describe("SENA in-repo server job worker runtime", () => {
     })).toEqual(runsBefore);
     expect(fixture.enterprise.readEnterpriseDb().projects.find(
       (candidate: { id: string }) => candidate.id === currentProject.id
-    )?.currentVersion).toBe(currentProject.currentVersion);
+    )).toEqual(expect.objectContaining({
+      currentVersion: currentProject.currentVersion,
+      title: currentProject.title,
+      description: currentProject.description
+    }));
   });
 
   it("rejects a managed inline reliability payload before creating a queued receipt", async () => {

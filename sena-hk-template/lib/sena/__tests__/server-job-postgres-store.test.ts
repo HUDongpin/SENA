@@ -481,11 +481,21 @@ describe("SENA server job Postgres store", () => {
     const [
       validationMatchingTeam,
       validationMissingTeam,
-      validationMismatchedTeam
+      validationMismatchedTeam,
+      validationNumericTeam,
+      validationBooleanTeam,
+      validationNullTeam,
+      validationArrayTeam,
+      validationObjectTeam
     ] = await Promise.all([
       enqueueValidationProjectJob("matching-team", "team_postgres_jobs"),
       enqueueValidationProjectJob("missing-team"),
-      enqueueValidationProjectJob("mismatched-team", "team_other")
+      enqueueValidationProjectJob("mismatched-team", "team_other"),
+      enqueueValidationProjectJob("numeric-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("boolean-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("null-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("array-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("object-team", "team_postgres_jobs")
     ]);
     const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
     const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
@@ -495,6 +505,16 @@ describe("SENA server job Postgres store", () => {
     const legacyNormalizedDuplicateUploadRow = pg.serverJobs.find((row) => (
       row.id === legacyNormalizedDuplicateUpload.id
     ))!;
+    (pg.serverJobs.find((row) => row.id === validationNumericTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = 123;
+    (pg.serverJobs.find((row) => row.id === validationBooleanTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = true;
+    (pg.serverJobs.find((row) => row.id === validationNullTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = null;
+    (pg.serverJobs.find((row) => row.id === validationArrayTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = ["team_postgres_jobs"];
+    (pg.serverJobs.find((row) => row.id === validationObjectTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = { value: "team_postgres_jobs" };
     for (const [index, [, projectVersion]] of invalidProjectVersions.entries()) {
       const row = pg.serverJobs.find((candidate) => candidate.id === invalidVersionJobs[index].id)!;
       if (projectVersion === undefined) {
@@ -590,6 +610,11 @@ describe("SENA server job Postgres store", () => {
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(validationMatchingTeam.id);
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMissingTeam.id);
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMismatchedTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationNumericTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationBooleanTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationNullTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationArrayTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationObjectTeam.id);
     await expect(serverJobs.claimEnterpriseServerJob({
       jobId: legacyDelivered.id,
       workerRunId: "worker_run_pg_legacy_delivered"
@@ -606,6 +631,11 @@ describe("SENA server job Postgres store", () => {
       legacyNormalizedDuplicateUpload.id,
       validationMissingTeam.id,
       validationMismatchedTeam.id,
+      validationNumericTeam.id,
+      validationBooleanTeam.id,
+      validationNullTeam.id,
+      validationArrayTeam.id,
+      validationObjectTeam.id,
       ...invalidVersionJobs.map((candidate) => candidate.id)
     ]) {
       await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
@@ -628,6 +658,7 @@ describe("SENA server job Postgres store", () => {
       /worker->>'payloadDelivery'/i.test(query) &&
       /WHEN kind = 'analysis'/i.test(query) &&
       /WHEN kind = 'validation'/i.test(query) &&
+      /jsonb_typeof\(payload_summary->'projectTeamId'\) IS DISTINCT FROM 'string'/i.test(query) &&
       /payload_summary->>'projectTeamId' = team_id/i.test(query) &&
       /jsonb_typeof\(payload_summary->'projectVersion'\) IS DISTINCT FROM 'number'/i.test(query) &&
       /9007199254740991/i.test(query) &&

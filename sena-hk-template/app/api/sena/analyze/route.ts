@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import {
+  createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync,
   createEnterpriseAnalysisRunWithPostgresMirrorAsync,
-  listEnterpriseAnalysisRunsAsync
+  listEnterpriseAnalysisRunsAsync,
+  reserveEnterpriseUploadIds
 } from "@/lib/sena/enterprise/import-analysis";
 import {
   createEnterpriseProjectAsync,
@@ -18,7 +20,8 @@ import {
   enqueueEnterpriseServerJob,
   serverJobHeaders,
   serverJobQueueStatus,
-  shouldQueueServerJob
+  shouldQueueServerJob,
+  stableServerJobPayloadSha256
 } from "@/lib/sena/enterprise/server-job-queue";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
@@ -31,6 +34,9 @@ import {
 } from "@/lib/sena/analysis-api";
 import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
 import { admitSenaAnalysisMutationRequest } from "@/lib/sena/enterprise/heavy-request-admission";
+import {
+  planSenaAnalysisQueueCommandCustody
+} from "@/lib/sena/analysis-queue-command";
 
 export const runtime = "nodejs";
 
@@ -76,15 +82,28 @@ export async function POST(request: Request) {
         queue
       });
       requireEnterprisePermission(context, teamId, "analysis:run");
+      const queueInput = buildSenaAnalysisQueueJobInput({
+        body,
+        teamId,
+        sourceProject,
+        actorUserId: context.user.id,
+        inlinePayloadAllowed: queue.inlinePayloadAllowed
+      });
+      const [commandEnvelopeUploadId] = reserveEnterpriseUploadIds(1);
+      const commandCustody = planSenaAnalysisQueueCommandCustody(
+        queueInput,
+        commandEnvelopeUploadId,
+        stableServerJobPayloadSha256(queueInput.payload)
+      );
       const job = await enqueueEnterpriseServerJob({
-        ...buildSenaAnalysisQueueJobInput({
-          body,
-          teamId,
-          sourceProject,
-          actorUserId: context.user.id,
-          inlinePayloadAllowed: queue.inlinePayloadAllowed
-        }),
-        queue
+        ...commandCustody.jobInput,
+        queue,
+        beforeDispatch: async () => {
+          await createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync(context, {
+            teamId,
+            files: [commandCustody.file]
+          });
+        }
       });
       await recordEnterpriseAuditAsync({
         event: "analysis.queue",

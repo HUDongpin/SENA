@@ -1,5 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run";
+import {
+  parseSenaAnalysisQueueCommandEnvelope,
+  SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE
+} from "../analysis-queue-command";
 import { buildSenaAnalysisRunRequestInput, sanitizeSenaClientCodingReliability } from "../analysis-api";
 import {
   SenaInputValidationError,
@@ -606,13 +610,16 @@ async function executeAnalysisJob(
     ? updateExistingProject
       ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
         title: optionalString(payload.title),
+        description: typeof payload.description === "string" ? payload.description : undefined,
         expectedVersion,
         snapshot: run.projectSnapshot
       })
       : await createEnterpriseProjectAsync(context, {
         teamId: job.teamId,
         title: optionalString(payload.title) ?? run.summary.title,
-        description: "Created by the SENA server job worker.",
+        description: typeof payload.description === "string"
+          ? payload.description
+          : "Created by /api/sena/analyze.",
         snapshot: run.projectSnapshot
       })
     : null;
@@ -869,6 +876,26 @@ async function reproduceAnalysisPayload(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
 ): Promise<Record<string, unknown> | undefined> {
+  const commandEnvelopeUploadId = job.payloadSummary.commandEnvelopeUploadId;
+  const commandEnvelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
+  if (commandEnvelopeUploadId !== undefined || commandEnvelopeSha256 !== undefined) {
+    if (!commandEnvelopeUploadId || !commandEnvelopeSha256) return undefined;
+    const [content] = await readEnterpriseUploadContentsAsync(context, {
+      teamId: job.teamId,
+      uploadIds: [commandEnvelopeUploadId]
+    }).catch(() => []);
+    if (!content ||
+      content.upload.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE ||
+      content.upload.sha256 !== commandEnvelopeSha256) {
+      return undefined;
+    }
+    try {
+      const envelope = parseSenaAnalysisQueueCommandEnvelope(content.bytes);
+      return envelope.payloadSha256 === job.payloadSha256 ? envelope.payload : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   const projectVersion = job.payloadSummary.projectVersion;
   if (!job.projectId || !isPositiveSafeInteger(projectVersion)) return undefined;
   const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(
@@ -899,8 +926,8 @@ async function reproduceAnalysisPayload(
  * the persist flag and the runtime-bundle/temporal-window switches, but never
  * the title, description, buildOptions, codingReliability or dataGovernance the
  * request may have carried. An import queued with any of those simply will not
- * hash back, and the caller leaves it queued for the signed webhook path rather
- * than importing the same files under different options.
+ * hash back, and local polling terminalizes it before claim rather than
+ * importing the same files under different options.
  */
 function reproduceImportPayload(job: SenaEnterpriseServerJob): Record<string, unknown> | undefined {
   const uploadIds = job.payloadSummary.uploadIds ?? [];
@@ -957,7 +984,8 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
  * (no webhook is ever dispatched, so the push path never fires).
  *
  * It only runs jobs whose payload it could reproduce byte-for-byte, proven
- * against job.payloadSha256. Everything else is reported and left queued.
+ * against job.payloadSha256. Everything else is atomically terminalized before
+ * claim with zero attempts and retryable=false.
  */
 export async function drainEnterpriseServerJobQueue(input: {
   limit?: number;

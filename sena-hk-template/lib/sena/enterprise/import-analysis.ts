@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "../analysis-run";
+import { SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE } from "../analysis-queue-command";
 import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } from "../import-adapters";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
@@ -569,7 +570,7 @@ export async function readEnterpriseUploadContentsAsync(
   });
 }
 
-type CreateEnterpriseUploadsInput = {
+export type CreateEnterpriseUploadsInput = {
   teamId: string;
   files: Array<{
     name: string;
@@ -595,9 +596,10 @@ export function reserveEnterpriseUploadIds(count: number) {
 function createEnterpriseUploadsInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseUploadsInput,
-  db: ReturnType<typeof readEnterpriseDb>
+  db: ReturnType<typeof readEnterpriseDb>,
+  requiredPermission: "upload:create" | "analysis:run" = "upload:create"
 ) {
-  requireEnterprisePermission(context, input.teamId, "upload:create");
+  requireEnterprisePermission(context, input.teamId, requiredPermission);
   if (input.files.length === 0) return {
     uploads: [] as SenaEnterpriseUpload[],
     auditDetails: [] as Array<Record<string, string | number | boolean | null>>
@@ -708,6 +710,31 @@ export async function createEnterpriseUploadsWithPostgresMirrorAsync(
   await writeEnterpriseState(state, state.db);
   await upsertUploadsToPostgresIfConfigured(uploads);
   return uploads;
+}
+
+export async function createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  if (input.files.length !== 1 ||
+    input.files[0]?.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE) {
+    throw new SenaEnterpriseError(
+      "Queued analysis command custody requires one canonical encrypted envelope.",
+      400,
+      "analysis_queue_command_envelope_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    "analysis:run"
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
 }
 
 export type SenaEnterpriseUploadWarningReport = {

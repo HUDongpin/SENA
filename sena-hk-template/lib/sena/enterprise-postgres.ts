@@ -3440,6 +3440,12 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         (payload_summary->>'projectVersion')::numeric BETWEEN 1 AND 9007199254740991
         AND trunc((payload_summary->>'projectVersion')::numeric) =
           (payload_summary->>'projectVersion')::numeric
+      END
+  )`;
+  const exactProjectTeamIdSql = `(
+    CASE
+      WHEN jsonb_typeof(payload_summary->'projectTeamId') IS DISTINCT FROM 'string' THEN false
+      ELSE payload_summary->>'projectTeamId' = team_id
     END
   )`;
   const claimableSourceSql = `(
@@ -3459,7 +3465,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         AND project_id IS NOT NULL
         AND btrim(project_id) <> ''
         AND ${exactProjectVersionSql}
-        AND payload_summary->>'projectTeamId' = team_id
+        AND ${exactProjectTeamIdSql}
       WHEN kind IN ('import', 'reliability') THEN
         worker->>'payloadDelivery' = 'upload-pointer'
         AND ${exactUploadPointersSql}

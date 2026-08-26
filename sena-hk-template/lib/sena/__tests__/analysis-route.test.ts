@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, createHmac } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -254,6 +254,7 @@ describe("SENA analyze route", () => {
         body: JSON.stringify({
           projectId: project.id,
           queue: true,
+          description: "Managed queue description",
           codingReliability: forgedClientCodingReliability(),
           includeRuntimeBundle: true
         })
@@ -272,6 +273,8 @@ describe("SENA analyze route", () => {
           source?: string;
           projectVersion?: number;
           includeRuntimeBundle?: boolean;
+          commandEnvelopeUploadId?: string;
+          commandEnvelopeSha256?: string;
           payloadValuesExcluded?: boolean;
         };
         provider?: {
@@ -313,6 +316,8 @@ describe("SENA analyze route", () => {
         source: "project",
         projectVersion: project.currentVersion,
         includeRuntimeBundle: true,
+        commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
+        commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         payloadValuesExcluded: true
       }));
       expect(body.provider).toEqual(expect.objectContaining({
@@ -367,6 +372,7 @@ describe("SENA analyze route", () => {
         workerPayload?: {
           action?: string;
           projectId?: string;
+          description?: string;
           includeRuntimeBundle?: boolean;
           codingReliability?: { machineEvidence?: unknown };
           inlineSnapshot?: unknown;
@@ -384,6 +390,7 @@ describe("SENA analyze route", () => {
       expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
         action: "run-analysis",
         projectId: project.id,
+        description: "Managed queue description",
         includeRuntimeBundle: true
       }));
       expect(queuePayload.workerPayload?.inlineSnapshot).toBeUndefined();
@@ -438,6 +445,219 @@ describe("SENA analyze route", () => {
       delete process.env.SENA_JOB_QUEUE_SECRET;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  }, analysisRouteTestTimeoutMs);
+
+  it("replays every admitted analysis control through the local queue for updates and creates", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-analysis-local-command-custody-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/analysis-run", async () => await import("../analysis-run"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const workerRuntime = await import("../enterprise/server-job-worker-runtime");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Local Analysis Queue Reviewer",
+        email: "local-analysis-queue-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Local Analysis Queue Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const project = enterprise.createEnterpriseProject(registered.context, {
+        teamId: registered.context.teams[0].id,
+        title: "Local Queue Source",
+        description: "Original description",
+        snapshot: analysisRouteSnapshot()
+      });
+      const route = await import("../../../app/api/sena/analyze/route");
+      const controls = {
+        buildOptions: { alpha: 0.5 },
+        humanReview: {
+          status: "human-reviewed",
+          reviewer: "Queued human reviewer",
+          interpretation: "The queued interpretation must survive encrypted command custody.",
+          limitations: "Queue parity fixture only.",
+          nextActions: "Compare synchronous and queued artifacts."
+        },
+        codingReliability: {
+          status: "not-documented",
+          reviewer: "Queued reliability reviewer",
+          codingScheme: "Queue parity fixture",
+          unitOfCoding: "coded_segments",
+          coderCount: 2,
+          agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal",
+          agreementValue: "pending",
+          adjudicationNotes: "Pending queue parity evidence.",
+          limitations: "Queue parity fixture only."
+        },
+        dataGovernance: {
+          irbApprovalId: "IRB-QUEUE-PARITY-2026",
+          consentScope: "Consented queue parity fixture",
+          retentionPolicy: "Delete after fixture verification",
+          dataSteward: "Queue Parity Steward",
+          reviewedAt: "2026-08-26T00:00:00.000Z"
+        }
+      };
+
+      const updateResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: true,
+          updateProject: true,
+          expectedVersion: project.currentVersion,
+          title: "Local Queue Updated",
+          description: "Updated through the queued command envelope.",
+          includeRuntimeBundle: false,
+          ...controls
+        })
+      }));
+      const updateReceipt = await updateResponse.json() as {
+        id?: string;
+        payloadSummary?: Record<string, unknown>;
+      };
+      expect(updateResponse.status).toBe(202);
+      expect(updateReceipt.payloadSummary).toEqual(expect.objectContaining({
+        commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
+        commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        payloadValuesExcluded: true
+      }));
+      expect(updateReceipt.payloadSummary).not.toHaveProperty("description");
+      expect(updateReceipt.payloadSummary).not.toHaveProperty("buildOptions");
+      expect(updateReceipt.payloadSummary).not.toHaveProperty("humanReview");
+      const updateCommandUpload = enterprise.readEnterpriseDb().uploads.find(
+        (upload: { id: string }) => upload.id === updateReceipt.payloadSummary?.commandEnvelopeUploadId
+      );
+      expect(updateCommandUpload).toEqual(expect.objectContaining({
+        importProfile: "analysis-command-envelope",
+        storageEncoding: "sena-upload-aes-256-gcm-envelope/v1"
+      }));
+      expect(readFileSync(
+        path.join(enterpriseDbDir, String(updateCommandUpload?.storagePath)),
+        "utf8"
+      )).not.toContain("Updated through the queued command envelope.");
+
+      const updateDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      expect(updateDrain.outcomes.find((outcome) => outcome.jobId === updateReceipt.id)).toEqual(
+        expect.objectContaining({ status: "succeeded", attempts: 1 })
+      );
+      const updatedProject = await enterprise.getEnterpriseProjectAsync(registered.context, project.id);
+      const updatedSnapshot = updatedProject.snapshot as Record<string, any>;
+      expect(updatedProject).toEqual(expect.objectContaining({
+        title: "Local Queue Updated",
+        description: "Updated through the queued command envelope.",
+        currentVersion: project.currentVersion + 1
+      }));
+      expect(updatedSnapshot.reproducibility.buildOptions.alpha).toBe(0.5);
+      expect(updatedSnapshot.report.humanReview.reviewer).toBe("Queued human reviewer");
+      expect(updatedSnapshot.dataGovernance.irbApprovalId).toBe("IRB-QUEUE-PARITY-2026");
+      expect(updatedSnapshot.report.codingReliabilityGate.review.reviewer)
+        .toBe("Queued reliability reviewer");
+
+      const createResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: true,
+          updateProject: false,
+          title: "Local Queue Created Copy",
+          description: "Created through the queued command envelope.",
+          includeRuntimeBundle: false,
+          ...controls
+        })
+      }));
+      const createReceipt = await createResponse.json() as { id?: string };
+      expect(createResponse.status).toBe(202);
+      const createDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      const createOutcome = createDrain.outcomes.find((outcome) => outcome.jobId === createReceipt.id);
+      expect(createOutcome).toEqual(expect.objectContaining({
+        status: "succeeded",
+        attempts: 1,
+        result: expect.objectContaining({ persistedProjectId: expect.stringMatching(/^project_/) })
+      }));
+      const createdProjectId = createOutcome?.result?.persistedProjectId;
+      expect(createdProjectId).not.toBe(project.id);
+      const createdProject = await enterprise.getEnterpriseProjectAsync(
+        registered.context,
+        String(createdProjectId)
+      );
+      expect(createdProject).toEqual(expect.objectContaining({
+        title: "Local Queue Created Copy",
+        description: "Created through the queued command envelope."
+      }));
+
+      const corruptResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: false,
+          title: "Corrupt command must not execute",
+          buildOptions: { alpha: 0.5 }
+        })
+      }));
+      const corruptReceipt = await corruptResponse.json() as {
+        id?: string;
+        payloadSummary?: { commandEnvelopeUploadId?: string };
+      };
+      expect(corruptResponse.status).toBe(202);
+      const corruptUpload = enterprise.readEnterpriseDb().uploads.find(
+        (upload: { id: string }) => upload.id === corruptReceipt.payloadSummary?.commandEnvelopeUploadId
+      );
+      expect(corruptUpload).toBeDefined();
+      writeFileSync(path.join(enterpriseDbDir, String(corruptUpload?.storagePath)), "corrupt-envelope");
+      const corruptDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      expect(corruptDrain.outcomes.find((outcome) => outcome.jobId === corruptReceipt.id)).toEqual(
+        expect.objectContaining({
+          status: "failed",
+          attempts: 0,
+          retryable: false,
+          errorCode: "server_job_worker_payload_not_reproducible"
+        })
+      );
+      await expect(enterprise.getEnterpriseProjectAsync(registered.context, project.id)).resolves.toEqual(
+        expect.objectContaining({
+          currentVersion: updatedProject.currentVersion,
+          title: updatedProject.title,
+          description: updatedProject.description
+        })
+      );
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_ALLOW_LOCAL;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
   }, analysisRouteTestTimeoutMs);
@@ -574,6 +794,8 @@ describe("SENA analyze route", () => {
     process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
     process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
     process.env.SENA_ENTERPRISE_POSTGRES_URL = "postgres://sena_user:super-secret@example.neon.tech/senadb?sslmode=require";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
     vi.doMock("pg", () => ({
       Pool: class FakePool {
         constructor(options: unknown) {
@@ -648,6 +870,55 @@ describe("SENA analyze route", () => {
       expect(pg.state?.payload.analysisRuns.map((run) => run.id)).toContain(body.enterpriseAnalysisRun?.id);
       expect(pg.analysisRuns.map((run) => run.id)).toContain(body.enterpriseAnalysisRun?.id);
 
+      const queueResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: true,
+          updateProject: true,
+          expectedVersion: 2,
+          title: "Postgres Queued Analysis Updated",
+          description: "Postgres retained the encrypted queued command.",
+          buildOptions: { alpha: 0.5 },
+          humanReview: {
+            status: "human-reviewed",
+            reviewer: "Postgres queued reviewer",
+            interpretation: "Postgres queue command parity.",
+            limitations: "Fixture only.",
+            nextActions: "Verify the primary-state result."
+          },
+          includeRuntimeBundle: false
+        })
+      }));
+      const queueReceipt = await queueResponse.json() as {
+        id?: string;
+        payloadSummary?: Record<string, unknown>;
+      };
+      expect(queueResponse.status).toBe(202);
+      expect(queueReceipt.payloadSummary).toEqual(expect.objectContaining({
+        commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
+        commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
+      const workerRuntime = await import("../enterprise/server-job-worker-runtime");
+      const queueDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      expect(queueDrain.outcomes.find((outcome) => outcome.jobId === queueReceipt.id)).toEqual(
+        expect.objectContaining({ status: "succeeded", attempts: 1 })
+      );
+      const queuedProject = await enterprise.getEnterpriseProjectAsync(registered.context, project.id);
+      expect(queuedProject).toEqual(expect.objectContaining({
+        currentVersion: 3,
+        title: "Postgres Queued Analysis Updated",
+        description: "Postgres retained the encrypted queued command."
+      }));
+      expect((queuedProject.snapshot as Record<string, any>).reproducibility.buildOptions.alpha).toBe(0.5);
+      expect(pg.state?.payload.projects.find((candidate) => candidate.id === project.id)?.currentVersion).toBe(3);
+
       const listResponse = await route.GET(new Request(`https://sena.example.test/api/sena/analyze?projectId=${project.id}`));
       const listBody = await listResponse.json() as {
         analysisRuns?: Array<{ id?: string }>;
@@ -664,6 +935,8 @@ describe("SENA analyze route", () => {
       delete process.env.SENA_ENTERPRISE_DB_ADAPTER;
       delete process.env.SENA_ENTERPRISE_STATE_STORE;
       delete process.env.SENA_ENTERPRISE_POSTGRES_URL;
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_ALLOW_LOCAL;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
