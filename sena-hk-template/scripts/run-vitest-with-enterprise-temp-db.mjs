@@ -8,6 +8,7 @@ import {
   assertSenaVerifierEnvironmentIsLocal,
   buildSenaVerifierEnvironment
 } from "./sena-verifier-environment.mjs";
+import { buildSenaVitestPhaseArgs } from "./sena-vitest-phase-plan.mjs";
 
 // Deliberately duplicated from scripts/resolve-installed-package-file.ts: plain
 // `node` runs this wrapper, so it cannot import the TypeScript helper, and
@@ -29,21 +30,6 @@ const providedDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
 const enterpriseDbDir = providedDbDir || mkdtempSync(join(tmpdir(), "sena-vitest-enterprise-db-"));
 let vitestEnvironment;
 
-// These end-to-end files pass when run alone, but can exceed their per-test
-// timeout when they contend with the default multi-worker full suite. Keep the
-// broad suite parallel, but cap its workers because several files themselves
-// spawn process-heavy recovery and evidence probes. Then run only these known
-// long files serially. Explicit CLI arguments preserve the wrapper's original
-// single-invocation behaviour for focused developer runs.
-const serialTestFiles = [
-  "lib/sena/__tests__/analysis-route.test.ts",
-  "lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
-  "lib/sena/__tests__/enterprise-go-live.test.ts",
-  "lib/sena/__tests__/enterprise.test.ts",
-  "lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"
-];
-const parallelTestWorkers = Math.max(1, Math.min(4, availableParallelism()));
-
 function runVitest(vitestFile, args) {
   assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
   let result;
@@ -64,13 +50,7 @@ try {
   });
   assertSenaVerifierEnvironmentIsLocal(vitestEnvironment, enterpriseDbDir);
   const vitestFile = resolveInstalledPackageFile("vitest", "vitest.mjs");
-  const requestedArgs = process.argv.slice(2);
-  const phases = requestedArgs.length > 0
-    ? [requestedArgs]
-    : [
-        ["--maxWorkers", String(parallelTestWorkers), ...serialTestFiles.flatMap((testFile) => ["--exclude", testFile])],
-        ["--no-file-parallelism", ...serialTestFiles]
-      ];
+  const phases = buildSenaVitestPhaseArgs(process.argv.slice(2), availableParallelism());
 
   process.exitCode = 0;
   for (const phaseArgs of phases) {

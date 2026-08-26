@@ -21,6 +21,7 @@ import {
   requireVerifierControlledServerCustody,
   requireVerifierOwnedLoopbackListener
 } from "../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs";
+import { SENA_VITEST_SERIAL_TEST_FILES } from "../../../scripts/sena-vitest-phase-plan.mjs";
 
 async function startTestListener(host: "127.0.0.1" | "0.0.0.0") {
   const child = spawn(process.execPath, [
@@ -653,12 +654,8 @@ describe("SENA browser smoke manifest", () => {
     expect(pilotSource).not.toContain('SENA_EXPERT_REVIEW_SIGNING_SECRET: "');
     expect(pilotSource).not.toContain("console.log(expertReviewSigningSecret");
     expect(pilotSource).not.toContain("console.log(expertReviewSigningKeyId");
-    const vitestWrapperSource = readFileSync(
-      new URL("../../../scripts/run-vitest-with-enterprise-temp-db.mjs", import.meta.url),
-      "utf8"
-    );
-    expect(vitestWrapperSource).toContain(
-      '"lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"'
+    expect(SENA_VITEST_SERIAL_TEST_FILES).toContain(
+      "lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"
     );
   });
 
