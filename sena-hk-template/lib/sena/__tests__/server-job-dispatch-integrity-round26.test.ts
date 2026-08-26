@@ -766,12 +766,99 @@ describe("SENA server-job dispatch integrity round 26", () => {
     ))).toHaveLength(1);
   });
 
+  it.each([1, 2])(
+    "reserves an oldest executable slot before a mixed-kind page is limited to %i newer unsupported jobs",
+    async (limit) => {
+      const dbDir = mkdtempSync(path.join(tmpdir(), `sena-round26-mixed-kind-fairness-${limit}-`));
+      cleanupDirs.push(dbDir);
+      configureLocalQueue(dbDir);
+      const queue = await import("../enterprise/server-job-queue");
+      const worker = await import("../enterprise/server-job-worker-runtime");
+      const state = await import("../enterprise/state");
+      const executable = await queue.enqueueEnterpriseServerJob({
+        ...queueInput(),
+        projectId: "project_round26_mixed_kind_executable",
+        payload: {
+          ...queueInput().payload,
+          projectId: "project_round26_mixed_kind_executable"
+        }
+      });
+      const unsupported = [];
+      for (let index = 0; index < limit; index += 1) {
+        const projectId = `project_round26_mixed_kind_validation_${index}`;
+        unsupported.push(await queue.enqueueEnterpriseServerJob({
+          kind: "validation",
+          teamId: "team_round26_validation_backlog",
+          projectId,
+          actorUserId: "user_round26_validation_backlog",
+          payload: {
+            action: "run-validation",
+            teamId: "team_round26_validation_backlog",
+            projectId
+          },
+          payloadSummary: {
+            source: "project",
+            projectVersion: 1,
+            projectTeamId: "team_round26_validation_backlog",
+            hasInlineSnapshot: false,
+            hasInlineDataset: false,
+            payloadValuesExcluded: true
+          }
+        }));
+      }
+      const db = state.readEnterpriseDb();
+      db.serverJobs.find((candidate) => candidate.id === executable.id)!.updatedAt =
+        "2026-08-26T00:00:00.000Z";
+      unsupported.forEach((job, index) => {
+        db.serverJobs.find((candidate) => candidate.id === job.id)!.updatedAt =
+          `2026-08-26T00:00:${String(index + 1).padStart(2, "0")}.000Z`;
+      });
+      state.saveDb(db);
+
+      const first = await worker.drainEnterpriseServerJobQueue({ limit });
+      const second = await worker.drainEnterpriseServerJobQueue({ limit });
+
+      expect(first.outcomes[0]).toEqual(expect.objectContaining({
+        jobId: executable.id,
+        status: "failed",
+        errorCode: "server_job_worker_payload_not_reproducible",
+        attempts: 0
+      }));
+      expect(second.outcomes).toHaveLength(limit);
+      expect(second.outcomes).toEqual(expect.arrayContaining(unsupported.map((job) => (
+        expect.objectContaining({
+          jobId: job.id,
+          status: "skipped",
+          jobStatus: "queued",
+          skipReason: "server_job_worker_executor_unavailable"
+        })
+      ))));
+      await expect(queue.getEnterpriseServerJob(executable.id)).resolves.toEqual(
+        expect.objectContaining({ status: "failed" })
+      );
+    }
+  );
+
   it("documents that irreproducible pull-worker commands are terminalized before claim", () => {
     const source = readFileSync(path.join(process.cwd(), "scripts/run-sena-job-worker.ts"), "utf8");
 
     expect(source).toContain("atomically terminalized before claim");
     expect(source).toContain("attempts unchanged");
     expect(source).not.toContain("reported and left queued");
+  });
+
+  it("documents preclaim rejection as preserving rather than resetting prior attempts", () => {
+    const sources = [
+      "README.md",
+      "lib/sena/api-evidence-notes.ts",
+      "lib/sena/enterprise/server-job-queue.ts",
+      "lib/sena/enterprise/server-job-worker-runtime.ts"
+    ].map((file) => readFileSync(path.join(process.cwd(), file), "utf8"));
+
+    for (const source of sources) {
+      const normalized = source.replace(/\n\s*\*\s?/g, " ").replace(/\s+/g, " ");
+      expect(normalized).toContain("without incrementing attempts; the existing attempt count is preserved");
+    }
   });
 
   it("quarantines project pointers whose immutable projectVersion is not a positive safe integer", async () => {

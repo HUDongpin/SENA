@@ -52,6 +52,7 @@ import {
 } from "./reliability-runs";
 import {
   claimEnterpriseServerJob,
+  findOldestClaimableEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
   rejectEnterpriseServerJobBeforeClaim,
@@ -1094,12 +1095,14 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
  * (no webhook is ever dispatched, so the push path never fires).
  *
  * It first identifies ordinary claimable work, excluding the same-process
- * status-store heartbeat sentinel. If ordinary work exists, one slot is
- * reserved before quarantining delivered analysis receipts whose current or
- * explicit-legacy custody profile is missing or partial. This prevents a poison
- * backlog from starving valid jobs. It never upgrades quarantined rows into
- * legacy work. Every irreproducible command is atomically terminalized before
- * claim with zero attempts and retryable=false.
+ * status-store heartbeat sentinel. A separate bounded, oldest-first data-access
+ * query finds an executable kind before the mixed-kind result is limited, so
+ * newer unsupported receipts cannot hide the reserved slot. If executable work
+ * exists, one slot is reserved before quarantining delivered analysis receipts
+ * whose current or explicit-legacy custody profile is missing or partial. It
+ * never upgrades quarantined rows into legacy work. Every irreproducible command
+ * is atomically terminalized before claim. It does so without incrementing
+ * attempts; the existing attempt count is preserved and retryable=false.
  */
 export async function drainEnterpriseServerJobQueue(input: {
   limit?: number;
@@ -1109,15 +1112,28 @@ export async function drainEnterpriseServerJobQueue(input: {
   return runWithSenaValidationRequestScope(async () => {
     const limit = Math.max(1, Math.min(input.limit ?? 25, 500));
     const outcomes: SenaServerJobWorkerOutcome[] = [];
-    const queued = await listEnterpriseServerJobs({
-      status: "queued",
-      claimableOnly: true,
-      excludeSyntheticWorkerHeartbeat: true,
-      kind: input.kind,
-      teamId: input.teamId,
-      limit
-    });
-    const reservedExecutable = queued.jobs.find((job) => isExecutableKind(job.kind));
+    const executableKinds: readonly SenaEnterpriseServerJobKind[] = input.kind === undefined
+      ? senaServerJobWorkerExecutableKinds
+      : isExecutableKind(input.kind)
+        ? [input.kind]
+        : [];
+    const [queued, executable] = await Promise.all([
+      listEnterpriseServerJobs({
+        status: "queued",
+        claimableOnly: true,
+        excludeSyntheticWorkerHeartbeat: true,
+        kind: input.kind,
+        teamId: input.teamId,
+        limit
+      }),
+      executableKinds.length > 0
+        ? findOldestClaimableEnterpriseServerJob({
+            kinds: executableKinds,
+            teamId: input.teamId
+          })
+        : Promise.resolve(undefined)
+    ]);
+    const reservedExecutable = executable;
     const processingOrder = reservedExecutable
       ? [reservedExecutable, ...queued.jobs.filter((job) => job.id !== reservedExecutable.id)]
       : queued.jobs;

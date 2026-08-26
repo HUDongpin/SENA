@@ -1,9 +1,16 @@
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { SenaEnterpriseBackupArtifact, SenaEnterpriseBackupRecordCounts, SenaEnterpriseBackupVerification } from "../enterprise";
 import {
   createEnterprisePostgresDatabaseSyncAdapterFromEnv,
+  createEnterprisePostgresServerJobAdapterFromEnv,
   resolveEnterprisePostgresConfig
 } from "../enterprise-postgres";
+import {
+  serverJobQueueStatus,
+  type SenaEnterpriseServerJob
+} from "../enterprise/server-job-queue";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 
 const liveRequested = process.env.SENA_ENTERPRISE_POSTGRES_LIVE_TEST === "1";
 
@@ -129,4 +136,210 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
       await pool.end?.();
     }
   });
+
+  (liveRequested ? it : it.skip)(
+    "executes server-job quarantine, claimability, exact-heartbeat, and executable reservation predicates in Postgres",
+    async () => {
+      const tableName = "sena_enterprise_server_jobs_live_tests";
+      const suffix = randomBytes(12).toString("hex");
+      const uploadId = `upload_${randomBytes(12).toString("hex")}`;
+      const payloadSha256 = "a".repeat(64);
+      const envelopeSha256 = "b".repeat(64);
+      const provider = serverJobQueueStatus();
+      const createdIds: string[] = [];
+      const makeAnalysisJob = (
+        label: string,
+        payloadSummary: Record<string, unknown>,
+        updatedAt: string
+      ) => ({
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJob,
+        id: `server_job_live_${label}_${suffix}`,
+        kind: "analysis",
+        status: "queued",
+        queuedAt: updatedAt,
+        updatedAt,
+        teamId: "team_live_server_jobs",
+        projectId: `project_live_${label}`,
+        actorUserId: "user_live_server_jobs",
+        payloadSha256,
+        payloadSummary,
+        provider,
+        delivery: {
+          attempted: true,
+          webhookStatus: "local-sink",
+          sourceReady: true
+        },
+        worker: {
+          expectedAction: "run-analysis",
+          payloadDelivery: "project-pointer",
+          execution: "local-receipt-only",
+          statusCallback: "/api/sena/ops/jobs"
+        },
+        lifecycle: {
+          attempts: 0,
+          maxAttempts: 3,
+          retryable: false,
+          lastTransition: "enqueue"
+        },
+        redaction: {
+          payloadValuesExcluded: true,
+          secretValuesExcluded: true,
+          endpointValueExcluded: true
+        }
+      }) as SenaEnterpriseServerJob;
+      const validSummary = {
+        source: "project",
+        projectVersion: 1,
+        commandCustody: "encrypted-upload-v1",
+        commandEnvelopeUploadId: uploadId,
+        commandEnvelopeSha256: envelopeSha256,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      };
+      const valid = makeAnalysisJob(
+        "valid",
+        validSummary,
+        "2026-08-26T00:00:00.000Z"
+      );
+      const malformedSummaries: Array<[string, Record<string, unknown>]> = [
+        ["unmarked", {
+          source: "project",
+          projectVersion: 1,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }],
+        ["missing-upload", { ...validSummary, commandEnvelopeUploadId: undefined }],
+        ["missing-sha", { ...validSummary, commandEnvelopeSha256: undefined }],
+        ["null-upload", { ...validSummary, commandEnvelopeUploadId: null }],
+        ["null-sha", { ...validSummary, commandEnvelopeSha256: null }],
+        ["wrong-types", {
+          ...validSummary,
+          commandEnvelopeUploadId: 17,
+          commandEnvelopeSha256: [envelopeSha256]
+        }],
+        ["malformed", {
+          ...validSummary,
+          commandEnvelopeUploadId: "upload_not_hex",
+          commandEnvelopeSha256: "not-a-sha"
+        }],
+        ["partial-synthetic", {
+          source: "project",
+          projectVersion: 1,
+          commandCustody: "synthetic-heartbeat-v1",
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }]
+      ];
+      const malformed = malformedSummaries.map(([label, summary], index) => makeAnalysisJob(
+        label,
+        summary,
+        `2026-08-26T00:01:${String(index).padStart(2, "0")}.000Z`
+      ));
+      const heartbeatId = `server_job_worker_heartbeat_${randomBytes(12).toString("hex")}`;
+      const exactHeartbeat = {
+        ...makeAnalysisJob("heartbeat-seed", {}, "2026-08-26T00:02:00.000Z"),
+        id: heartbeatId,
+        teamId: "ops-heartbeat",
+        projectId: "worker-heartbeat",
+        actorUserId: "ops-heartbeat",
+        payloadSummary: {
+          source: "project",
+          projectVersion: 1,
+          commandCustody: "synthetic-heartbeat-v1",
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        },
+        worker: {
+          expectedAction: "run-analysis" as const,
+          payloadDelivery: "project-pointer" as const,
+          execution: "external-worker-required" as const,
+          statusCallback: "/api/sena/ops/jobs" as const
+        }
+      } satisfies SenaEnterpriseServerJob;
+      const wrongKindHeartbeat = {
+        ...structuredClone(exactHeartbeat),
+        id: `server_job_worker_heartbeat_${randomBytes(12).toString("hex")}`,
+        kind: "validation" as const,
+        updatedAt: "2026-08-26T00:03:00.000Z"
+      } satisfies SenaEnterpriseServerJob;
+      const allJobs = [valid, ...malformed, exactHeartbeat, wrongKindHeartbeat];
+      createdIds.push(...allJobs.map((job) => job.id));
+
+      const { adapter, pool } = createEnterprisePostgresServerJobAdapterFromEnv({ tableName });
+      let tableReady = false;
+      try {
+        await adapter.ensureSchema();
+        tableReady = true;
+        for (const job of allJobs) await adapter.upsertJob(job);
+
+        const quarantine = await adapter.listJobs({
+          status: "queued",
+          kind: "analysis",
+          analysisCustodyQuarantineOnly: true,
+          limit: 100
+        });
+        expect(new Set(quarantine.jobs.map((job) => job.id))).toEqual(
+          new Set(malformed.map((job) => job.id))
+        );
+
+        const claimable = await adapter.listJobs({
+          status: "queued",
+          kind: "analysis",
+          claimableOnly: true,
+          excludeSyntheticWorkerHeartbeat: true,
+          limit: 100
+        });
+        expect(claimable.jobs.map((job) => job.id)).toEqual([valid.id]);
+
+        const withoutExactHeartbeat = await adapter.listJobs({
+          status: "queued",
+          excludeSyntheticWorkerHeartbeat: true,
+          limit: 100
+        });
+        expect(withoutExactHeartbeat.jobs.map((job) => job.id)).toContain(wrongKindHeartbeat.id);
+        expect(withoutExactHeartbeat.jobs.map((job) => job.id)).not.toContain(exactHeartbeat.id);
+
+        await expect(adapter.findOldestClaimableJob({
+          kinds: ["analysis", "import", "reliability"]
+        })).resolves.toEqual(expect.objectContaining({ id: valid.id }));
+
+        const runningMalformed = {
+          ...malformed[0],
+          status: "running" as const,
+          lifecycle: {
+            ...malformed[0].lifecycle,
+            attempts: 1,
+            workerRunId: "worker_live_malformed",
+            lastTransition: "mark-running" as const
+          }
+        };
+        await expect(adapter.claimQueuedJob(runningMalformed)).resolves.toBeNull();
+        const runningValid = {
+          ...valid,
+          status: "running" as const,
+          lifecycle: {
+            ...valid.lifecycle,
+            attempts: 1,
+            workerRunId: "worker_live_valid",
+            lastTransition: "mark-running" as const
+          }
+        };
+        await expect(adapter.claimQueuedJob(runningValid)).resolves.toEqual(
+          expect.objectContaining({ id: valid.id, status: "running" })
+        );
+      } finally {
+        if (tableReady && createdIds.length > 0) {
+          await pool.query(
+            `DELETE FROM "public"."${tableName}" WHERE id = ANY($1::text[])`,
+            [createdIds]
+          );
+        }
+        await pool.end?.();
+      }
+    }
+  );
 });

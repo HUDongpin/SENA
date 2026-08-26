@@ -881,6 +881,81 @@ describe("SENA in-repo server job worker runtime", () => {
     );
   });
 
+  it("preserves a prior attempt when a retried command becomes irreproducible before its next claim", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "local-retry-corruption-owner"
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "local-retry-corruption-owner",
+      errorCode: "simulated-transient-local-failure"
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "retry"
+    });
+    const db = state.readEnterpriseDb();
+    db.serverJobs.find((candidate) => candidate.id === job.id)!.payloadSha256 = "f".repeat(64);
+    state.saveDb(db);
+
+    const report = await fixture.runtime.drainEnterpriseServerJobQueue({
+      teamId: fixture.teamId,
+      kind: "analysis",
+      limit: 1
+    });
+
+    expect(report).toEqual(expect.objectContaining({ scanned: 1, failed: 1, succeeded: 0 }));
+    expect(report.outcomes[0]).toEqual(expect.objectContaining({
+      jobId: job.id,
+      status: "failed",
+      attempts: 1,
+      retryable: false,
+      errorCode: "server_job_worker_payload_not_reproducible"
+    }));
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 1,
+        retryable: false
+      })
+    }));
+    expect(stored.lifecycle).not.toHaveProperty("workerRunId");
+  });
+
   it("does not execute a job a second time once it has been claimed", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;

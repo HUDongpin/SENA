@@ -3454,7 +3454,8 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     END
   )`;
   const exactSyntheticHeartbeatShapeSql = `COALESCE((
-    NOT (payload_summary ? 'commandEnvelopeUploadId')
+    kind = 'analysis'
+    AND NOT (payload_summary ? 'commandEnvelopeUploadId')
     AND NOT (payload_summary ? 'commandEnvelopeSha256')
     AND id ~ '^server_job_worker_heartbeat_[a-f0-9]{24}$'
     AND team_id = 'ops-heartbeat'
@@ -3699,6 +3700,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
   function filterClauses(inputFilters: {
     status?: SenaEnterpriseServerJobStatus;
     kind?: SenaEnterpriseServerJobKind;
+    kinds?: readonly SenaEnterpriseServerJobKind[];
     teamId?: string;
     projectId?: string;
     claimableOnly?: boolean;
@@ -3713,6 +3715,9 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     };
     if (inputFilters.status) add("status = ?", inputFilters.status);
     if (inputFilters.kind) add("kind = ?", inputFilters.kind);
+    if (inputFilters.kinds) {
+      add("/* sena-worker-executable-kinds */ kind = ANY(?::text[])", inputFilters.kinds);
+    }
     if (inputFilters.teamId) add("team_id = ?", inputFilters.teamId);
     if (inputFilters.projectId) add("project_id = ?", inputFilters.projectId);
     if (inputFilters.claimableOnly) clauses.push(claimableSourceSql);
@@ -3796,6 +3801,29 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     };
   }
 
+  async function findOldestClaimableJob(inputFilters: {
+    kinds: readonly SenaEnterpriseServerJobKind[];
+    teamId?: string;
+  }) {
+    await ensureSchema();
+    const filters = filterClauses({
+      status: "queued",
+      kinds: inputFilters.kinds,
+      teamId: inputFilters.teamId,
+      claimableOnly: true,
+      excludeSyntheticWorkerHeartbeat: true
+    });
+    const values = [...filters.values, 1];
+    const result = await input.query<Record<string, unknown>>(`
+      SELECT *
+      FROM ${tableRef}
+      ${filters.where}
+      ORDER BY updated_at ASC, id ASC
+      LIMIT $${values.length}
+    `, values);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
   async function getJob(jobId: string) {
     await ensureSchema();
     const result = await input.query<Record<string, unknown>>(`
@@ -3814,6 +3842,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     transitionJobStatus,
     finalizeDelivery,
     listJobs,
+    findOldestClaimableJob,
     getJob
   };
 }

@@ -1705,6 +1705,45 @@ export async function listEnterpriseServerJobs(input: {
   };
 }
 
+/**
+ * Finds one oldest source-ready job the built-in polling worker can execute.
+ *
+ * This is deliberately separate from the mixed-kind list API: Postgres applies
+ * its kind/status/source predicates before `LIMIT 1` and does not run the list
+ * summary count, while the file store performs one O(n) linear scan over the
+ * retained receipt array (normal writes cap n at 2,000). Unsupported kinds
+ * therefore cannot consume this reservation window.
+ */
+export async function findOldestClaimableEnterpriseServerJob(input: {
+  kinds: readonly SenaEnterpriseServerJobKind[];
+  teamId?: string;
+  callerScope?: SenaEnterpriseServerJobCallerScope;
+}): Promise<SenaEnterpriseServerJob | undefined> {
+  if (input.kinds.length === 0) return undefined;
+  const teamId = scopedServerJobTeamId(input.callerScope, input.teamId);
+  if (isPostgresServerJobStoreActive()) {
+    return await postgresServerJobStore().findOldestClaimableJob({
+      kinds: input.kinds,
+      teamId
+    }) ?? undefined;
+  }
+  const state = await readEnterpriseState();
+  return (state.db.serverJobs ?? [])
+    .filter((job) => !enterpriseServerJobIsSyntheticWorkerHeartbeat(job))
+    .map((job) => projectEnterpriseServerJobReadModel(job))
+    .filter((job) => job.status === "queued")
+    .filter((job) => job.delivery.sourceReady === true)
+    .filter((job) => input.kinds.includes(job.kind))
+    .filter((job) => !teamId || job.teamId === teamId)
+    .reduce<SenaEnterpriseServerJob | undefined>((oldest, job) => {
+      if (!oldest) return job;
+      const timestampOrder = job.updatedAt.localeCompare(oldest.updatedAt);
+      return timestampOrder < 0 || (timestampOrder === 0 && job.id.localeCompare(oldest.id) < 0)
+        ? job
+        : oldest;
+    }, undefined);
+}
+
 export async function getEnterpriseServerJob(jobId: string) {
   if (isPostgresServerJobStoreActive()) {
     const job = await postgresServerJobStore().getJob(jobId);
@@ -1987,9 +2026,10 @@ export async function claimEnterpriseServerJob(input: {
 
 /**
  * Atomically terminalizes an immutable queued command that cannot be admitted
- * or reproduced. No worker owns the job yet, so attempts remain zero and no
- * workerRunId is invented. This prevents poison receipts from being accepted
- * by push providers or rescanned forever by the local poller.
+ * or reproduced. No worker owns this claim, so it is rejected without
+ * incrementing attempts; the existing attempt count is preserved and no
+ * workerRunId is invented. This prevents poison receipts from being accepted by
+ * push providers or rescanned forever by the local poller.
  */
 export async function rejectEnterpriseServerJobBeforeClaim(input: {
   jobId: string;

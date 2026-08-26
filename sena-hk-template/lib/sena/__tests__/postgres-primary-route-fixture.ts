@@ -104,6 +104,10 @@ export class RouteMemoryPostgres {
       const kind = values[valueIndex++];
       rows = rows.filter((record) => record.kind === kind);
     }
+    if (/kind\s*=\s*ANY\(\$\d+::text\[\]\)/i.test(sql)) {
+      const kinds = values[valueIndex++];
+      rows = rows.filter((record) => Array.isArray(kinds) && kinds.includes(record.kind));
+    }
     if (/team_id\s*=\s*\$\d+/i.test(sql)) {
       const teamId = values[valueIndex++];
       rows = rows.filter((record) => record.team_id === teamId);
@@ -127,7 +131,9 @@ export class RouteMemoryPostgres {
     if (/sena-exclude-synthetic-worker-heartbeat/i.test(sql)) {
       rows = rows.filter((record) => !this.serverJobIsSyntheticWorkerHeartbeat(record));
     }
-    return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+    return rows.sort((left, right) => /ORDER BY updated_at ASC/i.test(sql)
+      ? String(left.updated_at).localeCompare(String(right.updated_at))
+      : String(right.updated_at).localeCompare(String(left.updated_at)));
   }
 
   async query(sql: string, values: unknown[] = []) {

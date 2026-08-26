@@ -754,6 +754,190 @@ describe("SENA server job Postgres store", () => {
     expect(JSON.stringify({ runtime, listBody })).not.toContain("example.db");
   });
 
+  it.each([1, 2])(
+    "reserves an oldest executable Postgres row before %i newer unsupported rows consume the mixed limit",
+    async (limit) => {
+      enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-server-job-postgres-fairness-${limit}-`));
+      process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+      process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+      process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+      process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+      process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+      process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+      const pg = new RouteMemoryPostgres();
+      vi.doMock("pg", () => ({
+        Pool: class FakePool {
+          async query(sql: string, values: unknown[] = []) {
+            return pg.query(sql, values);
+          }
+
+          async end() {
+            return undefined;
+          }
+        }
+      }));
+
+      const queue = await import("../enterprise/server-job-queue");
+      const worker = await import("../enterprise/server-job-worker-runtime");
+      const executable = await queue.enqueueEnterpriseServerJob({
+        kind: "analysis",
+        teamId: "team_postgres_executable",
+        projectId: "project_postgres_executable",
+        actorUserId: "user_postgres_executable",
+        payload: {
+          action: "run-analysis",
+          teamId: "team_postgres_executable",
+          projectId: "project_postgres_executable",
+          projectVersion: 1,
+          persist: false,
+          updateProject: true
+        },
+        payloadSummary: {
+          source: "project",
+          projectVersion: 1,
+          persist: false,
+          updateProject: true,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }
+      });
+      const unsupported = [];
+      for (let index = 0; index < limit; index += 1) {
+        const projectId = `project_postgres_validation_${index}`;
+        unsupported.push(await queue.enqueueEnterpriseServerJob({
+          kind: "validation",
+          teamId: "team_postgres_validation_backlog",
+          projectId,
+          actorUserId: "user_postgres_validation_backlog",
+          payload: {
+            action: "run-validation",
+            teamId: "team_postgres_validation_backlog",
+            projectId
+          },
+          payloadSummary: {
+            source: "project",
+            projectVersion: 1,
+            projectTeamId: "team_postgres_validation_backlog",
+            hasInlineSnapshot: false,
+            hasInlineDataset: false,
+            payloadValuesExcluded: true
+          }
+        }));
+      }
+      pg.serverJobs.find((row) => row.id === executable.id)!.updated_at =
+        "2026-08-26T00:00:00.000Z";
+      unsupported.forEach((job, index) => {
+        pg.serverJobs.find((row) => row.id === job.id)!.updated_at =
+          `2026-08-26T00:00:${String(index + 1).padStart(2, "0")}.000Z`;
+      });
+
+      const first = await worker.drainEnterpriseServerJobQueue({ limit });
+      const second = await worker.drainEnterpriseServerJobQueue({ limit });
+
+      expect(first.outcomes[0]).toEqual(expect.objectContaining({
+        jobId: executable.id,
+        status: "failed",
+        errorCode: "server_job_worker_payload_not_reproducible",
+        attempts: 0
+      }));
+      expect(second.outcomes).toHaveLength(limit);
+      expect(second.outcomes).toEqual(expect.arrayContaining(unsupported.map((job) => (
+        expect.objectContaining({
+          jobId: job.id,
+          status: "skipped",
+          jobStatus: "queued",
+          skipReason: "server_job_worker_executor_unavailable"
+        })
+      ))));
+      expect(pg.queries.some((query) => (
+        /sena-worker-executable-kinds/i.test(query) &&
+        /kind\s*=\s*ANY\(\$\d+::text\[\]\)/i.test(query) &&
+        /ORDER BY updated_at ASC/i.test(query) &&
+        /LIMIT \$\d+/i.test(query)
+      ))).toBe(true);
+    }
+  );
+
+  it("does not exclude a wrong-kind Postgres near-match as an exact synthetic heartbeat", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-postgres-heartbeat-kind-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    const pg = new RouteMemoryPostgres();
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+
+    const queue = await import("../enterprise/server-job-queue");
+    const contract = await import("../enterprise/server-job-contract");
+    const seeded = await queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_heartbeat_seed",
+      projectId: "project_postgres_heartbeat_seed",
+      actorUserId: "user_postgres_heartbeat_seed",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_heartbeat_seed",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const row = pg.serverJobs.find((candidate) => candidate.id === seeded.id)!;
+    row.id = `server_job_worker_heartbeat_${"a".repeat(24)}`;
+    row.kind = "validation";
+    row.team_id = "ops-heartbeat";
+    row.project_id = "worker-heartbeat";
+    row.actor_user_id = "ops-heartbeat";
+    row.payload_sha256 = "b".repeat(64);
+    row.payload_summary = {
+      commandCustody: "synthetic-heartbeat-v1",
+      source: "project",
+      projectVersion: 1,
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    row.worker = {
+      expectedAction: "run-analysis",
+      payloadDelivery: "project-pointer",
+      execution: "external-worker-required",
+      statusCallback: "/api/sena/ops/jobs"
+    };
+
+    const listed = await queue.listEnterpriseServerJobs({
+      status: "queued",
+      excludeSyntheticWorkerHeartbeat: true,
+      limit: 10
+    });
+
+    expect(listed.jobs).toHaveLength(1);
+    expect(listed.jobs[0].id).toBe(row.id);
+    expect(contract.enterpriseServerJobIsSyntheticWorkerHeartbeat(listed.jobs[0])).toBe(false);
+    const exclusionQueries = pg.queries.filter((query) => (
+      /sena-exclude-synthetic-worker-heartbeat/i.test(query)
+    ));
+    expect(exclusionQueries.length).toBeGreaterThan(0);
+    expect(exclusionQueries.every((query) => /kind\s*=\s*'analysis'/i.test(query))).toBe(true);
+  });
+
   it("quarantines raw unmarked and partially stripped Postgres analysis receipts before local claim", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-postgres-custody-quarantine-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
