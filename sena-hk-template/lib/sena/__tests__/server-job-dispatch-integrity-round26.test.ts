@@ -575,6 +575,131 @@ describe("SENA server-job dispatch integrity round 26", () => {
     }
   });
 
+  it("allows only the exact synthetic heartbeat profile through file-store status CAS", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-file-heartbeat-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const state = await import("../enterprise/state");
+    const created = await queue.enqueueEnterpriseServerJob(queueInput());
+    const db = state.readEnterpriseDb();
+    const raw = db.serverJobs.find((candidate) => candidate.id === created.id)!;
+    raw.id = `server_job_worker_heartbeat_${"a".repeat(24)}`;
+    raw.teamId = "ops-heartbeat";
+    raw.projectId = "worker-heartbeat";
+    raw.actorUserId = "ops-heartbeat";
+    raw.payloadSummary = {
+      source: "project",
+      projectVersion: 1,
+      commandCustody: "synthetic-heartbeat-v1",
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    raw.delivery = {
+      ...raw.delivery,
+      sourceReady: true,
+      webhookStatus: "delivered"
+    };
+    raw.worker = {
+      expectedAction: "run-analysis",
+      payloadDelivery: "project-pointer",
+      execution: "external-worker-required",
+      statusCallback: "/api/sena/ops/jobs"
+    };
+    state.saveDb(db);
+
+    const running = await queue.updateEnterpriseServerJobStatus({
+      jobId: raw.id,
+      action: "mark-running",
+      workerRunId: "worker_run_round26_heartbeat"
+    });
+    const succeeded = await queue.updateEnterpriseServerJobStatus({
+      jobId: raw.id,
+      action: "mark-succeeded",
+      workerRunId: "worker_run_round26_heartbeat"
+    });
+
+    expect(running.job).toEqual(expect.objectContaining({
+      status: "running",
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect(succeeded.job).toEqual(expect.objectContaining({
+      status: "succeeded",
+      lifecycle: expect.objectContaining({ attempts: 1, retryable: false })
+    }));
+  });
+
+  it("does not allow normal analysis enqueue to select the synthetic heartbeat profile", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-heartbeat-profile-admission-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+
+    await expect(queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      payload: {
+        ...queueInput().payload,
+        commandCustody: "synthetic-heartbeat-v1"
+      },
+      payloadSummary: {
+        ...queueInput().payloadSummary,
+        commandCustody: "synthetic-heartbeat-v1"
+      }
+    })).rejects.toMatchObject({
+      status: 400,
+      code: "server_job_analysis_command_custody_invalid"
+    });
+    await expect(queue.listEnterpriseServerJobs({ limit: 10 })).resolves.toEqual(
+      expect.objectContaining({ jobs: [] })
+    );
+  });
+
+  it("terminalizes raw unmarked and partially stripped analysis receipts before local claim", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-file-custody-quarantine-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
+    const state = await import("../enterprise/state");
+    const unmarked = await queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      projectId: "project_round26_unmarked",
+      payload: { ...queueInput().payload, projectId: "project_round26_unmarked" }
+    });
+    const strippedCurrent = await queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      projectId: "project_round26_stripped_current",
+      payload: { ...queueInput().payload, projectId: "project_round26_stripped_current" }
+    });
+    const db = state.readEnterpriseDb();
+    const unmarkedRaw = db.serverJobs.find((candidate) => candidate.id === unmarked.id)!;
+    const strippedRaw = db.serverJobs.find((candidate) => candidate.id === strippedCurrent.id)!;
+    delete unmarkedRaw.payloadSummary.commandCustody;
+    strippedRaw.payloadSummary.commandCustody = "encrypted-upload-v1";
+    delete strippedRaw.payloadSummary.commandEnvelopeUploadId;
+    delete strippedRaw.payloadSummary.commandEnvelopeSha256;
+    state.saveDb(db);
+
+    const report = await worker.drainEnterpriseServerJobQueue({ kind: "analysis", limit: 10 });
+
+    expect(report).toEqual(expect.objectContaining({ scanned: 2, failed: 2, succeeded: 0 }));
+    expect(report.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobId: unmarked.id, status: "failed", attempts: 0 }),
+      expect.objectContaining({ jobId: strippedCurrent.id, status: "failed", attempts: 0 })
+    ]));
+    for (const jobId of [unmarked.id, strippedCurrent.id]) {
+      await expect(queue.getEnterpriseServerJob(jobId)).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      }));
+    }
+  });
+
   it("quarantines project pointers whose immutable projectVersion is not a positive safe integer", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-project-version-custody-"));
     cleanupDirs.push(dbDir);

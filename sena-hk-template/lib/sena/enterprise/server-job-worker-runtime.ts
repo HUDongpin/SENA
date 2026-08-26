@@ -62,7 +62,10 @@ import {
   type SenaEnterpriseServerJobKind,
   type SenaEnterpriseServerJobStatus
 } from "./server-job-queue";
-import { enterpriseServerJobHasDurableSourcePointer } from "./server-job-contract";
+import {
+  enterpriseServerJobHasDurableSourcePointer,
+  enterpriseServerJobHasValidAnalysisCommandCustodyProfile
+} from "./server-job-contract";
 import { readEnterpriseState } from "./state";
 import {
   createEnterpriseProjectAsync,
@@ -535,18 +538,6 @@ function analysisCommandCustodyError(): SenaEnterpriseError {
   );
 }
 
-function analysisCommandCustodyProfileValid(job: SenaEnterpriseServerJob) {
-  const custody = job.payloadSummary.commandCustody;
-  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
-  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
-  if (custody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
-    return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
-      typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
-  }
-  return custody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
-    uploadId === undefined && envelopeSha256 === undefined;
-}
-
 async function readCurrentAnalysisCommandEnvelope(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
@@ -594,7 +585,7 @@ async function admitAnalysisCommandCustody(
   if (stableServerJobPayloadSha256(deliveredPayload) !== job.payloadSha256) {
     throw analysisCommandCustodyError();
   }
-  if (!analysisCommandCustodyProfileValid(job)) throw analysisCommandCustodyError();
+  if (!enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) throw analysisCommandCustodyError();
   if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
     if (deliveredPayload.commandCustody !== undefined) throw analysisCommandCustodyError();
     return { payload: deliveredPayload };
@@ -696,7 +687,7 @@ export async function admitEnterpriseExternalAnalysisClaim(
   job: SenaEnterpriseServerJob
 ): Promise<void> {
   if (job.kind !== "analysis") return;
-  if (!analysisCommandCustodyProfileValid(job)) throw analysisCommandCustodyError();
+  if (!enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) throw analysisCommandCustodyError();
   if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) return;
   const context = await workerSessionContext(job);
   const payload = await readCurrentAnalysisCommandEnvelope(job, context);
@@ -891,7 +882,7 @@ export async function runEnterpriseServerJob(input: {
     // Never claimed, so a real external worker can still take it.
     return skipped(job, "server_job_worker_executor_unavailable");
   }
-  if (job.kind === "analysis" && !analysisCommandCustodyProfileValid(job)) {
+  if (job.kind === "analysis" && !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) {
     return rejectBeforeClaim(job, analysisCommandCustodyError());
   }
   if (job.delivery.sourceReady !== true || !enterpriseServerJobHasDurableSourcePointer(job)) {
@@ -1101,9 +1092,12 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
  * The polling half of the worker, for deployments whose queue mode is `local`
  * (no webhook is ever dispatched, so the push path never fires).
  *
- * It only runs jobs whose payload it could reproduce byte-for-byte, proven
- * against job.payloadSha256. Everything else is atomically terminalized before
- * claim with zero attempts and retryable=false.
+ * Before listing executable jobs it quarantines delivered analysis receipts
+ * whose current/explicit-legacy custody profile is missing or partial. It never
+ * upgrades those rows into legacy work. It then runs only jobs whose payload it
+ * can reproduce byte-for-byte against job.payloadSha256. Every irreproducible
+ * command is atomically terminalized before claim with zero attempts and
+ * retryable=false.
  */
 export async function drainEnterpriseServerJobQueue(input: {
   limit?: number;
@@ -1111,15 +1105,33 @@ export async function drainEnterpriseServerJobQueue(input: {
   kind?: SenaEnterpriseServerJobKind;
 } = {}): Promise<SenaServerJobWorkerDrainReport> {
   return runWithSenaValidationRequestScope(async () => {
-    const queued = await listEnterpriseServerJobs({
+    const limit = Math.max(1, Math.min(input.limit ?? 25, 500));
+    const outcomes: SenaServerJobWorkerOutcome[] = [];
+    if (input.kind === undefined || input.kind === "analysis") {
+      const quarantined = await listEnterpriseServerJobs({
+        status: "queued",
+        kind: "analysis",
+        teamId: input.teamId,
+        analysisCustodyQuarantineOnly: true,
+        limit
+      });
+      for (const job of quarantined.jobs) {
+        outcomes.push(await rejectBeforeClaim(
+          job,
+          analysisCommandCustodyError(),
+          "server-job-worker-analysis-command-custody-quarantined"
+        ));
+      }
+    }
+    const remaining = limit - outcomes.length;
+    const queued = remaining > 0 ? await listEnterpriseServerJobs({
       status: "queued",
       claimableOnly: true,
       kind: input.kind,
       teamId: input.teamId,
-      limit: input.limit ?? 25
-    });
-    const outcomes: SenaServerJobWorkerOutcome[] = [];
-    for (const job of queued.jobs) {
+      limit: remaining
+    }) : undefined;
+    for (const job of queued?.jobs ?? []) {
       if (!isExecutableKind(job.kind)) {
         outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
         continue;
@@ -1142,7 +1154,7 @@ export async function drainEnterpriseServerJobQueue(input: {
     }
     return {
       generatedAt: now(),
-      scanned: queued.jobs.length,
+      scanned: outcomes.length,
       succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
       failed: outcomes.filter((outcome) => outcome.status === "failed").length,
       skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,

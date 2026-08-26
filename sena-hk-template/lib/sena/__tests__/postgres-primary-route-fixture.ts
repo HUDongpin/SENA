@@ -32,7 +32,22 @@ export class RouteMemoryPostgres {
     }
     const kind = record.kind;
     if (kind === "analysis") {
-      return worker.payloadDelivery === "project-pointer" &&
+      const currentCustody = summary.commandCustody === "encrypted-upload-v1" &&
+        typeof summary.commandEnvelopeUploadId === "string" &&
+        /^upload_[a-f0-9]{24}$/.test(summary.commandEnvelopeUploadId) &&
+        typeof summary.commandEnvelopeSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(summary.commandEnvelopeSha256);
+      const legacyCustody = summary.commandCustody === "legacy-inline-v2" &&
+        summary.commandEnvelopeUploadId === undefined &&
+        summary.commandEnvelopeSha256 === undefined;
+      const heartbeatCustody = summary.commandCustody === "synthetic-heartbeat-v1" &&
+        summary.commandEnvelopeUploadId === undefined &&
+        summary.commandEnvelopeSha256 === undefined &&
+        typeof record.id === "string" && /^server_job_worker_heartbeat_[a-f0-9]{24}$/.test(record.id) &&
+        record.team_id === "ops-heartbeat" && record.project_id === "worker-heartbeat" &&
+        record.actor_user_id === "ops-heartbeat";
+      return (currentCustody || legacyCustody || heartbeatCustody) &&
+        worker.payloadDelivery === "project-pointer" &&
         typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
         Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0;
     }
@@ -74,7 +89,16 @@ export class RouteMemoryPostgres {
       const projectId = values[valueIndex++];
       rows = rows.filter((record) => record.project_id === projectId);
     }
-    if (/delivery->'?sourceReady'?/i.test(sql) || /delivery \? 'sourceReady'/i.test(sql)) {
+    if (/sena-analysis-custody-quarantine/i.test(sql)) {
+      rows = rows.filter((record) => {
+        const delivery = record.delivery as Record<string, unknown> | undefined;
+        const rawReady = delivery && Object.hasOwn(delivery, "sourceReady")
+          ? delivery.sourceReady === true
+          : delivery?.webhookStatus === "delivered" || delivery?.webhookStatus === "local-sink" ||
+            (delivery?.webhookStatus === "failed" && delivery?.failureStage === "queue-dispatch");
+        return record.kind === "analysis" && rawReady && !this.serverJobSourceReady(record);
+      });
+    } else if (/delivery->'?sourceReady'?/i.test(sql) || /delivery \? 'sourceReady'/i.test(sql)) {
       rows = rows.filter((record) => this.serverJobSourceReady(record));
     }
     return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));

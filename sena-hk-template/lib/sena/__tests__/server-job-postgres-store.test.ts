@@ -753,4 +753,68 @@ describe("SENA server job Postgres store", () => {
     expect(JSON.stringify({ runtime, listBody })).not.toContain("super-secret");
     expect(JSON.stringify({ runtime, listBody })).not.toContain("example.db");
   });
+
+  it("quarantines raw unmarked and partially stripped Postgres analysis receipts before local claim", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-postgres-custody-quarantine-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    const pg = new RouteMemoryPostgres();
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+
+    const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
+    const enqueue = (projectId: string) => queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_quarantine",
+      projectId,
+      actorUserId: "user_postgres_quarantine",
+      payload: { action: "run-analysis", projectId, projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const unmarked = await enqueue("project_postgres_unmarked");
+    const strippedCurrent = await enqueue("project_postgres_stripped_current");
+    const unmarkedRow = pg.serverJobs.find((row) => row.id === unmarked.id)!;
+    const strippedRow = pg.serverJobs.find((row) => row.id === strippedCurrent.id)!;
+    delete (unmarkedRow.payload_summary as Record<string, unknown>).commandCustody;
+    Object.assign(strippedRow.payload_summary as Record<string, unknown>, {
+      commandCustody: "encrypted-upload-v1"
+    });
+    delete (strippedRow.payload_summary as Record<string, unknown>).commandEnvelopeUploadId;
+    delete (strippedRow.payload_summary as Record<string, unknown>).commandEnvelopeSha256;
+
+    const report = await worker.drainEnterpriseServerJobQueue({ kind: "analysis", limit: 10 });
+
+    expect(report).toEqual(expect.objectContaining({ scanned: 2, failed: 2, succeeded: 0 }));
+    for (const jobId of [unmarked.id, strippedCurrent.id]) {
+      await expect(queue.getEnterpriseServerJob(jobId)).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      }));
+    }
+    expect(pg.queries.some((query) => /sena-analysis-custody-quarantine/i.test(query))).toBe(true);
+  });
 });

@@ -4,6 +4,7 @@ export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE = "analysis-command-en
 export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_NAME = "queued-analysis-command.json";
 export const SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY = "encrypted-upload-v1";
 export const SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY = "legacy-inline-v2";
+export const SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY = "synthetic-heartbeat-v1";
 
 const analysisCommandEnvelopeFormat = "sena-analysis-queue-command";
 const analysisCommandEnvelopeVersion = 1;

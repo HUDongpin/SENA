@@ -4,7 +4,8 @@ import type {
 } from "./server-job-queue";
 import {
   SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
-  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY
 } from "../analysis-queue-command";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,6 +62,60 @@ function projectDeliverySourceReady(deliveryValue: unknown) {
     ownDataValue(deliveryValue, "failureStage") === "queue-dispatch";
 }
 
+export function enterpriseServerJobIsSyntheticWorkerHeartbeat(
+  job: SenaEnterpriseServerJob
+) {
+  const summary = isRecord(job.payloadSummary) ? job.payloadSummary : undefined;
+  const worker = isRecord(job.worker) ? job.worker : undefined;
+  if (!summary || !worker) return false;
+  return job.kind === "analysis" &&
+    /^server_job_worker_heartbeat_[a-f0-9]{24}$/.test(job.id) &&
+    job.teamId === "ops-heartbeat" &&
+    job.projectId === "worker-heartbeat" &&
+    job.actorUserId === "ops-heartbeat" &&
+    /^[a-f0-9]{64}$/.test(job.payloadSha256) &&
+    ownDataValue(summary, "commandCustody") === SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY &&
+    ownDataValue(summary, "commandEnvelopeUploadId") === undefined &&
+    ownDataValue(summary, "commandEnvelopeSha256") === undefined &&
+    ownDataValue(summary, "source") === "project" &&
+    ownDataValue(summary, "projectVersion") === 1 &&
+    ownDataValue(summary, "hasInlineSnapshot") === false &&
+    ownDataValue(summary, "hasInlineDataset") === false &&
+    ownDataValue(summary, "payloadValuesExcluded") === true &&
+    ownDataValue(worker, "expectedAction") === "run-analysis" &&
+    ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
+    ownDataValue(worker, "execution") === "external-worker-required" &&
+    ownDataValue(worker, "statusCallback") === "/api/sena/ops/jobs";
+}
+
+export function enterpriseServerJobHasValidAnalysisCommandCustodyProfile(
+  job: SenaEnterpriseServerJob
+) {
+  if (job.kind !== "analysis") return false;
+  const summary = isRecord(job.payloadSummary) ? job.payloadSummary : undefined;
+  if (!summary) return false;
+  const commandCustody = ownDataValue(summary, "commandCustody");
+  const uploadId = ownDataValue(summary, "commandEnvelopeUploadId");
+  const envelopeSha256 = ownDataValue(summary, "commandEnvelopeSha256");
+  if (commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
+      typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
+  }
+  if (commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
+    return uploadId === undefined && envelopeSha256 === undefined;
+  }
+  return enterpriseServerJobIsSyntheticWorkerHeartbeat(job);
+}
+
+export function enterpriseServerJobRequiresAnalysisCustodyQuarantine(
+  job: SenaEnterpriseServerJob
+) {
+  return job.kind === "analysis" &&
+    job.status === "queued" &&
+    projectDeliverySourceReady(job.delivery) &&
+    !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job);
+}
+
 /**
  * Current source-custody invariant for every stored job, including legacy rows.
  * A persisted true bit is only delivery evidence; it cannot override missing
@@ -79,16 +134,7 @@ export function enterpriseServerJobHasDurableSourcePointer(
   }
 
   if (job.kind === "analysis") {
-    const commandCustody = ownDataValue(summary, "commandCustody");
-    const currentCustody = commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
-      typeof ownDataValue(summary, "commandEnvelopeUploadId") === "string" &&
-      /^upload_[a-f0-9]{24}$/.test(ownDataValue(summary, "commandEnvelopeUploadId") as string) &&
-      typeof ownDataValue(summary, "commandEnvelopeSha256") === "string" &&
-      /^[a-f0-9]{64}$/.test(ownDataValue(summary, "commandEnvelopeSha256") as string);
-    const legacyCustody = commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
-      ownDataValue(summary, "commandEnvelopeUploadId") === undefined &&
-      ownDataValue(summary, "commandEnvelopeSha256") === undefined;
-    return (currentCustody || legacyCustody) &&
+    return enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job) &&
       ownDataValue(summary, "source") === "project" &&
       ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
       isNonemptyString(job.projectId) &&

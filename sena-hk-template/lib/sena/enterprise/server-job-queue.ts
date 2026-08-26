@@ -2,7 +2,8 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import {
   SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
-  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY
 } from "../analysis-queue-command";
 import { requireEnterprisePermission, type SenaEnterpriseRole } from "./access-control";
 import { recordEnterpriseUploadWarningCountsAsync } from "./import-analysis";
@@ -32,7 +33,11 @@ import {
   webhookTimeoutMs,
   webhookUrlFromEnv
 } from "./webhook-delivery";
-import { projectEnterpriseServerJobReadModel } from "./server-job-contract";
+import {
+  enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
+  enterpriseServerJobRequiresAnalysisCustodyQuarantine,
+  projectEnterpriseServerJobReadModel
+} from "./server-job-contract";
 
 export type SenaEnterpriseServerJobKind = "analysis" | "import" | "publication-export" | "reliability" | "validation";
 export type SenaEnterpriseServerJobQueueMode = "managed" | "webhook" | "qstash" | "local" | "not-configured";
@@ -281,7 +286,7 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   uploadIds?: string[];
   reviewerEnvelopeUploadId?: string;
   reviewerEnvelopeSha256?: string;
-  commandCustody?: "encrypted-upload-v1" | "legacy-inline-v2";
+  commandCustody?: "encrypted-upload-v1" | "legacy-inline-v2" | "synthetic-heartbeat-v1";
   commandEnvelopeUploadId?: string;
   commandEnvelopeSha256?: string;
   annotationCount?: number;
@@ -1093,18 +1098,6 @@ function normalizedAnalysisPayloadSummary(input: {
   );
 }
 
-function storedAnalysisCommandCustodyProfileValid(job: SenaEnterpriseServerJob) {
-  const custody = job.payloadSummary.commandCustody;
-  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
-  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
-  if (custody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
-    return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
-      typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
-  }
-  return custody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
-    uploadId === undefined && envelopeSha256 === undefined;
-}
-
 function externalAnalysisCommandCustodyError() {
   return new SenaEnterpriseError(
     "The queued SENA analysis command does not match its durable encrypted custody envelope.",
@@ -1670,6 +1663,7 @@ export async function listEnterpriseServerJobs(input: {
   projectId?: string;
   limit?: number;
   claimableOnly?: boolean;
+  analysisCustodyQuarantineOnly?: boolean;
   callerScope?: SenaEnterpriseServerJobCallerScope;
 } = {}): Promise<SenaEnterpriseServerJobList> {
   // Resolved before either store is touched: a scoped caller's team is not an
@@ -1682,6 +1676,8 @@ export async function listEnterpriseServerJobs(input: {
   const state = await readEnterpriseState();
   const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
   const allJobs = sortServerJobs((state.db.serverJobs ?? [])
+    .filter((job) => !input.analysisCustodyQuarantineOnly ||
+      enterpriseServerJobRequiresAnalysisCustodyQuarantine(job))
     .map((job) => projectEnterpriseServerJobReadModel(job))
     .filter((job) => !input.status || job.status === input.status)
     .filter((job) => !input.claimableOnly || job.delivery.sourceReady === true)
@@ -2107,7 +2103,7 @@ export async function updateEnterpriseServerJobStatus(input: {
   // caller cannot mark another tenant's job running, succeeded, or failed.
   assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
   if (input.action === "mark-running" && current.kind === "analysis" &&
-    !storedAnalysisCommandCustodyProfileValid(current)) {
+    !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(current)) {
     const error = externalAnalysisCommandCustodyError();
     await rejectEnterpriseServerJobBeforeClaim({
       jobId: current.id,
@@ -2348,6 +2344,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat,
     generatedAt,
     purpose: "sena-server-job-worker-status-callback-heartbeat",
+    commandCustody: SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY,
     syntheticUserDataIncluded: false
   };
   const payloadSha256 = stableServerJobPayloadSha256(payload);
@@ -2365,6 +2362,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     payloadSummary: {
       source: "project",
       projectVersion: 1,
+      commandCustody: SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY,
       hasInlineSnapshot: false,
       hasInlineDataset: false,
       payloadValuesExcluded: true

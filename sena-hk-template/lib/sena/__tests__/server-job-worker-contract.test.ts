@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
 const envNames = [
   "SENA_ENTERPRISE_DB_DIR",
@@ -203,6 +204,55 @@ describe("SENA server job worker contract", () => {
     ]));
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena-test-job-secret");
+  });
+
+  it("passes a fully configured synthetic heartbeat through the indexed status store", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-worker-heartbeat-pass-"));
+    configureWorkerContractEnv(enterpriseDbDir);
+    const pg = new RouteMemoryPostgres();
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+
+    const { verifyEnterpriseServerJobWorkerHeartbeat } = await import("../enterprise/server-job-queue");
+    const heartbeat = await verifyEnterpriseServerJobWorkerHeartbeat();
+    const stored = pg.serverJobs[0];
+
+    expect(heartbeat).toEqual(expect.objectContaining({
+      status: "pass",
+      heartbeat: expect.objectContaining({
+        finalStatus: "succeeded",
+        attempts: 1,
+        writeReadConfirmed: true
+      }),
+      missing: []
+    }));
+    expect(stored).toEqual(expect.objectContaining({
+      kind: "analysis",
+      status: "succeeded",
+      payload_summary: expect.objectContaining({
+        commandCustody: "synthetic-heartbeat-v1",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }),
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect(pg.queries.some((query) => (
+      /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
+      /synthetic-heartbeat-v1/i.test(query) &&
+      /server_job_worker_heartbeat_/i.test(query)
+    ))).toBe(true);
+    expect(JSON.stringify(heartbeat)).not.toContain("sena-test-job-secret");
+    expect(JSON.stringify(heartbeat)).not.toContain("jobs.example.test");
   });
 
   it("exposes the worker heartbeat through an ops bearer mutation route without leaking values", async () => {
