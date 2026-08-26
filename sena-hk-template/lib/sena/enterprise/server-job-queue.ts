@@ -171,14 +171,19 @@ export type SenaEnterpriseServerJobQueueContract = {
     statusCallback: "/api/sena/ops/jobs";
     acceptedJobKinds: SenaEnterpriseServerJobKind[];
     payloadPolicy: "project-or-upload-pointer-default";
-    /** Legacy v1 metadata; not an enablement signal. Consult inlinePayloadAllowed and custody evidence. */
-    inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1";
+    inlinePayloadAllowed: false;
+    inlinePayloadPolicy: "disabled";
+    legacyInlineEnvEffect: "none-deprecated";
+    /** Legacy v1 key retained as a null tombstone; no environment value enables inline custody. */
+    inlinePayloadRequiresExplicitEnv: null;
     rawPayloadPersistedInJobStore: false;
   };
   lifecycle: {
     maxAttempts: number;
     acceptedActions: SenaEnterpriseServerJobStatusAction[];
-    retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry";
+    retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry";
+    retryDispatchPolicy: "local-polling-only";
+    pushProviderRetryPolicy: "provider-native-or-resubmit";
     workerContractCommand: "npm run sena:jobs:worker-contract";
     liveProbeCommand: "npm run sena:jobs:queue-verify";
   };
@@ -814,13 +819,18 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
       statusCallback: "/api/sena/ops/jobs",
       acceptedJobKinds: [...senaEnterpriseServerJobKinds],
       payloadPolicy: "project-or-upload-pointer-default",
-      inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated",
+      inlinePayloadRequiresExplicitEnv: null,
       rawPayloadPersistedInJobStore: false
     },
     lifecycle: {
       maxAttempts: serverJobMaxAttempts(),
       acceptedActions,
-      retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry",
+      retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry",
+      retryDispatchPolicy: "local-polling-only",
+      pushProviderRetryPolicy: "provider-native-or-resubmit",
       workerContractCommand: "npm run sena:jobs:worker-contract",
       liveProbeCommand: "npm run sena:jobs:queue-verify"
     },
@@ -838,12 +848,17 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
       "serverJobQueueContractTransportPayloadHash=x-sena-job-payload-sha256",
       "serverJobQueueContractWorkerPayloadHash=x-sena-worker-payload-sha256",
       "serverJobQueueContractHashSemantics=exact-body-and-canonical-worker-payload-separated",
+      "serverJobQueueContractInlinePayloadAllowed=false",
+      "serverJobQueueContractInlinePayloadPolicy=disabled",
+      "serverJobQueueContractLegacyInlineEnvEffect=none-deprecated",
+      "serverJobQueueContractRetryDispatchPolicy=local-polling-only",
+      "serverJobQueueContractPushProviderRetryPolicy=provider-native-or-resubmit",
       "serverJobQueueContractStatusCallback=/api/sena/ops/jobs",
       "serverJobQueueContractPayloadPolicy=project-or-upload-pointer-default",
       "serverJobQueueContractLegacyInlinePayloadFlag=deprecated-and-ignored",
       "serverJobQueueContractInlinePayloadCustody=durable-pointers-only",
       "serverJobQueueContractRawPayloadPersisted=false",
-      "serverJobQueueContractRetryPolicy=max-attempts-with-operator-force-retry",
+      "serverJobQueueContractRetryPolicy=local-max-attempts-with-operator-force-retry",
       "serverJobQueueContractWorkerContractRequired=true",
       "serverJobQueueContractLiveProbeRequired=true",
       "queueEndpointValue=excluded",
@@ -1514,10 +1529,15 @@ async function finalizeServerJobQueueDelivery(
   if (isPostgresServerJobStoreActive()) {
     const current = await getEnterpriseServerJob(jobId);
     const failQueuedJob = delivery.webhookStatus === "failed" && current.status === "queued";
+    const retryable = failQueuedJob &&
+      delivery.failureStage !== "source-persistence" &&
+      current.provider.mode === "local" &&
+      delivery.sourceReady === true &&
+      current.lifecycle.attempts < current.lifecycle.maxAttempts;
     const failedLifecycle = failQueuedJob
       ? {
           ...current.lifecycle,
-          retryable: true,
+          retryable,
           lastTransition: "mark-failed" as const,
           finishedAt: timestamp,
           lastErrorCode: delivery.errorCode,
@@ -1543,6 +1563,11 @@ async function finalizeServerJobQueueDelivery(
       throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
     }
     const failQueuedJob = delivery.webhookStatus === "failed" && current.status === "queued";
+    const retryable = failQueuedJob &&
+      delivery.failureStage !== "source-persistence" &&
+      current.provider.mode === "local" &&
+      delivery.sourceReady === true &&
+      current.lifecycle.attempts < current.lifecycle.maxAttempts;
     const updated: SenaEnterpriseServerJob = {
       ...current,
       status: failQueuedJob ? "failed" : current.status,
@@ -1551,7 +1576,7 @@ async function finalizeServerJobQueueDelivery(
       lifecycle: failQueuedJob
         ? {
             ...current.lifecycle,
-            retryable: true,
+            retryable,
             lastTransition: "mark-failed",
             finishedAt: timestamp,
             lastErrorCode: delivery.errorCode,
@@ -1648,7 +1673,9 @@ function updatedLifecycle(input: {
   }
   if (input.action === "mark-failed") {
     lifecycle.finishedAt = input.timestamp;
-    lifecycle.retryable = lifecycle.attempts < lifecycle.maxAttempts;
+    lifecycle.retryable = input.job.provider.mode === "local" &&
+      input.job.delivery.sourceReady === true &&
+      lifecycle.attempts < lifecycle.maxAttempts;
     if (!lifecycle.retryable) lifecycle.deadLetteredAt = input.timestamp;
   }
   if (input.action === "retry") {
@@ -1686,7 +1713,7 @@ type SenaEnterpriseServerJobTransitionDecision = {
   workerRunId?: string;
 };
 
-function requiredWorkerRunId(workerRunId: string | undefined) {
+export function requiredWorkerRunId(workerRunId: string | undefined) {
   const normalized = workerRunId?.trim();
   if (!normalized) {
     throw new SenaEnterpriseError(
@@ -1770,6 +1797,13 @@ function assertEnterpriseServerJobTransition(input: {
         "server_job_source_repair_required"
       );
     }
+    if (job.provider.mode !== "local") {
+      throw new SenaEnterpriseError(
+        "Push-provider SENA jobs require provider-native delivery retry or a fresh source-bound re-submission.",
+        409,
+        "server_job_resubmission_required"
+      );
+    }
     if (job.lifecycle.attempts >= job.lifecycle.maxAttempts && !input.force) {
       throw new SenaEnterpriseError(
         "SENA server job has reached max attempts; pass force=true to move it out of dead letter review.",
@@ -1808,6 +1842,7 @@ export async function claimEnterpriseServerJob(input: {
   jobId: string;
   workerRunId: string;
 }) {
+  const workerRunId = requiredWorkerRunId(input.workerRunId);
   const timestamp = now();
   if (isPostgresServerJobStoreActive()) {
     const current = await getEnterpriseServerJob(input.jobId);
@@ -1821,7 +1856,7 @@ export async function claimEnterpriseServerJob(input: {
       job: current,
       action: "mark-running",
       timestamp,
-      workerRunId: input.workerRunId
+      workerRunId
     });
     const nextJob: SenaEnterpriseServerJob = {
       ...current,
@@ -1854,7 +1889,7 @@ export async function claimEnterpriseServerJob(input: {
       job: current,
       action: "mark-running",
       timestamp,
-      workerRunId: input.workerRunId
+      workerRunId
     });
     const claimed: SenaEnterpriseServerJob = {
       ...current,

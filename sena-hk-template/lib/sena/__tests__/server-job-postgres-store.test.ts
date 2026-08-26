@@ -128,6 +128,45 @@ describe("SENA server job Postgres store", () => {
     expect(readyPostgresClaims.filter((claim) => claim.claimed)).toHaveLength(1);
     expect(readyPostgresClaims.filter((claim) => !claim.claimed)).toHaveLength(1);
 
+    await expect(enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_source_failure",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_source_failure" },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      },
+      beforeDispatch: async () => {
+        throw new Error("simulated postgres source persistence failure");
+      }
+    })).rejects.toMatchObject({ code: "server_job_source_persistence_failed" });
+    const sourceFailureRow = pg.serverJobs.find((row) => (
+      row.project_id === "project_postgres_jobs_source_failure"
+    ));
+    expect(sourceFailureRow).toBeDefined();
+    await expect(serverJobs.getEnterpriseServerJob(String(sourceFailureRow?.id))).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        delivery: expect.objectContaining({
+          sourceReady: false,
+          failureStage: "source-persistence"
+        }),
+        lifecycle: expect.objectContaining({ retryable: false })
+      })
+    );
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: String(sourceFailureRow?.id),
+      action: "retry",
+      reason: "operator-review"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_source_repair_required"
+    });
+
     const route = await import("../../../app/api/sena/ops/jobs/route");
     const authHeaders = {
       authorization: "Bearer sena-test-ops-token"
@@ -233,6 +272,21 @@ describe("SENA server job Postgres store", () => {
         payloadValuesExcluded: true
       }
     });
+    for (const workerRunId of ["", "   "]) {
+      await expect(serverJobs.claimEnterpriseServerJob({
+        jobId: unclaimedJob.id,
+        workerRunId
+      })).rejects.toMatchObject({
+        status: 400,
+        code: "server_job_worker_run_id_required"
+      });
+      await expect(serverJobs.getEnterpriseServerJob(unclaimedJob.id)).resolves.toEqual(
+        expect.objectContaining({
+          status: "queued",
+          lifecycle: expect.objectContaining({ attempts: 0 })
+        })
+      );
+    }
     await expect(serverJobs.updateEnterpriseServerJobStatus({
       jobId: unclaimedJob.id,
       action: "mark-succeeded",
@@ -282,14 +336,29 @@ describe("SENA server job Postgres store", () => {
         payloadValuesExcluded: true
       }
     });
-    const [legacyDelivered, legacyPending, invalidString] = await Promise.all([
+    const [
+      legacyDelivered,
+      legacyPending,
+      invalidString,
+      legacyInline,
+      legacyMissingUpload,
+      legacyNormalizedDuplicateUpload
+    ] = await Promise.all([
       enqueueLegacyProjectJob("delivered"),
       enqueueLegacyProjectJob("pending"),
-      enqueueLegacyProjectJob("string")
+      enqueueLegacyProjectJob("string"),
+      enqueueLegacyProjectJob("inline"),
+      enqueueLegacyProjectJob("missing-upload"),
+      enqueueLegacyProjectJob("normalized-duplicate-upload")
     ]);
     const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
     const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
     const invalidStringRow = pg.serverJobs.find((row) => row.id === invalidString.id)!;
+    const legacyInlineRow = pg.serverJobs.find((row) => row.id === legacyInline.id)!;
+    const legacyMissingUploadRow = pg.serverJobs.find((row) => row.id === legacyMissingUpload.id)!;
+    const legacyNormalizedDuplicateUploadRow = pg.serverJobs.find((row) => (
+      row.id === legacyNormalizedDuplicateUpload.id
+    ))!;
     delete (deliveredRow.delivery as { sourceReady?: unknown }).sourceReady;
     pendingRow.delivery = {
       ...(pendingRow.delivery as Record<string, unknown>),
@@ -300,6 +369,58 @@ describe("SENA server job Postgres store", () => {
       ...(invalidStringRow.delivery as Record<string, unknown>),
       sourceReady: "true"
     };
+    legacyInlineRow.kind = "reliability";
+    legacyInlineRow.payload_summary = {
+      ...(legacyInlineRow.payload_summary as Record<string, unknown>),
+      source: "dataset",
+      uploadIds: [],
+      hasInlineDataset: true
+    };
+    legacyInlineRow.worker = {
+      ...(legacyInlineRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "inline-payload-enabled"
+    };
+    legacyInlineRow.delivery = {
+      ...(legacyInlineRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
+    legacyMissingUploadRow.kind = "reliability";
+    legacyMissingUploadRow.payload_summary = {
+      source: "uploads",
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    legacyMissingUploadRow.worker = {
+      ...(legacyMissingUploadRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "upload-pointer"
+    };
+    legacyMissingUploadRow.delivery = {
+      ...(legacyMissingUploadRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
+    legacyNormalizedDuplicateUploadRow.kind = "reliability";
+    legacyNormalizedDuplicateUploadRow.payload_summary = {
+      source: "uploads",
+      uploadIds: ["upload-a", " upload-a "],
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    legacyNormalizedDuplicateUploadRow.worker = {
+      ...(legacyNormalizedDuplicateUploadRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "upload-pointer"
+    };
+    legacyNormalizedDuplicateUploadRow.delivery = {
+      ...(legacyNormalizedDuplicateUploadRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
 
     await expect(serverJobs.getEnterpriseServerJob(legacyDelivered.id)).resolves.toEqual(
       expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: true }) })
@@ -309,11 +430,22 @@ describe("SENA server job Postgres store", () => {
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(legacyDelivered.id);
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyPending.id);
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(invalidString.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyInline.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyMissingUpload.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(
+      legacyNormalizedDuplicateUpload.id
+    );
     await expect(serverJobs.claimEnterpriseServerJob({
       jobId: legacyDelivered.id,
       workerRunId: "worker_run_pg_legacy_delivered"
     })).resolves.toEqual(expect.objectContaining({ claimed: true }));
-    for (const legacyJobId of [legacyPending.id, invalidString.id]) {
+    for (const legacyJobId of [
+      legacyPending.id,
+      invalidString.id,
+      legacyInline.id,
+      legacyMissingUpload.id,
+      legacyNormalizedDuplicateUpload.id
+    ]) {
       await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
         expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
       );
@@ -325,6 +457,15 @@ describe("SENA server job Postgres store", () => {
         reason: "server_job_worker_source_not_ready"
       }));
     }
+    expect(pg.queries.some((query) => (
+      /jsonb_typeof\(payload_summary->'uploadIds'\) IS DISTINCT FROM 'array'/i.test(query) &&
+      /jsonb_array_length\(payload_summary->'uploadIds'\)/i.test(query) &&
+      /count\(DISTINCT btrim\(upload_entry\.value #>> '\{\}'\)\)/i.test(query) &&
+      /payload_summary->'hasInlineSnapshot' = 'false'::jsonb/i.test(query) &&
+      /payload_summary->'hasInlineDataset' = 'false'::jsonb/i.test(query) &&
+      /worker->>'payloadDelivery'/i.test(query) &&
+      /kind IN \('analysis', 'validation'\)/i.test(query)
+    ))).toBe(true);
 
     expect(pg.queries.some((query) => (
       /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&

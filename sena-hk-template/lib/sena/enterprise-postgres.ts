@@ -3400,7 +3400,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
   const teamIndex = indexIdentifier(`${tableName}_team_updated_idx`);
   const projectIndex = indexIdentifier(`${tableName}_project_updated_idx`);
   const kindIndex = indexIdentifier(`${tableName}_kind_status_idx`);
-  const claimableSourceSql = `(
+  const claimableDeliverySql = `(
     delivery->'sourceReady' = 'true'::jsonb
     OR (
       NOT (delivery ? 'sourceReady')
@@ -3412,6 +3412,42 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         )
       )
     )
+  )`;
+  const exactUploadPointersSql = `(
+    CASE
+      WHEN jsonb_typeof(payload_summary->'uploadIds') IS DISTINCT FROM 'array' THEN false
+      WHEN jsonb_array_length(payload_summary->'uploadIds') NOT BETWEEN 1 AND 100 THEN false
+      ELSE
+        NOT EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(payload_summary->'uploadIds') AS upload_entry(value)
+          WHERE jsonb_typeof(upload_entry.value) <> 'string'
+            OR btrim(upload_entry.value #>> '{}') = ''
+        )
+        AND (
+          SELECT count(*)
+          FROM jsonb_array_elements(payload_summary->'uploadIds') AS upload_entry(value)
+        ) = (
+          SELECT count(DISTINCT btrim(upload_entry.value #>> '{}'))
+          FROM jsonb_array_elements(payload_summary->'uploadIds') AS upload_entry(value)
+        )
+    END
+  )`;
+  const claimableSourceSql = `(
+    ${claimableDeliverySql}
+    AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
+    AND payload_summary->'hasInlineDataset' = 'false'::jsonb
+    AND CASE
+      WHEN kind IN ('analysis', 'validation') THEN
+        payload_summary->>'source' = 'project'
+        AND worker->>'payloadDelivery' = 'project-pointer'
+        AND project_id IS NOT NULL
+        AND btrim(project_id) <> ''
+      WHEN kind IN ('import', 'reliability') THEN
+        worker->>'payloadDelivery' = 'upload-pointer'
+        AND ${exactUploadPointersSql}
+      ELSE false
+    END
   )`;
   let schemaReady = false;
 

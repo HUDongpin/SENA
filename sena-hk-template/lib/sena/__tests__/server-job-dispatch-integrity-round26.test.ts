@@ -350,16 +350,24 @@ describe("SENA server-job dispatch integrity round 26", () => {
 
     expect(durableCountDuringDispatch).toBe(1);
     const stored = await queue.listEnterpriseServerJobs({ limit: 10 });
-    expect(stored.summary).toEqual(expect.objectContaining({ total: 1, failed: 1, retryable: 1 }));
+    expect(stored.summary).toEqual(expect.objectContaining({ total: 1, failed: 1, retryable: 0 }));
     expect(stored.jobs[0]).toEqual(expect.objectContaining({
       status: "failed",
       delivery: expect.objectContaining({ attempted: true, webhookStatus: "failed", httpStatus: 503 }),
       lifecycle: expect.objectContaining({
-        retryable: true,
+        retryable: false,
         lastErrorCode: "http_503",
         statusReason: "queue-dispatch-failed"
       })
     }));
+    await expect(queue.updateEnterpriseServerJobStatus({
+      jobId: stored.jobs[0].id,
+      action: "retry",
+      reason: "operator-review"
+    })).rejects.toMatchObject({
+      code: "server_job_resubmission_required",
+      status: 409
+    });
   });
 
   it("runs source persistence only after the job is durable and never dispatches when it fails", async () => {
@@ -382,7 +390,7 @@ describe("SENA server-job dispatch integrity round 26", () => {
     expect(durableCountDuringSourcePersistence).toBe(1);
     expect(dispatch).not.toHaveBeenCalled();
     const stored = await queue.listEnterpriseServerJobs({ limit: 10 });
-    expect(stored.summary).toEqual(expect.objectContaining({ total: 1, failed: 1, retryable: 1 }));
+    expect(stored.summary).toEqual(expect.objectContaining({ total: 1, failed: 1, retryable: 0 }));
     expect(stored.jobs[0]).toEqual(expect.objectContaining({
       delivery: expect.objectContaining({
         attempted: false,
@@ -391,7 +399,10 @@ describe("SENA server-job dispatch integrity round 26", () => {
         failureStage: "source-persistence",
         errorCode: "server_job_source_persistence_failed"
       }),
-      lifecycle: expect.objectContaining({ statusReason: "source-artifact-persistence-failed" })
+      lifecycle: expect.objectContaining({
+        retryable: false,
+        statusReason: "source-artifact-persistence-failed"
+      })
     }));
     await expect(queue.updateEnterpriseServerJobStatus({
       jobId: stored.jobs[0].id,
@@ -463,6 +474,83 @@ describe("SENA server-job dispatch integrity round 26", () => {
       })).resolves.toEqual(expect.objectContaining({
         claimed: false,
         reason: "server_job_worker_source_not_ready"
+      }));
+    }
+  });
+
+  it("quarantines retained inline jobs even when legacy delivery evidence or a stored true bit says ready", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-legacy-inline-quarantine-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const state = await import("../enterprise/state");
+    const variants = [];
+    for (const projectId of [
+      "project_inline_stored_true",
+      "project_inline_delivered",
+      "project_inline_local_sink",
+      "project_inline_failed_dispatch"
+    ]) {
+      variants.push(await queue.enqueueEnterpriseServerJob({ ...queueInput(), projectId }));
+    }
+    const db = state.readEnterpriseDb();
+    const deliveryVariants = [
+      { attempted: true, webhookStatus: "delivered", sourceReady: true },
+      { attempted: true, webhookStatus: "delivered" },
+      { attempted: true, webhookStatus: "local-sink" },
+      { attempted: true, webhookStatus: "failed", failureStage: "queue-dispatch" }
+    ];
+    for (const [index, created] of variants.entries()) {
+      const raw = db.serverJobs.find((candidate) => candidate.id === created.id)!;
+      raw.kind = "reliability";
+      raw.payloadSummary = {
+        ...raw.payloadSummary,
+        source: "dataset",
+        uploadIds: [],
+        hasInlineDataset: true
+      };
+      raw.worker = {
+        ...raw.worker,
+        expectedAction: "run-reliability",
+        payloadDelivery: "inline-payload-enabled"
+      };
+      raw.delivery = deliveryVariants[index] as never;
+    }
+    state.saveDb(db);
+
+    const claimable = await queue.listEnterpriseServerJobs({ claimableOnly: true, limit: 100 });
+    expect(claimable.jobs.map((candidate) => candidate.id)).not.toEqual(
+      expect.arrayContaining(variants.map((candidate) => candidate.id))
+    );
+    for (const candidate of variants) {
+      await expect(queue.getEnterpriseServerJob(candidate.id)).resolves.toEqual(
+        expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
+      );
+      await expect(queue.claimEnterpriseServerJob({
+        jobId: candidate.id,
+        workerRunId: `round26-inline-quarantine-${candidate.id}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
+  });
+
+  it("requires a nonblank worker owner before either file-store claim can mutate the job", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-worker-owner-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const job = await queue.enqueueEnterpriseServerJob(queueInput());
+
+    for (const workerRunId of ["", "   "]) {
+      await expect(queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId })).rejects.toMatchObject({
+        code: "server_job_worker_run_id_required",
+        status: 400
+      });
+      await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+        status: "queued",
+        lifecycle: expect.objectContaining({ attempts: 0 })
       }));
     }
   });

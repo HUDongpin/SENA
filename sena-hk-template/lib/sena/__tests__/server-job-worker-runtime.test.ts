@@ -372,6 +372,141 @@ describe("SENA in-repo server job worker runtime", () => {
     })).toEqual(runsBefore);
   });
 
+  it("quarantines a hash-matching retained inline reliability webhook before claim or run persistence", async () => {
+    const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      reviewer: "Historic Inline Reviewer",
+      sourceName: "historic-inline-reliability.json",
+      inlineAnnotations: reliabilityAnnotations
+    };
+    const seeded = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: { action: "run-analysis", projectId: fixture.project.id },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const db = state.readEnterpriseDb();
+    const retained = db.serverJobs.find((candidate) => candidate.id === seeded.id)!;
+    retained.kind = "reliability";
+    retained.payloadSha256 = fixture.queue.stableServerJobPayloadSha256(payload);
+    retained.payloadSummary = {
+      ...retained.payloadSummary,
+      source: "dataset",
+      uploadIds: [],
+      annotationCount: reliabilityAnnotations.length,
+      hasInlineDataset: true
+    };
+    retained.worker = {
+      ...retained.worker,
+      expectedAction: "run-reliability",
+      payloadDelivery: "inline-payload-enabled"
+    };
+    retained.delivery = {
+      ...retained.delivery,
+      sourceReady: true,
+      webhookStatus: "delivered"
+    };
+    state.saveDb(db);
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+
+    const outcome = await fixture.runtime.runEnterpriseServerJobFromQueueWebhook({
+      jobId: retained.id,
+      workerPayload: payload
+    });
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "skipped",
+      skipReason: "server_job_worker_source_not_ready",
+      attempts: 0
+    }));
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events).toEqual(auditsBefore);
+    await expect(fixture.queue.getEnterpriseServerJob(retained.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "queued",
+        delivery: expect.objectContaining({ sourceReady: false }),
+        lifecycle: expect.objectContaining({ attempts: 0 })
+      })
+    );
+  });
+
+  it("rejects a blank explicit runtime owner before claim, source read, or execution", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+
+    for (const runId of ["", "   "]) {
+      await expect(fixture.runtime.runEnterpriseServerJob({
+        job,
+        workerPayload: payload,
+        runId
+      })).rejects.toMatchObject({
+        code: "server_job_worker_run_id_required",
+        status: 400
+      });
+    }
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 0 })
+    }));
+  });
+
   it("rejects a queued reliability job after its bound project revision changes", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
@@ -458,6 +593,87 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(stored.lifecycle.lastErrorCode).toBe("project_not_found");
     expect(stored.lifecycle.lastErrorHash).toMatch(/^[a-f0-9]{64}$/);
     expect(stored.lifecycle.retryable).toBe(true);
+  });
+
+  it("requeues a local failed job once under concurrent retry and lets polling execute the retained source", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "local-retry-first-owner"
+    });
+    const failed = await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "local-retry-first-owner",
+      errorCode: "simulated-transient-local-failure"
+    });
+    expect(failed.job).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 1, retryable: true })
+    }));
+
+    const retryResults = await Promise.allSettled([
+      fixture.queue.updateEnterpriseServerJobStatus({ jobId: job.id, action: "retry" }),
+      fixture.queue.updateEnterpriseServerJobStatus({ jobId: job.id, action: "retry" })
+    ]);
+    expect(retryResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(retryResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const retryWinner = retryResults.find((result) => result.status === "fulfilled") as PromiseFulfilledResult<{
+      job: { status: string; lifecycle: { attempts: number; workerRunId?: string } };
+    }>;
+    expect(retryWinner.value.job).toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect(retryWinner.value.job.lifecycle.workerRunId).toBeUndefined();
+
+    const report = await fixture.runtime.drainEnterpriseServerJobQueue({
+      teamId: fixture.teamId,
+      kind: "analysis",
+      limit: 10
+    });
+    expect(report).toEqual(expect.objectContaining({
+      scanned: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: 0
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "succeeded",
+        lifecycle: expect.objectContaining({ attempts: 2, retryable: false })
+      })
+    );
   });
 
   it("does not execute a job a second time once it has been claimed", async () => {

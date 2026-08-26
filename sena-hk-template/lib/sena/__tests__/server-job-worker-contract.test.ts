@@ -12,6 +12,7 @@ const envNames = [
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_URL",
   "SENA_JOB_QUEUE_SECRET",
+  "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
   "SENA_JOB_WORKER_RUNTIME",
   "SENA_JOB_WORKER_CALLBACK_URL",
   "SENA_JOB_WORKER_RUNBOOK_URL",
@@ -90,7 +91,12 @@ describe("SENA server job worker contract", () => {
       "run-validation"
     ]);
     expect(contract.contract.payloadPolicy).toBe("project-or-upload-pointer-default");
-    expect(contract.contract.inlinePayloadRequiresExplicitEnv).toBe("SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1");
+    expect(contract.contract.inlinePayloadAllowed).toBe(false);
+    expect(contract.contract.inlinePayloadPolicy).toBe("disabled");
+    expect(contract.contract.legacyInlineEnvEffect).toBe("none-deprecated");
+    expect(contract.contract.inlinePayloadRequiresExplicitEnv).toBeNull();
+    expect(contract.contract.retryDispatchPolicy).toBe("local-polling-only");
+    expect(contract.contract.pushProviderRetryPolicy).toBe("provider-native-or-resubmit");
     expect(contract.contract.parseWarningDisclosurePolicy).toBe("run-import-and-run-reliability-must-report-parse-repair-warnings");
     expect(contract.contract.uploadWarningCountSemantics).toBe("unset-until-a-parser-reports");
     expect(contract.contract.uploadWarningsCallbackField).toBe("uploadWarnings");
@@ -98,6 +104,12 @@ describe("SENA server job worker contract", () => {
     expect(contract.evidence).toContain("uploadWarningCountSemantics=unset-until-a-parser-reports");
     expect(contract.evidence).toContain("uploadWarningsCallbackField=uploadWarnings");
     expect(contract.evidence).toContain("workerInlinePayloadCustody=durable-pointers-only");
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+    expect(getEnterpriseServerJobWorkerContract().contract).toEqual(expect.objectContaining({
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated"
+    }));
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena.example.test/api/sena/ops/jobs");
     expect(serialized).not.toContain("ops.example.test");

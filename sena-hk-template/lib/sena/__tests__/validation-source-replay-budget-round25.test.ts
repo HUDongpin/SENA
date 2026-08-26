@@ -1048,7 +1048,7 @@ describe("validation source verification replay budget", () => {
       { dataset: structuredClone(lessonStudySenaContract) },
       cache
     )).toThrow(/source digest scan budget exceeded/i);
-    expect(cache.sourceDigestMeasurementWorkUnitsAttempted - attemptsBefore).toBe(1);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted - attemptsBefore).toBe(0);
     expect(cache.sourceDigestScanCount).toBe(1);
     expect(cache.modelBuildCount).toBe(1);
   });
@@ -1683,5 +1683,208 @@ describe("validation source verification replay budget", () => {
     const retained = readEnterpriseDb();
     expect(retained.analysisRuns.some((candidate) => candidate.id === anchor.id)).toBe(true);
     expect(retained.analysisRuns.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("rejects a well-formed subtree under an unknown source row key before digest or model work", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const dataset = structuredClone(lessonStudySenaContract) as typeof lessonStudySenaContract & {
+      people: Array<(typeof lessonStudySenaContract.people)[number] & { unexpected?: unknown }>;
+    };
+    dataset.people[0].unexpected = Array.from({ length: 10_000 }, (_unused, index) => ({
+      index,
+      value: `well-formed-${index}`
+    }));
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset },
+      cache
+    )).toThrow(/source dataset carrier|carrier shape|source model work budget/i);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted).toBe(0);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(cache.sourceDigestBytesReserved).toBe(0);
+    expect(cache.sourceDigestWorkUnitsReserved).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it("admits the complete result carrier before spending a near-budget source digest", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    }) as ReturnType<typeof buildSenaGroupComparisonSuite> & { unexpectedResultField?: unknown };
+    result.unexpectedResultField = { structurallyValidButUnknown: true };
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceDigestWorkUnits: 1
+    });
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      result,
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).toThrow(/validation result|suite|carrier|shape/i);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted).toBe(0);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it("charges failed digest traversal cumulatively instead of resetting the request budget", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const malformedDataset = structuredClone(lessonStudySenaContract);
+    malformedDataset.codebook.at(-1)!.description += "\uD800";
+    const probe = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(malformedDataset) },
+      probe
+    )).toThrow(/well-formed UTF-16/i);
+    const oneFailedTraversal = probe.sourceDigestMeasurementWorkUnitsAttempted;
+    expect(oneFailedTraversal).toBeGreaterThan(0);
+    const cache = new SenaGroupComparisonSourceVerificationCache({
+      maxSourceDigestWorkUnits: oneFailedTraversal
+    });
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(malformedDataset) },
+      cache
+    )).toThrow(/well-formed UTF-16/i);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted).toBe(oneFailedTraversal);
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(malformedDataset) },
+      cache
+    )).toThrow(/source digest scan budget exceeded/i);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted).toBe(oneFailedTraversal);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(cache.sourceDigestWorkUnitsReserved).toBe(0);
+  });
+
+  it.each([
+    ["person group", (source: { dataset: typeof lessonStudySenaContract; buildOptions: { alpha: number } }) => {
+      source.dataset.people[0].group = `${source.dataset.people[0].group} revised`;
+    }],
+    ["source text", (source: { dataset: typeof lessonStudySenaContract; buildOptions: { alpha: number } }) => {
+      source.dataset.utterances[0].text = `${source.dataset.utterances[0].text} revised`;
+    }],
+    ["build option", (source: { dataset: typeof lessonStudySenaContract; buildOptions: { alpha: number } }) => {
+      source.buildOptions.alpha = 0.25;
+    }]
+  ] as const)("rebinds a mutable same-identity holder after changing %s", (_label, mutate) => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    const source = { dataset, buildOptions: { alpha: 1 } };
+    const result = buildSenaGroupComparisonSuite({
+      dataset,
+      buildOptions: source.buildOptions,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(result, source, cache)).not.toThrow();
+    const scansBeforeMutation = cache.sourceDigestScanCount;
+
+    mutate(source);
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(result, source, cache)).toThrow(
+      /does not match the holder dataset|source evidence/i
+    );
+    expect(cache.sourceDigestScanCount).toBe(scansBeforeMutation + 1);
+  });
+
+  it("canonicalizes an own undefined buildOptions field exactly like an absent field", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract) },
+      cache
+    )).not.toThrow();
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: structuredClone(lessonStudySenaContract), buildOptions: undefined },
+      cache
+    )).not.toThrow();
+
+    expect(cache.sourceDigestScanCount).toBe(2);
+    expect(cache.uniqueSourceReservationCount).toBe(1);
+    expect(cache.modelBuildCount).toBe(1);
+    expect(cache.sourceEvidenceBuildCount).toBe(1);
+    expect(cache.canonicalResultReplayCount).toBe(1);
+  });
+
+  it("rejects an oversized source array from its length descriptor without whole-carrier enumeration", () => {
+    const result = buildSenaGroupComparisonSuite({
+      dataset: lessonStudySenaContract,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05
+    });
+    let ownKeyEnumerations = 0;
+    const oversizedPeople = new Proxy(new Array(65_537), {
+      ownKeys() {
+        ownKeyEnumerations += 1;
+        throw new Error("whole source array enumeration invoked");
+      }
+    });
+    const dataset = {
+      ...structuredClone(lessonStudySenaContract),
+      people: oversizedPeople
+    };
+    const cache = new SenaGroupComparisonSourceVerificationCache();
+    modelReplayProbe.buildCount = 0;
+
+    expect(() => normalizeSenaGroupComparisonValidationResult(
+      structuredClone(result),
+      { dataset: dataset as never },
+      cache
+    )).toThrow(/source dataset carrier|bounded|source model work budget/i);
+    expect(ownKeyEnumerations).toBe(0);
+    expect(cache.sourceDigestMeasurementWorkUnitsAttempted).toBe(0);
+    expect(cache.sourceDigestScanCount).toBe(0);
+    expect(modelReplayProbe.buildCount).toBe(0);
   });
 });

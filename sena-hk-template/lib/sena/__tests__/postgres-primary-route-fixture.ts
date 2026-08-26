@@ -19,9 +19,29 @@ export class RouteMemoryPostgres {
   serverJobSourceReady(record: Record<string, unknown>) {
     const delivery = record.delivery as Record<string, unknown> | undefined;
     if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) return false;
-    if (Object.hasOwn(delivery, "sourceReady")) return delivery.sourceReady === true;
-    if (delivery.webhookStatus === "delivered" || delivery.webhookStatus === "local-sink") return true;
-    return delivery.webhookStatus === "failed" && delivery.failureStage === "queue-dispatch";
+    const deliveryReady = Object.hasOwn(delivery, "sourceReady")
+      ? delivery.sourceReady === true
+      : delivery.webhookStatus === "delivered" || delivery.webhookStatus === "local-sink" ||
+        (delivery.webhookStatus === "failed" && delivery.failureStage === "queue-dispatch");
+    if (!deliveryReady) return false;
+    const summary = record.payload_summary as Record<string, unknown> | undefined;
+    const worker = record.worker as Record<string, unknown> | undefined;
+    if (!summary || !worker || summary.hasInlineSnapshot !== false ||
+      summary.hasInlineDataset !== false || worker.payloadDelivery === "inline-payload-enabled") {
+      return false;
+    }
+    const kind = record.kind;
+    if (kind === "analysis" || kind === "validation") {
+      return worker.payloadDelivery === "project-pointer" &&
+        typeof record.project_id === "string" && record.project_id.trim().length > 0;
+    }
+    const uploadIds = summary.uploadIds;
+    const exactUploadIds = Array.isArray(uploadIds) && uploadIds.length > 0 && uploadIds.length <= 100 &&
+      uploadIds.every((value) => typeof value === "string" && value.trim().length > 0) &&
+      new Set(uploadIds.map((value) => (value as string).trim())).size === uploadIds.length;
+    if (kind === "import") return worker.payloadDelivery === "upload-pointer" && exactUploadIds;
+    if (kind === "reliability") return worker.payloadDelivery === "upload-pointer" && exactUploadIds;
+    return false;
   }
 
   serverJobRowsForSql(sql: string, values: unknown[]) {

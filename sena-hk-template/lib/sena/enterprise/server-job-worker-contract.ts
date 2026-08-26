@@ -57,10 +57,15 @@ export type SenaEnterpriseServerJobWorkerContract = {
     acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"];
     acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"];
     payloadPolicy: "project-or-upload-pointer-default";
-    /** Legacy v1 metadata; not an enablement signal. Consult queue custody evidence. */
-    inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1";
+    inlinePayloadAllowed: false;
+    inlinePayloadPolicy: "disabled";
+    legacyInlineEnvEffect: "none-deprecated";
+    /** Legacy v1 key retained as a null tombstone; no environment value enables inline custody. */
+    inlinePayloadRequiresExplicitEnv: null;
     rawPayloadPersistedInJobStore: false;
-    retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry";
+    retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry";
+    retryDispatchPolicy: "local-polling-only";
+    pushProviderRetryPolicy: "provider-native-or-resubmit";
     parseWarningDisclosurePolicy: "run-import-and-run-reliability-must-report-parse-repair-warnings";
     uploadWarningCountSemantics: "unset-until-a-parser-reports";
     uploadWarningsCallbackField: "uploadWarnings";
@@ -228,9 +233,14 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"],
       acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"],
       payloadPolicy: "project-or-upload-pointer-default",
-      inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated",
+      inlinePayloadRequiresExplicitEnv: null,
       rawPayloadPersistedInJobStore: false,
-      retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry",
+      retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry",
+      retryDispatchPolicy: "local-polling-only",
+      pushProviderRetryPolicy: "provider-native-or-resubmit",
       // H10: an external worker that parses queued files (run-import,
       // run-reliability) must report parse-repair warning counts — ragged-row
       // disclosure included — via the status callback's additive
@@ -258,6 +268,11 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation",
       "workerInlinePayloadCustody=durable-pointers-only",
+      "workerInlinePayloadAllowed=false",
+      "workerInlinePayloadPolicy=disabled",
+      "workerLegacyInlineEnvEffect=none-deprecated",
+      "workerRetryDispatchPolicy=local-polling-only",
+      "workerPushProviderRetryPolicy=provider-native-or-resubmit",
       "rawPayloadPersistedInJobStore=false",
       "parseWarningDisclosurePolicy=run-import-and-run-reliability-must-report-parse-repair-warnings",
       "uploadWarningCountSemantics=unset-until-a-parser-reports",

@@ -10,7 +10,6 @@ import {
   withSenaImportDatasetMetadata
 } from "../import-adapters";
 import {
-  assertSenaReliabilitySingleSourceMode,
   buildSenaReliabilityDashboard,
   normalizeSenaReliabilityUploadIds,
   reliabilityDashboardToReview,
@@ -22,12 +21,7 @@ import {
   type SenaReliabilitySourceInputIssue,
   type SenaReliabilityUniverseLimitIssue
 } from "../reliability";
-import {
-  assertSenaReliabilityJsonRequestWithinLimits,
-  prepareSenaReliabilityJsonRequest,
-  type SenaPreparedReliabilityRunInput,
-  type SenaReliabilityJsonRequest
-} from "../reliability-api";
+import { type SenaPreparedReliabilityRunInput } from "../reliability-api";
 import {
   parseSenaReliabilityReviewerEnvelope,
   SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
@@ -47,7 +41,6 @@ import {
   prepareEnterpriseReliabilityQueuedJsonUploads,
   readEnterpriseReliabilityUploadPointerContents
 } from "./reliability-upload-reader";
-import { senaReliabilityServerSourceByteLimit } from "./upload-limits";
 import {
   buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync
 } from "./reliability-runs";
@@ -55,12 +48,14 @@ import {
   claimEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
+  requiredWorkerRunId,
   stableServerJobPayloadSha256,
   updateEnterpriseServerJobStatus,
   type SenaEnterpriseServerJob,
   type SenaEnterpriseServerJobKind,
   type SenaEnterpriseServerJobStatus
 } from "./server-job-queue";
+import { enterpriseServerJobHasDurableSourcePointer } from "./server-job-contract";
 import { readEnterpriseState } from "./state";
 import {
   createEnterpriseProjectAsync,
@@ -376,52 +371,6 @@ function queuedReliabilityJsonSourceSupplied(payload: Record<string, unknown>) {
     .some((key) => hasOwn(payload, key));
 }
 
-function queuedReliabilityJsonPayload(payload: Record<string, unknown>): SenaReliabilityJsonRequest {
-  const result: SenaReliabilityJsonRequest = {
-    teamId: payload.teamId,
-    projectId: payload.projectId,
-    projectVersion: payload.projectVersion,
-    reviewer: payload.reviewer,
-    sourceName: payload.sourceName
-  };
-  if (hasOwn(payload, "files")) result.files = payload.files;
-  // inlineAnnotations is the managed-worker transport alias and retains its
-  // historical semantic precedence. Admission below still counts every
-  // additional public alias supplied beside it.
-  if (hasOwn(payload, "inlineAnnotations")) result.annotations = payload.inlineAnnotations;
-  else if (hasOwn(payload, "annotations")) result.annotations = payload.annotations;
-  if (hasOwn(payload, "rows")) result.rows = payload.rows;
-  if (hasOwn(payload, "data")) result.data = payload.data;
-  return result;
-}
-
-function queuedReliabilityAdmissionPayload(payload: Record<string, unknown>): SenaReliabilityJsonRequest {
-  if (!hasOwn(payload, "inlineAnnotations")) return queuedReliabilityJsonPayload(payload);
-  if (hasOwn(payload, "files") && !Array.isArray(payload.files)) {
-    return { files: payload.files };
-  }
-  const files = Array.isArray(payload.files) ? [...payload.files] : [];
-  for (const key of ["inlineAnnotations", "annotations", "rows", "data"] as const) {
-    if (!hasOwn(payload, key)) continue;
-    files.push({
-      name: `queued-reliability-${key}.json`,
-      data: payload[key]
-    });
-  }
-  return { files };
-}
-
-function admitReliabilityInlineJob(
-  payload: Record<string, unknown>,
-  defaultReviewer: string
-): SenaPreparedReliabilityRunInput {
-  const semanticPayload = queuedReliabilityJsonPayload(payload);
-  assertSenaReliabilityJsonRequestWithinLimits(queuedReliabilityAdmissionPayload(payload), {
-    sourceBytes: senaReliabilityServerSourceByteLimit()
-  });
-  return prepareSenaReliabilityJsonRequest(semanticPayload, { defaultReviewer });
-}
-
 async function admitReliabilityJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
@@ -429,10 +378,13 @@ async function admitReliabilityJob(
 ): Promise<SenaReliabilityJobAdmission> {
   const uploadIds = reliabilityUploadPointers(payload);
   const inlineSourceSupplied = queuedReliabilityJsonSourceSupplied(payload);
-  assertSenaReliabilitySingleSourceMode({
-    json: inlineSourceSupplied,
-    uploadPointers: uploadIds.length > 0
-  });
+  if (inlineSourceSupplied) {
+    throw new SenaEnterpriseError(
+      "Retained inline reliability payloads require source repair through registered uploads.",
+      409,
+      "server_job_worker_inline_source_custody_required"
+    );
+  }
   if (uploadIds.length > 0) {
     const teamId = optionalString(payload.teamId) ?? job.teamId;
     const { contents } = await readEnterpriseReliabilityUploadPointerContents(context, { teamId, uploadIds });
@@ -443,14 +395,8 @@ async function admitReliabilityJob(
       input: await admitReliabilityUploadContentsJob(contents)
     };
   }
-  if (inlineSourceSupplied) {
-    return {
-      source: "json",
-      input: admitReliabilityInlineJob(payload, context.user.name)
-    };
-  }
   throw new SenaEnterpriseError(
-    "Queued reliability jobs need either upload pointers or inline annotations.",
+    "Queued reliability jobs need registered upload pointers.",
     400,
     "server_job_worker_reliability_source_missing"
   );
@@ -493,7 +439,7 @@ async function executeReliabilityUploadsJob(
   return { reliabilityRunId: reliabilityRun?.id };
 }
 
-async function executeReliabilityInlineJob(
+async function executeReliabilityJsonUploadJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext,
@@ -647,7 +593,7 @@ async function executeReliabilityJob(
   if (admission.source === "uploads") {
     return executeReliabilityUploadsJob(job, payload, context, admission.input, reviewer);
   }
-  return executeReliabilityInlineJob(job, payload, context, admission.input, reviewer);
+  return executeReliabilityJsonUploadJob(job, payload, context, admission.input, reviewer);
 }
 
 async function executeByKind(
@@ -721,17 +667,20 @@ export async function runEnterpriseServerJob(input: {
   workerPayload: unknown;
   runId?: string;
 }): Promise<SenaServerJobWorkerOutcome> {
+  const runId = input.runId === undefined ? workerRunId() : requiredWorkerRunId(input.runId);
   const job = input.job;
   if (!isExecutableKind(job.kind)) {
     // Never claimed, so a real external worker can still take it.
     return skipped(job, "server_job_worker_executor_unavailable");
+  }
+  if (job.delivery.sourceReady !== true || !enterpriseServerJobHasDurableSourcePointer(job)) {
+    return skipped(job, "server_job_worker_source_not_ready");
   }
   if (inFlightServerJobIds.has(job.id)) {
     return skipped(job, "server_job_worker_job_in_flight");
   }
   inFlightServerJobIds.add(job.id);
 
-  const runId = input.runId ?? workerRunId();
   try {
     const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
     let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
