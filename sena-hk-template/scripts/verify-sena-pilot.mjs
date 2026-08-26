@@ -731,6 +731,17 @@ async function waitForText(url, expectedText, timeoutMs = 30000) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
 
+function redactVerifierValues(value, sensitiveValues) {
+  let text = String(value ?? "");
+  let detected = false;
+  sensitiveValues.filter(Boolean).forEach((sensitiveValue) => {
+    if (!text.includes(sensitiveValue)) return;
+    detected = true;
+    text = text.split(sensitiveValue).join("[REDACTED_VERIFIER_VALUE]");
+  });
+  return { text, detected };
+}
+
 async function verifyProductionServerSmoke() {
   console.log("\n> Verify production server smoke");
   const port = await findAvailablePort(smokePortStart);
@@ -804,7 +815,8 @@ async function verifyProductionServerSmoke() {
     await verifySenaSsoBrowserSmoke(url);
     console.log("\n> Verify enterprise API browser smoke");
     await verifySenaEnterpriseApiBrowserSmoke(url, {
-      provisioningToken: provisioningSmokeToken
+      provisioningToken: provisioningSmokeToken,
+      expectedReceiptKeyId: expertReviewSigningKeyId
     });
     console.log("\n> Verify RBAC collaboration browser smoke");
     await verifySenaRbacCollaborationBrowserSmoke(url);
@@ -814,7 +826,16 @@ async function verifyProductionServerSmoke() {
     await verifySenaValidationClaimBrowserSmoke(url);
     console.log(`Production server served /workspace/sena on port ${port}.`);
   } catch (error) {
-    if (output.trim()) console.error(output);
+    const sensitiveValues = [expertReviewSigningSecret, expertReviewSigningKeyId];
+    const safeOutput = redactVerifierValues(output, sensitiveValues);
+    const safeError = redactVerifierValues(
+      error instanceof Error ? (error.stack ?? error.message) : String(error),
+      sensitiveValues
+    );
+    if (safeOutput.text.trim()) console.error(safeOutput.text);
+    if (safeOutput.detected || safeError.detected) {
+      throw new Error(`Production server smoke failed after verifier-only signing material was detected and redacted. ${safeError.text}`);
+    }
     throw error;
   } finally {
     stoppingByVerifier = true;

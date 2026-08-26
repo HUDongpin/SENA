@@ -5,6 +5,18 @@ const defaultTimeout = 15000;
 const requiredPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"];
 const expectedImportWarnings = [];
 const scimIdentityProductionExtensionSchema = "urn:sena:params:scim:schemas:extension:identity-production:2.0:ServiceProviderConfig";
+const ephemeralReceiptKeyIdPattern = /^sena-pilot-smoke-[a-f0-9]{16}$/;
+
+function requireExpectedReceiptKeyId(options) {
+  const expectedReceiptKeyId = options.expectedReceiptKeyId ??
+    process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID;
+  if (typeof expectedReceiptKeyId !== "string" || !ephemeralReceiptKeyIdPattern.test(expectedReceiptKeyId)) {
+    throw new Error(
+      "Enterprise API browser smoke requires the exact verifier-only ephemeral receipt key id before any browser or server mutation."
+    );
+  }
+  return expectedReceiptKeyId;
+}
 
 function enterpriseSmokeOriginFromCli() {
   const positional = process.argv.find((arg) => arg.startsWith("http://") || arg.startsWith("https://"));
@@ -123,7 +135,10 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         expertReview: null,
         expertReviewApproval: null,
         claimPackage: null,
-        publication: null
+        projectBeforePublication: null,
+        publication: null,
+        projectAfterPublication: null,
+        claimPackageAfterPublication: null
       };
     }
 
@@ -261,9 +276,18 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     let claimPackageResponse = null;
     let claimPackageBody = null;
     let claimPackageHeaders = null;
+    let projectBeforePublicationResponse = null;
+    let projectBeforePublicationBody = null;
+    let projectBeforePublicationHeaders = null;
     let publicationResponse = null;
     let publicationBody = null;
     let publicationHeaders = null;
+    let projectAfterPublicationResponse = null;
+    let projectAfterPublicationBody = null;
+    let projectAfterPublicationHeaders = null;
+    let claimPackageAfterPublicationResponse = null;
+    let claimPackageAfterPublicationBody = null;
+    let claimPackageAfterPublicationHeaders = null;
     if (projectId) {
       analysisRefreshResponse = await fetch("/api/sena/analyze", {
         method: "POST",
@@ -465,6 +489,12 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
       claimPackageBody = await parseJsonResponse(claimPackageResponse);
       claimPackageHeaders = responseHeaders(claimPackageResponse);
 
+      projectBeforePublicationResponse = await fetch(`/api/sena/projects/${encodeURIComponent(projectId)}`, {
+        credentials: "include"
+      });
+      projectBeforePublicationBody = await parseJsonResponse(projectBeforePublicationResponse);
+      projectBeforePublicationHeaders = responseHeaders(projectBeforePublicationResponse);
+
       publicationResponse = await fetch("/api/sena/exports/publication", {
         method: "POST",
         credentials: "include",
@@ -479,6 +509,18 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
       });
       publicationBody = await parseJsonResponse(publicationResponse);
       publicationHeaders = responseHeaders(publicationResponse);
+
+      projectAfterPublicationResponse = await fetch(`/api/sena/projects/${encodeURIComponent(projectId)}`, {
+        credentials: "include"
+      });
+      projectAfterPublicationBody = await parseJsonResponse(projectAfterPublicationResponse);
+      projectAfterPublicationHeaders = responseHeaders(projectAfterPublicationResponse);
+
+      claimPackageAfterPublicationResponse = await fetch(`/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`, {
+        credentials: "include"
+      });
+      claimPackageAfterPublicationBody = await parseJsonResponse(claimPackageAfterPublicationResponse);
+      claimPackageAfterPublicationHeaders = responseHeaders(claimPackageAfterPublicationResponse);
     }
 
     return {
@@ -547,17 +589,32 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         headers: claimPackageHeaders,
         body: claimPackageBody
       } : null,
+      projectBeforePublication: projectBeforePublicationResponse ? {
+        status: projectBeforePublicationResponse.status,
+        headers: projectBeforePublicationHeaders,
+        body: projectBeforePublicationBody
+      } : null,
       publication: publicationResponse ? {
         status: publicationResponse.status,
         headers: publicationHeaders,
         body: publicationBody,
         requiredFormats
+      } : null,
+      projectAfterPublication: projectAfterPublicationResponse ? {
+        status: projectAfterPublicationResponse.status,
+        headers: projectAfterPublicationHeaders,
+        body: projectAfterPublicationBody
+      } : null,
+      claimPackageAfterPublication: claimPackageAfterPublicationResponse ? {
+        status: claimPackageAfterPublicationResponse.status,
+        headers: claimPackageAfterPublicationHeaders,
+        body: claimPackageAfterPublicationBody
       } : null
     };
   }, { requiredFormats: requiredPublicationFormats, teamId, provisioningToken });
 }
 
-function assertEnterpriseWorkflowEvidence(evidence) {
+function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
   const scimConfig = evidence.scimConfig;
   if (scimConfig?.status !== 200) {
     throw new Error(`SCIM ServiceProviderConfig returned HTTP ${scimConfig?.status ?? "<missing>"}: ${JSON.stringify(scimConfig?.body)}.`);
@@ -889,7 +946,12 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   ) {
     throw new Error(`Enterprise expert review is not approved with receipt-authenticated limited scope: ${JSON.stringify(expertReviewApproval)}.`);
   }
-  requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-key-id");
+  if (
+    requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-key-id") !== expectedReceiptKeyId ||
+    expertReviewApproval.body?.expertReview?.evidenceReceipt?.keyId !== expectedReceiptKeyId
+  ) {
+    throw new Error("Enterprise expert approval receipt was not signed by this verifier run's exact ephemeral key id.");
+  }
   requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-sha256");
 
   const claimPackage = evidence.claimPackage;
@@ -911,9 +973,18 @@ function assertEnterpriseWorkflowEvidence(evidence) {
     claimPackage.body?.evidence?.validation?.runId !== validationRunId ||
     claimPackage.body?.evidence?.validation?.suiteCorrection !== "holm" ||
     claimPackage.body?.evidence?.expertReview?.reviewId !== expertReviewId ||
-    claimPackage.body?.evidence?.expertReview?.claimScope !== "claim-ready-with-limits"
+    claimPackage.body?.evidence?.expertReview?.claimScope !== "claim-ready-with-limits" ||
+    claimPackage.body?.evidence?.expertReview?.evidenceReceipt?.keyId !== expectedReceiptKeyId
   ) {
     throw new Error(`Enterprise claim package does not bind the approved evidence set: ${JSON.stringify(claimPackage.body?.evidence)}.`);
+  }
+  if (
+    requireHeaderValue(claimPackage.headers, "x-sena-project-version") !== String(authoritativeProjectVersion) ||
+    requireHeaderValue(claimPackage.headers, "x-sena-persisted-source-snapshot-sha256") !== claimPackage.body?.sourceSnapshotEvidence?.persistedSnapshotSha256 ||
+    requireHeaderValue(claimPackage.headers, "x-sena-claim-state-revision-sha256") !== claimPackage.body?.sourceSnapshotEvidence?.stateRevisionSha256 ||
+    requireHeaderValue(claimPackage.headers, "x-sena-report-sha256") !== claimPackage.body?.sourceSnapshotEvidence?.reportSha256
+  ) {
+    throw new Error(`Persisted claim package headers are not atomically bound to its current project revision: ${JSON.stringify(claimPackage.headers)}.`);
   }
   const claimArtifactIds = claimPackage.body?.artifacts?.map((artifact) => artifact.id) ?? [];
   for (const expectedArtifact of [
@@ -925,6 +996,23 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   ]) {
     assertArrayIncludes(claimArtifactIds, expectedArtifact, "claim package artifact ids");
   }
+
+  const projectBeforePublication = evidence.projectBeforePublication;
+  if (
+    projectBeforePublication?.status !== 200 ||
+    projectBeforePublication.body?.schemaVersion !== "sena-project/v1" ||
+    projectBeforePublication.body?.project?.id !== projectId ||
+    projectBeforePublication.body?.project?.currentVersion !== authoritativeProjectVersion ||
+    JSON.stringify(projectBeforePublication.body?.project?.snapshot) !== JSON.stringify(analysisRefresh.body?.persistedProject?.snapshot) ||
+    requireHeaderValue(projectBeforePublication.headers, "x-sena-project-id") !== projectId ||
+    requireHeaderValue(projectBeforePublication.headers, "x-sena-project-version") !== String(authoritativeProjectVersion)
+  ) {
+    throw new Error(`Pre-publication project round trip is not bound to the authoritative persisted revision: ${JSON.stringify(projectBeforePublication)}.`);
+  }
+  const persistedProjectSnapshotSha256 = requireHeaderValue(
+    projectBeforePublication.headers,
+    "x-sena-project-snapshot-sha256"
+  );
 
   const publication = evidence.publication;
   if (publication?.status !== 200) {
@@ -959,25 +1047,79 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (publication.body?.claimEvidence?.codingReliability !== "ready") {
     throw new Error(`Publication package coding reliability gate is not ready: ${JSON.stringify(publication.body?.claimEvidence)}.`);
   }
-  if (publication.body?.enterpriseProjectEvidence?.sourceSnapshotSha256 !== publication.body?.sourceSnapshotEvidence?.snapshotSha256) {
-    throw new Error(`Derived publication snapshot hash does not match enterprise project evidence: ${JSON.stringify(publication.body?.enterpriseProjectEvidence)}.`);
+  const enterpriseProjectEvidence = publication.body?.enterpriseProjectEvidence;
+  const stateBinding = enterpriseProjectEvidence?.stateBinding;
+  const derivationManifest = publication.body?.derivationManifest;
+  const persistedSnapshotSha256 = claimPackage.body?.sourceSnapshotEvidence?.persistedSnapshotSha256;
+  const readProjectionSnapshotSha256 = claimPackage.body?.sourceSnapshotEvidence?.snapshotSha256;
+  const derivedPublicationSnapshotSha256 = publication.body?.sourceSnapshotEvidence?.snapshotSha256;
+  if (
+    stateBinding?.schemaVersion !== "sena-publication-state-binding/v2" ||
+    derivationManifest?.schemaVersion !== "sena-publication-derivation-manifest/v3" ||
+    enterpriseProjectEvidence?.sourceSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    derivation?.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+    derivation?.readProjectionSourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    derivation?.derivedPublicationSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    stateBinding?.project?.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
+    stateBinding?.project?.readProjectionSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    stateBinding?.claimPackage?.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
+    stateBinding?.claimPackage?.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    enterpriseProjectEvidence?.claimPackage?.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+    enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    derivationManifest?.hashBoundaries?.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
+    derivationManifest?.hashBoundaries?.readProjectionSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    derivationManifest?.hashBoundaries?.publicationSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    derivedPublicationSnapshotSha256 === persistedSnapshotSha256
+  ) {
+    throw new Error(`Persisted, read-projection, and derived publication snapshot hashes are not independently bound: ${JSON.stringify({
+      derivation,
+      stateBinding,
+      hashBoundaries: derivationManifest?.hashBoundaries
+    })}.`);
   }
-  if (derivation?.persistedSourceSnapshotSha256 !== publication.body?.enterpriseProjectEvidence?.claimPackage?.sourceSnapshotSha256 ||
-    derivation?.persistedSourceSnapshotSha256 === publication.body?.sourceSnapshotEvidence?.snapshotSha256) {
-    throw new Error(`Persisted and reliability-derived publication snapshot hashes are not distinguished: ${JSON.stringify(publication.body?.enterpriseProjectEvidence)}.`);
-  }
-  if (requireHeaderValue(publication.headers, "x-sena-publication-reliability-run-id") !== reliabilityRunId ||
-    requireHeaderValue(publication.headers, "x-sena-persisted-source-snapshot-sha256") !== derivation.persistedSourceSnapshotSha256) {
-    throw new Error(`Publication response headers do not bind the current-v2 reliability derivation: ${JSON.stringify(publication.headers)}.`);
+  // Request-scoped auth/rate-limit/audit metadata may advance the primary state
+  // revision between separate GET and publication requests. Bind the publication
+  // revision atomically inside its own body/header/manifest instead; the explicit
+  // project and claim-package round trips below prove domain state did not change.
+  const atomicBindingMismatches = [
+    derivationManifest?.manifestSha256 !== requireHeaderValue(publication.headers, "x-sena-publication-derivation-manifest-sha256")
+      ? "derivation-manifest-header" : null,
+    persistedSnapshotSha256 !== requireHeaderValue(publication.headers, "x-sena-persisted-source-snapshot-sha256")
+      ? "persisted-snapshot-header" : null,
+    readProjectionSnapshotSha256 !== requireHeaderValue(publication.headers, "x-sena-read-projection-source-snapshot-sha256")
+      ? "read-projection-header" : null,
+    derivedPublicationSnapshotSha256 !== requireHeaderValue(publication.headers, "x-sena-source-snapshot-sha256")
+      ? "derived-snapshot-header" : null,
+    stateBinding?.stateRevisionSha256 !== requireHeaderValue(publication.headers, "x-sena-publication-state-revision-sha256")
+      ? "state-revision-header" : null,
+    stateBinding?.bindingSha256 !== requireHeaderValue(publication.headers, "x-sena-publication-state-binding-sha256")
+      ? "state-binding-header" : null,
+    stateBinding?.bindingSha256 !== derivationManifest?.enterpriseProjectEvidence?.stateBinding?.bindingSha256
+      ? "manifest-state-binding" : null,
+    requireHeaderValue(publication.headers, "x-sena-publication-reliability-run-id") !== reliabilityRunId
+      ? "reliability-run-header" : null
+  ].filter(Boolean);
+  if (atomicBindingMismatches.length > 0) {
+    throw new Error(`Publication response headers do not bind the derivation manifest and atomic state evidence; mismatches=${atomicBindingMismatches.join(",")}.`);
   }
   if (
     requireHeaderValue(publication.headers, "x-sena-claim-package-status") !== "claim-ready-with-limits" ||
     requireHeaderValue(publication.headers, "x-sena-validation-run-id") !== validationRunId ||
-    requireHeaderValue(publication.headers, "x-sena-expert-review-id") !== expertReviewId
+    requireHeaderValue(publication.headers, "x-sena-validation-evidence-sha256") !== stateBinding?.validationRun?.validationRunEvidenceHash ||
+    requireHeaderValue(publication.headers, "x-sena-expert-review-id") !== expertReviewId ||
+    requireHeaderValue(publication.headers, "x-sena-expert-receipt-sha256") !== stateBinding?.expertReview?.receiptSha256 ||
+    requireHeaderValue(publication.headers, "x-sena-expert-receipt-key-id") !== expectedReceiptKeyId ||
+    stateBinding?.expertReview?.receipt?.keyId !== expectedReceiptKeyId ||
+    enterpriseProjectEvidence?.claimPackage?.payload?.evidence?.expertReview?.evidenceReceipt?.keyId !== expectedReceiptKeyId
   ) {
     throw new Error(`Publication response headers do not bind the claim-ready validation and expert evidence: ${JSON.stringify(publication.headers)}.`);
   }
-  requireHeaderValue(publication.headers, "x-sena-claim-package-sha256");
+  if (
+    requireHeaderValue(publication.headers, "x-sena-claim-package-sha256") !== enterpriseProjectEvidence?.claimPackage?.sha256 ||
+    stateBinding?.claimPackage?.sha256 !== enterpriseProjectEvidence?.claimPackage?.sha256
+  ) {
+    throw new Error("Publication claim package SHA-256 does not match its atomic state binding.");
+  }
   requiredPublicationFormats.forEach((format) => {
     assertArrayIncludes(publication.body?.manifest?.formats, format, "publication package manifest formats");
     assertArrayIncludes(publication.headers["x-sena-publication-formats"]?.split(","), format, "x-sena-publication-formats");
@@ -1001,9 +1143,63 @@ function assertEnterpriseWorkflowEvidence(evidence) {
       throw new Error(`Publication package has invalid ${format} artifact evidence: ${JSON.stringify(artifact)}.`);
     }
   }
+
+  const projectAfterPublication = evidence.projectAfterPublication;
+  if (
+    projectAfterPublication?.status !== 200 ||
+    projectAfterPublication.body?.schemaVersion !== "sena-project/v1" ||
+    requireHeaderValue(projectAfterPublication.headers, "x-sena-project-id") !== projectId ||
+    requireHeaderValue(projectAfterPublication.headers, "x-sena-project-version") !== String(authoritativeProjectVersion) ||
+    requireHeaderValue(projectAfterPublication.headers, "x-sena-project-snapshot-sha256") !== persistedProjectSnapshotSha256 ||
+    JSON.stringify(projectAfterPublication.body?.project) !== JSON.stringify(projectBeforePublication.body?.project)
+  ) {
+    throw new Error(`Publication changed the persisted project, version, revision history, or snapshot: ${JSON.stringify({
+      before: projectBeforePublication,
+      after: projectAfterPublication
+    })}.`);
+  }
+
+  const claimPackageAfterPublication = evidence.claimPackageAfterPublication;
+  const { stateRevisionSha256: prepublicationStateRevisionSha256, ...prepublicationSourceEvidence } =
+    claimPackage.body?.sourceSnapshotEvidence ?? {};
+  const { stateRevisionSha256: postpublicationStateRevisionSha256, ...postpublicationSourceEvidence } =
+    claimPackageAfterPublication?.body?.sourceSnapshotEvidence ?? {};
+  if (
+    claimPackageAfterPublication?.status !== 200 ||
+    claimPackageAfterPublication.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v2" ||
+    claimPackageAfterPublication.body?.status !== "exploratory-only" ||
+    claimPackageAfterPublication.body?.project?.currentVersion !== authoritativeProjectVersion ||
+    claimPackageAfterPublication.body?.claimReadinessEvidence?.kind !== "persisted-project-snapshot" ||
+    JSON.stringify(claimPackageAfterPublication.body?.blockers) !== JSON.stringify(["project-claim-readiness-required"]) ||
+    claimPackageAfterPublication.body?.summary?.blockers !== 1 ||
+    claimPackageAfterPublication.body?.evidence?.expertReview?.evidenceReceipt?.keyId !== expectedReceiptKeyId ||
+    JSON.stringify(claimPackageAfterPublication.body?.project) !== JSON.stringify(claimPackage.body?.project) ||
+    JSON.stringify(postpublicationSourceEvidence) !== JSON.stringify(prepublicationSourceEvidence) ||
+    JSON.stringify(claimPackageAfterPublication.body?.claimReadinessEvidence) !== JSON.stringify(claimPackage.body?.claimReadinessEvidence) ||
+    JSON.stringify(claimPackageAfterPublication.body?.summary) !== JSON.stringify(claimPackage.body?.summary) ||
+    JSON.stringify(claimPackageAfterPublication.body?.evidence) !== JSON.stringify(claimPackage.body?.evidence) ||
+    JSON.stringify(claimPackageAfterPublication.body?.artifacts) !== JSON.stringify(claimPackage.body?.artifacts) ||
+    JSON.stringify(claimPackageAfterPublication.body?.guardrails) !== JSON.stringify(claimPackage.body?.guardrails)
+  ) {
+    throw new Error(`Publication persisted or replaced the derived current-v2 claim projection: ${JSON.stringify({
+      before: claimPackage.body,
+      after: claimPackageAfterPublication?.body
+    })}.`);
+  }
+  if (
+    !prepublicationStateRevisionSha256 ||
+    !postpublicationStateRevisionSha256 ||
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-project-version") !== String(authoritativeProjectVersion) ||
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-source-snapshot-sha256") !== readProjectionSnapshotSha256 ||
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-persisted-source-snapshot-sha256") !== persistedSnapshotSha256 ||
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-claim-state-revision-sha256") !== postpublicationStateRevisionSha256
+  ) {
+    throw new Error(`Post-publication claim package headers are not bound to the unchanged persisted projection: ${JSON.stringify(claimPackageAfterPublication?.headers)}.`);
+  }
 }
 
 export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSmokeOriginFromCli(), options = {}) {
+  const expectedReceiptKeyId = requireExpectedReceiptKeyId(options);
   const origin = new URL(baseUrl).origin;
   const provisioningToken = options.provisioningToken ??
     process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_PROVISIONING_TOKEN ??
@@ -1016,8 +1212,8 @@ export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSm
   try {
     const session = await registerSmokeSession(page, origin);
     const evidence = await fetchEnterpriseWorkflow(page, session.teamId, provisioningToken);
-    assertEnterpriseWorkflowEvidence(evidence);
-    console.log(`Enterprise API browser smoke passed for identity platform decision plus import, missing-evidence 409, explicit current-v2 reliability approval, and publication package 200 on ${origin}.`);
+    assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId);
+    console.log(`Enterprise API browser smoke passed for identity platform decision, import, missing-evidence 409, current-v2 reliability approval, sealed validation, exact-key expert receipt, persisted claim round trip, and non-persisted publication package 200 on ${origin}.`);
   } finally {
     await browser.close();
   }
