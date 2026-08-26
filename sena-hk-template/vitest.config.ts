@@ -12,8 +12,16 @@ export default defineConfig({
     // Agent worktrees are checked out inside the repo, and their copies of the
     // source-contract suites read files through process.cwd() — so running them
     // from here asserts another branch's expectations against this tree's
-    // sources. Keep a run scoped to the tree it was started in.
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**", "**/.worktrees/**"],
+    // sources. Ignored temporary directories can also contain diagnostic
+    // `*.test.*` files that are not part of the reviewed commit. Keep every run
+    // scoped to the exact Git tree it was started from.
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.claude/worktrees/**",
+      "**/.worktrees/**",
+      "**/.tmp/**"
+    ],
     // Several enterprise suites (e.g. enterprise-capability-audit) reload the
     // full enterprise module graph per test under vi.resetModules(). That work
     // occasionally exceeds Vitest's 5s default on a loaded machine, producing a
