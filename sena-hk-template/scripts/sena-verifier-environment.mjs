@@ -1,5 +1,5 @@
-import { lstatSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 const inheritedVerifierEnvironmentKeys = Object.freeze([
   "PATH",
@@ -142,6 +142,10 @@ const allowedLocalSenaKeys = new Set([
   "NEXT_PUBLIC_SENA_APP_URL"
 ]);
 
+const verifierEnvironmentCustodies = new WeakMap();
+const nextEnvironmentFilenamePattern =
+  /^\.env(?:\.(?:local|development(?:\.local)?|test(?:\.local)?|production(?:\.local)?))?$/;
+
 function copyInheritedVerifierEnvironment(baseEnvironment) {
   const inherited = {};
   for (const key of inheritedVerifierEnvironmentKeys) {
@@ -151,25 +155,19 @@ function copyInheritedVerifierEnvironment(baseEnvironment) {
   return inherited;
 }
 
-function nextEnvironmentFileKeys(projectDirectory) {
+function assertNoNextEnvironmentFiles(projectDirectory) {
   const root = resolve(projectDirectory);
   const names = readdirSync(root, { withFileTypes: true })
-    .filter((entry) => /^\.env(?:\.(?:local|development(?:\.local)?|test(?:\.local)?|production(?:\.local)?))?$/.test(entry.name))
+    .filter((entry) => nextEnvironmentFilenamePattern.test(entry.name))
     .map((entry) => entry.name)
     .sort();
-  const keys = new Set();
-  for (const name of names) {
-    const path = join(root, name);
-    const stats = lstatSync(path);
-    if (!stats.isFile() || stats.isSymbolicLink() || stats.size > 1024 * 1024) {
-      throw new Error(`SENA verifier refused unsafe Next environment file metadata for ${name}.`);
-    }
-    const contents = readFileSync(path, "utf8");
-    for (const match of contents.matchAll(/^[\t ]*(?:export[\t ]+)?([A-Za-z_][A-Za-z0-9_]*)[\t ]*=/gm)) {
-      keys.add(match[1]);
-    }
+  if (names.length > 0) {
+    throw new Error(
+      `SENA verifier refuses Next environment files in its release worktree: ${names.join(", ")}. ` +
+      "Use an environment-file-free verifier checkout so Next cannot reload unreviewed values."
+    );
   }
-  return keys;
+  return root;
 }
 
 export function buildSenaVerifierEnvironment(
@@ -177,23 +175,39 @@ export function buildSenaVerifierEnvironment(
   overrides = {},
   projectDirectory = process.cwd()
 ) {
+  const verifierProjectRoot = assertNoNextEnvironmentFiles(projectDirectory);
   const environment = {
     ...copyInheritedVerifierEnvironment(baseEnvironment),
     SENA_ENTERPRISE_STATE_STORE: "file"
   };
-  // Next loads .env* after the verifier spawns it. Shadow every declared key
-  // without retaining or logging its value, then apply only verifier-owned
-  // overrides. This closes the ignored/untracked .env.local escape hatch.
-  for (const key of nextEnvironmentFileKeys(projectDirectory)) {
-    if (!(key in environment)) environment[key] = "";
-  }
   for (const key of SENA_VERIFIER_EXTERNAL_ENV_KEYS) environment[key] = "";
   for (const [key, value] of Object.entries(overrides)) {
     if (typeof value === "string") environment[key] = value;
   }
   environment.SENA_ENTERPRISE_STATE_STORE = "file";
   for (const key of SENA_VERIFIER_EXTERNAL_ENV_KEYS) environment[key] = "";
-  return Object.freeze(environment);
+  // This is verifier policy, not an inheritable preference. Applying it last
+  // prevents both the caller and a poisoned parent shell from opting the
+  // release verifier back into Next telemetry.
+  environment.NEXT_TELEMETRY_DISABLED = "1";
+  const frozenEnvironment = Object.freeze(environment);
+  verifierEnvironmentCustodies.set(frozenEnvironment, Object.freeze({
+    projectRoot: verifierProjectRoot
+  }));
+  return frozenEnvironment;
+}
+
+export function assertSenaVerifierEnvironmentFilesUnchanged(
+  environment,
+  projectDirectory = process.cwd()
+) {
+  const custody = verifierEnvironmentCustodies.get(environment);
+  const requestedRoot = resolve(projectDirectory);
+  if (!custody || custody.projectRoot !== requestedRoot) {
+    throw new Error("SENA verifier environment-file custody is missing or bound to a different project root.");
+  }
+  assertNoNextEnvironmentFiles(requestedRoot);
+  return environment;
 }
 
 export function assertSenaVerifierEnvironmentIsLocal(environment, expectedEnterpriseDbDir) {
@@ -203,6 +217,9 @@ export function assertSenaVerifierEnvironmentIsLocal(environment, expectedEnterp
   } else {
     if (environment.SENA_ENTERPRISE_STATE_STORE !== "file") {
       errors.push("SENA_ENTERPRISE_STATE_STORE is not file");
+    }
+    if (environment.NEXT_TELEMETRY_DISABLED !== "1") {
+      errors.push("NEXT_TELEMETRY_DISABLED is not forced to 1");
     }
     if (
       typeof expectedEnterpriseDbDir !== "string" ||

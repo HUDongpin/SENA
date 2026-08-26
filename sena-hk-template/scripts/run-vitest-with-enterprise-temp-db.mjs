@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import {
+  assertSenaVerifierEnvironmentFilesUnchanged,
   assertSenaVerifierEnvironmentIsLocal,
   buildSenaVerifierEnvironment
 } from "./sena-verifier-environment.mjs";
@@ -45,10 +46,17 @@ const serialTestFiles = [
 ];
 
 function runVitest(vitestFile, args) {
-  return spawnSync(process.execPath, [vitestFile, "run", ...args], {
-    stdio: "inherit",
-    env: vitestEnvironment
-  }).status ?? 1;
+  assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
+  let result;
+  try {
+    result = spawnSync(process.execPath, [vitestFile, "run", ...args], {
+      stdio: "inherit",
+      env: vitestEnvironment
+    });
+  } finally {
+    assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
+  }
+  return result.status ?? 1;
 }
 
 try {

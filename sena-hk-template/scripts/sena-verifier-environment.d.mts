@@ -6,6 +6,11 @@ export function buildSenaVerifierEnvironment(
   projectDirectory?: string
 ): Readonly<Record<string, string>>;
 
+export function assertSenaVerifierEnvironmentFilesUnchanged<T extends Record<string, string | undefined>>(
+  environment: T,
+  projectDirectory?: string
+): T;
+
 export function assertSenaVerifierEnvironmentIsLocal<T extends Record<string, string | undefined>>(
   environment: T,
   expectedEnterpriseDbDir: string

@@ -1,3 +1,5 @@
+import type { ChildProcess } from "node:child_process";
+
 export type SenaVerifierServerCustodyOptions = {
   expectedReceiptKeyId?: string;
   provisioningToken?: string;
@@ -9,6 +11,11 @@ export function requireExpectedReceiptKeyId(
 ): string;
 
 export function requireVerifierControlledLoopbackOrigin(baseUrl: string): string;
+
+export function requireVerifierOwnedLoopbackListener(
+  serverProcess: ChildProcess,
+  origin: string
+): true;
 
 export function registerVerifierControlledServerCustody(
   options: SenaVerifierServerCustodyOptions,

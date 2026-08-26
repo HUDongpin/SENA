@@ -16,7 +16,9 @@ import {
   isSemanticallyValidSenaReliabilityMachineEvidence
 } from "../reliability";
 import {
+  buildSenaPublicationDerivationManifest,
   buildSenaPublicationExport,
+  buildSenaPublicationPackage,
   type SenaPublicationEnterpriseProjectEvidence
 } from "../publication-export";
 import {
@@ -595,6 +597,71 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         .resolves.toEqual(expect.objectContaining({
           contentType: "text/html; charset=utf-8"
         }));
+
+      const revisionEvidencePrefix = "publicationClaimEvidenceStateRevisionSha256=";
+      const canonicalRevisionEvidence = `${revisionEvidencePrefix}${exactEvidence.stateBinding.stateRevisionSha256}`;
+      const canonicalRevisionEvidenceIndex = exactEvidence.claimPackage.payload.evidenceSource.evidence
+        .findIndex((entry) => entry === canonicalRevisionEvidence);
+      expect(canonicalRevisionEvidenceIndex).toBeGreaterThanOrEqual(0);
+      const revisionEvidenceVariants = [
+        exactEvidence.claimPackage.payload.evidenceSource.evidence
+          .filter((entry) => !entry.startsWith(revisionEvidencePrefix)),
+        [
+          ...exactEvidence.claimPackage.payload.evidenceSource.evidence,
+          canonicalRevisionEvidence
+        ],
+        exactEvidence.claimPackage.payload.evidenceSource.evidence.map((entry, index) => (
+          index === canonicalRevisionEvidenceIndex
+            ? `${revisionEvidencePrefix}${"0".repeat(64)}`
+            : entry
+        ))
+      ];
+      for (const evidenceEntries of revisionEvidenceVariants) {
+        const tamperedRevisionEvidence = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
+        tamperedRevisionEvidence.claimPackage.payload.evidenceSource.evidence = evidenceEntries;
+        tamperedRevisionEvidence.claimPackage.sha256 = sha256Json(tamperedRevisionEvidence.claimPackage.payload);
+        tamperedRevisionEvidence.stateBinding.claimPackage.sha256 = tamperedRevisionEvidence.claimPackage.sha256;
+        const { bindingSha256: ignoredRevisionEvidenceBindingSha256, ...revisionEvidenceBindingCore } =
+          tamperedRevisionEvidence.stateBinding;
+        void ignoredRevisionEvidenceBindingSha256;
+        tamperedRevisionEvidence.stateBinding.bindingSha256 = sha256Json(revisionEvidenceBindingCore);
+        await expect(buildSenaPublicationExport(derivedSnapshot, "html", tamperedRevisionEvidence))
+          .rejects.toMatchObject({
+            status: 409,
+            code: "publication_derivation_manifest_binding_invalid"
+          });
+      }
+
+      const derivedModel = buildSenaModel(
+        derivedSnapshot.dataset,
+        derivedSnapshot.reproducibility.buildOptions
+      );
+      const exactManifest = buildSenaPublicationDerivationManifest({
+        snapshot: derivedSnapshot,
+        model: derivedModel,
+        report: derivedSnapshot.report,
+        enterpriseProjectEvidence: exactEvidence
+      });
+      const conflictingManifest = structuredClone(exactManifest);
+      if (!conflictingManifest.enterpriseProjectEvidence) {
+        throw new Error("Expected enterprise evidence in the exact publication manifest.");
+      }
+      conflictingManifest.enterpriseProjectEvidence.stateBinding.bindingSha256 = "0".repeat(64);
+      const { manifestSha256: ignoredConflictingManifestSha256, ...conflictingManifestCore } = conflictingManifest;
+      void ignoredConflictingManifestSha256;
+      conflictingManifest.manifestSha256 = sha256Json(conflictingManifestCore);
+      await expect(buildSenaPublicationPackage(
+        derivedModel,
+        derivedSnapshot.report,
+        "conflicting-publication-evidence",
+        derivedSnapshot,
+        exactEvidence,
+        conflictingManifest
+      )).rejects.toMatchObject({
+        status: 409,
+        code: "publication_derivation_manifest_binding_invalid"
+      });
+
       const missingDerivation = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
       delete missingDerivation.publicationDerivation;
       await expect(buildSenaPublicationExport(derivedSnapshot, "html", missingDerivation))

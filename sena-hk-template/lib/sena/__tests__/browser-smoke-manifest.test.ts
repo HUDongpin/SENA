@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,10 +13,73 @@ import { buildSenaApiDocumentation } from "../api-docs";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SENA_WORKSPACE_API_ROUTES } from "../../../components/sena/workspace/api-client";
 import {
+  assertSenaVerifierEnvironmentFilesUnchanged,
   assertSenaVerifierEnvironmentIsLocal,
   buildSenaVerifierEnvironment
 } from "../../../scripts/sena-verifier-environment.mjs";
-import { requireVerifierControlledServerCustody } from "../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs";
+import {
+  requireVerifierControlledServerCustody,
+  requireVerifierOwnedLoopbackListener
+} from "../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs";
+
+async function startTestListener(host: "127.0.0.1" | "0.0.0.0") {
+  const child = spawn(process.execPath, [
+    "-e",
+    [
+      'const net = require("node:net");',
+      "const host = process.argv[1];",
+      "const server = net.createServer();",
+      "server.listen(0, host, () => process.stdout.write(`${JSON.stringify(server.address())}\\n`));",
+      "const stop = () => server.close(() => process.exit(0));",
+      'process.on("SIGTERM", stop);',
+      'process.on("SIGINT", stop);'
+    ].join("\n"),
+    host
+  ], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const address = await new Promise<{ port: number }>((resolve, reject) => {
+    let output = "";
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for test listener.")), 5_000);
+    child.stdout.on("data", (chunk) => {
+      output += chunk.toString();
+      const newline = output.indexOf("\n");
+      if (newline < 0) return;
+      clearTimeout(timeout);
+      resolve(JSON.parse(output.slice(0, newline)) as { port: number });
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      if (output.includes("\n")) return;
+      clearTimeout(timeout);
+      reject(new Error(`Test listener exited before readiness (code=${code}, signal=${signal}).`));
+    });
+  });
+  return {
+    child,
+    origin: `http://127.0.0.1:${address.port}`
+  };
+}
+
+async function stopTestListener(child: ReturnType<typeof spawn>) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  child.kill("SIGTERM");
+  const stopped = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000))
+  ]);
+  if (stopped) return;
+  child.kill("SIGKILL");
+  const killed = await Promise.race([
+    exited.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000))
+  ]);
+  if (!killed) throw new Error("Test listener termination was not observed.");
+}
 
 describe("SENA browser smoke manifest", () => {
   it("declares the essential workspace responsive and disclosure smoke contract", () => {
@@ -563,6 +626,10 @@ describe("SENA browser smoke manifest", () => {
     expect(pilotSource).toContain("const serverCustody = Object.freeze({");
     expect(pilotSource).toContain('mode: "verifier-controlled-loopback-temporary-server"');
     expect(pilotSource).toContain("serverProcess: server");
+    expect(pilotSource).toContain(
+      '[nextBin, "start", "-H", "127.0.0.1", "-p", String(port)]'
+    );
+    expect(pilotSource).toContain("serverLoopbackListenerVerified: true");
     expect(pilotSource).toContain("serverEnvironment");
     expect(pilotSource).toContain("enterpriseDbDir");
     expect(pilotSource).toContain("serverWorkingDirectory: projectRoot");
@@ -706,6 +773,8 @@ describe("SENA browser smoke manifest", () => {
         process.execPath,
         "node_modules/next/dist/bin/next",
         "start",
+        "-H",
+        "127.0.0.1",
         "-p",
         "39999"
       ]
@@ -721,13 +790,31 @@ describe("SENA browser smoke manifest", () => {
           serverEnvironment,
           enterpriseDbDir,
           serverWorkingDirectory: process.cwd(),
-          serverReadyFromOwnedProcess: true
+          serverReadyFromOwnedProcess: true,
+          serverLoopbackListenerVerified: true
         }
       }, origin, expectedReceiptKeyId, provisioningToken)).toThrow(
         /live verifier-controlled temporary-server custody/i
       );
     } finally {
       rmSync(enterpriseDbDir, { force: true, recursive: true });
+    }
+  });
+
+  it("proves the owned PID listens on exact loopback and rejects a wildcard listener", async () => {
+    const loopback = await startTestListener("127.0.0.1");
+    try {
+      expect(requireVerifierOwnedLoopbackListener(loopback.child, loopback.origin)).toBe(true);
+    } finally {
+      await stopTestListener(loopback.child);
+    }
+
+    const wildcard = await startTestListener("0.0.0.0");
+    try {
+      expect(() => requireVerifierOwnedLoopbackListener(wildcard.child, wildcard.origin))
+        .toThrow(/listening only on the exact IPv4 loopback endpoint/i);
+    } finally {
+      await stopTestListener(wildcard.child);
     }
   });
 
@@ -762,6 +849,7 @@ describe("SENA browser smoke manifest", () => {
       R2_ACCOUNT_ID: "production-r2-account"
     }, {
       SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+      NEXT_TELEMETRY_DISABLED: "0",
       SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
       SENA_PROVISIONING_TOKEN: "verifier-provisioning-token",
       SENA_EXPERT_REVIEW_SIGNING_SECRET: "a".repeat(64),
@@ -772,6 +860,7 @@ describe("SENA browser smoke manifest", () => {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
       PLAYWRIGHT_BROWSERS_PATH: "/tmp/sena-playwright-browsers",
+      NEXT_TELEMETRY_DISABLED: "1",
       SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
       SENA_ENTERPRISE_STATE_STORE: "file",
       SENA_ENTERPRISE_DB_ADAPTER: "",
@@ -812,15 +901,19 @@ describe("SENA browser smoke manifest", () => {
     }, enterpriseDbDir)).toThrow(/verifier-local environment/i);
   });
 
-  it("shadows every key in local Next env files before the verifier child can load them", () => {
+  it("fails closed on any Next env file and detects one introduced after environment custody", () => {
     const projectDirectory = mkdtempSync(join(tmpdir(), "sena-verifier-env-files-"));
     const enterpriseDbDir = join(projectDirectory, "enterprise-db");
-    writeFileSync(join(projectDirectory, ".env.production.local"), [
-      "SENA_ENTERPRISE_POSTGRES_URL=postgres://production.example.test/sena",
-      "SENA_JOB_WORKER_CALLBACK_URL=https://worker.example.test/callback",
-      "GITHUB_TOKEN=must-never-reach-the-child",
-      "EXTERNAL_PROVIDER_SECRET=must-never-reach-the-child"
-    ].join("\n"), "utf8");
+    const environmentFile = join(projectDirectory, ".env.production.local");
+    const complexNextEnvironment = [
+      "\uFEFFSENA_ENTERPRISE_POSTGRES_URL: postgres://production.example.test/sena",
+      'export SENA_JOB_WORKER_CALLBACK_URL = "https://worker.example.test/callback"',
+      "GITHUB-TOKEN=must-never-reach-the-child",
+      "EXTERNAL.PROVIDER.SECRET: must-never-reach-the-child",
+      'SENA_SESSION_SECRET="must-never-reach-',
+      'the-child"',
+      "NEXT_TELEMETRY_DISABLED: 0"
+    ].join("\n");
     const buildWithProjectDirectory = buildSenaVerifierEnvironment as unknown as (
       baseEnvironment: NodeJS.ProcessEnv,
       overrides: Record<string, string>,
@@ -828,14 +921,30 @@ describe("SENA browser smoke manifest", () => {
     ) => Readonly<Record<string, string>>;
 
     try {
-      const safe = buildWithProjectDirectory(process.env, {
+      writeFileSync(environmentFile, complexNextEnvironment, "utf8");
+      expect(() => buildWithProjectDirectory(process.env, {
         SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
+      }, projectDirectory)).toThrow(/refuses Next environment files/i);
+
+      rmSync(environmentFile, { force: true });
+      const safe = buildWithProjectDirectory({
+        ...process.env,
+        NEXT_TELEMETRY_DISABLED: "0"
+      }, {
+        SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+        NEXT_TELEMETRY_DISABLED: "0",
+        NODE_ENV: "production"
       }, projectDirectory);
-      expect(safe.SENA_ENTERPRISE_POSTGRES_URL).toBe("");
-      expect(safe.SENA_JOB_WORKER_CALLBACK_URL).toBe("");
-      expect(safe.GITHUB_TOKEN).toBe("");
-      expect(safe.EXTERNAL_PROVIDER_SECRET).toBe("");
+      expect(safe.NEXT_TELEMETRY_DISABLED).toBe("1");
       expect(() => assertSenaVerifierEnvironmentIsLocal(safe, enterpriseDbDir)).not.toThrow();
+      expect(() => assertSenaVerifierEnvironmentFilesUnchanged(safe, projectDirectory)).not.toThrow();
+
+      // This simulates a relevant TOCTOU: an ignored env file appears
+      // after construction but before a child could be spawned. Custody must
+      // stop at the boundary instead of letting Next parse any of its syntax.
+      writeFileSync(environmentFile, complexNextEnvironment, "utf8");
+      expect(() => assertSenaVerifierEnvironmentFilesUnchanged(safe, projectDirectory))
+        .toThrow(/refuses Next environment files/i);
     } finally {
       rmSync(projectDirectory, { force: true, recursive: true });
     }

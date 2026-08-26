@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ChildProcess } from "node:child_process";
+import { ChildProcess, spawnSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { chromium } from "playwright";
 import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
-import { assertSenaVerifierEnvironmentIsLocal } from "./sena-verifier-environment.mjs";
+import {
+  assertSenaVerifierEnvironmentFilesUnchanged,
+  assertSenaVerifierEnvironmentIsLocal
+} from "./sena-verifier-environment.mjs";
 
 const defaultTimeout = 15000;
 const requiredPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"];
@@ -53,6 +56,50 @@ export function requireVerifierControlledLoopbackOrigin(baseUrl) {
   return parsed.origin;
 }
 
+export function requireVerifierOwnedLoopbackListener(serverProcess, origin) {
+  const parsed = new URL(requireVerifierControlledLoopbackOrigin(origin));
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  if (
+    parsed.hostname !== "127.0.0.1" ||
+    !(serverProcess instanceof ChildProcess) ||
+    !Number.isInteger(serverProcess.pid) ||
+    serverProcess.pid <= 0 ||
+    serverProcess.exitCode !== null ||
+    serverProcess.signalCode !== null ||
+    serverProcess.killed
+  ) {
+    throw new Error("Verifier-owned server is not a live IPv4 loopback process.");
+  }
+  const listeners = spawnSync("lsof", [
+    "-n",
+    "-P",
+    "-a",
+    "-p",
+    String(serverProcess.pid),
+    "-iTCP",
+    "-sTCP:LISTEN",
+    "-Fn"
+  ], {
+    encoding: "utf8",
+    timeout: 5_000
+  });
+  const endpoints = (listeners.stdout ?? "")
+    .split("\n")
+    .filter((line) => line.startsWith("n"))
+    .map((line) => line.slice(1));
+  const expectedEndpoint = `127.0.0.1:${port}`;
+  if (
+    listeners.status !== 0 ||
+    endpoints.length === 0 ||
+    endpoints.some((endpoint) => endpoint !== expectedEndpoint)
+  ) {
+    throw new Error(
+      "Verifier-owned server must be the observed PID listening only on the exact IPv4 loopback endpoint."
+    );
+  }
+  return true;
+}
+
 function validateVerifierControlledServerCustody(
   options,
   origin,
@@ -83,6 +130,10 @@ function validateVerifierControlledServerCustody(
   let verifierEnvironmentIsLocal = false;
   try {
     assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
+    assertSenaVerifierEnvironmentFilesUnchanged(
+      serverEnvironment,
+      custody?.serverWorkingDirectory
+    );
     verifierEnvironmentIsLocal = true;
   } catch {
     verifierEnvironmentIsLocal = false;
@@ -90,6 +141,7 @@ function validateVerifierControlledServerCustody(
   if (
     custody?.mode !== "verifier-controlled-loopback-temporary-server" ||
     custody?.serverReadyFromOwnedProcess !== true ||
+    custody?.serverLoopbackListenerVerified !== true ||
     typeof custody?.serverWorkingDirectory !== "string" ||
     resolve(custody.serverWorkingDirectory) !== resolve(process.cwd()) ||
     !(serverProcess instanceof ChildProcess) ||
@@ -99,12 +151,14 @@ function validateVerifierControlledServerCustody(
     serverProcess.signalCode !== null ||
     serverProcess.killed ||
     serverProcess.spawnfile !== process.execPath ||
-    spawnargs.length !== 5 ||
+    spawnargs.length !== 7 ||
     spawnargs[0] !== process.execPath ||
     !(nextBin === "node_modules/next/dist/bin/next" || nextBin.endsWith("/node_modules/next/dist/bin/next")) ||
     spawnargs[2] !== "start" ||
-    spawnargs[3] !== "-p" ||
-    spawnargs[4] !== port ||
+    spawnargs[3] !== "-H" ||
+    spawnargs[4] !== "127.0.0.1" ||
+    spawnargs[5] !== "-p" ||
+    spawnargs[6] !== port ||
     !serverEnvironment ||
     !Object.isFrozen(serverEnvironment) ||
     !verifierEnvironmentIsLocal ||

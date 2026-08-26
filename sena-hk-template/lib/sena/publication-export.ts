@@ -1,6 +1,7 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { deflateSync } from "node:zlib";
 import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
@@ -131,6 +132,22 @@ function publicationDerivationManifestError() {
   );
 }
 
+function publicationClaimStateRevisionEvidenceIsConsistent(
+  claimPackage: SenaEnterpriseClaimEvidencePackage,
+  stateRevisionSha256: string
+) {
+  const evidenceEntries = claimPackage.evidenceSource?.evidence;
+  if (!Array.isArray(evidenceEntries)) return false;
+  const prefix = "publicationClaimEvidenceStateRevisionSha256=";
+  const revisionEntries = evidenceEntries.filter((entry) => (
+    typeof entry === "string" && entry.startsWith(prefix)
+  ));
+  return (
+    revisionEntries.length === 1 &&
+    revisionEntries[0] === `${prefix}${stateRevisionSha256}`
+  );
+}
+
 function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnterpriseProjectEvidence) {
   const { bindingSha256, ...bindingCore } = evidence.stateBinding;
   const binding = evidence.stateBinding;
@@ -170,6 +187,10 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
     claimPackage.sourceSnapshotEvidence.snapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
     claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
     claimPackage.sourceSnapshotEvidence.stateRevisionSha256 === binding.stateRevisionSha256 &&
+    publicationClaimStateRevisionEvidenceIsConsistent(
+      claimPackage,
+      binding.stateRevisionSha256
+    ) &&
     claimPackage.claimReadinessEvidence.kind === evidence.claimPackage.claimReadinessKind &&
     claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
     claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.sourceSnapshotSha256 &&
@@ -1240,6 +1261,15 @@ export async function buildSenaPublicationPackage(
     enterpriseProjectEvidence
   })
 ) {
+  const expectedDerivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  });
+  if (!isDeepStrictEqual(derivationManifest, expectedDerivationManifest)) {
+    throw publicationDerivationManifestError();
+  }
   // One projection for all six artifacts: the SVG, PNG, DOCX, and PDF each draw
   // the same figure, so resolving it once is both cheaper and the guarantee that
   // the package's four pictures cannot disagree with each other.

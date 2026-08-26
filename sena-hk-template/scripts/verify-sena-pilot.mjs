@@ -11,6 +11,7 @@ import { verifySenaEnaBrowserSmoke } from "./verify-sena-ena-browser-smoke.mjs";
 import {
   registerVerifierControlledServerCustody,
   requireVerifierControlledServerCustody,
+  requireVerifierOwnedLoopbackListener,
   verifySenaEnterpriseApiBrowserSmoke
 } from "./verify-sena-enterprise-api-browser-smoke.mjs";
 import { verifySenaRbacCollaborationBrowserSmoke } from "./verify-sena-rbac-collaboration-browser-smoke.mjs";
@@ -18,6 +19,7 @@ import { verifySenaReliabilityBrowserSmoke } from "./verify-sena-reliability-bro
 import { verifySenaSsoBrowserSmoke } from "./verify-sena-sso-browser-smoke.mjs";
 import { verifySenaValidationClaimBrowserSmoke } from "./verify-sena-validation-claim-browser-smoke.mjs";
 import {
+  assertSenaVerifierEnvironmentFilesUnchanged,
   assertSenaVerifierEnvironmentIsLocal,
   buildSenaVerifierEnvironment
 } from "./sena-verifier-environment.mjs";
@@ -132,11 +134,17 @@ function run(label, args, env = {}) {
       childEnvironment.SENA_ENTERPRISE_DB_DIR
     );
   }
-  const result = spawnSync("npm", args, {
-    env: childEnvironment,
-    stdio: "inherit",
-    shell: process.platform === "win32"
-  });
+  assertSenaVerifierEnvironmentFilesUnchanged(childEnvironment, projectRoot);
+  let result;
+  try {
+    result = spawnSync("npm", args, {
+      env: childEnvironment,
+      stdio: "inherit",
+      shell: process.platform === "win32"
+    });
+  } finally {
+    assertSenaVerifierEnvironmentFilesUnchanged(childEnvironment, projectRoot);
+  }
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
@@ -170,12 +178,19 @@ async function runNextProductionBuild() {
   const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     console.log(`\n> Next production build${attempt > 1 ? ` (retry ${attempt})` : ""}`);
-    const result = spawnSync("npm", ["run", "build"], {
-      env: buildSenaVerifierEnvironment(process.env),
-      encoding: "utf8",
-      maxBuffer: 20 * 1024 * 1024,
-      shell: process.platform === "win32"
-    });
+    const buildEnvironment = buildSenaVerifierEnvironment(process.env);
+    assertSenaVerifierEnvironmentFilesUnchanged(buildEnvironment, projectRoot);
+    let result;
+    try {
+      result = spawnSync("npm", ["run", "build"], {
+        env: buildEnvironment,
+        encoding: "utf8",
+        maxBuffer: 20 * 1024 * 1024,
+        shell: process.platform === "win32"
+      });
+    } finally {
+      assertSenaVerifierEnvironmentFilesUnchanged(buildEnvironment, projectRoot);
+    }
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.status === 0) return;
@@ -778,7 +793,8 @@ async function verifyProductionServerSmoke() {
     SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId
   });
   assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
-  const server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
+  assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
+  const server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: projectRoot,
     env: serverEnvironment,
     stdio: ["ignore", "pipe", "pipe"]
@@ -814,13 +830,16 @@ async function verifyProductionServerSmoke() {
         throw new Error("Timed out waiting for the verifier-owned Next process readiness marker.");
       })
     ]);
+    assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
+    requireVerifierOwnedLoopbackListener(server, origin);
     const serverCustody = Object.freeze({
       mode: "verifier-controlled-loopback-temporary-server",
       serverProcess: server,
       serverEnvironment,
       enterpriseDbDir,
       serverWorkingDirectory: projectRoot,
-      serverReadyFromOwnedProcess: true
+      serverReadyFromOwnedProcess: true,
+      serverLoopbackListenerVerified: true
     });
     const custodyOptions = Object.freeze({
       provisioningToken: provisioningSmokeToken,
@@ -833,12 +852,16 @@ async function verifyProductionServerSmoke() {
       expertReviewSigningKeyId,
       provisioningSmokeToken
     );
-    const assertOwnedServer = () => requireVerifierControlledServerCustody(
-      custodyOptions,
-      origin,
-      expertReviewSigningKeyId,
-      provisioningSmokeToken
-    );
+    const assertOwnedServer = () => {
+      assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
+      requireVerifierOwnedLoopbackListener(server, origin);
+      return requireVerifierControlledServerCustody(
+        custodyOptions,
+        origin,
+        expertReviewSigningKeyId,
+        provisioningSmokeToken
+      );
+    };
     const runWithOwnedServer = async (operation) => {
       assertOwnedServer();
       const result = await Promise.race([
@@ -906,6 +929,12 @@ async function verifyProductionServerSmoke() {
     throw error;
   } finally {
     stoppingByVerifier = true;
+    let environmentCustodyError = null;
+    try {
+      assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
+    } catch (error) {
+      environmentCustodyError = error;
+    }
     let exited = server.exitCode !== null || server.signalCode !== null;
     if (!exited) {
       server.kill("SIGTERM");
@@ -925,6 +954,7 @@ async function verifyProductionServerSmoke() {
       throw new Error(`Verifier-owned Next process termination was not observed; temporary state retained at ${enterpriseDbDir}.`);
     }
     rmSync(enterpriseDbDir, { force: true, recursive: true });
+    if (environmentCustodyError) throw environmentCustodyError;
   }
 }
 
