@@ -4,6 +4,14 @@ import { chromium } from "playwright";
 const defaultTimeout = 30000;
 const password = "sena-secure-123";
 const reliabilityEvidencePath = "evidence.reliability";
+const reliabilityFixtureContract = Object.freeze({
+  authoritativeItemCount: 3,
+  requiredCodeLabels: Object.freeze(["Question", "Evidence", "Claim", "Explanation", "Reflection"]),
+  binaryUnitCount: 15,
+  intentionalDisagreementCount: 1,
+  minimumMeanPairwiseKappa: 0.8,
+  minimumKrippendorffAlphaNominal: 0.8
+});
 
 function reliabilitySmokeOriginFromCli() {
   const positional = process.argv.find((arg) => arg.startsWith("http://") || arg.startsWith("https://"));
@@ -163,29 +171,33 @@ function reliabilityAnnotations(snapshot) {
     if (!code?.id) throw new Error(`Reliability project snapshot is missing the required ${name} code.`);
     return code.id;
   };
-  if (utteranceIds.length < 3) {
-    throw new Error("Reliability project snapshot must expose at least three authoritative utterance IDs.");
+  if (utteranceIds.length < reliabilityFixtureContract.authoritativeItemCount) {
+    throw new Error(
+      `Reliability project snapshot must expose at least ${reliabilityFixtureContract.authoritativeItemCount} authoritative utterance IDs.`
+    );
   }
-  const [firstItemId, secondItemId, thirdItemId] = utteranceIds;
-  const question = codeId("Question");
-  const evidence = codeId("Evidence");
-  const claim = codeId("Claim");
-  const explanation = codeId("Explanation");
-  const reflection = codeId("Reflection");
-  return [
-    { coder_id: "coder-a", item_id: firstItemId, code_id: question, value: "1" },
-    { coder_id: "coder-b", item_id: firstItemId, code_id: question, value: "1" },
-    { coder_id: "coder-a", item_id: firstItemId, code_id: evidence, value: "0" },
-    { coder_id: "coder-b", item_id: firstItemId, code_id: evidence, value: "0" },
-    { coder_id: "coder-a", item_id: secondItemId, code_id: evidence, value: "1" },
-    { coder_id: "coder-b", item_id: secondItemId, code_id: evidence, value: "0" },
-    { coder_id: "coder-a", item_id: secondItemId, code_id: claim, value: "1" },
-    { coder_id: "coder-b", item_id: secondItemId, code_id: claim, value: "1" },
-    { coder_id: "coder-a", item_id: thirdItemId, code_id: explanation, value: "1" },
-    { coder_id: "coder-b", item_id: thirdItemId, code_id: explanation, value: "0" },
-    { coder_id: "coder-a", item_id: thirdItemId, code_id: reflection, value: "1" },
-    { coder_id: "coder-b", item_id: thirdItemId, code_id: reflection, value: "1" }
-  ];
+  const authoritativeItemIds = utteranceIds.slice(0, reliabilityFixtureContract.authoritativeItemCount);
+  const authoritativeCodeIds = reliabilityFixtureContract.requiredCodeLabels.map(codeId);
+  const authoritativeUnits = authoritativeItemIds.flatMap((itemId) => (
+    authoritativeCodeIds.map((authoritativeCodeId) => ({ itemId, codeId: authoritativeCodeId }))
+  ));
+  if (authoritativeUnits.length !== reliabilityFixtureContract.binaryUnitCount) {
+    throw new Error(
+      `Reliability fixture expected ${reliabilityFixtureContract.binaryUnitCount} authoritative binary units, received ${authoritativeUnits.length}.`
+    );
+  }
+  return authoritativeUnits.flatMap((unit, unitIndex) => (
+    ["coder-a", "coder-b"].map((coderId, coderIndex) => {
+      const canonicalValue = unitIndex % 2 === 0;
+      const value = unitIndex === 0 && coderIndex === 1 ? !canonicalValue : canonicalValue;
+      return {
+        coder_id: coderId,
+        item_id: unit.itemId,
+        code_id: unit.codeId,
+        value: value ? "1" : "0"
+      };
+    })
+  ));
 }
 
 async function createReliabilityRun(page, csrf, teamId, projectId, annotations) {
@@ -213,8 +225,37 @@ async function createReliabilityRun(page, csrf, teamId, projectId, annotations) 
   if (result.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v2") {
     throw new Error(`Reliability dashboard missing expected schema: ${JSON.stringify(result.body?.dashboard)}.`);
   }
-  if ((result.body?.dashboard?.disagreementCount ?? 0) <= 0) {
-    throw new Error(`Reliability smoke should create adjudication disagreements: ${JSON.stringify(result.body?.dashboard)}.`);
+  const dashboard = result.body.dashboard;
+  if (dashboard.binaryUnitCount !== reliabilityFixtureContract.binaryUnitCount) {
+    throw new Error(
+      `Reliability smoke expected ${reliabilityFixtureContract.binaryUnitCount} binary units, received ${dashboard.binaryUnitCount}.`
+    );
+  }
+  if (dashboard.disagreementCount !== reliabilityFixtureContract.intentionalDisagreementCount) {
+    throw new Error(
+      `Reliability smoke expected ${reliabilityFixtureContract.intentionalDisagreementCount} intentional disagreement, received ${dashboard.disagreementCount}.`
+    );
+  }
+  if (dashboard.meanPairwiseKappa < reliabilityFixtureContract.minimumMeanPairwiseKappa) {
+    throw new Error(
+      `Reliability smoke mean pairwise kappa ${dashboard.meanPairwiseKappa} is below ${reliabilityFixtureContract.minimumMeanPairwiseKappa}.`
+    );
+  }
+  if (dashboard.krippendorffAlphaNominal < reliabilityFixtureContract.minimumKrippendorffAlphaNominal) {
+    throw new Error(
+      `Reliability smoke Krippendorff alpha ${dashboard.krippendorffAlphaNominal} is below ${reliabilityFixtureContract.minimumKrippendorffAlphaNominal}.`
+    );
+  }
+  const initialEligibilityBlockers = dashboard.claimEligibility?.blockers;
+  if (
+    dashboard.claimEligibility?.eligible !== false ||
+    !Array.isArray(initialEligibilityBlockers) ||
+    initialEligibilityBlockers.length !== 1 ||
+    initialEligibilityBlockers[0] !== "unresolved-reliability-disagreements"
+  ) {
+    throw new Error(
+      `Reliability smoke must be statistically eligible but blocked by its one unresolved disagreement before adjudication: ${JSON.stringify(dashboard.claimEligibility)}.`
+    );
   }
   const runId = requireHeader(result.headers, "x-sena-reliability-run-id");
   requireHeader(result.headers, "x-sena-project-id", projectId);

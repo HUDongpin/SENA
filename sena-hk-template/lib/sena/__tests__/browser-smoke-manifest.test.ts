@@ -496,12 +496,19 @@ describe("SENA browser smoke manifest", () => {
     expect(smokeSource).toContain("readProjectionProjectSnapshotSha256");
     expect(smokeSource).not.toContain("persistedProjectSnapshotSha256");
     expect(smokeSource).toContain("stablePersistedClaimPackage");
+    expect(smokeSource).toContain("assertCanonicalClaimRevisionEvidence");
     expect(smokeSource).toContain("sha256Json(packageEvidence)");
+    expect(smokeSource).toContain("sha256Json(projectBeforePublication.body.project.snapshot) !== readProjectionProjectSnapshotSha256");
+    expect(smokeSource).toContain("derivedPublicationSnapshotSha256 === readProjectionSnapshotSha256");
     expect(smokeSource).toContain("artifactManifest.map((artifact) => artifact.format)");
     expect(smokeSource).toContain("artifacts.map((artifact) => artifact.format)");
     expect(smokeSource).toContain("artifact.derivationManifestSha256 !== derivationManifestSha256");
+    expect(smokeSource).toContain("verificationCertificateArtifactChecks");
+    expect(smokeSource).toContain('publication.body?.manifest?.hashAlgorithm !== "sha256"');
+    expect(smokeSource).not.toContain("structuredClone(artifact ?? {})");
     expect(smokeSource).toContain('requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-claim-package-status")');
     expect(smokeSource).toContain('requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-project-id")');
+    expect(smokeSource).toContain('requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-report-sha256")');
     const verifierPublicationFormats = smokeSource.match(
       /const requiredPublicationFormats = (\[[^;]+\]);/
     );
@@ -519,6 +526,11 @@ describe("SENA browser smoke manifest", () => {
     expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret");
     expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId");
     expect(pilotSource).toContain("expectedReceiptKeyId: expertReviewSigningKeyId");
+    expect(pilotSource).toContain("serverCustody: {");
+    expect(pilotSource).toContain('mode: "verifier-controlled-loopback-temporary-server"');
+    expect(pilotSource).toContain("serverProcess: server");
+    expect(pilotSource).toContain("serverEnvironment");
+    expect(pilotSource).toContain("enterpriseDbDir");
     expect(pilotSource).toContain("redactVerifierValues");
     expect(pilotSource).not.toContain("console.error(output)");
     expect(pilotSource).not.toContain('SENA_EXPERT_REVIEW_SIGNING_SECRET: "');
@@ -552,6 +564,10 @@ describe("SENA browser smoke manifest", () => {
     const verifierPath = fileURLToPath(
       new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url)
     );
+    const verifierSource = readFileSync(verifierPath, "utf8");
+    const verifierLoopbackHostnames = verifierSource.match(
+      /const verifierControlledLoopbackHostnames = new Set\((\[[^;]+\])\);/
+    );
     const result = spawnSync(process.execPath, [verifierPath, "https://example.invalid"], {
       cwd: fileURLToPath(new URL("../../..", import.meta.url)),
       encoding: "utf8",
@@ -576,11 +592,54 @@ describe("SENA browser smoke manifest", () => {
       }).serverCustody
     ).toEqual({
       mode: "verifier-controlled-loopback-temporary-server",
+      invocation: "pilot-wrapper-only",
       allowedHostnames: ["127.0.0.1", "[::1]", "localhost"]
     });
+    expect(verifierLoopbackHostnames).not.toBeNull();
+    expect(JSON.parse(verifierLoopbackHostnames?.[1] ?? "[]")).toEqual(
+      SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.serverCustody.allowedHostnames
+    );
+  });
+
+  it("rejects a loopback standalone target without live pilot-owned server custody", () => {
+    const verifierPath = fileURLToPath(
+      new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url)
+    );
+    const expectedReceiptKeyId = "sena-pilot-smoke-0123456789abcdef";
+    for (const loopbackUrl of [
+      "http://127.0.0.1:39999",
+      "http://[::1]:39999",
+      "http://localhost:39999"
+    ]) {
+      const result = spawnSync(process.execPath, [verifierPath, loopbackUrl], {
+        cwd: fileURLToPath(new URL("../../..", import.meta.url)),
+        encoding: "utf8",
+        timeout: 5_000,
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: "/nonexistent/sena-enterprise-smoke-custody-red-contract",
+          SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID: expectedReceiptKeyId
+        }
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        "requires live verifier-controlled temporary-server custody from verify-sena-pilot before any browser or server mutation"
+      );
+      expect(result.stderr).not.toContain("browserType.launch");
+      expect(result.stderr).not.toContain("ECONNREFUSED");
+      expect(result.stderr).not.toContain("net::");
+      expect(result.stderr).not.toContain(expectedReceiptKeyId);
+    }
   });
 
   it("includes RBAC team collaboration APIs in the production browser smoke verifier", () => {
+    const rbacSmokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-rbac-collaboration-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+
+    expect(rbacSmokeSource).toContain("const defaultTimeout = 30000;");
     expect(SENA_BROWSER_SMOKE_MANIFEST.productionVerifier.steps.rbacCollaboration).toMatchObject({
       exportName: "verifySenaRbacCollaborationBrowserSmoke",
       label: "Verify RBAC collaboration browser smoke"
@@ -635,30 +694,54 @@ describe("SENA browser smoke manifest", () => {
     expect(SENA_BROWSER_SMOKE_MANIFEST.reliability.dashboardSelector).toBe("reliability-dashboard");
   });
 
+  it("keeps the reliability smoke statistically eligible after real adjudication", () => {
+    const reliabilitySmokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-reliability-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+
+    expect(reliabilitySmokeSource).toContain("const reliabilityFixtureContract = Object.freeze({");
+    expect(reliabilitySmokeSource).toContain("binaryUnitCount: 15");
+    expect(reliabilitySmokeSource).toContain("intentionalDisagreementCount: 1");
+    expect(reliabilitySmokeSource).toContain("minimumMeanPairwiseKappa: 0.8");
+    expect(reliabilitySmokeSource).toContain("minimumKrippendorffAlphaNominal: 0.8");
+    expect(reliabilitySmokeSource).toContain("authoritativeUnits.flatMap");
+    expect(reliabilitySmokeSource).toContain("claimEligibility?.blockers");
+    expect(reliabilitySmokeSource).toContain("unresolved-reliability-disagreements");
+  });
+
   it("includes validation and expert-review claim readiness in the production browser smoke verifier", () => {
     expect(SENA_BROWSER_SMOKE_MANIFEST.productionVerifier.steps.validationClaim).toMatchObject({
       exportName: "verifySenaValidationClaimBrowserSmoke",
       label: "Verify validation claim browser smoke"
     });
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.routes).toEqual(expect.arrayContaining([
+      "/api/sena/analyze",
       "/api/sena/validation/group-comparison",
       "/api/sena/validation/expert-review",
       "/api/sena/validation/claim-package"
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.schemaVersions).toEqual(expect.arrayContaining([
+      "sena-analysis-run/v1",
       "sena-group-comparison-suite/v2",
       "sena-validation-run-review/v1",
       "sena-expert-review-response/v1",
       "sena-enterprise-claim-evidence-package/v2"
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.headers).toEqual(expect.arrayContaining([
+      "x-sena-analysis-run-id",
+      "x-sena-project-version",
       "x-sena-validation-run-id",
       "x-sena-validation-preregistration-sha256",
       "x-sena-validation-parity-status",
       "x-sena-formal-inference-status",
       "x-sena-expert-review-id"
     ]));
-    expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.claimStatuses).toContain("claim-ready-with-limits");
+    expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.claimStatuses).toEqual({
+      persistedRead: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      approvedExpertScope: "claim-ready-with-limits"
+    });
     expect(SENA_BROWSER_SMOKE_MANIFEST.validationClaim.evidencePaths).toEqual(expect.arrayContaining([
       "evidence.validation",
       "evidence.expertReview"
@@ -668,6 +751,20 @@ describe("SENA browser smoke manifest", () => {
       "validation-parity-evidence",
       "domain-expert-review"
     ]));
+
+    const validationSmokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-validation-claim-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+    expect(validationSmokeSource).toContain("const defaultTimeout = 30000;");
+    expect(validationSmokeSource).toContain('fetchJson(page, "/api/sena/analyze"');
+    expect(validationSmokeSource).toContain("updateProject: true");
+    expect(validationSmokeSource).toContain("expectedVersion: project.currentVersion");
+    expect(validationSmokeSource).toContain('requireHeader(refreshed.headers, "x-sena-project-version"');
+    expect(validationSmokeSource).toContain('claimUse !== "exploratory-only"');
+    expect(validationSmokeSource).toContain('machineClaimEligibility?.eligible !== false');
+    expect(validationSmokeSource).toContain('"project-claim-readiness-required"');
+    expect(validationSmokeSource).toContain('claimReadinessEvidence?.kind !== "persisted-project-snapshot"');
   });
 
   it("shows SSO preflight evidence on auth entry pages", () => {

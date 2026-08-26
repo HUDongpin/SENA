@@ -750,23 +750,24 @@ async function verifyProductionServerSmoke() {
   const expertReviewSigningKeyId = `sena-pilot-smoke-${randomBytes(8).toString("hex")}`;
   let output = "";
   const nextBin = "node_modules/next/dist/bin/next";
+  const serverEnvironment = Object.freeze({
+    ...process.env,
+    PORT: String(port),
+    SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+    SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
+    SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
+    SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
+    SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId,
+    SENA_SSO_INSTITUTION_CLIENT_ID: "",
+    SENA_SSO_INSTITUTION_CLIENT_SECRET: "",
+    SENA_SSO_GOOGLE_CLIENT_ID: "",
+    SENA_SSO_GOOGLE_CLIENT_SECRET: "",
+    SENA_SSO_ORCID_CLIENT_ID: "",
+    SENA_SSO_ORCID_CLIENT_SECRET: ""
+  });
   const server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
-      SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
-      SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
-      SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
-      SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId,
-      SENA_SSO_INSTITUTION_CLIENT_ID: "",
-      SENA_SSO_INSTITUTION_CLIENT_SECRET: "",
-      SENA_SSO_GOOGLE_CLIENT_ID: "",
-      SENA_SSO_GOOGLE_CLIENT_SECRET: "",
-      SENA_SSO_ORCID_CLIENT_ID: "",
-      SENA_SSO_ORCID_CLIENT_SECRET: ""
-    },
+    env: serverEnvironment,
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stoppingByVerifier = false;
@@ -816,7 +817,13 @@ async function verifyProductionServerSmoke() {
     console.log("\n> Verify enterprise API browser smoke");
     await verifySenaEnterpriseApiBrowserSmoke(url, {
       provisioningToken: provisioningSmokeToken,
-      expectedReceiptKeyId: expertReviewSigningKeyId
+      expectedReceiptKeyId: expertReviewSigningKeyId,
+      serverCustody: {
+        mode: "verifier-controlled-loopback-temporary-server",
+        serverProcess: server,
+        serverEnvironment,
+        enterpriseDbDir
+      }
     });
     console.log("\n> Verify RBAC collaboration browser smoke");
     await verifySenaRbacCollaborationBrowserSmoke(url);

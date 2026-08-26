@@ -249,6 +249,7 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
     },
     serverCustody: {
       mode: "verifier-controlled-loopback-temporary-server",
+      invocation: "pilot-wrapper-only",
       allowedHostnames: ["127.0.0.1", "[::1]", "localhost"]
     },
     claimStatuses: {
@@ -306,24 +307,32 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
   },
   validationClaim: {
     routes: [
+      "/api/sena/analyze",
       "/api/sena/validation/group-comparison",
       "/api/sena/validation/expert-review",
       "/api/sena/validation/claim-package"
     ],
     schemaVersions: [
+      SENA_SCHEMA_VERSIONS.analysisRun,
       SENA_SCHEMA_VERSIONS.groupComparisonSuite,
       SENA_SCHEMA_VERSIONS.validationRunReview,
       SENA_SCHEMA_VERSIONS.expertReviewResponse,
       SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage
     ],
     headers: [
+      "x-sena-analysis-run-id",
+      "x-sena-project-version",
       "x-sena-validation-run-id",
       "x-sena-validation-preregistration-sha256",
       "x-sena-validation-parity-status",
       "x-sena-formal-inference-status",
       "x-sena-expert-review-id"
     ],
-    claimStatuses: ["claim-ready-with-limits"],
+    claimStatuses: {
+      persistedRead: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      approvedExpertScope: "claim-ready-with-limits"
+    },
     evidencePaths: ["evidence.validation", "evidence.expertReview"],
     artifacts: [
       "validation-preregistration-plan",

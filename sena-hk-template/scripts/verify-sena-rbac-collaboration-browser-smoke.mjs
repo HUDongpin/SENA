@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 
-const defaultTimeout = 15000;
+const defaultTimeout = 30000;
 const password = "sena-secure-123";
 const pageOrigins = new WeakMap();
 

@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { lstatSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, sep } from "node:path";
 import { chromium } from "playwright";
 
 const defaultTimeout = 15000;
@@ -45,6 +48,60 @@ function requireVerifierControlledLoopbackOrigin(baseUrl) {
   return parsed.origin;
 }
 
+function requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken) {
+  const custody = options.serverCustody;
+  const serverProcess = custody?.serverProcess;
+  const serverEnvironment = custody?.serverEnvironment;
+  const enterpriseDbDir = custody?.enterpriseDbDir;
+  const originUrl = new URL(origin);
+  const port = originUrl.port || (originUrl.protocol === "https:" ? "443" : "80");
+  const normalizedTmpDir = resolve(tmpdir());
+  const normalizedEnterpriseDbDir = typeof enterpriseDbDir === "string" ? resolve(enterpriseDbDir) : "";
+  const expectedDbPrefix = `${normalizedTmpDir}${sep}sena-pilot-enterprise-db-`;
+  let enterpriseDbStats = null;
+  try {
+    enterpriseDbStats = normalizedEnterpriseDbDir.startsWith(expectedDbPrefix)
+      ? lstatSync(normalizedEnterpriseDbDir)
+      : null;
+  } catch {
+    enterpriseDbStats = null;
+  }
+  const spawnargs = Array.isArray(serverProcess?.spawnargs) ? serverProcess.spawnargs : [];
+  const nextBinIndex = spawnargs.findIndex((arg) => (
+    arg === "node_modules/next/dist/bin/next" || arg.endsWith("/node_modules/next/dist/bin/next")
+  ));
+  const signingSecret = serverEnvironment?.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+  if (
+    custody?.mode !== "verifier-controlled-loopback-temporary-server" ||
+    !serverProcess ||
+    !Number.isInteger(serverProcess.pid) ||
+    serverProcess.pid <= 0 ||
+    serverProcess.exitCode !== null ||
+    serverProcess.signalCode !== null ||
+    serverProcess.killed ||
+    serverProcess.spawnfile !== process.execPath ||
+    nextBinIndex < 0 ||
+    spawnargs[nextBinIndex + 1] !== "start" ||
+    spawnargs[nextBinIndex + 2] !== "-p" ||
+    spawnargs[nextBinIndex + 3] !== port ||
+    !serverEnvironment ||
+    !Object.isFrozen(serverEnvironment) ||
+    serverEnvironment.PORT !== port ||
+    serverEnvironment.SENA_ENTERPRISE_DB_DIR !== enterpriseDbDir ||
+    serverEnvironment.SENA_ALLOW_LOCAL_SSO_FALLBACK !== "1" ||
+    serverEnvironment.SENA_PROVISIONING_TOKEN !== provisioningToken ||
+    serverEnvironment.SENA_EXPERT_REVIEW_SIGNING_KEY_ID !== expectedReceiptKeyId ||
+    typeof signingSecret !== "string" ||
+    Buffer.byteLength(signingSecret, "utf8") < 32 ||
+    !enterpriseDbStats?.isDirectory() ||
+    enterpriseDbStats.isSymbolicLink()
+  ) {
+    throw new Error(
+      "Enterprise API browser smoke requires live verifier-controlled temporary-server custody from verify-sena-pilot before any browser or server mutation."
+    );
+  }
+}
+
 function header(response, name) {
   return response.headers()[name.toLowerCase()] ?? "";
 }
@@ -82,17 +139,33 @@ function sha256Json(value) {
   return sha256Bytes(Buffer.from(JSON.stringify(value), "utf8"));
 }
 
+function assertCanonicalClaimRevisionEvidence(value) {
+  const stateRevisionSha256 = requireSha256(
+    value?.sourceSnapshotEvidence?.stateRevisionSha256,
+    "Persisted claim state revision SHA-256"
+  );
+  const evidence = value?.evidenceSource?.evidence;
+  if (!Array.isArray(evidence)) {
+    throw new Error("Persisted claim package must expose atomic-read evidence entries.");
+  }
+  const prefix = "claimEvidenceStateRevisionSha256=";
+  const revisionEvidenceIndexes = evidence.flatMap((entry, index) => (
+    typeof entry === "string" && entry.startsWith(prefix) ? [index] : []
+  ));
+  const expectedEvidence = `${prefix}${stateRevisionSha256}`;
+  if (revisionEvidenceIndexes.length !== 1 || evidence[revisionEvidenceIndexes[0]] !== expectedEvidence) {
+    throw new Error("Persisted claim package must expose exactly one canonical state-revision evidence entry bound to its body revision.");
+  }
+  return revisionEvidenceIndexes[0];
+}
+
 function stablePersistedClaimPackage(value) {
   const stable = structuredClone(value);
+  const revisionEvidenceIndex = assertCanonicalClaimRevisionEvidence(stable);
   delete stable.generatedAt;
-  if (stable.sourceSnapshotEvidence && typeof stable.sourceSnapshotEvidence === "object") {
-    delete stable.sourceSnapshotEvidence.stateRevisionSha256;
-  }
-  if (Array.isArray(stable.evidenceSource?.evidence)) {
-    stable.evidenceSource.evidence = stable.evidenceSource.evidence.filter((entry) => (
-      typeof entry !== "string" || !entry.startsWith("claimEvidenceStateRevisionSha256=")
-    ));
-  }
+  delete stable.sourceSnapshotEvidence.stateRevisionSha256;
+  stable.evidenceSource.evidence[revisionEvidenceIndex] =
+    "claimEvidenceStateRevisionSha256=<request-scoped>";
   return stable;
 }
 
@@ -1091,7 +1164,10 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     requireHeaderValue(projectBeforePublication.headers, "x-sena-project-snapshot-sha256"),
     "Pre-publication project read-projection snapshot SHA-256"
   );
-  if (readProjectionProjectSnapshotSha256 !== readProjectionSnapshotSha256) {
+  if (
+    readProjectionProjectSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    sha256Json(projectBeforePublication.body.project.snapshot) !== readProjectionProjectSnapshotSha256
+  ) {
     throw new Error("The project round-trip snapshot hash is not bound to the claim package read projection.");
   }
 
@@ -1135,6 +1211,10 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     publication.body?.sourceSnapshotEvidence?.snapshotSha256,
     "Derived publication snapshot SHA-256"
   );
+  const derivedPublicationReportSha256 = requireSha256(
+    publication.body?.sourceSnapshotEvidence?.reportSha256,
+    "Derived publication report SHA-256"
+  );
   if (
     stateBinding?.schemaVersion !== "sena-publication-state-binding/v2" ||
     derivationManifest?.schemaVersion !== "sena-publication-derivation-manifest/v3" ||
@@ -1151,7 +1231,8 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     derivationManifest?.hashBoundaries?.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
     derivationManifest?.hashBoundaries?.readProjectionSnapshotSha256 !== readProjectionSnapshotSha256 ||
     derivationManifest?.hashBoundaries?.publicationSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
-    derivedPublicationSnapshotSha256 === persistedSnapshotSha256
+    derivedPublicationSnapshotSha256 === persistedSnapshotSha256 ||
+    derivedPublicationSnapshotSha256 === readProjectionSnapshotSha256
   ) {
     throw new Error(`Persisted, read-projection, and derived publication snapshot hashes are not independently bound: ${JSON.stringify({
       derivation,
@@ -1265,6 +1346,25 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     "Publication package SHA-256"
   );
   if (
+    publication.body?.manifest?.hashAlgorithm !== "sha256" ||
+    publication.body?.manifest?.sourceSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    publication.body?.sourceSnapshotEvidence?.snapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    publication.body?.verificationCertificate?.sourceSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    enterpriseProjectEvidence?.sourceSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    derivationManifest?.publicationSnapshot?.sha256 !== derivedPublicationSnapshotSha256 ||
+    derivationManifest?.hashBoundaries?.publicationSnapshotSha256 !== derivedPublicationSnapshotSha256 ||
+    requireHeaderValue(publication.headers, "x-sena-source-snapshot-sha256") !== derivedPublicationSnapshotSha256 ||
+    publication.body?.manifest?.reportSha256 !== derivedPublicationReportSha256 ||
+    publication.body?.sourceSnapshotEvidence?.reportSha256 !== derivedPublicationReportSha256 ||
+    publication.body?.verificationCertificate?.reportSha256 !== derivedPublicationReportSha256 ||
+    enterpriseProjectEvidence?.reportSha256 !== derivedPublicationReportSha256 ||
+    derivationManifest?.publicationSnapshot?.reportSha256 !== derivedPublicationReportSha256 ||
+    derivationManifest?.hashBoundaries?.reportSha256 !== derivedPublicationReportSha256 ||
+    requireHeaderValue(publication.headers, "x-sena-report-sha256") !== derivedPublicationReportSha256
+  ) {
+    throw new Error("Publication package source-snapshot and report evidence are not internally self-consistent.");
+  }
+  if (
     requireHeaderValue(publication.headers, "x-sena-publication-package-sha256") !== publicationPackageSha256 ||
     publication.body?.manifest?.derivationManifestSha256 !== derivationManifestSha256 ||
     publication.body?.verificationCertificate?.derivationManifestSha256 !== derivationManifestSha256
@@ -1290,6 +1390,19 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
   if (publication.body?.verificationCertificate?.status !== "verified") {
     throw new Error(`Publication verification certificate should be verified: ${JSON.stringify(publication.body?.verificationCertificate)}.`);
   }
+  const verificationCertificateArtifactChecks = artifactManifest.map((artifact) => ({
+    filename: artifact.filename,
+    format: artifact.format,
+    contentType: artifact.contentType,
+    bytes: artifact.bytes,
+    sha256: artifact.sha256,
+    status: "verified"
+  }));
+  assertExactArray(
+    publication.body?.verificationCertificate?.artifactChecks,
+    verificationCertificateArtifactChecks,
+    "publication verification certificate artifact checks"
+  );
   for (let index = 0; index < requiredPublicationFormats.length; index += 1) {
     const format = requiredPublicationFormats[index];
     const artifact = artifacts[index];
@@ -1299,8 +1412,14 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     const artifactBytes = typeof artifactBodyBase64 === "string"
       ? Buffer.from(artifactBodyBase64, "base64")
       : Buffer.alloc(0);
-    const artifactEvidence = structuredClone(artifact ?? {});
-    delete artifactEvidence.bodyBase64;
+    const artifactEvidence = {
+      format: artifact?.format,
+      filename: artifact?.filename,
+      contentType: artifact?.contentType,
+      bytes: artifact?.bytes,
+      sha256: artifact?.sha256,
+      derivationManifestSha256: artifact?.derivationManifestSha256
+    };
     if (
       !artifact ||
       artifact.bytes <= 0 ||
@@ -1358,7 +1477,8 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-project-version") !== String(authoritativeProjectVersion) ||
     requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-source-snapshot-sha256") !== readProjectionSnapshotSha256 ||
     requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-persisted-source-snapshot-sha256") !== persistedSnapshotSha256 ||
-    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-claim-state-revision-sha256") !== postpublicationStateRevisionSha256
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-claim-state-revision-sha256") !== postpublicationStateRevisionSha256 ||
+    requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-report-sha256") !== claimReportSha256
   ) {
     throw new Error(`Post-publication claim package headers are not bound to the unchanged persisted projection: ${JSON.stringify(claimPackageAfterPublication?.headers)}.`);
   }
@@ -1371,6 +1491,7 @@ export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSm
     process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_PROVISIONING_TOKEN ??
     process.env.SENA_PROVISIONING_TOKEN ??
     "sena-pilot-provisioning-token";
+  requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken);
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -1387,7 +1508,7 @@ export async function verifySenaEnterpriseApiBrowserSmoke(baseUrl = enterpriseSm
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   verifySenaEnterpriseApiBrowserSmoke().catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : "Enterprise API browser smoke failed.");
     process.exit(1);
   });
 }
