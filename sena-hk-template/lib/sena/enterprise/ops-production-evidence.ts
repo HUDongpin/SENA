@@ -598,7 +598,7 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
         artifactValidation: "SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION"
       },
       evidence: serverJobWorkerContract.evidence,
-      nextAction: "Run npm run sena:jobs:worker-contract after configuring the managed queue, Postgres job store, worker callback, owner, runbook, and heartbeat artifact; then bind SENA_JOB_WORKER_CONTRACT_CONFIRMED with its sha256, verified-at timestamp, and artifact-validation pass."
+      nextAction: "Implement a nonce-bound managed-queue to external-worker authenticated callback receipt, then run and bind the worker contract; the same-process status-store self-test cannot confirm this production item."
     }),
     buildEvidenceItem({
       id: "observability-contract",

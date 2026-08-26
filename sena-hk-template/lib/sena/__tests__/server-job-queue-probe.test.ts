@@ -495,7 +495,8 @@ describe("SENA server job queue live probe", () => {
       "serverJobQueueLiveProbeConfirmed=true",
       "serverJobQueueProbeArtifactSha256=present"
     ]));
-    expect(queueItem?.nextAction).toContain("sena:jobs:worker-contract");
+    expect(queueItem?.nextAction).toContain("nonce-bound managed-queue to external-worker authenticated callback receipt");
+    expect(queueItem?.nextAction).toContain("same-process status-store self-test is insufficient");
     expect(serialized).not.toContain("super-secret");
     expect(serialized).not.toContain("sena-test-job-secret");
     expect(serialized).not.toContain("example.db");

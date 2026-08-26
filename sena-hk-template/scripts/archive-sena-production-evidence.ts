@@ -617,7 +617,7 @@ function verifierDefinitions(options: Options): VerifierDefinition[] {
       script: "scripts/verify-sena-job-worker-contract.ts",
       outputFile: "server-job-worker-contract.json",
       requiredForProduction: true,
-      nextAction: "Configure worker callback, owner, runbook, and heartbeat evidence."
+      nextAction: "Implement and verify a nonce-bound managed-queue to external-worker authenticated callback receipt; the same-process status-store self-test is insufficient."
     },
     {
       id: "observability-contract",

@@ -16,7 +16,7 @@ emitVerificationArtifact({
 });
 
 if (!contract.productionReady) {
-  console.error("SENA server job worker contract is not production-ready. Configure the managed queue, Postgres job store, callback URL, owner, runbook, and heartbeat artifact.");
+  console.error("SENA server job worker contract is not production-ready. The same-process status-store self-test cannot replace a nonce-bound managed-queue to external-worker authenticated callback receipt.");
   process.exit(1);
 }
 

@@ -630,6 +630,15 @@ function validateServerJobWorkerContractArtifact(artifact) {
     artifact.statusStore.indexed !== true) {
     return "server-job-worker-contract-status-store-missing";
   }
+  if (artifact?.worker?.externalWorkerCallbackReceiptSupported !== true ||
+    artifact.worker.externalWorkerCallbackReceiptConfirmed !== true ||
+    !validSha256(artifact.worker.externalWorkerCallbackReceiptSha256) ||
+    !validIsoTimestamp(artifact.worker.externalWorkerCallbackReceiptVerifiedAt) ||
+    artifact?.contract?.statusStoreSelfTestSatisfiesExternalWorkerReadiness !== false ||
+    artifact.contract.externalWorkerProofPolicy !==
+      "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback") {
+    return "server-job-worker-contract-external-callback-receipt-missing";
+  }
   if (artifact?.worker?.ownerConfigured !== true ||
     artifact.worker.runbookConfigured !== true ||
     artifact.worker.callbackConfigured !== true ||

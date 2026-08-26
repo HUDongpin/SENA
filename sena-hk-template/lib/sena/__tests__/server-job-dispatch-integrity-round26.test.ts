@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -580,6 +580,7 @@ describe("SENA server-job dispatch integrity round 26", () => {
     cleanupDirs.push(dbDir);
     configureLocalQueue(dbDir);
     const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
     const state = await import("../enterprise/state");
     const created = await queue.enqueueEnterpriseServerJob(queueInput());
     const db = state.readEnterpriseDb();
@@ -608,6 +609,22 @@ describe("SENA server-job dispatch integrity round 26", () => {
       statusCallback: "/api/sena/ops/jobs"
     };
     state.saveDb(db);
+
+    const pollingRace = await worker.drainEnterpriseServerJobQueue({
+      kind: "analysis",
+      limit: 10
+    });
+    expect(pollingRace).toEqual(expect.objectContaining({
+      scanned: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: 0,
+      outcomes: []
+    }));
+    await expect(queue.getEnterpriseServerJob(raw.id)).resolves.toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 0 })
+    }));
 
     const running = await queue.updateEnterpriseServerJobStatus({
       jobId: raw.id,
@@ -698,6 +715,63 @@ describe("SENA server-job dispatch integrity round 26", () => {
         })
       }));
     }
+  });
+
+  it("reserves polling capacity for valid jobs when invalid custody receipts fill the quarantine", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-quarantine-fairness-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
+    const state = await import("../enterprise/state");
+    const valid = await queue.enqueueEnterpriseServerJob({
+      ...queueInput(),
+      projectId: "project_round26_fair_valid",
+      payload: { ...queueInput().payload, projectId: "project_round26_fair_valid" }
+    });
+    const invalid = [];
+    for (let index = 0; index < 3; index += 1) {
+      const projectId = `project_round26_fair_invalid_${index}`;
+      invalid.push(await queue.enqueueEnterpriseServerJob({
+        ...queueInput(),
+        projectId,
+        payload: { ...queueInput().payload, projectId }
+      }));
+    }
+    const db = state.readEnterpriseDb();
+    for (const job of invalid) {
+      const raw = db.serverJobs.find((candidate) => candidate.id === job.id)!;
+      delete raw.payloadSummary.commandCustody;
+    }
+    state.saveDb(db);
+
+    const report = await worker.drainEnterpriseServerJobQueue({ kind: "analysis", limit: 2 });
+
+    expect(report.scanned).toBe(2);
+    expect(report.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        jobId: valid.id,
+        status: "failed",
+        errorCode: "server_job_worker_payload_not_reproducible",
+        attempts: 0
+      }),
+      expect.objectContaining({
+        status: "failed",
+        errorCode: "server_job_worker_analysis_command_custody_invalid",
+        attempts: 0
+      })
+    ]));
+    expect(report.outcomes.filter((outcome) => (
+      outcome.errorCode === "server_job_worker_analysis_command_custody_invalid"
+    ))).toHaveLength(1);
+  });
+
+  it("documents that irreproducible pull-worker commands are terminalized before claim", () => {
+    const source = readFileSync(path.join(process.cwd(), "scripts/run-sena-job-worker.ts"), "utf8");
+
+    expect(source).toContain("atomically terminalized before claim");
+    expect(source).toContain("attempts unchanged");
+    expect(source).not.toContain("reported and left queued");
   });
 
   it("quarantines project pointers whose immutable projectVersion is not a positive safe integer", async () => {

@@ -537,7 +537,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
         workerContract.worker.heartbeatArtifactHashConfigured &&
         workerContract.worker.heartbeatVerifiedAtConfigured,
       secret: false,
-      purpose: "Worker heartbeat artifact binding proving the queue consumer can call status callbacks"
+      purpose: "Same-process status-store CAS self-test binding only; does not prove an external queue consumer or authenticated callback"
     }),
     deploymentEnv({
       name: "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",

@@ -3453,7 +3453,25 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       ELSE payload_summary->>'projectTeamId' = team_id
     END
   )`;
-  const exactAnalysisCommandCustodySql = `(
+  const exactSyntheticHeartbeatShapeSql = `COALESCE((
+    NOT (payload_summary ? 'commandEnvelopeUploadId')
+    AND NOT (payload_summary ? 'commandEnvelopeSha256')
+    AND id ~ '^server_job_worker_heartbeat_[a-f0-9]{24}$'
+    AND team_id = 'ops-heartbeat'
+    AND project_id = 'worker-heartbeat'
+    AND actor_user_id = 'ops-heartbeat'
+    AND payload_sha256 ~ '^[a-f0-9]{64}$'
+    AND payload_summary->>'source' = 'project'
+    AND payload_summary->'projectVersion' = '1'::jsonb
+    AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
+    AND payload_summary->'hasInlineDataset' = 'false'::jsonb
+    AND payload_summary->'payloadValuesExcluded' = 'true'::jsonb
+    AND worker->>'expectedAction' = 'run-analysis'
+    AND worker->>'payloadDelivery' = 'project-pointer'
+    AND worker->>'execution' = 'external-worker-required'
+    AND worker->>'statusCallback' = '/api/sena/ops/jobs'
+  ), false)`;
+  const exactAnalysisCommandCustodySql = `COALESCE((
     CASE
       WHEN payload_summary->>'commandCustody' = '${SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY}' THEN
         jsonb_typeof(payload_summary->'commandEnvelopeUploadId') = 'string'
@@ -3464,33 +3482,19 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         NOT (payload_summary ? 'commandEnvelopeUploadId')
         AND NOT (payload_summary ? 'commandEnvelopeSha256')
       WHEN payload_summary->>'commandCustody' = '${SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY}' THEN
-        NOT (payload_summary ? 'commandEnvelopeUploadId')
-        AND NOT (payload_summary ? 'commandEnvelopeSha256')
-        AND id ~ '^server_job_worker_heartbeat_[a-f0-9]{24}$'
-        AND team_id = 'ops-heartbeat'
-        AND project_id = 'worker-heartbeat'
-        AND actor_user_id = 'ops-heartbeat'
-        AND payload_sha256 ~ '^[a-f0-9]{64}$'
-        AND payload_summary->>'source' = 'project'
-        AND payload_summary->'projectVersion' = '1'::jsonb
-        AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
-        AND payload_summary->'hasInlineDataset' = 'false'::jsonb
-        AND payload_summary->'payloadValuesExcluded' = 'true'::jsonb
-        AND worker->>'expectedAction' = 'run-analysis'
-        AND worker->>'payloadDelivery' = 'project-pointer'
-        AND worker->>'execution' = 'external-worker-required'
-        AND worker->>'statusCallback' = '/api/sena/ops/jobs'
+        ${exactSyntheticHeartbeatShapeSql}
       ELSE false
     END
-  )`;
+  ), false)`;
   const analysisCustodyQuarantineSql = `(
     /* sena-analysis-custody-quarantine */
     kind = 'analysis'
     AND status = 'queued'
     AND ${claimableDeliverySql}
-    AND NOT ${exactAnalysisCommandCustodySql}
+    AND (${exactAnalysisCommandCustodySql}) IS NOT TRUE
   )`;
   const claimableSourceSql = `(
+    /* sena-claimable-source */
     ${claimableDeliverySql}
     AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
     AND payload_summary->'hasInlineDataset' = 'false'::jsonb
@@ -3501,7 +3505,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         AND project_id IS NOT NULL
         AND btrim(project_id) <> ''
         AND ${exactProjectVersionSql}
-        AND ${exactAnalysisCommandCustodySql}
+        AND (${exactAnalysisCommandCustodySql}) IS TRUE
       WHEN kind = 'validation' THEN
         payload_summary->>'source' = 'project'
         AND worker->>'payloadDelivery' = 'project-pointer'
@@ -3699,6 +3703,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     projectId?: string;
     claimableOnly?: boolean;
     analysisCustodyQuarantineOnly?: boolean;
+    excludeSyntheticWorkerHeartbeat?: boolean;
   }) {
     const values: unknown[] = [];
     const clauses: string[] = [];
@@ -3712,6 +3717,13 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     if (inputFilters.projectId) add("project_id = ?", inputFilters.projectId);
     if (inputFilters.claimableOnly) clauses.push(claimableSourceSql);
     if (inputFilters.analysisCustodyQuarantineOnly) clauses.push(analysisCustodyQuarantineSql);
+    if (inputFilters.excludeSyntheticWorkerHeartbeat) {
+      clauses.push(`(
+        /* sena-exclude-synthetic-worker-heartbeat */
+        payload_summary->>'commandCustody' = '${SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY}'
+        AND ${exactSyntheticHeartbeatShapeSql}
+      ) IS NOT TRUE`);
+    }
     return {
       values,
       where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""
@@ -3725,6 +3737,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     projectId?: string;
     claimableOnly?: boolean;
     analysisCustodyQuarantineOnly?: boolean;
+    excludeSyntheticWorkerHeartbeat?: boolean;
     limit?: number;
   } = {}): Promise<SenaEnterpriseServerJobList> {
     await ensureSchema();

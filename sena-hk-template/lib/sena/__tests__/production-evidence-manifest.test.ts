@@ -228,7 +228,7 @@ describe("SENA production evidence manifest", () => {
     vi.resetModules();
   });
 
-  it("aggregates confirmed external probe artifacts and performance budget evidence without endpoint or secret values", async () => {
+  it("keeps the manifest under review without an authenticated external worker callback receipt", async () => {
     configureConfirmedProductionEvidence();
 
     const { buildEnterpriseProductionEvidenceManifest } = await import("../enterprise/ops-production-evidence");
@@ -236,12 +236,13 @@ describe("SENA production evidence manifest", () => {
     const serialized = JSON.stringify(manifest);
 
     expect(manifest.schemaVersion).toBe("sena-enterprise-production-evidence-manifest/v1");
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
-      missing: 0,
+      confirmed: 13,
+      missing: 1,
       missingRequired: 0,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 0,
       productionRuntimeEnvPacketConfirmed: false,
@@ -260,12 +261,23 @@ describe("SENA production evidence manifest", () => {
       "confirmed",
       "confirmed",
       "confirmed",
-      "confirmed",
+      "missing-advisory",
       "confirmed",
       "confirmed",
       "confirmed",
       "confirmed"
     ]);
+    const workerContract = manifest.items.find((item) => item.id === "server-job-worker-contract");
+    expect(workerContract).toEqual(expect.objectContaining({
+      confirmed: false,
+      status: "missing-advisory",
+      artifactHash: "7".repeat(64)
+    }));
+    expect(workerContract?.evidence).toEqual(expect.arrayContaining([
+      "serverJobWorkerExternalCallbackReceiptSupported=false",
+      "serverJobWorkerExternalCallbackReceiptConfirmed=false"
+    ]));
+    expect(workerContract?.nextAction).toContain("same-process status-store self-test cannot confirm");
     expect(manifest.items.map((item) => item.artifactHash)).toEqual([
       "8".repeat(64),
       "1".repeat(64),
@@ -397,10 +409,12 @@ describe("SENA production evidence manifest", () => {
     const manifest = buildEnterpriseProductionEvidenceManifest();
     const packet = manifest.advisoryItems.find((item) => item.id === "production-runtime-env-packet");
 
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
+      confirmed: 13,
+      missing: 1,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 1,
       productionRuntimeEnvPacketConfirmed: true,
@@ -445,10 +459,12 @@ describe("SENA production evidence manifest", () => {
     const manifest = buildEnterpriseProductionEvidenceManifest();
     const gate = manifest.advisoryItems.find((item) => item.id === "production-go-live-gate");
 
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
+      confirmed: 13,
+      missing: 1,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 1,
       productionGoLiveGateConfirmed: true,
@@ -615,10 +631,10 @@ describe("SENA production evidence manifest", () => {
 
     expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
-      confirmed: 13,
-      missing: 1,
+      confirmed: 12,
+      missing: 2,
       missingRequired: 0,
-      missingAdvisory: 1
+      missingAdvisory: 2
     }));
     expect(manifest.evidence).toEqual(expect.arrayContaining([
       "productionEvidenceMaxAgeHours=1"

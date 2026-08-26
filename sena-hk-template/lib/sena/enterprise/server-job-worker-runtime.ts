@@ -64,7 +64,8 @@ import {
 } from "./server-job-queue";
 import {
   enterpriseServerJobHasDurableSourcePointer,
-  enterpriseServerJobHasValidAnalysisCommandCustodyProfile
+  enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
+  enterpriseServerJobIsSyntheticWorkerHeartbeat
 } from "./server-job-contract";
 import { readEnterpriseState } from "./state";
 import {
@@ -1092,12 +1093,13 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
  * The polling half of the worker, for deployments whose queue mode is `local`
  * (no webhook is ever dispatched, so the push path never fires).
  *
- * Before listing executable jobs it quarantines delivered analysis receipts
- * whose current/explicit-legacy custody profile is missing or partial. It never
- * upgrades those rows into legacy work. It then runs only jobs whose payload it
- * can reproduce byte-for-byte against job.payloadSha256. Every irreproducible
- * command is atomically terminalized before claim with zero attempts and
- * retryable=false.
+ * It first identifies ordinary claimable work, excluding the same-process
+ * status-store heartbeat sentinel. If ordinary work exists, one slot is
+ * reserved before quarantining delivered analysis receipts whose current or
+ * explicit-legacy custody profile is missing or partial. This prevents a poison
+ * backlog from starving valid jobs. It never upgrades quarantined rows into
+ * legacy work. Every irreproducible command is atomically terminalized before
+ * claim with zero attempts and retryable=false.
  */
 export async function drainEnterpriseServerJobQueue(input: {
   limit?: number;
@@ -1107,31 +1109,43 @@ export async function drainEnterpriseServerJobQueue(input: {
   return runWithSenaValidationRequestScope(async () => {
     const limit = Math.max(1, Math.min(input.limit ?? 25, 500));
     const outcomes: SenaServerJobWorkerOutcome[] = [];
+    const queued = await listEnterpriseServerJobs({
+      status: "queued",
+      claimableOnly: true,
+      excludeSyntheticWorkerHeartbeat: true,
+      kind: input.kind,
+      teamId: input.teamId,
+      limit
+    });
+    const reservedExecutable = queued.jobs.find((job) => isExecutableKind(job.kind));
+    const processingOrder = reservedExecutable
+      ? [reservedExecutable, ...queued.jobs.filter((job) => job.id !== reservedExecutable.id)]
+      : queued.jobs;
+    const executableReservation = reservedExecutable ? 1 : 0;
     if (input.kind === undefined || input.kind === "analysis") {
-      const quarantined = await listEnterpriseServerJobs({
-        status: "queued",
-        kind: "analysis",
-        teamId: input.teamId,
-        analysisCustodyQuarantineOnly: true,
-        limit
-      });
-      for (const job of quarantined.jobs) {
-        outcomes.push(await rejectBeforeClaim(
-          job,
-          analysisCommandCustodyError(),
-          "server-job-worker-analysis-command-custody-quarantined"
-        ));
+      const quarantineLimit = limit - executableReservation;
+      if (quarantineLimit > 0) {
+        const quarantined = await listEnterpriseServerJobs({
+          status: "queued",
+          kind: "analysis",
+          teamId: input.teamId,
+          analysisCustodyQuarantineOnly: true,
+          limit: quarantineLimit
+        });
+        for (const job of quarantined.jobs) {
+          outcomes.push(await rejectBeforeClaim(
+            job,
+            analysisCommandCustodyError(),
+            "server-job-worker-analysis-command-custody-quarantined"
+          ));
+        }
       }
     }
     const remaining = limit - outcomes.length;
-    const queued = remaining > 0 ? await listEnterpriseServerJobs({
-      status: "queued",
-      claimableOnly: true,
-      kind: input.kind,
-      teamId: input.teamId,
-      limit: remaining
-    }) : undefined;
-    for (const job of queued?.jobs ?? []) {
+    for (const job of processingOrder.slice(0, remaining)) {
+      // The data-access filter is the primary exclusion. Keep this local guard
+      // as a fail-closed defense if another adapter ever ignores that filter.
+      if (enterpriseServerJobIsSyntheticWorkerHeartbeat(job)) continue;
       if (!isExecutableKind(job.kind)) {
         outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
         continue;

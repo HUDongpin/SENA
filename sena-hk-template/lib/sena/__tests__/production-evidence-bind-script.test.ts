@@ -483,6 +483,11 @@ function serverJobWorkerContractFixture() {
       heartbeatConfirmed: true,
       heartbeatArtifactHashConfigured: true,
       heartbeatVerifiedAtConfigured: true,
+      statusStoreSelfTestOnly: true,
+      externalWorkerCallbackReceiptSupported: true,
+      externalWorkerCallbackReceiptConfirmed: true,
+      externalWorkerCallbackReceiptSha256: digestA,
+      externalWorkerCallbackReceiptVerifiedAt: generatedAt,
       callbackUrlHash: digestB,
       runbookUrlHash: digestC,
       heartbeatArtifactSha256: digestD,
@@ -494,9 +499,28 @@ function serverJobWorkerContractFixture() {
     contract: {
       statusCallback: "/api/sena/ops/jobs",
       rawPayloadPersistedInJobStore: false,
-      payloadPolicy: "project-or-upload-pointer-default"
+      payloadPolicy: "project-or-upload-pointer-default",
+      statusStoreSelfTestSatisfiesExternalWorkerReadiness: false,
+      externalWorkerProofPolicy: "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
     },
     missing: []
+  };
+}
+
+function sameProcessOnlyServerJobWorkerContractFixture() {
+  return {
+    ...serverJobWorkerContractFixture(),
+    worker: {
+      ...serverJobWorkerContractFixture().worker,
+      statusStoreSelfTestOnly: true,
+      externalWorkerCallbackReceiptSupported: false,
+      externalWorkerCallbackReceiptConfirmed: false
+    },
+    contract: {
+      ...serverJobWorkerContractFixture().contract,
+      statusStoreSelfTestSatisfiesExternalWorkerReadiness: false,
+      externalWorkerProofPolicy: "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
+    }
   };
 }
 
@@ -735,6 +759,33 @@ describe("SENA production evidence binding script", () => {
       expect(output).not.toContain("vercel-preflight-target-url-not-https");
       expect(output).not.toContain("conference-load-target-url-not-https");
       expect(output).not.toContain("localhost:3000");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to bind a worker contract backed only by the same-process status-store self-test", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-worker-self-test-"));
+
+    try {
+      writeArtifact(
+        root,
+        "server-job-worker-contract.json",
+        sameProcessOnlyServerJobWorkerContractFixture()
+      );
+      const result = runBind([
+        "--artifact",
+        path.join(root, "server-job-worker-contract.json"),
+        "--scope",
+        "test-team"
+      ]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain(
+        "server-job-worker-contract.json: Server job worker contract -> skip(server-job-worker-contract-external-callback-receipt-missing)"
+      );
+      expect(output).not.toContain("SENA_JOB_WORKER_CONTRACT_CONFIRMED=configured(redacted)");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

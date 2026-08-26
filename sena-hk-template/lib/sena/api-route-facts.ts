@@ -777,7 +777,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/ops/jobs/worker-heartbeat",
     methods: ["POST"],
     auth: "session-or-ops-bearer",
-    summary: "Write a synthetic no-user-data worker heartbeat job, exercise running/succeeded callbacks, and return redacted status-store evidence.",
+    summary: "Run a same-process synthetic status-store CAS self-test; it does not prove external-worker or authenticated-callback execution.",
     evidenceNoteId: "sena-ops-jobs-worker-heartbeat",
     responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat]
   },

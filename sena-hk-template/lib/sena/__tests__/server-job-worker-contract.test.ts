@@ -61,7 +61,7 @@ describe("SENA server job worker contract", () => {
     vi.resetModules();
   });
 
-  it("requires a managed queue, indexed Postgres store, callback, runbook, and worker heartbeat without leaking values", async () => {
+  it("keeps production worker readiness closed until an authenticated external callback receipt exists", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-worker-contract-"));
     configureWorkerContractEnv(enterpriseDbDir);
 
@@ -70,12 +70,22 @@ describe("SENA server job worker contract", () => {
     const serialized = JSON.stringify(contract);
 
     expect(contract.schemaVersion).toBe("sena-enterprise-server-job-worker-contract/v1");
-    expect(contract.productionReady).toBe(true);
-    expect(contract.status).toBe("pass");
+    expect(contract.productionReady).toBe(false);
+    expect(contract.status).toBe("review");
     expect(contract.provider.queueProductionReady).toBe(true);
     expect(contract.statusStore.activeStore).toBe("postgres-table");
     expect(contract.worker.callbackConfigured).toBe(true);
     expect(contract.worker.heartbeatArtifactSha256).toBe("c".repeat(64));
+    expect(contract.worker.statusStoreSelfTestOnly).toBe(true);
+    expect(contract.worker.externalWorkerCallbackReceiptSupported).toBe(false);
+    expect(contract.worker.externalWorkerCallbackReceiptConfirmed).toBe(false);
+    expect(contract.contract.statusStoreSelfTestSatisfiesExternalWorkerReadiness).toBe(false);
+    expect(contract.contract.externalWorkerProofPolicy).toBe(
+      "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
+    );
+    expect(contract.missing).toContain(
+      "authenticated nonce-bound external worker callback receipt (not implemented)"
+    );
     expect(contract.contract.rawPayloadPersistedInJobStore).toBe(false);
     expect(contract.contract.acceptedActions).toEqual([
       "mark-running",
@@ -105,6 +115,9 @@ describe("SENA server job worker contract", () => {
     expect(contract.evidence).toContain("uploadWarningCountSemantics=unset-until-a-parser-reports");
     expect(contract.evidence).toContain("uploadWarningsCallbackField=uploadWarnings");
     expect(contract.evidence).toContain("workerInlinePayloadCustody=durable-pointers-only");
+    expect(contract.evidence).toContain("workerStatusStoreSelfTestOnly=true");
+    expect(contract.evidence).toContain("externalWorkerCallbackReceiptSupported=false");
+    expect(contract.evidence).toContain("externalWorkerCallbackReceiptConfirmed=false");
     process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
     expect(getEnterpriseServerJobWorkerContract().contract).toEqual(expect.objectContaining({
       inlinePayloadAllowed: false,
@@ -119,7 +132,7 @@ describe("SENA server job worker contract", () => {
     expect(serialized).not.toContain("Institution platform rotation");
   });
 
-  it("requires a valid archived worker contract artifact before production performance confirmation", async () => {
+  it("does not let a manually bound same-process worker artifact confirm production readiness", async () => {
     process.env.SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH = "1";
     process.env.SENA_JOB_WORKER_CONTRACT_CONFIRMED = "1";
     process.env.SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256 = "f".repeat(64);
@@ -143,12 +156,16 @@ describe("SENA server job worker contract", () => {
     process.env.SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION = "pass";
     expect(serverJobWorkerContractReadiness()).toEqual(expect.objectContaining({
       required: true,
-      confirmed: true,
+      confirmed: false,
       artifactHash: "f".repeat(64),
       verifiedAt,
       artifactHashConfigured: true,
       verifiedAtConfigured: true
     }));
+    expect(serverJobWorkerContractReadiness().evidence).toEqual(expect.arrayContaining([
+      "serverJobWorkerExternalCallbackReceiptSupported=false",
+      "serverJobWorkerExternalCallbackReceiptConfirmed=false"
+    ]));
   });
 
   it("exposes the worker contract through an ops bearer route", async () => {
@@ -168,13 +185,18 @@ describe("SENA server job worker contract", () => {
     };
     const serialized = JSON.stringify(body);
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("x-sena-server-job-worker-contract")).toBe("pass");
-    expect(response.headers.get("x-sena-server-job-worker-ready")).toBe("true");
+    expect(response.status).toBe(503);
+    expect(response.headers.get("x-sena-server-job-worker-contract")).toBe("review");
+    expect(response.headers.get("x-sena-server-job-worker-ready")).toBe("false");
+    expect(response.headers.get("x-sena-server-job-worker-heartbeat")).toBe(
+      "same-process-status-store-self-test-confirmed"
+    );
+    expect(response.headers.get("x-sena-server-job-worker-status-store-self-test")).toBe("confirmed");
+    expect(response.headers.get("x-sena-server-job-worker-external-callback-receipt")).toBe("unsupported");
     expect(response.headers.get("x-sena-server-job-worker-url-values")).toBe("excluded");
     expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs-worker-contract");
     expect(body.schemaVersion).toBe("sena-enterprise-server-job-worker-contract/v1");
-    expect(body.productionReady).toBe(true);
+    expect(body.productionReady).toBe(false);
     expect(body.access?.mode).toBe("bearer");
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena.example.test/api/sena/ops/jobs");
@@ -182,7 +204,7 @@ describe("SENA server job worker contract", () => {
     expect(serialized).not.toContain("sena-test-job-secret");
   });
 
-  it("keeps the worker heartbeat under review without production callback ownership prerequisites", async () => {
+  it("keeps the status-store self-test under review when the indexed Postgres store is absent", async () => {
     process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
     process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
     process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
@@ -193,22 +215,35 @@ describe("SENA server job worker contract", () => {
 
     expect(heartbeat.schemaVersion).toBe("sena-enterprise-server-job-worker-heartbeat/v1");
     expect(heartbeat.status).toBe("review");
+    expect(heartbeat.proof).toEqual({
+      scope: "same-process-status-store-cas-self-test",
+      sameProcessStatusStoreCasOnly: true,
+      managedQueueDispatchObserved: false,
+      externalWorkerExecutionObserved: false,
+      authenticatedExternalCallbackObserved: false,
+      productionWorkerReadinessEligible: false
+    });
     expect(heartbeat.heartbeat.writeReadConfirmed).toBe(false);
     expect(heartbeat.heartbeat.syntheticUserDataIncluded).toBe(false);
     expect(heartbeat.missing).toEqual(expect.arrayContaining([
-      "SENA_ENTERPRISE_STATE_STORE=postgres with configured Postgres adapter",
-      "SENA_JOB_WORKER_RUNTIME",
-      "SENA_JOB_WORKER_CALLBACK_URL",
-      "SENA_JOB_WORKER_RUNBOOK_URL",
-      "SENA_JOB_WORKER_OWNER or SENA_ALERTING_OWNER"
+      "SENA_ENTERPRISE_STATE_STORE=postgres with configured Postgres adapter"
     ]));
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena-test-job-secret");
   });
 
-  it("passes a fully configured synthetic heartbeat through the indexed status store", async () => {
+  it("passes the same-process self-test through the indexed store without claiming external configuration", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-worker-heartbeat-pass-"));
     configureWorkerContractEnv(enterpriseDbDir);
+    for (const name of [
+      "SENA_JOB_QUEUE_ADAPTER",
+      "SENA_JOB_QUEUE_URL",
+      "SENA_JOB_QUEUE_SECRET",
+      "SENA_JOB_WORKER_RUNTIME",
+      "SENA_JOB_WORKER_CALLBACK_URL",
+      "SENA_JOB_WORKER_RUNBOOK_URL",
+      "SENA_JOB_WORKER_OWNER"
+    ]) delete process.env[name];
     const pg = new RouteMemoryPostgres();
     vi.doMock("pg", () => ({
       Pool: class FakePool {
@@ -228,12 +263,27 @@ describe("SENA server job worker contract", () => {
 
     expect(heartbeat).toEqual(expect.objectContaining({
       status: "pass",
+      proof: {
+        scope: "same-process-status-store-cas-self-test",
+        sameProcessStatusStoreCasOnly: true,
+        managedQueueDispatchObserved: false,
+        externalWorkerExecutionObserved: false,
+        authenticatedExternalCallbackObserved: false,
+        productionWorkerReadinessEligible: false
+      },
       heartbeat: expect.objectContaining({
         finalStatus: "succeeded",
         attempts: 1,
         writeReadConfirmed: true
       }),
       missing: []
+    }));
+    expect(heartbeat.provider.queueProductionReady).toBe(false);
+    expect(heartbeat.worker).toEqual(expect.objectContaining({
+      runtime: "not-configured",
+      ownerConfigured: false,
+      callbackConfigured: false,
+      runbookConfigured: false
     }));
     expect(stored).toEqual(expect.objectContaining({
       kind: "analysis",
@@ -277,6 +327,11 @@ describe("SENA server job worker contract", () => {
 
     expect(response.status).toBe(503);
     expect(response.headers.get("x-sena-server-job-worker-heartbeat")).toBe("review");
+    expect(response.headers.get("x-sena-server-job-worker-heartbeat-proof-scope")).toBe(
+      "same-process-status-store-cas-self-test"
+    );
+    expect(response.headers.get("x-sena-server-job-worker-heartbeat-external-callback-observed")).toBe("false");
+    expect(response.headers.get("x-sena-server-job-worker-heartbeat-production-ready-eligible")).toBe("false");
     expect(response.headers.get("x-sena-server-job-worker-heartbeat-url-values")).toBe("excluded");
     expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs-worker-heartbeat");
     expect(body.schemaVersion).toBe("sena-enterprise-server-job-worker-heartbeat/v1");

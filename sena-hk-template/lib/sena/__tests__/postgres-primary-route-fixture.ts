@@ -66,6 +66,29 @@ export class RouteMemoryPostgres {
     return false;
   }
 
+  serverJobIsSyntheticWorkerHeartbeat(record: Record<string, unknown>) {
+    const summary = record.payload_summary as Record<string, unknown> | undefined;
+    const worker = record.worker as Record<string, unknown> | undefined;
+    return record.kind === "analysis" &&
+      typeof record.id === "string" && /^server_job_worker_heartbeat_[a-f0-9]{24}$/.test(record.id) &&
+      record.team_id === "ops-heartbeat" &&
+      record.project_id === "worker-heartbeat" &&
+      record.actor_user_id === "ops-heartbeat" &&
+      typeof record.payload_sha256 === "string" && /^[a-f0-9]{64}$/.test(record.payload_sha256) &&
+      summary?.commandCustody === "synthetic-heartbeat-v1" &&
+      summary.commandEnvelopeUploadId === undefined &&
+      summary.commandEnvelopeSha256 === undefined &&
+      summary.source === "project" &&
+      summary.projectVersion === 1 &&
+      summary.hasInlineSnapshot === false &&
+      summary.hasInlineDataset === false &&
+      summary.payloadValuesExcluded === true &&
+      worker?.expectedAction === "run-analysis" &&
+      worker.payloadDelivery === "project-pointer" &&
+      worker.execution === "external-worker-required" &&
+      worker.statusCallback === "/api/sena/ops/jobs";
+  }
+
   serverJobRowsForSql(sql: string, values: unknown[]) {
     if (/WHERE id = \$1 LIMIT 1/i.test(sql)) {
       return this.serverJobs.filter((record) => record.id === values[0]);
@@ -100,6 +123,9 @@ export class RouteMemoryPostgres {
       });
     } else if (/delivery->'?sourceReady'?/i.test(sql) || /delivery \? 'sourceReady'/i.test(sql)) {
       rows = rows.filter((record) => this.serverJobSourceReady(record));
+    }
+    if (/sena-exclude-synthetic-worker-heartbeat/i.test(sql)) {
+      rows = rows.filter((record) => !this.serverJobIsSyntheticWorkerHeartbeat(record));
     }
     return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
   }

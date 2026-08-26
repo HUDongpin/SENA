@@ -372,13 +372,13 @@ export function buildEnterpriseProductionPerformancePath(input: {
         "statusStoreRequired=postgres-indexed-table"
       ],
       nextAction: queueReady
-        ? "Route heavy analysis/export jobs through the managed queue, keep worker heartbeat evidence current, require worker status callbacks, and monitor retry/dead-letter counts from the indexed Postgres job table."
+        ? "Route heavy analysis/export jobs through the managed queue, retain a nonce-bound external-worker authenticated callback receipt, and monitor retry/dead-letter counts from the indexed Postgres job table."
         : !queueStatus.productionReady
           ? "Configure SENA_JOB_QUEUE_ADAPTER=managed, webhook, or qstash plus the required destination URL, SENA_JOB_QUEUE_SECRET, and provider token before allowing concurrent heavy analysis/export workloads."
           : !queueStatusStoreReady
             ? "Set SENA_ENTERPRISE_STATE_STORE=postgres with the configured Postgres adapter so server job status moves from enterprise-db.serverJobs into the indexed Postgres job table."
             : !workerContract.productionReady
-              ? "Complete /api/sena/ops/jobs/worker-contract evidence with worker runtime, callback URL, owner, runbook, and heartbeat artifact before allowing concurrent heavy analysis/export workloads."
+              ? "Keep concurrent heavy analysis/export workloads blocked until a nonce-bound managed-queue to external-worker authenticated callback receipt exists; the same-process status-store self-test is insufficient."
               : workerContractArtifact.required && !workerContractArtifact.confirmed
                 ? "Run npm run sena:jobs:worker-contract, archive the redacted worker contract artifact, and set SENA_JOB_WORKER_CONTRACT_CONFIRMED with SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256, SENA_JOB_WORKER_CONTRACT_VERIFIED_AT, and SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION=pass before relying on live queue probe evidence."
                 : queueContract.required && !queueContract.confirmed

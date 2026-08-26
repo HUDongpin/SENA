@@ -408,7 +408,7 @@ function projectSnapshot() {
 const enterpriseGoLiveTestTimeoutMs = 180_000;
 
 describe("SENA enterprise go-live production release", () => {
-  it("reaches ready after SaaS approval, platform acceptance, native adapter certification, and verifier evidence", async () => {
+  it("reaches ready after all evidence including a simulated authenticated external-worker callback receipt", async () => {
     const envSnapshot = snapshotEnv();
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-go-live-"));
     const pg = new RouteMemoryPostgres();
@@ -425,6 +425,48 @@ describe("SENA enterprise go-live production release", () => {
         }
       }
     }));
+    // This long-form test exercises the downstream ready/attestation lifecycle.
+    // Production code deliberately has no implementation for this receipt yet;
+    // the focused worker-contract tests assert that the real runtime stays
+    // review. Here only, simulate the future independently validated receipt so
+    // the rest of the release-state machine remains covered.
+    vi.doMock("../enterprise/server-job-worker-contract", async () => {
+      const actual = await vi.importActual<typeof import("../enterprise/server-job-worker-contract")>(
+        "../enterprise/server-job-worker-contract"
+      );
+      return {
+        ...actual,
+        getEnterpriseServerJobWorkerContract: () => {
+          const contract = actual.getEnterpriseServerJobWorkerContract();
+          return {
+            ...contract,
+            status: "pass" as const,
+            productionReady: true,
+            worker: {
+              ...contract.worker,
+              externalWorkerCallbackReceiptSupported: true,
+              externalWorkerCallbackReceiptConfirmed: true,
+              externalWorkerCallbackReceiptSha256: "4".repeat(64),
+              externalWorkerCallbackReceiptVerifiedAt: new Date().toISOString()
+            },
+            missing: []
+          };
+        },
+        serverJobWorkerContractReadiness: () => {
+          const readiness = actual.serverJobWorkerContractReadiness();
+          return {
+            ...readiness,
+            confirmed: true,
+            evidence: [
+              ...readiness.evidence,
+              "serverJobWorkerExternalCallbackReceiptSupported=true",
+              "serverJobWorkerExternalCallbackReceiptConfirmed=true",
+              "serverJobWorkerExternalCallbackReceiptTestFixture=simulated"
+            ]
+          };
+        }
+      };
+    });
 
     try {
       const enterprise = await import("../enterprise");
@@ -1305,6 +1347,7 @@ describe("SENA enterprise go-live production release", () => {
       restoreEnv(envSnapshot);
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.doUnmock("pg");
+      vi.doUnmock("../enterprise/server-job-worker-contract");
       vi.resetModules();
     }
   }, enterpriseGoLiveTestTimeoutMs);

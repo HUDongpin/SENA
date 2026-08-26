@@ -599,7 +599,7 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.responses)
       .toContain("sena-enterprise-server-job-worker-contract/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.request ?? "")
-      .toContain("SENA_JOB_WORKER_HEARTBEAT_CONFIRMED=1");
+      .toContain("nonce-bound managed-queue-to-external-worker authenticated callback receipt");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.responses)
       .toContain("sena-enterprise-server-job-worker-heartbeat/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.request ?? "")

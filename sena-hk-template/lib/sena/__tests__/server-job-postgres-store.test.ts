@@ -791,21 +791,91 @@ describe("SENA server job Postgres store", () => {
         payloadValuesExcluded: true
       }
     });
-    const unmarked = await enqueue("project_postgres_unmarked");
-    const strippedCurrent = await enqueue("project_postgres_stripped_current");
-    const unmarkedRow = pg.serverJobs.find((row) => row.id === unmarked.id)!;
-    const strippedRow = pg.serverJobs.find((row) => row.id === strippedCurrent.id)!;
-    delete (unmarkedRow.payload_summary as Record<string, unknown>).commandCustody;
-    Object.assign(strippedRow.payload_summary as Record<string, unknown>, {
-      commandCustody: "encrypted-upload-v1"
-    });
-    delete (strippedRow.payload_summary as Record<string, unknown>).commandEnvelopeUploadId;
-    delete (strippedRow.payload_summary as Record<string, unknown>).commandEnvelopeSha256;
+    const variants: Array<{
+      name: string;
+      mutate: (summary: Record<string, unknown>) => void;
+    }> = [
+      { name: "unmarked", mutate: (summary) => { delete summary.commandCustody; } },
+      {
+        name: "current-missing-upload-id",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          delete summary.commandEnvelopeUploadId;
+          summary.commandEnvelopeSha256 = "a".repeat(64);
+        }
+      },
+      {
+        name: "current-missing-sha",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = `upload_${"a".repeat(24)}`;
+          delete summary.commandEnvelopeSha256;
+        }
+      },
+      {
+        name: "current-missing-both",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          delete summary.commandEnvelopeUploadId;
+          delete summary.commandEnvelopeSha256;
+        }
+      },
+      {
+        name: "current-null-upload-id",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = null;
+          summary.commandEnvelopeSha256 = "a".repeat(64);
+        }
+      },
+      {
+        name: "current-null-sha",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = `upload_${"a".repeat(24)}`;
+          summary.commandEnvelopeSha256 = null;
+        }
+      },
+      {
+        name: "current-wrong-types",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = 17;
+          summary.commandEnvelopeSha256 = ["a".repeat(64)];
+        }
+      },
+      {
+        name: "current-malformed",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = "upload_not_hex";
+          summary.commandEnvelopeSha256 = "not-a-sha";
+        }
+      },
+      {
+        name: "partial-synthetic",
+        mutate: (summary) => {
+          summary.commandCustody = "synthetic-heartbeat-v1";
+          delete summary.commandEnvelopeUploadId;
+          delete summary.commandEnvelopeSha256;
+        }
+      }
+    ];
+    const jobs = [];
+    for (const variant of variants) {
+      const job = await enqueue(`project_postgres_${variant.name}`);
+      jobs.push(job);
+      variant.mutate(pg.serverJobs.find((row) => row.id === job.id)!.payload_summary as Record<string, unknown>);
+    }
 
     const report = await worker.drainEnterpriseServerJobQueue({ kind: "analysis", limit: 10 });
 
-    expect(report).toEqual(expect.objectContaining({ scanned: 2, failed: 2, succeeded: 0 }));
-    for (const jobId of [unmarked.id, strippedCurrent.id]) {
+    expect(report).toEqual(expect.objectContaining({
+      scanned: variants.length,
+      failed: variants.length,
+      succeeded: 0
+    }));
+    for (const jobId of jobs.map((job) => job.id)) {
       await expect(queue.getEnterpriseServerJob(jobId)).resolves.toEqual(expect.objectContaining({
         status: "failed",
         lifecycle: expect.objectContaining({
@@ -815,6 +885,12 @@ describe("SENA server job Postgres store", () => {
         })
       }));
     }
-    expect(pg.queries.some((query) => /sena-analysis-custody-quarantine/i.test(query))).toBe(true);
+    const quarantineQueries = pg.queries.filter((query) => /sena-analysis-custody-quarantine/i.test(query));
+    expect(quarantineQueries.length).toBeGreaterThan(0);
+    expect(quarantineQueries.every((query) => /COALESCE\s*\(\s*\(\s*CASE/i.test(query))).toBe(true);
+    expect(quarantineQueries.every((query) => /IS NOT TRUE/i.test(query))).toBe(true);
+    expect(pg.queries.some((query) => (
+      /claimable/i.test(query) && /COALESCE\s*\(\s*\(\s*CASE/i.test(query) && /IS TRUE/i.test(query)
+    ))).toBe(true);
   });
 });

@@ -34,6 +34,7 @@ import {
   webhookUrlFromEnv
 } from "./webhook-delivery";
 import {
+  enterpriseServerJobIsSyntheticWorkerHeartbeat,
   enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
   enterpriseServerJobRequiresAnalysisCustodyQuarantine,
   projectEnterpriseServerJobReadModel
@@ -222,6 +223,14 @@ export type SenaEnterpriseServerJobWorkerHeartbeat = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat;
   generatedAt: string;
   status: "pass" | "review";
+  proof: {
+    scope: "same-process-status-store-cas-self-test";
+    sameProcessStatusStoreCasOnly: true;
+    managedQueueDispatchObserved: false;
+    externalWorkerExecutionObserved: false;
+    authenticatedExternalCallbackObserved: false;
+    productionWorkerReadinessEligible: false;
+  };
   provider: {
     queueMode: SenaEnterpriseServerJobQueueMode;
     queueConfigured: boolean;
@@ -1664,6 +1673,7 @@ export async function listEnterpriseServerJobs(input: {
   limit?: number;
   claimableOnly?: boolean;
   analysisCustodyQuarantineOnly?: boolean;
+  excludeSyntheticWorkerHeartbeat?: boolean;
   callerScope?: SenaEnterpriseServerJobCallerScope;
 } = {}): Promise<SenaEnterpriseServerJobList> {
   // Resolved before either store is touched: a scoped caller's team is not an
@@ -1678,6 +1688,8 @@ export async function listEnterpriseServerJobs(input: {
   const allJobs = sortServerJobs((state.db.serverJobs ?? [])
     .filter((job) => !input.analysisCustodyQuarantineOnly ||
       enterpriseServerJobRequiresAnalysisCustodyQuarantine(job))
+    .filter((job) => !input.excludeSyntheticWorkerHeartbeat ||
+      !enterpriseServerJobIsSyntheticWorkerHeartbeat(job))
     .map((job) => projectEnterpriseServerJobReadModel(job))
     .filter((job) => !input.status || job.status === input.status)
     .filter((job) => !input.claimableOnly || job.delivery.sourceReady === true)
@@ -2283,12 +2295,9 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     runbookUrlValueExcluded: true as const
   };
   const missing = [
-    queue.productionReady ? null : "SENA_JOB_QUEUE_ADAPTER=managed, webhook, or qstash with a destination URL, SENA_JOB_QUEUE_SECRET, and any provider token required by the adapter",
-    store.activeStore === "postgres-table" ? null : "SENA_ENTERPRISE_STATE_STORE=postgres with configured Postgres adapter",
-    runtime !== "not-configured" ? null : "SENA_JOB_WORKER_RUNTIME",
-    callbackUrlHash ? null : "SENA_JOB_WORKER_CALLBACK_URL",
-    runbookUrlHash ? null : "SENA_JOB_WORKER_RUNBOOK_URL",
-    ownerConfigured ? null : "SENA_JOB_WORKER_OWNER or SENA_ALERTING_OWNER"
+    store.activeStore === "postgres-table"
+      ? null
+      : "SENA_ENTERPRISE_STATE_STORE=postgres with configured Postgres adapter"
   ].filter((value): value is string => Boolean(value));
   const baseEvidence = [
     ...queue.evidence,
@@ -2298,7 +2307,12 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     `workerCallback=${callbackUrlHash ? "configured" : "missing"}`,
     `workerRunbook=${runbookUrlHash ? "configured" : "missing"}`,
     "workerHeartbeatPayload=synthetic-no-user-data",
-    "workerHeartbeatStatusCallback=/api/sena/ops/jobs",
+    "workerHeartbeatProofScope=same-process-status-store-cas-self-test",
+    "workerHeartbeatManagedQueueDispatchObserved=false",
+    "workerHeartbeatExternalWorkerExecutionObserved=false",
+    "workerHeartbeatAuthenticatedExternalCallbackObserved=false",
+    "workerHeartbeatProductionWorkerReadinessEligible=false",
+    "workerHeartbeatDirectStatusTransitionTarget=/api/sena/ops/jobs",
     "workerHeartbeatRawValues=excluded"
   ];
   const baseHeartbeat = {
@@ -2317,12 +2331,21 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
     endpointValuesExcluded: true as const,
     secretValuesExcluded: true as const
   };
+  const proof = {
+    scope: "same-process-status-store-cas-self-test" as const,
+    sameProcessStatusStoreCasOnly: true as const,
+    managedQueueDispatchObserved: false as const,
+    externalWorkerExecutionObserved: false as const,
+    authenticatedExternalCallbackObserved: false as const,
+    productionWorkerReadinessEligible: false as const
+  };
 
   if (missing.length > 0) {
     return {
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat,
       generatedAt,
       status: "review",
+      proof,
       provider,
       statusStore,
       worker,
@@ -2418,6 +2441,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat,
       generatedAt,
       status: passed ? "pass" : "review",
+      proof,
       provider,
       statusStore,
       worker,
@@ -2441,7 +2465,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
         `workerHeartbeatAttempts=${finalJob.lifecycle.attempts}`,
         `workerHeartbeatWriteReadConfirmed=${passed}`
       ],
-      missing: passed ? [] : ["worker heartbeat final status did not reach succeeded"],
+      missing: passed ? [] : ["status-store CAS self-test final status did not reach succeeded"],
       redaction
     };
   } catch (error) {
@@ -2452,6 +2476,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerHeartbeat,
       generatedAt,
       status: "review",
+      proof,
       provider,
       statusStore,
       worker,
@@ -2470,7 +2495,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
         `workerHeartbeatErrorCode=${errorCode}`,
         "workerHeartbeatErrorHash=present"
       ],
-      missing: ["worker heartbeat status callback failed"],
+      missing: ["status-store CAS self-test transition failed"],
       redaction
     };
   }
