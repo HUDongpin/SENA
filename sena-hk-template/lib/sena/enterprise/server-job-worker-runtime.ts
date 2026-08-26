@@ -59,7 +59,6 @@ import { enterpriseServerJobHasDurableSourcePointer } from "./server-job-contrac
 import { readEnterpriseState } from "./state";
 import {
   createEnterpriseProjectAsync,
-  getEnterpriseProjectAsync,
   getEnterpriseProjectReadOnlyAsync,
   updateEnterpriseProjectAsync
 } from "./team-project";
@@ -211,6 +210,10 @@ async function workerSessionContext(job: SenaEnterpriseServerJob): Promise<SenaE
 
 function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
 }
 
 function uploadPointers(payload: Record<string, unknown>) {
@@ -504,22 +507,47 @@ async function queuedReliabilityReviewer(
   }
 }
 
-async function executeAnalysisJob(
+type SenaAnalysisJobAdmission = {
+  context: SenaEnterpriseSessionContext;
+  sourceProject: Awaited<ReturnType<typeof getEnterpriseProjectReadOnlyAsync>>;
+};
+
+async function admitAnalysisJob(
   job: SenaEnterpriseServerJob,
-  payload: Record<string, unknown>,
-  context: SenaEnterpriseSessionContext
-): Promise<SenaServerJobWorkerResult> {
-  const projectId = optionalString(payload.projectId) ?? job.projectId;
-  const sourceProject = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-  if (sourceProject && typeof payload.projectVersion === "number" && sourceProject.currentVersion !== payload.projectVersion) {
-    // The queued job named a specific project version. Running against a newer
-    // snapshot would silently return an analysis nobody asked for.
+  payload: Record<string, unknown>
+): Promise<SenaAnalysisJobAdmission> {
+  const projectId = optionalString(payload.projectId);
+  const teamId = optionalString(payload.teamId);
+  const projectVersion = payload.projectVersion;
+  const summaryVersion = job.payloadSummary.projectVersion;
+  if (!job.projectId || projectId !== job.projectId || teamId !== job.teamId ||
+    !isPositiveSafeInteger(projectVersion) || !isPositiveSafeInteger(summaryVersion) ||
+    projectVersion !== summaryVersion) {
+    throw new SenaEnterpriseError(
+      "The SENA analysis job project binding is incomplete or inconsistent.",
+      409,
+      "server_job_worker_project_binding_invalid"
+    );
+  }
+  const context = await workerSessionContext(job);
+  const sourceProject = await getEnterpriseProjectReadOnlyAsync(context, projectId);
+  if (sourceProject.teamId !== job.teamId || sourceProject.currentVersion !== projectVersion) {
     throw new SenaEnterpriseError(
       "The SENA project changed after this job was queued.",
       409,
       "server_job_worker_project_version_changed"
     );
   }
+  return { context, sourceProject };
+}
+
+async function executeAnalysisJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admission: SenaAnalysisJobAdmission
+): Promise<SenaServerJobWorkerResult> {
+  const { context, sourceProject } = admission;
+  const projectId = sourceProject.id;
 
   const body = {
     teamId: job.teamId,
@@ -537,12 +565,12 @@ async function executeAnalysisJob(
   const run = buildSenaAnalysisRun(buildSenaAnalysisRunRequestInput({ body, sourceProject }));
 
   const persist = payload.persist === true;
-  const updateExistingProject = persist && sourceProject && payload.updateProject !== false;
+  const updateExistingProject = persist && payload.updateProject !== false;
   const persistedProject = persist
-    ? updateExistingProject && sourceProject
+    ? updateExistingProject
       ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
         title: optionalString(payload.title),
-        expectedVersion: typeof payload.expectedVersion === "number" ? payload.expectedVersion : undefined,
+        expectedVersion: sourceProject.currentVersion,
         snapshot: run.projectSnapshot
       })
       : await createEnterpriseProjectAsync(context, {
@@ -555,7 +583,7 @@ async function executeAnalysisJob(
 
   const analysisRun = await createEnterpriseAnalysisRunWithPostgresMirrorAsync(context, {
     teamId: job.teamId,
-    projectId: sourceProject?.id,
+    projectId: sourceProject.id,
     persistedProjectId: persistedProject?.id,
     run
   });
@@ -599,10 +627,16 @@ async function executeReliabilityJob(
 async function executeByKind(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
-  options: { reliabilityAdmission?: SenaReliabilityJobAdmission } = {}
+  options: {
+    analysisAdmission?: SenaAnalysisJobAdmission;
+    reliabilityAdmission?: SenaReliabilityJobAdmission;
+  } = {}
 ): Promise<SenaServerJobWorkerResult> {
+  if (job.kind === "analysis") {
+    const admission = options.analysisAdmission ?? await admitAnalysisJob(job, payload);
+    return executeAnalysisJob(job, payload, admission);
+  }
   const context = await workerSessionContext(job);
-  if (job.kind === "analysis") return executeAnalysisJob(job, payload, context);
   if (job.kind === "import") return executeImportJob(job, payload, context);
   if (job.kind === "reliability") {
     const admission = options.reliabilityAdmission ?? await admitReliabilityJob(job, payload, context);
@@ -683,8 +717,16 @@ export async function runEnterpriseServerJob(input: {
 
   try {
     const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
+    let analysisAdmission: SenaAnalysisJobAdmission | undefined;
     let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
     let candidate = job;
+    if (job.kind === "analysis") {
+      try {
+        analysisAdmission = await admitAnalysisJob(job, payload);
+      } catch (error) {
+        return failedBeforeClaim(job, error);
+      }
+    }
     if (job.kind === "reliability") {
       // Cross-process contenders may repeat this bounded, read-only preflight,
       // but no contender mutates the job until its complete source universe is
@@ -705,7 +747,10 @@ export async function runEnterpriseServerJob(input: {
     if (!claim.claimed) return skipped(claim.job, claim.reason);
 
     try {
-      const result = await executeByKind(claim.job, payload, { reliabilityAdmission });
+      const result = await executeByKind(claim.job, payload, {
+        analysisAdmission,
+        reliabilityAdmission
+      });
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-succeeded",
@@ -770,14 +815,15 @@ async function reproduceAnalysisPayload(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
 ): Promise<Record<string, unknown> | undefined> {
-  if (!job.projectId) return undefined;
-  const project = await getEnterpriseProjectAsync(context, job.projectId).catch(() => null);
-  if (!project) return undefined;
+  const projectVersion = job.payloadSummary.projectVersion;
+  if (!job.projectId || !isPositiveSafeInteger(projectVersion)) return undefined;
+  const project = await getEnterpriseProjectReadOnlyAsync(context, job.projectId).catch(() => null);
+  if (!project || project.currentVersion !== projectVersion || project.teamId !== job.teamId) return undefined;
   return {
     action: "run-analysis",
     teamId: job.teamId,
     projectId: job.projectId,
-    projectVersion: job.payloadSummary.projectVersion,
+    projectVersion,
     title: project.title,
     activeTemporalWindowId: job.payloadSummary.activeTemporalWindowId,
     includeRuntimeBundle: job.payloadSummary.includeRuntimeBundle === true,

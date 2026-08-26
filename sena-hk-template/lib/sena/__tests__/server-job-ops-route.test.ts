@@ -47,10 +47,12 @@ describe("SENA server job ops route", () => {
       actorUserId: registered.context.user.id,
       payload: {
         action: "run-analysis",
-        projectId: "project_status_test"
+        projectId: "project_status_test",
+        projectVersion: 1
       },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true

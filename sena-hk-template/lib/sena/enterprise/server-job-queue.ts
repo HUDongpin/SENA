@@ -1676,7 +1676,9 @@ function updatedLifecycle(input: {
     lifecycle.retryable = input.job.provider.mode === "local" &&
       input.job.delivery.sourceReady === true &&
       lifecycle.attempts < lifecycle.maxAttempts;
-    if (!lifecycle.retryable) lifecycle.deadLetteredAt = input.timestamp;
+    lifecycle.deadLetteredAt = lifecycle.attempts >= lifecycle.maxAttempts
+      ? input.timestamp
+      : undefined;
   }
   if (input.action === "retry") {
     lifecycle.retryRequestedAt = input.timestamp;

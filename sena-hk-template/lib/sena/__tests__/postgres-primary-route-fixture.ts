@@ -33,7 +33,8 @@ export class RouteMemoryPostgres {
     const kind = record.kind;
     if (kind === "analysis" || kind === "validation") {
       return worker.payloadDelivery === "project-pointer" &&
-        typeof record.project_id === "string" && record.project_id.trim().length > 0;
+        typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
+        Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0;
     }
     const uploadIds = summary.uploadIds;
     const exactUploadIds = Array.isArray(uploadIds) && uploadIds.length > 0 && uploadIds.length <= 100 &&

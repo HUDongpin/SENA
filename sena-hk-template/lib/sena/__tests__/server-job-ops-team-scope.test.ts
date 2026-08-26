@@ -31,9 +31,10 @@ function jobPayload(teamId: string) {
     kind: "analysis" as const,
     teamId,
     projectId: `project_${teamId}`,
-    payload: { action: "run-analysis", projectId: `project_${teamId}` },
+    payload: { action: "run-analysis", projectId: `project_${teamId}`, projectVersion: 1 },
     payloadSummary: {
       source: "project",
+      projectVersion: 1,
       hasInlineSnapshot: false,
       hasInlineDataset: false,
       payloadValuesExcluded: true

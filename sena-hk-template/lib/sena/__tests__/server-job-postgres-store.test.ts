@@ -67,10 +67,12 @@ describe("SENA server job Postgres store", () => {
       actorUserId: "user_postgres_jobs",
       payload: {
         action: "run-analysis",
-        projectId: "project_postgres_jobs"
+        projectId: "project_postgres_jobs",
+        projectVersion: 1
       },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -96,9 +98,10 @@ describe("SENA server job Postgres store", () => {
       teamId: "team_postgres_jobs",
       projectId: "project_postgres_jobs_preparing",
       actorUserId: "user_postgres_jobs",
-      payload: { action: "run-analysis", projectId: "project_postgres_jobs_preparing" },
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_preparing", projectVersion: 1 },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -133,9 +136,10 @@ describe("SENA server job Postgres store", () => {
       teamId: "team_postgres_jobs",
       projectId: "project_postgres_jobs_source_failure",
       actorUserId: "user_postgres_jobs",
-      payload: { action: "run-analysis", projectId: "project_postgres_jobs_source_failure" },
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_source_failure", projectVersion: 1 },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -264,9 +268,10 @@ describe("SENA server job Postgres store", () => {
       teamId: "team_postgres_jobs",
       projectId: "project_postgres_jobs_unclaimed",
       actorUserId: "user_postgres_jobs",
-      payload: { action: "run-analysis", projectId: "project_postgres_jobs_unclaimed" },
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_unclaimed", projectVersion: 1 },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -301,9 +306,10 @@ describe("SENA server job Postgres store", () => {
       teamId: "team_postgres_jobs",
       projectId: "project_postgres_jobs_race",
       actorUserId: "user_postgres_jobs",
-      payload: { action: "run-analysis", projectId: "project_postgres_jobs_race" },
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_race", projectVersion: 1 },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -323,14 +329,61 @@ describe("SENA server job Postgres store", () => {
       /RETURNING \*/i.test(query)
     ))).toBe(true);
 
+    const managedFailureJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_managed_failure",
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_jobs_managed_failure",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const managedFailureRow = pg.serverJobs.find((row) => row.id === managedFailureJob.id)!;
+    managedFailureRow.provider = {
+      ...(managedFailureRow.provider as Record<string, unknown>),
+      mode: "managed"
+    };
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: managedFailureJob.id,
+      workerRunId: "worker_run_pg_managed_failure"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    const managedFailure = await serverJobs.updateEnterpriseServerJobStatus({
+      jobId: managedFailureJob.id,
+      action: "mark-failed",
+      workerRunId: "worker_run_pg_managed_failure",
+      errorCode: "managed-first-failure"
+    });
+    expect(managedFailure.job).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 1, retryable: false })
+    }));
+    expect(managedFailure.job.lifecycle.deadLetteredAt).toBeUndefined();
+    expect((pg.serverJobs.find((row) => row.id === managedFailureJob.id)?.lifecycle as {
+      deadLetteredAt?: string;
+    }).deadLetteredAt).toBeUndefined();
+
     const enqueueLegacyProjectJob = (suffix: string) => enterprise.enqueueEnterpriseServerJob({
       kind: "analysis" as const,
       teamId: "team_postgres_jobs",
       projectId: `project_postgres_jobs_legacy_${suffix}`,
       actorUserId: "user_postgres_jobs",
-      payload: { action: "run-analysis", projectId: `project_postgres_jobs_legacy_${suffix}` },
+      payload: {
+        action: "run-analysis",
+        projectId: `project_postgres_jobs_legacy_${suffix}`,
+        projectVersion: 1
+      },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -351,6 +404,16 @@ describe("SENA server job Postgres store", () => {
       enqueueLegacyProjectJob("missing-upload"),
       enqueueLegacyProjectJob("normalized-duplicate-upload")
     ]);
+    const invalidProjectVersions: Array<[string, unknown]> = [
+      ["missing-version", undefined],
+      ["string-version", "1"],
+      ["fraction-version", 1.5],
+      ["zero-version", 0],
+      ["unsafe-version", Number.MAX_SAFE_INTEGER + 1]
+    ];
+    const invalidVersionJobs = await Promise.all(
+      invalidProjectVersions.map(([suffix]) => enqueueLegacyProjectJob(suffix))
+    );
     const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
     const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
     const invalidStringRow = pg.serverJobs.find((row) => row.id === invalidString.id)!;
@@ -359,6 +422,19 @@ describe("SENA server job Postgres store", () => {
     const legacyNormalizedDuplicateUploadRow = pg.serverJobs.find((row) => (
       row.id === legacyNormalizedDuplicateUpload.id
     ))!;
+    for (const [index, [, projectVersion]] of invalidProjectVersions.entries()) {
+      const row = pg.serverJobs.find((candidate) => candidate.id === invalidVersionJobs[index].id)!;
+      if (projectVersion === undefined) {
+        delete (row.payload_summary as { projectVersion?: unknown }).projectVersion;
+      } else {
+        (row.payload_summary as { projectVersion?: unknown }).projectVersion = projectVersion;
+      }
+      row.delivery = {
+        ...(row.delivery as Record<string, unknown>),
+        webhookStatus: "delivered",
+        sourceReady: true
+      };
+    }
     delete (deliveredRow.delivery as { sourceReady?: unknown }).sourceReady;
     pendingRow.delivery = {
       ...(pendingRow.delivery as Record<string, unknown>),
@@ -435,6 +511,9 @@ describe("SENA server job Postgres store", () => {
     expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(
       legacyNormalizedDuplicateUpload.id
     );
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toEqual(
+      expect.arrayContaining(invalidVersionJobs.map((candidate) => candidate.id))
+    );
     await expect(serverJobs.claimEnterpriseServerJob({
       jobId: legacyDelivered.id,
       workerRunId: "worker_run_pg_legacy_delivered"
@@ -444,7 +523,8 @@ describe("SENA server job Postgres store", () => {
       invalidString.id,
       legacyInline.id,
       legacyMissingUpload.id,
-      legacyNormalizedDuplicateUpload.id
+      legacyNormalizedDuplicateUpload.id,
+      ...invalidVersionJobs.map((candidate) => candidate.id)
     ]) {
       await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
         expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
@@ -464,7 +544,10 @@ describe("SENA server job Postgres store", () => {
       /payload_summary->'hasInlineSnapshot' = 'false'::jsonb/i.test(query) &&
       /payload_summary->'hasInlineDataset' = 'false'::jsonb/i.test(query) &&
       /worker->>'payloadDelivery'/i.test(query) &&
-      /kind IN \('analysis', 'validation'\)/i.test(query)
+      /kind IN \('analysis', 'validation'\)/i.test(query) &&
+      /jsonb_typeof\(payload_summary->'projectVersion'\) IS DISTINCT FROM 'number'/i.test(query) &&
+      /9007199254740991/i.test(query) &&
+      /trunc\(\(payload_summary->>'projectVersion'\)::numeric\)/i.test(query)
     ))).toBe(true);
 
     expect(pg.queries.some((query) => (

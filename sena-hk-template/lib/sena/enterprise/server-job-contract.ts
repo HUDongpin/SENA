@@ -16,6 +16,10 @@ function isNonemptyString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isPositiveSafeInteger(value: unknown) {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
 function isExactUploadPointerArray(value: unknown) {
   if (!Array.isArray(value)) return false;
   const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
@@ -73,7 +77,8 @@ export function enterpriseServerJobHasDurableSourcePointer(
   if (job.kind === "analysis" || job.kind === "validation") {
     return ownDataValue(summary, "source") === "project" &&
       ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
-      isNonemptyString(job.projectId);
+      isNonemptyString(job.projectId) &&
+      isPositiveSafeInteger(ownDataValue(summary, "projectVersion"));
   }
 
   if (job.kind === "import" || job.kind === "reliability") {

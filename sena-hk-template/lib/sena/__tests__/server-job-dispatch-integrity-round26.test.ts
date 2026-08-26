@@ -9,6 +9,7 @@ const envNames = [
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
+  "SENA_JOB_QUEUE_MAX_ATTEMPTS",
   "SENA_JOB_QUEUE_URL",
   "SENA_JOB_QUEUE_SECRET"
 ];
@@ -370,6 +371,37 @@ describe("SENA server-job dispatch integrity round 26", () => {
     });
   });
 
+  it("keeps a first managed worker failure non-retryable without falsely dead-lettering it", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-managed-first-failure-"));
+    cleanupDirs.push(dbDir);
+    configureManagedQueue(dbDir);
+    process.env.SENA_JOB_QUEUE_MAX_ATTEMPTS = "3";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("accepted", { status: 202 })));
+    const queue = await import("../enterprise/server-job-queue");
+    const job = await queue.enqueueEnterpriseServerJob(queueInput());
+
+    await queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "round26-managed-first-owner"
+    });
+    const failed = await queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "round26-managed-first-owner",
+      errorCode: "managed-first-failure"
+    });
+
+    expect(failed.job.status).toBe("failed");
+    expect(failed.job.lifecycle).toEqual(expect.objectContaining({
+      attempts: 1,
+      maxAttempts: 3,
+      retryable: false,
+      lastErrorCode: "managed-first-failure"
+    }));
+    expect(failed.job.lifecycle.deadLetteredAt).toBeUndefined();
+  });
+
   it("runs source persistence only after the job is durable and never dispatches when it fails", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-source-failure-"));
     cleanupDirs.push(dbDir);
@@ -471,6 +503,62 @@ describe("SENA server-job dispatch integrity round 26", () => {
       await expect(queue.claimEnterpriseServerJob({
         jobId,
         workerRunId: `round26-legacy-blocked-${jobId}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
+  });
+
+  it("quarantines project pointers whose immutable projectVersion is not a positive safe integer", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-project-version-custody-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const state = await import("../enterprise/state");
+    const variants: Array<[string, unknown]> = [
+      ["missing", undefined],
+      ["string", "7"],
+      ["fraction", 7.5],
+      ["zero", 0],
+      ["unsafe", Number.MAX_SAFE_INTEGER + 1]
+    ];
+    const jobs: Array<Awaited<ReturnType<typeof queue.enqueueEnterpriseServerJob>>> = [];
+    for (const [suffix] of variants) {
+      const projectId = `project_round26_version_${suffix}`;
+      jobs.push(await queue.enqueueEnterpriseServerJob({
+        ...queueInput(),
+        projectId,
+        payload: {
+          ...queueInput().payload,
+          projectId
+        }
+      }));
+    }
+    const db = state.readEnterpriseDb();
+    for (const [index, [, projectVersion]] of variants.entries()) {
+      const stored = db.serverJobs.find((candidate) => candidate.id === jobs[index].id)!;
+      if (projectVersion === undefined) {
+        delete (stored.payloadSummary as { projectVersion?: unknown }).projectVersion;
+      } else {
+        (stored.payloadSummary as { projectVersion?: unknown }).projectVersion = projectVersion;
+      }
+    }
+    state.saveDb(db);
+
+    const claimable = await queue.listEnterpriseServerJobs({ claimableOnly: true, limit: 100 });
+    expect(claimable.jobs.map((candidate) => candidate.id)).not.toEqual(
+      expect.arrayContaining(jobs.map((candidate) => candidate.id))
+    );
+    for (const job of jobs) {
+      await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+        status: "queued",
+        delivery: expect.objectContaining({ sourceReady: false }),
+        lifecycle: expect.objectContaining({ attempts: 0 })
+      }));
+      await expect(queue.claimEnterpriseServerJob({
+        jobId: job.id,
+        workerRunId: `round26-invalid-version-${job.id}`
       })).resolves.toEqual(expect.objectContaining({
         claimed: false,
         reason: "server_job_worker_source_not_ready"

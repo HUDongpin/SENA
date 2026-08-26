@@ -3433,6 +3433,15 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         )
     END
   )`;
+  const exactProjectVersionSql = `(
+    CASE
+      WHEN jsonb_typeof(payload_summary->'projectVersion') IS DISTINCT FROM 'number' THEN false
+      ELSE
+        (payload_summary->>'projectVersion')::numeric BETWEEN 1 AND 9007199254740991
+        AND trunc((payload_summary->>'projectVersion')::numeric) =
+          (payload_summary->>'projectVersion')::numeric
+    END
+  )`;
   const claimableSourceSql = `(
     ${claimableDeliverySql}
     AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
@@ -3443,6 +3452,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         AND worker->>'payloadDelivery' = 'project-pointer'
         AND project_id IS NOT NULL
         AND btrim(project_id) <> ''
+        AND ${exactProjectVersionSql}
       WHEN kind IN ('import', 'reliability') THEN
         worker->>'payloadDelivery' = 'upload-pointer'
         AND ${exactUploadPointersSql}
