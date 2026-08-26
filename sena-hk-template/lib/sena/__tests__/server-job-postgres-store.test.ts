@@ -232,6 +232,78 @@ describe("SENA server job Postgres store", () => {
       })
     ]));
 
+    const index = await import("../index");
+    const custodyOwner = await enterprise.registerEnterpriseUserAsync({
+      name: "Postgres custody owner",
+      email: "postgres-custody-owner@example.edu",
+      password: "sena-secure-123",
+      organization: "Postgres custody lab",
+      plan: "lab"
+    });
+    const custodyProject = await enterprise.createEnterpriseProjectAsync(custodyOwner.context, {
+      teamId: custodyOwner.context.teams[0].id,
+      title: "Postgres corrupt-custody source",
+      snapshot: index.buildSenaProjectSnapshot(index.buildSenaModel(index.lessonStudySenaContract), {
+        title: "Postgres corrupt-custody source",
+        generatedAt: "2026-08-26T00:00:00.000Z",
+        sourceDataset: index.lessonStudySenaContract
+      })
+    });
+    const corruptCustodyJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: custodyProject.teamId,
+      projectId: custodyProject.id,
+      actorUserId: custodyOwner.context.user.id,
+      payload: {
+        action: "run-analysis",
+        commandCustody: "encrypted-upload-v1",
+        teamId: custodyProject.teamId,
+        projectId: custodyProject.id,
+        projectVersion: custodyProject.currentVersion,
+        sourceTitle: custodyProject.title,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: custodyProject.currentVersion,
+        commandCustody: "encrypted-upload-v1",
+        commandEnvelopeUploadId: "upload_aaaaaaaaaaaaaaaaaaaaaaaa",
+        commandEnvelopeSha256: "b".repeat(64),
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const corruptCustodyClaim = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: corruptCustodyJob.id,
+        workerRunId: "worker_run_pg_corrupt_custody"
+      })
+    }));
+    const corruptCustodyClaimBody = await corruptCustodyClaim.json();
+    expect(corruptCustodyClaim.status, JSON.stringify(corruptCustodyClaimBody)).toBe(409);
+    expect(corruptCustodyClaimBody).toEqual(expect.objectContaining({
+      code: "server_job_worker_analysis_command_custody_invalid"
+    }));
+    await expect(serverJobs.getEnterpriseServerJob(corruptCustodyJob.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      })
+    );
+
     await expect(serverJobs.updateEnterpriseServerJobStatus({
       jobId: job.id,
       action: "mark-failed",

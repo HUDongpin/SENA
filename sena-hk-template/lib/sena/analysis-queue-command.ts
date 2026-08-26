@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE = "analysis-command-envelope";
 export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_NAME = "queued-analysis-command.json";
 export const SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY = "encrypted-upload-v1";
+export const SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY = "legacy-inline-v2";
 
 const analysisCommandEnvelopeFormat = "sena-analysis-queue-command";
 const analysisCommandEnvelopeVersion = 1;

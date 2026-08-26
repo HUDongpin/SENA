@@ -1,5 +1,9 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import {
+  SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+} from "../analysis-queue-command";
 import { requireEnterprisePermission, type SenaEnterpriseRole } from "./access-control";
 import { recordEnterpriseUploadWarningCountsAsync } from "./import-analysis";
 import { SenaEnterpriseError } from "./errors";
@@ -277,7 +281,7 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   uploadIds?: string[];
   reviewerEnvelopeUploadId?: string;
   reviewerEnvelopeSha256?: string;
-  commandCustody?: "encrypted-upload-v1";
+  commandCustody?: "encrypted-upload-v1" | "legacy-inline-v2";
   commandEnvelopeUploadId?: string;
   commandEnvelopeSha256?: string;
   annotationCount?: number;
@@ -1051,6 +1055,64 @@ function serverJobPayloadHasInlineSource(payload: unknown) {
   ].some((key) => Object.hasOwn(record, key) && record[key] !== undefined);
 }
 
+function normalizedAnalysisPayloadSummary(input: {
+  payload: unknown;
+  payloadSummary: SenaEnterpriseServerJobPayloadSummary;
+}): SenaEnterpriseServerJobPayloadSummary {
+  const payload = input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)
+    ? input.payload as Record<string, unknown>
+    : undefined;
+  const payloadCustody = payload?.commandCustody;
+  const summaryCustody = input.payloadSummary.commandCustody;
+  const uploadId = input.payloadSummary.commandEnvelopeUploadId;
+  const envelopeSha256 = input.payloadSummary.commandEnvelopeSha256;
+  const currentCustody = payloadCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
+    summaryCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
+    typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
+    typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
+  if (currentCustody) return input.payloadSummary;
+
+  const legacyCustody = payloadCustody === undefined &&
+    (summaryCustody === undefined || summaryCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) &&
+    uploadId === undefined && envelopeSha256 === undefined;
+  if (legacyCustody) {
+    // New envelope-free compatibility fixtures/receipts are marked explicitly
+    // at their trusted enqueue boundary. An unmarked persisted row is therefore
+    // not later indistinguishable from a current receipt whose custody pointers
+    // were stripped after enqueue.
+    return {
+      ...input.payloadSummary,
+      commandCustody: SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+    };
+  }
+
+  throw new SenaEnterpriseError(
+    "Queued SENA analysis command custody is incomplete or inconsistent.",
+    400,
+    "server_job_analysis_command_custody_invalid"
+  );
+}
+
+function storedAnalysisCommandCustodyProfileValid(job: SenaEnterpriseServerJob) {
+  const custody = job.payloadSummary.commandCustody;
+  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
+  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
+  if (custody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
+      typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
+  }
+  return custody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
+    uploadId === undefined && envelopeSha256 === undefined;
+}
+
+function externalAnalysisCommandCustodyError() {
+  return new SenaEnterpriseError(
+    "The queued SENA analysis command does not match its durable encrypted custody envelope.",
+    409,
+    "server_job_worker_analysis_command_custody_invalid"
+  );
+}
+
 function serverJobWithoutDelivery(input: {
   kind: SenaEnterpriseServerJobKind;
   teamId: string;
@@ -1061,27 +1123,30 @@ function serverJobWithoutDelivery(input: {
   queue?: SenaEnterpriseServerJobQueueStatus;
 }): Omit<SenaEnterpriseServerJob, "delivery"> {
   const queue = input.queue ?? serverJobQueueStatus();
+  const payloadSummary = input.kind === "analysis"
+    ? normalizedAnalysisPayloadSummary(input)
+    : input.payloadSummary;
   assertServerJobQueueReady(queue);
   assertServerJobPayloadAllowed({
     projectId: input.projectId,
-    hasInlinePayload: input.payloadSummary.hasInlineSnapshot ||
-      input.payloadSummary.hasInlineDataset ||
+    hasInlinePayload: payloadSummary.hasInlineSnapshot ||
+      payloadSummary.hasInlineDataset ||
       serverJobPayloadHasInlineSource(input.payload),
-    hasUploadPointers: Boolean(input.payloadSummary.uploadIds?.length),
+    hasUploadPointers: Boolean(payloadSummary.uploadIds?.length),
     queue
   });
 
   if (queue.mode === "local" && input.kind === "reliability") {
-    const uploadIds = input.payloadSummary.uploadIds ?? [];
+    const uploadIds = payloadSummary.uploadIds ?? [];
     const reproduciblePayload = {
       action: "run-reliability",
       teamId: input.teamId,
       projectId: input.projectId,
-      projectVersion: input.payloadSummary.projectVersion,
-      snapshotFingerprint: input.payloadSummary.snapshotFingerprint,
+      projectVersion: payloadSummary.projectVersion,
+      snapshotFingerprint: payloadSummary.snapshotFingerprint,
       uploadIds,
-      reviewerEnvelopeUploadId: input.payloadSummary.reviewerEnvelopeUploadId,
-      reviewerEnvelopeSha256: input.payloadSummary.reviewerEnvelopeSha256
+      reviewerEnvelopeUploadId: payloadSummary.reviewerEnvelopeUploadId,
+      reviewerEnvelopeSha256: payloadSummary.reviewerEnvelopeSha256
     };
     if (uploadIds.length === 0 ||
       stableServerJobPayloadSha256(input.payload) !== stableServerJobPayloadSha256(reproduciblePayload)) {
@@ -1105,11 +1170,11 @@ function serverJobWithoutDelivery(input: {
     projectId: input.projectId,
     actorUserId: input.actorUserId,
     payloadSha256: stableServerJobPayloadSha256(input.payload),
-    payloadSummary: input.payloadSummary,
+    payloadSummary,
     provider: queue,
     worker: {
       expectedAction: serverJobWorkerAction(input.kind),
-      payloadDelivery: input.payloadSummary.uploadIds?.length
+      payloadDelivery: payloadSummary.uploadIds?.length
           ? "upload-pointer"
           : input.projectId
             ? "project-pointer"
@@ -2032,6 +2097,7 @@ export async function updateEnterpriseServerJobStatus(input: {
   force?: boolean;
   uploadWarnings?: Array<{ uploadId?: unknown; warningCount?: unknown }>;
   callerScope?: SenaEnterpriseServerJobCallerScope;
+  preclaimAdmission?: (job: SenaEnterpriseServerJob) => Promise<void>;
 }): Promise<SenaEnterpriseServerJobStatusUpdate> {
   // Resolved before the job is looked up, so a caller with no rights on the
   // team they declared cannot use job ids as an existence oracle.
@@ -2040,6 +2106,17 @@ export async function updateEnterpriseServerJobStatus(input: {
   // Ownership is checked before any lifecycle validation or write, so a scoped
   // caller cannot mark another tenant's job running, succeeded, or failed.
   assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
+  if (input.action === "mark-running" && current.kind === "analysis" &&
+    !storedAnalysisCommandCustodyProfileValid(current)) {
+    const error = externalAnalysisCommandCustodyError();
+    await rejectEnterpriseServerJobBeforeClaim({
+      jobId: current.id,
+      errorCode: error.code,
+      errorHash: webhookErrorHash(error),
+      reason: "server-job-external-analysis-command-custody-invalid"
+    });
+    throw error;
+  }
   const uploadWarnings = sanitizedUploadWarnings(input.uploadWarnings, current);
   const initialDecision = assertEnterpriseServerJobTransition({
     job: current,
@@ -2047,6 +2124,29 @@ export async function updateEnterpriseServerJobStatus(input: {
     workerRunId: input.workerRunId,
     force: input.force
   });
+  if (!initialDecision.idempotent && input.action === "mark-running" &&
+    current.kind === "analysis" &&
+    current.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    let admissionError: unknown;
+    try {
+      if (!input.preclaimAdmission) throw externalAnalysisCommandCustodyError();
+      await input.preclaimAdmission(current);
+    } catch (error) {
+      admissionError = error instanceof SenaEnterpriseError
+        ? error
+        : externalAnalysisCommandCustodyError();
+    }
+    if (admissionError) {
+      const error = admissionError as SenaEnterpriseError;
+      await rejectEnterpriseServerJobBeforeClaim({
+        jobId: current.id,
+        errorCode: error.code,
+        errorHash: webhookErrorHash(error),
+        reason: "server-job-external-analysis-preclaim-rejected"
+      });
+      throw error;
+    }
+  }
   const timestamp = now();
   let committedJob: SenaEnterpriseServerJob;
   if (initialDecision.idempotent) {

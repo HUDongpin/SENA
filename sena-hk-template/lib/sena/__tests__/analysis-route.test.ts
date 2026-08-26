@@ -717,6 +717,93 @@ describe("SENA analyze route", () => {
           description: projectAfterConcurrentMetadata.description
         })
       );
+
+      const legacySourceTitle = projectAfterConcurrentMetadata.title;
+      const legacyDb = enterprise.readEnterpriseDb();
+      const legacyRevision = legacyDb.projectRevisions.find(
+        (candidate: { projectId: string; version: number }) => (
+          candidate.projectId === project.id &&
+          candidate.version === projectAfterConcurrentMetadata.currentVersion
+        )
+      );
+      if (!legacyRevision) throw new Error("legacy analysis revision fixture missing");
+      delete legacyRevision.title;
+      delete legacyRevision.description;
+      enterprise.writeEnterpriseDb(legacyDb);
+
+      const legacyRunResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: false,
+          includeRuntimeBundle: false
+        })
+      }));
+      const legacyCopyResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: true,
+          updateProject: false,
+          includeRuntimeBundle: false
+        })
+      }));
+      const legacyReceipts = [legacyRunResponse, legacyCopyResponse];
+      expect(legacyReceipts.map((response) => response.status)).toEqual([202, 202]);
+      const [legacyRunReceipt, legacyCopyReceipt] = await Promise.all(
+        legacyReceipts.map((response) => response.json() as Promise<{ id?: string }>)
+      );
+      const driftedProject = await enterprise.updateEnterpriseProjectAsync(
+        registered.context,
+        project.id,
+        {
+          expectedVersion: projectAfterConcurrentMetadata.currentVersion,
+          title: "Title changed after legacy jobs were queued"
+        }
+      );
+      expect(driftedProject.currentVersion).toBe(projectAfterConcurrentMetadata.currentVersion + 1);
+
+      const legacyDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      const legacyRunOutcome = legacyDrain.outcomes.find(
+        (outcome) => outcome.jobId === legacyRunReceipt.id
+      );
+      const legacyCopyOutcome = legacyDrain.outcomes.find(
+        (outcome) => outcome.jobId === legacyCopyReceipt.id
+      );
+      expect(legacyRunOutcome).toEqual(expect.objectContaining({
+        status: "succeeded",
+        result: expect.objectContaining({ analysisRunId: expect.stringMatching(/^analysis_/) })
+      }));
+      expect(legacyCopyOutcome).toEqual(expect.objectContaining({
+        status: "succeeded",
+        result: expect.objectContaining({ persistedProjectId: expect.stringMatching(/^project_/) })
+      }));
+      const importAnalysis = await import("../enterprise/import-analysis");
+      const analysisRuns = await importAnalysis.listEnterpriseAnalysisRunsAsync(registered.context, {
+        teamId: project.teamId
+      });
+      expect(analysisRuns.find(
+        (run) => run.id === legacyRunOutcome?.result?.analysisRunId
+      )?.title).toBe(legacySourceTitle);
+      expect(analysisRuns.find(
+        (run) => run.id === legacyCopyOutcome?.result?.analysisRunId
+      )?.title).toBe(legacySourceTitle);
+      await expect(enterprise.getEnterpriseProjectAsync(
+        registered.context,
+        String(legacyCopyOutcome?.result?.persistedProjectId)
+      )).resolves.toEqual(expect.objectContaining({ title: legacySourceTitle }));
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_JOB_QUEUE_ADAPTER;
@@ -724,7 +811,7 @@ describe("SENA analyze route", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
-  }, analysisRouteTestTimeoutMs * 2);
+  }, analysisRouteTestTimeoutMs * 3);
 
   it("requires the async queue for heavy analysis when the production performance path is enabled", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-analysis-required-queue-route-"));

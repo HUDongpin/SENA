@@ -10,7 +10,8 @@ const envNames = [
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_SECRET",
   "SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS",
-  "SENA_JOB_WORKER_INLINE_EXECUTION"
+  "SENA_JOB_WORKER_INLINE_EXECUTION",
+  "SENA_OPS_TOKEN"
 ];
 
 const queueSecret = "sena-test-job-queue-secret";
@@ -84,6 +85,7 @@ async function queuedAnalysisJob() {
     teamId,
     projectId: project.id,
     projectVersion: project.currentVersion,
+    sourceTitle: project.title,
     includeRuntimeBundle: false,
     persist: true,
     updateProject: true,
@@ -467,10 +469,11 @@ describe("SENA server job worker route execution", () => {
     expect(body.execution?.status).toBe("succeeded");
   });
 
-  it("stays receipt-only when inline execution is disabled", async () => {
+  it("stays receipt-only until an external claim re-admits current command custody", async () => {
     const fixture = await queuedAnalysisJob();
     enterpriseDbDir = fixture.enterpriseDbDir;
     process.env.SENA_JOB_WORKER_INLINE_EXECUTION = "0";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
 
     const route = await import("../../../app/api/sena/ops/jobs/worker/route");
     const response = await route.POST(signedQueueRequest({ body: fixture.body }));
@@ -484,6 +487,76 @@ describe("SENA server job worker route execution", () => {
 
     const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
     expect(stored.status).toBe("queued");
+
+    const jobsRoute = await import("../../../app/api/sena/ops/jobs/route");
+    const claim = await jobsRoute.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer sena-test-ops-token",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: fixture.job.id,
+        workerRunId: "external_worker_valid_custody"
+      })
+    }));
+    expect(claim.status).toBe(200);
+    await expect(claim.json()).resolves.toEqual(expect.objectContaining({
+      job: expect.objectContaining({
+        status: "running",
+        lifecycle: expect.objectContaining({ attempts: 1 })
+      })
+    }));
+  });
+
+  it("terminalizes a receipt-only external analysis claim when encrypted command custody is corrupt", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    process.env.SENA_JOB_WORKER_INLINE_EXECUTION = "0";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
+
+    const workerRoute = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const receiptOnly = await workerRoute.POST(signedQueueRequest({ body: fixture.body }));
+    expect(receiptOnly.status).toBe(202);
+    expect(await receiptOnly.json()).toEqual(expect.objectContaining({
+      execution: expect.objectContaining({ attempted: false, status: "not-attempted" })
+    }));
+    writeFileSync(
+      path.join(fixture.enterpriseDbDir, String(fixture.commandUpload.storagePath)),
+      "corrupt-command-envelope-before-external-claim"
+    );
+
+    const jobsRoute = await import("../../../app/api/sena/ops/jobs/route");
+    const claim = await jobsRoute.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer sena-test-ops-token",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: fixture.job.id,
+        workerRunId: "external_worker_corrupt_custody"
+      })
+    }));
+    expect(claim.status).toBe(409);
+    await expect(claim.json()).resolves.toEqual(expect.objectContaining({
+      code: "server_job_worker_analysis_command_custody_invalid"
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(fixture.job.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      })
+    );
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toHaveLength(0);
   });
 });
 

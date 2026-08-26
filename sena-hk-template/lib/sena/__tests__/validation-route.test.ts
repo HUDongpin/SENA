@@ -221,6 +221,86 @@ describe("SENA validation group-comparison route", () => {
     }
   }, validationRouteTestTimeoutMs);
 
+  it("returns a stable 413 before persistence for single and suite sources above the model-work ceiling", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-source-complexity-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/inference", async () => await import("../inference"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Validation Resource Reviewer",
+        email: "validation-resource-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Resource Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const dataset = structuredClone(lessonStudySenaContract);
+      const personTemplate = structuredClone(dataset.people[0]);
+      dataset.people = [
+        ...dataset.people,
+        ...Array.from({ length: 150 - dataset.people.length }, (_unused, index) => ({
+          ...structuredClone(personTemplate),
+          id: `validation-resource-person-${index}`,
+          label: `Validation resource person ${index}`
+        }))
+      ];
+      const route = await import("../../../app/api/sena/validation/group-comparison/route");
+
+      for (const suite of [false, true]) {
+        const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({
+            teamId: registered.context.teams[0].id,
+            dataset,
+            suite,
+            groupField: "role",
+            groupA: "Lead teacher",
+            groupB: "Curriculum designer",
+            ...(suite ? {
+              comparisons: [{
+                groupField: "role",
+                groupA: "Lead teacher",
+                groupB: "Curriculum designer",
+                metric: "bridgeScore"
+              }]
+            } : {}),
+            metric: "bridgeScore",
+            iterations: 100,
+            bootstrapIterations: 100
+          })
+        }));
+        expect(response.status).toBe(413);
+        await expect(response.json()).resolves.toEqual({
+          error: "The SENA validation source exceeds bounded analytical complexity.",
+          code: "validation_source_too_complex"
+        });
+      }
+      expect(enterprise.readEnterpriseDb().validationRuns).toHaveLength(0);
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, validationRouteTestTimeoutMs);
+
   it("queues project-scoped validation suites for the configured server job queue", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-queue-route-"));
     let sessionToken = "";

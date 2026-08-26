@@ -284,7 +284,8 @@ describe("SENA API documentation contract", () => {
         "validation_request_invalid",
         "validation_request_fields_invalid",
         "validation_request_too_large",
-        "validation_request_too_fragmented"
+        "validation_request_too_fragmented",
+        "validation_source_too_complex"
       ],
       "sena-validation-expert-review": [
         "expert_review_request_content_type_invalid",

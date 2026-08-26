@@ -1,5 +1,9 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import {
+  SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+} from "./analysis-queue-command";
+import {
   SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonValidationReadModel
 } from "./inference";
@@ -3448,6 +3452,19 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       ELSE payload_summary->>'projectTeamId' = team_id
     END
   )`;
+  const exactAnalysisCommandCustodySql = `(
+    CASE
+      WHEN payload_summary->>'commandCustody' = '${SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY}' THEN
+        jsonb_typeof(payload_summary->'commandEnvelopeUploadId') = 'string'
+        AND (payload_summary->>'commandEnvelopeUploadId') ~ '^upload_[a-f0-9]{24}$'
+        AND jsonb_typeof(payload_summary->'commandEnvelopeSha256') = 'string'
+        AND (payload_summary->>'commandEnvelopeSha256') ~ '^[a-f0-9]{64}$'
+      WHEN payload_summary->>'commandCustody' = '${SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY}' THEN
+        NOT (payload_summary ? 'commandEnvelopeUploadId')
+        AND NOT (payload_summary ? 'commandEnvelopeSha256')
+      ELSE false
+    END
+  )`;
   const claimableSourceSql = `(
     ${claimableDeliverySql}
     AND payload_summary->'hasInlineSnapshot' = 'false'::jsonb
@@ -3459,6 +3476,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         AND project_id IS NOT NULL
         AND btrim(project_id) <> ''
         AND ${exactProjectVersionSql}
+        AND ${exactAnalysisCommandCustodySql}
       WHEN kind = 'validation' THEN
         payload_summary->>'source' = 'project'
         AND worker->>'payloadDelivery' = 'project-pointer'

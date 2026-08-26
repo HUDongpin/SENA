@@ -8,6 +8,10 @@ const modelReplayProbe = vi.hoisted(() => ({
   maximumBuilds: Number.POSITIVE_INFINITY
 }));
 
+const datasetHashProbe = vi.hoisted(() => ({
+  buildCount: 0
+}));
+
 vi.mock("../model", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../model")>();
   return {
@@ -18,6 +22,17 @@ vi.mock("../model", async (importOriginal) => {
         throw new Error("validation source model replay budget exceeded");
       }
       return actual.buildSenaModel(...args);
+    }
+  };
+});
+
+vi.mock("../data-contract-audit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../data-contract-audit")>();
+  return {
+    ...actual,
+    buildSenaDatasetContentHash: (...args: Parameters<typeof actual.buildSenaDatasetContentHash>) => {
+      datasetHashProbe.buildCount += 1;
+      return actual.buildSenaDatasetContentHash(...args);
     }
   };
 });
@@ -74,6 +89,7 @@ beforeAll(() => {
 beforeEach(() => {
   modelReplayProbe.buildCount = 0;
   modelReplayProbe.maximumBuilds = Number.POSITIVE_INFINITY;
+  datasetHashProbe.buildCount = 0;
   writeFileSync(
     path.join(enterpriseDbDir, "enterprise-db.json"),
     JSON.stringify(emptyEnterpriseDb())
@@ -237,8 +253,67 @@ describe("validation source verification replay budget", () => {
     }
   );
 
-  it("builds one admitted source model for an entire public suite", () => {
+  it.each(["single", "suite"] as const)(
+    "rejects the next public %s source string by its byte lower bound before malformed UTF scanning",
+    (mode) => {
+      const dataset = structuredClone(lessonStudySenaContract);
+      dataset.people[0].id = "a".repeat(63);
+      dataset.people[0].label = `${"b".repeat(63)}\ud800`;
+      const limits = {
+        maxProjectionWorkUnits: 5_000_000,
+        maxSourceModelWorkUnits: 50_000_000,
+        maxSourceTextBytes: 64
+      };
+      modelReplayProbe.buildCount = 0;
+      datasetHashProbe.buildCount = 0;
+
+      const build = () => mode === "single"
+        ? buildSenaGroupComparison({
+          dataset,
+          groupField: "role",
+          groupA: "Lead teacher",
+          groupB: "Curriculum designer",
+          metric: "bridgeScore",
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits)
+        : buildSenaGroupComparisonSuite({
+          dataset,
+          defaultGroupField: "role",
+          comparisons: [
+            { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+          ],
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits);
+
+      expect(build).toThrow(/source model text budget exceeded/i);
+      expect(modelReplayProbe.buildCount).toBe(0);
+      expect(datasetHashProbe.buildCount).toBe(0);
+    }
+  );
+
+  it("builds and hashes one admitted source model for a maximum 40-comparison public suite", () => {
     const dataset = structuredClone(lessonStudySenaContract);
+    dataset.people = [
+      ...dataset.people.map((person, index) => ({ ...person, group: `suite-group-${index}` })),
+      ...Array.from({ length: 6 }, (_unused, index) => ({
+        ...structuredClone(dataset.people[0]),
+        id: `suite-extra-person-${index}`,
+        label: `Suite extra person ${index}`,
+        group: `suite-group-${index + 4}`
+      }))
+    ];
+    const groupNames = dataset.people.map((person) => person.group);
+    const comparisons = groupNames.flatMap((groupA, index) => (
+      [1, 2, 3, 4].map((offset) => ({
+        groupField: "group" as const,
+        groupA,
+        groupB: groupNames[(index + offset) % groupNames.length],
+        metric: "bridgeScore" as const
+      }))
+    ));
+    expect(comparisons).toHaveLength(40);
     const oneModelWorkUnits = estimateSenaGroupComparisonSourceModelWorkUnits({ dataset });
     const limits = {
       maxProjectionWorkUnits: 5_000_000,
@@ -247,29 +322,30 @@ describe("validation source verification replay budget", () => {
     };
 
     modelReplayProbe.buildCount = 0;
+    datasetHashProbe.buildCount = 0;
     expect(() => buildSenaGroupComparison({
       dataset,
-      groupField: "role",
-      groupA: "Lead teacher",
-      groupB: "Curriculum designer",
+      groupField: comparisons[0].groupField,
+      groupA: comparisons[0].groupA,
+      groupB: comparisons[0].groupB,
       metric: "bridgeScore",
       iterations: 100,
       bootstrapIterations: 100
     }, limits)).not.toThrow();
     expect(modelReplayProbe.buildCount).toBe(1);
+    expect(datasetHashProbe.buildCount).toBe(1);
 
     modelReplayProbe.buildCount = 0;
+    datasetHashProbe.buildCount = 0;
     expect(() => buildSenaGroupComparisonSuite({
       dataset,
-      defaultGroupField: "role",
-      comparisons: [
-        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" },
-        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "socialStrength" }
-      ],
+      defaultGroupField: "group",
+      comparisons,
       iterations: 100,
       bootstrapIterations: 100
     }, limits)).not.toThrow();
     expect(modelReplayProbe.buildCount).toBe(1);
+    expect(datasetHashProbe.buildCount).toBe(1);
   });
 
   it("rejects an oversized sparse holder collection before reading an entry", () => {

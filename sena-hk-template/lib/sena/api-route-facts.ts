@@ -495,7 +495,8 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       { status: 400, code: "validation_request_invalid", description: "The admitted validation request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST", "PATCH"] },
       { status: 400, code: "validation_request_fields_invalid", description: "The validation control envelope has unsupported fields, exceeds the 40-comparison fan-out limit, or exceeds its text/structure budgets.", methods: ["POST", "PATCH"] },
       { status: 413, code: "validation_request_too_large", description: "Declared or actual bytes exceed 33554432 for POST or 65536 for PATCH.", methods: ["POST", "PATCH"] },
-      { status: 413, code: "validation_request_too_fragmented", description: "The request stream exceeds 8192 chunks for POST or 1024 for PATCH.", methods: ["POST", "PATCH"] }
+      { status: 413, code: "validation_request_too_fragmented", description: "The request stream exceeds 8192 chunks for POST or 1024 for PATCH.", methods: ["POST", "PATCH"] },
+      { status: 413, code: "validation_source_too_complex", description: "The admitted validation dataset exceeds bounded projection, text, structural, or model-work complexity before model construction.", methods: ["POST"] }
     ]
   },
   {

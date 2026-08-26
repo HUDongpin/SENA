@@ -2,7 +2,6 @@ import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-regi
 import { buildSenaModel } from "./model";
 import {
   buildSenaAnalysisConfigHash,
-  buildSenaDatasetContentHash,
   buildSenaStableContentHash
 } from "./data-contract-audit";
 import {
@@ -22,6 +21,21 @@ import type {
 } from "./types";
 
 export type SenaGroupComparisonMetric = SenaValidatedGroupComparisonMetric;
+
+/**
+ * Stable public-builder failure for a source that exceeds the bounded
+ * projection, text, structural, or model-work admission envelope.
+ *
+ * Product routes translate only this class to a sanitized 413 response. Model
+ * validation and programmer errors that happen after admission keep their
+ * existing error contracts instead of being mislabeled as resource limits.
+ */
+export class SenaGroupComparisonSourceAdmissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SenaGroupComparisonSourceAdmissionError";
+  }
+}
 
 export type SenaEffectSizeStatus =
   | "estimable"
@@ -344,7 +358,6 @@ function sufficientStatistics(values: number[]): SenaGroupComparisonSufficientSt
 }
 
 function buildSenaGroupComparisonSourceEvidence(input: {
-  dataset: SenaDataset;
   model: SenaModel;
   metric: SenaGroupComparisonMetric;
   groupField: "group" | "role";
@@ -367,9 +380,9 @@ function buildSenaGroupComparisonSourceEvidence(input: {
   const evidenceBody = {
     status: "bound-current-source" as const,
     hashAlgorithm: "sena-stable-fnv1a32/v1" as const,
-    datasetContentHash: buildSenaDatasetContentHash(input.dataset),
+    datasetContentHash: input.model.operatorDiagnostics.runIdentity.datasetContentHash,
     analysisConfig: structuredClone(input.model.options),
-    analysisConfigHash: buildSenaAnalysisConfigHash(input.model.options),
+    analysisConfigHash: input.model.operatorDiagnostics.runIdentity.configHash,
     groupDefinition,
     groupDefinitionHash: buildSenaStableContentHash(groupDefinition),
     metricUniverse,
@@ -485,7 +498,6 @@ function buildSenaGroupComparisonFromCanonicalSource(
   const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
   const sourceEvidence = buildSenaGroupComparisonSourceEvidence({
-    dataset: input.dataset,
     model,
     metric,
     groupField,
@@ -2347,11 +2359,16 @@ function createSenaGroupComparisonSourceBuildBudget(
     workUnits += units;
   };
   const reserveText = (value: string) => {
-    if (value.length > maximumTextBytes) {
+    const remainingTextBytes = maximumTextBytes - textBytes;
+    // Every UTF-16 code unit contributes at least one UTF-8 byte. Reject by
+    // that lower bound before validating or encoding the next string, so an
+    // exhausted request cannot force another full-limit scan and a malformed
+    // suffix cannot mask the deterministic budget failure.
+    if (value.length > remainingTextBytes) {
       throw new Error("SENA group-comparison source model text budget exceeded.");
     }
     const bytes = sourceDigestUtf8ByteLength(value);
-    if (bytes > maximumTextBytes - textBytes) {
+    if (bytes > remainingTextBytes) {
       throw new Error("SENA group-comparison source model text budget exceeded.");
     }
     textBytes += bytes;
@@ -2366,22 +2383,31 @@ function admitSenaGroupComparisonSourceForPublicBuild(
   source: SenaGroupComparisonSourceContext,
   limits: SenaGroupComparisonSourceBuildAdmissionLimits
 ) {
-  const { traversalBudget, maximumModelWorkUnits } =
-    createSenaGroupComparisonSourceBuildBudget(limits);
-  preflightSenaGroupComparisonSourceContextCarrier(
-    source,
-    traversalBudget,
-    maximumModelWorkUnits
-  );
-  const projected = projectSenaGroupComparisonSourceContextCarrier(source, traversalBudget);
-  estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
-    projected.source,
-    maximumModelWorkUnits
-  );
-  // Single and suite builders both construct exactly one admitted source
-  // model. Suites reuse that immutable model across their bounded comparison
-  // universe instead of multiplying the heaviest model kernel by N.
-  return projected;
+  try {
+    const { traversalBudget, maximumModelWorkUnits } =
+      createSenaGroupComparisonSourceBuildBudget(limits);
+    preflightSenaGroupComparisonSourceContextCarrier(
+      source,
+      traversalBudget,
+      maximumModelWorkUnits
+    );
+    const projected = projectSenaGroupComparisonSourceContextCarrier(source, traversalBudget);
+    estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
+      projected.source,
+      maximumModelWorkUnits
+    );
+    // Single and suite builders both construct exactly one admitted source
+    // model. Suites reuse that immutable model across their bounded comparison
+    // universe instead of multiplying the heaviest model kernel by N.
+    return projected;
+  } catch (error) {
+    if (error instanceof SenaGroupComparisonSourceAdmissionError) throw error;
+    throw new SenaGroupComparisonSourceAdmissionError(
+      error instanceof Error
+        ? error.message
+        : "SENA group-comparison source admission failed."
+    );
+  }
 }
 
 export function estimateSenaGroupComparisonSourceModelWorkUnits(
@@ -3001,7 +3027,6 @@ export class SenaGroupComparisonSourceVerificationCache {
     let evidence = entry.evidenceByComparison.get(comparisonKey);
     if (!evidence) {
       evidence = buildSenaGroupComparisonSourceEvidence({
-        dataset: admittedSource.canonicalSource.dataset,
         model: entry.model,
         metric: comparison.metric,
         groupField: comparison.groupField,

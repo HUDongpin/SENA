@@ -3,7 +3,8 @@ import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run
 import {
   parseSenaAnalysisQueueCommandEnvelope,
   SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
-  SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE
+  SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE,
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
 } from "../analysis-queue-command";
 import { buildSenaAnalysisRunRequestInput, sanitizeSenaClientCodingReliability } from "../analysis-api";
 import {
@@ -534,10 +535,16 @@ function analysisCommandCustodyError(): SenaEnterpriseError {
   );
 }
 
-function analysisCommandCustodyDeclared(job: SenaEnterpriseServerJob) {
-  return job.payloadSummary.commandCustody !== undefined ||
-    job.payloadSummary.commandEnvelopeUploadId !== undefined ||
-    job.payloadSummary.commandEnvelopeSha256 !== undefined;
+function analysisCommandCustodyProfileValid(job: SenaEnterpriseServerJob) {
+  const custody = job.payloadSummary.commandCustody;
+  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
+  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
+  if (custody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
+      typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
+  }
+  return custody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
+    uploadId === undefined && envelopeSha256 === undefined;
 }
 
 async function readCurrentAnalysisCommandEnvelope(
@@ -587,17 +594,13 @@ async function admitAnalysisCommandCustody(
   if (stableServerJobPayloadSha256(deliveredPayload) !== job.payloadSha256) {
     throw analysisCommandCustodyError();
   }
-  const deliveredCustody = deliveredPayload.commandCustody;
-  if (deliveredCustody !== undefined && deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
-    throw analysisCommandCustodyError();
-  }
-  if (deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
-    !analysisCommandCustodyDeclared(job)) {
-    // Narrow compatibility path for v2 receipts created before encrypted
-    // command custody was introduced. Every current public route declares the
-    // marker and both opaque pointers, so partial/current shapes fail closed.
+  if (!analysisCommandCustodyProfileValid(job)) throw analysisCommandCustodyError();
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
+    if (deliveredPayload.commandCustody !== undefined) throw analysisCommandCustodyError();
     return { payload: deliveredPayload };
   }
+  const deliveredCustody = deliveredPayload.commandCustody;
+  if (deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) throw analysisCommandCustodyError();
   const context = await workerSessionContext(job);
   const retainedPayload = await readCurrentAnalysisCommandEnvelope(job, context);
   if (stableServerJobPayloadSha256(deliveredPayload) !==
@@ -648,13 +651,23 @@ async function admitAnalysisJob(
   }
   const context = admittedContext ?? await workerSessionContext(job);
   const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(context, projectId, projectVersion);
-  const { currentProject, sourceProject } = revisionSource;
+  const { currentProject, revision, sourceProject } = revisionSource;
   if (sourceProject.teamId !== job.teamId || sourceProject.currentVersion !== projectVersion) {
     throw new SenaEnterpriseError(
       "The retained SENA project revision does not match this job.",
       409,
       "server_job_worker_project_version_changed"
     );
+  }
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    const sourceTitle = optionalString(payload.sourceTitle);
+    if (!sourceTitle || (revision.title !== undefined && sourceTitle !== revision.title)) {
+      throw new SenaEnterpriseError(
+        "The SENA analysis job immutable source title is incomplete or inconsistent.",
+        409,
+        "server_job_worker_project_binding_invalid"
+      );
+    }
   }
   const expectedVersion = updatesExistingProject
     ? suppliedExpectedVersion === undefined ? projectVersion : suppliedExpectedVersion as number
@@ -669,6 +682,27 @@ async function admitAnalysisJob(
   return { context, currentProject, sourceProject, expectedVersion };
 }
 
+/**
+ * Server-side preclaim gate for receipt-only external workers.
+ *
+ * The generic status callback receives no raw analytical command. Current jobs
+ * therefore re-open the encrypted, hash-bound command envelope and repeat the
+ * same project/revision admission used by the built-in executor before the
+ * queue can transition to running. Explicit legacy receipts retain their
+ * narrow envelope-free compatibility profile; unmarked or partial profiles
+ * fail closed.
+ */
+export async function admitEnterpriseExternalAnalysisClaim(
+  job: SenaEnterpriseServerJob
+): Promise<void> {
+  if (job.kind !== "analysis") return;
+  if (!analysisCommandCustodyProfileValid(job)) throw analysisCommandCustodyError();
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) return;
+  const context = await workerSessionContext(job);
+  const payload = await readCurrentAnalysisCommandEnvelope(job, context);
+  await admitAnalysisJob(job, payload, context);
+}
+
 async function executeAnalysisJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
@@ -681,6 +715,7 @@ async function executeAnalysisJob(
     teamId: job.teamId,
     projectId,
     title: payload.title,
+    sourceTitle: payload.sourceTitle,
     snapshot: payload.inlineSnapshot,
     dataset: payload.inlineDataset,
     buildOptions: payload.buildOptions,
@@ -856,6 +891,9 @@ export async function runEnterpriseServerJob(input: {
     // Never claimed, so a real external worker can still take it.
     return skipped(job, "server_job_worker_executor_unavailable");
   }
+  if (job.kind === "analysis" && !analysisCommandCustodyProfileValid(job)) {
+    return rejectBeforeClaim(job, analysisCommandCustodyError());
+  }
   if (job.delivery.sourceReady !== true || !enterpriseServerJobHasDurableSourcePointer(job)) {
     return skipped(job, "server_job_worker_source_not_ready");
   }
@@ -966,12 +1004,15 @@ async function reproduceAnalysisPayload(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
 ): Promise<Record<string, unknown> | undefined> {
-  if (analysisCommandCustodyDeclared(job)) {
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
     try {
       return await readCurrentAnalysisCommandEnvelope(job, context);
     } catch {
       return undefined;
     }
+  }
+  if (job.payloadSummary.commandCustody !== SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
+    return undefined;
   }
   const projectVersion = job.payloadSummary.projectVersion;
   if (!job.projectId || !isPositiveSafeInteger(projectVersion)) return undefined;

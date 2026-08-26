@@ -344,8 +344,11 @@ export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
   const sourceProject: SenaEnterpriseProject = {
     ...project,
     currentVersion: revision.version,
-    title: revision.title ?? project.title,
-    description: revision.description ?? project.description,
+    // Legacy revisions did not persist project metadata. Their snapshot is the
+    // only immutable title-bearing carrier; current mutable metadata must never
+    // be projected backward into an historical analytical source.
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
     snapshot: revision.snapshot,
     datasetCounts: revision.datasetCounts,
     activeWindowLabel: revision.activeWindowLabel,

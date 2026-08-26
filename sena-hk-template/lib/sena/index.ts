@@ -227,6 +227,7 @@ export {
   buildSenaGroupComparison,
   buildSenaGroupComparisonEffectSize,
   buildSenaGroupComparisonSuite,
+  SenaGroupComparisonSourceAdmissionError,
   assertSenaGroupComparisonValidationResultMatchesSource,
   isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult,

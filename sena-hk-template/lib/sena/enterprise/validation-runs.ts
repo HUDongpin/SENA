@@ -35,6 +35,7 @@ import {
   buildSenaGroupComparisonSuite,
   isCurrentSenaGroupComparisonValidationResult,
   normalizeSenaGroupComparisonValidationResult,
+  SenaGroupComparisonSourceAdmissionError,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,
@@ -838,6 +839,45 @@ function parseEnterpriseValidationParityEvidence(value: unknown): SenaEnterprise
   };
 }
 
+function buildEnterpriseGroupComparisonResult(
+  resolved: ReturnType<typeof resolveEnterpriseGroupComparisonInput>
+) {
+  try {
+    return resolved.comparisons.length <= 1 && !resolved.suite
+      ? buildSenaGroupComparison({
+        dataset: resolved.dataset,
+        buildOptions: resolved.buildOptions,
+        groupField: resolved.comparisons[0].groupField,
+        groupA: resolved.comparisons[0].groupA,
+        groupB: resolved.comparisons[0].groupB,
+        metric: resolved.comparisons[0].metric,
+        iterations: resolved.iterations,
+        seed: resolved.seed,
+        bootstrapIterations: resolved.bootstrapIterations
+      })
+      : buildSenaGroupComparisonSuite({
+        dataset: resolved.dataset,
+        buildOptions: resolved.buildOptions,
+        comparisons: resolved.comparisons,
+        defaultGroupField: resolved.defaultGroupField,
+        defaultMetric: resolved.defaultMetric,
+        iterations: resolved.iterations,
+        seed: resolved.seed,
+        bootstrapIterations: resolved.bootstrapIterations,
+        alpha: resolved.alpha
+      });
+  } catch (error) {
+    if (error instanceof SenaGroupComparisonSourceAdmissionError) {
+      throw new SenaEnterpriseError(
+        "The SENA validation source exceeds bounded analytical complexity.",
+        413,
+        "validation_source_too_complex"
+      );
+    }
+    throw error;
+  }
+}
+
 export function buildEnterpriseGroupComparisonValidationResponse(
   context: SenaEnterpriseSessionContext,
   body: Record<string, unknown>,
@@ -849,29 +889,7 @@ export function buildEnterpriseGroupComparisonValidationResponse(
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? (adapters.getProject ?? getEnterpriseProject)(context, projectId) : null;
   const resolved = resolveEnterpriseGroupComparisonInput(body, project);
-  const result = resolved.comparisons.length <= 1 && !resolved.suite
-    ? buildSenaGroupComparison({
-      dataset: resolved.dataset,
-      buildOptions: resolved.buildOptions,
-      groupField: resolved.comparisons[0].groupField,
-      groupA: resolved.comparisons[0].groupA,
-      groupB: resolved.comparisons[0].groupB,
-      metric: resolved.comparisons[0].metric,
-      iterations: resolved.iterations,
-      seed: resolved.seed,
-      bootstrapIterations: resolved.bootstrapIterations
-    })
-    : buildSenaGroupComparisonSuite({
-      dataset: resolved.dataset,
-      buildOptions: resolved.buildOptions,
-      comparisons: resolved.comparisons,
-      defaultGroupField: resolved.defaultGroupField,
-      defaultMetric: resolved.defaultMetric,
-      iterations: resolved.iterations,
-      seed: resolved.seed,
-      bootstrapIterations: resolved.bootstrapIterations,
-      alpha: resolved.alpha
-    });
+  const result = buildEnterpriseGroupComparisonResult(resolved);
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = (adapters.createValidationRun ?? createEnterpriseValidationRun)(context, {
     teamId,
@@ -907,29 +925,7 @@ export async function buildEnterpriseGroupComparisonValidationResponseWithPostgr
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
   const resolved = resolveEnterpriseGroupComparisonInput(body, project);
-  const result = resolved.comparisons.length <= 1 && !resolved.suite
-    ? buildSenaGroupComparison({
-      dataset: resolved.dataset,
-      buildOptions: resolved.buildOptions,
-      groupField: resolved.comparisons[0].groupField,
-      groupA: resolved.comparisons[0].groupA,
-      groupB: resolved.comparisons[0].groupB,
-      metric: resolved.comparisons[0].metric,
-      iterations: resolved.iterations,
-      seed: resolved.seed,
-      bootstrapIterations: resolved.bootstrapIterations
-    })
-    : buildSenaGroupComparisonSuite({
-      dataset: resolved.dataset,
-      buildOptions: resolved.buildOptions,
-      comparisons: resolved.comparisons,
-      defaultGroupField: resolved.defaultGroupField,
-      defaultMetric: resolved.defaultMetric,
-      iterations: resolved.iterations,
-      seed: resolved.seed,
-      bootstrapIterations: resolved.bootstrapIterations,
-      alpha: resolved.alpha
-    });
+  const result = buildEnterpriseGroupComparisonResult(resolved);
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = await createEnterpriseValidationRunWithPostgresMirrorAsync(context, {
     teamId,

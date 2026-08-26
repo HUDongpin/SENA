@@ -95,6 +95,7 @@ describe("SENA analysis API decomposition boundaries", () => {
         teamId: sourceProject.teamId,
         projectId: sourceProject.id,
         projectVersion: 7,
+        sourceTitle: sourceProject.title,
         activeTemporalWindowId: "window-a",
         includeRuntimeBundle: true,
         persist: true,
@@ -159,6 +160,7 @@ describe("SENA analysis API decomposition boundaries", () => {
     expect(queued.payload).toEqual(expect.objectContaining({
       commandCustody: "encrypted-upload-v1",
       projectVersion: sourceProject.currentVersion,
+      sourceTitle: sourceProject.title,
       expectedVersion: sourceProject.currentVersion,
       persist: true,
       updateProject: true

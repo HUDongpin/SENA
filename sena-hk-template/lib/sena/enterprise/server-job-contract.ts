@@ -2,6 +2,10 @@ import type {
   SenaEnterpriseServerJob,
   SenaEnterpriseServerJobQueueDelivery
 } from "./server-job-queue";
+import {
+  SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+} from "../analysis-queue-command";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -75,7 +79,17 @@ export function enterpriseServerJobHasDurableSourcePointer(
   }
 
   if (job.kind === "analysis") {
-    return ownDataValue(summary, "source") === "project" &&
+    const commandCustody = ownDataValue(summary, "commandCustody");
+    const currentCustody = commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
+      typeof ownDataValue(summary, "commandEnvelopeUploadId") === "string" &&
+      /^upload_[a-f0-9]{24}$/.test(ownDataValue(summary, "commandEnvelopeUploadId") as string) &&
+      typeof ownDataValue(summary, "commandEnvelopeSha256") === "string" &&
+      /^[a-f0-9]{64}$/.test(ownDataValue(summary, "commandEnvelopeSha256") as string);
+    const legacyCustody = commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY &&
+      ownDataValue(summary, "commandEnvelopeUploadId") === undefined &&
+      ownDataValue(summary, "commandEnvelopeSha256") === undefined;
+    return (currentCustody || legacyCustody) &&
+      ownDataValue(summary, "source") === "project" &&
       ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
       isNonemptyString(job.projectId) &&
       isPositiveSafeInteger(ownDataValue(summary, "projectVersion"));
