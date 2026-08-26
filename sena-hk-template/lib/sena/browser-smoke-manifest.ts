@@ -40,7 +40,11 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       enterpriseApi: {
         exportName: "verifySenaEnterpriseApiBrowserSmoke",
         label: "Verify enterprise API browser smoke",
-        env: ["SENA_PROVISIONING_TOKEN"],
+        env: [
+          "SENA_PROVISIONING_TOKEN",
+          "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+          "SENA_EXPERT_REVIEW_SIGNING_KEY_ID"
+        ],
         provisioningTokenFallback: "sena-pilot-provisioning-token"
       },
       rbacCollaboration: {
@@ -107,6 +111,11 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "/api/auth/csrf",
       "/api/sena/ops/platform-decisions",
       "/api/sena/import",
+      "/api/sena/analyze",
+      "/api/sena/reliability",
+      "/api/sena/validation/group-comparison",
+      "/api/sena/validation/expert-review",
+      "/api/sena/validation/claim-package",
       "/api/sena/exports/publication"
     ],
     scimExtensionSchema: "urn:sena:params:scim:schemas:extension:identity-production:2.0:ServiceProviderConfig",
@@ -115,7 +124,15 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
       SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionMatrix,
       SENA_SCHEMA_VERSIONS.enterpriseIdentityOwnerRunbook,
-      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist,
+      SENA_SCHEMA_VERSIONS.analysisRun,
+      SENA_SCHEMA_VERSIONS.reliabilityResponse,
+      SENA_SCHEMA_VERSIONS.reliabilityRunReview,
+      SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+      SENA_SCHEMA_VERSIONS.validationRunReview,
+      SENA_SCHEMA_VERSIONS.expertReviewResponse,
+      SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage,
+      SENA_SCHEMA_VERSIONS.publicationPackage
     ],
     headers: [
       "x-sena-scim-production-owner-gate",
@@ -128,6 +145,13 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "x-sena-project-id",
       "x-sena-analysis-run-id",
       "x-sena-import-profiles",
+      "x-sena-reliability-run-id",
+      "x-sena-validation-run-id",
+      "x-sena-expert-review-id",
+      "x-sena-expert-review-receipt-present",
+      "x-sena-expert-review-receipt-sha256",
+      "x-sena-claim-package-status",
+      "x-sena-claim-package-sha256",
       "x-sena-publication-package-sha256",
       "x-sena-publication-formats"
     ],
@@ -148,7 +172,10 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "platformRequestPacket.summary.blockingRequests",
       "submissionVerifier.summary.incompleteDecisions",
       "cutoverChecklist",
-      "cutoverChecklist.summary.blockingItems"
+      "cutoverChecklist.summary.blockingItems",
+      "evidence.reliability",
+      "evidence.validation",
+      "evidence.expertReview"
     ],
     cutoverItems: [
       "idp-tenant-approval",
@@ -156,7 +183,26 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "scim-idp-ownership",
       "identity-secret-rotation"
     ],
-    importProfiles: ["cleaned-transcript"],
+    importProfiles: ["sena-contract", "cleaned-transcript"],
+    expectedImportStatus: "completed",
+    expectedImportWarnings: [],
+    expectedImportedDatasetCounts: {
+      people: 4,
+      interactions: 3,
+      utterances: 8,
+      codedSegments: 8,
+      codes: 4
+    },
+    expertReviewReceipt: {
+      signingMode: "ephemeral-verifier-env",
+      keyIdPrefix: "sena-pilot-smoke-"
+    },
+    claimStatuses: {
+      persistedPrepublication: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      derivedPublication: "claim-ready-with-limits"
+    },
+    publicationBlockedCode: "publication_claim_evidence_not_ready",
     publicationPackageFormat: "package",
     publicationFormats: ["svg", "png", "xlsx", "docx", "pdf"],
     formActionField: "action",

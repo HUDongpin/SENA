@@ -344,7 +344,9 @@ function canonicalMetricUniverse(model: SenaModel, metric: SenaGroupComparisonMe
       role: node.role,
       value: metricValue(node.metrics, metric)
     }))
-    .sort((left, right) => left.personId.localeCompare(right.personId));
+    // Evidence hashes must not depend on the host locale. This matches the
+    // default JavaScript string ordering enforced by the current-v2 reader.
+    .sort((left, right) => left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0);
 }
 
 function sufficientStatistics(values: number[]): SenaGroupComparisonSufficientStatistics {

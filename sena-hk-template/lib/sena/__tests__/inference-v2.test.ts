@@ -150,6 +150,27 @@ describe("SENA group-comparison effect-size v2", () => {
     expect(suite.comparisons[39].bootstrap.seed).toBe(11857);
   });
 
+  it("keeps mixed-case person ids in the default JavaScript string order the current-v2 validator requires", () => {
+    const dataset = emptyMetricDataset(["A", "A", "B", "B"]);
+    ["T1", "T2", "p-1", "p-2"].forEach((personId, index) => {
+      dataset.people[index].id = personId;
+    });
+    const suite = buildSenaGroupComparisonSuite({
+      dataset,
+      comparisons: [{ groupA: "A", groupB: "B", metric: "socialStrength" }],
+      iterations: 100,
+      bootstrapIterations: 100
+    });
+
+    expect(suite.primary.sourceEvidence?.metricUniverse.map((entry) => entry.personId)).toEqual([
+      "T1",
+      "T2",
+      "p-1",
+      "p-2"
+    ]);
+    expect(() => normalizeSenaGroupComparisonValidationResult(suite)).not.toThrow();
+  });
+
   it("reports an insufficient sample when either group has fewer than two observations", () => {
     const effectSize = buildSenaGroupComparisonEffectSize([2], [1, 2]);
     const result = buildSenaGroupComparison({

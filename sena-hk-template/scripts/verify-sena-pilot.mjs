@@ -1,4 +1,5 @@
 import net from "node:net";
+import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -734,6 +735,8 @@ async function verifyProductionServerSmoke() {
   console.log("\n> Verify production server smoke");
   const port = await findAvailablePort(smokePortStart);
   const enterpriseDbDir = mkdtempSync(join(tmpdir(), "sena-pilot-enterprise-db-"));
+  const expertReviewSigningSecret = randomBytes(32).toString("hex");
+  const expertReviewSigningKeyId = `sena-pilot-smoke-${randomBytes(8).toString("hex")}`;
   let output = "";
   const nextBin = "node_modules/next/dist/bin/next";
   const server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
@@ -744,6 +747,8 @@ async function verifyProductionServerSmoke() {
       SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
       SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
       SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
+      SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
+      SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId,
       SENA_SSO_INSTITUTION_CLIENT_ID: "",
       SENA_SSO_INSTITUTION_CLIENT_SECRET: "",
       SENA_SSO_GOOGLE_CLIENT_ID: "",

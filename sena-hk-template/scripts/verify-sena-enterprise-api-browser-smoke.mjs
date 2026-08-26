@@ -3,6 +3,7 @@ import { chromium } from "playwright";
 
 const defaultTimeout = 15000;
 const requiredPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"];
+const expectedImportWarnings = [];
 const scimIdentityProductionExtensionSchema = "urn:sena:params:scim:schemas:extension:identity-production:2.0:ServiceProviderConfig";
 
 function enterpriseSmokeOriginFromCli() {
@@ -113,9 +114,15 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         csrf: { status: csrfResponse.status, headers: responseHeaders(csrfResponse), body: csrfBody },
         platformDecision: null,
         importResult: null,
+        analysisRefresh: null,
         publicationBlocked: null,
         reliability: null,
         reliabilityApproval: null,
+        validation: null,
+        validationApproval: null,
+        expertReview: null,
+        expertReviewApproval: null,
+        claimPackage: null,
         publication: null
       };
     }
@@ -144,40 +151,72 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     const transcript = [
       "1",
       "00:00:01,000 --> 00:00:03,000",
-      "P01: We should ask a better #Question and gather #Evidence.",
+      "T1: We should ask a better question and gather evidence. #reflection",
       "",
       "2",
       "00:00:04,000 --> 00:00:06,000",
-      "P02: The graph gives #Evidence for the emerging #Claim.",
+      "T2: The graph links evidence to an emerging explanation. #reflection",
       "",
       "3",
       "00:00:07,000 --> 00:00:09,000",
-      "P01: Let's write an {{Explanation}} and return to #Reflection."
+      "T1: Let's write an explanation and return to review. #reflection"
     ].join("\n");
-
-    const form = new FormData();
-    form.set("action", "create-project");
-    form.set("title", "Enterprise API Smoke Transcript");
-    form.set("includeRuntimeBundle", "true");
-    form.set("codingReliability", JSON.stringify({
+    const contractResponse = await fetch("/sena-pilot/sample/lesson-study-sena-contract.json", {
+      credentials: "include"
+    });
+    if (!contractResponse.ok) {
+      throw new Error(`Pilot contract fixture returned HTTP ${contractResponse.status}.`);
+    }
+    const contractText = await contractResponse.text();
+    const publicContract = JSON.parse(contractText);
+    const retainedPersonIds = new Set(["T1", "T2"]);
+    const retainedUtteranceIds = new Set(["u1", "u2", "u4", "u7", "u10"]);
+    const retainedContractCodeIds = new Set(["question", "evidence", "explanation"]);
+    const compactContract = {
+      ...publicContract,
+      people: publicContract.people.filter((person) => retainedPersonIds.has(person.id)),
+      interactions: publicContract.interactions.filter((interaction) => (
+        retainedPersonIds.has(interaction.source) && retainedPersonIds.has(interaction.target)
+      )),
+      utterances: publicContract.utterances.filter((utterance) => retainedUtteranceIds.has(utterance.id)),
+      coded_segments: publicContract.coded_segments
+        .filter((segment) => retainedUtteranceIds.has(segment.utteranceId))
+        .map((segment) => ({
+          ...segment,
+          codes: segment.codes.filter((codeId) => retainedContractCodeIds.has(codeId))
+        }))
+        .filter((segment) => segment.codes.length > 0),
+      codebook: publicContract.codebook.filter((code) => retainedContractCodeIds.has(code.id))
+    };
+    const codingReliability = {
       status: "documented",
       reviewer: "Enterprise API smoke fixture",
       reviewedAt: "2026-07-07T00:00:00.000Z",
-      codingScheme: "Synthetic smoke transcript coding fixture v1",
+      codingScheme: "Synthetic lesson-study smoke coding fixture v1",
       unitOfCoding: "utterance",
       coderCount: 2,
       agreementMetric: "fixture-consensus",
       agreementValue: "1.00",
       adjudicationNotes: "Synthetic smoke fixture uses deterministic consensus coding.",
       limitations: "Synthetic fixture only; not human-subjects research evidence."
-    }));
-    form.set("dataGovernance", JSON.stringify({
+    };
+    const dataGovernance = {
       irbApprovalId: "SYNTHETIC-SMOKE-NOT-HUMAN-SUBJECTS",
       consentScope: "Synthetic browser-smoke fixture; no participant data.",
       retentionPolicy: "Retain only generated smoke artifacts for automated verification.",
       usageConstraints: ["Automated verification only", "Do not use for research claims"],
       dataSteward: "SENA enterprise smoke verifier",
       reviewedAt: "2026-07-07T00:00:00.000Z"
+    };
+
+    const form = new FormData();
+    form.set("action", "create-project");
+    form.set("title", "Enterprise API Smoke Project");
+    form.set("includeRuntimeBundle", "true");
+    form.set("codingReliability", JSON.stringify(codingReliability));
+    form.set("dataGovernance", JSON.stringify(dataGovernance));
+    form.append("files", new File([JSON.stringify(compactContract)], "lesson-study-sena-contract.json", {
+      type: "application/json"
     }));
     form.append("files", new File([transcript], "enterprise-api-smoke-transcript.srt", {
       type: "application/x-subrip"
@@ -195,6 +234,9 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     const importHeaders = responseHeaders(importResponse);
     const projectId = importBody?.persistedProject?.id;
 
+    let analysisRefreshResponse = null;
+    let analysisRefreshBody = null;
+    let analysisRefreshHeaders = null;
     let publicationBlockedResponse = null;
     let publicationBlockedBody = null;
     let publicationBlockedHeaders = null;
@@ -204,10 +246,52 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
     let reliabilityApprovalResponse = null;
     let reliabilityApprovalBody = null;
     let reliabilityApprovalHeaders = null;
+    let validationResponse = null;
+    let validationBody = null;
+    let validationHeaders = null;
+    let validationApprovalResponse = null;
+    let validationApprovalBody = null;
+    let validationApprovalHeaders = null;
+    let expertReviewResponse = null;
+    let expertReviewBody = null;
+    let expertReviewHeaders = null;
+    let expertReviewApprovalResponse = null;
+    let expertReviewApprovalBody = null;
+    let expertReviewApprovalHeaders = null;
+    let claimPackageResponse = null;
+    let claimPackageBody = null;
+    let claimPackageHeaders = null;
     let publicationResponse = null;
     let publicationBody = null;
     let publicationHeaders = null;
     if (projectId) {
+      analysisRefreshResponse = await fetch("/api/sena/analyze", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrfToken
+        },
+        body: JSON.stringify({
+          projectId,
+          persist: true,
+          updateProject: true,
+          expectedVersion: importBody?.persistedProject?.currentVersion,
+          includeRuntimeBundle: true,
+          humanReview: {
+            status: "human-reviewed",
+            reviewer: "Enterprise API smoke domain reviewer",
+            interpretation: "The synthetic lesson-study fixture links collaboration patterns to coded discourse for workflow verification.",
+            limitations: "Synthetic fixture evidence cannot support empirical or causal claims.",
+            nextActions: "Retain the limited-claim guardrails and verify every evidence binding."
+          },
+          codingReliability,
+          dataGovernance
+        })
+      });
+      analysisRefreshBody = await parseJsonResponse(analysisRefreshResponse);
+      analysisRefreshHeaders = responseHeaders(analysisRefreshResponse);
+
       publicationBlockedResponse = await fetch("/api/sena/exports/publication", {
         method: "POST",
         credentials: "include",
@@ -223,7 +307,7 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
       publicationBlockedBody = await parseJsonResponse(publicationBlockedResponse);
       publicationBlockedHeaders = responseHeaders(publicationBlockedResponse);
 
-      const snapshot = importBody?.persistedProject?.snapshot;
+      const snapshot = analysisRefreshBody?.persistedProject?.snapshot;
       const authoritativeDataset = snapshot?.source?.sourceDataset ?? snapshot?.dataset;
       const itemIds = authoritativeDataset?.utterances?.slice(0, 3).map((utterance) => utterance.id) ?? [];
       const codeIds = authoritativeDataset?.codebook?.slice(0, 3).map((code) => code.id) ?? [];
@@ -271,6 +355,116 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         reliabilityApprovalHeaders = responseHeaders(reliabilityApprovalResponse);
       }
 
+      validationResponse = await fetch("/api/sena/validation/group-comparison", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrfToken
+        },
+        body: JSON.stringify({
+          projectId,
+          suite: true,
+          comparisons: [
+            { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" },
+            { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "socialStrength" },
+            { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "alignment" }
+          ],
+          iterations: 100,
+          bootstrapIterations: 100,
+          alpha: 0.05,
+          preregistrationNote: "Enterprise API smoke preregistration note for the Holm suite.",
+          methodNote: "Holm-corrected multi-metric validation suite for enterprise publication smoke.",
+          parityEvidence: {
+            walkthroughDatasetLabel: "enterprise API smoke lesson-study walkthrough",
+            walkthroughDatasetHash: "enterprise-api-smoke-walkthrough-sha256",
+            expertReviewRequired: true,
+            studySpecificInferenceReference: "prereg:enterprise-api-smoke-holm-model-v1",
+            runtimeParityIds: ["jena-rena-sample-parity", "jsna-r-sna-social-parity"]
+          }
+        })
+      });
+      validationBody = await parseJsonResponse(validationResponse);
+      validationHeaders = responseHeaders(validationResponse);
+
+      const validationRunId = validationHeaders["x-sena-validation-run-id"];
+      if (validationRunId) {
+        validationApprovalResponse = await fetch("/api/sena/validation/group-comparison", {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrfToken
+          },
+          body: JSON.stringify({
+            runId: validationRunId,
+            status: "approved",
+            notes: "Approved Holm-corrected validation suite for limited enterprise smoke claims."
+          })
+        });
+        validationApprovalBody = await parseJsonResponse(validationApprovalResponse);
+        validationApprovalHeaders = responseHeaders(validationApprovalResponse);
+
+        expertReviewResponse = await fetch("/api/sena/validation/expert-review", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrfToken
+          },
+          body: JSON.stringify({
+            projectId,
+            target: {
+              kind: "validation-run",
+              id: validationRunId,
+              label: "Holm-corrected enterprise API smoke validation suite"
+            },
+            reviewerName: "Dr. Enterprise API Smoke Reviewer",
+            reviewerRole: "Lesson-study methodologist",
+            expertiseArea: "Teacher collaboration and discourse analysis",
+            status: "changes-requested",
+            claimScope: "exploratory-only",
+            ratings: {
+              dataAdequacy: 4,
+              methodFit: 4,
+              interpretationValidity: 3
+            },
+            concerns: "Tighten claim wording before marking the synthetic fixture claim-ready."
+          })
+        });
+        expertReviewBody = await parseJsonResponse(expertReviewResponse);
+        expertReviewHeaders = responseHeaders(expertReviewResponse);
+
+        const expertReviewId = expertReviewHeaders["x-sena-expert-review-id"];
+        if (expertReviewId) {
+          expertReviewApprovalResponse = await fetch("/api/sena/validation/expert-review", {
+            method: "PATCH",
+            credentials: "include",
+            headers: {
+              "content-type": "application/json",
+              "x-sena-csrf-token": csrfToken
+            },
+            body: JSON.stringify({
+              reviewId: expertReviewId,
+              status: "approved",
+              claimScope: "claim-ready-with-limits",
+              ratings: {
+                interpretationValidity: 5
+              },
+              recommendations: "Approved for limited synthetic smoke use with explicit method and sample caveats."
+            })
+          });
+          expertReviewApprovalBody = await parseJsonResponse(expertReviewApprovalResponse);
+          expertReviewApprovalHeaders = responseHeaders(expertReviewApprovalResponse);
+        }
+      }
+
+      claimPackageResponse = await fetch(`/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`, {
+        credentials: "include"
+      });
+      claimPackageBody = await parseJsonResponse(claimPackageResponse);
+      claimPackageHeaders = responseHeaders(claimPackageResponse);
+
       publicationResponse = await fetch("/api/sena/exports/publication", {
         method: "POST",
         credentials: "include",
@@ -308,6 +502,11 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         headers: importHeaders,
         body: importBody
       },
+      analysisRefresh: analysisRefreshResponse ? {
+        status: analysisRefreshResponse.status,
+        headers: analysisRefreshHeaders,
+        body: analysisRefreshBody
+      } : null,
       publicationBlocked: publicationBlockedResponse ? {
         status: publicationBlockedResponse.status,
         headers: publicationBlockedHeaders,
@@ -322,6 +521,31 @@ async function fetchEnterpriseWorkflow(page, teamId, provisioningToken) {
         status: reliabilityApprovalResponse.status,
         headers: reliabilityApprovalHeaders,
         body: reliabilityApprovalBody
+      } : null,
+      validation: validationResponse ? {
+        status: validationResponse.status,
+        headers: validationHeaders,
+        body: validationBody
+      } : null,
+      validationApproval: validationApprovalResponse ? {
+        status: validationApprovalResponse.status,
+        headers: validationApprovalHeaders,
+        body: validationApprovalBody
+      } : null,
+      expertReview: expertReviewResponse ? {
+        status: expertReviewResponse.status,
+        headers: expertReviewHeaders,
+        body: expertReviewBody
+      } : null,
+      expertReviewApproval: expertReviewApprovalResponse ? {
+        status: expertReviewApprovalResponse.status,
+        headers: expertReviewApprovalHeaders,
+        body: expertReviewApprovalBody
+      } : null,
+      claimPackage: claimPackageResponse ? {
+        status: claimPackageResponse.status,
+        headers: claimPackageHeaders,
+        body: claimPackageBody
       } : null,
       publication: publicationResponse ? {
         status: publicationResponse.status,
@@ -497,16 +721,28 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (importResult.body?.schemaVersion !== "sena-enterprise-import/v1") {
     throw new Error(`Enterprise import returned unexpected schema ${importResult.body?.schemaVersion ?? "<missing>"}.`);
   }
-  if (importResult.body?.importRun?.status !== "completed") {
-    throw new Error(`Enterprise import run was not completed: ${JSON.stringify(importResult.body?.importRun)}.`);
+  const importRun = importResult.body?.importRun;
+  const cleaningSummary = importResult.body?.cleaningManifest?.summary;
+  if (
+    importRun?.status !== "completed" ||
+    importRun?.warningCount !== expectedImportWarnings.length ||
+    JSON.stringify(importRun?.warningsPreview) !== JSON.stringify(expectedImportWarnings) ||
+    cleaningSummary?.warningCount !== expectedImportWarnings.length ||
+    cleaningSummary?.duplicateRowCount !== 0 ||
+    cleaningSummary?.derivedPlaceholderCount !== 0 ||
+    cleaningSummary?.skippedRowCount !== 0 ||
+    cleaningSummary?.missingTableWarningCount !== 0
+  ) {
+    throw new Error(`Enterprise import did not complete without unexpected cleaning warnings: ${JSON.stringify({ importRun, cleaningSummary })}.`);
   }
+  assertArrayIncludes(importResult.body?.cleaningManifest?.summary?.adapterProfiles, "sena-contract", "import cleaning adapter profiles");
   assertArrayIncludes(importResult.body?.cleaningManifest?.summary?.adapterProfiles, "cleaned-transcript", "import cleaning adapter profiles");
   const importRunId = requireHeaderValue(importResult.headers, "x-sena-import-run-id");
   const projectId = requireHeaderValue(importResult.headers, "x-sena-project-id");
   const analysisRunId = requireHeaderValue(importResult.headers, "x-sena-analysis-run-id");
   const importProfiles = requireHeaderValue(importResult.headers, "x-sena-import-profiles");
-  if (!importProfiles.includes("cleaned-transcript")) {
-    throw new Error(`Expected x-sena-import-profiles to include cleaned-transcript, received ${importProfiles}.`);
+  if (!importProfiles.includes("sena-contract") || !importProfiles.includes("cleaned-transcript")) {
+    throw new Error(`Expected x-sena-import-profiles to include sena-contract and cleaned-transcript, received ${importProfiles}.`);
   }
   if (importResult.body?.importRun?.id !== importRunId) {
     throw new Error(`Import run id header/body mismatch: ${importRunId} vs ${importResult.body?.importRun?.id}.`);
@@ -517,10 +753,53 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (importResult.body?.enterpriseAnalysisRun?.id !== analysisRunId) {
     throw new Error(`Analysis run id header/body mismatch: ${analysisRunId} vs ${importResult.body?.enterpriseAnalysisRun?.id}.`);
   }
+  const importedDatasetCounts = {
+    people: importResult.body?.dataset?.people?.length,
+    interactions: importResult.body?.dataset?.interactions?.length,
+    utterances: importResult.body?.dataset?.utterances?.length,
+    codedSegments: importResult.body?.dataset?.coded_segments?.length,
+    codes: importResult.body?.dataset?.codebook?.length
+  };
+  if (JSON.stringify(importedDatasetCounts) !== JSON.stringify({
+    people: 4,
+    interactions: 3,
+    utterances: 8,
+    codedSegments: 8,
+    codes: 4
+  })) {
+    throw new Error(`Enterprise smoke fixture no longer matches its resource-bounded dataset contract: ${JSON.stringify(importedDatasetCounts)}.`);
+  }
+
+  const importedProjectVersion = importResult.body?.persistedProject?.currentVersion;
+  if (!Number.isInteger(importedProjectVersion)) {
+    throw new Error(`Enterprise import did not expose an integer project version: ${JSON.stringify(importResult.body?.persistedProject)}.`);
+  }
+  const analysisRefresh = evidence.analysisRefresh;
+  if (analysisRefresh?.status !== 200 || analysisRefresh.body?.schemaVersion !== "sena-analysis-run/v1") {
+    throw new Error(`Enterprise analysis refresh did not produce a current analysis run: ${JSON.stringify(analysisRefresh)}.`);
+  }
+  const authoritativeProjectVersion = analysisRefresh.body?.persistedProject?.currentVersion;
+  if (
+    analysisRefresh.body?.persistedProject?.id !== projectId ||
+    authoritativeProjectVersion !== importedProjectVersion + 1 ||
+    analysisRefresh.body?.projectSnapshot?.report?.humanReview?.status !== "human-reviewed" ||
+    analysisRefresh.body?.persistedProject?.snapshot?.report?.humanReview?.status !== "human-reviewed" ||
+    analysisRefresh.body?.persistedProject?.snapshot?.report?.dataGovernance?.status !== "complete"
+  ) {
+    throw new Error(`Enterprise analysis refresh did not atomically persist the reviewed project revision: ${JSON.stringify(analysisRefresh.body?.persistedProject)}.`);
+  }
+  const refreshedAnalysisRunId = requireHeaderValue(analysisRefresh.headers, "x-sena-analysis-run-id");
+  if (
+    analysisRefresh.body?.enterpriseAnalysisRun?.id !== refreshedAnalysisRunId ||
+    requireHeaderValue(analysisRefresh.headers, "x-sena-project-id") !== projectId ||
+    requireHeaderValue(analysisRefresh.headers, "x-sena-project-version") !== String(authoritativeProjectVersion)
+  ) {
+    throw new Error(`Enterprise analysis refresh headers are not bound to the persisted project revision: ${JSON.stringify(analysisRefresh.headers)}.`);
+  }
 
   const publicationBlocked = evidence.publicationBlocked;
-  if (publicationBlocked?.status !== 409 || publicationBlocked.body?.code !== "publication_export_model_card_blocked") {
-    throw new Error(`Publication export without current v2 machine evidence should return 409: ${JSON.stringify(publicationBlocked)}.`);
+  if (publicationBlocked?.status !== 409 || publicationBlocked.body?.code !== "publication_claim_evidence_not_ready") {
+    throw new Error(`Publication export without claim-ready evidence should return 409: ${JSON.stringify(publicationBlocked)}.`);
   }
   if (publicationBlocked.headers?.["x-sena-observed-status-class"] !== "4xx") {
     throw new Error(`Blocked publication export did not expose observed 4xx evidence: ${JSON.stringify(publicationBlocked.headers)}.`);
@@ -538,8 +817,8 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (reliability.body?.reliabilityRun?.id !== reliabilityRunId ||
     reliability.body?.reliabilityRun?.projectId !== projectId ||
     reliability.body?.reliabilityRun?.projectBinding?.projectId !== projectId ||
-    reliability.body?.reliabilityRun?.projectBinding?.projectVersion !== importResult.body?.persistedProject?.currentVersion) {
-    throw new Error(`Enterprise reliability evidence is not bound to the imported current project revision: ${JSON.stringify(reliability.body?.reliabilityRun)}.`);
+    reliability.body?.reliabilityRun?.projectBinding?.projectVersion !== authoritativeProjectVersion) {
+    throw new Error(`Enterprise reliability evidence is not bound to the reviewed current project revision: ${JSON.stringify(reliability.body?.reliabilityRun)}.`);
   }
 
   const reliabilityApproval = evidence.reliabilityApproval;
@@ -559,6 +838,94 @@ function assertEnterpriseWorkflowEvidence(evidence) {
     throw new Error(`Enterprise reliability approval is missing complete adjudication coverage: ${JSON.stringify(reliabilityApproval.headers)}.`);
   }
 
+  const validation = evidence.validation;
+  if (
+    validation?.status !== 200 ||
+    validation.body?.schemaVersion !== "sena-group-comparison-suite/v2" ||
+    validation.body?.comparisonCount !== 3 ||
+    validation.body?.correction !== "holm"
+  ) {
+    throw new Error(`Enterprise validation suite did not produce Holm-corrected evidence: ${JSON.stringify(validation)}.`);
+  }
+  const validationRunId = requireHeaderValue(validation.headers, "x-sena-validation-run-id");
+  if (
+    requireHeaderValue(validation.headers, "x-sena-project-id") !== projectId ||
+    requireHeaderValue(validation.headers, "x-sena-validation-status") !== "pending-review" ||
+    requireHeaderValue(validation.headers, "x-sena-validation-parity-status") !== "ready-for-review" ||
+    requireHeaderValue(validation.headers, "x-sena-formal-inference-status") !== "model-referenced"
+  ) {
+    throw new Error(`Enterprise validation suite is missing project, parity, or formal-model bindings: ${JSON.stringify(validation.headers)}.`);
+  }
+  requireHeaderValue(validation.headers, "x-sena-validation-preregistration-sha256");
+
+  const validationApproval = evidence.validationApproval;
+  if (
+    validationApproval?.status !== 200 ||
+    validationApproval.body?.schemaVersion !== "sena-validation-run-review/v1" ||
+    requireHeaderValue(validationApproval.headers, "x-sena-validation-status") !== "approved"
+  ) {
+    throw new Error(`Enterprise validation suite was not explicitly approved: ${JSON.stringify(validationApproval)}.`);
+  }
+
+  const expertReview = evidence.expertReview;
+  if (expertReview?.status !== 200 || expertReview.body?.schemaVersion !== "sena-expert-review-response/v1") {
+    throw new Error(`Enterprise expert review creation failed: ${JSON.stringify(expertReview)}.`);
+  }
+  const expertReviewId = requireHeaderValue(expertReview.headers, "x-sena-expert-review-id");
+  if (
+    requireHeaderValue(expertReview.headers, "x-sena-expert-review-target-id") !== validationRunId ||
+    requireHeaderValue(expertReview.headers, "x-sena-expert-review-claim-scope") !== "exploratory-only"
+  ) {
+    throw new Error(`Enterprise expert review is not bound to the validation run: ${JSON.stringify(expertReview.headers)}.`);
+  }
+
+  const expertReviewApproval = evidence.expertReviewApproval;
+  if (
+    expertReviewApproval?.status !== 200 ||
+    expertReviewApproval.body?.schemaVersion !== "sena-expert-review-response/v1" ||
+    requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-status") !== "approved" ||
+    requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-claim-scope") !== "claim-ready-with-limits" ||
+    requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-present") !== "true"
+  ) {
+    throw new Error(`Enterprise expert review is not approved with receipt-authenticated limited scope: ${JSON.stringify(expertReviewApproval)}.`);
+  }
+  requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-key-id");
+  requireHeaderValue(expertReviewApproval.headers, "x-sena-expert-review-receipt-sha256");
+
+  const claimPackage = evidence.claimPackage;
+  if (
+    claimPackage?.status !== 200 ||
+    claimPackage.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v2" ||
+    claimPackage.body?.status !== "exploratory-only" ||
+    claimPackage.body?.summary?.blockers !== 1 ||
+    JSON.stringify(claimPackage.body?.blockers) !== JSON.stringify(["project-claim-readiness-required"]) ||
+    claimPackage.body?.claimReadinessEvidence?.kind !== "persisted-project-snapshot" ||
+    requireHeaderValue(claimPackage.headers, "x-sena-claim-package-status") !== "exploratory-only" ||
+    requireHeaderValue(claimPackage.headers, "x-sena-project-id") !== projectId ||
+    requireHeaderValue(claimPackage.headers, "x-sena-source-snapshot-sha256") !== claimPackage.body?.sourceSnapshotEvidence?.snapshotSha256
+  ) {
+    throw new Error(`Persisted enterprise claim package did not preserve its single derivable readiness blocker: ${JSON.stringify(claimPackage)}.`);
+  }
+  if (
+    claimPackage.body?.evidence?.reliability?.runId !== reliabilityRunId ||
+    claimPackage.body?.evidence?.validation?.runId !== validationRunId ||
+    claimPackage.body?.evidence?.validation?.suiteCorrection !== "holm" ||
+    claimPackage.body?.evidence?.expertReview?.reviewId !== expertReviewId ||
+    claimPackage.body?.evidence?.expertReview?.claimScope !== "claim-ready-with-limits"
+  ) {
+    throw new Error(`Enterprise claim package does not bind the approved evidence set: ${JSON.stringify(claimPackage.body?.evidence)}.`);
+  }
+  const claimArtifactIds = claimPackage.body?.artifacts?.map((artifact) => artifact.id) ?? [];
+  for (const expectedArtifact of [
+    "reliability-dashboard",
+    "validation-preregistration-plan",
+    "validation-parity-evidence",
+    "formal-inference-readiness",
+    "domain-expert-review"
+  ]) {
+    assertArrayIncludes(claimArtifactIds, expectedArtifact, "claim package artifact ids");
+  }
+
   const publication = evidence.publication;
   if (publication?.status !== 200) {
     throw new Error(`Publication package export returned HTTP ${publication?.status ?? "<missing>"}: ${JSON.stringify(publication?.body)}.`);
@@ -569,6 +936,16 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (publication.body?.enterpriseProjectEvidence?.projectId !== projectId) {
     throw new Error(`Publication package did not use the imported persisted project ${projectId}.`);
   }
+  if (publication.body?.enterpriseProjectEvidence?.claimPackage?.status !== "claim-ready-with-limits") {
+    throw new Error(`Publication package is missing claim-ready enterprise evidence: ${JSON.stringify(publication.body?.enterpriseProjectEvidence?.claimPackage)}.`);
+  }
+  if (
+    publication.body?.enterpriseProjectEvidence?.claimPackage?.payload?.claimReadinessEvidence?.kind !== "current-project-reliability-run" ||
+    publication.body?.enterpriseProjectEvidence?.claimPackage?.payload?.summary?.blockers !== 0 ||
+    publication.body?.enterpriseProjectEvidence?.claimPackage?.payload?.blockers?.length !== 0
+  ) {
+    throw new Error(`Publication package did not use a blocker-free non-persisted current-v2 claim projection: ${JSON.stringify(publication.body?.enterpriseProjectEvidence?.claimPackage?.payload?.claimReadinessEvidence)}.`);
+  }
   if (publication.body?.sourceSnapshotEvidence?.snapshotSchemaVersion !== "sena-project-snapshot/v1") {
     throw new Error(`Publication package is missing project snapshot evidence: ${JSON.stringify(publication.body?.sourceSnapshotEvidence)}.`);
   }
@@ -576,7 +953,7 @@ function assertEnterpriseWorkflowEvidence(evidence) {
   if (derivation?.kind !== "current-project-reliability-run" ||
     derivation?.reliabilityRunId !== reliabilityRunId ||
     derivation?.reliabilityDashboardSchemaVersion !== "sena-coding-reliability-dashboard/v2" ||
-    derivation?.projectVersion !== importResult.body?.persistedProject?.currentVersion) {
+    derivation?.projectVersion !== authoritativeProjectVersion) {
     throw new Error(`Publication package is missing its current-v2 reliability derivation: ${JSON.stringify(derivation)}.`);
   }
   if (publication.body?.claimEvidence?.codingReliability !== "ready") {
@@ -593,6 +970,14 @@ function assertEnterpriseWorkflowEvidence(evidence) {
     requireHeaderValue(publication.headers, "x-sena-persisted-source-snapshot-sha256") !== derivation.persistedSourceSnapshotSha256) {
     throw new Error(`Publication response headers do not bind the current-v2 reliability derivation: ${JSON.stringify(publication.headers)}.`);
   }
+  if (
+    requireHeaderValue(publication.headers, "x-sena-claim-package-status") !== "claim-ready-with-limits" ||
+    requireHeaderValue(publication.headers, "x-sena-validation-run-id") !== validationRunId ||
+    requireHeaderValue(publication.headers, "x-sena-expert-review-id") !== expertReviewId
+  ) {
+    throw new Error(`Publication response headers do not bind the claim-ready validation and expert evidence: ${JSON.stringify(publication.headers)}.`);
+  }
+  requireHeaderValue(publication.headers, "x-sena-claim-package-sha256");
   requiredPublicationFormats.forEach((format) => {
     assertArrayIncludes(publication.body?.manifest?.formats, format, "publication package manifest formats");
     assertArrayIncludes(publication.headers["x-sena-publication-formats"]?.split(","), format, "x-sena-publication-formats");

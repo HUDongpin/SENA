@@ -245,9 +245,13 @@ describe("SENA browser smoke manifest", () => {
     expect(SENA_BROWSER_SMOKE_MANIFEST.productionVerifier.steps.enterpriseApi).toMatchObject({
       exportName: "verifySenaEnterpriseApiBrowserSmoke",
       label: "Verify enterprise API browser smoke",
-      env: ["SENA_PROVISIONING_TOKEN"],
       provisioningTokenFallback: "sena-pilot-provisioning-token"
     });
+    expect(SENA_BROWSER_SMOKE_MANIFEST.productionVerifier.steps.enterpriseApi.env).toEqual(expect.arrayContaining([
+      "SENA_PROVISIONING_TOKEN",
+      "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+      "SENA_EXPERT_REVIEW_SIGNING_KEY_ID"
+    ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.routes).toEqual(expect.arrayContaining([
       "/api/sena/scim/v2/ServiceProviderConfig",
       "/api/auth/csrf",
@@ -318,6 +322,113 @@ describe("SENA browser smoke manifest", () => {
       "evidenceUrlValuesExcluded"
     ]));
     expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.expectedRoleEvidence).toBe("Expected owner registration role");
+  });
+
+  it("keeps the enterprise publication preflight smoke aligned with the claim-evidence gate", () => {
+    const smokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.publicationBlockedCode)
+      .toBe("publication_claim_evidence_not_ready");
+    expect(smokeSource).toContain(
+      `publicationBlocked.body?.code !== "${SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.publicationBlockedCode}"`
+    );
+    expect(smokeSource).not.toContain(
+      'publicationBlocked.body?.code !== "publication_export_model_card_blocked"'
+    );
+  });
+
+  it("requires the enterprise publication success smoke to create complete same-project claim evidence", () => {
+    const smokeSource = readFileSync(
+      new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url),
+      "utf8"
+    );
+
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.routes).toEqual(expect.arrayContaining([
+      "/api/sena/reliability",
+      "/api/sena/analyze",
+      "/api/sena/validation/group-comparison",
+      "/api/sena/validation/expert-review",
+      "/api/sena/validation/claim-package"
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.schemaVersions).toEqual(expect.arrayContaining([
+      "sena-reliability-response/v1",
+      "sena-reliability-run-review/v1",
+      "sena-analysis-run/v1",
+      "sena-group-comparison-suite/v2",
+      "sena-validation-run-review/v1",
+      "sena-expert-review-response/v1",
+      "sena-enterprise-claim-evidence-package/v2",
+      "sena-publication-package/v1"
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.headers).toEqual(expect.arrayContaining([
+      "x-sena-reliability-run-id",
+      "x-sena-validation-run-id",
+      "x-sena-expert-review-id",
+      "x-sena-expert-review-receipt-present",
+      "x-sena-expert-review-receipt-sha256",
+      "x-sena-claim-package-status",
+      "x-sena-claim-package-sha256"
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.importProfiles).toEqual(expect.arrayContaining([
+      "sena-contract",
+      "cleaned-transcript"
+    ]));
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.expectedImportStatus).toBe("completed");
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.expectedImportWarnings).toEqual([]);
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.expectedImportedDatasetCounts).toEqual({
+      people: 4,
+      interactions: 3,
+      utterances: 8,
+      codedSegments: 8,
+      codes: 4
+    });
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.claimStatuses).toEqual({
+      persistedPrepublication: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      derivedPublication: "claim-ready-with-limits"
+    });
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.expertReviewReceipt).toEqual({
+      signingMode: "ephemeral-verifier-env",
+      keyIdPrefix: "sena-pilot-smoke-"
+    });
+    expect(SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi.evidenceFields).toEqual(expect.arrayContaining([
+      "evidence.reliability",
+      "evidence.validation",
+      "evidence.expertReview"
+    ]));
+    expect(smokeSource).toContain('fetch("/sena-pilot/sample/lesson-study-sena-contract.json"');
+    expect(smokeSource).toContain("if (!contractResponse.ok)");
+    expect(smokeSource).toContain('new Set(["T1", "T2"])');
+    expect(smokeSource).toContain('new Set(["u1", "u2", "u4", "u7", "u10"])');
+    expect(smokeSource).toContain('new Set(["question", "evidence", "explanation"])');
+    expect(smokeSource).toContain('new File([JSON.stringify(compactContract)], "lesson-study-sena-contract.json"');
+    expect(smokeSource).toContain('"T1: We should ask a better question and gather evidence. #reflection"');
+    expect(smokeSource).toContain('"T2: The graph links evidence to an emerging explanation. #reflection"');
+    expect(smokeSource).not.toContain('"P01: We should ask a better #Question and gather #Evidence."');
+    expect(smokeSource).toContain('fetch("/api/sena/analyze"');
+    expect(smokeSource).toContain('status: "human-reviewed"');
+    expect(smokeSource).toContain('fetch("/api/sena/validation/group-comparison"');
+    expect(smokeSource).toContain('fetch("/api/sena/validation/expert-review"');
+    expect(smokeSource).toContain('fetch(`/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`');
+    expect(smokeSource).toContain('claimPackage.body?.claimReadinessEvidence?.kind !== "persisted-project-snapshot"');
+    expect(smokeSource).toContain('publication.body?.enterpriseProjectEvidence?.claimPackage?.payload?.claimReadinessEvidence?.kind !== "current-project-reliability-run"');
+    expect(smokeSource).toContain("publication.body?.enterpriseProjectEvidence?.claimPackage?.status");
+
+    const pilotSource = readFileSync(
+      new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url),
+      "utf8"
+    );
+    expect(pilotSource).toContain('import { randomBytes } from "node:crypto";');
+    expect(pilotSource).toContain('const expertReviewSigningSecret = randomBytes(32).toString("hex")');
+    expect(pilotSource).toContain('const expertReviewSigningKeyId = `sena-pilot-smoke-${randomBytes(8).toString("hex")}`');
+    expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret");
+    expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId");
+    expect(pilotSource).not.toContain('SENA_EXPERT_REVIEW_SIGNING_SECRET: "');
+    expect(pilotSource).not.toContain("console.log(expertReviewSigningSecret");
+    expect(pilotSource).not.toContain("console.log(expertReviewSigningKeyId");
   });
 
   it("includes RBAC team collaboration APIs in the production browser smoke verifier", () => {
