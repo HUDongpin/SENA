@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import path, { join } from "node:path";
 import {
   assertSenaVerifierEnvironmentFilesUnchanged,
@@ -31,9 +31,10 @@ let vitestEnvironment;
 
 // These end-to-end files pass when run alone, but can exceed their per-test
 // timeout when they contend with the default multi-worker full suite. Keep the
-// broad suite parallel, then run only these known long files serially. Explicit
-// CLI arguments preserve the wrapper's original single-invocation behaviour
-// for focused developer runs.
+// broad suite parallel, but cap its workers because several files themselves
+// spawn process-heavy recovery and evidence probes. Then run only these known
+// long files serially. Explicit CLI arguments preserve the wrapper's original
+// single-invocation behaviour for focused developer runs.
 const serialTestFiles = [
   "lib/sena/__tests__/analysis-route.test.ts",
   "lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
@@ -41,6 +42,7 @@ const serialTestFiles = [
   "lib/sena/__tests__/enterprise.test.ts",
   "lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"
 ];
+const parallelTestWorkers = Math.max(1, Math.min(4, availableParallelism()));
 
 function runVitest(vitestFile, args) {
   assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
@@ -66,7 +68,7 @@ try {
   const phases = requestedArgs.length > 0
     ? [requestedArgs]
     : [
-        serialTestFiles.flatMap((testFile) => ["--exclude", testFile]),
+        ["--maxWorkers", String(parallelTestWorkers), ...serialTestFiles.flatMap((testFile) => ["--exclude", testFile])],
         ["--no-file-parallelism", ...serialTestFiles]
       ];
 
