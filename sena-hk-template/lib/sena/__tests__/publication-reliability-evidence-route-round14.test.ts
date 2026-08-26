@@ -555,23 +555,47 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         reliabilityRunId: selectedRunId
       }));
 
-      const selectedRun = enterprise.readEnterpriseDb().reliabilityRuns.find((run) => run.id === selectedRunId);
-      if (!selectedRun) throw new Error("Expected the selected enterprise reliability run.");
-      const derivedSnapshot = buildSenaProjectSnapshot(
-        buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions),
-        {
-          title: snapshot.title,
-          generatedAt: snapshot.generatedAt,
-          sourceDataset: snapshot.source.sourceDataset ?? snapshot.dataset,
-          activeTemporalWindow: snapshot.source.activeTemporalWindow,
-          temporalRuntimeTrace: snapshot.analysis.temporalRuntimeTrace,
-          demoVerificationManualReviews: snapshot.workspaceState?.demoVerificationManualReviews,
-          humanReview: snapshot.report.humanReview,
-          codingReliability: selectedRun.reviewPatch,
-          dataGovernance: snapshot.dataGovernance ?? snapshot.report.dataGovernance
-        }
+      const publicationStateRuntime = await import("../enterprise/publication-state-binding");
+      const exactPublicationState = await publicationStateRuntime.resolveEnterprisePublicationStateBundle(
+        registered.context,
+        project.id
       );
-      const missingDerivation = structuredClone(evidence) as SenaPublicationEnterpriseProjectEvidence;
+      const derivedSnapshot = exactPublicationState.publicationSnapshot;
+      const exactReliabilityRun = exactPublicationState.reliabilityRun;
+      if (!exactReliabilityRun) throw new Error("Expected the exact selected enterprise reliability run.");
+      const exactEvidence = {
+        ...structuredClone(evidence),
+        sourceSnapshotSha256: sha256Json(derivedSnapshot),
+        reportSha256: sha256Json(derivedSnapshot.report),
+        stateBinding: structuredClone(exactPublicationState.stateBinding),
+        publicationDerivation: {
+          kind: "current-project-reliability-run" as const,
+          reliabilityRunId: exactReliabilityRun.id,
+          reliabilityRunSha256: sha256Json(exactReliabilityRun),
+          reliabilityDashboardSchemaVersion: exactReliabilityRun.dashboard.schemaVersion,
+          projectVersion: exactReliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
+          persistedSourceSnapshotSha256: exactPublicationState.stateBinding.project.persistedSnapshotSha256,
+          readProjectionSourceSnapshotSha256: exactPublicationState.stateBinding.project.readProjectionSnapshotSha256,
+          derivedPublicationSnapshotSha256: sha256Json(derivedSnapshot)
+        },
+        claimPackage: {
+          schemaVersion: exactPublicationState.claimPackage.schemaVersion,
+          status: exactPublicationState.claimPackage.status,
+          blockers: exactPublicationState.claimPackage.summary.blockers,
+          warnings: exactPublicationState.claimPackage.summary.warnings,
+          sourceSnapshotSha256: exactPublicationState.claimPackage.sourceSnapshotEvidence.snapshotSha256,
+          persistedSourceSnapshotSha256: exactPublicationState.stateBinding.project.persistedSnapshotSha256,
+          claimReadinessKind: exactPublicationState.claimPackage.claimReadinessEvidence.kind,
+          claimReadinessSnapshotSha256: exactPublicationState.claimPackage.claimReadinessEvidence.snapshotSha256,
+          sha256: exactPublicationState.stateBinding.claimPackage.sha256,
+          payload: structuredClone(exactPublicationState.claimPackage)
+        }
+      } satisfies SenaPublicationEnterpriseProjectEvidence;
+      await expect(buildSenaPublicationExport(derivedSnapshot, "html", exactEvidence))
+        .resolves.toEqual(expect.objectContaining({
+          contentType: "text/html; charset=utf-8"
+        }));
+      const missingDerivation = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
       delete missingDerivation.publicationDerivation;
       await expect(buildSenaPublicationExport(derivedSnapshot, "html", missingDerivation))
         .rejects.toMatchObject({
@@ -579,11 +603,57 @@ describe("enterprise publication current-v2 reliability evidence", () => {
           code: "publication_derivation_manifest_binding_invalid"
         });
 
-      const mismatchedRunHash = structuredClone(evidence) as SenaPublicationEnterpriseProjectEvidence;
+      const mismatchedRunHash = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
       Object.assign(mismatchedRunHash.publicationDerivation ?? {}, {
         reliabilityRunSha256: "0".repeat(64)
       });
       await expect(buildSenaPublicationExport(derivedSnapshot, "html", mismatchedRunHash))
+        .rejects.toMatchObject({
+          status: 409,
+          code: "publication_derivation_manifest_binding_invalid"
+        });
+
+      const mismatchedStateRevisionHash = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
+      mismatchedStateRevisionHash.stateBinding.stateRevisionSha256 = "0".repeat(64);
+      const { bindingSha256: ignoredStateRevisionBindingSha256, ...mismatchedStateRevisionCore } =
+        mismatchedStateRevisionHash.stateBinding;
+      void ignoredStateRevisionBindingSha256;
+      mismatchedStateRevisionHash.stateBinding.bindingSha256 = sha256Json(mismatchedStateRevisionCore);
+      await expect(buildSenaPublicationExport(derivedSnapshot, "html", mismatchedStateRevisionHash))
+        .rejects.toMatchObject({
+          status: 409,
+          code: "publication_derivation_manifest_binding_invalid"
+        });
+
+      const mismatchedStateRevisionKind = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
+      mismatchedStateRevisionKind.stateBinding.stateRevisionKind =
+        mismatchedStateRevisionKind.stateBinding.activePrimary === "file"
+          ? "postgres-row-revision"
+          : "file-content-sha256";
+      const { bindingSha256: ignoredStateKindBindingSha256, ...mismatchedStateKindCore } =
+        mismatchedStateRevisionKind.stateBinding;
+      void ignoredStateKindBindingSha256;
+      mismatchedStateRevisionKind.stateBinding.bindingSha256 = sha256Json(mismatchedStateKindCore);
+      await expect(buildSenaPublicationExport(derivedSnapshot, "html", mismatchedStateRevisionKind))
+        .rejects.toMatchObject({
+          status: 409,
+          code: "publication_derivation_manifest_binding_invalid"
+        });
+
+      const mismatchedClaimReadinessReport = structuredClone(exactEvidence) as SenaPublicationEnterpriseProjectEvidence;
+      mismatchedClaimReadinessReport.claimPackage.payload.claimReadinessEvidence.reportSha256 = "0".repeat(64);
+      mismatchedClaimReadinessReport.claimPackage.sha256 = sha256Json(
+        mismatchedClaimReadinessReport.claimPackage.payload
+      );
+      mismatchedClaimReadinessReport.stateBinding.claimPackage.sha256 =
+        mismatchedClaimReadinessReport.claimPackage.sha256;
+      const { bindingSha256: ignoredClaimReportBindingSha256, ...mismatchedClaimReportBindingCore } =
+        mismatchedClaimReadinessReport.stateBinding;
+      void ignoredClaimReportBindingSha256;
+      mismatchedClaimReadinessReport.stateBinding.bindingSha256 = sha256Json(
+        mismatchedClaimReportBindingCore
+      );
+      await expect(buildSenaPublicationExport(derivedSnapshot, "html", mismatchedClaimReadinessReport))
         .rejects.toMatchObject({
           status: 409,
           code: "publication_derivation_manifest_binding_invalid"

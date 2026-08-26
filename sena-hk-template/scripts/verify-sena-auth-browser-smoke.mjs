@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
 import { randomUUID } from "node:crypto";
+import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
 
 const defaultTimeout = 15000;
 
@@ -90,7 +91,7 @@ export async function verifySenaAuthBrowserSmoke(baseUrl = authSmokeOriginFromCl
   const page = await context.newPage();
 
   try {
-    await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+    await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout);
     await fillByTestId(page, "register-full-name", "SENA Auth Smoke");
     await fillByTestId(page, "register-email", email);
     await fillByTestId(page, "register-organization", "SENA Auth Smoke Lab");

@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +12,11 @@ import { SENA_BROWSER_SMOKE_MANIFEST } from "../browser-smoke-manifest";
 import { buildSenaApiDocumentation } from "../api-docs";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SENA_WORKSPACE_API_ROUTES } from "../../../components/sena/workspace/api-client";
+import {
+  assertSenaVerifierEnvironmentIsLocal,
+  buildSenaVerifierEnvironment
+} from "../../../scripts/sena-verifier-environment.mjs";
+import { requireVerifierControlledServerCustody } from "../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs";
 
 describe("SENA browser smoke manifest", () => {
   it("declares the essential workspace responsive and disclosure smoke contract", () => {
@@ -205,6 +212,31 @@ describe("SENA browser smoke manifest", () => {
     ]));
     expect(Object.values(SENA_BROWSER_SMOKE_MANIFEST.auth.selectors.register)).toContain("register-submit");
     expect(Object.values(SENA_BROWSER_SMOKE_MANIFEST.auth.selectors.login)).toContain("login-remember-session");
+  });
+
+  it("waits for register client hydration before any browser smoke submits the form", () => {
+    const registerSmokeSources = [
+      "../../../scripts/verify-sena-auth-browser-smoke.mjs",
+      "../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs",
+      "../../../scripts/verify-sena-reliability-browser-smoke.mjs",
+      "../../../scripts/verify-sena-validation-claim-browser-smoke.mjs"
+    ].map((relativePath) => readFileSync(new URL(relativePath, import.meta.url), "utf8"));
+
+    for (const smokeSource of registerSmokeSources) {
+      expect(smokeSource).toContain("gotoHydratedSenaRegisterPage");
+      expect(smokeSource).toContain(
+        "await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout)"
+      );
+    }
+
+    const hydrationHelperSource = readFileSync(
+      new URL("../../../scripts/sena-auth-browser-hydration.mjs", import.meta.url),
+      "utf8"
+    );
+    expect(hydrationHelperSource).toContain('candidate.request().method() === "GET"');
+    expect(hydrationHelperSource).toContain('candidateUrl.pathname === "/api/auth/sso"');
+    expect(hydrationHelperSource).toContain('candidateUrl.searchParams.get("status") === "1"');
+    expect(hydrationHelperSource).toContain('candidateUrl.searchParams.get("preflight") === "1"');
   });
 
   it("includes SSO provider preflight and OAuth fallback sessions in the production browser smoke verifier", () => {
@@ -526,16 +558,31 @@ describe("SENA browser smoke manifest", () => {
     expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret");
     expect(pilotSource).toContain("SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId");
     expect(pilotSource).toContain("expectedReceiptKeyId: expertReviewSigningKeyId");
-    expect(pilotSource).toContain("serverCustody: {");
+    expect(pilotSource).toContain("buildSenaVerifierEnvironment");
+    expect(pilotSource).toContain("assertSenaVerifierEnvironmentIsLocal");
+    expect(pilotSource).toContain("const serverCustody = Object.freeze({");
     expect(pilotSource).toContain('mode: "verifier-controlled-loopback-temporary-server"');
     expect(pilotSource).toContain("serverProcess: server");
     expect(pilotSource).toContain("serverEnvironment");
     expect(pilotSource).toContain("enterpriseDbDir");
+    expect(pilotSource).toContain("serverWorkingDirectory: projectRoot");
+    expect(pilotSource).toContain("serverReadyFromOwnedProcess: true");
+    expect(pilotSource).toContain("registerVerifierControlledServerCustody");
+    expect(pilotSource).toContain("runWithOwnedServer");
+    expect(pilotSource).toContain("verifySenaReliabilityBrowserSmoke(url, custodyOptions)");
+    expect(pilotSource).toContain("verifySenaValidationClaimBrowserSmoke(url, custodyOptions)");
     expect(pilotSource).toContain("redactVerifierValues");
     expect(pilotSource).not.toContain("console.error(output)");
     expect(pilotSource).not.toContain('SENA_EXPERT_REVIEW_SIGNING_SECRET: "');
     expect(pilotSource).not.toContain("console.log(expertReviewSigningSecret");
     expect(pilotSource).not.toContain("console.log(expertReviewSigningKeyId");
+    const vitestWrapperSource = readFileSync(
+      new URL("../../../scripts/run-vitest-with-enterprise-temp-db.mjs", import.meta.url),
+      "utf8"
+    );
+    expect(vitestWrapperSource).toContain(
+      '"lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"'
+    );
   });
 
   it("fails standalone enterprise smoke before browser work without an exact ephemeral receipt key id", () => {
@@ -629,6 +676,195 @@ describe("SENA browser smoke manifest", () => {
       expect(result.stderr).not.toContain("browserType.launch");
       expect(result.stderr).not.toContain("ECONNREFUSED");
       expect(result.stderr).not.toContain("net::");
+      expect(result.stderr).not.toContain(expectedReceiptKeyId);
+    }
+  });
+
+  it("rejects a field-complete but unregistered forged server-custody object", () => {
+    const enterpriseDbDir = mkdtempSync(join(tmpdir(), "sena-pilot-enterprise-db-"));
+    const expectedReceiptKeyId = "sena-pilot-smoke-0123456789abcdef";
+    const provisioningToken = "sena-pilot-provisioning-token";
+    const origin = "http://127.0.0.1:39999";
+    const serverEnvironment = buildSenaVerifierEnvironment(process.env, {
+      NODE_ENV: "production",
+      PORT: "39999",
+      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+      SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
+      SENA_APP_URL: origin,
+      NEXT_PUBLIC_SENA_APP_URL: origin,
+      SENA_PROVISIONING_TOKEN: provisioningToken,
+      SENA_EXPERT_REVIEW_SIGNING_SECRET: "a".repeat(64),
+      SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expectedReceiptKeyId
+    });
+    const forgedProcess = {
+      pid: process.pid,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      spawnfile: process.execPath,
+      spawnargs: [
+        process.execPath,
+        "node_modules/next/dist/bin/next",
+        "start",
+        "-p",
+        "39999"
+      ]
+    };
+
+    try {
+      expect(() => requireVerifierControlledServerCustody({
+        expectedReceiptKeyId,
+        provisioningToken,
+        serverCustody: {
+          mode: "verifier-controlled-loopback-temporary-server",
+          serverProcess: forgedProcess,
+          serverEnvironment,
+          enterpriseDbDir,
+          serverWorkingDirectory: process.cwd(),
+          serverReadyFromOwnedProcess: true
+        }
+      }, origin, expectedReceiptKeyId, provisioningToken)).toThrow(
+        /live verifier-controlled temporary-server custody/i
+      );
+    } finally {
+      rmSync(enterpriseDbDir, { force: true, recursive: true });
+    }
+  });
+
+  it("sanitizes poisoned production state and outbound-provider env before any verifier child starts", () => {
+    const enterpriseDbDir = "/tmp/sena-verifier-environment-test";
+    const safe = buildSenaVerifierEnvironment({
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      PLAYWRIGHT_BROWSERS_PATH: "/tmp/sena-playwright-browsers",
+      GITHUB_TOKEN: "must-not-be-inherited",
+      SENA_ENTERPRISE_STATE_STORE: "postgres",
+      SENA_ENTERPRISE_DB_ADAPTER: "neon",
+      SENA_ENTERPRISE_POSTGRES_URL: "postgres://production.example.test/sena",
+      SENA_DATABASE_URL: "postgres://production.example.test/sena",
+      DATABASE_URL: "postgres://production.example.test/sena",
+      POSTGRES_URL: "postgres://production.example.test/sena",
+      POSTGRES_PRISMA_URL: "postgres://production.example.test/sena",
+      NEON_DATABASE_URL: "postgres://production.example.test/sena",
+      SENA_REQUIRE_ASYNC_HEAVY_JOBS: "1",
+      SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH: "1",
+      SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED: "1",
+      SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED: "1",
+      SENA_JOB_QUEUE_ADAPTER: "qstash",
+      SENA_JOB_QUEUE_PROVIDER_URL: "https://qstash.example.test",
+      QSTASH_TOKEN: "production-qstash-token",
+      UPSTASH_QSTASH_TOKEN: "production-upstash-token",
+      SENA_NOTIFICATION_WEBHOOK_URL: "https://notify.example.test",
+      SENA_EMAIL_WEBHOOK_URL: "https://email.example.test",
+      SENA_AUDIT_WEBHOOK_URL: "https://audit.example.test",
+      SENA_OBJECT_STORAGE_ADAPTER: "vercel-blob",
+      BLOB_READ_WRITE_TOKEN: "production-blob-token",
+      R2_ACCOUNT_ID: "production-r2-account"
+    }, {
+      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+      SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
+      SENA_PROVISIONING_TOKEN: "verifier-provisioning-token",
+      SENA_EXPERT_REVIEW_SIGNING_SECRET: "a".repeat(64),
+      SENA_EXPERT_REVIEW_SIGNING_KEY_ID: "sena-pilot-smoke-0123456789abcdef"
+    });
+
+    expect(safe).toEqual(expect.objectContaining({
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      PLAYWRIGHT_BROWSERS_PATH: "/tmp/sena-playwright-browsers",
+      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+      SENA_ENTERPRISE_STATE_STORE: "file",
+      SENA_ENTERPRISE_DB_ADAPTER: "",
+      SENA_REQUIRE_ASYNC_HEAVY_JOBS: "",
+      SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH: "",
+      SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED: "",
+      SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED: "",
+      QSTASH_TOKEN: "",
+      UPSTASH_QSTASH_TOKEN: "",
+      BLOB_READ_WRITE_TOKEN: "",
+      R2_ACCOUNT_ID: ""
+    }));
+    expect(safe.GITHUB_TOKEN).toBeUndefined();
+    for (const key of [
+      "SENA_ENTERPRISE_POSTGRES_URL",
+      "SENA_DATABASE_URL",
+      "DATABASE_URL",
+      "POSTGRES_URL",
+      "POSTGRES_PRISMA_URL",
+      "NEON_DATABASE_URL",
+      "SENA_JOB_QUEUE_ADAPTER",
+      "SENA_JOB_QUEUE_PROVIDER_URL",
+      "SENA_NOTIFICATION_WEBHOOK_URL",
+      "SENA_EMAIL_WEBHOOK_URL",
+      "SENA_AUDIT_WEBHOOK_URL",
+      "SENA_OBJECT_STORAGE_ADAPTER"
+    ]) {
+      expect(safe[key]).toBe("");
+    }
+    expect(() => assertSenaVerifierEnvironmentIsLocal(safe, enterpriseDbDir)).not.toThrow();
+    expect(() => assertSenaVerifierEnvironmentIsLocal({
+      ...safe,
+      DATABASE_URL: "postgres://production.example.test/sena"
+    }, enterpriseDbDir)).toThrow(/verifier-local environment/i);
+    expect(() => assertSenaVerifierEnvironmentIsLocal({
+      ...safe,
+      SENA_JOB_QUEUE_ADAPTER: "qstash"
+    }, enterpriseDbDir)).toThrow(/verifier-local environment/i);
+  });
+
+  it("shadows every key in local Next env files before the verifier child can load them", () => {
+    const projectDirectory = mkdtempSync(join(tmpdir(), "sena-verifier-env-files-"));
+    const enterpriseDbDir = join(projectDirectory, "enterprise-db");
+    writeFileSync(join(projectDirectory, ".env.production.local"), [
+      "SENA_ENTERPRISE_POSTGRES_URL=postgres://production.example.test/sena",
+      "SENA_JOB_WORKER_CALLBACK_URL=https://worker.example.test/callback",
+      "GITHUB_TOKEN=must-never-reach-the-child",
+      "EXTERNAL_PROVIDER_SECRET=must-never-reach-the-child"
+    ].join("\n"), "utf8");
+    const buildWithProjectDirectory = buildSenaVerifierEnvironment as unknown as (
+      baseEnvironment: NodeJS.ProcessEnv,
+      overrides: Record<string, string>,
+      projectRoot: string
+    ) => Readonly<Record<string, string>>;
+
+    try {
+      const safe = buildWithProjectDirectory(process.env, {
+        SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
+      }, projectDirectory);
+      expect(safe.SENA_ENTERPRISE_POSTGRES_URL).toBe("");
+      expect(safe.SENA_JOB_WORKER_CALLBACK_URL).toBe("");
+      expect(safe.GITHUB_TOKEN).toBe("");
+      expect(safe.EXTERNAL_PROVIDER_SECRET).toBe("");
+      expect(() => assertSenaVerifierEnvironmentIsLocal(safe, enterpriseDbDir)).not.toThrow();
+    } finally {
+      rmSync(projectDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps reliability and validation mutation smokes pilot-wrapper-only", () => {
+    const packageRoot = fileURLToPath(new URL("../../..", import.meta.url));
+    const expectedReceiptKeyId = "sena-pilot-smoke-0123456789abcdef";
+    for (const verifierPath of [
+      fileURLToPath(new URL("../../../scripts/verify-sena-reliability-browser-smoke.mjs", import.meta.url)),
+      fileURLToPath(new URL("../../../scripts/verify-sena-validation-claim-browser-smoke.mjs", import.meta.url))
+    ]) {
+      const result = spawnSync(process.execPath, [verifierPath, "http://127.0.0.1:39999"], {
+        cwd: packageRoot,
+        encoding: "utf8",
+        timeout: 5_000,
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: "/nonexistent/sena-mutation-smoke-custody-red-contract",
+          SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID: expectedReceiptKeyId
+        }
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(
+        "requires live verifier-controlled temporary-server custody from verify-sena-pilot before any browser or server mutation"
+      );
+      expect(result.stderr).not.toContain("browserType.launch");
+      expect(result.stderr).not.toContain("ECONNREFUSED");
       expect(result.stderr).not.toContain(expectedReceiptKeyId);
     }
   });

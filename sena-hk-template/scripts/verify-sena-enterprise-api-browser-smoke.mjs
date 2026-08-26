@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
+import { ChildProcess } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, sep } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { chromium } from "playwright";
+import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
+import { assertSenaVerifierEnvironmentIsLocal } from "./sena-verifier-environment.mjs";
 
 const defaultTimeout = 15000;
 const requiredPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"];
@@ -11,8 +15,9 @@ const scimIdentityProductionExtensionSchema = "urn:sena:params:scim:schemas:exte
 const ephemeralReceiptKeyIdPattern = /^sena-pilot-smoke-[a-f0-9]{16}$/;
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const verifierControlledLoopbackHostnames = new Set(["127.0.0.1", "[::1]", "localhost"]);
+const registeredVerifierServerCustodies = new WeakSet();
 
-function requireExpectedReceiptKeyId(options) {
+export function requireExpectedReceiptKeyId(options) {
   const expectedReceiptKeyId = options.expectedReceiptKeyId ??
     process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID;
   if (typeof expectedReceiptKeyId !== "string" || !ephemeralReceiptKeyIdPattern.test(expectedReceiptKeyId)) {
@@ -28,7 +33,7 @@ function enterpriseSmokeOriginFromCli() {
   return new URL(positional ?? process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_URL ?? "http://127.0.0.1:3001").origin;
 }
 
-function requireVerifierControlledLoopbackOrigin(baseUrl) {
+export function requireVerifierControlledLoopbackOrigin(baseUrl) {
   let parsed;
   try {
     parsed = new URL(baseUrl);
@@ -48,7 +53,13 @@ function requireVerifierControlledLoopbackOrigin(baseUrl) {
   return parsed.origin;
 }
 
-function requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken) {
+function validateVerifierControlledServerCustody(
+  options,
+  origin,
+  expectedReceiptKeyId,
+  provisioningToken,
+  requireRegistration
+) {
   const custody = options.serverCustody;
   const serverProcess = custody?.serverProcess;
   const serverEnvironment = custody?.serverEnvironment;
@@ -67,25 +78,36 @@ function requireVerifierControlledServerCustody(options, origin, expectedReceipt
     enterpriseDbStats = null;
   }
   const spawnargs = Array.isArray(serverProcess?.spawnargs) ? serverProcess.spawnargs : [];
-  const nextBinIndex = spawnargs.findIndex((arg) => (
-    arg === "node_modules/next/dist/bin/next" || arg.endsWith("/node_modules/next/dist/bin/next")
-  ));
+  const nextBin = spawnargs[1] ?? "";
   const signingSecret = serverEnvironment?.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+  let verifierEnvironmentIsLocal = false;
+  try {
+    assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
+    verifierEnvironmentIsLocal = true;
+  } catch {
+    verifierEnvironmentIsLocal = false;
+  }
   if (
     custody?.mode !== "verifier-controlled-loopback-temporary-server" ||
-    !serverProcess ||
+    custody?.serverReadyFromOwnedProcess !== true ||
+    typeof custody?.serverWorkingDirectory !== "string" ||
+    resolve(custody.serverWorkingDirectory) !== resolve(process.cwd()) ||
+    !(serverProcess instanceof ChildProcess) ||
     !Number.isInteger(serverProcess.pid) ||
     serverProcess.pid <= 0 ||
     serverProcess.exitCode !== null ||
     serverProcess.signalCode !== null ||
     serverProcess.killed ||
     serverProcess.spawnfile !== process.execPath ||
-    nextBinIndex < 0 ||
-    spawnargs[nextBinIndex + 1] !== "start" ||
-    spawnargs[nextBinIndex + 2] !== "-p" ||
-    spawnargs[nextBinIndex + 3] !== port ||
+    spawnargs.length !== 5 ||
+    spawnargs[0] !== process.execPath ||
+    !(nextBin === "node_modules/next/dist/bin/next" || nextBin.endsWith("/node_modules/next/dist/bin/next")) ||
+    spawnargs[2] !== "start" ||
+    spawnargs[3] !== "-p" ||
+    spawnargs[4] !== port ||
     !serverEnvironment ||
     !Object.isFrozen(serverEnvironment) ||
+    !verifierEnvironmentIsLocal ||
     serverEnvironment.PORT !== port ||
     serverEnvironment.SENA_ENTERPRISE_DB_DIR !== enterpriseDbDir ||
     serverEnvironment.SENA_ALLOW_LOCAL_SSO_FALLBACK !== "1" ||
@@ -94,12 +116,36 @@ function requireVerifierControlledServerCustody(options, origin, expectedReceipt
     typeof signingSecret !== "string" ||
     Buffer.byteLength(signingSecret, "utf8") < 32 ||
     !enterpriseDbStats?.isDirectory() ||
-    enterpriseDbStats.isSymbolicLink()
+    enterpriseDbStats.isSymbolicLink() ||
+    (requireRegistration && !registeredVerifierServerCustodies.has(custody))
   ) {
     throw new Error(
       "Enterprise API browser smoke requires live verifier-controlled temporary-server custody from verify-sena-pilot before any browser or server mutation."
     );
   }
+  return custody;
+}
+
+export function registerVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken) {
+  const custody = validateVerifierControlledServerCustody(
+    options,
+    origin,
+    expectedReceiptKeyId,
+    provisioningToken,
+    false
+  );
+  registeredVerifierServerCustodies.add(custody);
+  return custody;
+}
+
+export function requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken) {
+  return validateVerifierControlledServerCustody(
+    options,
+    origin,
+    expectedReceiptKeyId,
+    provisioningToken,
+    true
+  );
 }
 
 function header(response, name) {
@@ -204,7 +250,7 @@ async function registerSmokeSession(page, origin) {
   const email = `enterprise-api-smoke-${unique}@example.edu`;
   const password = "sena-secure-123";
 
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+  await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout);
   await fillByTestId(page, "register-full-name", "SENA Enterprise API Smoke");
   await fillByTestId(page, "register-email", email);
   await fillByTestId(page, "register-organization", "SENA Enterprise API Smoke Lab");
@@ -1256,6 +1302,9 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     stateBinding.bindingSha256,
     "Publication state binding SHA-256"
   );
+  const expectedStateRevisionKind = stateBinding.activePrimary === "postgres"
+    ? "postgres-row-revision"
+    : "file-content-sha256";
   const publicationClaimPackageSha256 = requireSha256(
     enterpriseProjectEvidence.claimPackage.sha256,
     "Publication claim package SHA-256"
@@ -1275,6 +1324,13 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
   if (
     sha256Json(derivationManifestCore) !== derivationManifestSha256 ||
     sha256Json(stateBindingCore) !== publicationStateBindingSha256 ||
+    stateBinding.stateRevisionKind !== expectedStateRevisionKind ||
+    sha256Json({
+      activePrimary: stateBinding.activePrimary,
+      stateRevision: stateBinding.stateRevision
+    }) !== publicationStateRevisionSha256 ||
+    enterpriseProjectEvidence.claimPackage.payload?.sourceSnapshotEvidence?.stateRevisionSha256 !==
+      publicationStateRevisionSha256 ||
     sha256Json(enterpriseProjectEvidence.claimPackage.payload) !== publicationClaimPackageSha256 ||
     sha256Json(stateBinding.expertReview.receipt) !== expertReceiptSha256
   ) {
@@ -1293,7 +1349,7 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
       ? "state-revision-header" : null,
     publicationStateBindingSha256 !== requireHeaderValue(publication.headers, "x-sena-publication-state-binding-sha256")
       ? "state-binding-header" : null,
-    publicationStateBindingSha256 !== derivationManifest?.enterpriseProjectEvidence?.stateBinding?.bindingSha256
+    !isDeepStrictEqual(stateBinding, derivationManifest?.enterpriseProjectEvidence?.stateBinding)
       ? "manifest-state-binding" : null,
     requireHeaderValue(publication.headers, "x-sena-publication-reliability-run-id") !== reliabilityRunId
       ? "reliability-run-header" : null
@@ -1358,6 +1414,7 @@ function assertEnterpriseWorkflowEvidence(evidence, expectedReceiptKeyId) {
     publication.body?.sourceSnapshotEvidence?.reportSha256 !== derivedPublicationReportSha256 ||
     publication.body?.verificationCertificate?.reportSha256 !== derivedPublicationReportSha256 ||
     enterpriseProjectEvidence?.reportSha256 !== derivedPublicationReportSha256 ||
+    enterpriseProjectEvidence?.claimPackage?.payload?.claimReadinessEvidence?.reportSha256 !== derivedPublicationReportSha256 ||
     derivationManifest?.publicationSnapshot?.reportSha256 !== derivedPublicationReportSha256 ||
     derivationManifest?.hashBoundaries?.reportSha256 !== derivedPublicationReportSha256 ||
     requireHeaderValue(publication.headers, "x-sena-report-sha256") !== derivedPublicationReportSha256

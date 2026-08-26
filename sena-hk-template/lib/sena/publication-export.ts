@@ -142,8 +142,16 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
   const claimReliability = claimPackage.evidence.reliability;
   const claimValidation = claimPackage.evidence.validation;
   const claimExpert = claimPackage.evidence.expertReview;
+  const expectedStateRevisionKind = binding.activePrimary === "postgres"
+    ? "postgres-row-revision"
+    : "file-content-sha256";
   return (
     sha256Json(bindingCore) === bindingSha256 &&
+    binding.stateRevisionKind === expectedStateRevisionKind &&
+    binding.stateRevisionSha256 === sha256Json({
+      activePrimary: binding.activePrimary,
+      stateRevision: binding.stateRevision
+    }) &&
     binding.project.projectId === evidence.projectId &&
     binding.project.projectVersion === evidence.currentVersion &&
     binding.claimPackage.sha256 === evidence.claimPackage.sha256 &&
@@ -161,9 +169,11 @@ function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnte
     claimPackage.project.currentVersion === evidence.currentVersion &&
     claimPackage.sourceSnapshotEvidence.snapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
     claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    claimPackage.sourceSnapshotEvidence.stateRevisionSha256 === binding.stateRevisionSha256 &&
     claimPackage.claimReadinessEvidence.kind === evidence.claimPackage.claimReadinessKind &&
     claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
     claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.sourceSnapshotSha256 &&
+    claimPackage.claimReadinessEvidence.reportSha256 === evidence.reportSha256 &&
     binding.claimPackage.reliabilityRunId === (reliability?.runId ?? null) &&
     claimReliability?.status === "approved" &&
     claimReliability.runId === reliability?.runId &&

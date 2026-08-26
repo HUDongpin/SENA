@@ -8,11 +8,19 @@ import { join } from "node:path";
 import { verifySenaAuthBrowserSmoke } from "./verify-sena-auth-browser-smoke.mjs";
 import { verifySenaBrowserSmoke } from "./verify-sena-browser-smoke.mjs";
 import { verifySenaEnaBrowserSmoke } from "./verify-sena-ena-browser-smoke.mjs";
-import { verifySenaEnterpriseApiBrowserSmoke } from "./verify-sena-enterprise-api-browser-smoke.mjs";
+import {
+  registerVerifierControlledServerCustody,
+  requireVerifierControlledServerCustody,
+  verifySenaEnterpriseApiBrowserSmoke
+} from "./verify-sena-enterprise-api-browser-smoke.mjs";
 import { verifySenaRbacCollaborationBrowserSmoke } from "./verify-sena-rbac-collaboration-browser-smoke.mjs";
 import { verifySenaReliabilityBrowserSmoke } from "./verify-sena-reliability-browser-smoke.mjs";
 import { verifySenaSsoBrowserSmoke } from "./verify-sena-sso-browser-smoke.mjs";
 import { verifySenaValidationClaimBrowserSmoke } from "./verify-sena-validation-claim-browser-smoke.mjs";
+import {
+  assertSenaVerifierEnvironmentIsLocal,
+  buildSenaVerifierEnvironment
+} from "./sena-verifier-environment.mjs";
 
 const allowRunningServer = process.env.SENA_VERIFY_ALLOW_RUNNING_SERVER === "1";
 const checkOnly = process.argv.includes("--check-only");
@@ -117,8 +125,15 @@ function projectNodeListeners() {
 
 function run(label, args, env = {}) {
   console.log(`\n> ${label}`);
+  const childEnvironment = buildSenaVerifierEnvironment(process.env, env);
+  if (typeof childEnvironment.SENA_ENTERPRISE_DB_DIR === "string") {
+    assertSenaVerifierEnvironmentIsLocal(
+      childEnvironment,
+      childEnvironment.SENA_ENTERPRISE_DB_DIR
+    );
+  }
   const result = spawnSync("npm", args, {
-    env: { ...process.env, ...env },
+    env: childEnvironment,
     stdio: "inherit",
     shell: process.platform === "win32"
   });
@@ -156,7 +171,7 @@ async function runNextProductionBuild() {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     console.log(`\n> Next production build${attempt > 1 ? ` (retry ${attempt})` : ""}`);
     const result = spawnSync("npm", ["run", "build"], {
-      env: process.env,
+      env: buildSenaVerifierEnvironment(process.env),
       encoding: "utf8",
       maxBuffer: 20 * 1024 * 1024,
       shell: process.platform === "win32"
@@ -745,92 +760,137 @@ function redactVerifierValues(value, sensitiveValues) {
 async function verifyProductionServerSmoke() {
   console.log("\n> Verify production server smoke");
   const port = await findAvailablePort(smokePortStart);
+  const origin = `http://127.0.0.1:${port}`;
   const enterpriseDbDir = mkdtempSync(join(tmpdir(), "sena-pilot-enterprise-db-"));
   const expertReviewSigningSecret = randomBytes(32).toString("hex");
   const expertReviewSigningKeyId = `sena-pilot-smoke-${randomBytes(8).toString("hex")}`;
   let output = "";
   const nextBin = "node_modules/next/dist/bin/next";
-  const serverEnvironment = Object.freeze({
-    ...process.env,
+  const serverEnvironment = buildSenaVerifierEnvironment(process.env, {
+    NODE_ENV: "production",
     PORT: String(port),
     SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
     SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
+    SENA_APP_URL: origin,
+    NEXT_PUBLIC_SENA_APP_URL: origin,
     SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
     SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
-    SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId,
-    SENA_SSO_INSTITUTION_CLIENT_ID: "",
-    SENA_SSO_INSTITUTION_CLIENT_SECRET: "",
-    SENA_SSO_GOOGLE_CLIENT_ID: "",
-    SENA_SSO_GOOGLE_CLIENT_SECRET: "",
-    SENA_SSO_ORCID_CLIENT_ID: "",
-    SENA_SSO_ORCID_CLIENT_SECRET: ""
+    SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId
   });
+  assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
   const server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: projectRoot,
     env: serverEnvironment,
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stoppingByVerifier = false;
+  let resolveOwnedReadiness;
+  const ownedReadiness = new Promise((resolve) => {
+    resolveOwnedReadiness = resolve;
+  });
   const serverExit = new Promise((resolve) => {
     server.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const serverExitFailure = serverExit.then(({ code, signal }) => {
+    if (stoppingByVerifier) return new Promise(() => {});
+    throw new Error(`Production server exited before smoke completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`);
   });
 
   const record = (chunk) => {
     output = `${output}${chunk.toString()}`.slice(-6000);
+    const plainOutput = output.replace(/\u001b\[[0-9;]*m/g, "");
+    if (/\bReady in \d+(?:\.\d+)?(?:ms|s)\b/.test(plainOutput)) {
+      resolveOwnedReadiness(true);
+    }
   };
   server.stdout.on("data", record);
   server.stderr.on("data", record);
 
   try {
-    const url = `http://127.0.0.1:${port}/workspace/sena`;
     await Promise.race([
-      waitForText(url, productionShellRequiredText).then(({ text }) => {
-        verifyWorkspaceDynamicShell(text);
-      }),
-      serverExit.then(({ code, signal }) => {
-        if (stoppingByVerifier) return;
-        throw new Error(`Production server exited before smoke completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`);
+      ownedReadiness,
+      serverExitFailure,
+      sleep(30_000).then(() => {
+        throw new Error("Timed out waiting for the verifier-owned Next process readiness marker.");
       })
     ]);
-    run("Verify conference load smoke", ["run", "sena:conference:load-check"], {
-      SENA_LOAD_TARGET_URL: `http://127.0.0.1:${port}`,
-      SENA_LOAD_PATHS: "/workspace/sena,/api/sena/docs?format=openapi",
-      SENA_LOAD_TARGET_USERS: "2",
-      SENA_LOAD_CONCURRENCY: "2",
-      SENA_LOAD_DURATION_SECONDS: "1",
-      SENA_LOAD_THINK_TIME_MS: "0",
-      SENA_LOAD_MAX_REQUESTS: "4",
-      SENA_LOAD_MIN_REQUESTS: "4",
-      SENA_LOAD_MAX_P95_MS: "5000",
-      SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
+    const serverCustody = Object.freeze({
+      mode: "verifier-controlled-loopback-temporary-server",
+      serverProcess: server,
+      serverEnvironment,
+      enterpriseDbDir,
+      serverWorkingDirectory: projectRoot,
+      serverReadyFromOwnedProcess: true
     });
-    await verifySenaBrowserSmoke(url);
+    const custodyOptions = Object.freeze({
+      provisioningToken: provisioningSmokeToken,
+      expectedReceiptKeyId: expertReviewSigningKeyId,
+      serverCustody
+    });
+    registerVerifierControlledServerCustody(
+      custodyOptions,
+      origin,
+      expertReviewSigningKeyId,
+      provisioningSmokeToken
+    );
+    const assertOwnedServer = () => requireVerifierControlledServerCustody(
+      custodyOptions,
+      origin,
+      expertReviewSigningKeyId,
+      provisioningSmokeToken
+    );
+    const runWithOwnedServer = async (operation) => {
+      assertOwnedServer();
+      const result = await Promise.race([
+        Promise.resolve().then(operation),
+        serverExitFailure
+      ]);
+      assertOwnedServer();
+      return result;
+    };
+
+    // This is the first network request. Process/env/tmp-state custody is
+    // already proved from the owned child's stdout and exact spawn identity.
+    const url = `${origin}/workspace/sena`;
+    await runWithOwnedServer(async () => {
+      const { text } = await waitForText(url, productionShellRequiredText);
+      verifyWorkspaceDynamicShell(text);
+    });
+    assertOwnedServer();
+    await Promise.race([
+      Promise.resolve().then(() => run("Verify conference load smoke", ["run", "sena:conference:load-check"], {
+        SENA_LOAD_TARGET_URL: origin,
+        SENA_LOAD_PATHS: "/workspace/sena,/api/sena/docs?format=openapi",
+        SENA_LOAD_TARGET_USERS: "2",
+        SENA_LOAD_CONCURRENCY: "2",
+        SENA_LOAD_DURATION_SECONDS: "1",
+        SENA_LOAD_THINK_TIME_MS: "0",
+        SENA_LOAD_MAX_REQUESTS: "4",
+        SENA_LOAD_MIN_REQUESTS: "4",
+        SENA_LOAD_MAX_P95_MS: "5000",
+        SENA_LOAD_MAX_ERROR_RATE_PERCENT: "0"
+      })),
+      serverExitFailure
+    ]);
+    assertOwnedServer();
+    await runWithOwnedServer(() => verifySenaBrowserSmoke(url));
     // /workspace/ena is a different route on the same server. It takes an
     // origin, not the SENA route, and it is public — no session is created
     // before it runs, which is also what it asserts.
     console.log("\n> Verify jENA workbench browser smoke");
-    await verifySenaEnaBrowserSmoke(new URL(url).origin);
+    await runWithOwnedServer(() => verifySenaEnaBrowserSmoke(origin));
     console.log("\n> Verify auth browser smoke");
-    await verifySenaAuthBrowserSmoke(url);
+    await runWithOwnedServer(() => verifySenaAuthBrowserSmoke(url));
     console.log("\n> Verify SSO browser smoke");
-    await verifySenaSsoBrowserSmoke(url);
+    await runWithOwnedServer(() => verifySenaSsoBrowserSmoke(url));
     console.log("\n> Verify enterprise API browser smoke");
-    await verifySenaEnterpriseApiBrowserSmoke(url, {
-      provisioningToken: provisioningSmokeToken,
-      expectedReceiptKeyId: expertReviewSigningKeyId,
-      serverCustody: {
-        mode: "verifier-controlled-loopback-temporary-server",
-        serverProcess: server,
-        serverEnvironment,
-        enterpriseDbDir
-      }
-    });
+    await runWithOwnedServer(() => verifySenaEnterpriseApiBrowserSmoke(url, custodyOptions));
     console.log("\n> Verify RBAC collaboration browser smoke");
-    await verifySenaRbacCollaborationBrowserSmoke(url);
+    await runWithOwnedServer(() => verifySenaRbacCollaborationBrowserSmoke(url));
     console.log("\n> Verify reliability browser smoke");
-    await verifySenaReliabilityBrowserSmoke(url);
+    await runWithOwnedServer(() => verifySenaReliabilityBrowserSmoke(url, custodyOptions));
     console.log("\n> Verify validation claim browser smoke");
-    await verifySenaValidationClaimBrowserSmoke(url);
+    await runWithOwnedServer(() => verifySenaValidationClaimBrowserSmoke(url, custodyOptions));
     console.log(`Production server served /workspace/sena on port ${port}.`);
   } catch (error) {
     const sensitiveValues = [expertReviewSigningSecret, expertReviewSigningKeyId];
@@ -846,17 +906,23 @@ async function verifyProductionServerSmoke() {
     throw error;
   } finally {
     stoppingByVerifier = true;
-    server.kill("SIGTERM");
-    const exited = await Promise.race([
-      serverExit.then(() => true),
-      sleep(1500).then(() => false)
-    ]);
+    let exited = server.exitCode !== null || server.signalCode !== null;
+    if (!exited) {
+      server.kill("SIGTERM");
+      exited = await Promise.race([
+        serverExit.then(() => true),
+        sleep(1500).then(() => false)
+      ]);
+    }
     if (!exited) {
       server.kill("SIGKILL");
-      await Promise.race([
-        serverExit,
-        sleep(500)
+      exited = await Promise.race([
+        serverExit.then(() => true),
+        sleep(500).then(() => false)
       ]);
+    }
+    if (!exited) {
+      throw new Error(`Verifier-owned Next process termination was not observed; temporary state retained at ${enterpriseDbDir}.`);
     }
     rmSync(enterpriseDbDir, { force: true, recursive: true });
   }

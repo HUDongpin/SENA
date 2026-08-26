@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
+import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
+import {
+  requireExpectedReceiptKeyId,
+  requireVerifierControlledLoopbackOrigin,
+  requireVerifierControlledServerCustody
+} from "./verify-sena-enterprise-api-browser-smoke.mjs";
 
 const defaultTimeout = 30000;
 const password = "sena-secure-123";
@@ -69,7 +75,7 @@ async function fetchJson(page, path, init = {}) {
 
 async function registerValidationReviewer(page, origin, unique) {
   const email = `validation-claim-smoke-${unique}@example.edu`;
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+  await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout);
   await fillByTestId(page, "register-full-name", "SENA Validation Claim Smoke");
   await fillByTestId(page, "register-email", email);
   await fillByTestId(page, "register-organization", "SENA Validation Lab");
@@ -451,8 +457,14 @@ async function verifyPersistedClaimEvidencePackage(
   }
 }
 
-export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validationSmokeOriginFromCli()) {
-  const origin = new URL(baseUrl).origin;
+export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validationSmokeOriginFromCli(), options = {}) {
+  const expectedReceiptKeyId = requireExpectedReceiptKeyId(options);
+  const origin = requireVerifierControlledLoopbackOrigin(baseUrl);
+  const provisioningToken = options.provisioningToken ??
+    process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_PROVISIONING_TOKEN ??
+    process.env.SENA_PROVISIONING_TOKEN ??
+    "sena-pilot-provisioning-token";
+  requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken);
   const unique = randomUUID().slice(0, 8);
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -484,7 +496,7 @@ export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validation
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   verifySenaValidationClaimBrowserSmoke().catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : "Validation claim browser smoke failed.");
     process.exit(1);
   });
 }
