@@ -493,6 +493,15 @@ describe("SENA browser smoke manifest", () => {
     expect(smokeSource).toContain('x-sena-publication-state-revision-sha256');
     expect(smokeSource).toContain('x-sena-publication-state-binding-sha256');
     expect(smokeSource).toContain('x-sena-expert-receipt-key-id');
+    expect(smokeSource).toContain("readProjectionProjectSnapshotSha256");
+    expect(smokeSource).not.toContain("persistedProjectSnapshotSha256");
+    expect(smokeSource).toContain("stablePersistedClaimPackage");
+    expect(smokeSource).toContain("sha256Json(packageEvidence)");
+    expect(smokeSource).toContain("artifactManifest.map((artifact) => artifact.format)");
+    expect(smokeSource).toContain("artifacts.map((artifact) => artifact.format)");
+    expect(smokeSource).toContain("artifact.derivationManifestSha256 !== derivationManifestSha256");
+    expect(smokeSource).toContain('requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-claim-package-status")');
+    expect(smokeSource).toContain('requireHeaderValue(claimPackageAfterPublication.headers, "x-sena-project-id")');
     const verifierPublicationFormats = smokeSource.match(
       /const requiredPublicationFormats = (\[[^;]+\]);/
     );
@@ -537,6 +546,38 @@ describe("SENA browser smoke manifest", () => {
       );
       expect(result.stderr).not.toContain("ECONNREFUSED");
     }
+  });
+
+  it("rejects a non-loopback standalone target before browser or network work", () => {
+    const verifierPath = fileURLToPath(
+      new URL("../../../scripts/verify-sena-enterprise-api-browser-smoke.mjs", import.meta.url)
+    );
+    const result = spawnSync(process.execPath, [verifierPath, "https://example.invalid"], {
+      cwd: fileURLToPath(new URL("../../..", import.meta.url)),
+      encoding: "utf8",
+      timeout: 5_000,
+      env: {
+        ...process.env,
+        PLAYWRIGHT_BROWSERS_PATH: "/nonexistent/sena-enterprise-smoke-red-contract",
+        SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID: "sena-pilot-smoke-0123456789abcdef"
+      }
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "only supports a verifier-controlled loopback temporary server before any browser or network work"
+    );
+    expect(result.stderr).not.toContain("browserType.launch");
+    expect(result.stderr).not.toContain("ECONNREFUSED");
+    expect(result.stderr).not.toContain("net::");
+    expect(
+      (SENA_BROWSER_SMOKE_MANIFEST.enterpriseApi as {
+        serverCustody?: unknown;
+      }).serverCustody
+    ).toEqual({
+      mode: "verifier-controlled-loopback-temporary-server",
+      allowedHostnames: ["127.0.0.1", "[::1]", "localhost"]
+    });
   });
 
   it("includes RBAC team collaboration APIs in the production browser smoke verifier", () => {

@@ -247,6 +247,10 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       signingMode: "ephemeral-verifier-env",
       keyIdPrefix: "sena-pilot-smoke-"
     },
+    serverCustody: {
+      mode: "verifier-controlled-loopback-temporary-server",
+      allowedHostnames: ["127.0.0.1", "[::1]", "localhost"]
+    },
     claimStatuses: {
       persistedPrepublication: "exploratory-only",
       permittedPersistedBlockers: ["project-claim-readiness-required"],
