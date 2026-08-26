@@ -811,7 +811,7 @@ describe("SENA analyze route", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
-  }, analysisRouteTestTimeoutMs * 3);
+  }, analysisRouteTestTimeoutMs * 4);
 
   it("requires the async queue for heavy analysis when the production performance path is enabled", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-analysis-required-queue-route-"));

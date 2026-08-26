@@ -29,6 +29,7 @@ const enterpriseDbDir = providedDbDir || mkdtempSync(join(tmpdir(), "sena-vitest
 // known long files serially. Explicit CLI arguments preserve the wrapper's
 // original single-invocation behaviour for focused developer runs.
 const serialTestFiles = [
+  "lib/sena/__tests__/analysis-route.test.ts",
   "lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
   "lib/sena/__tests__/enterprise-go-live.test.ts",
   "lib/sena/__tests__/enterprise.test.ts"
