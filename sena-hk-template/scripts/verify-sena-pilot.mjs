@@ -781,24 +781,31 @@ async function verifyProductionServerSmoke() {
   const expertReviewSigningKeyId = `sena-pilot-smoke-${randomBytes(8).toString("hex")}`;
   let output = "";
   const nextBin = "node_modules/next/dist/bin/next";
-  const serverEnvironment = buildSenaVerifierEnvironment(process.env, {
-    NODE_ENV: "production",
-    PORT: String(port),
-    SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
-    SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
-    SENA_APP_URL: origin,
-    NEXT_PUBLIC_SENA_APP_URL: origin,
-    SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
-    SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
-    SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId
-  });
-  assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
-  assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
-  const server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
-    cwd: projectRoot,
-    env: serverEnvironment,
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  let serverEnvironment;
+  let server;
+  try {
+    serverEnvironment = buildSenaVerifierEnvironment(process.env, {
+      NODE_ENV: "production",
+      PORT: String(port),
+      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir,
+      SENA_ALLOW_LOCAL_SSO_FALLBACK: "1",
+      SENA_APP_URL: origin,
+      NEXT_PUBLIC_SENA_APP_URL: origin,
+      SENA_PROVISIONING_TOKEN: provisioningSmokeToken,
+      SENA_EXPERT_REVIEW_SIGNING_SECRET: expertReviewSigningSecret,
+      SENA_EXPERT_REVIEW_SIGNING_KEY_ID: expertReviewSigningKeyId
+    });
+    assertSenaVerifierEnvironmentIsLocal(serverEnvironment, enterpriseDbDir);
+    assertSenaVerifierEnvironmentFilesUnchanged(serverEnvironment, projectRoot);
+    server = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
+      cwd: projectRoot,
+      env: serverEnvironment,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    rmSync(enterpriseDbDir, { force: true, recursive: true });
+    throw error;
+  }
   let stoppingByVerifier = false;
   let resolveOwnedReadiness;
   const ownedReadiness = new Promise((resolve) => {

@@ -38,26 +38,36 @@ async function startTestListener(host: "127.0.0.1" | "0.0.0.0") {
   ], {
     stdio: ["ignore", "pipe", "pipe"]
   });
-  const address = await new Promise<{ port: number }>((resolve, reject) => {
-    let output = "";
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for test listener.")), 5_000);
-    child.stdout.on("data", (chunk) => {
-      output += chunk.toString();
-      const newline = output.indexOf("\n");
-      if (newline < 0) return;
-      clearTimeout(timeout);
-      resolve(JSON.parse(output.slice(0, newline)) as { port: number });
+  let address: { port: number };
+  try {
+    address = await new Promise<{ port: number }>((resolve, reject) => {
+      let output = "";
+      const timeout = setTimeout(() => reject(new Error("Timed out waiting for test listener.")), 5_000);
+      child.stdout.on("data", (chunk) => {
+        output += chunk.toString();
+        const newline = output.indexOf("\n");
+        if (newline < 0) return;
+        clearTimeout(timeout);
+        try {
+          resolve(JSON.parse(output.slice(0, newline)) as { port: number });
+        } catch (error) {
+          reject(error);
+        }
+      });
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.once("exit", (code, signal) => {
+        if (output.includes("\n")) return;
+        clearTimeout(timeout);
+        reject(new Error(`Test listener exited before readiness (code=${code}, signal=${signal}).`));
+      });
     });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once("exit", (code, signal) => {
-      if (output.includes("\n")) return;
-      clearTimeout(timeout);
-      reject(new Error(`Test listener exited before readiness (code=${code}, signal=${signal}).`));
-    });
-  });
+  } catch (error) {
+    await stopTestListener(child);
+    throw error;
+  }
   return {
     child,
     origin: `http://127.0.0.1:${address.port}`

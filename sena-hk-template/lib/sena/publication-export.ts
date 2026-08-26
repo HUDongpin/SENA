@@ -1254,7 +1254,7 @@ export async function buildSenaPublicationPackage(
   safeTitle: string,
   snapshot?: SenaProjectSnapshot,
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence,
-  derivationManifest: SenaPublicationDerivationManifest = buildSenaPublicationDerivationManifest({
+  suppliedDerivationManifest: SenaPublicationDerivationManifest = buildSenaPublicationDerivationManifest({
     snapshot,
     model,
     report,
@@ -1267,9 +1267,14 @@ export async function buildSenaPublicationPackage(
     report,
     enterpriseProjectEvidence
   });
-  if (!isDeepStrictEqual(derivationManifest, expectedDerivationManifest)) {
+  if (!isDeepStrictEqual(suppliedDerivationManifest, expectedDerivationManifest)) {
     throw publicationDerivationManifestError();
   }
+  // Deep equality proves that a caller supplied the right values, but it does
+  // not prove object insertion order. Every embedded copy and advertised hash
+  // therefore uses the builder-owned schema-order projection, never the
+  // caller's semantically equal object.
+  const derivationManifest = expectedDerivationManifest;
   // One projection for all six artifacts: the SVG, PNG, DOCX, and PDF each draw
   // the same figure, so resolving it once is both cheaper and the guarantee that
   // the package's four pictures cannot disagree with each other.

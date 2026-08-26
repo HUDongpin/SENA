@@ -27,10 +27,7 @@ function resolveInstalledPackageFile(packageName, relativePath) {
 
 const providedDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
 const enterpriseDbDir = providedDbDir || mkdtempSync(join(tmpdir(), "sena-vitest-enterprise-db-"));
-const vitestEnvironment = buildSenaVerifierEnvironment(process.env, {
-  SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
-});
-assertSenaVerifierEnvironmentIsLocal(vitestEnvironment, enterpriseDbDir);
+let vitestEnvironment;
 
 // These end-to-end files pass when run alone, but can exceed their per-test
 // timeout when they contend with the default multi-worker full suite. Keep the
@@ -60,6 +57,10 @@ function runVitest(vitestFile, args) {
 }
 
 try {
+  vitestEnvironment = buildSenaVerifierEnvironment(process.env, {
+    SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
+  });
+  assertSenaVerifierEnvironmentIsLocal(vitestEnvironment, enterpriseDbDir);
   const vitestFile = resolveInstalledPackageFile("vitest", "vitest.mjs");
   const requestedArgs = process.argv.slice(2);
   const phases = requestedArgs.length > 0

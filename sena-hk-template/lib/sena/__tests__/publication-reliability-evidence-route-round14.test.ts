@@ -106,6 +106,20 @@ function sha256Json(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function reversePlainObjectKeyOrder<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => reversePlainObjectKeyOrder(entry)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .reverse()
+        .map(([key, entry]) => [key, reversePlainObjectKeyOrder(entry)])
+    ) as T;
+  }
+  return value;
+}
+
 function persistedReadyPublicationSnapshot() {
   const sourceSnapshot = publicationCandidateSnapshot();
   const dashboard = buildSenaReliabilityDashboard(
@@ -642,6 +656,20 @@ describe("enterprise publication current-v2 reliability evidence", () => {
         report: derivedSnapshot.report,
         enterpriseProjectEvidence: exactEvidence
       });
+      const reorderedManifest = reversePlainObjectKeyOrder(exactManifest);
+      const reorderedPackage = await buildSenaPublicationPackage(
+        derivedModel,
+        derivedSnapshot.report,
+        "reordered-publication-evidence",
+        derivedSnapshot,
+        exactEvidence,
+        reorderedManifest
+      );
+      const { manifestSha256: reorderedManifestSha256, ...reorderedManifestCore } =
+        reorderedPackage.derivationManifest;
+      expect(sha256Json(reorderedManifestCore)).toBe(reorderedManifestSha256);
+      expect(JSON.stringify(reorderedPackage.derivationManifest)).toBe(JSON.stringify(exactManifest));
+
       const conflictingManifest = structuredClone(exactManifest);
       if (!conflictingManifest.enterpriseProjectEvidence) {
         throw new Error("Expected enterprise evidence in the exact publication manifest.");
