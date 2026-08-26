@@ -123,8 +123,8 @@ export type EnterpriseReliabilityFilesActionResponse = {
   // Absent when the server queued the run as a server job (202 receipt
   // instead of a computed dashboard) — callers must guard before using it.
   dashboard?: {
-    meanPairwiseKappa: number;
-    krippendorffAlphaNominal: number;
+    meanPairwiseKappa: number | null;
+    krippendorffAlphaNominal: number | null;
     disagreementCount: number;
   };
   // Server-job receipt fields present only on the queued 202 response.
@@ -535,10 +535,8 @@ export async function restoreEnterpriseProjectRevisionAction(
 
 export async function exportEnterprisePublicationAction(
   input: {
-    teamId?: string;
     format: EnterprisePublicationFormat;
-    projectId?: string;
-    snapshot?: unknown;
+    projectId: string;
   },
   options: EnterpriseActionOptions
 ): Promise<EnterprisePublicationExportActionResponse> {
@@ -548,10 +546,8 @@ export async function exportEnterprisePublicationAction(
       method: "POST",
       headers: await enterpriseJsonHeaders(options),
       body: JSON.stringify({
-        teamId: input.teamId,
         format: input.format,
-        projectId: input.projectId,
-        snapshot: input.snapshot
+        projectId: input.projectId
       })
     }
   );

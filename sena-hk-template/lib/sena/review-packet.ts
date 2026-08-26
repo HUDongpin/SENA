@@ -1,23 +1,108 @@
-import { buildSenaEnaReportArtifact, buildSenaMarkdownReport, buildSenaMetricProvenanceArtifact, buildSenaPairContributionReportArtifact, buildSenaSnaReportArtifact } from "./report";
-import { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
+import { senaJsonValuesEqual } from "./canonical-json";
+import {
+  buildSenaEnaReportArtifact,
+  buildSenaMarkdownReport,
+  buildSenaMetricProvenanceArtifact,
+  buildSenaPairContributionReportArtifact,
+  buildSenaSnaReportArtifact,
+  normalizeSenaCodingReliabilityGate,
+  SENA_REPORT_COMPLETENESS_ITEM_IDS
+} from "./report";
+import {
+  buildSenaClaimReadinessGate,
+  SENA_PILOT_READINESS_ITEM_IDS
+} from "./pilot-readiness";
+import { SENA_DEMO_VERIFICATION_CHECK_IDS } from "./demo-verification";
+import {
+  buildSenaRuntimeArtifactEvidence,
+  buildSenaRuntimeBundle,
+  SENA_RUNTIME_ARTIFACT_FILENAMES,
+  type SenaRuntimeBundleOptions
+} from "./runtime-bundle";
 import { buildSenaMethodProtocol } from "./method-protocol";
-import { buildSenaProjectSnapshot } from "./snapshot";
+import {
+  assertSenaProjectSnapshotAdmission,
+  buildSenaProjectSnapshot,
+  importSenaProjectSnapshotForReviewPacket,
+  SENA_REVIEW_PACKET_READINESS_PROJECTION_NOTE,
+  type SenaProjectSnapshotAdmissionLimits
+} from "./snapshot";
+import {
+  normalizeSenaFusionMathAudit,
+  type SenaFusionMathAuditEvidence
+} from "./fusion-math";
 import { buildSenaVisualGrammarArtifact } from "./visual-grammar";
+import {
+  buildSenaAnalysisConfigHash,
+  buildSenaDatasetContentHash
+} from "./data-contract-audit";
+import {
+  normalizeSenaReportStatisticalLeaves,
+  normalizeSenaRuntimeBundleStatisticalLeaves,
+  normalizeSenaStatisticalLeafHolder,
+  assertSenaExactItemMembership,
+  canonicalSenaDataGovernanceMetadata,
+  canonicalSenaReportHumanReview,
+  reconcileSenaReportStatisticalSurfaces,
+  reconcileSenaRuntimeBundleReadinessDerivations,
+  reconcileSenaRuntimeBundleStatisticalSurfaces,
+  reconcileSenaStatisticalReadiness,
+  selectSenaFailClosedCodingReliabilityGate,
+  selectSenaFailClosedFusionMathAudit,
+  type SenaStatisticalLeafReadState
+} from "./statistical-leaf-read";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
 import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import {
+  hasCompatibleSenaSchemaVersion,
+  SENA_LEGACY_SCHEMA_VERSIONS,
+  SENA_SCHEMA_VERSIONS
+} from "./schema-registry";
 import {
   getSenaReviewPacketContentKey,
   listSenaReviewPacketArtifacts,
   listSenaReviewPacketFilenames
 } from "./artifact-catalog";
-import type { SenaModel, SenaPilotPackageManifest, SenaReviewPacket, SenaReviewPacketAudit, SenaReviewPacketAuditItem, SenaTemporalWindow } from "./types";
+import type {
+  SenaDemoVerificationCheck,
+  SenaModel,
+  SenaPilotPackageManifest,
+  SenaPilotReadinessAudit,
+  SenaProjectSnapshot,
+  SenaReportCompletenessAudit,
+  SenaReviewPacket,
+  SenaReviewPacketAudit,
+  SenaReviewPacketAuditItem,
+  SenaTemporalWindow
+} from "./types";
 
 export type SenaReviewPacketOptions = SenaRuntimeBundleOptions;
+
+export type SenaReviewPacketImportOptions = {
+  snapshotAdmissionLimits?: SenaProjectSnapshotAdmissionLimits;
+};
 
 const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifest;
 
 const artifactManifest = listSenaReviewPacketArtifacts();
+
+/**
+ * Review-packet catalog fields participate in cross-membership validation.
+ * Bound each collection before iteration; Set-backed lookups below then keep
+ * worst-case catalog validation linear in the admitted entries/evidence.
+ */
+export const SENA_REVIEW_PACKET_IMPORT_LIMITS = Object.freeze({
+  artifactManifestEntries: 256,
+  rootReviewGuardrails: 512,
+  rootNotes: 512,
+  pilotExpectedStages: 256,
+  pilotExportArtifacts: 256,
+  pilotAssetEntriesPerGroup: 256,
+  pilotAssetIntegrityEntries: 512,
+  pilotHandoffChecks: 256,
+  pilotHandoffEvidenceEntries: 512,
+  pilotReviewGuardrails: 512
+});
 
 type ReviewPacketAuditInput = Pick<SenaReviewPacket, "analysisWindow" | "artifactManifest" | "contents" | "reviewGuardrails" | "schemaVersion" | "summary">;
 
@@ -79,11 +164,13 @@ function contentSchemaVersion(input: ReviewPacketAuditInput, filename: string) {
 
 function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPacketAudit {
   const manifestFilenames = input.artifactManifest.map((artifact) => artifact.filename);
+  const manifestFilenameSet = new Set(manifestFilenames);
   const expectedFilenames = listSenaReviewPacketFilenames();
-  const missingArtifacts = expectedFilenames.filter((filename) => !manifestFilenames.includes(filename));
+  const missingArtifacts = expectedFilenames.filter((filename) => !manifestFilenameSet.has(filename));
   const schemaMismatches = input.artifactManifest.filter((artifact) => contentSchemaVersion(input, artifact.filename) !== artifact.schemaVersion);
   const pilotPackage = input.contents.pilotPackageManifest;
-  const packageExportCoverage = manifestFilenames.every((filename) => pilotPackage.exportArtifacts.includes(filename));
+  const pilotExportArtifactSet = new Set(pilotPackage.exportArtifacts);
+  const packageExportCoverage = manifestFilenames.every((filename) => pilotExportArtifactSet.has(filename));
   const packageSchemaCoverage = pilotPackage.exportArtifacts.every((filename) => Boolean(pilotPackage.exportArtifactSchemas[filename]));
   const packageHandoffCheckIds = pilotPackage.handoffChecks.map((check) => check.id);
   const modelJsonHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "model-json-export");
@@ -91,14 +178,17 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const assetIntegrityHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "pilot-asset-integrity");
   const reviewPacketHandoffCheck = pilotPackage.handoffChecks.find((check) => check.id === "review-packet-audit");
   const pilotAssetHrefs = [...pilotPackage.assets.sample, ...pilotPackage.assets.templates];
+  const pilotAssetHrefSet = new Set(pilotAssetHrefs);
+  const pilotSampleAssetSet = new Set(pilotPackage.assets.sample);
   const pilotAssetIntegrityHrefs = pilotPackage.assetIntegrity.map((asset) => asset.href);
+  const pilotAssetIntegrityHrefSet = new Set(pilotAssetIntegrityHrefs);
   const pilotAssetIntegrityCoverage = pilotPackage.assetIntegrity.length === pilotAssetHrefs.length &&
-    new Set(pilotAssetIntegrityHrefs).size === pilotAssetIntegrityHrefs.length &&
-    pilotAssetHrefs.every((href) => pilotAssetIntegrityHrefs.includes(href)) &&
+    pilotAssetIntegrityHrefSet.size === pilotAssetIntegrityHrefs.length &&
+    pilotAssetHrefs.every((href) => pilotAssetIntegrityHrefSet.has(href)) &&
     pilotPackage.assetIntegrity.every((asset) => {
-      const expectedKind = pilotPackage.assets.sample.includes(asset.href) ? "sample" : "template";
+      const expectedKind = pilotSampleAssetSet.has(asset.href) ? "sample" : "template";
       const expectedFormat = asset.href.endsWith(".json") ? "json" : "csv";
-      return pilotAssetHrefs.includes(asset.href) &&
+      return pilotAssetHrefSet.has(asset.href) &&
         asset.kind === expectedKind &&
         asset.format === expectedFormat &&
         asset.bytes > 0 &&
@@ -129,7 +219,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     ...workflowExportArtifacts,
     ...verificationRequiredArtifacts
   ]);
-  const missingPackageExports = requiredHandoffExports.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingPackageExports = requiredHandoffExports.filter((filename) => !pilotExportArtifactSet.has(filename));
   const pilotPackageReady = pilotPackage.workspaceRoute === "/workspace/sena" &&
     pilotPackage.assets.sample.length >= 6 &&
     pilotPackage.assets.templates.length >= 6 &&
@@ -164,8 +254,7 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     report.title === bundle.report.title &&
     report.claimReadinessGate.schemaVersion === bundle.claimReadinessGate.schemaVersion &&
     report.claimReadinessGate.status === bundle.claimReadinessGate.status &&
-    report.codingReliabilityGate.schemaVersion === bundle.codingReliabilityGate.schemaVersion &&
-    report.codingReliabilityGate.status === bundle.codingReliabilityGate.status &&
+    senaJsonValuesEqual(report.codingReliabilityGate, bundle.codingReliabilityGate) &&
     report.matrices.fusion.labels.length === bundle.runtimes.sena.matrices.fusion.labels.length &&
     matrixFingerprintsReady;
   const projectSnapshot = input.contents.projectSnapshot;
@@ -200,22 +289,35 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     (projectSnapshot.source.activeTemporalWindow?.id ?? null) === expectedAnalysisScope.windowId;
   const runtimeArtifactEvidence = Array.isArray(bundle.artifactEvidence) ? bundle.artifactEvidence : [];
   const runtimeArtifactEvidenceFilenames = new Set(runtimeArtifactEvidence.map((item) => item.filename));
-  const runtimeArtifactEvidenceReady = [
-    "sena-jena-manifest.json",
-    "sena-ena-report.json",
-    "sena-jsna-manifest.json",
-    "sena-sna-report.json",
-    "sena-metric-provenance.json",
-    "sena-person-code-pair-g-report.json",
-    "sena-runtime-consistency-audit.json",
-    "sena-pilot-package-manifest.json",
-    "sena-runtime-bundle.json"
-  ].every((filename) => runtimeArtifactEvidenceFilenames.has(filename)) &&
+  const canonicalRuntimeArtifactEvidence = buildSenaRuntimeArtifactEvidence(
+    {
+      matrices: bundle.runtimes.sena.matrices,
+      pairReport: bundle.runtimes.sena.pairReport,
+      socialReport: bundle.runtimes.sna.socialReport
+    },
+    report,
+    bundle.evidenceLedger,
+    bundle.temporalRuntimeTrace
+  );
+  const runtimeArtifactEvidenceReady = SENA_RUNTIME_ARTIFACT_FILENAMES
+    .every((filename) => runtimeArtifactEvidenceFilenames.has(filename)) &&
+    runtimeArtifactEvidence.length === SENA_RUNTIME_ARTIFACT_FILENAMES.length &&
+    runtimeArtifactEvidenceFilenames.size === SENA_RUNTIME_ARTIFACT_FILENAMES.length &&
+    senaJsonValuesEqual(runtimeArtifactEvidence, canonicalRuntimeArtifactEvidence) &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-jena-manifest.json" && item.handoffChecks.includes("jena-api-surface") && item.handoffChecks.includes("jena-rena-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-ena-report.json" && item.handoffChecks.includes("jena-concept-matrix") && item.handoffChecks.includes("jena-rena-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-jsna-manifest.json" && item.handoffChecks.includes("jsna-api-surface") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-sna-report.json" && item.handoffChecks.includes("jsna-social-matrix") && item.handoffChecks.includes("jsna-r-sna-parity") && item.status === "ready") &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-pilot-package-manifest.json" && item.handoffChecks.includes("pilot-asset-integrity") && item.status === "ready") &&
+    runtimeArtifactEvidence.some((item) => item.filename === "sena-coding-reliability-gate.json" &&
+      item.schemaVersion === report.codingReliabilityGate.schemaVersion &&
+      item.status === (report.codingReliabilityGate.status === "ready" ? "ready" : "review") &&
+      senaJsonValuesEqual(item.matrixCoverage, [
+        `claimUse=${report.codingReliabilityGate.claimUse}`,
+        `coderCount=${report.codingReliabilityGate.review.coderCount}`,
+        `blockers=${report.codingReliabilityGate.blockers.length}`
+      ]) &&
+      senaJsonValuesEqual(item.evidenceCoverage, report.codingReliabilityGate.evidence)) &&
     runtimeArtifactEvidence.some((item) => item.filename === "sena-runtime-bundle.json" && item.matrixCoverage.some((entry) => entry.startsWith("A_fusion=")) && item.handoffChecks.includes("matrix-fingerprints") && item.evidenceCoverage.includes("matrixFingerprints=7"));
   const standaloneRuntimeArtifactsReady = input.contents.jenaManifest.schemaVersion === report.enaManifest.schemaVersion &&
     input.contents.jenaManifest.status === report.enaManifest.status &&
@@ -283,8 +385,8 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     productionContractTextCount > 0 &&
     productionContract.visualChecks.every((check) => check.requiredText.trim().length > 0);
   const methodProtocol = input.contents.methodProtocol;
-  const missingMethodCompanionsFromPacket = methodProtocol.requiredCompanionArtifacts.filter((filename) => !manifestFilenames.includes(filename));
-  const missingMethodCompanionsFromPilotPackage = methodProtocol.requiredCompanionArtifacts.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingMethodCompanionsFromPacket = methodProtocol.requiredCompanionArtifacts.filter((filename) => !manifestFilenameSet.has(filename));
+  const missingMethodCompanionsFromPilotPackage = methodProtocol.requiredCompanionArtifacts.filter((filename) => !pilotExportArtifactSet.has(filename));
   const methodProtocolRuntimeHandoffIds = methodProtocol.runtimeHandoffs.map((handoff) => handoff.id);
   const methodProtocolRuntimeHandoffsReady = methodProtocol.auditSummary.runtimeConsistency.status === "consistent" &&
     methodProtocol.auditSummary.fusionMath.status === "verified" &&
@@ -297,8 +399,8 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
   const developmentRuntimeParityIds = developmentPlan.runtimeParityEvidence.map((evidence) => evidence.id);
   const reportRuntimeParityIds = report.runtimeProvenance.parityEvidence.map((evidence) => evidence.id);
   const methodRuntimeParityIds = methodProtocol.runtimeParityEvidence.map((evidence) => evidence.id);
-  const missingDevelopmentArtifactsFromPacket = developmentPlan.requiredArtifacts.filter((filename) => !manifestFilenames.includes(filename));
-  const missingDevelopmentArtifactsFromPilotPackage = developmentPlan.requiredArtifacts.filter((filename) => !pilotPackage.exportArtifacts.includes(filename));
+  const missingDevelopmentArtifactsFromPacket = developmentPlan.requiredArtifacts.filter((filename) => !manifestFilenameSet.has(filename));
+  const missingDevelopmentArtifactsFromPilotPackage = developmentPlan.requiredArtifacts.filter((filename) => !pilotExportArtifactSet.has(filename));
   const runtimeFoundationPhase = developmentPlan.phases.find((phase) => phase.id === "runtime-foundation");
   const researchValidationPhase = developmentPlan.phases.find((phase) => phase.id === "research-validation");
   const deliveryCandidate = developmentPlan.deliveryCandidate;
@@ -720,6 +822,18 @@ function assertSchemaRecord(value: unknown, context: string, schemaVersion: stri
   return record;
 }
 
+function assertCompatibleSchemaRecord(
+  value: unknown,
+  context: string,
+  key: Parameters<typeof hasCompatibleSenaSchemaVersion>[1]
+): Record<string, unknown> {
+  const record = asRecord(value, context);
+  if (!hasCompatibleSenaSchemaVersion(record, key)) {
+    throw new Error(`${context} must use a current or explicitly supported legacy schemaVersion.`);
+  }
+  return record;
+}
+
 function assertArray(value: unknown, context: string): asserts value is unknown[] {
   if (!Array.isArray(value)) {
     throw new Error(`${context} must be an array.`);
@@ -745,25 +859,48 @@ function assertNonNegativeInteger(value: unknown, context: string) {
   }
 }
 
-function assertStringArray(value: unknown, context: string, minLength = 0): asserts value is string[] {
+function assertStringArray(
+  value: unknown,
+  context: string,
+  minLength = 0,
+  maxLength = Number.MAX_SAFE_INTEGER
+): asserts value is string[] {
   assertArray(value, context);
   if (value.length < minLength) {
     throw new Error(`${context} must contain at least ${minLength} item(s).`);
+  }
+  if (value.length > maxLength) {
+    throw new Error(`${context} must contain at most ${maxLength} items.`);
   }
   value.forEach((item, index) => assertString(item, `${context}.${index}`));
 }
 
 function assertReviewPacketArtifactManifest(value: unknown) {
   assertArray(value, "review packet.artifactManifest");
-  value.forEach((item, index) => {
+  if (value.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.artifactManifestEntries) {
+    throw new Error(
+      `review packet.artifactManifest must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.artifactManifestEntries} items.`
+    );
+  }
+  const filenames = value.map((item, index) => {
     const artifact = asRecord(item, `review packet.artifactManifest.${index}`);
     assertString(artifact.filename, `review packet.artifactManifest.${index}.filename`);
     assertString(artifact.schemaVersion, `review packet.artifactManifest.${index}.schemaVersion`);
     assertString(artifact.description, `review packet.artifactManifest.${index}.description`);
+    return artifact.filename;
   });
+  assertSenaExactItemMembership(
+    filenames,
+    listSenaReviewPacketFilenames(),
+    "SENA review packet artifact-manifest"
+  );
 }
 
-function assertSenaPilotPackageManifest(value: unknown, context: string): asserts value is SenaPilotPackageManifest {
+function assertSenaPilotPackageManifest(
+  value: unknown,
+  context: string,
+  allowHistoricalV1StatisticalSchemas = false
+): asserts value is SenaPilotPackageManifest {
   const root = assertSchemaRecord(value, context, "sena-pilot-package-manifest/v1");
   assertString(root.packageName, `${context}.packageName`);
   assertString(root.updatedOn, `${context}.updatedOn`);
@@ -783,7 +920,12 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   for (const field of ["people", "interactions", "utterances", "codedSegments", "codes"]) {
     assertNonNegativeInteger(expectedCounts[field], `${context}.sampleDataset.expectedCounts.${field}`);
   }
-  assertStringArray(sampleDataset.expectedStages, `${context}.sampleDataset.expectedStages`, 1);
+  assertStringArray(
+    sampleDataset.expectedStages,
+    `${context}.sampleDataset.expectedStages`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExpectedStages
+  );
   const expectedRuntime = asRecord(sampleDataset.expectedRuntime, `${context}.sampleDataset.expectedRuntime`);
   assertStringOneOf(expectedRuntime.jena, `${context}.sampleDataset.expectedRuntime.jena`, ["computed", "skipped"]);
   assertStringOneOf(expectedRuntime.jsna, `${context}.sampleDataset.expectedRuntime.jsna`, ["computed", "skipped"]);
@@ -792,21 +934,56 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   assertStringOneOf(expectedRuntime.pilotReadinessBeforeHumanReview, `${context}.sampleDataset.expectedRuntime.pilotReadinessBeforeHumanReview`, ["ready", "needs-review"]);
 
   const exportArtifacts = root.exportArtifacts;
-  assertStringArray(exportArtifacts, `${context}.exportArtifacts`, 1);
+  assertStringArray(
+    exportArtifacts,
+    `${context}.exportArtifacts`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts
+  );
+  const exportArtifactSet = new Set(exportArtifacts);
+  if (exportArtifactSet.size !== exportArtifacts.length) {
+    throw new Error(`${context}.exportArtifacts must not contain duplicate items.`);
+  }
   const exportArtifactSchemas = asRecord(root.exportArtifactSchemas, `${context}.exportArtifactSchemas`);
   for (const filename of exportArtifacts) {
     assertString(exportArtifactSchemas[filename], `${context}.exportArtifactSchemas.${filename}`);
   }
-  const unknownSchemaKeys = Object.keys(exportArtifactSchemas).filter((filename) => !exportArtifacts.includes(filename));
+  const exportArtifactSchemaKeys = Object.keys(exportArtifactSchemas);
+  if (exportArtifactSchemaKeys.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts) {
+    throw new Error(
+      `${context}.exportArtifactSchemas must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotExportArtifacts} entries.`
+    );
+  }
+  const unknownSchemaKeys = exportArtifactSchemaKeys.filter((filename) => !exportArtifactSet.has(filename));
   if (unknownSchemaKeys.length > 0) {
     throw new Error(`${context}.exportArtifactSchemas contains unknown export artifact(s): ${unknownSchemaKeys.join(", ")}.`);
   }
   const assets = asRecord(root.assets, `${context}.assets`);
-  assertStringArray(assets.sample, `${context}.assets.sample`, 1);
-  assertStringArray(assets.templates, `${context}.assets.templates`, 1);
+  assertStringArray(
+    assets.sample,
+    `${context}.assets.sample`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetEntriesPerGroup
+  );
+  assertStringArray(
+    assets.templates,
+    `${context}.assets.templates`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetEntriesPerGroup
+  );
   const assetHrefs = [...assets.sample, ...assets.templates];
+  const assetHrefSet = new Set(assetHrefs);
+  const sampleAssetSet = new Set(assets.sample);
+  if (assetHrefSet.size !== assetHrefs.length) {
+    throw new Error(`${context}.assets must not contain duplicate hrefs.`);
+  }
   const assetIntegrity = root.assetIntegrity;
   assertArray(assetIntegrity, `${context}.assetIntegrity`);
+  if (assetIntegrity.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetIntegrityEntries) {
+    throw new Error(
+      `${context}.assetIntegrity must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotAssetIntegrityEntries} items.`
+    );
+  }
   if (assetIntegrity.length !== assetHrefs.length) {
     throw new Error(`${context}.assetIntegrity must cover every sample and template asset.`);
   }
@@ -825,14 +1002,14 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
       throw new Error(`${context}.assetIntegrity.${index}.sha256 must be a lowercase SHA-256 hex digest.`);
     }
     const href = integrity.href as string;
-    if (!assetHrefs.includes(href)) {
+    if (!assetHrefSet.has(href)) {
       throw new Error(`${context}.assetIntegrity.${index}.href must be declared in assets.sample or assets.templates.`);
     }
     if (assetIntegrityHrefs.has(href)) {
       throw new Error(`${context}.assetIntegrity.${index}.href duplicates another assetIntegrity entry.`);
     }
     assetIntegrityHrefs.add(href);
-    const expectedKind = (assets.sample as string[]).includes(href) ? "sample" : "template";
+    const expectedKind = sampleAssetSet.has(href) ? "sample" : "template";
     const expectedFormat = href.endsWith(".json") ? "json" : "csv";
     if (integrity.kind !== expectedKind) {
       throw new Error(`${context}.assetIntegrity.${index}.kind must match the declared asset group.`);
@@ -846,27 +1023,787 @@ function assertSenaPilotPackageManifest(value: unknown, context: string): assert
   if (handoffChecks.length === 0) {
     throw new Error(`${context}.handoffChecks must contain at least one item.`);
   }
+  if (handoffChecks.length > SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffChecks) {
+    throw new Error(
+      `${context}.handoffChecks must contain at most ${SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffChecks} items.`
+    );
+  }
   handoffChecks.forEach((item, index) => {
     const check = asRecord(item, `${context}.handoffChecks.${index}`);
     assertString(check.id, `${context}.handoffChecks.${index}.id`);
     assertString(check.label, `${context}.handoffChecks.${index}.label`);
     assertString(check.artifact, `${context}.handoffChecks.${index}.artifact`);
-    if (!exportArtifacts.includes(check.artifact as string)) {
+    if (!exportArtifactSet.has(check.artifact as string)) {
       throw new Error(`${context}.handoffChecks.${index}.artifact must be declared in exportArtifacts.`);
     }
-    assertStringArray(check.expectedEvidence, `${context}.handoffChecks.${index}.expectedEvidence`, 1);
+    assertStringArray(
+      check.expectedEvidence,
+      `${context}.handoffChecks.${index}.expectedEvidence`,
+      1,
+      SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotHandoffEvidenceEntries
+    );
   });
-  assertStringArray(root.reviewGuardrails, `${context}.reviewGuardrails`, 1);
+  assertStringArray(
+    root.reviewGuardrails,
+    `${context}.reviewGuardrails`,
+    1,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotReviewGuardrails
+  );
+  const expectedExportArtifactSchemas = structuredClone(pilotPackageManifest.exportArtifactSchemas);
+  if (allowHistoricalV1StatisticalSchemas) {
+    expectedExportArtifactSchemas["sena-fusion-math-audit.json"] =
+      SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
+    expectedExportArtifactSchemas["sena-coding-reliability-gate.json"] =
+      SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
+  }
+  const canonicalMappings: Array<[unknown, unknown, string]> = [
+    [root.exportArtifacts, pilotPackageManifest.exportArtifacts, "exportArtifacts"],
+    [root.exportArtifactSchemas, expectedExportArtifactSchemas, "exportArtifactSchemas"],
+    [root.assets, pilotPackageManifest.assets, "assets"],
+    [root.assetIntegrity, pilotPackageManifest.assetIntegrity, "assetIntegrity"],
+    [root.handoffChecks, pilotPackageManifest.handoffChecks, "handoffChecks"]
+  ];
+  const mismatch = canonicalMappings.find(([actual, expected]) =>
+    !senaJsonValuesEqual(actual, expected)
+  );
+  if (mismatch) {
+    throw new Error(`${context}.${mismatch[2]} does not match the canonical pilot-package mapping.`);
+  }
 }
 
-function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPacket {
+function mergeStatisticalReadStates(states: SenaStatisticalLeafReadState[]): SenaStatisticalLeafReadState {
+  const legacyFusionMath = states.some((state) => state.legacyFusionMath);
+  const legacyCodingReliability = states.some((state) => state.legacyCodingReliability);
+  return {
+    legacyFusionMath,
+    legacyCodingReliability,
+    needsCurrentEvidence: legacyFusionMath || legacyCodingReliability
+  };
+}
+
+function reviewPacketFusionEvidence(
+  contents: Record<string, unknown>,
+  context: string
+): SenaFusionMathAuditEvidence {
+  const runtimeBundle = asRecord(contents.runtimeBundle, `${context}.runtimeBundle`);
+  const parameters = asRecord(runtimeBundle.parameters, `${context}.runtimeBundle.parameters`);
+  const runtimes = asRecord(runtimeBundle.runtimes, `${context}.runtimeBundle.runtimes`);
+  const sena = asRecord(runtimes.sena, `${context}.runtimeBundle.runtimes.sena`);
+  return {
+    matrices: sena.matrices as SenaFusionMathAuditEvidence["matrices"],
+    options: parameters.buildOptions as SenaFusionMathAuditEvidence["options"],
+    pairReport: sena.pairReport as SenaFusionMathAuditEvidence["pairReport"]
+  };
+}
+
+function assertStatisticalContractCompatibility(contents: Record<string, unknown>) {
+  normalizeSenaStatisticalLeafHolder(
+    structuredClone(contents),
+    "review packet.contents",
+    reviewPacketFusionEvidence(contents, "review packet.contents")
+  );
+  normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
+  normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
+}
+
+function currentStatisticalReconciliationAuditItem(input: Pick<
+  SenaReviewPacket["summary"],
+  "codingReliabilityStatus" | "pilotReadinessStatus" | "claimReadinessStatus"
+>): SenaReviewPacketAuditItem {
+  return {
+    id: "statistical-contract-reconciliation",
+    label: "Current statistical contract reconciliation",
+    status: "review",
+    expected: "Current-v2 duplicated statistical and readiness surfaces agree before import",
+    actual: "Current-v2 statistical or wrapper surfaces required canonical reconciliation",
+    evidence: [
+      "current-v2-statistical-or-wrapper-cache-reconciled",
+      `codingReliability=${input.codingReliabilityStatus}`,
+      `pilotReadiness=${input.pilotReadinessStatus}`,
+      `claimReadiness=${input.claimReadinessStatus}`
+    ]
+  };
+}
+
+function finalizeReviewPacketAudit(
+  audit: SenaReviewPacketAudit,
+  reconciliationItems: SenaReviewPacketAuditItem[]
+) {
+  const reconciliationIds = new Set(reconciliationItems.map((item) => item.id));
+  audit.items = [
+    ...audit.items.filter((item) => !reconciliationIds.has(item.id)),
+    ...reconciliationItems
+  ];
+  audit.passed = audit.items.filter((item) => item.status === "pass").length;
+  audit.reviewNeeded = audit.items.length - audit.passed;
+  audit.status = audit.reviewNeeded === 0 ? "complete" : "needs-review";
+  return audit;
+}
+
+type SenaDemoManualReview = SenaDemoVerificationCheck["manualReview"];
+
+const demoManualReviewPriority: Record<SenaDemoManualReview["status"], number> = {
+  passed: 1,
+  pending: 2,
+  failed: 3
+};
+
+function assertReviewPacketDemoVerificationCompatibility(
+  runtimeBundle: SenaReviewPacket["contents"]["runtimeBundle"],
+  standaloneReport: SenaReviewPacket["contents"]["reportJson"],
+  projectSnapshot: SenaReviewPacket["contents"]["projectSnapshot"],
+  outerVerification: SenaReviewPacket["contents"]["demoVerification"],
+  outerAudit: SenaReviewPacket["contents"]["demoVerificationCompatibilityAudit"],
+  summaryStatus: SenaReviewPacket["summary"]["demoVerificationCompatibilityStatus"]
+) {
+  const runtimeAudit = runtimeBundle.demoVerificationCompatibilityAudit;
+  if (!senaJsonValuesEqual(runtimeAudit, outerAudit)) {
+    throw new Error("SENA review packet carries conflicting demo-verification compatibility provenance.");
+  }
+  const canonicalParameters = {
+    buildOptions: runtimeBundle.parameters.buildOptions,
+    datasetCounts: runtimeBundle.parameters.datasetCounts,
+    warnings: runtimeBundle.parameters.warnings
+  };
+  if (!senaJsonValuesEqual(runtimeBundle.demoVerification.parameters, canonicalParameters) ||
+    !senaJsonValuesEqual(outerVerification.parameters, canonicalParameters)) {
+    throw new Error("SENA review packet demo-verification parameters do not match runtime canonical parameters.");
+  }
+  const persistedReportParameters = [
+    standaloneReport.parameters,
+    runtimeBundle.report.parameters,
+    projectSnapshot.report.parameters
+  ];
+  const snapshotDatasetCounts = {
+    people: projectSnapshot.dataset.people.length,
+    interactions: projectSnapshot.dataset.interactions.length,
+    utterances: projectSnapshot.dataset.utterances.length,
+    codedSegments: projectSnapshot.dataset.coded_segments.length,
+    codes: projectSnapshot.dataset.codebook.length
+  };
+  const persistedWarnings = [
+    runtimeBundle.summary.warnings,
+    standaloneReport.summary.warnings,
+    runtimeBundle.report.summary.warnings,
+    projectSnapshot.analysis.summary.warnings,
+    projectSnapshot.report.summary.warnings
+  ];
+  if (persistedReportParameters.some((parameters) =>
+    !senaJsonValuesEqual(parameters, canonicalParameters)) ||
+    !senaJsonValuesEqual(projectSnapshot.reproducibility.buildOptions, canonicalParameters.buildOptions) ||
+    !senaJsonValuesEqual(snapshotDatasetCounts, canonicalParameters.datasetCounts) ||
+    persistedWarnings.some((warnings) =>
+      !senaJsonValuesEqual(warnings, canonicalParameters.warnings))) {
+    throw new Error(
+      "SENA review packet demo-verification parameters do not match persisted report and snapshot parameters."
+    );
+  }
+  const itemIds = runtimeAudit.items.map((item) => item.id);
+  const expectedItemIds = ["dataset-counts", "build-options"];
+  const uniqueItemIds = new Set(itemIds);
+  if (uniqueItemIds.size !== itemIds.length || itemIds.length !== expectedItemIds.length ||
+    expectedItemIds.some((id) => !uniqueItemIds.has(id))) {
+    throw new Error("SENA review packet demo-verification compatibility item membership is invalid.");
+  }
+  if (runtimeAudit.status !== "compatible" || summaryStatus !== "compatible" ||
+    runtimeAudit.passed !== runtimeAudit.items.length || runtimeAudit.reviewNeeded !== 0 ||
+    runtimeAudit.items.some((item) => item.status !== "pass")) {
+    throw new Error("SENA review packet demo-verification compatibility gate is not compatible.");
+  }
+  const counts = canonicalParameters.datasetCounts;
+  const countsText = [
+    `people=${counts.people}`,
+    `interactions=${counts.interactions}`,
+    `utterances=${counts.utterances}`,
+    `codedSegments=${counts.codedSegments}`,
+    `codes=${counts.codes}`
+  ].join(", ");
+  const datasetItem = runtimeAudit.items.find((item) => item.id === "dataset-counts");
+  const buildOptionsItem = runtimeAudit.items.find((item) => item.id === "build-options");
+  let expectedBuildOptions: unknown;
+  let actualBuildOptions: unknown;
+  try {
+    expectedBuildOptions = JSON.parse(buildOptionsItem?.expected ?? "");
+    actualBuildOptions = JSON.parse(buildOptionsItem?.actual ?? "");
+  } catch {
+    throw new Error("SENA review packet demo-verification compatibility build-options evidence is invalid.");
+  }
+  if (datasetItem?.expected !== countsText || datasetItem.actual !== countsText ||
+    !senaJsonValuesEqual(expectedBuildOptions, canonicalParameters.buildOptions) ||
+    !senaJsonValuesEqual(actualBuildOptions, canonicalParameters.buildOptions)) {
+    throw new Error("SENA review packet demo-verification compatibility evidence is stale.");
+  }
+}
+
+function reconcileReviewPacketDemoManualReviews(
+  runtimeVerification: SenaReviewPacket["contents"]["runtimeBundle"]["demoVerification"],
+  outerVerification: SenaReviewPacket["contents"]["demoVerification"],
+  projectSnapshot: SenaReviewPacket["contents"]["projectSnapshot"],
+) {
+  const assertCompleteManualReview: (
+    review: unknown,
+    context: string
+  ) => asserts review is SenaDemoManualReview = (review, context) => {
+    const candidate = asRecord(review, context);
+    if (!["pending", "passed", "failed"].includes(String(candidate.status)) ||
+      typeof candidate.reviewer !== "string" ||
+      typeof candidate.verifiedAt !== "string" ||
+      typeof candidate.notes !== "string") {
+      throw new Error(`${context} must contain a structurally valid manualReview record.`);
+    }
+  };
+  const assertHolderIds = (ids: string[], context: string) => {
+    const expected = [...SENA_DEMO_VERIFICATION_CHECK_IDS];
+    const unique = new Set(ids);
+    const missing = expected.filter((id) => !unique.has(id));
+    const unexpected = Array.from(unique).filter((id) => !SENA_DEMO_VERIFICATION_CHECK_IDS.includes(id));
+    if (unique.size !== ids.length || missing.length > 0 || unexpected.length > 0) {
+      throw new Error(
+        `SENA demo manual-review holder ${context} has invalid check membership ` +
+        `(missing=${missing.join(",") || "none"}; unexpected=${unexpected.join(",") || "none"}; ` +
+        `duplicates=${ids.length - unique.size}).`
+      );
+    }
+  };
+  assertHolderIds(runtimeVerification.checks.map((check) => check.id), "runtime checklist");
+  assertHolderIds(outerVerification.checks.map((check) => check.id), "outer checklist");
+  if (!projectSnapshot.workspaceState) {
+    throw new Error("SENA demo manual-review holder snapshot workspace state is missing.");
+  }
+  assertHolderIds(
+    Object.keys(projectSnapshot.workspaceState.demoVerificationManualReviews),
+    "snapshot workspace"
+  );
+
+  const outerChecks = new Map(outerVerification.checks.map((check) => [check.id, check]));
+  const workspaceState = projectSnapshot.workspaceState;
+  for (const runtimeCheck of runtimeVerification.checks) {
+    const outerCheck = outerChecks.get(runtimeCheck.id);
+    const snapshotReview = workspaceState.demoVerificationManualReviews[runtimeCheck.id];
+    if (!runtimeCheck.manualReview || !outerCheck?.manualReview || !snapshotReview) {
+      throw new Error(
+        `SENA demo manual-review holder ${runtimeCheck.id} must contain complete runtime, outer, and snapshot manualReview evidence.`
+      );
+    }
+    assertCompleteManualReview(runtimeCheck.manualReview, `runtime ${runtimeCheck.id}.manualReview`);
+    assertCompleteManualReview(outerCheck.manualReview, `outer ${runtimeCheck.id}.manualReview`);
+    assertCompleteManualReview(snapshotReview, `snapshot ${runtimeCheck.id}.manualReview`);
+    const candidates = [
+      runtimeCheck.manualReview,
+      outerCheck.manualReview,
+      snapshotReview
+    ];
+    const highestPriority = Math.max(...candidates.map((candidate) =>
+      demoManualReviewPriority[candidate.status]
+    ));
+    const mostConservative = candidates.filter((candidate) =>
+      demoManualReviewPriority[candidate.status] === highestPriority
+    );
+    if (mostConservative.some((candidate) =>
+      !senaJsonValuesEqual(candidate, mostConservative[0]))) {
+      throw new Error(
+        `SENA review packet carries conflicting current demo manual-review provenance for ${runtimeCheck.id}.`
+      );
+    }
+    const canonicalReview = structuredClone(mostConservative[0]);
+    runtimeCheck.manualReview = structuredClone(canonicalReview);
+    if (outerCheck) outerCheck.manualReview = structuredClone(canonicalReview);
+    workspaceState.demoVerificationManualReviews[runtimeCheck.id] = structuredClone(canonicalReview);
+  }
+}
+
+function mergeConservativeCompletenessAudits(
+  audits: SenaReportCompletenessAudit[]
+): SenaReportCompletenessAudit {
+  for (const [index, audit] of audits.entries()) {
+    assertSenaExactItemMembership(
+      audit.items.map((item) => item.id),
+      SENA_REPORT_COMPLETENESS_ITEM_IDS,
+      `SENA review packet report-completeness holder ${index} item`
+    );
+  }
+  const base = structuredClone(audits[0]);
+  base.items = base.items.map((baseItem) => {
+    const candidates = audits.flatMap((audit) =>
+      audit.items.filter((item) => item.id === baseItem.id)
+    );
+    const conservative = candidates.find((item) => item.status === "review") ?? candidates[0] ?? baseItem;
+    if (conservative.status !== "review") return structuredClone(conservative);
+    return {
+      ...structuredClone(conservative),
+      evidence: Array.from(new Set(
+        candidates.filter((item) => item.status === "review").flatMap((item) => item.evidence)
+      ))
+    };
+  });
+  base.passed = base.items.filter((item) => item.status === "pass").length;
+  base.reviewNeeded = base.items.length - base.passed;
+  base.status = base.reviewNeeded === 0 ? "complete" : "needs-review";
+  base.notes = Array.from(new Set(audits.flatMap((audit) => audit.notes)));
+  return base;
+}
+
+function mergeConservativePilotReadinessAudits(
+  audits: SenaPilotReadinessAudit[]
+): SenaPilotReadinessAudit {
+  for (const [index, audit] of audits.entries()) {
+    assertSenaExactItemMembership(
+      audit.items.map((item) => item.id),
+      SENA_PILOT_READINESS_ITEM_IDS,
+      `SENA review packet pilot-readiness holder ${index} item`
+    );
+  }
+  const base = structuredClone(audits[0]);
+  base.items = base.items.map((baseItem) => {
+    const candidates = audits.flatMap((audit) =>
+      audit.items.filter((item) => item.id === baseItem.id)
+    );
+    const conservative = candidates.find((item) => item.status === "review") ?? candidates[0] ?? baseItem;
+    if (conservative.status !== "review") return structuredClone(conservative);
+    return {
+      ...structuredClone(conservative),
+      evidence: Array.from(new Set(
+        candidates.filter((item) => item.status === "review").flatMap((item) => item.evidence)
+      ))
+    };
+  });
+  base.passed = base.items.filter((item) => item.status === "ready").length;
+  base.reviewNeeded = base.items.length - base.passed;
+  base.status = base.reviewNeeded === 0 ? "ready" : "needs-review";
+  base.notes = Array.from(new Set(audits.flatMap((audit) => audit.notes)));
+  return base;
+}
+
+function assertReviewPacketCanonicalRunIdentity(
+  runtimeBundle: SenaReviewPacket["contents"]["runtimeBundle"],
+  report: SenaReviewPacket["contents"]["reportJson"],
+  projectSnapshot: SenaReviewPacket["contents"]["projectSnapshot"]
+) {
+  const canonicalRunIdentity = runtimeBundle.runtimes.sena.operatorDiagnostics.runIdentity;
+  const persistedRunIdentities = [
+    report.operatorDiagnostics.runIdentity,
+    runtimeBundle.report.operatorDiagnostics.runIdentity,
+    projectSnapshot.report.operatorDiagnostics.runIdentity
+  ];
+  const expectedSnapshotRunIdentity = {
+    hashAlgorithm: "sena-stable-fnv1a32/v1" as const,
+    datasetVersion: projectSnapshot.dataset.metadata?.datasetVersion ?? "unversioned",
+    datasetContentHash: buildSenaDatasetContentHash(projectSnapshot.dataset),
+    configHash: buildSenaAnalysisConfigHash(projectSnapshot.reproducibility.buildOptions)
+  };
+  if (persistedRunIdentities.some((identity) =>
+    !senaJsonValuesEqual(identity, canonicalRunIdentity)) ||
+    !senaJsonValuesEqual(expectedSnapshotRunIdentity, canonicalRunIdentity)) {
+    throw new Error(
+      "SENA review packet demo manual-review provenance does not match the canonical dataset run identity."
+    );
+  }
+}
+
+function assertRawCurrentReviewPacketStatisticalConflicts(
+  contents: SenaReviewPacket["contents"]
+) {
+  const reports = [
+    contents.reportJson,
+    contents.runtimeBundle.report,
+    contents.projectSnapshot.report
+  ] as const;
+  const fusionAudits = [
+    contents.fusionMathAudit,
+    contents.reportJson.fusionMathAudit,
+    contents.runtimeBundle.fusionMathAudit,
+    contents.runtimeBundle.report.fusionMathAudit,
+    contents.projectSnapshot.report.fusionMathAudit
+  ].filter((audit) => audit.schemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit);
+  if (fusionAudits.length > 1 &&
+    !fusionAudits.every((audit) => senaJsonValuesEqual(audit, fusionAudits[0]))) {
+    throw new Error(
+      "SENA review packet carries conflicting current-v2 fusion-math provenance across fusion math audit holders."
+    );
+  }
+  const reliabilityGates = [
+    contents.codingReliabilityGate,
+    contents.reportJson.codingReliabilityGate,
+    contents.runtimeBundle.codingReliabilityGate,
+    contents.runtimeBundle.report.codingReliabilityGate,
+    contents.projectSnapshot.report.codingReliabilityGate
+  ].filter((gate) => gate.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate);
+  if (reliabilityGates.length > 1 &&
+    !reliabilityGates.every((gate) => senaJsonValuesEqual(gate, reliabilityGates[0]))) {
+    throw new Error(
+      "SENA review packet carries conflicting current-v2 coding-reliability provenance; " +
+      "conflicting ready coding-reliability provenance across coding reliability gate holders."
+    );
+  }
+  const governance = reports
+    .map((report) => report.dataGovernance)
+    .filter((candidate) => candidate.schemaVersion === SENA_SCHEMA_VERSIONS.dataGovernanceMetadata);
+  if (governance.length > 1 &&
+    !governance.every((candidate) => senaJsonValuesEqual(candidate, governance[0]))) {
+    throw new Error("SENA review packet carries conflicting current data-governance provenance.");
+  }
+}
+
+function normalizeReviewPacketStatisticalContracts(
+  value: unknown,
+  options: SenaReviewPacketImportOptions,
+  canonicalProjectSnapshot: SenaProjectSnapshot
+): SenaReviewPacket {
+  const normalized = structuredClone(value) as SenaReviewPacket;
+  const beforeNormalization = structuredClone(normalized);
+  const contents = asRecord(normalized.contents, "review packet.contents");
+  const unreconciledRuntimeBundle = structuredClone(
+    contents.runtimeBundle
+  ) as SenaReviewPacket["contents"]["runtimeBundle"];
+  const unreconciledRuntimeReliabilityGates = [
+    normalizeSenaCodingReliabilityGate(unreconciledRuntimeBundle.codingReliabilityGate),
+    normalizeSenaCodingReliabilityGate(unreconciledRuntimeBundle.report.codingReliabilityGate)
+  ] as const;
+  const unreconciledRuntimeFusionMathAudits = [
+    normalizeSenaFusionMathAudit(unreconciledRuntimeBundle.fusionMathAudit, {
+      matrices: unreconciledRuntimeBundle.runtimes.sena.matrices,
+      options: unreconciledRuntimeBundle.parameters.buildOptions,
+      pairReport: unreconciledRuntimeBundle.runtimes.sena.pairReport
+    }),
+    normalizeSenaFusionMathAudit(unreconciledRuntimeBundle.report.fusionMathAudit, {
+      matrices: unreconciledRuntimeBundle.report.matrices,
+      options: unreconciledRuntimeBundle.report.parameters.buildOptions,
+      pairReport: unreconciledRuntimeBundle.report.pairReport
+    })
+  ] as const;
+  const directState = normalizeSenaStatisticalLeafHolder(
+    contents,
+    "review packet.contents",
+    reviewPacketFusionEvidence(contents, "review packet.contents")
+  );
+  const reportResult = normalizeSenaReportStatisticalLeaves(contents.reportJson, "review packet.contents.reportJson");
+  contents.reportJson = reportResult.report;
+  const runtimeResult = normalizeSenaRuntimeBundleStatisticalLeaves(contents.runtimeBundle, "review packet.contents.runtimeBundle");
+  contents.runtimeBundle = runtimeResult.runtimeBundle;
+  const persistedProjectSnapshot = asRecord(
+    contents.projectSnapshot,
+    "review packet.contents.projectSnapshot"
+  );
+  const persistedSnapshotReportResult = normalizeSenaReportStatisticalLeaves(
+    persistedProjectSnapshot.report,
+    "review packet.contents.projectSnapshot.report"
+  );
+  contents.projectSnapshot = canonicalProjectSnapshot;
+  const projectSnapshot = asRecord(contents.projectSnapshot, "review packet.contents.projectSnapshot");
+  const snapshotReportResult = {
+    report: canonicalProjectSnapshot.report,
+    state: persistedSnapshotReportResult.state
+  };
+  const canonicalSnapshotReadinessBaseline = structuredClone({
+    completenessAudit: snapshotReportResult.report.completenessAudit,
+    pilotReadinessAudit: snapshotReportResult.report.pilotReadinessAudit,
+    claimReadinessGate: snapshotReportResult.report.claimReadinessGate
+  });
+  selectSenaFailClosedFusionMathAudit([
+    normalized.contents.fusionMathAudit,
+    reportResult.report.fusionMathAudit,
+    ...unreconciledRuntimeFusionMathAudits,
+    snapshotReportResult.report.fusionMathAudit
+  ], "SENA review packet");
+  selectSenaFailClosedCodingReliabilityGate([
+    normalized.contents.codingReliabilityGate,
+    reportResult.report.codingReliabilityGate,
+    ...unreconciledRuntimeReliabilityGates,
+    snapshotReportResult.report.codingReliabilityGate
+  ], "SENA review packet");
+  assertReviewPacketCanonicalRunIdentity(
+    unreconciledRuntimeBundle,
+    contents.reportJson as SenaReviewPacket["contents"]["reportJson"],
+    projectSnapshot as SenaReviewPacket["contents"]["projectSnapshot"]
+  );
+  const state = mergeStatisticalReadStates([
+    directState,
+    reportResult.state,
+    runtimeResult.state,
+    snapshotReportResult.state
+  ]);
+  const runtimeBundle = runtimeResult.runtimeBundle;
+  const report = reportResult.report;
+  const fusionMathAudits = [
+    normalized.contents.fusionMathAudit,
+    report.fusionMathAudit,
+    ...unreconciledRuntimeFusionMathAudits,
+    snapshotReportResult.report.fusionMathAudit
+  ] as const;
+  const failClosedFusionMathAudit = selectSenaFailClosedFusionMathAudit(
+    fusionMathAudits,
+    "SENA review packet"
+  );
+  normalized.contents.fusionMathAudit = structuredClone(failClosedFusionMathAudit);
+  report.fusionMathAudit = structuredClone(failClosedFusionMathAudit);
+  runtimeBundle.fusionMathAudit = structuredClone(failClosedFusionMathAudit);
+  runtimeBundle.report.fusionMathAudit = structuredClone(failClosedFusionMathAudit);
+  snapshotReportResult.report.fusionMathAudit = structuredClone(failClosedFusionMathAudit);
+  const reliabilityGates = [
+    normalized.contents.codingReliabilityGate,
+    report.codingReliabilityGate,
+    ...unreconciledRuntimeReliabilityGates,
+    snapshotReportResult.report.codingReliabilityGate
+  ] as const;
+  const failClosedReliabilityGate = selectSenaFailClosedCodingReliabilityGate(
+    reliabilityGates,
+    "SENA review packet"
+  );
+  normalized.contents.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  runtimeBundle.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  runtimeBundle.report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+  snapshotReportResult.report.codingReliabilityGate = structuredClone(failClosedReliabilityGate);
+
+  reconcileSenaReportStatisticalSurfaces(report, state);
+  reconcileSenaRuntimeBundleStatisticalSurfaces(runtimeBundle, state);
+  reconcileSenaReportStatisticalSurfaces(snapshotReportResult.report, state);
+  const readinessReports = [report, runtimeBundle.report, snapshotReportResult.report];
+  const failClosedDataGovernance = canonicalSenaDataGovernanceMetadata(
+    readinessReports.map((candidate) => candidate.dataGovernance),
+    "SENA review packet"
+  );
+  for (const candidate of readinessReports) {
+    candidate.dataGovernance = structuredClone(failClosedDataGovernance);
+    reconcileSenaReportStatisticalSurfaces(candidate, state);
+  }
+  const humanReviewCandidates = [
+    ...readinessReports.map((candidate) => candidate.humanReview),
+    runtimeBundle.evidenceLedger.humanReview,
+    normalized.contents.evidenceLedger.humanReview
+  ];
+  const failClosedHumanReview = canonicalSenaReportHumanReview(
+    humanReviewCandidates,
+    "SENA review packet"
+  );
+  for (const candidate of readinessReports) {
+    candidate.humanReview = structuredClone(failClosedHumanReview);
+    reconcileSenaReportStatisticalSurfaces(candidate, state);
+  }
+  runtimeBundle.evidenceLedger.humanReview = structuredClone(failClosedHumanReview);
+  normalized.contents.evidenceLedger.humanReview = structuredClone(failClosedHumanReview);
+
+  let failClosedCompletenessAudit = mergeConservativeCompletenessAudits(
+    readinessReports.map((candidate) => candidate.completenessAudit)
+  );
+  for (const candidate of readinessReports) {
+    candidate.completenessAudit = structuredClone(failClosedCompletenessAudit);
+    reconcileSenaReportStatisticalSurfaces(candidate, state);
+  }
+  failClosedCompletenessAudit = mergeConservativeCompletenessAudits(
+    readinessReports.map((candidate) => candidate.completenessAudit)
+  );
+  for (const candidate of readinessReports) {
+    candidate.completenessAudit = structuredClone(failClosedCompletenessAudit);
+  }
+  const pilotReadinessCandidates = [
+    normalized.contents.pilotReadinessAudit,
+    runtimeBundle.pilotReadinessAudit,
+    ...readinessReports.map((candidate) => candidate.pilotReadinessAudit)
+  ];
+  const failClosedPilotReadiness = mergeConservativePilotReadinessAudits(pilotReadinessCandidates);
+  const readiness = reconcileSenaStatisticalReadiness(
+    failClosedPilotReadiness,
+    state,
+    failClosedCompletenessAudit,
+    failClosedReliabilityGate,
+    failClosedHumanReview,
+    failClosedFusionMathAudit,
+    failClosedDataGovernance
+  );
+  const snapshotReadinessWasConservativelyProjected =
+    !senaJsonValuesEqual(
+      failClosedCompletenessAudit,
+      canonicalSnapshotReadinessBaseline.completenessAudit
+    ) ||
+    !senaJsonValuesEqual(
+      readiness.pilotReadinessAudit,
+      canonicalSnapshotReadinessBaseline.pilotReadinessAudit
+    ) ||
+    !senaJsonValuesEqual(
+      readiness.claimReadinessGate,
+      canonicalSnapshotReadinessBaseline.claimReadinessGate
+    );
+  if (snapshotReadinessWasConservativelyProjected) {
+    readiness.pilotReadinessAudit.notes = Array.from(new Set([
+      ...readiness.pilotReadinessAudit.notes,
+      SENA_REVIEW_PACKET_READINESS_PROJECTION_NOTE
+    ]));
+    readiness.claimReadinessGate = buildSenaClaimReadinessGate(
+      readiness.pilotReadinessAudit
+    );
+  }
+  runtimeBundle.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  runtimeBundle.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  runtimeBundle.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  runtimeBundle.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  snapshotReportResult.report.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  snapshotReportResult.report.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  assertReviewPacketCanonicalRunIdentity(
+    runtimeBundle,
+    report,
+    normalized.contents.projectSnapshot
+  );
+  assertReviewPacketDemoVerificationCompatibility(
+    runtimeBundle,
+    report,
+    normalized.contents.projectSnapshot,
+    normalized.contents.demoVerification,
+    normalized.contents.demoVerificationCompatibilityAudit,
+    normalized.summary.demoVerificationCompatibilityStatus
+  );
+  reconcileReviewPacketDemoManualReviews(
+    runtimeBundle.demoVerification,
+    normalized.contents.demoVerification,
+    normalized.contents.projectSnapshot
+  );
+  reconcileSenaRuntimeBundleReadinessDerivations(runtimeBundle, state);
+  normalized.contents.pilotPackageManifest.sampleDataset.expectedRuntime.fusionMathAudit =
+    failClosedFusionMathAudit.status;
+  normalized.contents.methodProtocol.auditSummary.fusionMath = {
+    schemaVersion: failClosedFusionMathAudit.schemaVersion,
+    status: failClosedFusionMathAudit.status,
+    passed: failClosedFusionMathAudit.passed,
+    reviewNeeded: failClosedFusionMathAudit.reviewNeeded
+  };
+  const failClosedFusionMatrix = failClosedFusionMathAudit.matrixFingerprints
+    .find((fingerprint) => fingerprint.id === "A_fusion");
+  normalized.contents.methodProtocol.runtimeHandoffs =
+    normalized.contents.methodProtocol.runtimeHandoffs.map((handoff) => handoff.id === "fusion-math"
+      ? {
+          id: "fusion-math",
+          label: "S/W/B_PC/B_CP to A_fusion math audit",
+          status: failClosedFusionMathAudit.status === "verified" ? "pass" as const : "review" as const,
+          source: "S, W, B_PC, B_CP normalized blocks",
+          target: "A_fusion weighted block matrix",
+          summary: `${failClosedFusionMathAudit.passed} formula checks passed; ${failClosedFusionMathAudit.reviewNeeded} need review; A_fusion=${failClosedFusionMatrix?.checksum ?? "missing"}`,
+          evidence: [
+            `schema=${failClosedFusionMathAudit.schemaVersion}`,
+            `fingerprints=${failClosedFusionMathAudit.matrixFingerprints.map((fingerprint) => fingerprint.id).join("|")}`,
+            `A_fusionChecksum=${failClosedFusionMatrix?.checksum ?? "missing"}`
+          ]
+        }
+      : handoff);
+  const canonicalMarkdown = buildSenaMarkdownReport(report);
+  const rebuildNormalizedReviewPacketAudit = () => buildSenaReviewPacketAudit({
+    schemaVersion: normalized.schemaVersion,
+    analysisWindow: normalized.analysisWindow,
+    artifactManifest: normalized.artifactManifest,
+    contents: normalized.contents,
+    reviewGuardrails: normalized.reviewGuardrails,
+    summary: normalized.summary
+  });
+  const currentReconciliationItem = currentStatisticalReconciliationAuditItem({
+    codingReliabilityStatus: failClosedReliabilityGate.status,
+    pilotReadinessStatus: readiness.pilotReadinessAudit.status,
+    claimReadinessStatus: readiness.claimReadinessGate.status
+  });
+  const wrapperAlreadyCanonical =
+    normalized.summary.fusionMathStatus === failClosedFusionMathAudit.status &&
+    normalized.summary.codingReliabilityStatus === failClosedReliabilityGate.status &&
+    normalized.summary.pilotReadinessStatus === readiness.pilotReadinessAudit.status &&
+    normalized.summary.claimReadinessStatus === readiness.claimReadinessGate.status &&
+    normalized.summary.reportCompletenessStatus === report.completenessAudit.status &&
+    normalized.summary.humanReviewStatus === report.humanReview.status &&
+    senaJsonValuesEqual(normalized.contents.fusionMathAudit, failClosedFusionMathAudit) &&
+    senaJsonValuesEqual(normalized.contents.codingReliabilityGate, failClosedReliabilityGate) &&
+    senaJsonValuesEqual(normalized.contents.pilotReadinessAudit, readiness.pilotReadinessAudit) &&
+    senaJsonValuesEqual(normalized.contents.claimReadinessGate, readiness.claimReadinessGate) &&
+    senaJsonValuesEqual(normalized.contents.developmentPlan, runtimeBundle.developmentPlan) &&
+    senaJsonValuesEqual(normalized.contents.demoWalkthrough, runtimeBundle.demoWalkthrough) &&
+    senaJsonValuesEqual(normalized.contents.demoVerification, runtimeBundle.demoVerification) &&
+    normalized.contents.reportMarkdown === canonicalMarkdown;
+
+  contents.pilotReadinessAudit = structuredClone(readiness.pilotReadinessAudit);
+  contents.claimReadinessGate = structuredClone(readiness.claimReadinessGate);
+  contents.developmentPlan = structuredClone(runtimeBundle.developmentPlan);
+  contents.demoWalkthrough = structuredClone(runtimeBundle.demoWalkthrough);
+  contents.demoVerification = structuredClone(runtimeBundle.demoVerification);
+  contents.reportMarkdown = canonicalMarkdown;
+  normalized.summary.fusionMathStatus = failClosedFusionMathAudit.status;
+  normalized.summary.codingReliabilityStatus = failClosedReliabilityGate.status;
+  normalized.summary.pilotReadinessStatus = readiness.pilotReadinessAudit.status;
+  normalized.summary.claimReadinessStatus = readiness.claimReadinessGate.status;
+  normalized.summary.reportCompletenessStatus = report.completenessAudit.status;
+  normalized.summary.humanReviewStatus = report.humanReview.status;
+
+  const expectedCachedAudit = wrapperAlreadyCanonical
+    ? finalizeReviewPacketAudit(
+        rebuildNormalizedReviewPacketAudit(),
+        normalized.reviewPacketAudit.items.some((item) => item.id === currentReconciliationItem.id)
+          ? [currentReconciliationItem]
+          : []
+      )
+    : null;
+  const auditAlreadyCanonical = expectedCachedAudit !== null &&
+    senaJsonValuesEqual(normalized.reviewPacketAudit, expectedCachedAudit);
+  const persistedPayloadChanged = !senaJsonValuesEqual(
+    { ...normalized, reviewPacketAudit: null },
+    { ...beforeNormalization, reviewPacketAudit: null }
+  );
+  if (!state.needsCurrentEvidence && !persistedPayloadChanged &&
+    wrapperAlreadyCanonical && auditAlreadyCanonical) {
+    return normalized;
+  }
+
+  if (state.needsCurrentEvidence) {
+    const statisticalSchemas = new Map([
+      ["sena-fusion-math-audit.json", SENA_SCHEMA_VERSIONS.fusionMathAudit],
+      ["sena-coding-reliability-gate.json", SENA_SCHEMA_VERSIONS.codingReliabilityGate]
+    ]);
+    normalized.artifactManifest = normalized.artifactManifest.map((artifact) => ({
+      ...artifact,
+      schemaVersion: statisticalSchemas.get(artifact.filename) ?? artifact.schemaVersion
+    }));
+    for (const [filename, schemaVersion] of statisticalSchemas) {
+      normalized.contents.pilotPackageManifest.exportArtifactSchemas[filename] = schemaVersion;
+    }
+  }
+  const rebuiltAudit = rebuildNormalizedReviewPacketAudit();
+  const reconciliationItems: SenaReviewPacketAuditItem[] = [];
+  if (state.needsCurrentEvidence) {
+    reconciliationItems.push({
+      id: "legacy-statistical-contracts",
+      label: "Legacy statistical contract evidence",
+      status: "review",
+      expected: "Current v2 fusion and reliability evidence at every restored holder",
+      actual: [
+        state.legacyFusionMath ? "fusion-math-audit/v1 normalized in memory" : null,
+        state.legacyCodingReliability ? "coding-reliability-gate/v1 normalized in memory" : null
+      ].filter(Boolean).join("; "),
+      evidence: [
+        `legacyFusionMath=${state.legacyFusionMath}`,
+        `legacyCodingReliability=${state.legacyCodingReliability}`,
+        "claimUse=exploratory-only"
+      ]
+    });
+  } else {
+    reconciliationItems.push(currentReconciliationItem);
+  }
+  normalized.reviewPacketAudit = finalizeReviewPacketAudit(rebuiltAudit, reconciliationItems);
+  return normalized;
+}
+
+function assertSenaReviewPacket(value: unknown): void {
   const root = assertSchemaRecord(value, "review packet", "sena-review-packet/v1");
   assertString(root.title, "review packet.title");
   assertString(root.generatedAt, "review packet.generatedAt");
   assertSchemaRecord(root.reviewPacketAudit, "review packet.reviewPacketAudit", "sena-review-packet-audit/v1");
   assertReviewPacketArtifactManifest(root.artifactManifest);
-  assertArray(root.reviewGuardrails, "review packet.reviewGuardrails");
-  assertArray(root.notes, "review packet.notes");
+  assertStringArray(
+    root.reviewGuardrails,
+    "review packet.reviewGuardrails",
+    0,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.rootReviewGuardrails
+  );
+  assertStringArray(
+    root.notes,
+    "review packet.notes",
+    0,
+    SENA_REVIEW_PACKET_IMPORT_LIMITS.rootNotes
+  );
 
   const summary = asRecord(root.summary, "review packet.summary");
   const analysisScope = asRecord(summary.analysisScope, "review packet.summary.analysisScope");
@@ -889,12 +1826,37 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   assertSchemaRecord(contents.snaReportArtifact, "review packet.contents.snaReportArtifact", "sena-sna-report/v1");
   assertSchemaRecord(contents.metricProvenanceArtifact, "review packet.contents.metricProvenanceArtifact", "sena-metric-provenance/v1");
   assertSchemaRecord(contents.pairContributionReportArtifact, "review packet.contents.pairContributionReportArtifact", "sena-person-code-pair-g-report/v1");
-  assertSenaPilotPackageManifest(contents.pilotPackageManifest, "review packet.contents.pilotPackageManifest");
+  const rawFusionMathAudit = asRecord(
+    contents.fusionMathAudit,
+    "review packet.contents.fusionMathAudit"
+  );
+  const rawCodingReliabilityGate = asRecord(
+    contents.codingReliabilityGate,
+    "review packet.contents.codingReliabilityGate"
+  );
+  const historicalV1StatisticalProjection =
+    rawFusionMathAudit.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit &&
+    rawCodingReliabilityGate.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
+  if (historicalV1StatisticalProjection) {
+    // The pilot-manifest mapping exception is available only after both
+    // explicitly tagged legacy leaves prove they are genuine supported v1
+    // contracts. Relabelled current wrappers never reach that exception.
+    normalizeSenaFusionMathAudit(
+      contents.fusionMathAudit,
+      reviewPacketFusionEvidence(contents, "review packet.contents")
+    );
+    normalizeSenaCodingReliabilityGate(contents.codingReliabilityGate);
+  }
+  assertSenaPilotPackageManifest(
+    contents.pilotPackageManifest,
+    "review packet.contents.pilotPackageManifest",
+    historicalV1StatisticalProjection
+  );
   assertSchemaRecord(contents.evidenceLedger, "review packet.contents.evidenceLedger", "sena-evidence-ledger/v1");
   assertSchemaRecord(contents.temporalRuntimeTrace, "review packet.contents.temporalRuntimeTrace", "sena-temporal-runtime-trace/v1");
   assertSchemaRecord(contents.dataContractAudit, "review packet.contents.dataContractAudit", "sena-data-contract-audit/v1");
   assertSchemaRecord(contents.runtimeConsistencyAudit, "review packet.contents.runtimeConsistencyAudit", "sena-runtime-consistency/v1");
-  const fusionMathAudit = assertSchemaRecord(contents.fusionMathAudit, "review packet.contents.fusionMathAudit", "sena-fusion-math-audit/v1");
+  const fusionMathAudit = assertCompatibleSchemaRecord(contents.fusionMathAudit, "review packet.contents.fusionMathAudit", "fusionMathAudit");
   assertArray(fusionMathAudit.matrixFingerprints, "review packet.contents.fusionMathAudit.matrixFingerprints");
   fusionMathAudit.matrixFingerprints.forEach((item, index) => {
     const fingerprint = asRecord(item, `review packet.contents.fusionMathAudit.matrixFingerprints.${index}`);
@@ -913,7 +1875,7 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   const developmentPlan = assertSchemaRecord(contents.developmentPlan, "review packet.contents.developmentPlan", "sena-development-plan/v1");
   assertArray(developmentPlan.runtimeParityEvidence, "review packet.contents.developmentPlan.runtimeParityEvidence");
   assertSchemaRecord(contents.pilotReadinessAudit, "review packet.contents.pilotReadinessAudit", "sena-pilot-readiness/v1");
-  assertSchemaRecord(contents.codingReliabilityGate, "review packet.contents.codingReliabilityGate", "sena-coding-reliability-gate/v1");
+  assertCompatibleSchemaRecord(contents.codingReliabilityGate, "review packet.contents.codingReliabilityGate", "codingReliabilityGate");
   assertSchemaRecord(contents.claimReadinessGate, "review packet.contents.claimReadinessGate", "sena-claim-readiness-gate/v1");
   assertSchemaRecord(contents.demoWalkthrough, "review packet.contents.demoWalkthrough", "sena-demo-walkthrough/v1");
   assertSchemaRecord(contents.demoVerification, "review packet.contents.demoVerification", "sena-demo-verification/v1");
@@ -921,15 +1883,118 @@ function assertSenaReviewPacket(value: unknown): asserts value is SenaReviewPack
   assertSchemaRecord(contents.productionPageContract, "review packet.contents.productionPageContract", "sena-production-page-contract/v1");
 }
 
-export function importSenaReviewPacket(source: string | unknown): SenaReviewPacket {
-  const value = typeof source === "string" ? JSON.parse(source) : source;
-  assertSenaReviewPacket(value);
-  return value;
+function assertEmbeddedReviewPacketSnapshotAdmission(
+  value: unknown,
+  options: SenaReviewPacketImportOptions
+) {
+  // Admit the complete ordinary JSON-compatible graph before even reading the
+  // outer `contents` property. This catches direct-object cycles, sparse
+  // containers, accessors, symbols, and Node-detectable Proxies at the same
+  // boundary as the embedded snapshot, before packet structural assertions or
+  // holder normalization allocate clones.
+  assertSenaProjectSnapshotAdmission(value, {
+    admissionLimits: options.snapshotAdmissionLimits
+  });
 }
 
-export function isSenaReviewPacket(value: unknown): value is SenaReviewPacket {
+function assertReviewPacketPreImportStructure(value: unknown) {
+  // These are clone-free shape checks for the holders dereferenced by the
+  // conflict and run-identity preflights below. They preserve deterministic
+  // validation errors for malformed outer packets without moving any
+  // allocation-heavy manifest/reconciliation work ahead of the embedded
+  // snapshot import.
+  const root = assertSchemaRecord(value, "review packet", "sena-review-packet/v1");
+  const summary = asRecord(root.summary, "review packet.summary");
+  asRecord(summary.analysisScope, "review packet.summary.analysisScope");
+  const contents = asRecord(root.contents, "review packet.contents");
+  const report = assertSchemaRecord(
+    contents.reportJson,
+    "review packet.contents.reportJson",
+    "sena-report/v1"
+  );
+  const runtimeBundle = assertSchemaRecord(
+    contents.runtimeBundle,
+    "review packet.contents.runtimeBundle",
+    "sena-runtime-bundle/v1"
+  );
+  const projectSnapshot = assertSchemaRecord(
+    contents.projectSnapshot,
+    "review packet.contents.projectSnapshot",
+    "sena-project-snapshot/v1"
+  );
+
+  const runtimeSena = asRecord(
+    asRecord(runtimeBundle.runtimes, "review packet.contents.runtimeBundle.runtimes").sena,
+    "review packet.contents.runtimeBundle.runtimes.sena"
+  );
+  asRecord(
+    runtimeSena.operatorDiagnostics,
+    "review packet.contents.runtimeBundle.runtimes.sena.operatorDiagnostics"
+  );
+  asRecord(report.operatorDiagnostics, "review packet.contents.reportJson.operatorDiagnostics");
+  asRecord(
+    asRecord(runtimeBundle.report, "review packet.contents.runtimeBundle.report").operatorDiagnostics,
+    "review packet.contents.runtimeBundle.report.operatorDiagnostics"
+  );
+  asRecord(projectSnapshot.dataset, "review packet.contents.projectSnapshot.dataset");
+  asRecord(
+    projectSnapshot.reproducibility,
+    "review packet.contents.projectSnapshot.reproducibility"
+  );
+  asRecord(projectSnapshot.report, "review packet.contents.projectSnapshot.report");
+
+  return contents as unknown as SenaReviewPacket["contents"];
+}
+
+export function importSenaReviewPacket(
+  source: string | unknown,
+  options: SenaReviewPacketImportOptions = {}
+): SenaReviewPacket {
+  // Admit the outer JSON carrier before parse and the embedded snapshot before
+  // any packet holder clone/reconciliation. Semantic/run-identity precedence
+  // remains in the existing packet assertions after this resource boundary.
+  if (typeof source === "string") {
+    assertSenaProjectSnapshotAdmission(source, {
+      admissionLimits: options.snapshotAdmissionLimits
+    });
+  }
+  const value = typeof source === "string" ? JSON.parse(source) : source;
+  assertEmbeddedReviewPacketSnapshotAdmission(value, options);
+  const contents = assertReviewPacketPreImportStructure(value);
+  const runtimeBundle = contents.runtimeBundle;
+  const report = contents.reportJson;
+  const projectSnapshot = contents.projectSnapshot;
+  assertRawCurrentReviewPacketStatisticalConflicts(contents);
+  // Preserve the established provenance-error precedence without allocating a
+  // packet clone: a cross-holder run-identity conflict is diagnosed before the
+  // embedded snapshot's canonical model reconstruction.
+  assertReviewPacketCanonicalRunIdentity(runtimeBundle, report, projectSnapshot);
+  // Import the embedded snapshot exactly once, before any packet-level clone or
+  // holder normalization, then reuse that canonical result during fail-closed
+  // packet reconciliation. The snapshot importer itself still rejects forged
+  // deterministic report/model surfaces.
+  const canonicalProjectSnapshot = importSenaProjectSnapshotForReviewPacket(projectSnapshot, {
+    admissionLimits: options.snapshotAdmissionLimits
+  });
+  // Only after the bounded embedded snapshot has been canonically imported do
+  // the complete outer/manifest assertions run. Some of those assertions
+  // build cloned canonical mapping values, so placing them earlier would
+  // violate the embedded-snapshot-before-normalization resource boundary.
+  assertSenaReviewPacket(value);
+  // Cross-holder normalization is intentionally after the single embedded
+  // canonical import so a semantically excessive snapshot cannot trigger any
+  // review-packet clone/reconciliation allocation first.
+  assertStatisticalContractCompatibility(contents);
+  return normalizeReviewPacketStatisticalContracts(
+    value,
+    options,
+    canonicalProjectSnapshot
+  );
+}
+
+export function isSenaReviewPacket(value: unknown): boolean {
   try {
-    assertSenaReviewPacket(value);
+    importSenaReviewPacket(value);
     return true;
   } catch {
     return false;
@@ -981,6 +2046,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
     ...options,
     title: `${baseTitle} Project Snapshot`,
     generatedAt,
+    evidenceLimit: options.evidenceLimit ?? 500,
     activeTemporalWindow: options.activeTemporalWindow ?? null,
     temporalRuntimeTrace: runtimeBundle.temporalRuntimeTrace,
     demoVerificationManualReviews
@@ -1016,7 +2082,7 @@ export function buildSenaReviewPacket(model: SenaModel, options: SenaReviewPacke
     snaReportArtifact,
     metricProvenanceArtifact,
     pairContributionReportArtifact,
-    pilotPackageManifest,
+    pilotPackageManifest: structuredClone(pilotPackageManifest),
     evidenceLedger: runtimeBundle.evidenceLedger,
     temporalRuntimeTrace: runtimeBundle.temporalRuntimeTrace,
     dataContractAudit: runtimeBundle.dataContractAudit,

@@ -1,12 +1,50 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  senaBuildInputSha256,
+  senaNextBuildIdSha256FromInputSha256,
+  senaPerformanceSourceCustodyManifestSha256,
+  SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR,
+  SENA_NEXT_BUILD_ID_GENERATOR
+} from "../enterprise/performance-build-identity.mjs";
+import { observeSenaLocalPerformanceBuildEvidence } from "../enterprise/performance-build-measurement.mjs";
+import { buildSenaPerformanceLocalEvidenceFixture } from "./performance-build-measurement-fixture";
+import {
+  classifySenaProductionEvidenceArchiveChildClaims,
+  collectSenaProductionEvidenceArtifactReads,
+  planSenaProductionEvidenceArtifactBinding,
+  validateSenaPerformanceBudgetArtifactForBinding,
+  writeSenaProductionEvidenceBindingPlanToVercel
+} from "../../../scripts/bind-sena-production-evidence.mjs";
 
-const scriptPath = "scripts/bind-sena-production-evidence.mjs";
+const projectRoot = process.cwd();
+const productionScriptPath = path.join(projectRoot, "scripts", "bind-sena-production-evidence.mjs");
+const scriptPath = productionScriptPath;
 const generatedAt = "2026-07-01T00:00:00.000Z";
+let performanceLocalBuildRoot: string;
+let performanceLocalEvidence: ReturnType<typeof buildSenaPerformanceLocalEvidenceFixture>;
+
+beforeEach(() => {
+  performanceLocalBuildRoot = mkdtempSync(path.join(tmpdir(), "sena-bind-performance-build-"));
+  performanceLocalEvidence = buildSenaPerformanceLocalEvidenceFixture(performanceLocalBuildRoot);
+});
+
+afterEach(() => {
+  rmSync(performanceLocalBuildRoot, { recursive: true, force: true });
+});
 
 function hostHash(url: string) {
   return createHash("sha256").update(new URL(url).host).digest("hex");
@@ -23,11 +61,16 @@ function writeArtifact(dir: string, filename: string, artifact: Record<string, u
 
 function runBind(args: string[], options: {
   env?: NodeJS.ProcessEnv;
+  cwd?: string;
 } = {}) {
   return spawnSync(process.execPath, [scriptPath, ...args], {
-    cwd: process.cwd(),
+    cwd: options.cwd ?? performanceLocalBuildRoot,
     encoding: "utf8",
-    env: options.env ?? process.env
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      ...(options.env ?? {})
+    }
   });
 }
 
@@ -35,15 +78,31 @@ function outputOf(result: ReturnType<typeof runBind>) {
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 }
 
-function writeFakeVercel(binDir: string) {
+function writeFakeVercel(binDir: string, capturePath?: string, failAtAdd?: number) {
   const scriptPath = path.join(binDir, "vercel");
+  const countPath = path.join(binDir, "vercel-add-count");
+  const captureValue = capturePath
+    ? `value="$(cat)"\nprintf '%s=%s\\n' "$3" "$value" >> ${JSON.stringify(capturePath)}`
+    : "cat >/dev/null";
+  const failValue = failAtAdd
+    ? `count=0
+if [ -f ${JSON.stringify(countPath)} ]; then count="$(cat ${JSON.stringify(countPath)})"; fi
+count=$((count + 1))
+printf '%s' "$count" > ${JSON.stringify(countPath)}
+if [ "$count" -eq ${failAtAdd} ]; then
+  cat >/dev/null
+  echo "injected Vercel env add failure" >&2
+  exit 17
+fi`
+    : "";
   writeFileSync(scriptPath, `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "Vercel CLI 54.9.0"
   exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "add" ]; then
-  cat >/dev/null
+  ${failValue}
+  ${captureValue}
   exit 0
 fi
 echo "unexpected vercel args: $*" >&2
@@ -56,6 +115,163 @@ const digestA = "a".repeat(64);
 const digestB = "b".repeat(64);
 const digestC = "c".repeat(64);
 const digestD = "d".repeat(64);
+
+function performanceBuildIdentityFixture(input: {
+  gitDirty?: boolean;
+  nextBuildMatchesCurrentSource?: boolean;
+  buildObservationStable?: boolean;
+  measuredArtifactSetStable?: boolean;
+} = {}, localEvidence = performanceLocalEvidence) {
+  const gitDirty = input.gitDirty ?? false;
+  const base = localEvidence.buildIdentity;
+  const buildInput = {
+    gitCommit: base.gitCommit,
+    gitDirty,
+    gitStatusSha256: gitDirty
+      ? "d".repeat(64)
+      : base.gitStatusSha256,
+    gitDirtyFileCount: gitDirty ? 1 : 0,
+    packageLockSha256: base.packageLockSha256,
+    sourceTreeSha256: base.sourceTreeSha256,
+    sourceFileListSha256: base.sourceFileListSha256,
+    sourceFileCount: base.sourceFileCount,
+    sourceReadErrorCount: base.sourceReadErrorCount,
+    sourceReadErrorSha256: base.sourceReadErrorSha256
+  };
+  const buildInputSha256 = senaBuildInputSha256(buildInput);
+  return {
+    ...localEvidence.buildIdentity,
+    nextBuildIdSha256: senaNextBuildIdSha256FromInputSha256(buildInputSha256),
+    nextBuildIdGenerator: SENA_NEXT_BUILD_ID_GENERATOR,
+    nextBuildMatchesCurrentSource: input.nextBuildMatchesCurrentSource ?? true,
+    buildInputSha256,
+    currentExpectedBuildInputSha256: buildInputSha256,
+    buildInputEnvironmentScope: "not-bound-use-measured-artifact-set-sha256",
+    buildObservationStable: input.buildObservationStable ?? true,
+    measuredArtifactSetStable: input.measuredArtifactSetStable ?? true,
+    ...buildInput,
+    values: "hashes-and-commit-only"
+  };
+}
+
+function performanceCleanSourceCustodyFixture(
+  identity: ReturnType<typeof performanceBuildIdentityFixture>
+) {
+  return {
+    ...performanceLocalEvidence.sourceCustody,
+    baseGitCommit: identity.gitCommit,
+    rootGitDirty: identity.gitDirty,
+    rootGitDirtyFileCount: identity.gitDirtyFileCount,
+    rootGitStatusSha256: identity.gitStatusSha256
+  };
+}
+
+function performanceSourceCustodyFixture(
+  identity: ReturnType<typeof performanceBuildIdentityFixture>,
+  overrides: Partial<{
+    sourceTreeSha256: string;
+    fileListSha256: string;
+    fileCount: number;
+    rootGitStatusSha256: string;
+    rootGitDirtyFileCount: number;
+    rootGitDirty: boolean;
+  }> = {}
+) {
+  const custody = {
+    mode: "reviewed-clean-release-slice" as const,
+    reviewedClean: true,
+    sourceTreeSha256: overrides.sourceTreeSha256 ?? identity.sourceTreeSha256,
+    fileListSha256: overrides.fileListSha256 ?? identity.sourceFileListSha256,
+    fileCount: overrides.fileCount ?? identity.sourceFileCount,
+    baseGitCommit: identity.gitCommit,
+    rootGitDirty: overrides.rootGitDirty ?? identity.gitDirty,
+    rootGitDirtyFileCount: overrides.rootGitDirtyFileCount ?? identity.gitDirtyFileCount,
+    rootGitStatusSha256: overrides.rootGitStatusSha256 ?? identity.gitStatusSha256,
+    generator: SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR,
+    values: "hashes-and-counts-only" as const
+  };
+  return {
+    ...custody,
+    manifestSha256: senaPerformanceSourceCustodyManifestSha256(custody)
+  };
+}
+
+function performanceBudgetArtifactFixture(input: {
+  buildIdentity?: ReturnType<typeof performanceBuildIdentityFixture> | Record<string, unknown>;
+  sourceCustody?: ReturnType<typeof performanceSourceCustodyFixture> | Record<string, unknown>;
+  localEvidence?: typeof performanceLocalEvidence;
+} = {}) {
+  const localEvidence = input.localEvidence ?? performanceLocalEvidence;
+  const buildIdentity = input.buildIdentity ?? performanceBuildIdentityFixture({}, localEvidence);
+  const sourceCustody = Object.hasOwn(input, "sourceCustody")
+    ? input.sourceCustody
+    : performanceCleanSourceCustodyFixture(buildIdentity as ReturnType<typeof performanceBuildIdentityFixture>);
+  const actual = localEvidence.actualBrotliBytes;
+  return {
+    schemaVersion: "sena-enterprise-production-performance-budget/v2",
+    generatedAt,
+    status: "pass",
+    summary: {
+      checks: 5,
+      passed: 5,
+      failed: 0,
+      totalStaticJsFiles: localEvidence.summary.totalStaticJsFiles,
+      workspaceRouteJsFiles: localEvidence.summary.workspaceRouteJsFiles
+    },
+    policy: {
+      productionBuildRequired: true,
+      artifactPurpose: "archive-performance-budget-json-plus-sha256",
+      buildIdentityRequiredForBinding: true,
+      totalStaticJsHeadroomReserveRequired: true,
+      strictProductionEvidenceRequired: true
+    },
+    buildIdentity,
+    sourceCustody,
+    budgets: {
+      workspaceHtmlBrotliBytes: 80_000,
+      workspaceRouteJsBrotliBytes: 180_000,
+      totalStaticJsBrotliBytes: 848_000,
+      totalStaticJsMinimumHeadroomBytes: 12_000
+    },
+    checks: [
+      { id: "production-build-present", status: "pass" },
+      { id: "production-build-identity", status: "pass" },
+      { id: "workspace-html-br", status: "pass", actualBrotliBytes: actual.workspaceHtml, budgetBytes: 80_000, headroomBytes: 80_000 - actual.workspaceHtml },
+      { id: "workspace-route-js-br", status: "pass", actualBrotliBytes: actual.workspaceRouteJs, budgetBytes: 180_000, headroomBytes: 180_000 - actual.workspaceRouteJs },
+      { id: "total-static-js-br", status: "pass", actualBrotliBytes: actual.totalStaticJs, budgetBytes: 848_000, headroomBytes: 848_000 - actual.totalStaticJs, minimumHeadroomBytes: 12_000 }
+    ],
+    redaction: {
+      localBuildPathsExcluded: true,
+      sourceContentsExcluded: true,
+      secretValuesExcluded: true
+    }
+  };
+}
+
+function planPerformanceArtifact(
+  artifact: ReturnType<typeof performanceBudgetArtifactFixture>,
+  localEvidence = observeSenaLocalPerformanceBuildEvidence(performanceLocalBuildRoot)
+) {
+  const artifactText = `${JSON.stringify(artifact, null, 2)}\n`;
+  return planSenaProductionEvidenceArtifactBinding({
+    artifact,
+    artifactSha256: createHash("sha256").update(artifactText).digest("hex"),
+    shaFilePresent: true,
+    shaFileMatches: true
+  }, {}, localEvidence);
+}
+
+function bindablePerformancePlan() {
+  const plan = planPerformanceArtifact(performanceBudgetArtifactFixture());
+  if (!plan.bindable || !plan.binding || !plan.env) {
+    throw new Error(`Expected a bindable performance plan, received ${plan.reason ?? "unknown"}.`);
+  }
+  return {
+    ...plan,
+    binding: plan.binding,
+    env: plan.env
+  };
+}
 
 function postgresSchemaContractFixture() {
   return {
@@ -267,6 +483,11 @@ function serverJobWorkerContractFixture() {
       heartbeatConfirmed: true,
       heartbeatArtifactHashConfigured: true,
       heartbeatVerifiedAtConfigured: true,
+      statusStoreSelfTestOnly: true,
+      externalWorkerCallbackReceiptSupported: true,
+      externalWorkerCallbackReceiptConfirmed: true,
+      externalWorkerCallbackReceiptSha256: digestA,
+      externalWorkerCallbackReceiptVerifiedAt: generatedAt,
       callbackUrlHash: digestB,
       runbookUrlHash: digestC,
       heartbeatArtifactSha256: digestD,
@@ -278,9 +499,28 @@ function serverJobWorkerContractFixture() {
     contract: {
       statusCallback: "/api/sena/ops/jobs",
       rawPayloadPersistedInJobStore: false,
-      payloadPolicy: "project-or-upload-pointer-default"
+      payloadPolicy: "project-or-upload-pointer-default",
+      statusStoreSelfTestSatisfiesExternalWorkerReadiness: false,
+      externalWorkerProofPolicy: "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
     },
     missing: []
+  };
+}
+
+function sameProcessOnlyServerJobWorkerContractFixture() {
+  return {
+    ...serverJobWorkerContractFixture(),
+    worker: {
+      ...serverJobWorkerContractFixture().worker,
+      statusStoreSelfTestOnly: true,
+      externalWorkerCallbackReceiptSupported: false,
+      externalWorkerCallbackReceiptConfirmed: false
+    },
+    contract: {
+      ...serverJobWorkerContractFixture().contract,
+      statusStoreSelfTestSatisfiesExternalWorkerReadiness: false,
+      externalWorkerProofPolicy: "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
+    }
   };
 }
 
@@ -343,6 +583,36 @@ function observabilityContractFixture() {
 }
 
 describe("SENA production evidence binding script", () => {
+  it("cannot redirect production performance remeasurement with cwd or the legacy test root env", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-root-anchor-"));
+
+    try {
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture());
+      const result = spawnSync(process.execPath, [
+        productionScriptPath,
+        "--artifact",
+        path.join(root, "performance-budget.json"),
+        "--scope",
+        "test-team"
+      ], {
+        cwd: performanceLocalBuildRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          NODE_ENV: "test",
+          SENA_TEST_PERFORMANCE_BUILD_ROOT: performanceLocalBuildRoot
+        }
+      });
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain("performance-budget.json: Production performance budget -> skip(");
+      expect(output).not.toContain("Production performance budget -> bind");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("dry-runs passed artifact bindings without printing artifact payload values", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-"));
 
@@ -408,7 +678,7 @@ describe("SENA production evidence binding script", () => {
       const result = runBind(["--evidence-dir", root, "--scope", "test-team"]);
       const output = outputOf(result);
 
-      expect(result.status).toBe(0);
+      expect(result.status, output).toBe(0);
       expect(output).toContain("SENA production evidence binding plan");
       expect(output).toContain("cdn-contract.json: CDN contract -> bind");
       expect(output).toContain("cdn-probe.json: CDN live probe -> bind");
@@ -489,6 +759,33 @@ describe("SENA production evidence binding script", () => {
       expect(output).not.toContain("vercel-preflight-target-url-not-https");
       expect(output).not.toContain("conference-load-target-url-not-https");
       expect(output).not.toContain("localhost:3000");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to bind a worker contract backed only by the same-process status-store self-test", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-worker-self-test-"));
+
+    try {
+      writeArtifact(
+        root,
+        "server-job-worker-contract.json",
+        sameProcessOnlyServerJobWorkerContractFixture()
+      );
+      const result = runBind([
+        "--artifact",
+        path.join(root, "server-job-worker-contract.json"),
+        "--scope",
+        "test-team"
+      ]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain(
+        "server-job-worker-contract.json: Server job worker contract -> skip(server-job-worker-contract-external-callback-receipt-missing)"
+      );
+      expect(output).not.toContain("SENA_JOB_WORKER_CONTRACT_CONFIRMED=configured(redacted)");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -687,13 +984,14 @@ describe("SENA production evidence binding script", () => {
     }
   });
 
-  it("writes pass-artifact evidence env values through the Vercel CLI", () => {
+  it("writes pass-artifact evidence env values through the Vercel CLI with confirmation last", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-write-"));
     const binDir = path.join(root, "bin");
+    const capturePath = path.join(root, "vercel-env-writes.txt");
 
     try {
       mkdirSync(binDir, { recursive: true });
-      writeFakeVercel(binDir);
+      writeFakeVercel(binDir, capturePath);
       writeArtifact(root, "conference-load.json", {
         schemaVersion: "sena-enterprise-conference-load-rehearsal/v1",
         generatedAt,
@@ -730,10 +1028,149 @@ describe("SENA production evidence binding script", () => {
       expect(output).toContain("SENA_CONFERENCE_LOAD_REHEARSAL_USERS=added");
       expect(output).toContain("SENA_CONFERENCE_LOAD_REHEARSAL_DURATION_SECONDS=added");
       expect(output).toContain("SENA production evidence binding complete. Secret values were not read or printed.");
+      const writes = readFileSync(capturePath, "utf8").trim().split("\n");
+      expect(writes[0]).toBe("SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=0");
+      expect(writes.at(-1)).toBe("SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=1");
+      expect(writes.filter((line) => line.startsWith("SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=")))
+        .toEqual([
+          "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=0",
+          "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=1"
+        ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it.each(Array.from({ length: 8 }, (_, index) => index + 1))(
+    "leaves conference evidence unconfirmed when Vercel interrupts env write %i of 8",
+    (failAtAdd) => {
+      const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-interrupt-"));
+      const binDir = path.join(root, "bin");
+      const capturePath = path.join(root, "vercel-env-writes.txt");
+
+      try {
+        mkdirSync(binDir, { recursive: true });
+        writeFakeVercel(binDir, capturePath, failAtAdd);
+        writeFileSync(capturePath, "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=1\n");
+        writeArtifact(root, "conference-load.json", {
+          schemaVersion: "sena-enterprise-conference-load-rehearsal/v1",
+          generatedAt,
+          status: "pass",
+          target: {
+            productionTargetSatisfied: true,
+            productionOriginSatisfied: true,
+            requireProductionTarget: true,
+            configuredUsers: 50,
+            configuredDurationSeconds: 1800
+          },
+          origin: {
+            configured: true,
+            originHash: hostHash("https://www.sena.hk"),
+            originValueExcluded: true,
+            pathValuesExcluded: true
+          },
+          summary: {
+            p95Ms: 750,
+            errorRatePercent: 0
+          }
+        });
+
+        const result = runBind([
+          "--artifact",
+          path.join(root, "conference-load.json"),
+          "--yes",
+          "--scope",
+          "test-team",
+          "--target-url",
+          "https://www.sena.hk"
+        ], {
+          env: {
+            ...process.env,
+            PATH: `${binDir}:${process.env.PATH ?? ""}`
+          }
+        });
+        const writes = existsSync(capturePath)
+          ? readFileSync(capturePath, "utf8").trim().split("\n").filter(Boolean)
+          : [];
+
+        expect(result.status).toBe(1);
+        expect(writes.filter((line) => line.startsWith("SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=")).at(-1))
+          .toBe("SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED=0");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    15_000
+  );
+
+  it("writes the exact 10-key performance tuple with confirmation last", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-write-"));
+    const binDir = path.join(root, "bin");
+    const capturePath = path.join(root, "vercel-env-writes.txt");
+    const originalPath = process.env.PATH;
+
+    try {
+      mkdirSync(binDir, { recursive: true });
+      writeFakeVercel(binDir, capturePath);
+      process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+      writeSenaProductionEvidenceBindingPlanToVercel(
+        { environment: "production", scope: "test-team" },
+        bindablePerformancePlan()
+      );
+
+      const writes = readFileSync(capturePath, "utf8").trim().split("\n");
+      expect(writes).toHaveLength(11);
+      expect(writes[0]).toBe("SENA_PERFORMANCE_BUDGET_CONFIRMED=0");
+      expect(writes.at(-1)).toBe("SENA_PERFORMANCE_BUDGET_CONFIRMED=1");
+      expect(new Set(writes.map((line) => line.slice(0, line.indexOf("="))))).toEqual(new Set([
+        "SENA_PERFORMANCE_BUDGET_CONFIRMED",
+        "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
+        "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+        "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+        "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
+        "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+        "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+        "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+        "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+        "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE"
+      ]));
+    } finally {
+      process.env.PATH = originalPath;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(Array.from({ length: 11 }, (_, index) => index + 1))(
+    "leaves the performance tuple unconfirmed when Vercel interrupts logical write %i of 11",
+    (failAtAdd) => {
+      const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-interrupt-"));
+      const binDir = path.join(root, "bin");
+      const capturePath = path.join(root, "vercel-env-writes.txt");
+      const originalPath = process.env.PATH;
+
+      try {
+        mkdirSync(binDir, { recursive: true });
+        writeFakeVercel(binDir, capturePath, failAtAdd);
+        writeFileSync(capturePath, "SENA_PERFORMANCE_BUDGET_CONFIRMED=1\n");
+        process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+        expect(() => writeSenaProductionEvidenceBindingPlanToVercel(
+          { environment: "production", scope: "test-team" },
+          bindablePerformancePlan()
+        )).toThrow("injected Vercel env add failure");
+
+        const writes = existsSync(capturePath)
+          ? readFileSync(capturePath, "utf8").trim().split("\n").filter(Boolean)
+          : [];
+        expect(writes.filter((line) => line.startsWith("SENA_PERFORMANCE_BUDGET_CONFIRMED=")).at(-1))
+          .toBe("SENA_PERFORMANCE_BUDGET_CONFIRMED=0");
+      } finally {
+        process.env.PATH = originalPath;
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("refuses to bind conference load artifacts whose origin hash does not match the production target URL", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-load-hash-"));
@@ -934,35 +1371,269 @@ describe("SENA production evidence binding script", () => {
     }
   });
 
-  it("binds performance budget artifacts only when build identity is clean and reproducible", () => {
-    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-"));
+  it("accepts clean reproducible performance evidence in the side-effect-free validator", () => {
+    const artifact = performanceBudgetArtifactFixture();
+    const observed = observeSenaLocalPerformanceBuildEvidence(performanceLocalBuildRoot);
+
+    expect(validateSenaPerformanceBudgetArtifactForBinding(artifact, observed)).toBeUndefined();
+  });
+
+  it("accepts clean reproducible performance evidence from a Git SHA-256 repository", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-bind-performance-sha256-"));
+    try {
+      const localEvidence = buildSenaPerformanceLocalEvidenceFixture(root, { objectFormat: "sha256" });
+      const artifact = performanceBudgetArtifactFixture({ localEvidence });
+      const observed = observeSenaLocalPerformanceBuildEvidence(root);
+
+      expect(artifact.buildIdentity.gitCommit).toMatch(/^[a-f0-9]{64}$/);
+      expect(validateSenaPerformanceBudgetArtifactForBinding(artifact, observed)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("plans the exact v2 performance schema and measured output-set hash without side effects", () => {
+    const artifact = performanceBudgetArtifactFixture();
+    Object.assign(artifact.sourceCustody ?? {}, {
+      manifestSha256: "1".repeat(64),
+      sourceTreeSha256: "2".repeat(64)
+    });
+    const artifactText = `${JSON.stringify(artifact, null, 2)}\n`;
+    const artifactSha256 = createHash("sha256").update(artifactText).digest("hex");
+    const result = planSenaProductionEvidenceArtifactBinding({
+      artifact,
+      artifactSha256,
+      shaFilePresent: true,
+      shaFileMatches: true
+    }, {}, observeSenaLocalPerformanceBuildEvidence(performanceLocalBuildRoot));
+
+    expect(result.bindable).toBe(true);
+    expect(result.env?.get("SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION"))
+      .toBe("sena-enterprise-production-performance-budget/v2");
+    expect(result.env?.get("SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256"))
+      .toBe(artifact.buildIdentity.measuredArtifactSetSha256);
+    const expectedEnv = [
+      "SENA_PERFORMANCE_BUDGET_CONFIRMED",
+      "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
+      "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+      "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+      "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
+      "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+      "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+      "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+      "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+      "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE"
+    ];
+    expect(Array.from(result.env?.keys() ?? [])).toEqual(expectedEnv);
+    expect(result.env?.has("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MANIFEST_SHA256")).toBe(false);
+    expect(result.env?.has("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_TREE_SHA256")).toBe(false);
+    const readme = readFileSync(path.join(projectRoot, "README.md"), "utf8");
+    for (const name of expectedEnv) expect(readme).toContain(name);
+    expect(readme).toContain("do not hand-assemble a partial performance env tuple");
+    expect(readme).toContain("trusted deployment assertion handed off by the binder");
+  });
+
+  it.each([39, 41, 63, 65])("rejects a %i-character Git commit identity", (length) => {
+    const artifact = performanceBudgetArtifactFixture();
+    const identity = artifact.buildIdentity as ReturnType<typeof performanceBuildIdentityFixture>;
+    const sourceCustody = artifact.sourceCustody as ReturnType<typeof performanceCleanSourceCustodyFixture>;
+    identity.gitCommit = "5".repeat(length);
+    identity.buildInputSha256 = senaBuildInputSha256(identity);
+    identity.currentExpectedBuildInputSha256 = identity.buildInputSha256;
+    identity.nextBuildIdSha256 = senaNextBuildIdSha256FromInputSha256(identity.buildInputSha256);
+    sourceCustody.baseGitCommit = identity.gitCommit;
+
+    expect(validateSenaPerformanceBudgetArtifactForBinding(
+      artifact,
+      observeSenaLocalPerformanceBuildEvidence(performanceLocalBuildRoot)
+    )).toBe("performance-build-git-commit-missing");
+  });
+
+  it("does not bind legacy v1 performance artifacts as current production evidence", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-v1-"));
 
     try {
-      writeArtifact(root, "performance-budget.json", {
-        schemaVersion: "sena-enterprise-production-performance-budget/v1",
-        generatedAt,
-        status: "pass",
-        buildIdentity: {
-          nextBuildIdSha256: "a".repeat(64),
-          gitCommit: "b".repeat(40),
-          gitDirty: false,
-          packageLockSha256: "c".repeat(64),
-          values: "hashes-and-commit-only"
+      const artifact = performanceBudgetArtifactFixture();
+      artifact.schemaVersion = "sena-enterprise-production-performance-budget/v1";
+      writeArtifact(root, "performance-budget-v1.json", artifact);
+      const result = runBind(["--artifact", path.join(root, "performance-budget-v1.json"), "--scope", "test-team"]);
+
+      expect(result.status).toBe(1);
+      expect(outputOf(result)).toContain("skip(unknown-schema:sena-enterprise-production-performance-budget/v1)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects forged performance pass artifacts whose checks, summary, or budget math are inconsistent", () => {
+    const cases = [
+      {
+        name: "flipped-check",
+        reason: "performance-budget-checks-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.checks[4].status = "fail";
         }
-      });
+      },
+      {
+        name: "summary",
+        reason: "performance-budget-summary-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.summary.failed = 1;
+        }
+      },
+      {
+        name: "headroom",
+        reason: "performance-budget-math-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.checks[4].headroomBytes = 18_001;
+        }
+      },
+      {
+        name: "duplicate-check",
+        reason: "performance-budget-checks-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.checks[4] = { ...artifact.checks[3] };
+        }
+      },
+      {
+        name: "widened-total-budget",
+        reason: "performance-budget-values-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.budgets.totalStaticJsBrotliBytes = 999_999_999;
+          artifact.checks[4].budgetBytes = 999_999_999;
+          artifact.checks[4].headroomBytes = 999_169_999;
+        }
+      },
+      {
+        name: "weakened-reserve",
+        reason: "performance-budget-values-invalid",
+        mutate: (artifact: ReturnType<typeof performanceBudgetArtifactFixture>) => {
+          artifact.budgets.totalStaticJsMinimumHeadroomBytes = 1;
+          artifact.checks[4].minimumHeadroomBytes = 1;
+        }
+      }
+    ];
+
+    for (const testCase of cases) {
+      const artifact = performanceBudgetArtifactFixture();
+      testCase.mutate(artifact);
+      const result = planPerformanceArtifact(artifact);
+
+      expect(result.bindable, testCase.name).toBe(false);
+      expect(result.reason, testCase.name).toBe(testCase.reason);
+    }
+  });
+
+  it("rejects a self-consistent lowered performance measurement after the sha sidecar is recomputed", () => {
+    // Start from the exact locally measured output digest, file counts,
+    // source identity, and BUILD_ID. Only the three actual/headroom pairs
+    // are forged while the pure planner receives the unchanged local build.
+    const artifact = performanceBudgetArtifactFixture();
+    artifact.checks[2].actualBrotliBytes = 1;
+    artifact.checks[2].headroomBytes = 79_999;
+    artifact.checks[3].actualBrotliBytes = 1;
+    artifact.checks[3].headroomBytes = 179_999;
+    artifact.checks[4].actualBrotliBytes = 1;
+    artifact.checks[4].headroomBytes = 847_999;
+
+    const result = planPerformanceArtifact(artifact);
+
+    expect(result.bindable).toBe(false);
+    expect(result.reason).toBe("performance-local-build-measurement-mismatch");
+  });
+
+  it("rejects performance evidence when local source changes without a matching BUILD_ID", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-source-drift-"));
+    const localBuildRoot = path.join(root, "local-build");
+
+    try {
+      const localEvidence = buildSenaPerformanceLocalEvidenceFixture(localBuildRoot);
+      const artifact = performanceBudgetArtifactFixture({ localEvidence });
+      writeFileSync(path.join(localBuildRoot, "lib", "runtime.ts"), "export const fixtureRuntime = 'changed-after-build';\n");
+
+      const result = planPerformanceArtifact(
+        artifact,
+        observeSenaLocalPerformanceBuildEvidence(localBuildRoot)
+      );
+
+      expect(result.bindable).toBe(false);
+      expect(result.reason).toBe("performance-local-build-identity-mismatch");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects performance evidence when the local BUILD_ID changes after measurement", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-build-id-drift-"));
+    const localBuildRoot = path.join(root, "local-build");
+
+    try {
+      const localEvidence = buildSenaPerformanceLocalEvidenceFixture(localBuildRoot);
+      const artifact = performanceBudgetArtifactFixture({ localEvidence });
+      writeFileSync(path.join(localBuildRoot, ".next", "BUILD_ID"), `sena-v2-${"a".repeat(64)}`);
+
+      const result = planPerformanceArtifact(
+        artifact,
+        observeSenaLocalPerformanceBuildEvidence(localBuildRoot)
+      );
+
+      expect(result.bindable).toBe(false);
+      expect(result.reason).toBe("performance-local-build-identity-mismatch");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects clean performance evidence without explicit source custody", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-missing-custody-"));
+
+    try {
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        sourceCustody: undefined
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+
+      expect(result.status).toBe(1);
+      expect(outputOf(result)).toContain("skip(performance-source-custody-missing)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to bind performance evidence whose build provenance does not match current source", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-stale-"));
+
+    try {
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity: performanceBuildIdentityFixture({ nextBuildMatchesCurrentSource: false })
+      }));
       const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
       const output = outputOf(result);
 
-      expect(result.status).toBe(0);
-      expect(output).toContain("performance-budget.json: Production performance budget -> bind");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_CONFIRMED=configured(redacted)");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256=configured(redacted)");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256=configured(redacted)");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_GIT_COMMIT=configured(redacted)");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_GIT_DIRTY=configured(redacted)");
-      expect(output).toContain("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256=configured(redacted)");
-      expect(output).not.toContain("a".repeat(64));
-      expect(output).not.toContain("b".repeat(40));
+      expect(result.status).toBe(1);
+      expect(output).toContain("performance-budget.json: Production performance budget -> skip(performance-build-provenance-mismatch)");
+      expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["source observation", { buildObservationStable: false }],
+    ["measured artifact set", { measuredArtifactSetStable: false }]
+  ])("refuses to bind performance evidence with an unstable %s", (_label, overrides) => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-unstable-"));
+
+    try {
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity: performanceBuildIdentityFixture(overrides)
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain("performance-budget.json: Production performance budget -> skip(performance-build-provenance-mismatch)");
+      expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1187,18 +1858,9 @@ describe("SENA production evidence binding script", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-dirty-"));
 
     try {
-      writeArtifact(root, "performance-budget.json", {
-        schemaVersion: "sena-enterprise-production-performance-budget/v1",
-        generatedAt,
-        status: "pass",
-        buildIdentity: {
-          nextBuildIdSha256: "a".repeat(64),
-          gitCommit: "b".repeat(40),
-          gitDirty: true,
-          packageLockSha256: "c".repeat(64),
-          values: "hashes-and-commit-only"
-        }
-      });
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity: performanceBuildIdentityFixture({ gitDirty: true })
+      }));
       const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
       const output = outputOf(result);
 
@@ -1210,15 +1872,132 @@ describe("SENA production evidence binding script", () => {
     }
   });
 
+  it("refuses reviewed dirty performance evidence regardless of its custody manifest", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-custody-manifest-"));
+
+    try {
+      const buildIdentity = performanceBuildIdentityFixture({ gitDirty: true });
+      const sourceCustody = performanceSourceCustodyFixture(buildIdentity);
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity,
+        sourceCustody: {
+          ...sourceCustody,
+          manifestSha256: "a".repeat(64),
+        }
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).toContain("performance-budget.json: Production performance budget -> skip(performance-build-git-dirty)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses reviewed dirty performance evidence even when every custody field matches build identity", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-reviewed-custody-"));
+
+    try {
+      const buildIdentity = performanceBuildIdentityFixture({ gitDirty: true });
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity,
+        sourceCustody: performanceSourceCustodyFixture(buildIdentity)
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+
+      expect(result.status).toBe(1);
+      expect(outputOf(result)).toContain("performance-budget.json: Production performance budget -> skip(performance-build-git-dirty)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses every reviewed-dirty custody variant before field-level authorization", () => {
+    const cases = [
+      { name: "source-tree", overrides: { sourceTreeSha256: "1".repeat(64) } },
+      { name: "file-list", overrides: { fileListSha256: "2".repeat(64) } },
+      { name: "file-count", overrides: { fileCount: 124 } },
+      { name: "status", overrides: { rootGitStatusSha256: "3".repeat(64) } },
+      { name: "dirty-count", overrides: { rootGitDirtyFileCount: 2 } },
+      { name: "dirty-flag", overrides: { rootGitDirty: false } }
+    ] as const;
+
+    for (const testCase of cases) {
+      const buildIdentity = performanceBuildIdentityFixture({ gitDirty: true });
+      const result = planPerformanceArtifact(performanceBudgetArtifactFixture({
+        buildIdentity,
+        sourceCustody: performanceSourceCustodyFixture(buildIdentity, testCase.overrides)
+      }));
+
+      expect(result.bindable, testCase.name).toBe(false);
+      expect(result.reason, testCase.name).toBe("performance-build-git-dirty");
+    }
+  });
+
+  it("refuses a self-consistent build identity whose clean flag contradicts its dirty count", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-dirty-invariant-"));
+
+    try {
+      const contradictoryInput = {
+        ...performanceBuildIdentityFixture({ gitDirty: true }),
+        gitDirty: false
+      };
+      const buildInputSha256 = senaBuildInputSha256(contradictoryInput);
+      const buildIdentity = {
+        ...contradictoryInput,
+        buildInputSha256,
+        currentExpectedBuildInputSha256: buildInputSha256,
+        nextBuildIdSha256: senaNextBuildIdSha256FromInputSha256(buildInputSha256)
+      };
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+
+      expect(result.status).toBe(1);
+      expect(outputOf(result)).toContain("skip(performance-build-git-identity-invalid)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a self-consistent build identity whose zero read-error count has a non-empty digest", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-performance-read-error-invariant-"));
+
+    try {
+      const impossibleInput = {
+        ...performanceBuildIdentityFixture(),
+        sourceReadErrorSha256: "9".repeat(64)
+      };
+      const buildInputSha256 = senaBuildInputSha256(impossibleInput);
+      const buildIdentity = {
+        ...impossibleInput,
+        buildInputSha256,
+        currentExpectedBuildInputSha256: buildInputSha256,
+        nextBuildIdSha256: senaNextBuildIdSha256FromInputSha256(buildInputSha256)
+      };
+      writeArtifact(root, "performance-budget.json", performanceBudgetArtifactFixture({
+        buildIdentity
+      }));
+      const result = runBind(["--artifact", path.join(root, "performance-budget.json"), "--scope", "test-team"]);
+
+      expect(result.status).toBe(1);
+      expect(outputOf(result)).toContain("skip(performance-build-identity-hash-missing)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("expands a sha256-verified production evidence archive into bindable child artifacts", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-"));
 
     try {
-      const { artifactPath: cdnArtifactPath } = writeArtifact(root, "cdn-probe.json", {
+      const { artifactPath: cdnArtifactPath, sha: cdnArtifactSha256 } = writeArtifact(root, "cdn-probe.json", {
         ...cdnProbeFixture(),
         secretLookingValue: "https://secret-cdn.example.com"
       });
-      const { artifactPath: workerArtifactPath } = writeArtifact(root, "server-job-worker-contract.json", {
+      const { artifactPath: workerArtifactPath, sha: workerArtifactSha256 } = writeArtifact(root, "server-job-worker-contract.json", {
         ...serverJobWorkerContractFixture(),
         secretLookingValue: "https://worker-callback.example.com"
       });
@@ -1231,13 +2010,15 @@ describe("SENA production evidence binding script", () => {
             id: "cdn-live-probe",
             status: "pass",
             artifactHashMatches: true,
-            outputFile: path.relative(process.cwd(), cdnArtifactPath)
+            artifactSha256: cdnArtifactSha256,
+            outputFile: path.relative(root, cdnArtifactPath)
           },
           {
             id: "server-job-worker-contract",
             status: "pass",
             artifactHashMatches: true,
-            outputFile: path.relative(process.cwd(), workerArtifactPath)
+            artifactSha256: workerArtifactSha256,
+            outputFile: path.relative(root, workerArtifactPath)
           }
         ],
         secretLookingValue: "https://archive-secret.example.com"
@@ -1245,7 +2026,7 @@ describe("SENA production evidence binding script", () => {
       const result = runBind(["--artifact", archivePath, "--scope", "test-team"]);
       const output = outputOf(result);
 
-      expect(result.status).toBe(0);
+      expect(result.status, output).toBe(0);
       expect(output).toContain("sena-production-evidence-archive.json: Unrecognized artifact -> skip(unknown-schema:sena-enterprise-production-evidence-archive/v1)");
       expect(output).toContain("cdn-probe.json: CDN live probe -> bind");
       expect(output).toContain("server-job-worker-contract.json: Server job worker contract -> bind");
@@ -1264,7 +2045,7 @@ describe("SENA production evidence binding script", () => {
     const outsideRoot = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-outside-"));
 
     try {
-      const { artifactPath: cdnArtifactPath } = writeArtifact(root, "cdn-probe.json", cdnProbeFixture());
+      const { artifactPath: cdnArtifactPath, sha: cdnArtifactSha256 } = writeArtifact(root, "cdn-probe.json", cdnProbeFixture());
       const { artifactPath: objectStorageArtifactPath } = writeArtifact(root, "object-storage-probe.json", {
         schemaVersion: "sena-enterprise-object-storage-probe/v1",
         generatedAt,
@@ -1275,9 +2056,9 @@ describe("SENA production evidence binding script", () => {
         generatedAt,
         status: "pass"
       });
-      const { artifactPath: observabilityContractArtifactPath } = writeArtifact(root, "observability-contract.json", observabilityContractFixture());
-      const { artifactPath: serverJobQueueContractArtifactPath } = writeArtifact(root, "server-job-queue-contract.json", serverJobQueueContractFixture());
-      const { artifactPath: outsideWorkerArtifactPath } = writeArtifact(outsideRoot, "server-job-worker-contract.json", {
+      const { artifactPath: observabilityContractArtifactPath, sha: observabilityContractArtifactSha256 } = writeArtifact(root, "observability-contract.json", observabilityContractFixture());
+      const { artifactPath: serverJobQueueContractArtifactPath, sha: serverJobQueueContractArtifactSha256 } = writeArtifact(root, "server-job-queue-contract.json", serverJobQueueContractFixture());
+      const { artifactPath: outsideWorkerArtifactPath, sha: outsideWorkerArtifactSha256 } = writeArtifact(outsideRoot, "server-job-worker-contract.json", {
         schemaVersion: "sena-enterprise-server-job-worker-contract/v1",
         generatedAt,
         status: "pass",
@@ -1292,6 +2073,7 @@ describe("SENA production evidence binding script", () => {
             id: "cdn-live-probe",
             status: "pass",
             artifactHashMatches: true,
+            artifactSha256: cdnArtifactSha256,
             outputFile: path.relative(root, cdnArtifactPath)
           },
           {
@@ -1304,12 +2086,14 @@ describe("SENA production evidence binding script", () => {
             id: "server-job-queue-contract",
             status: "pass",
             artifactHashMatches: true,
+            artifactSha256: serverJobQueueContractArtifactSha256,
             outputFile: path.relative(root, serverJobQueueContractArtifactPath)
           },
           {
             id: "observability-contract",
             status: "pass",
             artifactHashMatches: true,
+            artifactSha256: observabilityContractArtifactSha256,
             outputFile: path.relative(root, observabilityContractArtifactPath)
           },
           {
@@ -1322,6 +2106,7 @@ describe("SENA production evidence binding script", () => {
             id: "server-job-worker-contract",
             status: "pass",
             artifactHashMatches: true,
+            artifactSha256: outsideWorkerArtifactSha256,
             outputFile: outsideWorkerArtifactPath
           }
         ]
@@ -1346,6 +2131,313 @@ describe("SENA production evidence binding script", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(outsideRoot, { recursive: true, force: true });
     }
+  });
+
+  it("does not expand an archive child whose current artifact hash differs from the recorded hash", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-child-sha-"));
+
+    try {
+      const { artifactPath: cdnArtifactPath } = writeArtifact(root, "cdn-probe.json", cdnProbeFixture());
+      const { artifactPath: archivePath } = writeArtifact(root, "sena-production-evidence-archive.json", {
+        schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+        generatedAt,
+        status: "ready",
+        items: [{
+          id: "cdn-live-probe",
+          status: "pass",
+          artifactHashMatches: true,
+          artifactSha256: "0".repeat(64),
+          outputFile: path.relative(root, cdnArtifactPath)
+        }]
+      });
+
+      const result = runBind(["--artifact", archivePath, "--scope", "test-team"]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).not.toContain("cdn-probe.json: CDN live probe -> bind");
+      expect(output).not.toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
+      expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not expand an archive child symlink whose real path escapes the archive directory", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-child-link-"));
+    const outsideRoot = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-child-link-outside-"));
+
+    try {
+      const { artifactPath: outsideArtifactPath, sha: outsideArtifactSha256 } = writeArtifact(
+        outsideRoot,
+        "outside-cdn-probe.json",
+        cdnProbeFixture()
+      );
+      const linkedArtifactPath = path.join(root, "linked-cdn-probe.json");
+      symlinkSync(outsideArtifactPath, linkedArtifactPath);
+      writeFileSync(
+        `${linkedArtifactPath}.sha256`,
+        `${outsideArtifactSha256}  ${path.basename(linkedArtifactPath)}\n`
+      );
+      const { artifactPath: archivePath } = writeArtifact(root, "sena-production-evidence-archive.json", {
+        schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+        generatedAt,
+        status: "ready",
+        items: [{
+          id: "cdn-live-probe",
+          status: "pass",
+          artifactHashMatches: true,
+          artifactSha256: outsideArtifactSha256,
+          outputFile: path.basename(linkedArtifactPath)
+        }]
+      });
+
+      const result = runBind(["--artifact", archivePath, "--scope", "test-team"]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).not.toContain("linked-cdn-probe.json: CDN live probe -> bind");
+      expect(output).not.toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
+      expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("plans from the archive-pinned read when the child and sidecar are replaced after collection", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-child-race-"));
+
+    try {
+      const { artifactPath: cdnArtifactPath, sha: originalSha256 } = writeArtifact(
+        root,
+        "cdn-probe.json",
+        { ...cdnProbeFixture(), raceMarker: "original" }
+      );
+      const { artifactPath: archivePath } = writeArtifact(root, "sena-production-evidence-archive.json", {
+        schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+        generatedAt,
+        status: "ready",
+        items: [{
+          id: "cdn-live-probe",
+          status: "pass",
+          artifactHashMatches: true,
+          artifactSha256: originalSha256,
+          outputFile: path.basename(cdnArtifactPath)
+        }]
+      });
+
+      const reads = collectSenaProductionEvidenceArtifactReads({
+        artifacts: [archivePath],
+        evidenceDirs: []
+      });
+      const pinnedRead = reads.find((read) => path.basename(read.file) === "cdn-probe.json");
+      writeArtifact(root, "cdn-probe.json", { ...cdnProbeFixture(), raceMarker: "replacement" });
+
+      expect(pinnedRead?.artifactSha256).toBe(originalSha256);
+      expect(pinnedRead?.artifact.raceMarker).toBe("original");
+      expect(planSenaProductionEvidenceArtifactBinding(pinnedRead!, {
+        productionTargetUrl: "https://www.sena.hk"
+      })).toMatchObject({
+        bindable: true
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("plans from the archive-pinned canonical read when its symlink is retargeted after collection", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-link-race-"));
+    const outsideRoot = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-link-race-outside-"));
+
+    try {
+      const { artifactPath: insideArtifactPath, sha: insideSha256 } = writeArtifact(
+        root,
+        "inside-cdn-probe.json",
+        { ...cdnProbeFixture(), raceMarker: "inside" }
+      );
+      const { artifactPath: outsideArtifactPath, sha: outsideSha256 } = writeArtifact(
+        outsideRoot,
+        "outside-cdn-probe.json",
+        { ...cdnProbeFixture(), raceMarker: "outside" }
+      );
+      const linkedArtifactPath = path.join(root, "linked-cdn-probe.json");
+      symlinkSync(insideArtifactPath, linkedArtifactPath);
+      writeFileSync(`${linkedArtifactPath}.sha256`, `${insideSha256}  ${path.basename(linkedArtifactPath)}\n`);
+      const { artifactPath: archivePath } = writeArtifact(root, "sena-production-evidence-archive.json", {
+        schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+        generatedAt,
+        status: "ready",
+        items: [{
+          id: "cdn-live-probe",
+          status: "pass",
+          artifactHashMatches: true,
+          artifactSha256: insideSha256,
+          outputFile: path.basename(linkedArtifactPath)
+        }]
+      });
+
+      const reads = collectSenaProductionEvidenceArtifactReads({
+        artifacts: [archivePath],
+        evidenceDirs: []
+      });
+      const pinnedRead = reads.find((read) => path.basename(read.file) === "linked-cdn-probe.json");
+      rmSync(linkedArtifactPath);
+      symlinkSync(outsideArtifactPath, linkedArtifactPath);
+      writeFileSync(`${linkedArtifactPath}.sha256`, `${outsideSha256}  ${path.basename(linkedArtifactPath)}\n`);
+
+      expect(pinnedRead?.artifactSha256).toBe(insideSha256);
+      expect(pinnedRead?.artifact.raceMarker).toBe("inside");
+      expect(planSenaProductionEvidenceArtifactBinding(pinnedRead!, {
+        productionTargetUrl: "https://www.sena.hk"
+      })).toMatchObject({
+        bindable: true
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when two ready archives record conflicting pins for the same canonical child", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-pin-conflict-"));
+
+    try {
+      const { artifactPath: cdnArtifactPath, sha: cdnArtifactSha256 } = writeArtifact(
+        root,
+        "cdn-probe.json",
+        cdnProbeFixture()
+      );
+      const archiveBody = {
+        schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+        generatedAt,
+        status: "ready",
+        items: [{
+          id: "cdn-live-probe",
+          status: "pass",
+          artifactHashMatches: true,
+          artifactSha256: cdnArtifactSha256,
+          outputFile: path.basename(cdnArtifactPath)
+        }]
+      };
+      const { artifactPath: firstArchivePath } = writeArtifact(
+        root,
+        "sena-production-evidence-archive-a.json",
+        archiveBody
+      );
+      const { artifactPath: secondArchivePath } = writeArtifact(
+        root,
+        "sena-production-evidence-archive-b.json",
+        {
+          ...archiveBody,
+          items: [{ ...archiveBody.items[0], artifactSha256: "0".repeat(64) }]
+        }
+      );
+
+      const result = runBind([
+        "--artifact",
+        firstArchivePath,
+        "--artifact",
+        secondArchivePath,
+        "--scope",
+        "test-team"
+      ]);
+      const output = outputOf(result);
+
+      expect(result.status).toBe(1);
+      expect(output).not.toContain("cdn-probe.json: CDN live probe -> bind");
+      expect(output).not.toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
+      expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { itemStatus: "review", artifactHashMatches: true, label: "review status" },
+    { itemStatus: "pass", artifactHashMatches: false, label: "false artifactHashMatches" }
+  ])(
+    "blocks evidence-dir fallback for a ready archive child with $label",
+    ({ itemStatus, artifactHashMatches }) => {
+      const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-archive-invalid-claim-"));
+
+      try {
+        const { artifactPath: cdnArtifactPath, sha: cdnArtifactSha256 } = writeArtifact(
+          root,
+          "cdn-probe.json",
+          cdnProbeFixture()
+        );
+        const { artifactPath: archivePath } = writeArtifact(root, "sena-production-evidence-archive.json", {
+          schemaVersion: "sena-enterprise-production-evidence-archive/v1",
+          generatedAt,
+          status: "ready",
+          items: [{
+            id: "cdn-live-probe",
+            status: itemStatus,
+            artifactHashMatches,
+            artifactSha256: cdnArtifactSha256,
+            outputFile: path.basename(cdnArtifactPath)
+          }]
+        });
+
+        const result = runBind([
+          "--artifact",
+          archivePath,
+          "--evidence-dir",
+          root,
+          "--scope",
+          "test-team"
+        ]);
+        const output = outputOf(result);
+
+        expect(result.status).toBe(1);
+        expect(output).not.toContain("cdn-probe.json: CDN live probe -> bind");
+        expect(output).not.toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
+        expect(output).toContain("No passed SENA production evidence artifacts were bindable.");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it("classifies conflicting pins from distinct lexical aliases of one canonical child", () => {
+    const canonicalFile = "/archive/child.json";
+
+    const result = classifySenaProductionEvidenceArchiveChildClaims([
+      {
+        file: "/archive/alias-a.json",
+        canonicalFile,
+        artifactSha256: "a".repeat(64)
+      },
+      {
+        file: "/archive/alias-b.json",
+        canonicalFile,
+        artifactSha256: "b".repeat(64)
+      }
+    ]);
+
+    expect(result.blockedCanonicalFiles).toEqual(new Set([canonicalFile]));
+  });
+
+  it("classifies conflicting pins when one lexical child resolves to different canonicals", () => {
+    const lexicalFile = "/archive/child-link.json";
+    const firstCanonical = "/archive/child-a.json";
+    const secondCanonical = "/archive/child-b.json";
+
+    const result = classifySenaProductionEvidenceArchiveChildClaims([
+      {
+        file: lexicalFile,
+        canonicalFile: firstCanonical,
+        artifactSha256: "a".repeat(64)
+      },
+      {
+        file: lexicalFile,
+        canonicalFile: secondCanonical,
+        artifactSha256: "a".repeat(64)
+      }
+    ]);
+
+    expect(result.blockedCanonicalFiles).toEqual(new Set([firstCanonical, secondCanonical]));
   });
 
   it("does not expand blocked production evidence archives even when their sha256 custody file matches", () => {

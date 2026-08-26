@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
+import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
+import {
+  requireExpectedReceiptKeyId,
+  requireVerifierControlledLoopbackOrigin,
+  requireVerifierControlledServerCustody
+} from "./verify-sena-enterprise-api-browser-smoke.mjs";
 
-const defaultTimeout = 15000;
+const defaultTimeout = 30000;
 const password = "sena-secure-123";
 const validationEvidencePath = "evidence.validation";
 const expertReviewEvidencePath = "evidence.expertReview";
@@ -69,7 +75,7 @@ async function fetchJson(page, path, init = {}) {
 
 async function registerValidationReviewer(page, origin, unique) {
   const email = `validation-claim-smoke-${unique}@example.edu`;
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+  await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout);
   await fillByTestId(page, "register-full-name", "SENA Validation Claim Smoke");
   await fillByTestId(page, "register-email", email);
   await fillByTestId(page, "register-organization", "SENA Validation Lab");
@@ -126,7 +132,92 @@ async function createLessonStudyProject(page, csrf) {
   if (result.body?.persistedProject?.id !== projectId) {
     throw new Error(`Validation project header/body mismatch: ${projectId} vs ${result.body?.persistedProject?.id}.`);
   }
-  return projectId;
+  const currentVersion = result.body?.persistedProject?.currentVersion;
+  if (!Number.isInteger(currentVersion) || currentVersion <= 0) {
+    throw new Error(`Validation project import did not return a positive current version: ${JSON.stringify(result.body?.persistedProject)}.`);
+  }
+  return { projectId, currentVersion };
+}
+
+async function refreshReviewedProject(page, csrf, project) {
+  const reviewedAt = "2026-08-26T00:00:00.000Z";
+  const refreshed = await fetchJson(page, "/api/sena/analyze", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-sena-csrf-token": csrf
+    },
+    body: JSON.stringify({
+      projectId: project.projectId,
+      persist: true,
+      updateProject: true,
+      expectedVersion: project.currentVersion,
+      includeRuntimeBundle: true,
+      humanReview: {
+        status: "human-reviewed",
+        reviewer: "Validation claim smoke domain reviewer",
+        reviewedAt,
+        interpretation: "The synthetic lesson-study fixture supports validation workflow verification.",
+        limitations: "Synthetic fixture evidence cannot support empirical or causal claims.",
+        nextActions: "Retain limited-claim guardrails and verify every project-bound evidence record."
+      },
+      codingReliability: {
+        status: "documented",
+        reviewer: "Validation claim smoke reliability reviewer",
+        reviewedAt,
+        codingScheme: "Synthetic lesson-study validation smoke coding fixture v1",
+        unitOfCoding: "utterance-code binary cell",
+        coderCount: 2,
+        agreementMetric: "Mean pairwise Cohen kappa and Krippendorff alpha nominal",
+        agreementValue: "Verified separately by the project-bound approved reliability run.",
+        adjudicationNotes: "The smoke uses deterministic consensus coding with no unresolved disagreements.",
+        limitations: "Synthetic fixture only; not human-subjects research evidence."
+      },
+      dataGovernance: {
+        irbApprovalId: "SYNTHETIC-VALIDATION-SMOKE-NOT-HUMAN-SUBJECTS",
+        consentScope: "Synthetic browser-smoke fixture; no participant data.",
+        retentionPolicy: "Retain only generated smoke artifacts for automated verification.",
+        usageConstraints: ["Automated verification only", "Do not use for research claims"],
+        dataSteward: "SENA validation claim smoke verifier",
+        reviewedAt
+      }
+    })
+  });
+  if (refreshed.status !== 200 || refreshed.body?.schemaVersion !== "sena-analysis-run/v1") {
+    throw new Error(`Validation project review refresh failed: ${JSON.stringify(refreshed)}.`);
+  }
+  const persistedProject = refreshed.body?.persistedProject;
+  const currentVersion = persistedProject?.currentVersion;
+  const claimGate = persistedProject?.snapshot?.report?.claimReadinessGate;
+  const codingReliabilityGate = persistedProject?.snapshot?.report?.codingReliabilityGate;
+  if (
+    persistedProject?.id !== project.projectId ||
+    currentVersion !== project.currentVersion + 1 ||
+    persistedProject?.snapshot?.report?.humanReview?.status !== "human-reviewed" ||
+    persistedProject?.snapshot?.report?.dataGovernance?.status !== "complete" ||
+    codingReliabilityGate?.review?.status !== "documented" ||
+    codingReliabilityGate?.machineClaimEligibility?.eligible !== false ||
+    !codingReliabilityGate?.machineClaimEligibility?.blockers?.includes("current-v2-reliability-dashboard-required") ||
+    claimGate?.status !== "exploratory" ||
+    claimGate?.claimUse !== "exploratory-only" ||
+    persistedProject?.claimUse !== "exploratory-only"
+  ) {
+    throw new Error(
+      `Validation project refresh did not persist the reviewed revision with client machine evidence excluded: ${JSON.stringify({
+        id: persistedProject?.id,
+        currentVersion,
+        claimUse: persistedProject?.claimUse,
+        humanReviewStatus: persistedProject?.snapshot?.report?.humanReview?.status,
+        dataGovernanceStatus: persistedProject?.snapshot?.report?.dataGovernance?.status,
+        codingReliabilityStatus: codingReliabilityGate?.review?.status,
+        machineEligibility: codingReliabilityGate?.machineClaimEligibility
+      })}.`
+    );
+  }
+  requireHeader(refreshed.headers, "x-sena-analysis-run-id");
+  requireHeader(refreshed.headers, "x-sena-project-id", project.projectId);
+  requireHeader(refreshed.headers, "x-sena-project-version", String(currentVersion));
+  return { projectId: project.projectId, currentVersion };
 }
 
 function perfectReliabilityAnnotations() {
@@ -211,7 +302,7 @@ async function createValidationSuite(page, csrf, projectId) {
       }
     })
   });
-  if (created.status !== 200 || created.body?.schemaVersion !== "sena-group-comparison-suite/v1") {
+  if (created.status !== 200 || created.body?.schemaVersion !== "sena-group-comparison-suite/v2") {
     throw new Error(`Validation suite failed: ${JSON.stringify(created)}.`);
   }
   if (created.body?.comparisonCount !== 3 || created.body?.correction !== "holm") {
@@ -301,15 +392,43 @@ async function createApprovedExpertReview(page, csrf, projectId, validationRunId
   return reviewId;
 }
 
-async function verifyClaimReadyPackage(page, projectId, reliabilityRunId, validationRunId, expertReviewId) {
+async function verifyPersistedClaimEvidencePackage(
+  page,
+  projectId,
+  projectVersion,
+  reliabilityRunId,
+  validationRunId,
+  expertReviewId
+) {
   const claim = await fetchJson(page, `/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`);
-  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v1") {
+  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v2") {
     throw new Error(`Claim package request failed: ${JSON.stringify(claim)}.`);
   }
-  requireHeader(claim.headers, "x-sena-claim-package-status", "claim-ready-with-limits");
+  requireHeader(claim.headers, "x-sena-claim-package-status", "exploratory-only");
   requireHeader(claim.headers, "x-sena-project-id", projectId);
-  if (claim.body?.status !== "claim-ready-with-limits" || claim.body?.summary?.blockers !== 0) {
-    throw new Error(`Claim package is not claim-ready-with-limits: ${JSON.stringify(claim.body)}`);
+  requireHeader(claim.headers, "x-sena-project-version", String(projectVersion));
+  const persistedBlockers = claim.body?.blockers;
+  if (
+    claim.body?.status !== "exploratory-only" ||
+    claim.body?.project?.claimUse !== "exploratory-only" ||
+    claim.body?.summary?.blockers !== 1 ||
+    !Array.isArray(persistedBlockers) ||
+    persistedBlockers.length !== 1 ||
+    persistedBlockers[0] !== "project-claim-readiness-required" ||
+    claim.body?.claimReadinessEvidence?.kind !== "persisted-project-snapshot" ||
+    claim.body?.claimReadinessEvidence?.claimUse !== "exploratory-only" ||
+    claim.body?.claimReadinessEvidence?.reliabilityRunId !== null ||
+    claim.body?.sourceSnapshotEvidence?.projectVersion !== projectVersion ||
+    claim.body?.sourceSnapshotEvidence?.snapshotSha256 !== claim.body?.sourceSnapshotEvidence?.persistedSnapshotSha256
+  ) {
+    throw new Error(`Persisted claim package did not preserve the non-derived exploratory boundary: ${JSON.stringify({
+      status: claim.body?.status,
+      project: claim.body?.project,
+      summary: claim.body?.summary,
+      blockers: persistedBlockers,
+      claimReadinessEvidence: claim.body?.claimReadinessEvidence,
+      sourceSnapshotEvidence: claim.body?.sourceSnapshotEvidence
+    })}`);
   }
   if (claim.body?.evidence?.reliability?.runId !== reliabilityRunId) {
     throw new Error(`Claim package missing approved reliability evidence ${reliabilityRunId}.`);
@@ -338,8 +457,14 @@ async function verifyClaimReadyPackage(page, projectId, reliabilityRunId, valida
   }
 }
 
-export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validationSmokeOriginFromCli()) {
-  const origin = new URL(baseUrl).origin;
+export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validationSmokeOriginFromCli(), options = {}) {
+  const expectedReceiptKeyId = requireExpectedReceiptKeyId(options);
+  const origin = requireVerifierControlledLoopbackOrigin(baseUrl);
+  const provisioningToken = options.provisioningToken ??
+    process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_PROVISIONING_TOKEN ??
+    process.env.SENA_PROVISIONING_TOKEN ??
+    "sena-pilot-provisioning-token";
+  requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken);
   const unique = randomUUID().slice(0, 8);
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -348,12 +473,22 @@ export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validation
   try {
     const reviewer = await registerValidationReviewer(page, origin, unique);
     const csrf = await csrfToken(page);
-    const projectId = await createLessonStudyProject(page, csrf);
-    const reliabilityRunId = await createApprovedReliabilityRun(page, csrf, reviewer.teamId, projectId);
-    const validationRunId = await createValidationSuite(page, csrf, projectId);
-    const expertReviewId = await createApprovedExpertReview(page, csrf, projectId, validationRunId);
-    await verifyClaimReadyPackage(page, projectId, reliabilityRunId, validationRunId, expertReviewId);
-    console.log(`Validation claim browser smoke passed for claim-ready project ${projectId}.`);
+    const importedProject = await createLessonStudyProject(page, csrf);
+    const project = await refreshReviewedProject(page, csrf, importedProject);
+    const reliabilityRunId = await createApprovedReliabilityRun(page, csrf, reviewer.teamId, project.projectId);
+    const validationRunId = await createValidationSuite(page, csrf, project.projectId);
+    const expertReviewId = await createApprovedExpertReview(page, csrf, project.projectId, validationRunId);
+    await verifyPersistedClaimEvidencePackage(
+      page,
+      project.projectId,
+      project.currentVersion,
+      reliabilityRunId,
+      validationRunId,
+      expertReviewId
+    );
+    console.log(
+      `Validation claim browser smoke passed for project-bound approved evidence with a non-derived exploratory read on project ${project.projectId}.`
+    );
   } finally {
     await browser.close();
   }
@@ -361,7 +496,7 @@ export async function verifySenaValidationClaimBrowserSmoke(baseUrl = validation
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   verifySenaValidationClaimBrowserSmoke().catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : "Validation claim browser smoke failed.");
     process.exit(1);
   });
 }

@@ -16,6 +16,79 @@ export class RouteMemoryPostgres {
   observedRequests: Array<Record<string, unknown>> = [];
   queries: string[] = [];
 
+  serverJobSourceReady(record: Record<string, unknown>) {
+    const delivery = record.delivery as Record<string, unknown> | undefined;
+    if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) return false;
+    const deliveryReady = Object.hasOwn(delivery, "sourceReady")
+      ? delivery.sourceReady === true
+      : delivery.webhookStatus === "delivered" || delivery.webhookStatus === "local-sink" ||
+        (delivery.webhookStatus === "failed" && delivery.failureStage === "queue-dispatch");
+    if (!deliveryReady) return false;
+    const summary = record.payload_summary as Record<string, unknown> | undefined;
+    const worker = record.worker as Record<string, unknown> | undefined;
+    if (!summary || !worker || summary.hasInlineSnapshot !== false ||
+      summary.hasInlineDataset !== false || worker.payloadDelivery === "inline-payload-enabled") {
+      return false;
+    }
+    const kind = record.kind;
+    if (kind === "analysis") {
+      const currentCustody = summary.commandCustody === "encrypted-upload-v1" &&
+        typeof summary.commandEnvelopeUploadId === "string" &&
+        /^upload_[a-f0-9]{24}$/.test(summary.commandEnvelopeUploadId) &&
+        typeof summary.commandEnvelopeSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(summary.commandEnvelopeSha256);
+      const legacyCustody = summary.commandCustody === "legacy-inline-v2" &&
+        summary.commandEnvelopeUploadId === undefined &&
+        summary.commandEnvelopeSha256 === undefined;
+      const heartbeatCustody = summary.commandCustody === "synthetic-heartbeat-v1" &&
+        summary.commandEnvelopeUploadId === undefined &&
+        summary.commandEnvelopeSha256 === undefined &&
+        typeof record.id === "string" && /^server_job_worker_heartbeat_[a-f0-9]{24}$/.test(record.id) &&
+        record.team_id === "ops-heartbeat" && record.project_id === "worker-heartbeat" &&
+        record.actor_user_id === "ops-heartbeat";
+      return (currentCustody || legacyCustody || heartbeatCustody) &&
+        worker.payloadDelivery === "project-pointer" &&
+        typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
+        Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0;
+    }
+    if (kind === "validation") {
+      return worker.payloadDelivery === "project-pointer" &&
+        typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
+        Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0 &&
+        summary.projectTeamId === record.team_id;
+    }
+    const uploadIds = summary.uploadIds;
+    const exactUploadIds = Array.isArray(uploadIds) && uploadIds.length > 0 && uploadIds.length <= 100 &&
+      uploadIds.every((value) => typeof value === "string" && value.trim().length > 0) &&
+      new Set(uploadIds.map((value) => (value as string).trim())).size === uploadIds.length;
+    if (kind === "import") return worker.payloadDelivery === "upload-pointer" && exactUploadIds;
+    if (kind === "reliability") return worker.payloadDelivery === "upload-pointer" && exactUploadIds;
+    return false;
+  }
+
+  serverJobIsSyntheticWorkerHeartbeat(record: Record<string, unknown>) {
+    const summary = record.payload_summary as Record<string, unknown> | undefined;
+    const worker = record.worker as Record<string, unknown> | undefined;
+    return record.kind === "analysis" &&
+      typeof record.id === "string" && /^server_job_worker_heartbeat_[a-f0-9]{24}$/.test(record.id) &&
+      record.team_id === "ops-heartbeat" &&
+      record.project_id === "worker-heartbeat" &&
+      record.actor_user_id === "ops-heartbeat" &&
+      typeof record.payload_sha256 === "string" && /^[a-f0-9]{64}$/.test(record.payload_sha256) &&
+      summary?.commandCustody === "synthetic-heartbeat-v1" &&
+      summary.commandEnvelopeUploadId === undefined &&
+      summary.commandEnvelopeSha256 === undefined &&
+      summary.source === "project" &&
+      summary.projectVersion === 1 &&
+      summary.hasInlineSnapshot === false &&
+      summary.hasInlineDataset === false &&
+      summary.payloadValuesExcluded === true &&
+      worker?.expectedAction === "run-analysis" &&
+      worker.payloadDelivery === "project-pointer" &&
+      worker.execution === "external-worker-required" &&
+      worker.statusCallback === "/api/sena/ops/jobs";
+  }
+
   serverJobRowsForSql(sql: string, values: unknown[]) {
     if (/WHERE id = \$1 LIMIT 1/i.test(sql)) {
       return this.serverJobs.filter((record) => record.id === values[0]);
@@ -31,6 +104,10 @@ export class RouteMemoryPostgres {
       const kind = values[valueIndex++];
       rows = rows.filter((record) => record.kind === kind);
     }
+    if (/kind\s*=\s*ANY\(\$\d+::text\[\]\)/i.test(sql)) {
+      const kinds = values[valueIndex++];
+      rows = rows.filter((record) => Array.isArray(kinds) && kinds.includes(record.kind));
+    }
     if (/team_id\s*=\s*\$\d+/i.test(sql)) {
       const teamId = values[valueIndex++];
       rows = rows.filter((record) => record.team_id === teamId);
@@ -39,7 +116,24 @@ export class RouteMemoryPostgres {
       const projectId = values[valueIndex++];
       rows = rows.filter((record) => record.project_id === projectId);
     }
-    return rows.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+    if (/sena-analysis-custody-quarantine/i.test(sql)) {
+      rows = rows.filter((record) => {
+        const delivery = record.delivery as Record<string, unknown> | undefined;
+        const rawReady = delivery && Object.hasOwn(delivery, "sourceReady")
+          ? delivery.sourceReady === true
+          : delivery?.webhookStatus === "delivered" || delivery?.webhookStatus === "local-sink" ||
+            (delivery?.webhookStatus === "failed" && delivery?.failureStage === "queue-dispatch");
+        return record.kind === "analysis" && rawReady && !this.serverJobSourceReady(record);
+      });
+    } else if (/delivery->'?sourceReady'?/i.test(sql) || /delivery \? 'sourceReady'/i.test(sql)) {
+      rows = rows.filter((record) => this.serverJobSourceReady(record));
+    }
+    if (/sena-exclude-synthetic-worker-heartbeat/i.test(sql)) {
+      rows = rows.filter((record) => !this.serverJobIsSyntheticWorkerHeartbeat(record));
+    }
+    return rows.sort((left, right) => /ORDER BY updated_at ASC/i.test(sql)
+      ? String(left.updated_at).localeCompare(String(right.updated_at))
+      : String(right.updated_at).localeCompare(String(left.updated_at)));
   }
 
   async query(sql: string, values: unknown[] = []) {
@@ -49,6 +143,9 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 0 };
     }
     if (/CREATE INDEX IF NOT EXISTS/i.test(normalizedSql) || /CREATE UNIQUE INDEX IF NOT EXISTS/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/ALTER TABLE .* ALTER COLUMN .* DROP NOT NULL/i.test(normalizedSql)) {
       return { rows: [], rowCount: 0 };
     }
     if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
@@ -199,29 +296,112 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_project_comments"/i.test(normalizedSql)) {
-      this.projectComments.unshift({
+      const row = {
         id: values[0],
         projectId: values[1],
         teamId: values[2],
         userId: values[3],
+        project_id: values[1],
+        team_id: values[2],
+        user_id: values[3],
+        target_kind: values[4],
+        target_id: values[5],
+        target_label: values[6],
         status: values[7],
-        payload: values[8]
-      });
+        payload: values[8],
+        created_at: values[9],
+        updated_at: values[10]
+      };
+      this.projectComments = [
+        row,
+        ...this.projectComments.filter((record) => record.id !== row.id)
+      ];
       return { rows: [], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_project_presence"/i.test(normalizedSql)) {
       this.projectPresence = this.projectPresence.filter((record) => (
         record.projectId !== values[1] || record.userId !== values[3]
       ));
-      this.projectPresence.unshift({
+      const row = {
         id: values[0],
         projectId: values[1],
         teamId: values[2],
         userId: values[3],
+        project_id: values[1],
+        team_id: values[2],
+        user_id: values[3],
         activeView: values[4],
-        payload: values[6]
-      });
+        active_view: values[4],
+        cursor_label: values[5],
+        payload: values[6],
+        updated_at: values[7],
+        expires_at: values[8]
+      };
+      this.projectPresence.unshift(row);
       return { rows: [], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /SET delivery = \$2::jsonb/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      if (!current) return { rows: [], rowCount: 0 };
+      const failQueuedJob = current.status === "queued" && values[2] === true;
+      const finalized: Record<string, unknown> = {
+        ...current,
+        delivery: values[1],
+        status: failQueuedJob ? "failed" : current.status,
+        lifecycle: failQueuedJob ? values[3] : current.lifecycle,
+        updated_at: values[4]
+      };
+      this.serverJobs = [
+        finalized,
+        ...this.serverJobs.filter((record) => record.id !== finalized.id)
+      ];
+      return { rows: [finalized], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /WHERE id = \$1 AND status = 'queued'/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      if (!current || current.status !== "queued" ||
+        !this.serverJobSourceReady(current)) {
+        return { rows: [], rowCount: 0 };
+      }
+      const claimed: Record<string, unknown> = {
+        ...current,
+        status: "running",
+        lifecycle: values[1],
+        updated_at: values[2]
+      };
+      this.serverJobs = [
+        claimed,
+        ...this.serverJobs.filter((record) => record.id !== claimed.id)
+      ];
+      return { rows: [claimed], rowCount: 1 };
+    }
+    if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
+      /SET status = \$2/i.test(normalizedSql) &&
+      /WHERE id = \$1 AND status = \$5/i.test(normalizedSql)) {
+      const current = this.serverJobs.find((record) => record.id === values[0]);
+      const expectedStatus = values[4];
+      const workerPredicate = /lifecycle->>'workerRunId' = \$(\d+)/i.exec(normalizedSql);
+      const expectedWorkerRunId = workerPredicate ? values[Number(workerPredicate[1]) - 1] : undefined;
+      const requiresReady = /delivery->'?sourceReady'?/i.test(normalizedSql) || /delivery \? 'sourceReady'/i.test(normalizedSql);
+      const lifecycle = current?.lifecycle as { workerRunId?: unknown } | undefined;
+      if (!current || current.status !== expectedStatus ||
+        (workerPredicate && lifecycle?.workerRunId !== expectedWorkerRunId) ||
+        (requiresReady && !this.serverJobSourceReady(current))) {
+        return { rows: [], rowCount: 0 };
+      }
+      const transitioned: Record<string, unknown> = {
+        ...current,
+        status: values[1],
+        lifecycle: values[2],
+        updated_at: values[3]
+      };
+      this.serverJobs = [
+        transitioned,
+        ...this.serverJobs.filter((record) => record.id !== transitioned.id)
+      ];
+      return { rows: [transitioned], rowCount: 1 };
     }
     if (/INSERT INTO "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
       const row = {
@@ -326,19 +506,31 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 0 };
     }
     if (/SELECT \* FROM "public"\."sena_enterprise_project_comments"/i.test(normalizedSql)) {
+      const teamMatch = normalizedSql.match(/team_id = \$(\d+)/i);
+      const projectMatch = normalizedSql.match(/project_id = \$(\d+)/i);
+      const statusMatch = normalizedSql.match(/status = \$(\d+)/i);
+      const rows = this.projectComments.filter((record) => (
+        (!teamMatch || record.teamId === values[Number(teamMatch[1]) - 1]) &&
+        (!projectMatch || record.projectId === values[Number(projectMatch[1]) - 1]) &&
+        (!statusMatch || record.status === values[Number(statusMatch[1]) - 1])
+      ));
       return {
-        rows: this.projectComments
-          .filter((record) => !values[0] || record.projectId === values[0])
-          .map((record) => ({ payload: record.payload })),
-        rowCount: this.projectComments.length
+        rows,
+        rowCount: rows.length
       };
     }
     if (/SELECT \* FROM "public"\."sena_enterprise_project_presence"/i.test(normalizedSql)) {
+      const teamMatch = normalizedSql.match(/team_id = \$(\d+)/i);
+      const projectMatch = normalizedSql.match(/project_id = \$(\d+)/i);
+      const activeMatch = normalizedSql.match(/expires_at > \$(\d+)/i);
+      const rows = this.projectPresence.filter((record) => (
+        (!teamMatch || record.teamId === values[Number(teamMatch[1]) - 1]) &&
+        (!projectMatch || record.projectId === values[Number(projectMatch[1]) - 1]) &&
+        (!activeMatch || String(record.expires_at) > String(values[Number(activeMatch[1]) - 1]))
+      ));
       return {
-        rows: this.projectPresence
-          .filter((record) => !values[0] || record.projectId === values[0])
-          .map((record) => ({ payload: record.payload })),
-        rowCount: this.projectPresence.length
+        rows,
+        rowCount: rows.length
       };
     }
     throw new Error(`Unexpected Postgres query in route primary-state test: ${normalizedSql}`);

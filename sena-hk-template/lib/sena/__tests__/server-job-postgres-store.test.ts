@@ -52,6 +52,7 @@ describe("SENA server job Postgres store", () => {
     }));
 
     const enterprise = await import("../enterprise");
+    const serverJobs = await import("../enterprise/server-job-queue");
     const runtime = enterprise.serverJobStoreRuntime();
     expect(runtime).toEqual(expect.objectContaining({
       activeStore: "postgres-table",
@@ -66,10 +67,12 @@ describe("SENA server job Postgres store", () => {
       actorUserId: "user_postgres_jobs",
       payload: {
         action: "run-analysis",
-        projectId: "project_postgres_jobs"
+        projectId: "project_postgres_jobs",
+        projectVersion: 1
       },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -81,6 +84,92 @@ describe("SENA server job Postgres store", () => {
       team_id: "team_postgres_jobs",
       project_id: "project_postgres_jobs"
     }));
+
+    let releaseSourcePersistence!: () => void;
+    let sourcePersistenceEntered!: () => void;
+    const sourcePersistenceGate = new Promise<void>((resolve) => {
+      releaseSourcePersistence = resolve;
+    });
+    const sourcePersistenceStarted = new Promise<void>((resolve) => {
+      sourcePersistenceEntered = resolve;
+    });
+    const preparingJobPromise = enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_preparing",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_preparing", projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      },
+      beforeDispatch: async () => {
+        sourcePersistenceEntered();
+        await sourcePersistenceGate;
+      }
+    });
+    await sourcePersistenceStarted;
+    const preparingRow = pg.serverJobs.find((row) => row.project_id === "project_postgres_jobs_preparing");
+    expect(preparingRow).toBeDefined();
+    const prematurePostgresClaim = await serverJobs.claimEnterpriseServerJob({
+      jobId: String(preparingRow?.id),
+      workerRunId: "worker_run_pg_premature"
+    });
+    releaseSourcePersistence();
+    const preparedJob = await preparingJobPromise;
+    const readyPostgresClaims = await Promise.all([
+      serverJobs.claimEnterpriseServerJob({ jobId: preparedJob.id, workerRunId: "worker_run_pg_ready_left" }),
+      serverJobs.claimEnterpriseServerJob({ jobId: preparedJob.id, workerRunId: "worker_run_pg_ready_right" })
+    ]);
+    expect(prematurePostgresClaim).toEqual(expect.objectContaining({
+      claimed: false,
+      reason: "server_job_worker_source_not_ready"
+    }));
+    expect(readyPostgresClaims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(readyPostgresClaims.filter((claim) => !claim.claimed)).toHaveLength(1);
+
+    await expect(enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_source_failure",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_source_failure", projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      },
+      beforeDispatch: async () => {
+        throw new Error("simulated postgres source persistence failure");
+      }
+    })).rejects.toMatchObject({ code: "server_job_source_persistence_failed" });
+    const sourceFailureRow = pg.serverJobs.find((row) => (
+      row.project_id === "project_postgres_jobs_source_failure"
+    ));
+    expect(sourceFailureRow).toBeDefined();
+    await expect(serverJobs.getEnterpriseServerJob(String(sourceFailureRow?.id))).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        delivery: expect.objectContaining({
+          sourceReady: false,
+          failureStage: "source-persistence"
+        }),
+        lifecycle: expect.objectContaining({ retryable: false })
+      })
+    );
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: String(sourceFailureRow?.id),
+      action: "retry",
+      reason: "operator-review"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_source_repair_required"
+    });
 
     const route = await import("../../../app/api/sena/ops/jobs/route");
     const authHeaders = {
@@ -143,6 +232,519 @@ describe("SENA server job Postgres store", () => {
       })
     ]));
 
+    const index = await import("../index");
+    const custodyOwner = await enterprise.registerEnterpriseUserAsync({
+      name: "Postgres custody owner",
+      email: "postgres-custody-owner@example.edu",
+      password: "sena-secure-123",
+      organization: "Postgres custody lab",
+      plan: "lab"
+    });
+    const custodyProject = await enterprise.createEnterpriseProjectAsync(custodyOwner.context, {
+      teamId: custodyOwner.context.teams[0].id,
+      title: "Postgres corrupt-custody source",
+      snapshot: index.buildSenaProjectSnapshot(index.buildSenaModel(index.lessonStudySenaContract), {
+        title: "Postgres corrupt-custody source",
+        generatedAt: "2026-08-26T00:00:00.000Z",
+        sourceDataset: index.lessonStudySenaContract
+      })
+    });
+    const corruptCustodyJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: custodyProject.teamId,
+      projectId: custodyProject.id,
+      actorUserId: custodyOwner.context.user.id,
+      payload: {
+        action: "run-analysis",
+        commandCustody: "encrypted-upload-v1",
+        teamId: custodyProject.teamId,
+        projectId: custodyProject.id,
+        projectVersion: custodyProject.currentVersion,
+        sourceTitle: custodyProject.title,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: custodyProject.currentVersion,
+        commandCustody: "encrypted-upload-v1",
+        commandEnvelopeUploadId: "upload_aaaaaaaaaaaaaaaaaaaaaaaa",
+        commandEnvelopeSha256: "b".repeat(64),
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const corruptCustodyClaim = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: corruptCustodyJob.id,
+        workerRunId: "worker_run_pg_corrupt_custody"
+      })
+    }));
+    const corruptCustodyClaimBody = await corruptCustodyClaim.json();
+    expect(corruptCustodyClaim.status, JSON.stringify(corruptCustodyClaimBody)).toBe(409);
+    expect(corruptCustodyClaimBody).toEqual(expect.objectContaining({
+      code: "server_job_worker_analysis_command_custody_invalid"
+    }));
+    await expect(serverJobs.getEnterpriseServerJob(corruptCustodyJob.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      })
+    );
+
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "worker_run_pg_stale",
+      errorCode: "stale-worker"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_run_mismatch"
+    });
+
+    const terminalResults = await Promise.allSettled([
+      serverJobs.updateEnterpriseServerJobStatus({
+        jobId: job.id,
+        action: "mark-succeeded",
+        workerRunId: "worker_run_pg"
+      }),
+      serverJobs.updateEnterpriseServerJobStatus({
+        jobId: job.id,
+        action: "mark-failed",
+        workerRunId: "worker_run_pg",
+        errorCode: "competing-terminal"
+      })
+    ]);
+    expect(terminalResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(terminalResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const rejectedTerminal = terminalResults.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect([
+      "server_job_status_transition_conflict",
+      "server_job_status_transition_not_allowed"
+    ]).toContain(rejectedTerminal.reason?.code);
+
+    const unclaimedJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_unclaimed",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_unclaimed", projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    for (const workerRunId of ["", "   "]) {
+      await expect(serverJobs.claimEnterpriseServerJob({
+        jobId: unclaimedJob.id,
+        workerRunId
+      })).rejects.toMatchObject({
+        status: 400,
+        code: "server_job_worker_run_id_required"
+      });
+      await expect(serverJobs.getEnterpriseServerJob(unclaimedJob.id)).resolves.toEqual(
+        expect.objectContaining({
+          status: "queued",
+          lifecycle: expect.objectContaining({ attempts: 0 })
+        })
+      );
+    }
+    await expect(serverJobs.updateEnterpriseServerJobStatus({
+      jobId: unclaimedJob.id,
+      action: "mark-succeeded",
+      workerRunId: "worker_run_pg_never_claimed"
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_status_transition_not_allowed"
+    });
+
+    const preclaimRejectedJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_preclaim_rejected",
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_jobs_preclaim_rejected",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await expect(serverJobs.rejectEnterpriseServerJobBeforeClaim({
+      jobId: preclaimRejectedJob.id,
+      errorCode: "server_job_worker_payload_not_reproducible",
+      errorHash: "preclaim-error-hash",
+      reason: "server-job-worker-payload-not-reproducible"
+    })).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 0,
+        retryable: false,
+        lastTransition: "mark-failed",
+        lastErrorCode: "server_job_worker_payload_not_reproducible",
+        lastErrorHash: "preclaim-error-hash",
+        statusReason: "server-job-worker-payload-not-reproducible"
+      })
+    }));
+    expect((pg.serverJobs.find((row) => row.id === preclaimRejectedJob.id)?.lifecycle as {
+      workerRunId?: string;
+      deadLetteredAt?: string;
+    })).toEqual(expect.not.objectContaining({
+      workerRunId: expect.anything(),
+      deadLetteredAt: expect.anything()
+    }));
+
+    const raceJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_race",
+      actorUserId: "user_postgres_jobs",
+      payload: { action: "run-analysis", projectId: "project_postgres_jobs_race", projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const [leftClaim, rightClaim] = await Promise.all([
+      serverJobs.claimEnterpriseServerJob({ jobId: raceJob.id, workerRunId: "worker_run_pg_left" }),
+      serverJobs.claimEnterpriseServerJob({ jobId: raceJob.id, workerRunId: "worker_run_pg_right" })
+    ]);
+    const claims = [leftClaim, rightClaim];
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(claims.filter((claim) => !claim.claimed)).toHaveLength(1);
+    expect(pg.queries.some((query) => (
+      /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
+      /WHERE id = \$1 AND status = 'queued'/i.test(query) &&
+      /delivery->'sourceReady' = 'true'::jsonb/i.test(query) &&
+      /RETURNING \*/i.test(query)
+    ))).toBe(true);
+
+    const managedFailureJob = await enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_jobs",
+      projectId: "project_postgres_jobs_managed_failure",
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_jobs_managed_failure",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const managedFailureRow = pg.serverJobs.find((row) => row.id === managedFailureJob.id)!;
+    managedFailureRow.provider = {
+      ...(managedFailureRow.provider as Record<string, unknown>),
+      mode: "managed"
+    };
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: managedFailureJob.id,
+      workerRunId: "worker_run_pg_managed_failure"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    const managedFailure = await serverJobs.updateEnterpriseServerJobStatus({
+      jobId: managedFailureJob.id,
+      action: "mark-failed",
+      workerRunId: "worker_run_pg_managed_failure",
+      errorCode: "managed-first-failure"
+    });
+    expect(managedFailure.job).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 1, retryable: false })
+    }));
+    expect(managedFailure.job.lifecycle.deadLetteredAt).toBeUndefined();
+    expect((pg.serverJobs.find((row) => row.id === managedFailureJob.id)?.lifecycle as {
+      deadLetteredAt?: string;
+    }).deadLetteredAt).toBeUndefined();
+
+    const enqueueLegacyProjectJob = (suffix: string) => enterprise.enqueueEnterpriseServerJob({
+      kind: "analysis" as const,
+      teamId: "team_postgres_jobs",
+      projectId: `project_postgres_jobs_legacy_${suffix}`,
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-analysis",
+        projectId: `project_postgres_jobs_legacy_${suffix}`,
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const [
+      legacyDelivered,
+      legacyPending,
+      invalidString,
+      legacyInline,
+      legacyMissingUpload,
+      legacyNormalizedDuplicateUpload
+    ] = await Promise.all([
+      enqueueLegacyProjectJob("delivered"),
+      enqueueLegacyProjectJob("pending"),
+      enqueueLegacyProjectJob("string"),
+      enqueueLegacyProjectJob("inline"),
+      enqueueLegacyProjectJob("missing-upload"),
+      enqueueLegacyProjectJob("normalized-duplicate-upload")
+    ]);
+    const invalidProjectVersions: Array<[string, unknown]> = [
+      ["missing-version", undefined],
+      ["string-version", "1"],
+      ["fraction-version", 1.5],
+      ["zero-version", 0],
+      ["unsafe-version", Number.MAX_SAFE_INTEGER + 1]
+    ];
+    const invalidVersionJobs = await Promise.all(
+      invalidProjectVersions.map(([suffix]) => enqueueLegacyProjectJob(suffix))
+    );
+    const enqueueValidationProjectJob = (
+      suffix: string,
+      projectTeamId?: string
+    ) => enterprise.enqueueEnterpriseServerJob({
+      kind: "validation" as const,
+      teamId: "team_postgres_jobs",
+      projectId: `project_postgres_jobs_validation_${suffix}`,
+      actorUserId: "user_postgres_jobs",
+      payload: {
+        action: "run-validation",
+        teamId: "team_postgres_jobs",
+        projectId: `project_postgres_jobs_validation_${suffix}`
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        projectTeamId,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const [
+      validationMatchingTeam,
+      validationMissingTeam,
+      validationMismatchedTeam,
+      validationNumericTeam,
+      validationBooleanTeam,
+      validationNullTeam,
+      validationArrayTeam,
+      validationObjectTeam
+    ] = await Promise.all([
+      enqueueValidationProjectJob("matching-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("missing-team"),
+      enqueueValidationProjectJob("mismatched-team", "team_other"),
+      enqueueValidationProjectJob("numeric-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("boolean-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("null-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("array-team", "team_postgres_jobs"),
+      enqueueValidationProjectJob("object-team", "team_postgres_jobs")
+    ]);
+    const deliveredRow = pg.serverJobs.find((row) => row.id === legacyDelivered.id)!;
+    const pendingRow = pg.serverJobs.find((row) => row.id === legacyPending.id)!;
+    const invalidStringRow = pg.serverJobs.find((row) => row.id === invalidString.id)!;
+    const legacyInlineRow = pg.serverJobs.find((row) => row.id === legacyInline.id)!;
+    const legacyMissingUploadRow = pg.serverJobs.find((row) => row.id === legacyMissingUpload.id)!;
+    const legacyNormalizedDuplicateUploadRow = pg.serverJobs.find((row) => (
+      row.id === legacyNormalizedDuplicateUpload.id
+    ))!;
+    (pg.serverJobs.find((row) => row.id === validationNumericTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = 123;
+    (pg.serverJobs.find((row) => row.id === validationBooleanTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = true;
+    (pg.serverJobs.find((row) => row.id === validationNullTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = null;
+    (pg.serverJobs.find((row) => row.id === validationArrayTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = ["team_postgres_jobs"];
+    (pg.serverJobs.find((row) => row.id === validationObjectTeam.id)!
+      .payload_summary as Record<string, unknown>).projectTeamId = { value: "team_postgres_jobs" };
+    for (const [index, [, projectVersion]] of invalidProjectVersions.entries()) {
+      const row = pg.serverJobs.find((candidate) => candidate.id === invalidVersionJobs[index].id)!;
+      if (projectVersion === undefined) {
+        delete (row.payload_summary as { projectVersion?: unknown }).projectVersion;
+      } else {
+        (row.payload_summary as { projectVersion?: unknown }).projectVersion = projectVersion;
+      }
+      row.delivery = {
+        ...(row.delivery as Record<string, unknown>),
+        webhookStatus: "delivered",
+        sourceReady: true
+      };
+    }
+    delete (deliveredRow.delivery as { sourceReady?: unknown }).sourceReady;
+    pendingRow.delivery = {
+      ...(pendingRow.delivery as Record<string, unknown>),
+      webhookStatus: "pending"
+    };
+    delete (pendingRow.delivery as { sourceReady?: unknown }).sourceReady;
+    invalidStringRow.delivery = {
+      ...(invalidStringRow.delivery as Record<string, unknown>),
+      sourceReady: "true"
+    };
+    legacyInlineRow.kind = "reliability";
+    legacyInlineRow.payload_summary = {
+      ...(legacyInlineRow.payload_summary as Record<string, unknown>),
+      source: "dataset",
+      uploadIds: [],
+      hasInlineDataset: true
+    };
+    legacyInlineRow.worker = {
+      ...(legacyInlineRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "inline-payload-enabled"
+    };
+    legacyInlineRow.delivery = {
+      ...(legacyInlineRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
+    legacyMissingUploadRow.kind = "reliability";
+    legacyMissingUploadRow.payload_summary = {
+      source: "uploads",
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    legacyMissingUploadRow.worker = {
+      ...(legacyMissingUploadRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "upload-pointer"
+    };
+    legacyMissingUploadRow.delivery = {
+      ...(legacyMissingUploadRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
+    legacyNormalizedDuplicateUploadRow.kind = "reliability";
+    legacyNormalizedDuplicateUploadRow.payload_summary = {
+      source: "uploads",
+      uploadIds: ["upload-a", " upload-a "],
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    legacyNormalizedDuplicateUploadRow.worker = {
+      ...(legacyNormalizedDuplicateUploadRow.worker as Record<string, unknown>),
+      expectedAction: "run-reliability",
+      payloadDelivery: "upload-pointer"
+    };
+    legacyNormalizedDuplicateUploadRow.delivery = {
+      ...(legacyNormalizedDuplicateUploadRow.delivery as Record<string, unknown>),
+      webhookStatus: "delivered",
+      sourceReady: true
+    };
+
+    await expect(serverJobs.getEnterpriseServerJob(legacyDelivered.id)).resolves.toEqual(
+      expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: true }) })
+    );
+    expect(Object.hasOwn(deliveredRow.delivery as object, "sourceReady")).toBe(false);
+    const claimableLegacyJobs = await serverJobs.listEnterpriseServerJobs({ claimableOnly: true, limit: 100 });
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(legacyDelivered.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyPending.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(invalidString.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyInline.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(legacyMissingUpload.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(
+      legacyNormalizedDuplicateUpload.id
+    );
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toEqual(
+      expect.arrayContaining(invalidVersionJobs.map((candidate) => candidate.id))
+    );
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).toContain(validationMatchingTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMissingTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationMismatchedTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationNumericTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationBooleanTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationNullTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationArrayTeam.id);
+    expect(claimableLegacyJobs.jobs.map((candidate) => candidate.id)).not.toContain(validationObjectTeam.id);
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: legacyDelivered.id,
+      workerRunId: "worker_run_pg_legacy_delivered"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    await expect(serverJobs.claimEnterpriseServerJob({
+      jobId: validationMatchingTeam.id,
+      workerRunId: "worker_run_pg_validation_matching_team"
+    })).resolves.toEqual(expect.objectContaining({ claimed: true }));
+    for (const legacyJobId of [
+      legacyPending.id,
+      invalidString.id,
+      legacyInline.id,
+      legacyMissingUpload.id,
+      legacyNormalizedDuplicateUpload.id,
+      validationMissingTeam.id,
+      validationMismatchedTeam.id,
+      validationNumericTeam.id,
+      validationBooleanTeam.id,
+      validationNullTeam.id,
+      validationArrayTeam.id,
+      validationObjectTeam.id,
+      ...invalidVersionJobs.map((candidate) => candidate.id)
+    ]) {
+      await expect(serverJobs.getEnterpriseServerJob(legacyJobId)).resolves.toEqual(
+        expect.objectContaining({ delivery: expect.objectContaining({ sourceReady: false }) })
+      );
+      await expect(serverJobs.claimEnterpriseServerJob({
+        jobId: legacyJobId,
+        workerRunId: `worker_run_pg_blocked_${legacyJobId}`
+      })).resolves.toEqual(expect.objectContaining({
+        claimed: false,
+        reason: "server_job_worker_source_not_ready"
+      }));
+    }
+    expect(pg.queries.some((query) => (
+      /jsonb_typeof\(payload_summary->'uploadIds'\) IS DISTINCT FROM 'array'/i.test(query) &&
+      /jsonb_array_length\(payload_summary->'uploadIds'\)/i.test(query) &&
+      /count\(DISTINCT btrim\(upload_entry\.value #>> '\{\}'\)\)/i.test(query) &&
+      /payload_summary->'hasInlineSnapshot' = 'false'::jsonb/i.test(query) &&
+      /payload_summary->'hasInlineDataset' = 'false'::jsonb/i.test(query) &&
+      /worker->>'payloadDelivery'/i.test(query) &&
+      /WHEN kind = 'analysis'/i.test(query) &&
+      /WHEN kind = 'validation'/i.test(query) &&
+      /jsonb_typeof\(payload_summary->'projectTeamId'\) IS DISTINCT FROM 'string'/i.test(query) &&
+      /payload_summary->>'projectTeamId' = team_id/i.test(query) &&
+      /jsonb_typeof\(payload_summary->'projectVersion'\) IS DISTINCT FROM 'number'/i.test(query) &&
+      /9007199254740991/i.test(query) &&
+      /trunc\(\(payload_summary->>'projectVersion'\)::numeric\)/i.test(query)
+    ))).toBe(true);
+
+    expect(pg.queries.some((query) => (
+      /UPDATE "public"\."sena_enterprise_server_jobs"/i.test(query) &&
+      /SET status = \$\d+/i.test(query) &&
+      /WHERE id = \$1 AND status = \$\d+/i.test(query) &&
+      /lifecycle->>'workerRunId' = \$\d+/i.test(query) &&
+      /RETURNING \*/i.test(query)
+    ))).toBe(true);
+
     expect(existsSync(path.join(enterpriseDbDir, "enterprise-db.json"))).toBe(false);
     expect(pg.queries.some((query) => /CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_server_jobs"/.test(query))).toBe(true);
     expect(pg.queries.some((query) => /CREATE INDEX IF NOT EXISTS "sena_enterprise_server_jobs_status_updated_idx"/.test(query))).toBe(true);
@@ -150,5 +752,329 @@ describe("SENA server job Postgres store", () => {
     expect(pg.queries.some((query) => /INSERT INTO "public"\."sena_enterprise_audit_log"/.test(query))).toBe(true);
     expect(JSON.stringify({ runtime, listBody })).not.toContain("super-secret");
     expect(JSON.stringify({ runtime, listBody })).not.toContain("example.db");
+  });
+
+  it.each([1, 2])(
+    "reserves an oldest executable Postgres row before %i newer unsupported rows consume the mixed limit",
+    async (limit) => {
+      enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-server-job-postgres-fairness-${limit}-`));
+      process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+      process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+      process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+      process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+      process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+      process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+      const pg = new RouteMemoryPostgres();
+      vi.doMock("pg", () => ({
+        Pool: class FakePool {
+          async query(sql: string, values: unknown[] = []) {
+            return pg.query(sql, values);
+          }
+
+          async end() {
+            return undefined;
+          }
+        }
+      }));
+
+      const queue = await import("../enterprise/server-job-queue");
+      const worker = await import("../enterprise/server-job-worker-runtime");
+      const executable = await queue.enqueueEnterpriseServerJob({
+        kind: "analysis",
+        teamId: "team_postgres_executable",
+        projectId: "project_postgres_executable",
+        actorUserId: "user_postgres_executable",
+        payload: {
+          action: "run-analysis",
+          teamId: "team_postgres_executable",
+          projectId: "project_postgres_executable",
+          projectVersion: 1,
+          persist: false,
+          updateProject: true
+        },
+        payloadSummary: {
+          source: "project",
+          projectVersion: 1,
+          persist: false,
+          updateProject: true,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true
+        }
+      });
+      const unsupported = [];
+      for (let index = 0; index < limit; index += 1) {
+        const projectId = `project_postgres_validation_${index}`;
+        unsupported.push(await queue.enqueueEnterpriseServerJob({
+          kind: "validation",
+          teamId: "team_postgres_validation_backlog",
+          projectId,
+          actorUserId: "user_postgres_validation_backlog",
+          payload: {
+            action: "run-validation",
+            teamId: "team_postgres_validation_backlog",
+            projectId
+          },
+          payloadSummary: {
+            source: "project",
+            projectVersion: 1,
+            projectTeamId: "team_postgres_validation_backlog",
+            hasInlineSnapshot: false,
+            hasInlineDataset: false,
+            payloadValuesExcluded: true
+          }
+        }));
+      }
+      pg.serverJobs.find((row) => row.id === executable.id)!.updated_at =
+        "2026-08-26T00:00:00.000Z";
+      unsupported.forEach((job, index) => {
+        pg.serverJobs.find((row) => row.id === job.id)!.updated_at =
+          `2026-08-26T00:00:${String(index + 1).padStart(2, "0")}.000Z`;
+      });
+
+      const first = await worker.drainEnterpriseServerJobQueue({ limit });
+      const second = await worker.drainEnterpriseServerJobQueue({ limit });
+
+      expect(first.outcomes[0]).toEqual(expect.objectContaining({
+        jobId: executable.id,
+        status: "failed",
+        errorCode: "server_job_worker_payload_not_reproducible",
+        attempts: 0
+      }));
+      expect(second.outcomes).toHaveLength(limit);
+      expect(second.outcomes).toEqual(expect.arrayContaining(unsupported.map((job) => (
+        expect.objectContaining({
+          jobId: job.id,
+          status: "skipped",
+          jobStatus: "queued",
+          skipReason: "server_job_worker_executor_unavailable"
+        })
+      ))));
+      expect(pg.queries.some((query) => (
+        /sena-worker-executable-kinds/i.test(query) &&
+        /kind\s*=\s*ANY\(\$\d+::text\[\]\)/i.test(query) &&
+        /ORDER BY updated_at ASC/i.test(query) &&
+        /LIMIT \$\d+/i.test(query)
+      ))).toBe(true);
+    }
+  );
+
+  it("does not exclude a wrong-kind Postgres near-match as an exact synthetic heartbeat", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-postgres-heartbeat-kind-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    const pg = new RouteMemoryPostgres();
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+
+    const queue = await import("../enterprise/server-job-queue");
+    const contract = await import("../enterprise/server-job-contract");
+    const seeded = await queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_heartbeat_seed",
+      projectId: "project_postgres_heartbeat_seed",
+      actorUserId: "user_postgres_heartbeat_seed",
+      payload: {
+        action: "run-analysis",
+        projectId: "project_postgres_heartbeat_seed",
+        projectVersion: 1
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const row = pg.serverJobs.find((candidate) => candidate.id === seeded.id)!;
+    row.id = `server_job_worker_heartbeat_${"a".repeat(24)}`;
+    row.kind = "validation";
+    row.team_id = "ops-heartbeat";
+    row.project_id = "worker-heartbeat";
+    row.actor_user_id = "ops-heartbeat";
+    row.payload_sha256 = "b".repeat(64);
+    row.payload_summary = {
+      commandCustody: "synthetic-heartbeat-v1",
+      source: "project",
+      projectVersion: 1,
+      hasInlineSnapshot: false,
+      hasInlineDataset: false,
+      payloadValuesExcluded: true
+    };
+    row.worker = {
+      expectedAction: "run-analysis",
+      payloadDelivery: "project-pointer",
+      execution: "external-worker-required",
+      statusCallback: "/api/sena/ops/jobs"
+    };
+
+    const listed = await queue.listEnterpriseServerJobs({
+      status: "queued",
+      excludeSyntheticWorkerHeartbeat: true,
+      limit: 10
+    });
+
+    expect(listed.jobs).toHaveLength(1);
+    expect(listed.jobs[0].id).toBe(row.id);
+    expect(contract.enterpriseServerJobIsSyntheticWorkerHeartbeat(listed.jobs[0])).toBe(false);
+    const exclusionQueries = pg.queries.filter((query) => (
+      /sena-exclude-synthetic-worker-heartbeat/i.test(query)
+    ));
+    expect(exclusionQueries.length).toBeGreaterThan(0);
+    expect(exclusionQueries.every((query) => /kind\s*=\s*'analysis'/i.test(query))).toBe(true);
+  });
+
+  it("quarantines raw unmarked and partially stripped Postgres analysis receipts before local claim", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-server-job-postgres-custody-quarantine-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_ENTERPRISE_DB_ADAPTER = "postgres";
+    process.env.SENA_ENTERPRISE_STATE_STORE = "postgres";
+    process.env.DATABASE_URL = "postgres://sena_user:super-secret@example.db/senadb";
+    process.env.SENA_JOB_QUEUE_ADAPTER = "local";
+    process.env.SENA_JOB_QUEUE_ALLOW_LOCAL = "1";
+    const pg = new RouteMemoryPostgres();
+    vi.doMock("pg", () => ({
+      Pool: class FakePool {
+        async query(sql: string, values: unknown[] = []) {
+          return pg.query(sql, values);
+        }
+
+        async end() {
+          return undefined;
+        }
+      }
+    }));
+
+    const queue = await import("../enterprise/server-job-queue");
+    const worker = await import("../enterprise/server-job-worker-runtime");
+    const enqueue = (projectId: string) => queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: "team_postgres_quarantine",
+      projectId,
+      actorUserId: "user_postgres_quarantine",
+      payload: { action: "run-analysis", projectId, projectVersion: 1 },
+      payloadSummary: {
+        source: "project",
+        projectVersion: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const variants: Array<{
+      name: string;
+      mutate: (summary: Record<string, unknown>) => void;
+    }> = [
+      { name: "unmarked", mutate: (summary) => { delete summary.commandCustody; } },
+      {
+        name: "current-missing-upload-id",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          delete summary.commandEnvelopeUploadId;
+          summary.commandEnvelopeSha256 = "a".repeat(64);
+        }
+      },
+      {
+        name: "current-missing-sha",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = `upload_${"a".repeat(24)}`;
+          delete summary.commandEnvelopeSha256;
+        }
+      },
+      {
+        name: "current-missing-both",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          delete summary.commandEnvelopeUploadId;
+          delete summary.commandEnvelopeSha256;
+        }
+      },
+      {
+        name: "current-null-upload-id",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = null;
+          summary.commandEnvelopeSha256 = "a".repeat(64);
+        }
+      },
+      {
+        name: "current-null-sha",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = `upload_${"a".repeat(24)}`;
+          summary.commandEnvelopeSha256 = null;
+        }
+      },
+      {
+        name: "current-wrong-types",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = 17;
+          summary.commandEnvelopeSha256 = ["a".repeat(64)];
+        }
+      },
+      {
+        name: "current-malformed",
+        mutate: (summary) => {
+          summary.commandCustody = "encrypted-upload-v1";
+          summary.commandEnvelopeUploadId = "upload_not_hex";
+          summary.commandEnvelopeSha256 = "not-a-sha";
+        }
+      },
+      {
+        name: "partial-synthetic",
+        mutate: (summary) => {
+          summary.commandCustody = "synthetic-heartbeat-v1";
+          delete summary.commandEnvelopeUploadId;
+          delete summary.commandEnvelopeSha256;
+        }
+      }
+    ];
+    const jobs = [];
+    for (const variant of variants) {
+      const job = await enqueue(`project_postgres_${variant.name}`);
+      jobs.push(job);
+      variant.mutate(pg.serverJobs.find((row) => row.id === job.id)!.payload_summary as Record<string, unknown>);
+    }
+
+    const report = await worker.drainEnterpriseServerJobQueue({ kind: "analysis", limit: 10 });
+
+    expect(report).toEqual(expect.objectContaining({
+      scanned: variants.length,
+      failed: variants.length,
+      succeeded: 0
+    }));
+    for (const jobId of jobs.map((job) => job.id)) {
+      await expect(queue.getEnterpriseServerJob(jobId)).resolves.toEqual(expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      }));
+    }
+    const quarantineQueries = pg.queries.filter((query) => /sena-analysis-custody-quarantine/i.test(query));
+    expect(quarantineQueries.length).toBeGreaterThan(0);
+    expect(quarantineQueries.every((query) => /COALESCE\s*\(\s*\(\s*CASE/i.test(query))).toBe(true);
+    expect(quarantineQueries.every((query) => /IS NOT TRUE/i.test(query))).toBe(true);
+    expect(pg.queries.some((query) => (
+      /claimable/i.test(query) && /COALESCE\s*\(\s*\(\s*CASE/i.test(query) && /IS TRUE/i.test(query)
+    ))).toBe(true);
   });
 });

@@ -68,7 +68,7 @@ export type EnterpriseImportActionsOptions = {
   setEnterpriseImportRuns: StateSetter<EnterpriseImportRun[]>;
   setEnterpriseProjects: StateSetter<EnterpriseProjectSummary[]>;
   setEnterpriseAnalysisRuns: StateSetter<EnterpriseAnalysisRun[]>;
-  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void;
+  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void | Promise<void>;
   refreshEnterpriseState: () => Promise<void>;
   refreshEnterpriseCollaboration: (projectId?: string) => Promise<void>;
   touchEnterprisePresence: (projectId?: string, options?: { quiet?: boolean }) => Promise<void>;
@@ -168,7 +168,7 @@ export function useEnterpriseImportActions({
         return;
       }
       if (payload.persistedProject?.snapshot) {
-        restoreProjectSnapshot(payload.persistedProject.snapshot, payload.persistedProject.title);
+        await restoreProjectSnapshot(payload.persistedProject.snapshot, payload.persistedProject.title);
         setActiveEnterpriseProjectId(payload.persistedProject.id);
       } else {
         setDataset(payload.dataset);

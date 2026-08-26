@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -104,6 +104,25 @@ describe("SENA enterprise module boundaries", () => {
     expect(getEnterpriseDeploymentReadiness).toBeTypeOf("function");
     expect(getEnterpriseGoLiveRehearsal).toBeTypeOf("function");
     expect(createFileEnterpriseStateStore).toBeTypeOf("function");
+  });
+
+  it.each([
+    ["governance", "ops-governance.ts", "getEnterpriseGovernanceStatus"],
+    ["organization deployment", "ops-deployment.ts", "getEnterpriseOrganizationDeploymentPackage"],
+    ["capability audit", "ops-capability-audit.ts", "getEnterpriseCapabilityAudit"]
+  ] as const)("keeps the %s default aggregator on one enterprise state image", (_label, filename, functionName) => {
+    const source = readFileSync(
+      path.join(process.cwd(), "lib", "sena", "enterprise", filename),
+      "utf8"
+    );
+    const functionStart = source.indexOf(`export function ${functionName}(`);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    const functionPrelude = source.slice(functionStart, functionStart + 1_000);
+
+    expect(functionPrelude.match(/\breadEnterpriseDb\s*\(\)/g)).toHaveLength(1);
+    expect(functionPrelude).toContain(
+      "const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });"
+    );
   });
 
   it("owns enterprise error helpers in the errors module", () => {
@@ -1188,19 +1207,23 @@ describe("SENA enterprise module boundaries", () => {
     const staleReliabilityValidationPath = path.join(process.cwd(), "lib", "sena", "enterprise", "reliability-validation.ts");
     const expertReviewPath = path.join(process.cwd(), "lib", "sena", "enterprise", "expert-review.ts");
     const claimPackagePath = path.join(process.cwd(), "lib", "sena", "enterprise", "claim-evidence-package.ts");
+    const publicationStateBindingPath = path.join(process.cwd(), "lib", "sena", "enterprise", "publication-state-binding.ts");
     expect(existsSync(reliabilityRunsPath)).toBe(true);
     expect(existsSync(validationRunsPath)).toBe(true);
     expect(existsSync(staleReliabilityValidationPath)).toBe(false);
     expect(existsSync(expertReviewPath)).toBe(true);
     expect(existsSync(claimPackagePath)).toBe(true);
+    expect(existsSync(publicationStateBindingPath)).toBe(true);
     const reliabilityRunsSource = readFileSync(reliabilityRunsPath, "utf8");
     const validationRunsSource = readFileSync(validationRunsPath, "utf8");
     const expertReviewSource = readFileSync(expertReviewPath, "utf8");
     const claimPackageSource = readFileSync(claimPackagePath, "utf8");
+    const publicationStateBindingSource = readFileSync(publicationStateBindingPath, "utf8");
     const reliabilityRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "reliability", "route.ts"), "utf8");
     const validationRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "group-comparison", "route.ts"), "utf8");
     const expertReviewRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "expert-review", "route.ts"), "utf8");
     const claimPackageRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "validation", "claim-package", "route.ts"), "utf8");
+    const publicationRouteSource = readFileSync(path.join(process.cwd(), "app", "api", "sena", "exports", "publication", "route.ts"), "utf8");
     const stateSource = readFileSync(path.join(process.cwd(), "lib", "sena", "enterprise", "state.ts"), "utf8");
     const backupSource = readFileSync(path.join(process.cwd(), "lib", "sena", "enterprise", "ops-backup.ts"), "utf8");
 
@@ -1258,6 +1281,11 @@ describe("SENA enterprise module boundaries", () => {
     expect(expertReviewRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
     expect(claimPackageRouteSource).toContain("@/lib/sena/enterprise/claim-evidence-package");
     expect(claimPackageRouteSource).not.toContain("@/lib/sena/enterprise/reliability-validation");
+    expect(publicationStateBindingSource.match(/\breadEnterprisePublicationState\s*\(/g)).toHaveLength(1);
+    expect(publicationStateBindingSource).not.toMatch(/\breadEnterpriseState\s*\(/);
+    expect(publicationRouteSource).toContain("@/lib/sena/enterprise/publication-state-binding");
+    expect(publicationRouteSource).not.toContain("getEnterpriseClaimEvidencePackageWithPostgresEvidence");
+    expect(publicationRouteSource).not.toContain("findEnterprisePublicationReliabilityRunAsync");
     expect(stateSource).toContain("./reliability-runs");
     expect(stateSource).toContain("./validation-runs");
     expect(stateSource).toContain("./expert-review");
@@ -2193,7 +2221,8 @@ describe("SENA enterprise module boundaries", () => {
         })
       });
 
-      const initial = store.read();
+      const initialState = store.readState();
+      const initial = initialState.db;
       const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
       expect(initial.schemaVersion).toBe("sena-enterprise-db/v1");
       expect(existsSync(dbPath)).toBe(true);
@@ -2201,16 +2230,21 @@ describe("SENA enterprise module boundaries", () => {
       store.write({
         ...initial,
         teams: [{ id: "team_persisted" } as never]
+      }, {
+        expectedRevision: initialState.revision
       });
       expect(store.read().teams.map((team) => team.id)).toEqual(["team_persisted"]);
       expect(existsSync(`${dbPath}.bak`)).toBe(true);
 
+      const beforeSave = store.readState();
       store.save({
-        ...store.read(),
+        ...beforeSave.db,
         sessions: [
           { id: "expired", expiresAt: new Date(Date.now() - 60_000).toISOString() } as never,
           { id: "live", expiresAt: new Date(Date.now() + 60_000).toISOString() } as never
         ]
+      }, {
+        expectedRevision: beforeSave.revision
       });
 
       expect(store.read().sessions.map((session) => session.id)).toEqual(["live"]);
@@ -2223,6 +2257,96 @@ describe("SENA enterprise module boundaries", () => {
         dbFileExists: true,
         dbBackupExists: true
       });
+      expect(() => store.write(emptyEnterpriseDb())).toThrow(expect.objectContaining({
+        code: "enterprise_file_state_untracked_snapshot",
+        status: 409
+      }));
+      const trackedReset = store.read();
+      Object.assign(trackedReset, emptyEnterpriseDb());
+      store.write(trackedReset);
+      expect(store.read().teams).toEqual([]);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stale whole-state write across independent file store instances instead of silently losing an ordinary update", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-cas-"));
+    try {
+      const makeStore = () => createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb
+      });
+      const firstStore = makeStore();
+      const secondStore = makeStore();
+      const firstSnapshot = firstStore.read();
+      const staleSecondSnapshot = secondStore.read();
+
+      firstSnapshot.teams = [{ id: "team_first_writer" } as never];
+      firstStore.write(firstSnapshot);
+      staleSecondSnapshot.users = [{ id: "user_stale_writer" } as never];
+
+      expect(() => secondStore.write(staleSecondSnapshot)).toThrow(expect.objectContaining({
+        code: "enterprise_file_state_revision_conflict",
+        status: 409
+      }));
+      expect(firstStore.read().teams.map((team) => team.id)).toEqual(["team_first_writer"]);
+      expect(firstStore.read().users).toEqual([]);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not persist a normalized projection or touch the backup for an atomic no-op", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-noop-"));
+    try {
+      const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+      const backupPath = `${dbPath}.bak`;
+      const legacy = emptyEnterpriseDb() as SenaEnterpriseDb & { serverJobs?: unknown };
+      Reflect.deleteProperty(legacy, "serverJobs");
+      writeFileSync(dbPath, JSON.stringify(legacy));
+      writeFileSync(backupPath, "preexisting-backup-evidence");
+      const store = createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb
+      });
+      const beforeRaw = readFileSync(dbPath, "utf8");
+      const beforeBackup = readFileSync(backupPath, "utf8");
+      const beforeBackupMtime = statSync(backupPath).mtimeMs;
+      const beforeRevision = store.readState().revision;
+
+      expect(store.mutateAtomically(() => "no-op")).toBe("no-op");
+
+      expect(readFileSync(dbPath, "utf8")).toBe(beforeRaw);
+      expect(readFileSync(backupPath, "utf8")).toBe(beforeBackup);
+      expect(statSync(backupPath).mtimeMs).toBe(beforeBackupMtime);
+      expect(store.readState().revision).toBe(beforeRevision);
+    } finally {
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets the tracked CAS writer repair a state that no longer normalizes", () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-state-repair-"));
+    try {
+      const store = createFileEnterpriseStateStore({
+        dbDir: enterpriseDbDir,
+        createEmptyDb: emptyEnterpriseDb,
+        normalizeDb: (db) => {
+          if (db.teams.some((team) => team.id === "team_invalid_projection")) {
+            throw new Error("invalid state projection");
+          }
+          return db;
+        }
+      });
+      const tracked = store.read();
+      tracked.teams = [{ id: "team_invalid_projection" } as never];
+      store.write(tracked);
+      expect(() => store.read()).toThrow("invalid state projection");
+
+      tracked.teams = [];
+      expect(() => store.write(tracked)).not.toThrow();
+      expect(store.read().teams).toEqual([]);
     } finally {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
     }

@@ -30,18 +30,4 @@ export type SenaUndocumentedApiRoute = {
   owner: string;
 };
 
-export const SENA_UNDOCUMENTED_API_ROUTES: readonly SenaUndocumentedApiRoute[] = [
-  {
-    path: "/api/sena/ops/jobs/worker",
-    sourceFile: "app/api/sena/ops/jobs/worker/route.ts",
-    reason:
-      "Internal worker callback: authenticated by an HMAC over the request body using " +
-      "SENA_JOB_QUEUE_SECRET, not by any of the five SenaApiAuthMode values, so it cannot be " +
-      "declared in SENA_API_ENDPOINT_FACTS without widening that union. Its three cluster " +
-      "siblings (jobs, worker-contract, worker-heartbeat) and jobs/probe ARE declared, so the " +
-      "omission reads as an oversight rather than a policy — but publishing an internal " +
-      "queue callback in the documented surface is a product decision, not a test fix. " +
-      "Found by the TL-B1 reconciliation check on first run; recorded as Q8.",
-    owner: "Peter decision 12 (document it, or affirm it as permanently internal)"
-  }
-] as const;
+export const SENA_UNDOCUMENTED_API_ROUTES: readonly SenaUndocumentedApiRoute[] = [] as const;

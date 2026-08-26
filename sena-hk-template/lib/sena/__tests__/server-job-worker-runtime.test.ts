@@ -1,14 +1,28 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveInstalledPackageFile } from "../../../scripts/resolve-installed-package-file";
+
+const viteNodePath = resolveInstalledPackageFile("vite-node", "vite-node.mjs", import.meta.url);
+const localClaimContenderPath = path.join(
+  process.cwd(),
+  "lib/sena/__tests__/fixtures/local-server-job-claim-contender.ts"
+);
+const localStaleWriterPath = path.join(
+  process.cwd(),
+  "lib/sena/__tests__/fixtures/local-file-state-stale-writer.ts"
+);
 
 const envNames = [
   "SENA_ENTERPRISE_DB_DIR",
   "SENA_JOB_QUEUE_ADAPTER",
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
-  "SENA_JOB_QUEUE_MAX_ATTEMPTS"
+  "SENA_JOB_QUEUE_MAX_ATTEMPTS",
+  "SENA_JOB_QUEUE_URL",
+  "SENA_JOB_QUEUE_SECRET"
 ];
 
 const reliabilityAnnotations = [
@@ -61,7 +75,7 @@ const parityDataGovernance = {
   reviewedAt: "2026-08-10T00:00:00.000Z"
 };
 
-async function workerFixture(options: { inlinePayload?: boolean } = {}) {
+async function workerFixture(options: { inlinePayload?: boolean; scopedSource?: boolean } = {}) {
   const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-job-worker-runtime-"));
   process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
   process.env.SENA_JOB_QUEUE_ADAPTER = "local";
@@ -86,7 +100,12 @@ async function workerFixture(options: { inlinePayload?: boolean } = {}) {
   const teamId = registered.context.teams[0].id;
 
   const imported = index.importSenaJsonContract(index.lessonStudySenaContract);
-  const model = index.buildSenaModel(imported.dataset);
+  const analysisDataset = options.scopedSource ? {
+    ...structuredClone(imported.dataset),
+    utterances: imported.dataset.utterances.slice(0, 1),
+    coded_segments: imported.dataset.coded_segments.filter((segment) => segment.utteranceId === "u1")
+  } : imported.dataset;
+  const model = index.buildSenaModel(analysisDataset);
   const snapshot = index.buildSenaProjectSnapshot(model, {
     title: "Worker Runtime Source",
     generatedAt: "2026-08-15T00:00:00.000Z",
@@ -130,6 +149,115 @@ async function workerFixture(options: { inlinePayload?: boolean } = {}) {
   };
 }
 
+async function waitForCoordinationFiles(paths: string[], timeoutMs = 20_000) {
+  const startedAt = Date.now();
+  while (!paths.every(existsSync)) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(`Timed out waiting for claim coordination: ${paths.map((entry) => path.basename(entry)).join(", ")}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function spawnLocalClaimContender(input: {
+  mode?: "claim" | "worker";
+  contenderId: string;
+  jobId: string;
+  coordinationDir: string;
+  enterpriseDbDir: string;
+  workerPayloadPath?: string;
+}) {
+  const child = spawn(process.execPath, [
+    viteNodePath,
+    "--script",
+    localClaimContenderPath,
+    input.mode ?? "claim",
+    input.contenderId,
+    input.jobId,
+    input.coordinationDir,
+    input.workerPayloadPath ?? ""
+  ], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SENA_ENTERPRISE_DB_DIR: input.enterpriseDbDir,
+      SENA_ENTERPRISE_STATE_STORE: "",
+      SENA_ENTERPRISE_DB_ADAPTER: "",
+      DATABASE_URL: "",
+      SENA_JOB_QUEUE_ADAPTER: "local",
+      SENA_JOB_QUEUE_ALLOW_LOCAL: "1",
+      SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD: "1"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+  const completion = new Promise<Record<string, unknown>>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Local claim contender ${input.contenderId} exited ${code}: ${stderr || stdout}`));
+        return;
+      }
+      const payload = stdout.match(/CLAIM_RESULT:(\{.*\})/)?.[1];
+      if (!payload) {
+        reject(new Error(`Local claim contender ${input.contenderId} omitted its result: ${stderr || stdout}`));
+        return;
+      }
+      resolve(JSON.parse(payload) as Record<string, unknown>);
+    });
+  });
+  return { child, completion };
+}
+
+function spawnLocalStaleWriter(input: {
+  coordinationDir: string;
+  enterpriseDbDir: string;
+}) {
+  const child = spawn(process.execPath, [
+    viteNodePath,
+    "--script",
+    localStaleWriterPath,
+    input.coordinationDir
+  ], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SENA_ENTERPRISE_DB_DIR: input.enterpriseDbDir,
+      SENA_ENTERPRISE_STATE_STORE: "",
+      SENA_ENTERPRISE_DB_ADAPTER: "",
+      DATABASE_URL: ""
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+  const completion = new Promise<Record<string, unknown>>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Local stale writer exited ${code}: ${stderr || stdout}`));
+        return;
+      }
+      const payload = stdout.match(/STALE_WRITE_RESULT:(\{.*\})/)?.[1];
+      if (!payload) {
+        reject(new Error(`Local stale writer omitted its result: ${stderr || stdout}`));
+        return;
+      }
+      resolve(JSON.parse(payload) as Record<string, unknown>);
+    });
+  });
+  return { child, completion };
+}
+
 describe("SENA in-repo server job worker runtime", () => {
   let enterpriseDbDir: string | undefined;
 
@@ -139,6 +267,7 @@ describe("SENA in-repo server job worker runtime", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       enterpriseDbDir = undefined;
     }
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
@@ -191,18 +320,402 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(runs.map((run) => run.id)).toContain(outcome.result?.analysisRunId);
   });
 
-  it("executes a queued reliability job from the inline annotation payload", async () => {
-    const fixture = await workerFixture({ inlinePayload: true });
+  it.each([
+    ["missing version", (payload: Record<string, unknown>) => { delete payload.projectVersion; }],
+    ["string version", (payload: Record<string, unknown>) => { payload.projectVersion = "1"; }],
+    ["fractional version", (payload: Record<string, unknown>) => { payload.projectVersion = 1.5; }],
+    ["unsafe version", (payload: Record<string, unknown>) => {
+      payload.projectVersion = Number.MAX_SAFE_INTEGER + 1;
+    }],
+    ["mismatched version", (payload: Record<string, unknown>) => { payload.projectVersion = 2; }],
+    ["mismatched team", (payload: Record<string, unknown>) => { payload.teamId = "team_other"; }],
+    ["mismatched project", (payload: Record<string, unknown>) => { payload.projectId = "project_other"; }]
+  ] as const)("rejects an analysis payload with %s before claim or analysis side effects", async (_label, mutate) => {
+    const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload: Record<string, unknown> = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    mutate(payload);
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "failed",
+      jobStatus: "failed",
+      attempts: 0,
+      retryable: false,
+      errorCode: "server_job_worker_project_binding_invalid"
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 0, retryable: false })
+    }));
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+  });
+
+  it("executes a non-persisting analysis against its retained source revision after the current project advances", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    await fixture.enterprise.updateEnterpriseProjectAsync(fixture.context, fixture.project.id, {
+      expectedVersion: fixture.project.currentVersion,
+      snapshot: structuredClone(fixture.snapshot)
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "succeeded",
+      jobStatus: "succeeded",
+      attempts: 1,
+      result: expect.objectContaining({ analysisRunId: expect.stringMatching(/^analysis_/) })
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "succeeded",
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect((await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).length).toBe(runsBefore.length + 1);
+  });
+
+  it("rejects a stale signed expectedVersion before claim, model execution, or project update", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const currentProject = await fixture.enterprise.updateEnterpriseProjectAsync(
+      fixture.context,
+      fixture.project.id,
+      {
+        expectedVersion: fixture.project.currentVersion,
+        snapshot: structuredClone(fixture.snapshot)
+      }
+    );
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: currentProject.id,
+      projectVersion: currentProject.currentVersion,
+      title: "Stale title must not persist",
+      description: "Stale description must not persist",
+      includeRuntimeBundle: false,
+      persist: true,
+      updateProject: true,
+      expectedVersion: currentProject.currentVersion - 1
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: currentProject.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: currentProject.currentVersion,
+        includeRuntimeBundle: false,
+        persist: true,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "failed",
+      jobStatus: "failed",
+      attempts: 0,
+      retryable: false,
+      errorCode: "project_version_conflict"
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 0,
+        retryable: false,
+        lastErrorCode: "project_version_conflict"
+      })
+    }));
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    expect(fixture.enterprise.readEnterpriseDb().projects.find(
+      (candidate: { id: string }) => candidate.id === currentProject.id
+    )).toEqual(expect.objectContaining({
+      currentVersion: currentProject.currentVersion,
+      title: currentProject.title,
+      description: currentProject.description
+    }));
+  });
+
+  it("rejects a managed inline reliability payload before creating a queued receipt", async () => {
+    const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    // Inline annotations are an externally delivered webhook shape. The local
+    // polling queue intentionally rejects them because its public job record
+    // never stores raw coder values and therefore cannot reproduce their hash.
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-worker-runtime-test-secret";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 202 })));
 
     const payload = {
       action: "run-reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
       uploadIds: [],
       reviewer: "Worker Runtime Reviewer",
       sourceName: "worker-runtime-reliability.json",
       inlineAnnotations: reliabilityAnnotations
+    };
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    await expect(fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "dataset",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+        uploadIds: [],
+        annotationCount: reliabilityAnnotations.length,
+        hasInlineSnapshot: false,
+        hasInlineDataset: true,
+        payloadValuesExcluded: true
+      }
+    })).rejects.toMatchObject({
+      status: 400,
+      code: "server_job_inline_source_custody_required"
+    });
+    expect((await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs).toHaveLength(0);
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+  });
+
+  it("quarantines a hash-matching retained inline reliability webhook before claim or run persistence", async () => {
+    const fixture = await workerFixture({ inlinePayload: true, scopedSource: true });
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      reviewer: "Historic Inline Reviewer",
+      sourceName: "historic-inline-reliability.json",
+      inlineAnnotations: reliabilityAnnotations
+    };
+    const seeded = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: { action: "run-analysis", projectId: fixture.project.id },
+      payloadSummary: {
+        source: "project",
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const db = state.readEnterpriseDb();
+    const retained = db.serverJobs.find((candidate) => candidate.id === seeded.id)!;
+    retained.kind = "reliability";
+    retained.payloadSha256 = fixture.queue.stableServerJobPayloadSha256(payload);
+    retained.payloadSummary = {
+      ...retained.payloadSummary,
+      source: "dataset",
+      uploadIds: [],
+      annotationCount: reliabilityAnnotations.length,
+      hasInlineDataset: true
+    };
+    retained.worker = {
+      ...retained.worker,
+      expectedAction: "run-reliability",
+      payloadDelivery: "inline-payload-enabled"
+    };
+    retained.delivery = {
+      ...retained.delivery,
+      sourceReady: true,
+      webhookStatus: "delivered"
+    };
+    state.saveDb(db);
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+
+    const outcome = await fixture.runtime.runEnterpriseServerJobFromQueueWebhook({
+      jobId: retained.id,
+      workerPayload: payload
+    });
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "skipped",
+      skipReason: "server_job_worker_source_not_ready",
+      attempts: 0
+    }));
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events).toEqual(auditsBefore);
+    await expect(fixture.queue.getEnterpriseServerJob(retained.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "queued",
+        delivery: expect.objectContaining({ sourceReady: false }),
+        lifecycle: expect.objectContaining({ attempts: 0 })
+      })
+    );
+  });
+
+  it("rejects a blank explicit runtime owner before claim, source read, or execution", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+
+    for (const runId of ["", "   "]) {
+      await expect(fixture.runtime.runEnterpriseServerJob({
+        job,
+        workerPayload: payload,
+        runId
+      })).rejects.toMatchObject({
+        code: "server_job_worker_run_id_required",
+        status: 400
+      });
+    }
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 0 })
+    }));
+  });
+
+  it("rejects a queued reliability job after its bound project revision changes", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-stale-reliability.csv",
+      contentType: "text/csv",
+      body: reliabilityCsv,
+      importProfile: "reliability"
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds
     };
     const job = await fixture.queue.enqueueEnterpriseServerJob({
       kind: "reliability",
@@ -211,30 +724,31 @@ describe("SENA in-repo server job worker runtime", () => {
       actorUserId: fixture.context.user.id,
       payload,
       payloadSummary: {
-        source: "dataset",
-        uploadIds: [],
+        source: "upload",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: payload.snapshotFingerprint,
+        uploadIds,
         annotationCount: reliabilityAnnotations.length,
         hasInlineSnapshot: false,
-        hasInlineDataset: true,
+        hasInlineDataset: false,
         payloadValuesExcluded: true
       }
+    });
+    await fixture.enterprise.updateEnterpriseProjectAsync(fixture.context, fixture.project.id, {
+      expectedVersion: fixture.project.currentVersion,
+      snapshot: structuredClone(fixture.snapshot)
     });
 
     const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
 
-    expect(outcome.status).toBe("succeeded");
-    expect(outcome.result?.reliabilityRunId).toMatch(/^rel_/);
-
-    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
-    expect(stored.status).toBe("succeeded");
-
-    const runs = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+    expect(outcome.status).toBe("failed");
+    expect(outcome.errorCode).toBe("server_job_worker_reliability_project_binding_changed");
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
       teamId: fixture.teamId
-    });
-    expect(runs.map((run) => run.id)).toContain(outcome.result?.reliabilityRunId);
+    })).toEqual([]);
   });
 
-  it("records a failing payload as failed with its error code and hash instead of dropping it", async () => {
+  it("terminalizes a failing immutable payload before claim with its error code and hash", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
 
@@ -242,6 +756,7 @@ describe("SENA in-repo server job worker runtime", () => {
       action: "run-analysis",
       teamId: fixture.teamId,
       projectId: "project_does_not_exist",
+      projectVersion: 1,
       persist: false,
       updateProject: true
     };
@@ -253,6 +768,7 @@ describe("SENA in-repo server job worker runtime", () => {
       payload,
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -261,15 +777,183 @@ describe("SENA in-repo server job worker runtime", () => {
 
     const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
 
-    expect(outcome.status).toBe("failed");
-    expect(outcome.errorCode).toBe("project_not_found");
-    expect(outcome.errorHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "failed",
+      jobStatus: "failed",
+      attempts: 0,
+      retryable: false,
+      errorCode: "project_not_found",
+      errorHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+    }));
 
     const stored = await fixture.queue.getEnterpriseServerJob(job.id);
     expect(stored.status).toBe("failed");
-    expect(stored.lifecycle.lastErrorCode).toBe("project_not_found");
-    expect(stored.lifecycle.lastErrorHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(stored.lifecycle.retryable).toBe(true);
+    expect(stored.lifecycle).toEqual(expect.objectContaining({
+      attempts: 0,
+      retryable: false,
+      lastTransition: "mark-failed",
+      lastErrorCode: "project_not_found",
+      lastErrorHash: outcome.errorHash,
+      statusReason: "server-job-worker-preclaim-admission-failed"
+    }));
+    expect(stored.lifecycle.workerRunId).toBeUndefined();
+    expect(stored.lifecycle.deadLetteredAt).toBeUndefined();
+  });
+
+  it("requeues a local failed job once under concurrent retry and lets polling execute the retained source", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "local-retry-first-owner"
+    });
+    const failed = await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "local-retry-first-owner",
+      errorCode: "simulated-transient-local-failure"
+    });
+    expect(failed.job).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 1, retryable: true })
+    }));
+
+    const retryResults = await Promise.allSettled([
+      fixture.queue.updateEnterpriseServerJobStatus({ jobId: job.id, action: "retry" }),
+      fixture.queue.updateEnterpriseServerJobStatus({ jobId: job.id, action: "retry" })
+    ]);
+    expect(retryResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(retryResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const retryWinner = retryResults.find((result) => result.status === "fulfilled") as PromiseFulfilledResult<{
+      job: { status: string; lifecycle: { attempts: number; workerRunId?: string } };
+    }>;
+    expect(retryWinner.value.job).toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect(retryWinner.value.job.lifecycle.workerRunId).toBeUndefined();
+
+    const report = await fixture.runtime.drainEnterpriseServerJobQueue({
+      teamId: fixture.teamId,
+      kind: "analysis",
+      limit: 10
+    });
+    expect(report).toEqual(expect.objectContaining({
+      scanned: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: 0
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "succeeded",
+        lifecycle: expect.objectContaining({ attempts: 2, retryable: false })
+      })
+    );
+  });
+
+  it("preserves a prior attempt when a retried command becomes irreproducible before its next claim", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-running",
+      workerRunId: "local-retry-corruption-owner"
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-failed",
+      workerRunId: "local-retry-corruption-owner",
+      errorCode: "simulated-transient-local-failure"
+    });
+    await fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "retry"
+    });
+    const db = state.readEnterpriseDb();
+    db.serverJobs.find((candidate) => candidate.id === job.id)!.payloadSha256 = "f".repeat(64);
+    state.saveDb(db);
+
+    const report = await fixture.runtime.drainEnterpriseServerJobQueue({
+      teamId: fixture.teamId,
+      kind: "analysis",
+      limit: 1
+    });
+
+    expect(report).toEqual(expect.objectContaining({ scanned: 1, failed: 1, succeeded: 0 }));
+    expect(report.outcomes[0]).toEqual(expect.objectContaining({
+      jobId: job.id,
+      status: "failed",
+      attempts: 1,
+      retryable: false,
+      errorCode: "server_job_worker_payload_not_reproducible"
+    }));
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 1,
+        retryable: false
+      })
+    }));
+    expect(stored.lifecycle).not.toHaveProperty("workerRunId");
   });
 
   it("does not execute a job a second time once it has been claimed", async () => {
@@ -324,6 +1008,350 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(runs).toHaveLength(1);
   });
 
+  it("atomically grants exactly one queued-job claim to racing worker contenders", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const [left, right] = await Promise.all([
+      fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "worker_run_left" }),
+      fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId: "worker_run_right" })
+    ]);
+    const claims = [left, right];
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(claims.filter((claim) => !claim.claimed)).toHaveLength(1);
+
+    const winner = claims.find((claim) => claim.claimed);
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored.status).toBe("running");
+    expect(stored.lifecycle.attempts).toBe(1);
+    expect(stored.lifecycle.workerRunId).toBe(winner?.job.lifecycle.workerRunId);
+  });
+
+  it("grants exactly one local claim across independent processes sharing one file store", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: {
+        action: "run-analysis",
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const coordinationDir = path.join(fixture.enterpriseDbDir, "claim-process-coordination");
+    mkdirSync(coordinationDir, { recursive: true });
+    const left = spawnLocalClaimContender({
+      contenderId: "left",
+      jobId: job.id,
+      coordinationDir,
+      enterpriseDbDir: fixture.enterpriseDbDir
+    });
+    const right = spawnLocalClaimContender({
+      contenderId: "right",
+      jobId: job.id,
+      coordinationDir,
+      enterpriseDbDir: fixture.enterpriseDbDir
+    });
+
+    await waitForCoordinationFiles([
+      path.join(coordinationDir, "ready-left"),
+      path.join(coordinationDir, "ready-right")
+    ]);
+    writeFileSync(path.join(coordinationDir, "start"), "start");
+    const state = await import("../enterprise/state");
+    if (!("mutateEnterpriseDbAtomically" in state)) {
+      await waitForCoordinationFiles([
+        path.join(coordinationDir, "read-left"),
+        path.join(coordinationDir, "read-right")
+      ]);
+      writeFileSync(path.join(coordinationDir, "release-readers"), "release");
+    }
+
+    const claims = await Promise.all([left.completion, right.completion]);
+    expect(claims.filter((claim) => claim.claimed === true)).toHaveLength(1);
+    expect(claims.filter((claim) => claim.claimed === false)).toHaveLength(1);
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored.status).toBe("running");
+    expect(stored.lifecycle.attempts).toBe(1);
+  }, 30_000);
+
+  it("fails closed when an atomic file mutation times out or its callback throws", async () => {
+    const state = await import("../enterprise/state");
+    const atomicDbDir = mkdtempSync(path.join(tmpdir(), "sena-atomic-file-state-"));
+    try {
+      const store = state.createFileEnterpriseStateStore({
+        dbDir: atomicDbDir,
+        createEmptyDb: state.emptyEnterpriseDb,
+        lockTimeoutMs: 25,
+        lockPollMs: 1
+      });
+      store.read();
+      const before = readFileSync(store.paths.dbPath, "utf8");
+      writeFileSync(store.paths.lockPath, "held-by-another-process", { flag: "wx" });
+      try {
+        expect(() => store.mutateAtomically((db) => {
+          (db as typeof db & { claimProbe?: string }).claimProbe = "must-not-persist";
+          return "unreachable";
+        })).toThrow(/Timed out waiting for SENA enterprise database write lock/);
+      } finally {
+        if (existsSync(store.paths.lockPath)) unlinkSync(store.paths.lockPath);
+      }
+      expect(readFileSync(store.paths.dbPath, "utf8")).toBe(before);
+
+      expect(() => store.mutateAtomically((db) => {
+        (db as typeof db & { claimProbe?: string }).claimProbe = "must-not-persist";
+        throw new Error("atomic mutator failure");
+      })).toThrow("atomic mutator failure");
+      expect(readFileSync(store.paths.dbPath, "utf8")).toBe(before);
+      expect(existsSync(store.paths.lockPath)).toBe(false);
+      expect(store.mutateAtomically((db) => db.schemaVersion)).toBe(state.emptyEnterpriseDb().schemaVersion);
+    } finally {
+      rmSync(atomicDbDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows only one cross-process reliability worker to persist a run and audit", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const uploadReader = await import("../enterprise/reliability-upload-reader");
+    const queueReviewer = await import("../reliability-queue-reviewer");
+    const queueSources = uploadReader.buildEnterpriseReliabilityJsonQueueUploads({
+      annotations: reliabilityAnnotations
+    });
+    const reviewerEnvelope = queueReviewer.buildSenaReliabilityReviewerEnvelope(
+      "Cross-process reliability reviewer",
+      fixture.context.user.name
+    );
+    const uploads = await fixture.importAnalysis.createEnterpriseUploadsWithPostgresMirrorAsync(fixture.context, {
+      teamId: fixture.teamId,
+      files: [
+        ...queueSources,
+        {
+          name: queueReviewer.SENA_RELIABILITY_REVIEWER_ENVELOPE_NAME,
+          contentType: "application/json",
+          bytes: reviewerEnvelope.bytes,
+          importProfile: queueReviewer.SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+        }
+      ]
+    });
+    const sourceUpload = uploads[0];
+    const reviewerUpload = uploads[1];
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: undefined,
+      projectVersion: undefined,
+      snapshotFingerprint: undefined,
+      uploadIds: [sourceUpload.id],
+      reviewerEnvelopeUploadId: reviewerUpload.id,
+      reviewerEnvelopeSha256: reviewerUpload.sha256
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        uploadIds: [sourceUpload.id],
+        reviewerEnvelopeUploadId: reviewerUpload.id,
+        reviewerEnvelopeSha256: reviewerUpload.sha256,
+        annotationCount: reliabilityAnnotations.length,
+        fileCount: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const coordinationDir = path.join(fixture.enterpriseDbDir, "reliability-worker-process-coordination");
+    mkdirSync(coordinationDir, { recursive: true });
+    const workerPayloadPath = path.join(coordinationDir, "worker-payload.json");
+    writeFileSync(workerPayloadPath, JSON.stringify(payload));
+    const left = spawnLocalClaimContender({
+      mode: "worker",
+      contenderId: "left",
+      jobId: job.id,
+      workerPayloadPath,
+      coordinationDir,
+      enterpriseDbDir: fixture.enterpriseDbDir
+    });
+    const right = spawnLocalClaimContender({
+      mode: "worker",
+      contenderId: "right",
+      jobId: job.id,
+      workerPayloadPath,
+      coordinationDir,
+      enterpriseDbDir: fixture.enterpriseDbDir
+    });
+
+    await waitForCoordinationFiles([
+      path.join(coordinationDir, "ready-left"),
+      path.join(coordinationDir, "ready-right")
+    ]);
+    writeFileSync(path.join(coordinationDir, "start"), "start");
+    const state = await import("../enterprise/state");
+    if (!("mutateEnterpriseDbAtomically" in state)) {
+      await waitForCoordinationFiles([
+        path.join(coordinationDir, "read-left"),
+        path.join(coordinationDir, "read-right")
+      ]);
+      writeFileSync(path.join(coordinationDir, "release-readers"), "release");
+    }
+
+    const outcomes = await Promise.all([left.completion, right.completion]);
+    expect(outcomes.filter((outcome) => outcome.status === "succeeded")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "skipped")).toHaveLength(1);
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored.status).toBe("succeeded");
+    expect(stored.lifecycle.attempts).toBe(1);
+    const runs = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    expect(runs).toHaveLength(1);
+    const auditsAfter = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const newRunAudits = auditsAfter.filter((event) => (
+      event.event === "reliability.run" && !auditsBefore.some((before) => before.id === event.id)
+    ));
+    expect(newRunAudits).toHaveLength(1);
+  }, 30_000);
+
+  it("rejects a stale ordinary file writer after a reliability worker claim and preserves one run, audit, and attempt", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const uploadReader = await import("../enterprise/reliability-upload-reader");
+    const queueReviewer = await import("../reliability-queue-reviewer");
+    const queueSources = uploadReader.buildEnterpriseReliabilityJsonQueueUploads({
+      annotations: reliabilityAnnotations
+    });
+    const reviewerEnvelope = queueReviewer.buildSenaReliabilityReviewerEnvelope(
+      "Stale writer reliability reviewer",
+      fixture.context.user.name
+    );
+    const uploads = await fixture.importAnalysis.createEnterpriseUploadsWithPostgresMirrorAsync(fixture.context, {
+      teamId: fixture.teamId,
+      files: [
+        ...queueSources,
+        {
+          name: queueReviewer.SENA_RELIABILITY_REVIEWER_ENVELOPE_NAME,
+          contentType: "application/json",
+          bytes: reviewerEnvelope.bytes,
+          importProfile: queueReviewer.SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+        }
+      ]
+    });
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: undefined,
+      projectVersion: undefined,
+      snapshotFingerprint: undefined,
+      uploadIds: [uploads[0].id],
+      reviewerEnvelopeUploadId: uploads[1].id,
+      reviewerEnvelopeSha256: uploads[1].sha256
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        uploadIds: [uploads[0].id],
+        reviewerEnvelopeUploadId: uploads[1].id,
+        reviewerEnvelopeSha256: uploads[1].sha256,
+        annotationCount: reliabilityAnnotations.length,
+        fileCount: 1,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const coordinationDir = path.join(fixture.enterpriseDbDir, "stale-writer-coordination");
+    mkdirSync(coordinationDir, { recursive: true });
+    const staleWriter = spawnLocalStaleWriter({
+      coordinationDir,
+      enterpriseDbDir: fixture.enterpriseDbDir
+    });
+    await waitForCoordinationFiles([path.join(coordinationDir, "stale-writer-ready")]);
+
+    const firstOutcome = await fixture.runtime.runEnterpriseServerJob({
+      job,
+      workerPayload: payload,
+      runId: "worker_run_stale_writer_first"
+    });
+    expect(firstOutcome.status).toBe("succeeded");
+    writeFileSync(path.join(coordinationDir, "release-stale-writer"), "release");
+    const staleWrite = await staleWriter.completion;
+
+    expect(staleWrite).toEqual({
+      written: false,
+      code: "enterprise_file_state_revision_conflict",
+      status: 409
+    });
+    const storedAfterStaleWrite = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(storedAfterStaleWrite.status).toBe("succeeded");
+    expect(storedAfterStaleWrite.lifecycle.attempts).toBe(1);
+
+    const secondOutcome = await fixture.runtime.runEnterpriseServerJob({
+      job: storedAfterStaleWrite,
+      workerPayload: payload,
+      runId: "worker_run_stale_writer_second"
+    });
+    expect(secondOutcome.status).toBe("skipped");
+    const runs = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    expect(runs).toHaveLength(1);
+    const auditsAfter = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    expect(auditsAfter.filter((event) => (
+      event.event === "reliability.run" && !auditsBefore.some((before) => before.id === event.id)
+    ))).toHaveLength(1);
+  }, 30_000);
+
   it("executes a queued import job from its registered upload blobs and lands it succeeded", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
@@ -334,8 +1362,8 @@ describe("SENA in-repo server job worker runtime", () => {
       body: JSON.stringify(fixture.index.lessonStudySenaContract)
     }]);
     const uploadIds = uploads.map((upload) => upload.id);
-    // The queueing route deliberately leaves warningCount unset: nothing has
-    // parsed the file yet. The worker is the parser, so it must report.
+    // The queueing route deliberately leaves warningCount unset: preflight is
+    // validation-only, while the worker owns the authoritative persisted count.
     expect(uploads[0].warningCount).toBeUndefined();
 
     const payload = {
@@ -391,9 +1419,57 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(registeredUploads.find((upload) => upload.id === uploadIds[0])?.warningCount).toBe(0);
   });
 
+  it("returns stable sanitized numeric issues when a queued import bypasses route preflight", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const invalidDataset = structuredClone(fixture.index.lessonStudySenaContract);
+    invalidDataset.interactions[0].weight = -54321;
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-invalid-import.json",
+      contentType: "application/json",
+      body: JSON.stringify(invalidDataset)
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const payload = {
+      action: "run-import",
+      teamId: fixture.teamId,
+      uploadIds,
+      persistProject: false,
+      includeRuntimeBundle: false
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "import",
+      teamId: fixture.teamId,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        fileCount: 1,
+        uploadIds,
+        persist: false,
+        includeRuntimeBundle: false,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome.status).toBe("failed");
+    expect(outcome.errorCode).toBe("invalid_sena_numeric_domain");
+    expect(outcome.issues).toEqual([{
+      path: "dataset.interactions[0].weight",
+      rule: "finite-nonnegative"
+    }]);
+    expect(JSON.stringify(outcome)).not.toContain("-54321");
+    expect(await fixture.importAnalysis.listEnterpriseImportRunsAsync(fixture.context, fixture.teamId)).toEqual([]);
+  });
+
   it("executes a queued reliability job from its registered upload blobs", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
 
     const uploads = await fixture.registerUploads([{
       name: "worker-runtime-reliability.csv",
@@ -407,8 +1483,9 @@ describe("SENA in-repo server job worker runtime", () => {
       action: "run-reliability",
       teamId: fixture.teamId,
       projectId: fixture.project.id,
-      uploadIds,
-      reviewer: "Worker Runtime Reviewer"
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds
     };
     const job = await fixture.queue.enqueueEnterpriseServerJob({
       kind: "reliability",
@@ -419,6 +1496,7 @@ describe("SENA in-repo server job worker runtime", () => {
       payloadSummary: {
         source: "upload",
         projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
         uploadIds,
         fileCount: uploadIds.length,
         hasInlineSnapshot: false,
@@ -444,6 +1522,362 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(reliabilityRun?.annotationCount).toBe(4);
     expect(reliabilityRun?.fileCount).toBe(1);
   });
+
+  it("admits queued reliability pointers before project reads and reviewer decryption", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    const uploads = await fixture.registerUploads([{
+      name: "worker-runtime-reliability-preflight.csv",
+      contentType: "text/csv",
+      body: reliabilityCsv,
+      importProfile: "reliability"
+    }]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const reviewerEnvelopeSha256 = "a".repeat(64);
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds,
+      reviewerEnvelopeUploadId: "upload_reviewer_must_not_be_read",
+      reviewerEnvelopeSha256
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+        uploadIds,
+        fileCount: uploadIds.length,
+        reviewerEnvelopeUploadId: "upload_reviewer_must_not_be_read",
+        reviewerEnvelopeSha256,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const jobBeforeAdmission = structuredClone(await fixture.queue.getEnterpriseServerJob(job.id));
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const auditedProjectRead = vi.fn(async () => {
+      throw new Error("audited project read happened before reliability pointer admission");
+    });
+    const readOnlyProjectLookup = vi.fn(async () => {
+      throw new Error("read-only project lookup happened before reliability pointer admission");
+    });
+    const reviewerReader = vi.fn(async () => {
+      throw new Error("reviewer decrypt happened before reliability pointer admission");
+    });
+    const pointerReader = vi.fn(async () => {
+      const actualReliability = await vi.importActual<typeof import("../reliability")>("../reliability");
+      throw new actualReliability.SenaReliabilityUniverseLimitError([{
+        path: "uploadIds",
+        rule: "aggregate-source-byte-count-at-most-104857600",
+        actual: 104_857_601,
+        maximum: 104_857_600
+      }]);
+    });
+
+    vi.resetModules();
+    vi.doMock("../enterprise/team-project", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/team-project")>("../enterprise/team-project"),
+      getEnterpriseProjectAsync: auditedProjectRead,
+      getEnterpriseProjectReadOnlyAsync: readOnlyProjectLookup
+    }));
+    vi.doMock("../enterprise/import-analysis", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/import-analysis")>("../enterprise/import-analysis"),
+      readEnterpriseUploadContentsAsync: reviewerReader
+    }));
+    vi.doMock("../enterprise/reliability-upload-reader", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/reliability-upload-reader")>("../enterprise/reliability-upload-reader"),
+      readEnterpriseReliabilityUploadPointerContents: pointerReader
+    }));
+
+    try {
+      const runtime = await import("../enterprise/server-job-worker-runtime");
+      const outcome = await runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+      expect(outcome.status).toBe("failed");
+      expect(pointerReader).toHaveBeenCalledTimes(1);
+      expect(auditedProjectRead).not.toHaveBeenCalled();
+      expect(readOnlyProjectLookup).not.toHaveBeenCalled();
+      expect(reviewerReader).not.toHaveBeenCalled();
+      expect(outcome.errorCode).toBe("reliability_universe_limit_exceeded");
+      expect(await fixture.queue.getEnterpriseServerJob(job.id)).toEqual(jobBeforeAdmission);
+      expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      })).toEqual(runsBefore);
+      expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events).toEqual(auditsBefore);
+    } finally {
+      vi.doUnmock("../enterprise/team-project");
+      vi.doUnmock("../enterprise/import-analysis");
+      vi.doUnmock("../enterprise/reliability-upload-reader");
+    }
+  });
+
+  it("rejects cumulative code-cell fan-out across queued upload pointers before claim, run, or audit side effects", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const limit = 200_000;
+    const uploads = await fixture.registerUploads([
+      {
+        name: "worker-code-cells-first.json",
+        contentType: "application/json",
+        body: JSON.stringify({
+          rows: [{ coder_id: "c1", item_id: "u1", code_id: "a;".repeat(100_001), value: "1" }]
+        }),
+        importProfile: "reliability"
+      },
+      {
+        name: "worker-code-cells-second.json",
+        contentType: "application/json",
+        body: JSON.stringify({
+          rows: [{ coder_id: "c2", item_id: "u2", code_id: "b;".repeat(100_000), value: "" }]
+        }),
+        importProfile: "reliability"
+      }
+    ]);
+    const uploadIds = uploads.map((upload) => upload.id);
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      uploadIds
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        uploadIds,
+        fileCount: uploadIds.length,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const jobBefore = structuredClone(await fixture.queue.getEnterpriseServerJob(job.id));
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+    expect(outcome).toMatchObject({
+      status: "failed",
+      errorCode: "reliability_universe_limit_exceeded",
+      issues: [{
+        path: "annotations",
+        rule: `annotation-row-count-at-most-${limit}`,
+        actual: limit + 1,
+        maximum: limit
+      }]
+    });
+    expect(await fixture.queue.getEnterpriseServerJob(job.id)).toEqual(jobBefore);
+    expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toEqual(runsBefore);
+    expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events).toEqual(auditsBefore);
+  });
+
+  it.each([
+    ["object", (): unknown => ({ rows: [null] })],
+    ["null", (): unknown => null],
+    ["string", (): unknown => "not-a-file-array"]
+  ] as const)(
+    "rejects managed inline files=%s before receipt, dispatch, run, or audit mutation",
+    async (_label, value) => {
+      const fixture = await workerFixture({ inlinePayload: true });
+      enterpriseDbDir = fixture.enterpriseDbDir;
+      process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+      process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+      process.env.SENA_JOB_QUEUE_SECRET = "worker-invalid-files-secret";
+      const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const reliability = await import("../reliability");
+      const reviewerEnvelopeUploadId = "upload_reviewer_must_not_be_read";
+      const reviewerEnvelopeSha256 = "b".repeat(64);
+      const payload = {
+        action: "run-reliability",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+        files: value(),
+        reviewerEnvelopeUploadId,
+        reviewerEnvelopeSha256
+      };
+      const jobsBefore = (await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs;
+      const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      });
+      const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events;
+
+      await expect(fixture.queue.enqueueEnterpriseServerJob({
+        kind: "reliability",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        actorUserId: fixture.context.user.id,
+        payload,
+        payloadSummary: {
+          source: "dataset",
+          projectVersion: fixture.project.currentVersion,
+          snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+          reviewerEnvelopeUploadId,
+          reviewerEnvelopeSha256,
+          hasInlineSnapshot: false,
+          hasInlineDataset: true,
+          payloadValuesExcluded: true
+        }
+      })).rejects.toMatchObject({
+        status: 400,
+        code: "server_job_inline_source_custody_required"
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect((await fixture.queue.listEnterpriseServerJobs({ teamId: fixture.teamId })).jobs).toEqual(jobsBefore);
+      expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      })).toEqual(runsBefore);
+      expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events).toEqual(auditsBefore);
+    },
+    30_000
+  );
+
+  it("rejects an over-limit local queued JSON envelope before claim, project, reviewer, run, or audit mutation", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const reliability = await import("../reliability");
+    const queueReader = await import("../enterprise/reliability-upload-reader");
+    const [sourceUpload] = await fixture.registerUploads([{
+      name: "queued-reliability-json-annotations-1.json",
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: "sena-reliability-json-source/v1",
+        name: "reliability-json-annotations.json",
+        rows: Array.from({ length: 200_001 }, () => null)
+      }),
+      importProfile: queueReader.SENA_RELIABILITY_JSON_QUEUE_UPLOAD_PROFILES.annotations
+    }]);
+    const reviewerEnvelopeUploadId = "upload_reviewer_must_not_be_read";
+    const reviewerEnvelopeSha256 = "c".repeat(64);
+    const payload = {
+      action: "run-reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+      uploadIds: [sourceUpload.id],
+      reviewerEnvelopeUploadId,
+      reviewerEnvelopeSha256
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "reliability",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "upload",
+        projectVersion: fixture.project.currentVersion,
+        snapshotFingerprint: reliability.senaReliabilitySnapshotFingerprint(fixture.project.snapshot),
+        uploadIds: [sourceUpload.id],
+        fileCount: 1,
+        reviewerEnvelopeUploadId,
+        reviewerEnvelopeSha256,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const jobBefore = structuredClone(await fixture.queue.getEnterpriseServerJob(job.id));
+    const runsBefore = await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
+    const auditsBefore = fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+      teamId: fixture.teamId,
+      limit: 500
+    }).events;
+    const auditedProjectRead = vi.fn(async () => {
+      throw new Error("audited project read happened before queued JSON envelope admission");
+    });
+    const readOnlyProjectLookup = vi.fn(async () => {
+      throw new Error("read-only project lookup happened before queued JSON envelope admission");
+    });
+    const reviewerReader = vi.fn();
+
+    vi.resetModules();
+    vi.doMock("../enterprise/team-project", async () => ({
+      ...await vi.importActual<typeof import("../enterprise/team-project")>("../enterprise/team-project"),
+      getEnterpriseProjectAsync: auditedProjectRead,
+      getEnterpriseProjectReadOnlyAsync: readOnlyProjectLookup
+    }));
+    vi.doMock("../enterprise/import-analysis", async () => {
+      const actual = await vi.importActual<typeof import("../enterprise/import-analysis")>("../enterprise/import-analysis");
+      return {
+        ...actual,
+        readEnterpriseUploadContentsAsync: async (...args: Parameters<typeof actual.readEnterpriseUploadContentsAsync>) => {
+          const input = args[1];
+          if (input.uploadIds.includes(reviewerEnvelopeUploadId)) {
+            reviewerReader();
+            throw new Error("reviewer decrypt happened before queued JSON envelope admission");
+          }
+          return actual.readEnterpriseUploadContentsAsync(...args);
+        }
+      };
+    });
+
+    try {
+      const runtime = await import("../enterprise/server-job-worker-runtime");
+      const outcome = await runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+
+      expect(outcome.status).toBe("failed");
+      expect(outcome.errorCode).toBe("reliability_universe_limit_exceeded");
+      expect(auditedProjectRead).not.toHaveBeenCalled();
+      expect(readOnlyProjectLookup).not.toHaveBeenCalled();
+      expect(reviewerReader).not.toHaveBeenCalled();
+      expect(await fixture.queue.getEnterpriseServerJob(job.id)).toEqual(jobBefore);
+      expect(await fixture.reliabilityRuns.listEnterpriseReliabilityRunsAsync(fixture.context, {
+        teamId: fixture.teamId
+      })).toEqual(runsBefore);
+      expect(fixture.enterprise.listEnterpriseAuditLog(fixture.context, {
+        teamId: fixture.teamId,
+        limit: 500
+      }).events).toEqual(auditsBefore);
+    } finally {
+      vi.doUnmock("../enterprise/team-project");
+      vi.doUnmock("../enterprise/import-analysis");
+    }
+  }, 30_000);
 
   it("fails a queued import whose upload is not registered instead of importing zero bytes", async () => {
     const fixture = await workerFixture();
@@ -679,7 +2113,7 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(stored.status).toBe("succeeded");
   });
 
-  it("drains a queued analysis job whose payload reproduces the enqueued payload hash", async () => {
+  it("drains a queued analysis job with a signed matching expectedVersion and updates that version", async () => {
     const fixture = await workerFixture();
     enterpriseDbDir = fixture.enterpriseDbDir;
 
@@ -695,9 +2129,57 @@ describe("SENA in-repo server job worker runtime", () => {
         projectVersion: fixture.project.currentVersion,
         title: fixture.project.title,
         includeRuntimeBundle: false,
-        persist: false,
-        updateProject: true
+        persist: true,
+        updateProject: true,
+        expectedVersion: fixture.project.currentVersion
       },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        expectedVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: true,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+
+    const report = await fixture.runtime.drainEnterpriseServerJobQueue({ limit: 10 });
+
+    expect(report.succeeded).toBe(1);
+    expect(report.outcomes.find((outcome) => outcome.jobId === job.id)).toEqual(expect.objectContaining({
+      status: "succeeded",
+      result: expect.objectContaining({ persistedProjectId: fixture.project.id })
+    }));
+
+    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(stored.status).toBe("succeeded");
+    expect(fixture.enterprise.readEnterpriseDb().projects.find(
+      (candidate: { id: string }) => candidate.id === fixture.project.id
+    )?.currentVersion).toBe(fixture.project.currentVersion + 1);
+  });
+
+  it("runs a locally polled non-persisting analysis from its retained revision after the current project advances", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
       payloadSummary: {
         source: "project",
         projectVersion: fixture.project.currentVersion,
@@ -709,14 +2191,33 @@ describe("SENA in-repo server job worker runtime", () => {
         payloadValuesExcluded: true
       }
     });
-
+    await fixture.enterprise.updateEnterpriseProjectAsync(fixture.context, fixture.project.id, {
+      expectedVersion: fixture.project.currentVersion,
+      snapshot: structuredClone(fixture.snapshot)
+    });
+    const runsBefore = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    });
     const report = await fixture.runtime.drainEnterpriseServerJobQueue({ limit: 10 });
 
-    expect(report.succeeded).toBe(1);
-    expect(report.outcomes.find((outcome) => outcome.jobId === job.id)?.status).toBe("succeeded");
-
-    const stored = await fixture.queue.getEnterpriseServerJob(job.id);
-    expect(stored.status).toBe("succeeded");
+    expect(report).toEqual(expect.objectContaining({
+      scanned: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: 0
+    }));
+    expect(report.outcomes.find((outcome) => outcome.jobId === job.id)).toEqual(expect.objectContaining({
+      status: "succeeded",
+      jobStatus: "succeeded",
+      attempts: 1
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+      status: "succeeded",
+      lifecycle: expect.objectContaining({ attempts: 1 })
+    }));
+    expect((await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).length).toBe(runsBefore.length + 1);
   });
 
   it("refuses to drain a job whose payload cannot be reproduced from the job store", async () => {
@@ -756,12 +2257,20 @@ describe("SENA in-repo server job worker runtime", () => {
     const report = await fixture.runtime.drainEnterpriseServerJobQueue({ limit: 10 });
 
     expect(report.succeeded).toBe(0);
-    expect(report.outcomes.find((outcome) => outcome.jobId === job.id)?.skipReason)
-      .toBe("server_job_worker_payload_not_reproducible");
+    expect(report.failed).toBe(1);
+    expect(report.outcomes.find((outcome) => outcome.jobId === job.id)).toEqual(expect.objectContaining({
+      status: "failed",
+      jobStatus: "failed",
+      attempts: 0,
+      retryable: false,
+      errorCode: "server_job_worker_payload_not_reproducible"
+    }));
 
     const stored = await fixture.queue.getEnterpriseServerJob(job.id);
-    expect(stored.status).toBe("queued");
+    expect(stored.status).toBe("failed");
     expect(stored.lifecycle.attempts).toBe(0);
+    expect(stored.lifecycle.retryable).toBe(false);
+    expect(stored.lifecycle.lastErrorCode).toBe("server_job_worker_payload_not_reproducible");
   });
 
   /**

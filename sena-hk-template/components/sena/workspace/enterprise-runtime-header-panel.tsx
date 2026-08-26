@@ -38,7 +38,7 @@ export function EnterpriseRuntimeHeaderPanel({
             : "Sign in to use RBAC projects, server imports, reliability dashboards, and publication exports."}
         </div>
         <div data-testid="enterprise-claim-evidence-package" className="mt-1 text-[0.65rem] font-black uppercase tracking-[0.08em] text-cyanGlow">
-          sena-enterprise-claim-evidence-package/v1
+          sena-enterprise-claim-evidence-package/v2
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-[0.65rem] font-black uppercase tracking-[0.08em] text-cyanGlow">

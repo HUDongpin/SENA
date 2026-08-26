@@ -15,6 +15,9 @@ const config = [
       "vendor/**",
       "vendor/**/dist/**",
       "vendor/**/node_modules/**",
+      // The Next ESLint parser does not recognize ESM declaration files even
+      // though TypeScript resolves them for sibling .mjs modules.
+      "**/*.d.mts",
       // Agent worktrees are whole checkouts of this repo, build output and all.
       // Without these, `eslint .` lints their compiled .next chunks and reports
       // hundreds of errors against generated vendor code. Matches the exclusions

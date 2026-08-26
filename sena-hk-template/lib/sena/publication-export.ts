@@ -1,9 +1,11 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { deflateSync } from "node:zlib";
 import { buildXlsxWorkbookBuffer } from "./excel-workbook";
 import { buildSenaModel } from "./model";
+import { inspectSenaModelCardSections } from "./model-card";
 import {
   SENA_PUBLICATION_FIGURE_LAYOUT,
   buildSenaPublicationFigure,
@@ -15,9 +17,21 @@ import {
   type SenaFigureRasterTarget,
   type SenaPublicationFigure
 } from "./publication-figure";
-import { buildSenaMarkdownReport } from "./report";
+import {
+  buildSenaMarkdownReport,
+  isSenaReportHumanReviewComplete,
+  normalizeSenaCodingReliabilityGate,
+  normalizeSenaDataGovernanceMetadata
+} from "./report";
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget,
+  assertSenaProjectSnapshotPublicationSourceContract,
+  importSenaProjectSnapshot
+} from "./snapshot";
 import { SenaEnterpriseError } from "./enterprise/errors";
+import type { SenaEnterprisePublicationStateBinding } from "./enterprise/publication-state-binding";
+import type { SenaEnterpriseClaimEvidencePackage } from "./enterprise/claim-evidence-package";
 import type { SenaModel, SenaProjectSnapshot, SenaReport } from "./types";
 
 export type SenaPublicationFormat = "html" | "svg" | "png" | "xlsx" | "docx" | "pdf" | "package";
@@ -26,6 +40,7 @@ export type SenaPublicationExport = {
   filename: string;
   contentType: string;
   body: string | Buffer;
+  derivationManifest: SenaPublicationDerivationManifest;
 };
 
 export type SenaPublicationEnterpriseProjectEvidence = {
@@ -38,13 +53,59 @@ export type SenaPublicationEnterpriseProjectEvidence = {
   claimUse: string;
   sourceSnapshotSha256: string;
   reportSha256: string;
+  stateBinding: SenaEnterprisePublicationStateBinding;
+  publicationDerivation?: {
+    kind: "current-project-reliability-run";
+    reliabilityRunId: string;
+    reliabilityRunSha256: string;
+    reliabilityDashboardSchemaVersion: string;
+    projectVersion: number;
+    persistedSourceSnapshotSha256: string;
+    readProjectionSourceSnapshotSha256: string;
+    derivedPublicationSnapshotSha256: string;
+  };
   claimPackage: {
     schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage;
     status: string;
     blockers: number;
     warnings: number;
     sourceSnapshotSha256: string;
+    persistedSourceSnapshotSha256: string;
+    claimReadinessKind: SenaEnterpriseClaimEvidencePackage["claimReadinessEvidence"]["kind"];
+    claimReadinessSnapshotSha256: string;
+    sha256: string;
+    payload: SenaEnterpriseClaimEvidencePackage;
   };
+};
+
+export type SenaPublicationDerivationManifest = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.publicationDerivationManifest;
+  generatedAt: string;
+  sourceKind: "inline-snapshot" | "enterprise-project" | "report-model";
+  derivationKind: "inline-snapshot" | "persisted-project-snapshot" | "current-project-reliability-run" | "report-model";
+  publicationSnapshot: {
+    schemaVersion: string;
+    title: string;
+    generatedAt: string;
+    sha256: string;
+    reportSha256: string;
+  };
+  hashBoundaries: {
+    hashAlgorithm: "sha256";
+    persistedSnapshotSha256: string | null;
+    readProjectionSnapshotSha256: string | null;
+    publicationSnapshotSha256: string;
+    reportSha256: string;
+  };
+  manifestIntegrity: {
+    algorithm: "sha256";
+    encoding: "utf8";
+    serialization: "JSON.stringify in schema field order";
+    scope: "all manifest fields except manifestSha256";
+  };
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence;
+  guardrails: string[];
+  manifestSha256: string;
 };
 
 function escapeXml(value: string) {
@@ -61,6 +122,196 @@ function sha256Buffer(buffer: Buffer) {
 
 function sha256Json(value: unknown) {
   return sha256Buffer(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
+function publicationDerivationManifestError() {
+  return new SenaEnterpriseError(
+    "Publication derivation evidence does not match the selected snapshot and atomic state binding.",
+    409,
+    "publication_derivation_manifest_binding_invalid"
+  );
+}
+
+function publicationClaimStateRevisionEvidenceIsConsistent(
+  claimPackage: SenaEnterpriseClaimEvidencePackage,
+  stateRevisionSha256: string
+) {
+  const evidenceEntries = claimPackage.evidenceSource?.evidence;
+  if (!Array.isArray(evidenceEntries)) return false;
+  const prefix = "publicationClaimEvidenceStateRevisionSha256=";
+  const revisionEntries = evidenceEntries.filter((entry) => (
+    typeof entry === "string" && entry.startsWith(prefix)
+  ));
+  return (
+    revisionEntries.length === 1 &&
+    revisionEntries[0] === `${prefix}${stateRevisionSha256}`
+  );
+}
+
+function enterprisePublicationEvidenceIsConsistent(evidence: SenaPublicationEnterpriseProjectEvidence) {
+  const { bindingSha256, ...bindingCore } = evidence.stateBinding;
+  const binding = evidence.stateBinding;
+  const reliability = binding.reliabilityRun;
+  const validation = binding.validationRun;
+  const expert = binding.expertReview;
+  const derivation = evidence.publicationDerivation;
+  const claimPackage = evidence.claimPackage.payload;
+  const claimReliability = claimPackage.evidence.reliability;
+  const claimValidation = claimPackage.evidence.validation;
+  const claimExpert = claimPackage.evidence.expertReview;
+  const expectedStateRevisionKind = binding.activePrimary === "postgres"
+    ? "postgres-row-revision"
+    : "file-content-sha256";
+  return (
+    sha256Json(bindingCore) === bindingSha256 &&
+    binding.stateRevisionKind === expectedStateRevisionKind &&
+    binding.stateRevisionSha256 === sha256Json({
+      activePrimary: binding.activePrimary,
+      stateRevision: binding.stateRevision
+    }) &&
+    binding.project.projectId === evidence.projectId &&
+    binding.project.projectVersion === evidence.currentVersion &&
+    binding.claimPackage.sha256 === evidence.claimPackage.sha256 &&
+    binding.claimPackage.projectVersion === evidence.currentVersion &&
+    binding.claimPackage.sourceSnapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
+    binding.claimPackage.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    binding.claimPackage.claimReadinessKind === evidence.claimPackage.claimReadinessKind &&
+    binding.claimPackage.claimReadinessSnapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
+    sha256Json(claimPackage) === evidence.claimPackage.sha256 &&
+    claimPackage.schemaVersion === evidence.claimPackage.schemaVersion &&
+    claimPackage.status === "claim-ready-with-limits" &&
+    claimPackage.blockers.length === 0 &&
+    claimPackage.summary.blockers === 0 &&
+    claimPackage.project.id === evidence.projectId &&
+    claimPackage.project.currentVersion === evidence.currentVersion &&
+    claimPackage.sourceSnapshotEvidence.snapshotSha256 === evidence.claimPackage.sourceSnapshotSha256 &&
+    claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256 === evidence.claimPackage.persistedSourceSnapshotSha256 &&
+    claimPackage.sourceSnapshotEvidence.stateRevisionSha256 === binding.stateRevisionSha256 &&
+    publicationClaimStateRevisionEvidenceIsConsistent(
+      claimPackage,
+      binding.stateRevisionSha256
+    ) &&
+    claimPackage.claimReadinessEvidence.kind === evidence.claimPackage.claimReadinessKind &&
+    claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.claimPackage.claimReadinessSnapshotSha256 &&
+    claimPackage.claimReadinessEvidence.snapshotSha256 === evidence.sourceSnapshotSha256 &&
+    claimPackage.claimReadinessEvidence.reportSha256 === evidence.reportSha256 &&
+    binding.claimPackage.reliabilityRunId === (reliability?.runId ?? null) &&
+    claimReliability?.status === "approved" &&
+    claimReliability.runId === reliability?.runId &&
+    claimValidation?.status === "approved" &&
+    claimValidation.runId === validation.runId &&
+    claimValidation.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    sha256Json(claimValidation) === validation.sha256 &&
+    claimExpert?.status === "approved" &&
+    claimExpert.reviewId === expert.reviewId &&
+    claimExpert.claimScope === "claim-ready-with-limits" &&
+    claimExpert.target.kind === "validation-run" &&
+    claimExpert.target.id === validation.runId &&
+    claimExpert.target.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    sha256Json(claimExpert) === expert.sha256 &&
+    sha256Json(claimExpert.evidenceReceipt) === expert.receiptSha256 &&
+    expert.receiptSha256 === sha256Json(expert.receipt) &&
+    (!reliability || (
+      reliability.status === "approved" &&
+      reliability.projectVersion === evidence.currentVersion &&
+      reliability.unresolvedDisagreements === 0
+    )) &&
+    validation.status === "approved" &&
+    validation.projectBinding?.projectId === evidence.projectId &&
+    validation.projectBinding?.projectVersion === evidence.currentVersion &&
+    expert.status === "approved" &&
+    expert.projectBinding?.projectId === evidence.projectId &&
+    expert.projectBinding?.projectVersion === evidence.currentVersion &&
+    expert.targetValidationRunId === validation.runId &&
+    expert.targetValidationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    expert.receipt.validationRunEvidenceHash === validation.validationRunEvidenceHash &&
+    (reliability ? Boolean(derivation) : !derivation) &&
+    (!reliability || !derivation || (
+      derivation.kind === "current-project-reliability-run" &&
+      reliability.runId === derivation.reliabilityRunId &&
+      reliability.sha256 === derivation.reliabilityRunSha256 &&
+      reliability.dashboardSchemaVersion === derivation.reliabilityDashboardSchemaVersion &&
+      reliability.projectVersion === derivation.projectVersion
+    ))
+  );
+}
+
+export function buildSenaPublicationDerivationManifest(input: {
+  snapshot?: SenaProjectSnapshot;
+  model?: SenaModel;
+  report: SenaReport;
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence;
+}): SenaPublicationDerivationManifest {
+  const snapshotSha256 = input.snapshot
+    ? sha256Json(input.snapshot)
+    : sha256Json({ report: input.report, modelOptions: input.model?.options });
+  const reportSha256 = sha256Json(input.report);
+  const enterpriseEvidence = input.enterpriseProjectEvidence;
+  const persistedSnapshotSha256 = enterpriseEvidence?.stateBinding.project.persistedSnapshotSha256 ?? null;
+  const readProjectionSnapshotSha256 = enterpriseEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? null;
+  const derivationKind = enterpriseEvidence?.publicationDerivation
+    ? "current-project-reliability-run" as const
+    : enterpriseEvidence
+      ? "persisted-project-snapshot" as const
+      : input.snapshot
+        ? "inline-snapshot" as const
+        : "report-model" as const;
+
+  if (enterpriseEvidence && (
+    !enterprisePublicationEvidenceIsConsistent(enterpriseEvidence) ||
+    enterpriseEvidence.sourceSnapshotSha256 !== snapshotSha256 ||
+    enterpriseEvidence.reportSha256 !== reportSha256 ||
+    enterpriseEvidence.claimPackage.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+    enterpriseEvidence.claimPackage.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    enterpriseEvidence.stateBinding.claimPackage.persistedSnapshotSha256 !== persistedSnapshotSha256 ||
+    enterpriseEvidence.stateBinding.claimPackage.sourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+    (enterpriseEvidence.publicationDerivation && (
+      enterpriseEvidence.publicationDerivation.persistedSourceSnapshotSha256 !== persistedSnapshotSha256 ||
+      enterpriseEvidence.publicationDerivation.readProjectionSourceSnapshotSha256 !== readProjectionSnapshotSha256 ||
+      enterpriseEvidence.publicationDerivation.derivedPublicationSnapshotSha256 !== snapshotSha256
+    ))
+  )) {
+    throw publicationDerivationManifestError();
+  }
+
+  const manifestCore = {
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationDerivationManifest,
+    generatedAt: input.snapshot?.generatedAt ?? input.report.generatedAt,
+    sourceKind: enterpriseEvidence ? "enterprise-project" as const : input.snapshot ? "inline-snapshot" as const : "report-model" as const,
+    derivationKind,
+    publicationSnapshot: {
+      schemaVersion: input.snapshot?.schemaVersion ?? "derived-from-report",
+      title: input.snapshot?.title ?? input.report.title,
+      generatedAt: input.snapshot?.generatedAt ?? input.report.generatedAt,
+      sha256: snapshotSha256,
+      reportSha256
+    },
+    hashBoundaries: {
+      hashAlgorithm: "sha256" as const,
+      persistedSnapshotSha256,
+      readProjectionSnapshotSha256,
+      publicationSnapshotSha256: snapshotSha256,
+      reportSha256
+    },
+    manifestIntegrity: {
+      algorithm: "sha256" as const,
+      encoding: "utf8" as const,
+      serialization: "JSON.stringify in schema field order" as const,
+      scope: "all manifest fields except manifestSha256" as const
+    },
+    ...(enterpriseEvidence ? { enterpriseProjectEvidence: structuredClone(enterpriseEvidence) } : {}),
+    guardrails: [
+      ...(enterpriseEvidence
+        ? ["The persisted hash identifies raw stored evidence; the read-projection hash identifies non-persisted compatibility normalization."]
+        : ["No persisted or read-projection snapshot hash is asserted for this standalone input; those boundaries are null."]),
+      "The publication snapshot hash identifies the exact rendered/exported analytical snapshot.",
+      "A derivation manifest records provenance and integrity boundaries; it does not make a causal or inferential claim."
+    ]
+  };
+  return {
+    ...manifestCore,
+    manifestSha256: sha256Json(manifestCore)
+  };
 }
 
 function snapshotDatasetCounts(snapshot: SenaProjectSnapshot) {
@@ -148,7 +399,20 @@ function pngChunk(type: string, data: Buffer) {
   return Buffer.concat([length, typeBuffer, data, checksum]);
 }
 
-function encodePng(width: number, height: number, pixels: Buffer) {
+function pngInternationalTextChunk(keyword: string, text: string) {
+  return pngChunk("iTXt", Buffer.concat([
+    Buffer.from(keyword, "latin1"),
+    Buffer.from([0, 0, 0, 0, 0]),
+    Buffer.from(text, "utf8")
+  ]));
+}
+
+function encodePng(
+  width: number,
+  height: number,
+  pixels: Buffer,
+  internationalText: Array<{ keyword: string; text: string }> = []
+) {
   const scanlines = Buffer.alloc((width * 4 + 1) * height);
   for (let y = 0; y < height; y += 1) {
     const scanlineOffset = y * (width * 4 + 1);
@@ -166,6 +430,7 @@ function encodePng(width: number, height: number, pixels: Buffer) {
   return Buffer.concat([
     pngSignature,
     pngChunk("IHDR", ihdr),
+    ...internationalText.map(({ keyword, text }) => pngInternationalTextChunk(keyword, text)),
     pngChunk("IDAT", deflateSync(scanlines)),
     pngChunk("IEND", Buffer.alloc(0))
   ]);
@@ -326,7 +591,8 @@ const PUBLICATION_RASTER_NOTE =
 export function buildSenaPublicationSvg(
   model: SenaModel,
   title: string,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.svg.document;
   const plate = figure.vector;
@@ -342,6 +608,7 @@ export function buildSenaPublicationSvg(
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(`${title} — canonical ENA plane`)}" font-family="Arial, Helvetica, sans-serif">
+  ${derivationManifest ? `<metadata id="sena-publication-derivation-manifest">${escapeXml(JSON.stringify(derivationManifest))}</metadata>` : ""}
   <rect width="${width}" height="${height}" fill="#f8fafc"/>
   <rect x="36" y="32" width="${width - 72}" height="966" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
   <text x="${plate.x}" y="76" font-size="28" font-weight="800" fill="#111827">${escapeXml(title)}</text>
@@ -373,7 +640,8 @@ ${renderSenaPublicationFigureSvgGroup(figure)}
 export function buildSenaPublicationPng(
   model: SenaModel,
   title: string,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const { width, height } = SENA_PUBLICATION_FIGURE_LAYOUT.png.document;
   const plate = figure.raster;
@@ -406,7 +674,10 @@ export function buildSenaPublicationPng(
 
   drawText(pixels, width, height, bitmapSafeText(PUBLICATION_GUARDRAIL), plate.x, 1316, 2, [100, 116, 139, 255]);
   drawText(pixels, width, height, bitmapSafeText(PUBLICATION_RASTER_NOTE), plate.x, 1344, 2, [148, 118, 20, 255]);
-  return encodePng(width, height, pixels);
+  return encodePng(width, height, pixels, derivationManifest ? [{
+    keyword: "SENA Derivation Manifest",
+    text: JSON.stringify(derivationManifest)
+  }] : []);
 }
 
 /**
@@ -423,7 +694,11 @@ export function buildSenaPublicationFigurePng(figure: SenaPublicationFigure) {
   return encodePng(width, height, pixels);
 }
 
-export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublicationFigure) {
+export function buildSenaPublicationHtml(
+  report: SenaReport,
+  figure?: SenaPublicationFigure,
+  derivationManifest?: SenaPublicationDerivationManifest
+) {
   const markdown = buildSenaMarkdownReport(report);
   // The report's own "Figures" section is prose — node, edge and window counts —
   // so without this the HTML export is the one publication artifact that names
@@ -457,11 +732,15 @@ export function buildSenaPublicationHtml(report: SenaReport, figure?: SenaPublic
     li { margin: 4px 0; }
   </style>
 </head>
-<body>${figureBlock}${body}</body>
+<body>${figureBlock}${body}${derivationManifest ? `<script type="application/json" data-sena-derivation-manifest>${JSON.stringify(derivationManifest).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")}</script>` : ""}</body>
 </html>`;
 }
 
-export async function buildSenaPublicationWorkbook(model: SenaModel, report: SenaReport) {
+export async function buildSenaPublicationWorkbook(
+  model: SenaModel,
+  report: SenaReport,
+  derivationManifest?: SenaPublicationDerivationManifest
+) {
   return buildXlsxWorkbookBuffer([
     {
       name: "Summary",
@@ -596,7 +875,17 @@ export async function buildSenaPublicationWorkbook(model: SenaModel, report: Sen
         parityStatus: metric.parityStatus,
         interpretationLimit: metric.interpretationLimit
       }))
-    }
+    },
+    ...(derivationManifest ? [{
+      name: "Derivation Manifest",
+      rows: [
+        { key: "schemaVersion", value: derivationManifest.schemaVersion },
+        { key: "manifestSha256", value: derivationManifest.manifestSha256 },
+        { key: "sourceKind", value: derivationManifest.sourceKind },
+        { key: "derivationKind", value: derivationManifest.derivationKind },
+        { key: "manifestJson", value: JSON.stringify(derivationManifest) }
+      ]
+    }] : [])
   ]);
 }
 
@@ -606,7 +895,8 @@ const DOCX_FIGURE_WIDTH = 600;
 export async function buildSenaPublicationDocx(
   model: SenaModel,
   report: SenaReport,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   // Vector first: Word renders the SVG and keeps the figure resolution-free, and
   // the PNG fallback is what older Word builds (and most converters) fall back
@@ -648,7 +938,17 @@ export async function buildSenaPublicationDocx(
         new Paragraph({ text: "Claim Readiness", heading: HeadingLevel.HEADING_1 }),
         new Paragraph(`Status: ${report.claimReadinessGate.status}; use: ${report.claimReadinessGate.claimUse}`),
         new Paragraph({ text: "Guardrail", heading: HeadingLevel.HEADING_1 }),
-        new Paragraph("SENA outputs are descriptive analytics. Include coding reliability, human review, runtime provenance, and method settings with any publication-facing interpretation.")
+        new Paragraph("SENA outputs are descriptive analytics. Include coding reliability, human review, runtime provenance, and method settings with any publication-facing interpretation."),
+        ...(derivationManifest ? [
+          new Paragraph({ text: "Derivation Manifest", heading: HeadingLevel.HEADING_1 }),
+          new Paragraph(`Schema: ${derivationManifest.schemaVersion}; SHA-256: ${derivationManifest.manifestSha256}`),
+          new Paragraph({
+            children: [new TextRun({
+              text: `SENA_DERIVATION_MANIFEST_BEGIN${JSON.stringify(derivationManifest)}SENA_DERIVATION_MANIFEST_END`,
+              vanish: true
+            })]
+          })
+        ] : [])
       ]
     }]
   });
@@ -676,7 +976,8 @@ function pdfSafeText(value: string) {
 export async function buildSenaPublicationPdf(
   model: SenaModel,
   report: SenaReport,
-  figure: SenaPublicationFigure = buildSenaPublicationFigure(model)
+  figure: SenaPublicationFigure = buildSenaPublicationFigure(model),
+  derivationManifest?: SenaPublicationDerivationManifest
 ) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -765,12 +1066,47 @@ export async function buildSenaPublicationPdf(
     color: rgb(0.35, 0.41, 0.5)
   });
 
+  if (derivationManifest) {
+    await pdf.attach(
+      Buffer.from(JSON.stringify(derivationManifest), "utf8"),
+      "sena-publication-derivation-manifest.json",
+      {
+        mimeType: "application/json",
+        description: `SENA derivation manifest ${derivationManifest.manifestSha256}`
+      }
+    );
+    pdf.setSubject(`SENA derivation manifest SHA-256 ${derivationManifest.manifestSha256}`);
+    pdf.setKeywords(["SENA", "derivation manifest", derivationManifest.manifestSha256]);
+  }
+
   return Buffer.from(await pdf.save());
 }
 
 const packagedPublicationFormats = ["svg", "png", "html", "xlsx", "docx", "pdf"] as const;
 
 type PackagedPublicationFormat = typeof packagedPublicationFormats[number];
+
+function hasCompleteSenaMethodValidation(report: SenaReport) {
+  const validation = report.validation;
+  return Array.isArray(validation?.metricProvenance) && validation.metricProvenance.length > 0 &&
+    validation.sensitivity?.layerWeights?.id === "layer-weights" &&
+    validation.sensitivity.layerWeights.variants.length > 0 &&
+    validation.sensitivity?.normalization?.id === "normalization" &&
+    validation.sensitivity.normalization.variants.length > 0 &&
+    Array.isArray(validation.stability?.community?.normalizationAgreement) &&
+    validation.stability.community.normalizationAgreement.length > 0 &&
+    Array.isArray(validation.stability?.temporal?.variants) &&
+    validation.stability.temporal.variants.length > 0 &&
+    validation.nullModels?.schemaVersion === SENA_SCHEMA_VERSIONS.nullModels &&
+    Number.isSafeInteger(validation.nullModels.permutation?.iterations) &&
+    validation.nullModels.permutation.iterations > 0 &&
+    Array.isArray(validation.nullModels.permutation.samplesPreview) &&
+    validation.nullModels.permutation.samplesPreview.length > 0 &&
+    Number.isSafeInteger(validation.nullModels.bootstrap?.iterations) &&
+    validation.nullModels.bootstrap.iterations > 0 &&
+    Array.isArray(validation.nullModels.bootstrap.samplesPreview) &&
+    validation.nullModels.bootstrap.samplesPreview.length > 0;
+}
 
 export function assertSenaPublicationModelCardReady(report: SenaReport) {
   // Legacy snapshots exported before the model card existed carry no
@@ -784,9 +1120,59 @@ export function assertSenaPublicationModelCardReady(report: SenaReport) {
       "publication_export_model_card_blocked"
     );
   }
-  if (renderGate.status === "ready") return;
+  const nonCurrentStatisticalEvidence = [
+    ...(report.fusionMathAudit.schemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit &&
+      report.fusionMathAudit.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit
+      ? [] : ["current-fusion-math-evidence"]),
+    ...(report.codingReliabilityGate.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate &&
+      report.codingReliabilityGate.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate
+      ? [] : ["current-coding-reliability-evidence"])
+  ];
+  if (nonCurrentStatisticalEvidence.length > 0) {
+    throw new SenaEnterpriseError(
+      `Publication export blocked: historical statistical read projections are not current publication evidence: ${nonCurrentStatisticalEvidence.join(", ")}.`,
+      409,
+      "publication_export_model_card_blocked"
+    );
+  }
+  const codingReliabilityGate = normalizeSenaCodingReliabilityGate(report.codingReliabilityGate);
+  const dataGovernance = normalizeSenaDataGovernanceMetadata(report.dataGovernance, report.generatedAt);
+  const modelCardSectionIntegrity = inspectSenaModelCardSections(report.modelCard.sections);
+  const missingReadiness = Array.from(new Set([
+    ...renderGate.missingSectionIds,
+    ...modelCardSectionIntegrity.blockingIds,
+    ...modelCardSectionIntegrity.unknownIds.map((id) => `unknown-model-card-section:${id}`),
+    ...modelCardSectionIntegrity.malformedIndexes.map((index) => `malformed-model-card-section:${index}`),
+    ...(codingReliabilityGate.status === "ready" ? [] : ["coding-reliability"]),
+    ...(dataGovernance.status === "complete" ? [] : ["data-governance"]),
+    ...(report.dataGovernance.schemaVersion === SENA_SCHEMA_VERSIONS.dataGovernanceMetadata
+      ? [] : ["current-data-governance-schema"]),
+    ...(isSenaReportHumanReviewComplete(report.humanReview) ? [] : ["human-review"]),
+    ...(report.completenessAudit.status === "complete" ? [] : ["report-completeness"]),
+    ...(report.pilotReadinessAudit.status === "ready" ? [] : ["pilot-readiness"]),
+    ...(report.claimReadinessGate.status === "ready" ? [] : ["claim-readiness"]),
+    ...(report.dataContractAudit.status === "valid" &&
+      report.dataContractAudit.reviewNeeded === 0 &&
+      report.dataContractAudit.items.length > 0 &&
+      report.dataContractAudit.items.every((item) => item.status === "pass")
+      ? [] : ["data-contract-audit"]),
+    ...(report.runtimeConsistencyAudit.status === "consistent" &&
+      report.runtimeConsistencyAudit.reviewNeeded === 0 &&
+      report.runtimeConsistencyAudit.items.length > 0 &&
+      report.runtimeConsistencyAudit.items.every((item) => item.status === "pass")
+      ? [] : ["runtime-consistency-audit"]),
+    ...(report.fusionMathAudit.status === "verified" &&
+      report.fusionMathAudit.reviewNeeded === 0 &&
+      report.fusionMathAudit.items.length > 0 &&
+      report.fusionMathAudit.items.every((item) => item.status === "pass")
+      ? [] : ["fusion-math-audit"]),
+    ...(report.enaManifest.status === "computed" ? [] : ["ena-runtime"]),
+    ...(report.snaManifest.status === "computed" ? [] : ["sna-runtime"]),
+    ...(hasCompleteSenaMethodValidation(report) ? [] : ["method-validation"])
+  ]));
+  if (renderGate.status === "ready" && missingReadiness.length === 0) return;
   throw new SenaEnterpriseError(
-    `Publication export blocked until the SENA model card is complete: ${renderGate.missingSectionIds.join(", ") || "unknown"}.`,
+    `Publication export blocked until the SENA model card and derived research-readiness evidence are complete: ${missingReadiness.join(", ") || "unknown"}.`,
     409,
     "publication_export_model_card_blocked"
   );
@@ -811,47 +1197,54 @@ async function buildSingleSenaPublicationExport(
   report: SenaReport,
   safeTitle: string,
   format: PackagedPublicationFormat,
-  figure: SenaPublicationFigure = publicationFigureFor(model, report)
+  figure: SenaPublicationFigure,
+  derivationManifest: SenaPublicationDerivationManifest
 ): Promise<SenaPublicationExport> {
   if (format === "svg") {
     return {
       filename: `${safeTitle}.svg`,
       contentType: "image/svg+xml; charset=utf-8",
-      body: buildSenaPublicationSvg(model, report.title, figure)
+      body: buildSenaPublicationSvg(model, report.title, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "png") {
     return {
       filename: `${safeTitle}.png`,
       contentType: "image/png",
-      body: buildSenaPublicationPng(model, report.title, figure)
+      body: buildSenaPublicationPng(model, report.title, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "html") {
     return {
       filename: `${safeTitle}.html`,
       contentType: "text/html; charset=utf-8",
-      body: buildSenaPublicationHtml(report, figure)
+      body: buildSenaPublicationHtml(report, figure, derivationManifest),
+      derivationManifest
     };
   }
   if (format === "xlsx") {
     return {
       filename: `${safeTitle}.xlsx`,
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      body: await buildSenaPublicationWorkbook(model, report)
+      body: Buffer.from(await buildSenaPublicationWorkbook(model, report, derivationManifest)),
+      derivationManifest
     };
   }
   if (format === "docx") {
     return {
       filename: `${safeTitle}.docx`,
       contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      body: await buildSenaPublicationDocx(model, report, figure)
+      body: await buildSenaPublicationDocx(model, report, figure, derivationManifest),
+      derivationManifest
     };
   }
   return {
     filename: `${safeTitle}.pdf`,
     contentType: "application/pdf",
-    body: await buildSenaPublicationPdf(model, report, figure)
+    body: await buildSenaPublicationPdf(model, report, figure, derivationManifest),
+    derivationManifest
   };
 }
 
@@ -860,14 +1253,41 @@ export async function buildSenaPublicationPackage(
   report: SenaReport,
   safeTitle: string,
   snapshot?: SenaProjectSnapshot,
-  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
+  enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence,
+  suppliedDerivationManifest: SenaPublicationDerivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  })
 ) {
+  const expectedDerivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  });
+  if (!isDeepStrictEqual(suppliedDerivationManifest, expectedDerivationManifest)) {
+    throw publicationDerivationManifestError();
+  }
+  // Deep equality proves that a caller supplied the right values, but it does
+  // not prove object insertion order. Every embedded copy and advertised hash
+  // therefore uses the builder-owned schema-order projection, never the
+  // caller's semantically equal object.
+  const derivationManifest = expectedDerivationManifest;
   // One projection for all six artifacts: the SVG, PNG, DOCX, and PDF each draw
   // the same figure, so resolving it once is both cheaper and the guarantee that
   // the package's four pictures cannot disagree with each other.
   const figure = publicationFigureFor(model, report);
   const artifacts = await Promise.all(packagedPublicationFormats.map(async (format) => {
-    const exportArtifact = await buildSingleSenaPublicationExport(model, report, safeTitle, format, figure);
+    const exportArtifact = await buildSingleSenaPublicationExport(
+      model,
+      report,
+      safeTitle,
+      format,
+      figure,
+      derivationManifest
+    );
     const bytes = bodyBuffer(exportArtifact.body);
     return {
       format,
@@ -875,6 +1295,7 @@ export async function buildSenaPublicationPackage(
       contentType: exportArtifact.contentType,
       bytes: bytes.byteLength,
       sha256: sha256Buffer(bytes),
+      derivationManifestSha256: derivationManifest.manifestSha256,
       bodyBase64: bytes.toString("base64")
     };
   }));
@@ -947,6 +1368,7 @@ export async function buildSenaPublicationPackage(
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationVerificationCertificate,
     status: artifactManifest.every((artifact) => artifact.bytes > 0 && artifact.sha256.length === 64) ? "verified" : "needs-review",
     generatedAt: report.generatedAt,
+    derivationManifestSha256: derivationManifest.manifestSha256,
     sourceSnapshotSha256: sourceSnapshotEvidence.snapshotSha256,
     reportSha256: sourceSnapshotEvidence.reportSha256,
     artifactChecks: artifactManifest.map((artifact) => ({
@@ -971,7 +1393,8 @@ export async function buildSenaPublicationPackage(
     claimEvidence,
     figureEvidence,
     verificationCertificate,
-    enterpriseProjectEvidence
+    ...(enterpriseProjectEvidence ? { enterpriseProjectEvidence } : {}),
+    derivationManifest
   };
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.publicationPackage,
@@ -982,12 +1405,14 @@ export async function buildSenaPublicationPackage(
       hashAlgorithm: "sha256",
       sourceSnapshotSha256: sourceSnapshotEvidence.snapshotSha256,
       reportSha256: sourceSnapshotEvidence.reportSha256,
+      derivationManifestSha256: derivationManifest.manifestSha256,
       packageSha256: createHash("sha256").update(JSON.stringify(packageEvidence)).digest("hex")
     },
     claimEvidence,
     sourceSnapshotEvidence,
     figureEvidence,
-    enterpriseProjectEvidence,
+    ...(enterpriseProjectEvidence ? { enterpriseProjectEvidence } : {}),
+    derivationManifest,
     artifactManifest,
     verificationCertificate,
     artifacts
@@ -999,17 +1424,47 @@ export async function buildSenaPublicationExport(
   format: SenaPublicationFormat,
   enterpriseProjectEvidence?: SenaPublicationEnterpriseProjectEvidence
 ): Promise<SenaPublicationExport> {
+  assertSenaProjectSnapshotPublicationDerivationWorkBudget(snapshot);
+  // Reject malformed persisted source data before consulting presentation
+  // readiness. This preflight is bounded and side-effect-free; the canonical
+  // importer below still rebuilds and exact-compares every derived surface.
+  assertSenaProjectSnapshotPublicationSourceContract(snapshot);
+  // Preserve the stable typed publication gate for malformed section
+  // membership before canonical import rejects the forged report ledger.
+  assertSenaPublicationModelCardReady(snapshot.report);
+  snapshot = importSenaProjectSnapshot(snapshot);
   const model = buildSenaModel(snapshot.dataset, snapshot.reproducibility.buildOptions);
   const report = snapshot.report;
   assertSenaPublicationModelCardReady(report);
   const safeTitle = (snapshot.title || report.title || "sena-publication").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "sena-publication";
+  const derivationManifest = buildSenaPublicationDerivationManifest({
+    snapshot,
+    model,
+    report,
+    enterpriseProjectEvidence
+  });
 
   if (format === "package") {
     return {
       filename: `${safeTitle}.sena-publication-package.json`,
       contentType: "application/vnd.sena.publication-package+json; charset=utf-8",
-      body: JSON.stringify(await buildSenaPublicationPackage(model, report, safeTitle, snapshot, enterpriseProjectEvidence), null, 2)
+      body: JSON.stringify(await buildSenaPublicationPackage(
+        model,
+        report,
+        safeTitle,
+        snapshot,
+        enterpriseProjectEvidence,
+        derivationManifest
+      ), null, 2),
+      derivationManifest
     };
   }
-  return buildSingleSenaPublicationExport(model, report, safeTitle, format);
+  return buildSingleSenaPublicationExport(
+    model,
+    report,
+    safeTitle,
+    format,
+    publicationFigureFor(model, report),
+    derivationManifest
+  );
 }

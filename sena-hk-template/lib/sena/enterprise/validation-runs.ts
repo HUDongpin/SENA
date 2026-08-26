@@ -12,8 +12,16 @@ import {
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseDb } from "./state";
-import type { SenaEnterpriseProject } from "./team-project";
-import { getEnterpriseProject, getEnterpriseProjectAsync } from "./team-project";
+import type {
+  SenaEnterpriseProject,
+  SenaEnterpriseProjectEvidenceBinding
+} from "./team-project";
+import {
+  buildEnterpriseProjectEvidenceBinding,
+  enterpriseProjectBindingSnapshotSha256,
+  getEnterpriseProject,
+  getEnterpriseProjectAsync
+} from "./team-project";
 import {
   requireEnterprisePermission,
   rolePermissions
@@ -25,16 +33,35 @@ import {
 import {
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,
+  isCurrentSenaGroupComparisonValidationResult,
+  normalizeSenaGroupComparisonValidationResult,
+  SenaGroupComparisonSourceAdmissionError,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonSpec,
   type SenaGroupComparisonValidationResult
 } from "../inference";
 import { importSenaJsonContract } from "../import";
-import { senaRuntimeProvenance } from "../runtime-constants";
+import { validateSenaAnalyticalInputs } from "../analytical-input-validation";
 import { importSenaProjectSnapshot } from "../snapshot";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import type { SenaBuildOptions, SenaRuntimeProvenance } from "../types";
+import type { SenaBuildOptions, SenaDataset, SenaRuntimeProvenance } from "../types";
+import {
+  buildEnterpriseValidationParityEvidence,
+  buildEnterpriseValidationPreregistrationPlan,
+  normalizeEnterpriseValidationRunEvidence,
+  sealEnterpriseValidationRunEvidence,
+  SenaEnterpriseValidationAnalysisRunIndex,
+  SenaEnterpriseValidationProjectRevisionIndex
+} from "./validation-integrity";
+import { senaValidationSourceVerificationCache } from "./validation-request-scope";
+
+export {
+  enterpriseValidationParityEvidenceHash,
+  enterpriseValidationPreregistrationPlanHash,
+  isEnterpriseValidationParityEvidenceHashValid,
+  isEnterpriseValidationPreregistrationPlanHashValid
+} from "./validation-integrity";
 
 export type SenaEnterpriseValidationRunStatus = "pending-review" | "approved" | "rejected";
 
@@ -151,6 +178,8 @@ export type SenaEnterpriseValidationRun = {
   id: string;
   teamId: string;
   projectId?: string;
+  /** Historical records may be unbound; claim aggregation treats them as exploratory-only. */
+  projectBinding?: SenaEnterpriseProjectEvidenceBinding;
   userId: string;
   status: SenaEnterpriseValidationRunStatus;
   reviewerId?: string;
@@ -169,6 +198,9 @@ export type SenaEnterpriseValidationRun = {
   minHolmAdjustedP?: number;
   significantHolmCount?: number;
   observedDifference: number;
+  /** Historical reviewed runs may not carry the v1 seal and remain exploratory. */
+  validationRunEvidenceSchemaVersion?: typeof SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence;
+  validationRunEvidenceHash?: string;
   preregistrationPlan?: SenaEnterpriseValidationPreregistrationPlan;
   parityEvidence?: SenaEnterpriseValidationParityEvidence;
   result: SenaGroupComparisonValidationResult;
@@ -225,10 +257,6 @@ async function upsertValidationRunsToPostgresIfConfigured(runs: SenaEnterpriseVa
   }
 }
 
-function sha256Text(value: string | undefined) {
-  return value ? createHash("sha256").update(value).digest("hex") : undefined;
-}
-
 function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -256,94 +284,43 @@ function validationRunSummary(result: SenaGroupComparisonValidationResult) {
   };
 }
 
-function comparisonPlanRow(result: SenaGroupComparisonResult) {
-  return {
-    metric: result.metric,
-    groupField: result.groupField,
-    groupA: result.groupA,
-    groupB: result.groupB
-  };
-}
-
-function buildValidationPreregistrationPlan(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationNote?: string;
-  methodNote?: string;
-}): SenaEnterpriseValidationPreregistrationPlan {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const protocolNote = input.preregistrationNote?.trim() ?? "";
-  const methodNote = input.methodNote?.trim() ?? "";
-  const analysis: SenaEnterpriseValidationPreregistrationPlan["analysis"] = suite ? "holm-suite" : "single-comparison";
-  const comparisons = suite
-    ? suite.comparisons.map(comparisonPlanRow)
-    : [comparisonPlanRow(primary)];
-  const parameters: SenaEnterpriseValidationPreregistrationPlan["parameters"] = {
-    permutationIterations: primary.permutation.iterations,
-    bootstrapIterations: primary.bootstrap.iterations,
-    seed: primary.permutation.seed,
-    ...(suite ? { alpha: suite.alpha, correction: suite.correction } : {})
-  };
-  const evidence = [
-    `protocolNote=${protocolNote ? "present" : "missing"}`,
-    `methodNote=${methodNote ? "present" : "missing"}`,
-    `analysis=${analysis}`,
-    `comparisons=${comparisons.length}`,
-    ...(suite ? [`correction=${suite.correction}`] : []),
-    `permutationIterations=${parameters.permutationIterations}`,
-    `bootstrapIterations=${parameters.bootstrapIterations}`,
-    `seed=${parameters.seed}`
-  ];
-  const planBody = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.validationPreregistrationPlan,
-    hashAlgorithm: "sha256" as const,
-    analysis,
-    primary: comparisonPlanRow(primary),
-    comparisons,
-    parameters,
-    protocolNoteHash: sha256Text(protocolNote),
-    methodNoteHash: sha256Text(methodNote),
-    guardrail: input.result.guardrail,
-    evidence
-  };
-  return {
-    ...planBody,
-    planHash: artifactSha256(planBody)
-  };
-}
-
 function deriveValidationParityEvidenceFromProject(
   db: ReturnType<typeof readEnterpriseDb>,
   project: SenaEnterpriseProject | undefined
 ): SenaEnterpriseValidationParityEvidenceInput | undefined {
   if (!project) return undefined;
+  const projectSnapshotBindingSha256 = enterpriseProjectBindingSnapshotSha256(project.snapshot);
   const linkedAnalysisRuns = db.analysisRuns.filter((run) => (
-    run.projectId === project.id || run.persistedProjectId === project.id
+    run.teamId === project.teamId &&
+    (run.projectId === project.id || run.persistedProjectId === project.id) &&
+    run.artifactFingerprints.projectSnapshotBindingSha256 === projectSnapshotBindingSha256
   ));
   const analysisRun = latestByTimestamp(linkedAnalysisRuns);
   if (analysisRun) {
     return {
       walkthroughDatasetLabel: `analysis:${analysisRun.title}`,
-      walkthroughDatasetHash: analysisRun.artifactFingerprints.projectSnapshotSha256,
+      walkthroughDatasetHash: projectSnapshotBindingSha256,
       walkthroughSource: "analysis-run",
       walkthroughSourceId: analysisRun.id,
       notes: [
         `walkthroughSource=analysis-run:${analysisRun.id}`,
         `analysisSourceKind=${analysisRun.sourceKind}`,
         `reportSha256=${analysisRun.artifactFingerprints.reportSha256}`,
-        `projectSnapshotSha256=${analysisRun.artifactFingerprints.projectSnapshotSha256}`,
+        `analysisProjectSnapshotArtifactSha256=${analysisRun.artifactFingerprints.projectSnapshotSha256}`,
+        `analysisProjectSnapshotBindingSha256=${analysisRun.artifactFingerprints.projectSnapshotBindingSha256 ?? "legacy-missing"}`,
+        `projectBindingSnapshotSha256=${projectSnapshotBindingSha256}`,
         ...(analysisRun.artifactFingerprints.runtimeBundleSha256 ? [`runtimeBundleSha256=${analysisRun.artifactFingerprints.runtimeBundleSha256}`] : [])
       ]
     };
   }
   return {
     walkthroughDatasetLabel: `project:${project.title}`,
-    walkthroughDatasetHash: artifactSha256(project.snapshot),
+    walkthroughDatasetHash: projectSnapshotBindingSha256,
     walkthroughSource: "project-snapshot",
     walkthroughSourceId: project.id,
     notes: [
       `walkthroughSource=project-snapshot:${project.id}`,
-      `projectSnapshotSha256=${artifactSha256(project.snapshot)}`
+      `projectBindingSnapshotSha256=${projectSnapshotBindingSha256}`
     ]
   };
 }
@@ -354,10 +331,10 @@ function mergeValidationParityEvidenceInput(
 ): SenaEnterpriseValidationParityEvidenceInput | undefined {
   if (!automaticEvidence && !manualEvidence) return undefined;
   return {
-    walkthroughDatasetLabel: manualEvidence?.walkthroughDatasetLabel ?? automaticEvidence?.walkthroughDatasetLabel,
-    walkthroughDatasetHash: manualEvidence?.walkthroughDatasetHash ?? automaticEvidence?.walkthroughDatasetHash,
-    walkthroughSource: manualEvidence?.walkthroughSource ?? automaticEvidence?.walkthroughSource,
-    walkthroughSourceId: manualEvidence?.walkthroughSourceId ?? automaticEvidence?.walkthroughSourceId,
+    walkthroughDatasetLabel: automaticEvidence?.walkthroughDatasetLabel ?? manualEvidence?.walkthroughDatasetLabel,
+    walkthroughDatasetHash: automaticEvidence?.walkthroughDatasetHash ?? manualEvidence?.walkthroughDatasetHash,
+    walkthroughSource: automaticEvidence?.walkthroughSource ?? manualEvidence?.walkthroughSource,
+    walkthroughSourceId: automaticEvidence?.walkthroughSourceId ?? manualEvidence?.walkthroughSourceId,
     expertReviewRequired: manualEvidence?.expertReviewRequired ?? automaticEvidence?.expertReviewRequired,
     studySpecificInferenceReference: manualEvidence?.studySpecificInferenceReference ?? automaticEvidence?.studySpecificInferenceReference,
     runtimeParityIds: manualEvidence?.runtimeParityIds ?? automaticEvidence?.runtimeParityIds,
@@ -365,230 +342,6 @@ function mergeValidationParityEvidenceInput(
       ...(automaticEvidence?.notes ?? []),
       ...(manualEvidence?.notes ?? [])
     ]
-  };
-}
-
-function buildFormalInferenceReadiness(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationPlan: SenaEnterpriseValidationPreregistrationPlan;
-  inference: SenaEnterpriseValidationParityEvidence["inference"];
-  gates: SenaEnterpriseValidationParityEvidence["gates"];
-}): SenaEnterpriseFormalInferenceReadiness {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const minGroupSize = suite?.diagnostics.minGroupSize ?? primary.diagnostics.minGroupSize;
-  const smallSampleComparisons = suite?.diagnostics.smallSampleComparisons ?? (primary.diagnostics.smallSample ? 1 : 0);
-  const runtimeParityPassed = input.gates
-    .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity")
-    .every((gate) => gate.status === "passed");
-  const walkthroughPassed = input.gates.some((gate) => gate.id === "real-data-walkthrough" && gate.status === "passed");
-  const studySpecificInferenceReference = input.inference.studySpecificInferenceReference?.trim();
-  const checks: SenaEnterpriseFormalInferenceReadiness["checks"] = [
-    {
-      id: "preregistration-plan",
-      label: "Preregistration plan hash",
-      status: input.preregistrationPlan.planHash ? "passed" : "required",
-      evidence: [
-        `schema=${input.preregistrationPlan.schemaVersion}`,
-        `planHash=${input.preregistrationPlan.planHash || "missing"}`,
-        `analysis=${input.preregistrationPlan.analysis}`
-      ]
-    },
-    {
-      id: "study-specific-model",
-      label: "Study-specific inferential model reference",
-      status: studySpecificInferenceReference ? "passed" : "required",
-      evidence: [`reference=${studySpecificInferenceReference || "required-before-publication-claim"}`]
-    },
-    {
-      id: "runtime-parity",
-      label: "rENA and R sna parity fixtures",
-      status: runtimeParityPassed ? "passed" : "required",
-      evidence: input.gates
-        .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity")
-        .map((gate) => `${gate.id}:${gate.status}`)
-    },
-    {
-      id: "real-data-walkthrough",
-      label: "Real-data walkthrough anchor",
-      status: walkthroughPassed ? "passed" : "required",
-      evidence: input.gates.find((gate) => gate.id === "real-data-walkthrough")?.evidence ?? ["walkthrough=missing"]
-    },
-    {
-      id: "multiplicity-control",
-      label: "Multiple-comparison control",
-      status: suite ? suite.correction === "holm" ? "passed" : "required" : "passed",
-      evidence: suite
-        ? [`correction=${suite.correction}`, `comparisons=${suite.comparisonCount}`, `alpha=${suite.alpha}`]
-        : ["singleComparison=true"]
-    },
-    {
-      id: "sample-size",
-      label: "Group-size diagnostic",
-      status: smallSampleComparisons > 0 || minGroupSize < 5 ? "review" : "passed",
-      evidence: [`minGroupSize=${minGroupSize}`, `smallSampleComparisons=${smallSampleComparisons}`]
-    }
-  ];
-  const blockers = checks
-    .filter((check) => check.status === "required")
-    .map((check) => check.id);
-  const warnings = [
-    ...(smallSampleComparisons > 0 ? [`small-sample-comparisons=${smallSampleComparisons}`] : []),
-    ...(minGroupSize < 5 ? [`minGroupSize=${minGroupSize}`] : [])
-  ];
-  const status: SenaEnterpriseFormalInferenceReadiness["status"] = !runtimeParityPassed || !walkthroughPassed || !input.preregistrationPlan.planHash
-    ? "incomplete"
-    : studySpecificInferenceReference
-      ? "model-referenced"
-      : "model-required";
-
-  return {
-    schemaVersion: SENA_SCHEMA_VERSIONS.formalInferenceReadiness,
-    status,
-    resultSchemaVersion: input.result.schemaVersion,
-    analysis: input.preregistrationPlan.analysis,
-    preregistrationPlanHash: input.preregistrationPlan.planHash,
-    studySpecificInferenceReference: studySpecificInferenceReference || undefined,
-    comparisonCount: suite?.comparisonCount ?? 1,
-    minGroupSize,
-    smallSampleComparisons,
-    permutationIterations: input.inference.permutationIterations,
-    bootstrapIterations: input.inference.bootstrapIterations,
-    alpha: input.inference.alpha,
-    correction: input.inference.correction,
-    checks,
-    blockers,
-    warnings,
-    guardrail: "Formal inference readiness records whether SENA validation has preregistration, runtime parity, real-data walkthrough, multiplicity control, and a study-specific model reference; it does not replace the model or domain review."
-  };
-}
-
-function buildValidationParityEvidence(input: {
-  result: SenaGroupComparisonValidationResult;
-  preregistrationPlan: SenaEnterpriseValidationPreregistrationPlan;
-  parityEvidence?: SenaEnterpriseValidationParityEvidenceInput;
-}): SenaEnterpriseValidationParityEvidence {
-  const primary = primaryValidationComparison(input.result);
-  const suite = input.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? input.result : null;
-  const requestedRuntimeIds = new Set(input.parityEvidence?.runtimeParityIds?.map((runtimeId) => runtimeId.trim()).filter(Boolean));
-  const runtimeEvidence = senaRuntimeProvenance.parityEvidence
-    .filter((evidence) => requestedRuntimeIds.size === 0 || requestedRuntimeIds.has(evidence.id))
-    .map((evidence) => ({
-      id: evidence.id,
-      referenceRuntime: evidence.referenceRuntime,
-      fixturePath: evidence.fixturePath,
-      status: evidence.status,
-      coverage: evidence.coverage,
-      sampleHash: artifactSha256(evidence.sample),
-      interpretation: evidence.interpretation
-    }));
-  const jenaParity = runtimeEvidence.find((evidence) => evidence.id === "jena-rena-sample-parity");
-  const jsnaParity = runtimeEvidence.find((evidence) => evidence.id === "jsna-r-sna-social-parity");
-  const walkthroughLabel = input.parityEvidence?.walkthroughDatasetLabel?.trim() || "missing walkthrough dataset";
-  const walkthroughHash = input.parityEvidence?.walkthroughDatasetHash?.trim();
-  const walkthroughStatus: SenaEnterpriseValidationParityEvidence["walkthrough"]["status"] = walkthroughHash ? "attached" : "missing";
-  const walkthroughSource: SenaEnterpriseValidationParityEvidence["walkthrough"]["source"] = walkthroughHash
-    ? input.parityEvidence?.walkthroughSource ?? "input"
-    : "missing";
-  const walkthroughSourceId = input.parityEvidence?.walkthroughSourceId?.trim();
-  const expertReviewRequired = input.parityEvidence?.expertReviewRequired ?? true;
-  const studySpecificInferenceReference = input.parityEvidence?.studySpecificInferenceReference?.trim();
-  const inference: SenaEnterpriseValidationParityEvidence["inference"] = {
-    resultSchemaVersion: input.result.schemaVersion,
-    guardrail: input.result.guardrail,
-    comparisonCount: suite?.comparisonCount ?? 1,
-    permutationIterations: primary.permutation.iterations,
-    bootstrapIterations: primary.bootstrap.iterations,
-    alpha: suite?.alpha,
-    correction: suite?.correction,
-    studySpecificInferenceReference
-  };
-  const gates: SenaEnterpriseValidationParityEvidence["gates"] = [
-    {
-      id: "rena-parity",
-      label: "jENA/rENA parity fixture evidence",
-      status: jenaParity?.status === "covered" ? "passed" : "missing",
-      evidence: jenaParity ? [
-        `runtime=${jenaParity.referenceRuntime}`,
-        `fixture=${jenaParity.fixturePath}`,
-        `coverage=${jenaParity.coverage.join("|")}`,
-        `sampleHash=${jenaParity.sampleHash}`
-      ] : ["runtimeParity=missing"]
-    },
-    {
-      id: "r-sna-parity",
-      label: "jSNA/R sna parity fixture evidence",
-      status: jsnaParity?.status === "covered" ? "passed" : "missing",
-      evidence: jsnaParity ? [
-        `runtime=${jsnaParity.referenceRuntime}`,
-        `fixture=${jsnaParity.fixturePath}`,
-        `coverage=${jsnaParity.coverage.join("|")}`,
-        `sampleHash=${jsnaParity.sampleHash}`
-      ] : ["runtimeParity=missing"]
-    },
-    {
-      id: "real-data-walkthrough",
-      label: "Real dataset walkthrough evidence",
-      status: walkthroughStatus === "attached" ? "passed" : "missing",
-      evidence: [
-        `datasetLabel=${walkthroughLabel}`,
-        `datasetHash=${walkthroughHash ?? "missing"}`,
-        `source=${walkthroughSource}`,
-        ...(walkthroughSourceId ? [`sourceId=${walkthroughSourceId}`] : [])
-      ]
-    },
-    {
-      id: "domain-expert-review",
-      label: "Domain expert review requirement",
-      status: expertReviewRequired ? "required" : "attached",
-      evidence: [`required=${expertReviewRequired}`]
-    },
-    {
-      id: "study-specific-inference",
-      label: "Study-specific inferential model requirement",
-      status: studySpecificInferenceReference ? "attached" : "required",
-      evidence: [
-        `reference=${studySpecificInferenceReference || "required-before-publication-claim"}`,
-        `guardrail=${input.result.guardrail}`
-      ]
-    }
-  ];
-  const passedFoundation = gates
-    .filter((gate) => gate.id === "rena-parity" || gate.id === "r-sna-parity" || gate.id === "real-data-walkthrough")
-    .every((gate) => gate.status === "passed");
-  const formalInference = buildFormalInferenceReadiness({
-    result: input.result,
-    preregistrationPlan: input.preregistrationPlan,
-    inference,
-    gates
-  });
-  const notes = [
-    "This manifest links an enterprise validation run to runtime parity, walkthrough, expert-review, and inference guardrail evidence.",
-    "Required expert-review and study-specific inference gates are claim-readiness requirements, not automatic blockers for storing descriptive validation output.",
-    ...(input.parityEvidence?.notes?.map((note) => note.trim()).filter(Boolean) ?? [])
-  ];
-  const manifestBody = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.validationParityEvidence,
-    hashAlgorithm: "sha256" as const,
-    analysis: input.preregistrationPlan.analysis,
-    preregistrationPlanHash: input.preregistrationPlan.planHash,
-    runtimeParity: runtimeEvidence,
-    walkthrough: {
-      datasetLabel: walkthroughLabel,
-      datasetHash: walkthroughHash,
-      source: walkthroughSource,
-      sourceId: walkthroughSourceId,
-      status: walkthroughStatus
-    },
-    inference,
-    formalInference,
-    gates,
-    notes
-  };
-  return {
-    ...manifestBody,
-    status: passedFoundation ? "ready-for-review" : "incomplete",
-    validationRunHash: artifactSha256(manifestBody)
   };
 }
 
@@ -606,6 +359,18 @@ function createEnterpriseValidationRunInDb(
   input: CreateEnterpriseValidationRunInput,
   db: ReturnType<typeof readEnterpriseDb>
 ) {
+  const sourceVerificationCache = senaValidationSourceVerificationCache();
+  input = {
+    ...input,
+    result: normalizeSenaGroupComparisonValidationResult(input.result)
+  };
+  if (!isCurrentSenaGroupComparisonValidationResult(input.result)) {
+    throw new SenaEnterpriseError(
+      "New enterprise validation runs require current-v2 source-bound group-comparison evidence.",
+      400,
+      "validation_current_result_required"
+    );
+  }
   requireEnterprisePermission(context, input.teamId, "analysis:run");
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
@@ -618,28 +383,40 @@ function createEnterpriseValidationRunInDb(
     }
     requireEnterprisePermission(context, project.teamId, "analysis:run");
   }
+  if (project) {
+    input = {
+      ...input,
+      result: normalizeSenaGroupComparisonValidationResult(input.result, {
+        dataset: project.snapshot.dataset,
+        buildOptions: project.snapshot.reproducibility.buildOptions
+      }, sourceVerificationCache)
+    };
+  }
   const summary = validationRunSummary(input.result);
   const primary = summary.primary;
-  const preregistrationPlan = buildValidationPreregistrationPlan({
+  const preregistrationNote = input.preregistrationNote?.trim() ?? "";
+  const methodNote = input.methodNote?.trim() || input.result.guardrail;
+  const preregistrationPlan = buildEnterpriseValidationPreregistrationPlan({
     result: input.result,
-    preregistrationNote: input.preregistrationNote,
-    methodNote: input.methodNote
+    preregistrationNote,
+    methodNote
   });
   const derivedParityEvidence = deriveValidationParityEvidenceFromProject(db, project);
-  const parityEvidence = buildValidationParityEvidence({
+  const parityEvidence = buildEnterpriseValidationParityEvidence({
     result: input.result,
     preregistrationPlan,
     parityEvidence: mergeValidationParityEvidenceInput(derivedParityEvidence, input.parityEvidence)
   });
 
-  const run: SenaEnterpriseValidationRun = {
+  const unsealedRun: SenaEnterpriseValidationRun = {
     id: id("val"),
     teamId: input.teamId,
     projectId: input.projectId,
+    projectBinding: project ? buildEnterpriseProjectEvidenceBinding(project) : undefined,
     userId: context.user.id,
     status: "pending-review",
-    preregistrationNote: input.preregistrationNote?.trim() ?? "",
-    methodNote: input.methodNote?.trim() || input.result.guardrail,
+    preregistrationNote,
+    methodNote,
     metric: primary.metric,
     groupField: primary.groupField,
     groupA: primary.groupA,
@@ -656,6 +433,10 @@ function createEnterpriseValidationRunInDb(
     result: input.result,
     createdAt: now()
   };
+  const run = sealEnterpriseValidationRunEvidence(unsealedRun, project, {
+    analysisRuns: db.analysisRuns,
+    sourceVerificationCache
+  });
   db.validationRuns.unshift(run);
   db.validationRuns = db.validationRuns.slice(0, 1000);
   appendAudit(db, {
@@ -724,10 +505,47 @@ function reviewEnterpriseValidationRunInDb(context: SenaEnterpriseSessionContext
   const run = db.validationRuns.find((candidate) => candidate.id === runId);
   if (!run) throw new SenaEnterpriseError("Validation run was not found.", 404, "validation_run_not_found");
   requireEnterprisePermission(context, run.teamId, "analysis:run");
-  run.status = input.status;
-  run.reviewerId = context.user.id;
-  run.reviewedAt = now();
-  run.reviewNotes = input.notes?.trim() ?? "";
+  const project = run.projectId
+    ? db.projects.find((candidate) => candidate.id === run.projectId)
+    : undefined;
+  const sourceVerificationCache = senaValidationSourceVerificationCache();
+  const snapshotHashCache = new WeakMap<object, { bindingSha256: string }>();
+  const projectRevisionIndex = run.projectId && run.projectBinding
+    ? new SenaEnterpriseValidationProjectRevisionIndex(
+        db.projectRevisions,
+        snapshotHashCache,
+        {
+          projectId: run.projectId,
+          teamId: run.teamId,
+          version: run.projectBinding.projectVersion
+        }
+      )
+    : undefined;
+  const analysisRunIndex = new SenaEnterpriseValidationAnalysisRunIndex(db.analysisRuns);
+  const verifiedRun = normalizeEnterpriseValidationRunEvidence(run, project, {
+    evidenceHash: "optional",
+    projectRevisions: db.projectRevisions,
+    projectRevisionIndex,
+    analysisRuns: db.analysisRuns,
+    analysisRunIndex,
+    snapshotHashCache,
+    sourceVerificationCache
+  });
+  const reviewedRun = sealEnterpriseValidationRunEvidence({
+    ...verifiedRun,
+    status: input.status,
+    reviewerId: context.user.id,
+    reviewedAt: now(),
+    reviewNotes: input.notes?.trim() ?? ""
+  }, project, {
+    projectRevisions: db.projectRevisions,
+    projectRevisionIndex,
+    analysisRuns: db.analysisRuns,
+    analysisRunIndex,
+    snapshotHashCache,
+    sourceVerificationCache
+  });
+  Object.assign(run, reviewedRun);
   appendAudit(db, {
     event: "validation.review",
     userId: context.user.id,
@@ -825,7 +643,8 @@ function listEnterpriseValidationRunsFromDb(context: SenaEnterpriseSessionContex
 
 export type SenaEnterpriseValidationRunHeaderSource = Pick<
   SenaEnterpriseValidationRun,
-  "id" | "status" | "projectId" | "comparisonCount" | "pTwoSided" | "minHolmAdjustedP" | "preregistrationPlan" | "parityEvidence"
+  "id" | "status" | "projectId" | "comparisonCount" | "pTwoSided" | "minHolmAdjustedP" |
+  "validationRunEvidenceHash" | "preregistrationPlan" | "parityEvidence"
 >;
 
 export function buildEnterpriseValidationRunHeaders(run: SenaEnterpriseValidationRunHeaderSource) {
@@ -836,6 +655,9 @@ export function buildEnterpriseValidationRunHeaders(run: SenaEnterpriseValidatio
     "x-sena-validation-comparison-count": String(run.comparisonCount ?? 1),
     "x-sena-validation-p-two-sided": String(run.pTwoSided),
     ...(run.minHolmAdjustedP !== undefined ? { "x-sena-validation-min-holm-p": String(run.minHolmAdjustedP) } : {}),
+    ...(run.validationRunEvidenceHash ? {
+      "x-sena-validation-run-evidence-sha256": run.validationRunEvidenceHash
+    } : {}),
     ...(run.preregistrationPlan?.planHash ? { "x-sena-validation-preregistration-sha256": run.preregistrationPlan.planHash } : {}),
     ...(run.parityEvidence?.status ? { "x-sena-validation-parity-status": run.parityEvidence.status } : {}),
     ...(run.parityEvidence?.validationRunHash ? { "x-sena-validation-parity-sha256": run.parityEvidence.validationRunHash } : {}),
@@ -915,57 +737,93 @@ export async function buildEnterpriseValidationRunReviewResponseWithPostgresMirr
   };
 }
 
-const groupComparisonMetrics = new Set<SenaGroupComparisonMetric>([
-  "bridgeScore",
-  "epistemicContribution",
-  "epistemicDiversity",
-  "socialStrength",
-  "socialDegree",
-  "conceptBrokerage",
-  "alignment"
-]);
-
 const defaultGroupComparisonMetric: SenaGroupComparisonMetric = "socialStrength";
 
-function isGroupComparisonMetric(value: unknown): value is SenaGroupComparisonMetric {
-  return groupComparisonMetrics.has(value as SenaGroupComparisonMetric);
-}
-
 function groupComparisonMetricValue(value: unknown): SenaGroupComparisonMetric {
-  return isGroupComparisonMetric(value) ? value : defaultGroupComparisonMetric;
+  return value === undefined ? defaultGroupComparisonMetric : value as SenaGroupComparisonMetric;
 }
 
 function parseGroupComparisonMetricList(value: unknown, fallback: unknown) {
-  const candidates = Array.isArray(value) ? value : [value ?? fallback];
-  const parsed = candidates
-    .filter(isGroupComparisonMetric)
+  const candidates = Array.isArray(value) ? value : [fallback ?? defaultGroupComparisonMetric];
+  return (candidates as SenaGroupComparisonMetric[])
     .filter((metric, index, list) => list.indexOf(metric) === index);
-  return parsed.length > 0 ? parsed : [defaultGroupComparisonMetric];
 }
 
 function parseGroupComparisonSpecs(body: Record<string, unknown>): SenaGroupComparisonSpec[] {
   if (Array.isArray(body.comparisons)) {
-    return body.comparisons
-      .filter((comparison): comparison is Record<string, unknown> => typeof comparison === "object" && comparison !== null && !Array.isArray(comparison))
-      .map((comparison): SenaGroupComparisonSpec => ({
-        groupField: comparison.groupField === "role" ? "role" : "group",
-        groupA: String(comparison.groupA ?? ""),
-        groupB: String(comparison.groupB ?? ""),
-        metric: groupComparisonMetricValue(comparison.metric)
-      }))
-      .filter((comparison) => comparison.groupA && comparison.groupB && comparison.groupA !== comparison.groupB)
-      .slice(0, 40);
+    const defaultGroupField = (body.groupField ?? "group") as "group" | "role";
+    const defaultMetric = groupComparisonMetricValue(body.metric);
+    return body.comparisons.map((comparison): SenaGroupComparisonSpec => {
+      const record = comparison as Record<string, unknown>;
+      return {
+        groupField: (record.groupField ?? defaultGroupField) as "group" | "role",
+        groupA: record.groupA as string,
+        groupB: record.groupB as string,
+        metric: (record.metric ?? defaultMetric) as SenaGroupComparisonMetric
+      };
+    });
   }
 
-  const groupA = String(body.groupA ?? "");
-  const groupB = String(body.groupB ?? "");
-  const groupField = body.groupField === "role" ? "role" : "group";
+  const groupA = body.groupA as string;
+  const groupB = body.groupB as string;
+  const groupField = (body.groupField ?? "group") as "group" | "role";
   return parseGroupComparisonMetricList(body.metrics, body.metric).map((metric) => ({
     groupField,
     groupA,
     groupB,
     metric
   }));
+}
+
+export type SenaResolvedEnterpriseGroupComparisonInput = {
+  projectId?: string;
+  project: SenaEnterpriseProject | null;
+  snapshot: ReturnType<typeof importSenaProjectSnapshot> | null;
+  dataset: SenaDataset;
+  buildOptions?: Partial<SenaBuildOptions>;
+  comparisons: SenaGroupComparisonSpec[];
+  defaultGroupField: "group" | "role";
+  defaultMetric: SenaGroupComparisonMetric;
+  iterations: number;
+  bootstrapIterations: number;
+  seed: number;
+  alpha: number;
+  suite: boolean;
+};
+
+export function resolveEnterpriseGroupComparisonInput(
+  body: Record<string, unknown>,
+  project: SenaEnterpriseProject | null
+): SenaResolvedEnterpriseGroupComparisonInput {
+  const projectId = body.projectId ? String(body.projectId) : undefined;
+  const snapshot = body.snapshot
+    ? importSenaProjectSnapshot(body.snapshot)
+    : project?.snapshot
+      ? importSenaProjectSnapshot(project.snapshot)
+      : null;
+  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
+  const effectiveBuildOptions = snapshot?.reproducibility.buildOptions ?? body.buildOptions;
+  validateSenaAnalyticalInputs({
+    dataset,
+    buildOptions: effectiveBuildOptions,
+    groupComparison: body
+  });
+  const iterations = (body.iterations ?? 1000) as number;
+  return {
+    projectId,
+    project,
+    snapshot,
+    dataset,
+    buildOptions: effectiveBuildOptions as Partial<SenaBuildOptions> | undefined,
+    comparisons: parseGroupComparisonSpecs(body),
+    defaultGroupField: (body.groupField ?? "group") as "group" | "role",
+    defaultMetric: groupComparisonMetricValue(body.metric),
+    iterations,
+    bootstrapIterations: (body.bootstrapIterations ?? iterations) as number,
+    seed: (body.seed ?? 20260611) as number,
+    alpha: (body.alpha ?? 0.05) as number,
+    suite: (body.suite ?? false) as boolean
+  };
 }
 
 function parseEnterpriseValidationParityEvidence(value: unknown): SenaEnterpriseValidationParityEvidenceInput | undefined {
@@ -981,6 +839,45 @@ function parseEnterpriseValidationParityEvidence(value: unknown): SenaEnterprise
   };
 }
 
+function buildEnterpriseGroupComparisonResult(
+  resolved: ReturnType<typeof resolveEnterpriseGroupComparisonInput>
+) {
+  try {
+    return resolved.comparisons.length <= 1 && !resolved.suite
+      ? buildSenaGroupComparison({
+        dataset: resolved.dataset,
+        buildOptions: resolved.buildOptions,
+        groupField: resolved.comparisons[0].groupField,
+        groupA: resolved.comparisons[0].groupA,
+        groupB: resolved.comparisons[0].groupB,
+        metric: resolved.comparisons[0].metric,
+        iterations: resolved.iterations,
+        seed: resolved.seed,
+        bootstrapIterations: resolved.bootstrapIterations
+      })
+      : buildSenaGroupComparisonSuite({
+        dataset: resolved.dataset,
+        buildOptions: resolved.buildOptions,
+        comparisons: resolved.comparisons,
+        defaultGroupField: resolved.defaultGroupField,
+        defaultMetric: resolved.defaultMetric,
+        iterations: resolved.iterations,
+        seed: resolved.seed,
+        bootstrapIterations: resolved.bootstrapIterations,
+        alpha: resolved.alpha
+      });
+  } catch (error) {
+    if (error instanceof SenaGroupComparisonSourceAdmissionError) {
+      throw new SenaEnterpriseError(
+        "The SENA validation source exceeds bounded analytical complexity.",
+        413,
+        "validation_source_too_complex"
+      );
+    }
+    throw error;
+  }
+}
+
 export function buildEnterpriseGroupComparisonValidationResponse(
   context: SenaEnterpriseSessionContext,
   body: Record<string, unknown>,
@@ -991,37 +888,8 @@ export function buildEnterpriseGroupComparisonValidationResponse(
 ) {
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? (adapters.getProject ?? getEnterpriseProject)(context, projectId) : null;
-  const snapshot = body.snapshot ? importSenaProjectSnapshot(body.snapshot) : project?.snapshot ?? null;
-  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
-  const comparisons = parseGroupComparisonSpecs(body);
-  const buildOptions = snapshot?.reproducibility.buildOptions ?? (
-    typeof body.buildOptions === "object" && body.buildOptions !== null && !Array.isArray(body.buildOptions)
-      ? body.buildOptions as Partial<SenaBuildOptions>
-      : undefined
-  );
-  const result = comparisons.length <= 1 && body.suite !== true
-    ? buildSenaGroupComparison({
-      dataset,
-      buildOptions,
-      groupField: comparisons[0]?.groupField ?? (body.groupField === "role" ? "role" : "group"),
-      groupA: comparisons[0]?.groupA ?? String(body.groupA ?? ""),
-      groupB: comparisons[0]?.groupB ?? String(body.groupB ?? ""),
-      metric: comparisons[0]?.metric ?? groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000)
-    })
-    : buildSenaGroupComparisonSuite({
-      dataset,
-      buildOptions,
-      comparisons,
-      defaultGroupField: body.groupField === "role" ? "role" : "group",
-      defaultMetric: groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000),
-      alpha: Number(body.alpha ?? 0.05)
-    });
+  const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+  const result = buildEnterpriseGroupComparisonResult(resolved);
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = (adapters.createValidationRun ?? createEnterpriseValidationRun)(context, {
     teamId,
@@ -1056,37 +924,8 @@ export async function buildEnterpriseGroupComparisonValidationResponseWithPostgr
 ) {
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-  const snapshot = body.snapshot ? importSenaProjectSnapshot(body.snapshot) : project?.snapshot ?? null;
-  const dataset = snapshot?.dataset ?? importSenaJsonContract(body.dataset).dataset;
-  const comparisons = parseGroupComparisonSpecs(body);
-  const buildOptions = snapshot?.reproducibility.buildOptions ?? (
-    typeof body.buildOptions === "object" && body.buildOptions !== null && !Array.isArray(body.buildOptions)
-      ? body.buildOptions as Partial<SenaBuildOptions>
-      : undefined
-  );
-  const result = comparisons.length <= 1 && body.suite !== true
-    ? buildSenaGroupComparison({
-      dataset,
-      buildOptions,
-      groupField: comparisons[0]?.groupField ?? (body.groupField === "role" ? "role" : "group"),
-      groupA: comparisons[0]?.groupA ?? String(body.groupA ?? ""),
-      groupB: comparisons[0]?.groupB ?? String(body.groupB ?? ""),
-      metric: comparisons[0]?.metric ?? groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000)
-    })
-    : buildSenaGroupComparisonSuite({
-      dataset,
-      buildOptions,
-      comparisons,
-      defaultGroupField: body.groupField === "role" ? "role" : "group",
-      defaultMetric: groupComparisonMetricValue(body.metric),
-      iterations: Number(body.iterations ?? 1000),
-      seed: Number(body.seed ?? 20260611),
-      bootstrapIterations: Number(body.bootstrapIterations ?? body.iterations ?? 1000),
-      alpha: Number(body.alpha ?? 0.05)
-    });
+  const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+  const result = buildEnterpriseGroupComparisonResult(resolved);
   const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
   const validationRun = await createEnterpriseValidationRunWithPostgresMirrorAsync(context, {
     teamId,

@@ -40,6 +40,11 @@ export type SenaEnterpriseServerJobWorkerContract = {
     heartbeatConfirmed: boolean;
     heartbeatArtifactHashConfigured: boolean;
     heartbeatVerifiedAtConfigured: boolean;
+    statusStoreSelfTestOnly: true;
+    externalWorkerCallbackReceiptSupported: boolean;
+    externalWorkerCallbackReceiptConfirmed: boolean;
+    externalWorkerCallbackReceiptSha256?: string;
+    externalWorkerCallbackReceiptVerifiedAt?: string;
     callbackUrlHash?: string;
     runbookUrlHash?: string;
     heartbeatArtifactSha256?: string;
@@ -57,12 +62,20 @@ export type SenaEnterpriseServerJobWorkerContract = {
     acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"];
     acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"];
     payloadPolicy: "project-or-upload-pointer-default";
-    inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1";
+    inlinePayloadAllowed: false;
+    inlinePayloadPolicy: "disabled";
+    legacyInlineEnvEffect: "none-deprecated";
+    /** Legacy v1 key retained as a null tombstone; no environment value enables inline custody. */
+    inlinePayloadRequiresExplicitEnv: null;
     rawPayloadPersistedInJobStore: false;
-    retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry";
+    retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry";
+    retryDispatchPolicy: "local-polling-only";
+    pushProviderRetryPolicy: "provider-native-or-resubmit";
     parseWarningDisclosurePolicy: "run-import-and-run-reliability-must-report-parse-repair-warnings";
     uploadWarningCountSemantics: "unset-until-a-parser-reports";
     uploadWarningsCallbackField: "uploadWarnings";
+    statusStoreSelfTestSatisfiesExternalWorkerReadiness: false;
+    externalWorkerProofPolicy: "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback";
   };
   evidence: string[];
   missing: string[];
@@ -77,6 +90,13 @@ export type SenaEnterpriseServerJobWorkerContractReadiness = {
   verifiedAtConfigured: boolean;
   evidence: string[];
 };
+
+const EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED = false as const;
+const EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED = false as const;
+const EXTERNAL_WORKER_CALLBACK_RECEIPT_REQUIREMENT =
+  "authenticated nonce-bound external worker callback receipt (not implemented)" as const;
+const EXTERNAL_WORKER_PROOF_POLICY =
+  "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback" as const;
 
 function booleanEnv(key: string) {
   const value = envValue(key)?.toLowerCase();
@@ -123,7 +143,9 @@ export function serverJobWorkerContractReadiness(): SenaEnterpriseServerJobWorke
   const confirmed = booleanEnv("SENA_JOB_WORKER_CONTRACT_CONFIRMED") &&
     artifactHashConfigured &&
     verifiedAtConfigured &&
-    artifactValidationPassed;
+    artifactValidationPassed &&
+    EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED &&
+    EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED;
 
   return {
     required,
@@ -143,9 +165,11 @@ export function serverJobWorkerContractReadiness(): SenaEnterpriseServerJobWorke
       `serverJobWorkerContractArtifactSha256=${artifactHashConfigured ? "present" : "missing-or-invalid"}`,
       `serverJobWorkerContractVerifiedAt=${productionEvidenceTimestampEvidenceValue(verifiedAt)}`,
       `serverJobWorkerContractArtifactValidation=${artifactValidationPassed ? "pass" : "missing-or-invalid"}`,
+      `serverJobWorkerExternalCallbackReceiptSupported=${EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED}`,
+      `serverJobWorkerExternalCallbackReceiptConfirmed=${EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED}`,
       `serverJobWorkerContractSchema=${SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract}`,
       "serverJobWorkerContractCommand=npm run sena:jobs:worker-contract",
-      "serverJobWorkerContractChecks=managed-queue|postgres-status-store|callback|owner|runbook|heartbeat",
+      "serverJobWorkerContractChecks=managed-queue|postgres-status-store|callback|owner|runbook|external-authenticated-callback-receipt",
       "serverJobWorkerContractSource=server-job-worker-contract"
     ]
   };
@@ -175,7 +199,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
     [Boolean(runbookUrlHash), "SENA_JOB_WORKER_RUNBOOK_URL"],
     [heartbeatConfirmed, "SENA_JOB_WORKER_HEARTBEAT_CONFIRMED=1"],
     [heartbeatArtifactHashConfigured, "SENA_JOB_WORKER_HEARTBEAT_SHA256"],
-    [heartbeatVerifiedAtConfigured, "SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT"]
+    [heartbeatVerifiedAtConfigured, "SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT"],
+    [EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED && EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED,
+      EXTERNAL_WORKER_CALLBACK_RECEIPT_REQUIREMENT]
   ] as const;
   const missing = requirements
     .filter(([ok]) => !ok)
@@ -210,6 +236,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       heartbeatConfirmed,
       heartbeatArtifactHashConfigured,
       heartbeatVerifiedAtConfigured,
+      statusStoreSelfTestOnly: true,
+      externalWorkerCallbackReceiptSupported: EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED,
+      externalWorkerCallbackReceiptConfirmed: EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED,
       callbackUrlHash,
       runbookUrlHash,
       heartbeatArtifactSha256: heartbeatArtifactHashConfigured ? heartbeatArtifactSha256?.toLowerCase() : undefined,
@@ -227,9 +256,14 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"],
       acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"],
       payloadPolicy: "project-or-upload-pointer-default",
-      inlinePayloadRequiresExplicitEnv: "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1",
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated",
+      inlinePayloadRequiresExplicitEnv: null,
       rawPayloadPersistedInJobStore: false,
-      retryAndDeadLetterPolicy: "max-attempts-with-operator-force-retry",
+      retryAndDeadLetterPolicy: "local-max-attempts-with-operator-force-retry",
+      retryDispatchPolicy: "local-polling-only",
+      pushProviderRetryPolicy: "provider-native-or-resubmit",
       // H10: an external worker that parses queued files (run-import,
       // run-reliability) must report parse-repair warning counts — ragged-row
       // disclosure included — via the status callback's additive
@@ -238,7 +272,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       // stays unset: unset asserts nothing, 0 asserts "parsed, clean".
       parseWarningDisclosurePolicy: "run-import-and-run-reliability-must-report-parse-repair-warnings",
       uploadWarningCountSemantics: "unset-until-a-parser-reports",
-      uploadWarningsCallbackField: "uploadWarnings"
+      uploadWarningsCallbackField: "uploadWarnings",
+      statusStoreSelfTestSatisfiesExternalWorkerReadiness: false,
+      externalWorkerProofPolicy: EXTERNAL_WORKER_PROOF_POLICY
     },
     evidence: [
       ...queue.evidence,
@@ -253,9 +289,19 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       `workerHeartbeatConfirmed=${heartbeatConfirmed}`,
       `workerHeartbeatArtifactSha256=${heartbeatArtifactHashConfigured ? "present" : "missing"}`,
       `workerHeartbeatVerifiedAt=${heartbeatVerifiedAtConfigured ? "configured" : "missing"}`,
+      "workerStatusStoreSelfTestOnly=true",
+      `externalWorkerCallbackReceiptSupported=${EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED}`,
+      `externalWorkerCallbackReceiptConfirmed=${EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED}`,
+      `externalWorkerProofPolicy=${EXTERNAL_WORKER_PROOF_POLICY}`,
       "statusCallback=/api/sena/ops/jobs",
       "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation",
+      "workerInlinePayloadCustody=durable-pointers-only",
+      "workerInlinePayloadAllowed=false",
+      "workerInlinePayloadPolicy=disabled",
+      "workerLegacyInlineEnvEffect=none-deprecated",
+      "workerRetryDispatchPolicy=local-polling-only",
+      "workerPushProviderRetryPolicy=provider-native-or-resubmit",
       "rawPayloadPersistedInJobStore=false",
       "parseWarningDisclosurePolicy=run-import-and-run-reliability-must-report-parse-repair-warnings",
       "uploadWarningCountSemantics=unset-until-a-parser-reports",

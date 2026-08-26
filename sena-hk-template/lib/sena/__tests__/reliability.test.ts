@@ -1,7 +1,77 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { importSenaReliabilityFiles } from "../reliability-adapters";
 import { prepareSenaReliabilityJsonRequest } from "../reliability-api";
-import { buildSenaReliabilityDashboard, parseCoderAnnotationsCsv, parseCoderAnnotationsFromRows, reliabilityDashboardToReview } from "../reliability";
+import {
+  buildSenaReliabilityDashboard,
+  parseCoderAnnotationsCsv,
+  parseCoderAnnotationsFromRows,
+  reliabilityDashboardToReview,
+  SENA_RELIABILITY_UNIVERSE_LIMITS
+} from "../reliability";
+
+const annotationCellLimit = SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows;
+
+function annotationCellLimitError(actual = annotationCellLimit + 1) {
+  return expect.objectContaining({
+    code: "reliability_universe_limit_exceeded",
+    issues: [{
+      path: "annotations",
+      rule: `annotation-row-count-at-most-${annotationCellLimit}`,
+      actual,
+      maximum: annotationCellLimit
+    }]
+  });
+}
+
+describe("SENA reliability code-cell admission", () => {
+  it("rejects one 200001-code cell before returning annotations", () => {
+    expect(() => parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: "a;".repeat(annotationCellLimit + 1),
+      value: "1"
+    }])).toThrow(annotationCellLimitError());
+  });
+
+  it("admits the exact 200000-code boundary and ignores empty delimiter cells", () => {
+    const parsed = parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: `${"a;".repeat(annotationCellLimit)};;; | ;`,
+      value: "1"
+    }]);
+
+    expect(parsed.annotations).toHaveLength(annotationCellLimit);
+    expect(parsed.skippedCells).toEqual([]);
+  });
+
+  it("applies the emitted-cell budget cumulatively across rows", () => {
+    expect(() => parseCoderAnnotationsFromRows([
+      {
+        coder_id: "c1",
+        item_id: "u1",
+        code_id: "a;".repeat(100_001),
+        value: "1"
+      },
+      {
+        coder_id: "c2",
+        item_id: "u2",
+        code_id: "b;".repeat(100_000),
+        value: "0"
+      }
+    ])).toThrow(annotationCellLimitError());
+  });
+
+  it("counts empty-value skipped codes before allocating skipped-cell evidence", () => {
+    expect(() => parseCoderAnnotationsFromRows([{
+      coder_id: "c1",
+      item_id: "u1",
+      code_id: "a;".repeat(annotationCellLimit + 1),
+      value: ""
+    }])).toThrow(annotationCellLimitError());
+  });
+});
 
 describe("SENA coding reliability diagnostics", () => {
   it("summarizes code-level agreement and coder positive-rate drift", () => {
@@ -60,7 +130,7 @@ describe("SENA coding reliability diagnostics", () => {
     ], "Local reviewer");
 
     expect(result.schemaVersion).toBe("sena-local-reliability-import/v1");
-    expect(result.dashboard.schemaVersion).toBe("sena-coding-reliability-dashboard/v1");
+    expect(result.dashboard.schemaVersion).toBe("sena-coding-reliability-dashboard/v2");
     expect(result.annotationCount).toBe(4);
     expect(result.reviewPatch).toEqual(expect.objectContaining({
       reviewer: "Local reviewer",
@@ -103,7 +173,7 @@ describe("SENA coding reliability diagnostics", () => {
       "1 distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units."
     );
     expect(result.warnings).toContain(
-      "1 coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them."
+      "1 coder pair(s) were not estimable; their agreement estimates are reported as null with a stable status."
     );
     expect(result.dashboard.warnings).toEqual(result.warnings);
     expect(result.annotationCount).toBe(3);
@@ -111,12 +181,16 @@ describe("SENA coding reliability diagnostics", () => {
     expect(result.dashboard.binaryUnitCount).toBe(2);
     // Pin the estimator consequence: u2::Evidence is unpairable for c1-c2 (c2's
     // cell is missing), leaving 1 pairable unit — below the no-evidence floor,
-    // so kappa/alpha report 0 with disclosure. No fabricated disagreement
+    // so kappa/alpha report null with disclosure. No fabricated disagreement
     // (pre-fix empty=applied minted agreement; empty=not-applied would mint a
     // disagreement; a degenerate 1-unit kappa would mint a perfect score).
-    expect(result.dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
-    expect(result.dashboard.meanPairwiseKappa).toBe(0);
-    expect(result.dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(result.dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({
+      units: 1,
+      status: "insufficient-pairable-units",
+      kappa: null
+    }));
+    expect(result.dashboard.meanPairwiseKappa).toBeNull();
+    expect(result.dashboard.krippendorffAlphaNominal).toBeNull();
     expect(result.dashboard.disagreementCount).toBe(0);
     expect(result.reviewPatch.status).toBe("documented");
   });
@@ -203,15 +277,19 @@ describe("SENA coding reliability diagnostics", () => {
       { coder_id: "c2", item_id: "u2", code_id: "Evidence", value: "" }
     ]);
     const missingDashboard = buildSenaReliabilityDashboard(missing.annotations, { skippedCells: missing.skippedCells });
-    // One pairable unit is below the no-evidence floor: kappa/alpha report 0
+    // One pairable unit is below the no-evidence floor: kappa/alpha report null
     // with disclosure rather than a degenerate perfect score, and — unlike the
     // explicit "0" fixture above — no disagreement is fabricated.
-    expect(missingDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
-    expect(missingDashboard.krippendorffAlphaNominal).toBe(0);
+    expect(missingDashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({
+      units: 1,
+      status: "insufficient-pairable-units",
+      kappa: null
+    }));
+    expect(missingDashboard.krippendorffAlphaNominal).toBeNull();
     expect(missingDashboard.disagreementCount).toBe(0);
     expect(missingDashboard.binaryUnitCount).toBe(2);
     expect(missingDashboard.warnings).toContain(
-      "1 coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them."
+      "1 coder pair(s) were not estimable; their agreement estimates are reported as null with a stable status."
     );
 
     // A recorded decision beats a skipped cell for the same coder/item/code —
@@ -243,7 +321,7 @@ describe("SENA coding reliability diagnostics", () => {
     // 10 items where c2 left 9 of 10 value cells empty: only one pairable unit
     // survives. A degenerate kappa/alpha convention would report 1 and clear
     // the claim-readiness gate from a single overlapping decision; the
-    // no-evidence floor reports 0 and demotes the interpretation instead.
+    // no-evidence floor reports null and demotes the interpretation instead.
     const rows = Array.from({ length: 10 }, (_, index) => ({
       coder_id: "c1",
       item_id: `u${index + 1}`,
@@ -260,12 +338,16 @@ describe("SENA coding reliability diagnostics", () => {
     const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
 
     expect(dashboard.binaryUnitCount).toBe(10);
-    expect(dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({ units: 1, kappa: 0 }));
-    expect(dashboard.meanPairwiseKappa).toBe(0);
-    expect(dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(dashboard.pairwiseCohenKappa[0]).toEqual(expect.objectContaining({
+      units: 1,
+      status: "insufficient-pairable-units",
+      kappa: null
+    }));
+    expect(dashboard.meanPairwiseKappa).toBeNull();
+    expect(dashboard.krippendorffAlphaNominal).toBeNull();
     expect(dashboard.disagreementCount).toBe(0);
     expect(dashboard.interpretation).toBe(
-      "Reliability evidence needs review before SENA graph patterns are treated as research claims."
+      "Reliability is not estimable (insufficient-pairable-units); do not substitute a zero or perfect score."
     );
     expect(dashboard.warnings).toContain(
       "9 distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units."
@@ -285,8 +367,8 @@ describe("SENA coding reliability diagnostics", () => {
     // degrades to the single-coder no-evidence path rather than minting stats.
     expect(dashboard.coderCount).toBe(1);
     expect(dashboard.warnings).toContain("At least two coders are required for reliability statistics.");
-    expect(dashboard.meanPairwiseKappa).toBe(0);
-    expect(dashboard.krippendorffAlphaNominal).toBe(0);
+    expect(dashboard.meanPairwiseKappa).toBeNull();
+    expect(dashboard.krippendorffAlphaNominal).toBeNull();
     expect(reliabilityDashboardToReview(dashboard).status).toBe("not-documented");
   });
 
@@ -335,7 +417,7 @@ describe("SENA coding reliability diagnostics", () => {
     ]);
     expect(prepared.inputFiles[0].size).toBeGreaterThan(0);
     expect(prepared.dashboard).toEqual(expect.objectContaining({
-      schemaVersion: "sena-coding-reliability-dashboard/v1",
+      schemaVersion: "sena-coding-reliability-dashboard/v2",
       coderCount: 2,
       codeCount: 2,
       disagreementCount: 2
@@ -344,6 +426,39 @@ describe("SENA coding reliability diagnostics", () => {
       reviewer: "JSON reviewer",
       agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal"
     }));
+  });
+
+  it("fingerprints Unicode JSON row keys in canonical code-unit order", () => {
+    const row = {
+      "ä": "last-by-code-unit",
+      z: "before-umlaut",
+      coder_id: "coder-z",
+      item_id: "u1",
+      code_id: "Evidence",
+      value: "1"
+    };
+    const prepared = prepareSenaReliabilityJsonRequest({
+      sourceName: "unicode-row.json",
+      annotations: [row]
+    });
+    const stable = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+      if (value && typeof value === "object") {
+        return `{${Object.entries(value as Record<string, unknown>)
+          .sort(([left], [right]) => left === right ? 0 : left < right ? -1 : 1)
+          .map(([key, entry]) => `${JSON.stringify(key)}:${stable(entry)}`)
+          .join(",")}}`;
+      }
+      return JSON.stringify(value);
+    };
+    const expectedBody = stable({
+      schemaVersion: "sena-reliability-json-source/v1",
+      name: "unicode-row.json",
+      rows: [row]
+    });
+
+    expect(prepared.inputFiles[0].sha256)
+      .toBe(createHash("sha256").update(expectedBody).digest("hex"));
   });
 
   it("computes canonical Krippendorff nominal alpha with the n(n-1) correction", () => {

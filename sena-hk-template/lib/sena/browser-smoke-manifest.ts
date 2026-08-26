@@ -40,7 +40,12 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       enterpriseApi: {
         exportName: "verifySenaEnterpriseApiBrowserSmoke",
         label: "Verify enterprise API browser smoke",
-        env: ["SENA_PROVISIONING_TOKEN"],
+        env: [
+          "SENA_PROVISIONING_TOKEN",
+          "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+          "SENA_EXPERT_REVIEW_SIGNING_KEY_ID",
+          "SENA_ENTERPRISE_API_BROWSER_SMOKE_EXPECTED_RECEIPT_KEY_ID"
+        ],
         provisioningTokenFallback: "sena-pilot-provisioning-token"
       },
       rbacCollaboration: {
@@ -107,15 +112,39 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "/api/auth/csrf",
       "/api/sena/ops/platform-decisions",
       "/api/sena/import",
+      "/api/sena/analyze",
+      "/api/sena/projects/${projectId}",
+      "/api/sena/reliability",
+      "/api/sena/validation/group-comparison",
+      "/api/sena/validation/expert-review",
+      "/api/sena/validation/claim-package",
       "/api/sena/exports/publication"
     ],
     scimExtensionSchema: "urn:sena:params:scim:schemas:extension:identity-production:2.0:ServiceProviderConfig",
     schemaVersions: [
+      SENA_SCHEMA_VERSIONS.scimServiceProviderConfig,
       SENA_SCHEMA_VERSIONS.scimIdentityProductionGate,
       SENA_SCHEMA_VERSIONS.enterpriseIdentityProductionEvidence,
       SENA_SCHEMA_VERSIONS.enterpriseIdentitySubmissionMatrix,
       SENA_SCHEMA_VERSIONS.enterpriseIdentityOwnerRunbook,
-      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist
+      SENA_SCHEMA_VERSIONS.enterpriseIdentityCutoverChecklist,
+      SENA_SCHEMA_VERSIONS.enterpriseCsrfToken,
+      SENA_SCHEMA_VERSIONS.enterpriseImport,
+      SENA_SCHEMA_VERSIONS.projectSnapshot,
+      SENA_SCHEMA_VERSIONS.project,
+      SENA_SCHEMA_VERSIONS.analysisRun,
+      SENA_SCHEMA_VERSIONS.reliabilityResponse,
+      SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+      SENA_SCHEMA_VERSIONS.reliabilityRunReview,
+      SENA_SCHEMA_VERSIONS.groupComparisonSuite,
+      SENA_SCHEMA_VERSIONS.validationRunReview,
+      SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence,
+      SENA_SCHEMA_VERSIONS.expertReviewResponse,
+      SENA_SCHEMA_VERSIONS.enterpriseExpertReviewReceipt,
+      SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage,
+      SENA_SCHEMA_VERSIONS.publicationStateBinding,
+      SENA_SCHEMA_VERSIONS.publicationDerivationManifest,
+      SENA_SCHEMA_VERSIONS.publicationPackage
     ],
     headers: [
       "x-sena-scim-production-owner-gate",
@@ -123,19 +152,57 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "x-sena-identity-owner-runbook-digest",
       "x-sena-identity-owner-runbook-blocking",
       "x-sena-identity-owner-runbook-preflight-checks",
+      "x-sena-identity-owner-runbook-submission-steps",
+      "x-sena-identity-owner-runbook-receipt-archive-steps",
       "x-sena-auth-membership-role",
       "x-sena-import-run-id",
       "x-sena-project-id",
+      "x-sena-project-version",
+      "x-sena-project-snapshot-sha256",
       "x-sena-analysis-run-id",
+      "x-sena-report-sha256",
       "x-sena-import-profiles",
+      "x-sena-reliability-run-id",
+      "x-sena-reliability-status",
+      "x-sena-reliability-coverage-rate",
+      "x-sena-unresolved-disagreements",
+      "x-sena-validation-run-id",
+      "x-sena-validation-status",
+      "x-sena-validation-parity-status",
+      "x-sena-validation-preregistration-sha256",
+      "x-sena-formal-inference-status",
+      "x-sena-expert-review-id",
+      "x-sena-expert-review-status",
+      "x-sena-expert-review-claim-scope",
+      "x-sena-expert-review-target-id",
+      "x-sena-expert-review-receipt-present",
+      "x-sena-expert-review-receipt-key-id",
+      "x-sena-expert-review-receipt-sha256",
+      "x-sena-claim-package-status",
+      "x-sena-claim-package-sha256",
+      "x-sena-source-snapshot-sha256",
+      "x-sena-persisted-source-snapshot-sha256",
+      "x-sena-claim-state-revision-sha256",
+      "x-sena-publication-reliability-run-id",
+      "x-sena-publication-derivation-manifest-sha256",
+      "x-sena-read-projection-source-snapshot-sha256",
+      "x-sena-validation-evidence-sha256",
+      "x-sena-expert-receipt-sha256",
+      "x-sena-expert-receipt-key-id",
+      "x-sena-publication-state-revision-sha256",
+      "x-sena-publication-state-binding-sha256",
       "x-sena-publication-package-sha256",
-      "x-sena-publication-formats"
+      "x-sena-publication-artifact-count",
+      "x-sena-publication-formats",
+      "x-sena-publication-verification-status",
+      "x-sena-observed-status-class"
     ],
     expectedRoleEvidence: "Expected owner registration role",
     requestBindings: [
       "{ requiredFormats: requiredPublicationFormats, teamId, provisioningToken }",
       "provisioningToken: bearerToken",
-      "Bearer ${bearerToken}"
+      "Bearer ${bearerToken}",
+      "expectedReceiptKeyId: expertReviewSigningKeyId"
     ],
     evidenceFields: [
       "identityProductionEvidence",
@@ -148,7 +215,17 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "platformRequestPacket.summary.blockingRequests",
       "submissionVerifier.summary.incompleteDecisions",
       "cutoverChecklist",
-      "cutoverChecklist.summary.blockingItems"
+      "cutoverChecklist.summary.blockingItems",
+      "evidence.reliability",
+      "evidence.validation",
+      "evidence.expertReview",
+      "expertReview.evidenceReceipt.keyId",
+      "projectBeforePublication",
+      "projectAfterPublication",
+      "claimPackageAfterPublication",
+      "stateBinding.stateRevisionSha256",
+      "stateBinding.bindingSha256",
+      "derivationManifest.hashBoundaries"
     ],
     cutoverItems: [
       "idp-tenant-approval",
@@ -156,9 +233,33 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
       "scim-idp-ownership",
       "identity-secret-rotation"
     ],
-    importProfiles: ["cleaned-transcript"],
+    importProfiles: ["sena-contract", "cleaned-transcript"],
+    expectedImportStatus: "completed",
+    expectedImportWarnings: [],
+    expectedImportedDatasetCounts: {
+      people: 4,
+      interactions: 3,
+      utterances: 8,
+      codedSegments: 8,
+      codes: 4
+    },
+    expertReviewReceipt: {
+      signingMode: "ephemeral-verifier-env",
+      keyIdPrefix: "sena-pilot-smoke-"
+    },
+    serverCustody: {
+      mode: "verifier-controlled-loopback-temporary-server",
+      invocation: "pilot-wrapper-only",
+      allowedHostnames: ["127.0.0.1", "[::1]", "localhost"]
+    },
+    claimStatuses: {
+      persistedPrepublication: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      derivedPublication: "claim-ready-with-limits"
+    },
+    publicationBlockedCode: "publication_claim_evidence_not_ready",
     publicationPackageFormat: "package",
-    publicationFormats: ["svg", "png", "xlsx", "docx", "pdf"],
+    publicationFormats: ["svg", "png", "html", "xlsx", "docx", "pdf"],
     formActionField: "action",
     createProjectAction: "create-project",
     redactionFlags: ["secretValuesExcluded", "evidenceUrlValuesExcluded"]
@@ -206,24 +307,32 @@ export const SENA_BROWSER_SMOKE_MANIFEST = {
   },
   validationClaim: {
     routes: [
+      "/api/sena/analyze",
       "/api/sena/validation/group-comparison",
       "/api/sena/validation/expert-review",
       "/api/sena/validation/claim-package"
     ],
     schemaVersions: [
+      SENA_SCHEMA_VERSIONS.analysisRun,
       SENA_SCHEMA_VERSIONS.groupComparisonSuite,
       SENA_SCHEMA_VERSIONS.validationRunReview,
       SENA_SCHEMA_VERSIONS.expertReviewResponse,
       SENA_SCHEMA_VERSIONS.enterpriseClaimEvidencePackage
     ],
     headers: [
+      "x-sena-analysis-run-id",
+      "x-sena-project-version",
       "x-sena-validation-run-id",
       "x-sena-validation-preregistration-sha256",
       "x-sena-validation-parity-status",
       "x-sena-formal-inference-status",
       "x-sena-expert-review-id"
     ],
-    claimStatuses: ["claim-ready-with-limits"],
+    claimStatuses: {
+      persistedRead: "exploratory-only",
+      permittedPersistedBlockers: ["project-claim-readiness-required"],
+      approvedExpertScope: "claim-ready-with-limits"
+    },
     evidencePaths: ["evidence.validation", "evidence.expertReview"],
     artifacts: [
       "validation-preregistration-plan",

@@ -181,11 +181,29 @@ function staticWorkspaceConfigSource() {
   return readFileSync(new URL("../../../components/sena/workspace/workspace-static-config.tsx", import.meta.url), "utf8");
 }
 
+function analysisRuntimeSource() {
+  return readFileSync(new URL("../../../components/sena/workspace/analysis-runtime.ts", import.meta.url), "utf8");
+}
+
 function enterpriseRuntimePanelSource() {
   return readFileSync(new URL("../../../components/sena/workspace/enterprise-runtime-panel.tsx", import.meta.url), "utf8");
 }
 
 describe("SENA workspace module boundaries", () => {
+  it("keeps server-side snapshot restore validators out of the client-safe analysis adapter", () => {
+    const source = analysisRuntimeSource();
+
+    expect(source).not.toContain("importSenaProjectSnapshot");
+    expect(source).not.toContain("importSenaReviewPacket");
+  });
+
+  it("keeps the browser workbook adapter independent of the Node Buffer polyfill", () => {
+    const source = readFileSync(new URL("../excel-workbook.ts", import.meta.url), "utf8");
+
+    expect(source).not.toMatch(/from\s+["'](?:node:)?buffer["']/);
+    expect(source).not.toMatch(/\bBuffer\s*\./);
+  });
+
   it("declares the main workspace container boundaries as typed manifest data", () => {
     expect(SENA_WORKSPACE_MODULE_BOUNDARIES.container).toMatchObject({
       id: "SenaFusionWorkspace",
@@ -954,6 +972,8 @@ describe("SENA workspace module boundaries", () => {
     expect(publicationHookSource).toContain("export function useEnterprisePublicationActions");
     expect(publicationHookSource).toContain("exportEnterprisePublicationAction");
     expect(publicationHookSource).toContain("Sign in before using enterprise publication exports.");
+    expect(publicationHookSource).toContain("Save or open a server-side project before using enterprise publication exports.");
+    expect(publicationHookSource).not.toContain("buildCurrentProjectSnapshot");
     expect(publicationHookSource).toContain("URL.createObjectURL");
     expect(publicationHookSource).toContain("document.createElement(\"a\")");
     expect(publicationHookSource).toContain("exported from the enterprise publication API");
@@ -966,7 +986,7 @@ describe("SENA workspace module boundaries", () => {
     });
     expect(publicationHook.containerResponsibilities).toEqual([
       "own enterprise publication export callbacks",
-      "keep publication export action calls, Blob download binding, snapshot fallback binding, and publication status messages outside the main workspace container"
+      "keep project-bound publication export calls, Blob download binding, and publication status messages outside the main workspace container"
     ]);
   });
 
@@ -1250,6 +1270,10 @@ describe("SENA workspace module boundaries", () => {
     expect(restoreHookSource).toContain("snapshot.reproducibility.buildOptions");
     expect(restoreHookSource).toContain("snapshot.source.sourceDataset ?? snapshot.dataset");
     expect(restoreHookSource).toContain("project snapshot restored");
+    expect(restoreHookSource).not.toContain('import { importSenaProjectSnapshot } from "./analysis-runtime"');
+    expect(restoreHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(restoreHookSource).toContain("requestSenaSnapshotRestore");
+    expect(restoreHookSource).toContain("restoreValidatedProjectSnapshot");
     expect(workspaceSource).not.toContain("function restoreProjectSnapshot");
     expect(workspaceSource).not.toContain("snapshot.reproducibility.buildOptions");
     expect(workspaceSource).not.toContain("project snapshot restored");
@@ -1260,6 +1284,31 @@ describe("SENA workspace module boundaries", () => {
       "own snapshot dataset, build options, review, reliability, governance, manual-review, selection, temporal-window, and import-message state restoration",
       "keep project snapshot restore state hydration outside the main workspace container while enterprise import and project hooks share one restore callback"
     ]);
+  });
+
+  it("keeps snapshot and review-packet validators behind a stateless server boundary", () => {
+    const uploadHookPath = new URL("../../../components/sena/workspace/use-contract-upload-action.ts", import.meta.url);
+    const uploadHookSource = existsSync(uploadHookPath) ? readFileSync(uploadHookPath, "utf8") : "";
+    const restoreHookPath = new URL("../../../components/sena/workspace/use-project-snapshot-restore-action.ts", import.meta.url);
+    const restoreHookSource = existsSync(restoreHookPath) ? readFileSync(restoreHookPath, "utf8") : "";
+    const restoreRoutePath = new URL("../../../app/api/sena/snapshot/restore/route.ts", import.meta.url);
+    const restoreRouteSource = existsSync(restoreRoutePath) ? readFileSync(restoreRoutePath, "utf8") : "";
+    const restoreRuntimePath = new URL("../snapshot-restore.ts", import.meta.url);
+    const restoreRuntimeSource = existsSync(restoreRuntimePath) ? readFileSync(restoreRuntimePath, "utf8") : "";
+
+    expect(uploadHookSource).not.toContain("  importSenaProjectSnapshot,\n");
+    expect(uploadHookSource).not.toContain("  importSenaReviewPacket,\n");
+    expect(uploadHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(uploadHookSource).not.toContain('import("@/lib/sena/review-packet")');
+    expect(restoreHookSource).not.toContain('import("@/lib/sena/snapshot")');
+    expect(uploadHookSource).toContain("requestSenaSnapshotRestore");
+    expect(restoreHookSource).toContain("requestSenaSnapshotRestore");
+    expect(uploadHookSource).toContain("await restoreProjectSnapshot(");
+    expect(restoreRouteSource).toContain('from "@/lib/sena/snapshot-restore"');
+    expect(restoreRuntimeSource).toContain('from "./project-handoff"');
+    expect(restoreRuntimeSource).toContain('from "./review-packet"');
+    expect(restoreRuntimeSource).toContain('persisted: false');
+    expect(restoreRuntimeSource).toContain('audited: false');
   });
 
   it("keeps current project snapshot builder in a focused runtime hook", () => {
@@ -1465,6 +1514,10 @@ describe("SENA workspace module boundaries", () => {
   it("keeps enterprise validation callbacks in a focused runtime hook", () => {
     const validationHookPath = new URL("../../../components/sena/workspace/use-enterprise-validation-actions.ts", import.meta.url);
     const validationHookSource = existsSync(validationHookPath) ? readFileSync(validationHookPath, "utf8") : "";
+    const inferenceClientPath = new URL("../inference-client.ts", import.meta.url);
+    const inferenceClientSource = existsSync(inferenceClientPath) ? readFileSync(inferenceClientPath, "utf8") : "";
+    const inferencePath = new URL("../inference.ts", import.meta.url);
+    const inferenceSource = existsSync(inferencePath) ? readFileSync(inferencePath, "utf8") : "";
     const workspaceSource = workspaceContainerSource();
     const validationHook = boundaryModule("use-enterprise-validation-actions" as SenaWorkspaceBoundaryModuleId);
 
@@ -1474,6 +1527,12 @@ describe("SENA workspace module boundaries", () => {
     expect(validationHookSource).toContain("runValidationComparisonLocally");
     expect(validationHookSource).toContain("reviewEnterpriseValidationRun");
     expect(validationHookSource).toContain("buildLocalValidationPreregistrationPlan");
+    expect(validationHookSource).toContain("import(\"@/lib/sena/inference-client\")");
+    expect(existsSync(inferenceClientPath)).toBe(true);
+    expect(inferenceClientSource).toContain("buildSenaGroupComparison");
+    expect(inferenceClientSource).toContain("buildSenaGroupComparisonSuite");
+    expect(inferenceClientSource).not.toMatch(/from\s+["']node:/);
+    expect(inferenceSource).not.toMatch(/from\s+["']node:/);
     expect(workspaceSource).not.toContain("Choose two different groups or roles before running validation.");
     expect(workspaceSource).not.toContain("Local group-comparison validation calculated without sign-in:");
     expect(workspaceSource).not.toContain("Validation run ${payload.validationRun?.id ?? \"local\"} saved:");

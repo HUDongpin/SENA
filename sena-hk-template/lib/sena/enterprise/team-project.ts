@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { canonicalSenaJson } from "../canonical-json";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { importSenaProjectSnapshot } from "../snapshot";
 import type { SenaProjectSnapshot } from "../types";
 import {
   requireEnterprisePermission,
@@ -46,11 +48,26 @@ export type SenaEnterpriseProjectRevision = {
   userId: string;
   version: number;
   summary: string;
+  /** Present on current revisions; absent legacy rows retain snapshot-only restore semantics. */
+  title?: string;
+  /** Present on current revisions; absent legacy rows retain snapshot-only restore semantics. */
+  description?: string;
   snapshot: SenaProjectSnapshot;
   datasetCounts: SenaEnterpriseProject["datasetCounts"];
   activeWindowLabel: string;
   claimUse: string;
   createdAt: string;
+};
+
+/**
+ * Immutable analytical-revision identity captured by enterprise evidence records.
+ * The field remains optional on persisted evidence types so historical records can
+ * still be read, but an absent or stale binding is never claim-ready.
+ */
+export type SenaEnterpriseProjectEvidenceBinding = {
+  projectId: string;
+  projectVersion: number;
+  snapshotSha256: string;
 };
 
 export type SenaEnterpriseProjectDeletion = {
@@ -73,6 +90,29 @@ function id(prefix: string) {
 
 function artifactSha256(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function enterpriseProjectBindingSnapshotSha256(snapshot: SenaProjectSnapshot) {
+  return createHash("sha256").update(canonicalSenaJson(snapshot) ?? "null").digest("hex");
+}
+
+export function buildEnterpriseProjectEvidenceBinding(
+  project: Pick<SenaEnterpriseProject, "id" | "currentVersion" | "snapshot">
+): SenaEnterpriseProjectEvidenceBinding {
+  return {
+    projectId: project.id,
+    projectVersion: project.currentVersion,
+    snapshotSha256: enterpriseProjectBindingSnapshotSha256(project.snapshot)
+  };
+}
+
+export function enterpriseProjectEvidenceBindingMatches(
+  binding: SenaEnterpriseProjectEvidenceBinding | undefined,
+  project: Pick<SenaEnterpriseProject, "id" | "currentVersion" | "snapshot">
+) {
+  return binding?.projectId === project.id &&
+    binding.projectVersion === project.currentVersion &&
+    binding.snapshotSha256 === enterpriseProjectBindingSnapshotSha256(project.snapshot);
 }
 
 function snapshotCounts(snapshot: SenaProjectSnapshot) {
@@ -99,6 +139,8 @@ function buildProjectRevision(project: SenaEnterpriseProject, userId: string, ve
     userId,
     version,
     summary: summary?.trim() || revisionSummary(project.snapshot),
+    title: project.title,
+    description: project.description,
     snapshot: project.snapshot,
     datasetCounts: project.datasetCounts,
     activeWindowLabel: project.activeWindowLabel,
@@ -148,6 +190,7 @@ export function createEnterpriseProject(context: SenaEnterpriseSessionContext, i
   snapshot: SenaProjectSnapshot;
 }) {
   requireEnterprisePermission(context, input.teamId, "project:create");
+  const snapshot = importSenaProjectSnapshot(input.snapshot);
   const db = readEnterpriseDb();
   const timestamp = now();
   const project: SenaEnterpriseProject = {
@@ -155,12 +198,12 @@ export function createEnterpriseProject(context: SenaEnterpriseSessionContext, i
     teamId: input.teamId,
     ownerId: context.user.id,
     currentVersion: 1,
-    title: input.title.trim() || input.snapshot.title || "Untitled SENA Project",
+    title: input.title.trim() || snapshot.title || "Untitled SENA Project",
     description: input.description?.trim() ?? "",
-    snapshot: input.snapshot,
-    datasetCounts: snapshotCounts(input.snapshot),
-    activeWindowLabel: input.snapshot.source.activeTemporalWindow?.label ?? "Full conversation",
-    claimUse: input.snapshot.report.claimReadinessGate.claimUse,
+    snapshot,
+    datasetCounts: snapshotCounts(snapshot),
+    activeWindowLabel: snapshot.source.activeTemporalWindow?.label ?? "Full conversation",
+    claimUse: snapshot.report.claimReadinessGate.claimUse,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -184,6 +227,7 @@ export async function createEnterpriseProjectAsync(context: SenaEnterpriseSessio
   snapshot: SenaProjectSnapshot;
 }) {
   requireEnterprisePermission(context, input.teamId, "project:create");
+  const snapshot = importSenaProjectSnapshot(input.snapshot);
   const state = await readEnterpriseState();
   const db = state.db;
   const timestamp = now();
@@ -192,12 +236,12 @@ export async function createEnterpriseProjectAsync(context: SenaEnterpriseSessio
     teamId: input.teamId,
     ownerId: context.user.id,
     currentVersion: 1,
-    title: input.title.trim() || input.snapshot.title || "Untitled SENA Project",
+    title: input.title.trim() || snapshot.title || "Untitled SENA Project",
     description: input.description?.trim() ?? "",
-    snapshot: input.snapshot,
-    datasetCounts: snapshotCounts(input.snapshot),
-    activeWindowLabel: input.snapshot.source.activeTemporalWindow?.label ?? "Full conversation",
-    claimUse: input.snapshot.report.claimReadinessGate.claimUse,
+    snapshot,
+    datasetCounts: snapshotCounts(snapshot),
+    activeWindowLabel: snapshot.source.activeTemporalWindow?.label ?? "Full conversation",
+    claimUse: snapshot.report.claimReadinessGate.claimUse,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -247,6 +291,73 @@ export async function getEnterpriseProjectAsync(context: SenaEnterpriseSessionCo
   return project;
 }
 
+/**
+ * Resolves a project and enforces tenant read permission without appending the
+ * audited `project.read` event or writing enterprise state. Resource-admission
+ * paths use this lookup before they know a request is safe to execute.
+ */
+export async function getEnterpriseProjectReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  return project;
+}
+
+/**
+ * Resolves the immutable project revision named by a queued analytical job.
+ * The active project and retained revision come from one primary-state read;
+ * duplicate exact versions are rejected instead of choosing an arbitrary row.
+ */
+export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  version: number
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.version === version
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    // Legacy revisions did not persist project metadata. Their snapshot is the
+    // only immutable title-bearing carrier; current mutable metadata must never
+    // be projected backward into an historical analytical source.
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
 export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, projectId: string, input: {
   title?: string;
   description?: string;
@@ -258,13 +369,19 @@ export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, p
   if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
   requireEnterprisePermission(context, project.teamId, "project:update");
   assertEnterpriseProjectExpectedVersion(project, input.expectedVersion);
-  if (input.title !== undefined) project.title = input.title.trim() || project.title;
-  if (input.description !== undefined) project.description = input.description.trim();
-  if (input.snapshot) {
-    project.snapshot = input.snapshot;
-    project.datasetCounts = snapshotCounts(input.snapshot);
-    project.activeWindowLabel = input.snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
-    project.claimUse = input.snapshot.report.claimReadinessGate.claimUse;
+  const snapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : undefined;
+  const nextTitle = input.title === undefined ? project.title : input.title.trim() || project.title;
+  const nextDescription = input.description === undefined ? project.description : input.description.trim();
+  const metadataChanged = nextTitle !== project.title || nextDescription !== project.description;
+  project.title = nextTitle;
+  project.description = nextDescription;
+  if (snapshot) {
+    project.snapshot = snapshot;
+    project.datasetCounts = snapshotCounts(snapshot);
+    project.activeWindowLabel = snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
+    project.claimUse = snapshot.report.claimReadinessGate.claimUse;
+  }
+  if (snapshot || metadataChanged) {
     project.currentVersion += 1;
     db.projectRevisions.push(buildProjectRevision(project, context.user.id, project.currentVersion));
   }
@@ -292,13 +409,19 @@ export async function updateEnterpriseProjectAsync(context: SenaEnterpriseSessio
   if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
   requireEnterprisePermission(context, project.teamId, "project:update");
   assertEnterpriseProjectExpectedVersion(project, input.expectedVersion);
-  if (input.title !== undefined) project.title = input.title.trim() || project.title;
-  if (input.description !== undefined) project.description = input.description.trim();
-  if (input.snapshot) {
-    project.snapshot = input.snapshot;
-    project.datasetCounts = snapshotCounts(input.snapshot);
-    project.activeWindowLabel = input.snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
-    project.claimUse = input.snapshot.report.claimReadinessGate.claimUse;
+  const snapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : undefined;
+  const nextTitle = input.title === undefined ? project.title : input.title.trim() || project.title;
+  const nextDescription = input.description === undefined ? project.description : input.description.trim();
+  const metadataChanged = nextTitle !== project.title || nextDescription !== project.description;
+  project.title = nextTitle;
+  project.description = nextDescription;
+  if (snapshot) {
+    project.snapshot = snapshot;
+    project.datasetCounts = snapshotCounts(snapshot);
+    project.activeWindowLabel = snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
+    project.claimUse = snapshot.report.claimReadinessGate.claimUse;
+  }
+  if (snapshot || metadataChanged) {
     project.currentVersion += 1;
     db.projectRevisions.push(buildProjectRevision(project, context.user.id, project.currentVersion));
   }
@@ -330,14 +453,24 @@ export function restoreEnterpriseProjectRevision(context: SenaEnterpriseSessionC
       ? db.projectRevisions.find((revision) => revision.projectId === projectId && revision.version === input.version)
       : undefined;
   if (!targetRevision) throw new SenaEnterpriseError("Project revision was not found.", 404, "project_revision_not_found");
+  if (targetRevision.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Project revision failed team ownership validation.",
+      409,
+      "project_revision_integrity_invalid"
+    );
+  }
   if (targetRevision.version === project.currentVersion) {
     throw new SenaEnterpriseError("The selected revision is already the current project version.", 409, "project_revision_already_current");
   }
+  const restoredSnapshot = importSenaProjectSnapshot(targetRevision.snapshot);
   const previousVersion = project.currentVersion;
-  project.snapshot = targetRevision.snapshot;
-  project.datasetCounts = snapshotCounts(targetRevision.snapshot);
-  project.activeWindowLabel = targetRevision.activeWindowLabel;
-  project.claimUse = targetRevision.claimUse;
+  if (targetRevision.title !== undefined) project.title = targetRevision.title;
+  if (targetRevision.description !== undefined) project.description = targetRevision.description;
+  project.snapshot = restoredSnapshot;
+  project.datasetCounts = snapshotCounts(restoredSnapshot);
+  project.activeWindowLabel = restoredSnapshot.source.activeTemporalWindow?.label ?? "Full conversation";
+  project.claimUse = restoredSnapshot.report.claimReadinessGate.claimUse;
   project.currentVersion += 1;
   project.updatedAt = now();
   const restoredRevision = buildProjectRevision(
@@ -394,14 +527,24 @@ export async function restoreEnterpriseProjectRevisionAsync(context: SenaEnterpr
       ? db.projectRevisions.find((revision) => revision.projectId === projectId && revision.version === input.version)
       : undefined;
   if (!targetRevision) throw new SenaEnterpriseError("Project revision was not found.", 404, "project_revision_not_found");
+  if (targetRevision.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Project revision failed team ownership validation.",
+      409,
+      "project_revision_integrity_invalid"
+    );
+  }
   if (targetRevision.version === project.currentVersion) {
     throw new SenaEnterpriseError("The selected revision is already the current project version.", 409, "project_revision_already_current");
   }
+  const restoredSnapshot = importSenaProjectSnapshot(targetRevision.snapshot);
   const previousVersion = project.currentVersion;
-  project.snapshot = targetRevision.snapshot;
-  project.datasetCounts = snapshotCounts(targetRevision.snapshot);
-  project.activeWindowLabel = targetRevision.activeWindowLabel;
-  project.claimUse = targetRevision.claimUse;
+  if (targetRevision.title !== undefined) project.title = targetRevision.title;
+  if (targetRevision.description !== undefined) project.description = targetRevision.description;
+  project.snapshot = restoredSnapshot;
+  project.datasetCounts = snapshotCounts(restoredSnapshot);
+  project.activeWindowLabel = restoredSnapshot.source.activeTemporalWindow?.label ?? "Full conversation";
+  project.claimUse = restoredSnapshot.report.claimReadinessGate.claimUse;
   project.currentVersion += 1;
   project.updatedAt = now();
   const restoredRevision = buildProjectRevision(

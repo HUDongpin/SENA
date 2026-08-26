@@ -1,4 +1,5 @@
 import type { SenaAnalysisRunInput } from "./analysis-run";
+import { SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY } from "./analysis-queue-command";
 import type { SenaEnterpriseServerJobPayloadSummary } from "./enterprise/server-job-queue";
 
 export type SenaAnalysisApiBody = Record<string, unknown>;
@@ -38,11 +39,17 @@ export type SenaAnalysisQueueJobInput = {
 };
 
 function optionalString(value: unknown) {
-  return value ? String(value) : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 function optionalNumber(value: unknown) {
   return value === undefined ? undefined : Number(value);
+}
+
+export function sanitizeSenaClientCodingReliability(value: unknown): SenaAnalysisRunInput["codingReliability"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const { machineEvidence: _untrustedMachineEvidence, ...documentation } = value as Record<string, unknown>;
+  return documentation as SenaAnalysisRunInput["codingReliability"];
 }
 
 function analysisSource(body: SenaAnalysisApiBody, sourceProject: SenaAnalysisApiProjectSource | null) {
@@ -71,11 +78,11 @@ export function buildSenaAnalysisRunRequestInput(input: {
     snapshot: sourceProject?.snapshot ?? body.snapshot,
     dataset: body.dataset,
     buildOptions: body.buildOptions as SenaAnalysisRunInput["buildOptions"],
-    title: optionalString(body.title) ?? sourceProject?.title,
+    title: optionalString(body.title) ?? optionalString(body.sourceTitle) ?? sourceProject?.title,
     activeTemporalWindowId: optionalString(body.activeTemporalWindowId),
     includeRuntimeBundle: body.includeRuntimeBundle === true,
     humanReview: body.humanReview as SenaAnalysisRunInput["humanReview"],
-    codingReliability: body.codingReliability as SenaAnalysisRunInput["codingReliability"],
+    codingReliability: sanitizeSenaClientCodingReliability(body.codingReliability),
     dataGovernance: body.dataGovernance as SenaAnalysisRunInput["dataGovernance"]
   };
 }
@@ -92,6 +99,9 @@ export function buildSenaAnalysisQueueJobInput(input: {
   const includeRuntimeBundle = body.includeRuntimeBundle === true;
   const persist = body.persist === true;
   const updateProject = body.updateProject !== false;
+  const expectedVersion = optionalNumber(body.expectedVersion);
+  const title = optionalString(body.title);
+  const description = optionalString(body.description);
 
   return {
     kind: "analysis",
@@ -100,19 +110,22 @@ export function buildSenaAnalysisQueueJobInput(input: {
     actorUserId: input.actorUserId,
     payload: {
       action: "run-analysis",
+      commandCustody: SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
       teamId: input.teamId,
       projectId: sourceProject?.id,
       projectVersion: sourceProject?.currentVersion,
-      title: optionalString(body.title) ?? sourceProject?.title,
+      ...(sourceProject?.title !== undefined ? { sourceTitle: sourceProject.title } : {}),
+      ...(title !== undefined ? { title } : {}),
+      ...(description !== undefined ? { description } : {}),
       activeTemporalWindowId,
       buildOptions: body.buildOptions,
       includeRuntimeBundle,
       humanReview: body.humanReview,
-      codingReliability: body.codingReliability,
+      codingReliability: sanitizeSenaClientCodingReliability(body.codingReliability),
       dataGovernance: body.dataGovernance,
       persist,
       updateProject,
-      expectedVersion: optionalNumber(body.expectedVersion),
+      expectedVersion,
       ...(input.inlinePayloadAllowed ? {
         inlineSnapshot: body.snapshot,
         inlineDataset: body.dataset
@@ -121,6 +134,7 @@ export function buildSenaAnalysisQueueJobInput(input: {
     payloadSummary: {
       source: analysisSource(body, sourceProject),
       projectVersion: sourceProject?.currentVersion,
+      expectedVersion,
       includeRuntimeBundle,
       persist,
       updateProject,

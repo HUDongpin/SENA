@@ -10,6 +10,9 @@ import {
   type SenaEnterpriseServerJobStatusAction
 } from "@/lib/sena/enterprise/server-job-queue";
 import {
+  admitEnterpriseExternalAnalysisClaim
+} from "@/lib/sena/enterprise/server-job-worker-runtime";
+import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
@@ -158,7 +161,10 @@ export async function POST(request: Request) {
       uploadWarnings: body.uploadWarnings === undefined || body.uploadWarnings === null
         ? undefined
         : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>,
-      callerScope
+      callerScope,
+      preclaimAdmission: action === "mark-running"
+        ? admitEnterpriseExternalAnalysisClaim
+        : undefined
     });
     await recordEnterpriseAuditAsync({
       event: "ops.server_job.status",

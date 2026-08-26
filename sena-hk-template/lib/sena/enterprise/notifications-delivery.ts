@@ -26,10 +26,10 @@ import {
   deliverEnterpriseEmailsAsync
 } from "./notifications-email";
 import {
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   readEnterpriseDb,
-  readEnterpriseState,
-  saveDb,
-  saveEnterpriseState
+  readEnterpriseState
 } from "./state";
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseDb } from "./state";
@@ -60,6 +60,9 @@ export type SenaEnterpriseNotificationWebhookDelivery = {
   nextAttemptAt?: string;
   deliveredAt?: string;
   failedAt?: string;
+  dispatchClaimToken?: string;
+  dispatchClaimedAt?: string;
+  dispatchClaimExpiresAt?: string;
 };
 
 export type SenaEnterpriseNotification = {
@@ -304,6 +307,7 @@ async function postNotificationWebhook(notification: SenaEnterpriseNotification,
   const body = JSON.stringify(notificationWebhookPayload(notification, delivery, attempt, generatedAt));
   const headers: Record<string, string> = {
     "content-type": "application/json",
+    "idempotency-key": notification.id,
     "x-sena-webhook-event": "notification.delivery",
     "x-sena-webhook-timestamp": generatedAt,
     "x-sena-notification-id": notification.id
@@ -509,43 +513,155 @@ function markEnterpriseNotificationReadInDb(
 }
 
 export function markEnterpriseNotificationRead(context: SenaEnterpriseSessionContext, notificationId: string) {
-  const db = readEnterpriseDb();
-  const notification = markEnterpriseNotificationReadInDb(context, notificationId, db);
-  saveDb(db);
-  return notification;
+  return mutateEnterpriseDbAtomically((db) => markEnterpriseNotificationReadInDb(context, notificationId, db));
 }
 
 export async function markEnterpriseNotificationReadAsync(context: SenaEnterpriseSessionContext, notificationId: string) {
-  const state = await readEnterpriseState();
-  const notification = markEnterpriseNotificationReadInDb(context, notificationId, state.db);
-  await saveEnterpriseState(state, state.db);
-  return notification;
+  return mutateEnterpriseStateAtomically((db) => markEnterpriseNotificationReadInDb(context, notificationId, db));
 }
 
 export async function deliverEnterpriseNotifications(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string } = {}
 ): Promise<SenaEnterpriseNotificationDeliveryResult> {
-  const db = readEnterpriseDb();
-  const result = await deliverEnterpriseNotificationsFromDb(context, input, db);
-  saveDb(db);
-  return result;
+  return deliverEnterpriseNotificationsAtomically(context, input);
 }
 
 export async function deliverEnterpriseNotificationsAsync(
   context: SenaEnterpriseSessionContext,
   input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string } = {}
 ): Promise<SenaEnterpriseNotificationDeliveryResult> {
-  const state = await readEnterpriseState();
-  const result = await deliverEnterpriseNotificationsFromDb(context, input, state.db);
-  await saveEnterpriseState(state, state.db);
-  return result;
+  return deliverEnterpriseNotificationsAtomically(context, input);
 }
 
-async function deliverEnterpriseNotificationsFromDb(
+type SenaEnterpriseNotificationAttemptResult = {
+  ok: boolean;
+  httpStatus?: number;
+  errorCode?: string;
+  errorHash?: string;
+};
+
+type SenaEnterpriseNotificationDispatchOutcome = {
+  attempted: boolean;
+  status: SenaEnterpriseNotificationWebhookDeliveryStatus;
+  errorCode?: string;
+};
+
+function applyNotificationDeliveryAttempt(
+  db: SenaEnterpriseDb,
+  notification: SenaEnterpriseNotification,
+  attemptResult: SenaEnterpriseNotificationAttemptResult,
+  attemptedAt: string,
+  actorUserId: string
+) {
+  const delivery = notification.webhookDelivery!;
+  delivery.attempts += 1;
+  delivery.lastAttemptAt = attemptedAt;
+  delivery.lastStatus = attemptResult.httpStatus;
+  delivery.lastErrorCode = attemptResult.errorCode;
+  delivery.lastErrorHash = attemptResult.errorHash;
+
+  if (attemptResult.ok) {
+    delivery.status = "delivered";
+    delivery.deliveredAt = attemptedAt;
+    delete delivery.nextAttemptAt;
+    delete delivery.failedAt;
+  } else if (delivery.attempts >= delivery.maxAttempts) {
+    delivery.status = "failed";
+    delivery.failedAt = attemptedAt;
+    delete delivery.nextAttemptAt;
+  } else {
+    delivery.status = "pending";
+    delivery.nextAttemptAt = webhookRetryAt(delivery.attempts);
+  }
+
+  appendAudit(db, {
+    event: attemptResult.ok ? "notification.webhook.deliver" : "notification.webhook.fail",
+    userId: actorUserId,
+    teamId: notification.teamId,
+    projectId: notification.projectId,
+    detail: {
+      notificationId: notification.id,
+      kind: notification.kind,
+      provider: delivery.provider,
+      endpointHash: delivery.endpointHash,
+      attempts: delivery.attempts,
+      status: delivery.status,
+      httpStatus: delivery.lastStatus ?? null,
+      errorCode: delivery.lastErrorCode ?? null
+    }
+  });
+  return delivery.status;
+}
+
+async function dispatchEnterpriseNotificationByIdAtomically(
+  notificationId: string,
+  input: { force: boolean; actorUserId: string }
+): Promise<SenaEnterpriseNotificationDispatchOutcome> {
+  const claimToken = randomBytes(24).toString("hex");
+  const claimedAt = now();
+  const claimTtlMs = Math.max(30_000, notificationWebhookTimeoutMs() + 10_000);
+  const claim = await mutateEnterpriseStateAtomically((db) => {
+    const notification = db.notifications.find((candidate) => candidate.id === notificationId);
+    if (!notification) {
+      return { ready: false as const, outcome: { attempted: false, status: "failed" as const, errorCode: "notification_not_found" } };
+    }
+    const delivery = ensureNotificationWebhookDelivery(notification);
+    if (!delivery) {
+      return { ready: false as const, outcome: { attempted: false, status: "failed" as const, errorCode: "notification_provider_not_configured" } };
+    }
+    if (delivery.status === "delivered") {
+      return { ready: false as const, outcome: { attempted: false, status: "delivered" as const } };
+    }
+    if (delivery.dispatchClaimToken && delivery.dispatchClaimExpiresAt &&
+      Date.parse(delivery.dispatchClaimExpiresAt) > Date.now()) {
+      return { ready: false as const, outcome: { attempted: false, status: delivery.status, errorCode: "notification_delivery_claimed" } };
+    }
+    if (delivery.attempts >= delivery.maxAttempts) {
+      return { ready: false as const, outcome: { attempted: false, status: delivery.status, errorCode: "max_attempts_exhausted" } };
+    }
+    if (!input.force && delivery.nextAttemptAt && Date.parse(delivery.nextAttemptAt) > Date.now()) {
+      return { ready: false as const, outcome: { attempted: false, status: delivery.status, errorCode: "retry_not_due" } };
+    }
+    delivery.dispatchClaimToken = claimToken;
+    delivery.dispatchClaimedAt = claimedAt;
+    delivery.dispatchClaimExpiresAt = new Date(Date.parse(claimedAt) + claimTtlMs).toISOString();
+    return { ready: true as const, notification: structuredClone(notification) };
+  });
+  if (!claim.ready) return claim.outcome;
+
+  const provider = notificationWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
+  const delivery = claim.notification.webhookDelivery!;
+  const attemptResult = provider.mode === "local-sink"
+    ? localWebhookSinkAttempt(delivery.endpointHash)
+    : await postNotificationWebhook(claim.notification, delivery);
+  const attemptedAt = now();
+
+  return mutateEnterpriseStateAtomically((db) => {
+    const current = db.notifications.find((candidate) => candidate.id === notificationId);
+    const currentDelivery = current?.webhookDelivery;
+    if (!current || !currentDelivery || currentDelivery.dispatchClaimToken !== claimToken) {
+      return {
+        attempted: false,
+        status: currentDelivery?.status ?? "failed",
+        errorCode: "notification_delivery_claim_lost"
+      } satisfies SenaEnterpriseNotificationDispatchOutcome;
+    }
+    const status = applyNotificationDeliveryAttempt(db, current, attemptResult, attemptedAt, input.actorUserId);
+    delete currentDelivery.dispatchClaimToken;
+    delete currentDelivery.dispatchClaimedAt;
+    delete currentDelivery.dispatchClaimExpiresAt;
+    return {
+      attempted: true,
+      status,
+      errorCode: attemptResult.errorCode
+    } satisfies SenaEnterpriseNotificationDispatchOutcome;
+  });
+}
+
+async function deliverEnterpriseNotificationsAtomically(
   context: SenaEnterpriseSessionContext,
-  input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string },
-  db: SenaEnterpriseDb
+  input: { teamId?: string; limit?: number; force?: boolean; notificationId?: string }
 ): Promise<SenaEnterpriseNotificationDeliveryResult> {
   const provider = notificationWebhookProvider(enterpriseDbPath, isSelfManagedEnterpriseMode());
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200);
@@ -581,17 +697,19 @@ async function deliverEnterpriseNotificationsFromDb(
     return result;
   }
 
+  const state = await readEnterpriseState();
   const teamIdSet = new Set(teamIds);
   const deliveryQueue: SenaEnterpriseNotification[] = [];
   const nowMs = Date.now();
 
-  for (const notification of db.notifications
+  for (const notification of state.db.notifications
     .filter((candidate) => candidate.teamId && teamIdSet.has(candidate.teamId))
     .filter((candidate) => !input.notificationId || candidate.id === input.notificationId)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-    const delivery = ensureNotificationWebhookDelivery(notification);
-    if (!delivery) {
-      result.summary.skipped += 1;
+    const delivery = notification.webhookDelivery;
+    const providerChanged = !delivery || delivery.endpointHash !== provider.endpointHash;
+    if (providerChanged) {
+      deliveryQueue.push(notification);
       continue;
     }
     if (delivery.status === "delivered") {
@@ -606,68 +724,53 @@ async function deliverEnterpriseNotificationsFromDb(
       result.summary.skipped += 1;
       continue;
     }
+    if (delivery.dispatchClaimToken && delivery.dispatchClaimExpiresAt &&
+      Date.parse(delivery.dispatchClaimExpiresAt) > nowMs) {
+      result.summary.skipped += 1;
+      continue;
+    }
     deliveryQueue.push(notification);
   }
 
   const targets = deliveryQueue.slice(0, limit);
   result.summary.skipped += deliveryQueue.length - targets.length;
+  const attemptedIds = new Set<string>();
 
   for (const notification of targets) {
-    const delivery = notification.webhookDelivery!;
-    const attemptResult = provider.mode === "local-sink"
-      ? localWebhookSinkAttempt(delivery.endpointHash)
-      : await postNotificationWebhook(notification, delivery);
-    const attemptedAt = now();
-    delivery.attempts += 1;
-    delivery.lastAttemptAt = attemptedAt;
-    delivery.lastStatus = attemptResult.httpStatus;
-    delivery.lastErrorCode = attemptResult.errorCode;
-    delivery.lastErrorHash = attemptResult.errorHash;
-
-    if (attemptResult.ok) {
-      delivery.status = "delivered";
-      delivery.deliveredAt = attemptedAt;
-      delete delivery.nextAttemptAt;
-      delete delivery.failedAt;
+    const outcome = await dispatchEnterpriseNotificationByIdAtomically(notification.id, {
+      force,
+      actorUserId: context.user.id
+    });
+    if (!outcome.attempted) {
+      result.summary.skipped += 1;
+      continue;
+    }
+    attemptedIds.add(notification.id);
+    if (outcome.status === "delivered") {
       result.summary.delivered += 1;
-    } else if (delivery.attempts >= delivery.maxAttempts) {
-      delivery.status = "failed";
-      delivery.failedAt = attemptedAt;
-      delete delivery.nextAttemptAt;
+    } else if (outcome.status === "failed") {
       result.summary.failed += 1;
     } else {
-      delivery.status = "pending";
-      delivery.nextAttemptAt = webhookRetryAt(delivery.attempts);
       result.summary.pending += 1;
     }
-
     result.summary.attempted += 1;
+  }
+
+  const finalState = await readEnterpriseState();
+  for (const notification of targets) {
+    if (!attemptedIds.has(notification.id)) continue;
+    const current = finalState.db.notifications.find((candidate) => candidate.id === notification.id);
+    const delivery = current?.webhookDelivery;
+    if (!current || !delivery) continue;
     result.notifications.push({
-      notificationId: notification.id,
-      kind: notification.kind,
-      teamId: notification.teamId,
-      projectId: notification.projectId,
+      notificationId: current.id,
+      kind: current.kind,
+      teamId: current.teamId,
+      projectId: current.projectId,
       webhookStatus: delivery.status,
       attempts: delivery.attempts,
       httpStatus: delivery.lastStatus,
       errorCode: delivery.lastErrorCode
-    });
-
-    appendAudit(db, {
-      event: attemptResult.ok ? "notification.webhook.deliver" : "notification.webhook.fail",
-      userId: context.user.id,
-      teamId: notification.teamId,
-      projectId: notification.projectId,
-      detail: {
-        notificationId: notification.id,
-        kind: notification.kind,
-        provider: delivery.provider,
-        endpointHash: delivery.endpointHash,
-        attempts: delivery.attempts,
-        status: delivery.status,
-        httpStatus: delivery.lastStatus ?? null,
-        errorCode: delivery.lastErrorCode ?? null
-      }
     });
   }
 

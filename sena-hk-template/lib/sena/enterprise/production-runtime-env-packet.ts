@@ -594,15 +594,23 @@ export function buildEnterpriseProductionRuntimeEnvPacket(
         "SENA_PERFORMANCE_BUDGET_CONFIRMED",
         "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
         "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
-        "SENA_PERFORMANCE_BUDGET_GIT_DIRTY"
+        "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+        "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
+        "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+        "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+        "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+        "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+        "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE"
       ],
       acceptedAliases: [],
       verifyCommands: [
-        "npm run sena:performance:check -- --output output/production-evidence/performance-budget.json"
+        "npm run build",
+        "SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED=1 npm run sena:performance:check -- --output output/production-evidence/performance-budget.json",
+        `npm run sena:production-evidence:bind -- --artifact output/production-evidence/performance-budget.json --scope ${vercelScopePlaceholder} --yes`
       ],
       nextAction: performanceArchiveValidationReason
-        ? `Run the performance budget against a clean, identified production build before binding the artifact; current archive validation reports ${performanceArchiveValidationReason}.`
-        : "Run the performance budget against a clean, identified production build before binding the artifact."
+        ? `From a clean Git worktree, create a fresh production build, emit a strict performance artifact, and use the binder to remeasure and configure its complete env tuple; runtime readiness fails closed while any key is missing. Current archive validation reports ${performanceArchiveValidationReason}.`
+        : "From a clean Git worktree, create a fresh production build, emit a strict performance artifact, and use the binder to remeasure and configure its complete env tuple; runtime readiness fails closed while any key is missing."
     }),
     providerGroup({
       id: "conference-load-rehearsal",

@@ -1,4 +1,4 @@
-import type { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import type { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 
 export type SenaLayer = "social" | "concept" | "bridge";
 
@@ -272,6 +272,127 @@ export type SenaReportHumanReview = {
   nextActions: string;
 };
 
+export type SenaReliabilityEstimationStatus =
+  | "estimable"
+  | "insufficient-pairable-units"
+  | "single-observed-category"
+  | "insufficient-coders"
+  | "legacy-ambiguous";
+
+export type SenaReliabilityClaimEligibility = {
+  eligible: boolean;
+  threshold: {
+    minimumCoders: 2;
+    meanPairwiseKappa: 0.8;
+    krippendorffAlphaNominal: 0.8;
+  };
+  checks: {
+    minimumCoders: boolean;
+    allPairwiseKappaEstimable: boolean;
+    krippendorffAlphaEstimable: boolean;
+    meanPairwiseKappaAtThreshold: boolean;
+    krippendorffAlphaAtThreshold: boolean;
+    noUnresolvedDisagreements: boolean;
+  };
+  blockers: string[];
+  adjudication: {
+    status: "external-not-evaluated";
+    disclosure: string;
+  };
+};
+
+export type SenaReliabilityClaimEligibilityInputs = {
+  coderCount: number;
+  pairwiseKappaStatuses: SenaReliabilityEstimationStatus[];
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominal: number | null;
+  unresolvedDisagreementCount: number;
+};
+
+export type SenaReliabilityPairEstimate = {
+  coderA: string;
+  coderB: string;
+  units: number;
+  status: SenaReliabilityEstimationStatus;
+  raw: {
+    observedAgreement: number | null;
+    expectedAgreement: number | null;
+    kappa: number | null;
+  };
+  observedAgreement: number | null;
+  expectedAgreement: number | null;
+  kappa: number | null;
+};
+
+export type SenaReliabilityProjectBinding = {
+  status: "bound-current-project";
+  hashAlgorithm: "sena-stable-fnv1a32/v1";
+  projectId: string;
+  projectVersion: number;
+  snapshotFingerprint: string;
+  codebookUniverseHash: string;
+  itemUniverseHash: string;
+  coderCoverageHash: string;
+  annotationCoverageHash: string;
+  skippedCellCoverageHash: string;
+  annotatedItemCoverageHash: string;
+  annotatedCodeCoverageHash: string;
+  codebookUniverse: Array<{ id: string; label: string }>;
+  itemUniverse: Array<{ id: string; kind: "utterance" | "coded-segment" }>;
+  annotationCoverage: Array<{
+    coderId: string;
+    itemId: string;
+    codeId: string;
+    value: boolean;
+  }>;
+  skippedCellCoverage: Array<{
+    coderId: string;
+    itemId: string;
+    codeIds: string[];
+  }>;
+  codebookIds: string[];
+  itemUniverseIds: string[];
+  annotatedItemIds: string[];
+  annotatedCodeIds: string[];
+  coderIds: string[];
+  annotationCount: number;
+};
+
+export type SenaCodingReliabilityMachineEvidence = {
+  dashboardSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  status: SenaReliabilityEstimationStatus;
+  coderIds: string[];
+  pairwiseCohenKappa: SenaReliabilityPairEstimate[];
+  meanPairwiseKappaStatus: SenaReliabilityEstimationStatus;
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
+  krippendorffAlphaNominal: number | null;
+  unresolvedDisagreementCount: number;
+  allPairwiseKappaEstimable: boolean;
+  claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
+  claimEligibility: SenaReliabilityClaimEligibility;
+  adjudicationCoverage?: SenaReliabilityAdjudicationCoverageEvidence;
+  projectBindingRequired?: true;
+  projectBinding?: SenaReliabilityProjectBinding;
+};
+
+export type SenaReliabilityAdjudicationCoverageEvidence = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
+  queuedDisagreements: number;
+  resolvedDisagreements: number;
+  unresolvedDisagreements: number;
+  coverageRate: number;
+  decisions: {
+    include: number;
+    exclude: number;
+    revise: number;
+  };
+  updatedAt: string;
+};
+
 export type SenaCodingReliabilityReview = {
   status: "not-documented" | "documented";
   reviewer: string;
@@ -283,6 +404,7 @@ export type SenaCodingReliabilityReview = {
   agreementValue: string;
   adjudicationNotes: string;
   limitations: string;
+  machineEvidence?: SenaCodingReliabilityMachineEvidence;
 };
 
 export type SenaDataGovernanceMetadata = {
@@ -301,15 +423,37 @@ export type SenaDataGovernanceMetadata = {
 
 export type SenaCodingReliabilityGate = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityGate;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityGate | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
   status: "ready" | "review";
   claimUse: "coding-reliability-documented" | "coding-reliability-needed";
   review: SenaCodingReliabilityReview;
+  machineClaimEligibility: SenaReliabilityClaimEligibility & {
+    status: SenaReliabilityEstimationStatus;
+    dashboardSchemaVersion: string | null;
+    sourceSchemaVersion: string | null;
+  };
   requiredEvidence: string[];
   evidence: string[];
   blockers: string[];
   guardrail: string;
   notes: string[];
 };
+
+export type SenaCodingReliabilityReviewV1 = Omit<SenaCodingReliabilityReview, "machineEvidence">;
+
+export type SenaCodingReliabilityGateV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
+  status: "ready" | "review";
+  claimUse: "coding-reliability-documented" | "coding-reliability-needed";
+  review: SenaCodingReliabilityReviewV1;
+  requiredEvidence: string[];
+  evidence: string[];
+  blockers: string[];
+  guardrail: string;
+  notes: string[];
+};
+
+export type SenaCodingReliabilityGateReadModel = SenaCodingReliabilityGate | SenaCodingReliabilityGateV1;
 
 export type SenaReportEvidenceSnippet = SenaEvidenceSnippet & {
   source: "social-edge" | "concept-edge" | "bridge-edge" | "pair-contribution" | "temporal-window";
@@ -798,10 +942,12 @@ export type SenaMatrixFingerprint = {
   rowLabels: string[];
   columnLabels: string[];
   pairIds?: string[];
+  pairDescriptors?: SenaCodePair[];
 };
 
 export type SenaFusionMathAudit = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAudit;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAudit | typeof SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
   status: "verified" | "needs-review";
   passed: number;
   reviewNeeded: number;
@@ -809,6 +955,20 @@ export type SenaFusionMathAudit = {
   matrixFingerprints: SenaMatrixFingerprint[];
   notes: string[];
 };
+
+export type SenaMatrixFingerprintV1 = Omit<SenaMatrixFingerprint, "pairDescriptors">;
+
+export type SenaFusionMathAuditV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
+  status: "verified" | "needs-review";
+  passed: number;
+  reviewNeeded: number;
+  items: SenaFusionMathAuditItem[];
+  matrixFingerprints: SenaMatrixFingerprintV1[];
+  notes: string[];
+};
+
+export type SenaFusionMathAuditReadModel = SenaFusionMathAudit | SenaFusionMathAuditV1;
 
 export type SenaFusionMathAuditArtifact = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.fusionMathAuditArtifact;

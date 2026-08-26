@@ -28,7 +28,7 @@ export type EnterpriseProjectActionsOptions = {
   enterpriseCollaboration: EnterpriseCollaborationState | null;
   enterpriseJsonHeaders: () => Promise<Record<string, string>>;
   buildCurrentProjectSnapshot: () => SenaProjectSnapshot;
-  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void;
+  restoreProjectSnapshot: (snapshot: SenaProjectSnapshot, fileName: string) => void | Promise<void>;
   refreshEnterpriseState: () => Promise<void>;
   refreshEnterpriseCollaboration: (projectId?: string) => Promise<void>;
   touchEnterprisePresence: (projectId?: string, options?: { quiet?: boolean }) => Promise<void>;
@@ -169,7 +169,7 @@ export function useEnterpriseProjectActions({
     setEnterpriseBusy(true);
     try {
       const payload = await openEnterpriseProjectAction({ projectId });
-      restoreProjectSnapshot(payload.project.snapshot, payload.project.title);
+      await restoreProjectSnapshot(payload.project.snapshot, payload.project.title);
       setActiveEnterpriseProjectId(projectId);
       setEnterpriseMessage(`${payload.project.title} opened from server project storage.`);
       await refreshEnterpriseCollaboration(projectId);
@@ -200,7 +200,7 @@ export function useEnterpriseProjectActions({
         },
         { jsonHeaders: enterpriseJsonHeaders }
       );
-      restoreProjectSnapshot(payload.project.snapshot, `${payload.project.title} v${payload.restoredFrom.version}`);
+      await restoreProjectSnapshot(payload.project.snapshot, `${payload.project.title} v${payload.restoredFrom.version}`);
       setActiveEnterpriseProjectId(payload.project.id);
       setEnterpriseMessage(`${payload.project.title} restored from version ${payload.restoredFrom.version} into version ${payload.project.currentVersion}.`);
       await refreshEnterpriseState();

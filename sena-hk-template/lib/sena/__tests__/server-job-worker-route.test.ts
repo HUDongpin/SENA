@@ -63,7 +63,7 @@ describe("SENA server job worker receiver route", () => {
       status?: string;
       event?: string;
       probe?: { accepted?: boolean };
-      delivery?: { signatureVerified?: boolean; payloadSha256?: string };
+      delivery?: { signatureVerified?: boolean; transportPayloadSha256?: string };
     };
     const serialized = JSON.stringify(body);
 
@@ -72,12 +72,12 @@ describe("SENA server job worker receiver route", () => {
     expect(response.headers.get("x-sena-server-job-worker-event")).toBe("server_job.queue.probe");
     expect(response.headers.get("x-sena-server-job-worker-signature")).toBe("verified");
     expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs-worker");
-    expect(body.schemaVersion).toBe("sena-enterprise-server-job-queue-webhook-receipt/v1");
+    expect(body.schemaVersion).toBe("sena-enterprise-server-job-queue-webhook-receipt/v2");
     expect(body.status).toBe("accepted");
     expect(body.event).toBe("server_job.queue.probe");
     expect(body.probe?.accepted).toBe(true);
     expect(body.delivery?.signatureVerified).toBe(true);
-    expect(body.delivery?.payloadSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(body.delivery?.transportPayloadSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(serialized).not.toContain("sena-test-job-queue-secret");
     expect(serialized).not.toContain("probe-secret-value");
   });

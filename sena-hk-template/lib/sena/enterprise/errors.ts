@@ -1,3 +1,11 @@
+import { SenaInputValidationError } from "../analytical-input-validation";
+import {
+  SenaReliabilityAnnotationValidationError,
+  SenaReliabilityProjectBindingError,
+  SenaReliabilitySourceInputError,
+  SenaReliabilityUniverseLimitError
+} from "../reliability";
+
 export class SenaEnterpriseError extends Error {
   constructor(
     message: string,
@@ -41,6 +49,56 @@ function describeUnexpectedError(error: unknown) {
 }
 
 export function enterpriseErrorResponse(error: unknown) {
+  if (error instanceof SenaReliabilityAnnotationValidationError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, code }) => ({ path, code }))
+      },
+      status: error.status
+    };
+  }
+  if (error instanceof SenaReliabilityProjectBindingError) {
+    return {
+      body: {
+        error: error.message,
+        code: "reliability_project_binding_invalid",
+        issues: error.issues.map(({ path, code }) => ({ path, code }))
+      },
+      status: 400
+    };
+  }
+  if (error instanceof SenaReliabilityUniverseLimitError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, rule, actual, maximum }) => ({ path, rule, actual, maximum }))
+      },
+      status: error.status
+    };
+  }
+  if (error instanceof SenaReliabilitySourceInputError) {
+    return {
+      body: {
+        error: error.message,
+        code: error.code,
+        issues: error.issues.map(({ path, rule }) => ({ path, rule }))
+      },
+      status: error.status
+    };
+  }
+  if (error instanceof SenaInputValidationError) {
+    return {
+      body: {
+        error: "SENA analytical inputs violate the numeric domain.",
+        code: "invalid_sena_numeric_domain",
+        issues: error.issues.map(({ path, rule }) => ({ path, rule }))
+      },
+      status: 400
+    };
+  }
   if (error instanceof SenaEnterpriseError) {
     return {
       body: { error: error.message, code: error.code },

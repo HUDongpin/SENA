@@ -15,6 +15,13 @@ function workerHeartbeatHeaders(
     "x-sena-server-job-worker-heartbeat-store": heartbeat.statusStore.activeStore,
     "x-sena-server-job-worker-heartbeat-final-status": heartbeat.heartbeat.finalStatus ?? "missing",
     "x-sena-server-job-worker-heartbeat-write-read": String(heartbeat.heartbeat.writeReadConfirmed),
+    "x-sena-server-job-worker-heartbeat-proof-scope": heartbeat.proof.scope,
+    "x-sena-server-job-worker-heartbeat-external-callback-observed": String(
+      heartbeat.proof.authenticatedExternalCallbackObserved
+    ),
+    "x-sena-server-job-worker-heartbeat-production-ready-eligible": String(
+      heartbeat.proof.productionWorkerReadinessEligible
+    ),
     "x-sena-server-job-worker-heartbeat-url-values": "excluded"
   };
 }

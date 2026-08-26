@@ -1,3 +1,6 @@
+import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
+import type { SenaSnapshotRestoreResult } from "@/lib/sena/snapshot-restore";
+
 export const SENA_WORKSPACE_API_ROUTES = {
   auth: {
     csrf: "/api/auth/csrf",
@@ -42,6 +45,7 @@ export const SENA_WORKSPACE_API_ROUTES = {
     scimUsers: "/api/sena/scim/v2/Users"
   },
   publicationExport: "/api/sena/exports/publication",
+  snapshotRestore: "/api/sena/snapshot/restore",
   pilotSample: "/sena-pilot/sample/lesson-study-sena-contract.json"
 } as const;
 
@@ -129,4 +133,23 @@ export async function requestSenaWorkspaceJson<T>(
     );
   }
   return payload as T;
+}
+
+export async function requestSenaSnapshotRestore(
+  source: unknown,
+  options: { fetchImpl?: SenaWorkspaceFetch } = {}
+) {
+  return requestSenaWorkspaceJson<SenaSnapshotRestoreResult>(SENA_WORKSPACE_API_ROUTES.snapshotRestore, {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schemaVersion: SENA_SCHEMA_VERSIONS.snapshotRestoreRequest,
+      source
+    })
+  }, {
+    fetchImpl: options.fetchImpl,
+    errorMessage: "SENA snapshot restore validation failed."
+  });
 }

@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,8 @@ const envNames = [
   "SENA_JOB_QUEUE_ALLOW_LOCAL",
   "SENA_JOB_QUEUE_SECRET",
   "SENA_JOB_QUEUE_TIMESTAMP_SKEW_SECONDS",
-  "SENA_JOB_WORKER_INLINE_EXECUTION"
+  "SENA_JOB_WORKER_INLINE_EXECUTION",
+  "SENA_OPS_TOKEN"
 ];
 
 const queueSecret = "sena-test-job-queue-secret";
@@ -26,6 +27,9 @@ function signedQueueRequest(input: { body: string; signature?: string; timestamp
   const timestamp = input.timestamp ?? new Date().toISOString();
   const signature = input.signature ??
     `sha256=${createHmac("sha256", queueSecret).update(`${timestamp}.${input.body}`).digest("hex")}`;
+  const workerPayloadSha256 = String((JSON.parse(input.body) as {
+    job?: { payloadSha256?: unknown };
+  }).job?.payloadSha256 ?? "");
   return new Request("https://sena.example.test/api/sena/ops/jobs/worker", {
     method: "POST",
     headers: {
@@ -33,6 +37,7 @@ function signedQueueRequest(input: { body: string; signature?: string; timestamp
       "x-sena-webhook-event": "server_job.queue",
       "x-sena-webhook-timestamp": timestamp,
       "x-sena-job-payload-sha256": createHash("sha256").update(input.body).digest("hex"),
+      "x-sena-worker-payload-sha256": workerPayloadSha256,
       "x-sena-webhook-signature": signature
     },
     body: input.body
@@ -50,6 +55,8 @@ async function queuedAnalysisJob() {
   const index = await import("../index");
   const queue = await import("../enterprise/server-job-queue");
   const importAnalysis = await import("../enterprise/import-analysis");
+  const analysisCommand = await import("../analysis-queue-command");
+  const teamProject = await import("../enterprise/team-project");
 
   const registered = enterprise.registerEnterpriseUser({
     name: "Route Worker Owner",
@@ -74,42 +81,59 @@ async function queuedAnalysisJob() {
 
   const workerPayload = {
     action: "run-analysis",
+    commandCustody: analysisCommand.SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
     teamId,
     projectId: project.id,
     projectVersion: project.currentVersion,
-    title: project.title,
+    sourceTitle: project.title,
     includeRuntimeBundle: false,
-    persist: false,
-    updateProject: true
+    persist: true,
+    updateProject: true,
+    expectedVersion: project.currentVersion
   };
-  const job = await queue.enqueueEnterpriseServerJob({
-    kind: "analysis",
+  const [commandEnvelopeUploadId] = importAnalysis.reserveEnterpriseUploadIds(1);
+  const commandCustody = analysisCommand.planSenaAnalysisQueueCommandCustody({
+    kind: "analysis" as const,
     teamId,
     projectId: project.id,
     actorUserId: registered.context.user.id,
     payload: workerPayload,
     payloadSummary: {
-      source: "project",
+      source: "project" as const,
       projectVersion: project.currentVersion,
+      expectedVersion: project.currentVersion,
       includeRuntimeBundle: false,
-      persist: false,
+      persist: true,
       updateProject: true,
       hasInlineSnapshot: false,
       hasInlineDataset: false,
-      payloadValuesExcluded: true
+      payloadValuesExcluded: true as const
+    }
+  }, commandEnvelopeUploadId, queue.stableServerJobPayloadSha256(workerPayload));
+  const job = await queue.enqueueEnterpriseServerJob({
+    ...commandCustody.jobInput,
+    beforeDispatch: async () => {
+      await importAnalysis.createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync(
+        registered.context,
+        { teamId, files: [commandCustody.file] }
+      );
     }
   });
+  const commandUpload = enterprise.readEnterpriseDb().uploads.find(
+    (candidate: { id: string }) => candidate.id === commandEnvelopeUploadId
+  );
+  if (!commandUpload) throw new Error("command envelope upload fixture missing");
 
   const { delivery: _delivery, ...jobWithoutDelivery } = job;
   const body = JSON.stringify({
-    schemaVersion: "sena-enterprise-server-job-queue-webhook/v1",
+    schemaVersion: "sena-enterprise-server-job-queue-webhook/v2",
     generatedAt: "2026-08-15T00:00:00.000Z",
     job: jobWithoutDelivery,
     workerPayload,
     delivery: {
       provider: job.provider.mode,
       secretConfigured: true,
-      payloadSha256: job.payloadSha256
+      workerPayloadSha256: job.payloadSha256
     },
     redaction: {
       responsePayloadValuesExcluded: true,
@@ -118,7 +142,19 @@ async function queuedAnalysisJob() {
     }
   });
 
-  return { enterpriseDbDir, enterprise, queue, importAnalysis, context: registered.context, teamId, job, body };
+  return {
+    enterpriseDbDir,
+    enterprise,
+    queue,
+    importAnalysis,
+    teamProject,
+    context: registered.context,
+    teamId,
+    project,
+    job,
+    body,
+    commandUpload
+  };
 }
 
 describe("SENA server job worker route execution", () => {
@@ -167,6 +203,115 @@ describe("SENA server job worker route execution", () => {
     expect(runs).toHaveLength(1);
   });
 
+  it("rejects a signed managed analysis command whose durable envelope is corrupt before claim", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    writeFileSync(
+      path.join(fixture.enterpriseDbDir, String(fixture.commandUpload.storagePath)),
+      "corrupt-command-envelope"
+    );
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({ body: fixture.body }));
+
+    expect(response.status).toBe(202);
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({ attempts: 0, retryable: false })
+    }));
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toHaveLength(0);
+  });
+
+  it("refuses to downgrade a current signed analysis command into the envelope-free legacy path", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const db = fixture.enterprise.readEnterpriseDb();
+    const storedFixture = db.serverJobs.find(
+      (candidate: { id: string }) => candidate.id === fixture.job.id
+    );
+    if (!storedFixture) throw new Error("server job downgrade fixture missing");
+    delete storedFixture.payloadSummary.commandCustody;
+    delete storedFixture.payloadSummary.commandEnvelopeUploadId;
+    delete storedFixture.payloadSummary.commandEnvelopeSha256;
+    fixture.enterprise.writeEnterpriseDb(db);
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({ body: fixture.body }));
+
+    expect(response.status).toBe(202);
+    expect(await fixture.queue.getEnterpriseServerJob(fixture.job.id)).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({ attempts: 0, retryable: false })
+      })
+    );
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toHaveLength(0);
+  });
+
+  it("rejects a signed managed queued update after a title-only state revision advances", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const concurrent = await fixture.enterprise.updateEnterpriseProjectAsync(
+      fixture.context,
+      fixture.project.id,
+      {
+        expectedVersion: fixture.project.currentVersion,
+        title: "Concurrent managed title"
+      }
+    );
+    expect(concurrent.currentVersion).toBe(fixture.project.currentVersion + 1);
+    const retained = await fixture.teamProject.getEnterpriseProjectRevisionSourceReadOnlyAsync(
+      fixture.context,
+      fixture.project.id,
+      fixture.project.currentVersion
+    );
+    expect(retained.sourceProject).toEqual(expect.objectContaining({
+      currentVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      description: fixture.project.description
+    }));
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({ body: fixture.body }));
+
+    expect(response.status).toBe(202);
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored).toEqual(expect.objectContaining({
+      status: "failed",
+      lifecycle: expect.objectContaining({
+        attempts: 0,
+        retryable: false,
+        lastErrorCode: "project_version_conflict"
+      })
+    }));
+    expect(await fixture.enterprise.getEnterpriseProjectAsync(
+      fixture.context,
+      fixture.project.id
+    )).toEqual(expect.objectContaining({
+      currentVersion: fixture.project.currentVersion + 1,
+      title: "Concurrent managed title"
+    }));
+
+    const restored = await fixture.teamProject.restoreEnterpriseProjectRevisionAsync(
+      fixture.context,
+      fixture.project.id,
+      {
+        version: fixture.project.currentVersion,
+        expectedVersion: concurrent.currentVersion
+      }
+    );
+    expect(restored.project).toEqual(expect.objectContaining({
+      currentVersion: concurrent.currentVersion + 1,
+      title: fixture.project.title,
+      description: fixture.project.description
+    }));
+  });
+
   it("rejects a queue webhook with a bad signature and executes nothing", async () => {
     const fixture = await queuedAnalysisJob();
     enterpriseDbDir = fixture.enterpriseDbDir;
@@ -189,6 +334,27 @@ describe("SENA server job worker route execution", () => {
       teamId: fixture.teamId
     });
     expect(runs).toHaveLength(0);
+  });
+
+  it("rejects a correctly signed body whose worker payload no longer matches the durable job hash", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const forged = JSON.parse(fixture.body) as {
+      workerPayload: { title?: string };
+    };
+    forged.workerPayload.title = "tampered after enqueue";
+    const forgedBody = JSON.stringify(forged);
+
+    const route = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await route.POST(signedQueueRequest({ body: forgedBody }));
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      code: "server_job_worker_worker_payload_hash_invalid"
+    });
+    const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
+    expect(stored.status).toBe("queued");
+    expect(stored.lifecycle.attempts).toBe(0);
   });
 
   it("rejects a correctly signed queue webhook replayed outside the skew window and executes nothing", async () => {
@@ -303,10 +469,11 @@ describe("SENA server job worker route execution", () => {
     expect(body.execution?.status).toBe("succeeded");
   });
 
-  it("stays receipt-only when inline execution is disabled", async () => {
+  it("stays receipt-only until an external claim re-admits current command custody", async () => {
     const fixture = await queuedAnalysisJob();
     enterpriseDbDir = fixture.enterpriseDbDir;
     process.env.SENA_JOB_WORKER_INLINE_EXECUTION = "0";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
 
     const route = await import("../../../app/api/sena/ops/jobs/worker/route");
     const response = await route.POST(signedQueueRequest({ body: fixture.body }));
@@ -320,6 +487,76 @@ describe("SENA server job worker route execution", () => {
 
     const stored = await fixture.queue.getEnterpriseServerJob(fixture.job.id);
     expect(stored.status).toBe("queued");
+
+    const jobsRoute = await import("../../../app/api/sena/ops/jobs/route");
+    const claim = await jobsRoute.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer sena-test-ops-token",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: fixture.job.id,
+        workerRunId: "external_worker_valid_custody"
+      })
+    }));
+    expect(claim.status).toBe(200);
+    await expect(claim.json()).resolves.toEqual(expect.objectContaining({
+      job: expect.objectContaining({
+        status: "running",
+        lifecycle: expect.objectContaining({ attempts: 1 })
+      })
+    }));
+  });
+
+  it("terminalizes a receipt-only external analysis claim when encrypted command custody is corrupt", async () => {
+    const fixture = await queuedAnalysisJob();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    process.env.SENA_JOB_WORKER_INLINE_EXECUTION = "0";
+    process.env.SENA_OPS_TOKEN = "sena-test-ops-token";
+
+    const workerRoute = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const receiptOnly = await workerRoute.POST(signedQueueRequest({ body: fixture.body }));
+    expect(receiptOnly.status).toBe(202);
+    expect(await receiptOnly.json()).toEqual(expect.objectContaining({
+      execution: expect.objectContaining({ attempted: false, status: "not-attempted" })
+    }));
+    writeFileSync(
+      path.join(fixture.enterpriseDbDir, String(fixture.commandUpload.storagePath)),
+      "corrupt-command-envelope-before-external-claim"
+    );
+
+    const jobsRoute = await import("../../../app/api/sena/ops/jobs/route");
+    const claim = await jobsRoute.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer sena-test-ops-token",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: fixture.job.id,
+        workerRunId: "external_worker_corrupt_custody"
+      })
+    }));
+    expect(claim.status).toBe(409);
+    await expect(claim.json()).resolves.toEqual(expect.objectContaining({
+      code: "server_job_worker_analysis_command_custody_invalid"
+    }));
+    await expect(fixture.queue.getEnterpriseServerJob(fixture.job.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "failed",
+        lifecycle: expect.objectContaining({
+          attempts: 0,
+          retryable: false,
+          lastErrorCode: "server_job_worker_analysis_command_custody_invalid"
+        })
+      })
+    );
+    expect(await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
+      teamId: fixture.teamId
+    })).toHaveLength(0);
   });
 });
 

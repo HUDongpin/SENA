@@ -247,7 +247,6 @@ describe("SENA workspace enterprise action helpers", () => {
 
   it("centralizes enterprise publication export blob requests", async () => {
     const payload = await exportEnterprisePublicationAction({
-      teamId: "team-1",
       format: "pdf",
       projectId: "project-1"
     }, {
@@ -256,10 +255,8 @@ describe("SENA workspace enterprise action helpers", () => {
         expect(String(input)).toBe("/api/sena/exports/publication");
         expect(init?.method).toBe("POST");
         expect(JSON.parse(String(init?.body))).toEqual({
-          teamId: "team-1",
           format: "pdf",
-          projectId: "project-1",
-          snapshot: undefined
+          projectId: "project-1"
         });
         return new Response("pdf-bytes", {
           status: 200,

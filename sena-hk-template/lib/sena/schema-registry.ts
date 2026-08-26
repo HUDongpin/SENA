@@ -1,3 +1,12 @@
+export const SENA_LEGACY_SCHEMA_VERSIONS = {
+  codingReliabilityDashboard: "sena-coding-reliability-dashboard/v1",
+  codingReliabilityGate: "sena-coding-reliability-gate/v1",
+  fusionMathAudit: "sena-fusion-math-audit/v1",
+  groupComparison: "sena-group-comparison/v1",
+  groupComparisonSuite: "sena-group-comparison-suite/v1",
+  enterpriseServerJob: "sena-enterprise-server-job/v1"
+} as const;
+
 export const SENA_SCHEMA_VERSIONS = {
   activeWindowBrief: "sena-active-window-brief/v1",
   analysisProvenanceEnvelope: "sena-analysis-provenance-envelope/v1",
@@ -6,8 +15,8 @@ export const SENA_SCHEMA_VERSIONS = {
   apiDocumentation: "sena-api-documentation/v1",
   apiSurfaceMoratorium: "sena-api-surface-moratorium/v1",
   claimReadinessGate: "sena-claim-readiness-gate/v1",
-  codingReliabilityDashboard: "sena-coding-reliability-dashboard/v1",
-  codingReliabilityGate: "sena-coding-reliability-gate/v1",
+  codingReliabilityDashboard: "sena-coding-reliability-dashboard/v2",
+  codingReliabilityGate: "sena-coding-reliability-gate/v2",
   dataContractAuditArtifact: "sena-data-contract-audit-artifact/v1",
   dataContractAudit: "sena-data-contract-audit/v1",
   dataGovernanceMetadata: "sena-data-governance-metadata/v1",
@@ -31,8 +40,9 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseCdnContract: "sena-enterprise-cdn-contract/v1",
   enterpriseCdnProbe: "sena-enterprise-cdn-probe/v1",
   enterpriseCapabilityAudit: "sena-enterprise-capability-audit/v1",
-  enterpriseClaimEvidencePackage: "sena-enterprise-claim-evidence-package/v1",
+  enterpriseClaimEvidencePackage: "sena-enterprise-claim-evidence-package/v2",
   enterpriseClaimSourceSnapshot: "sena-enterprise-claim-source-snapshot/v1",
+  enterpriseValidationRunEvidence: "sena-enterprise-validation-run-evidence/v1",
   enterpriseCollaborationPubsubDelivery: "sena-enterprise-collaboration-pubsub-delivery/v1",
   enterpriseCollaborationPubsubWebhook: "sena-enterprise-collaboration-pubsub-webhook/v1",
   enterpriseConferenceLoadRehearsal: "sena-enterprise-conference-load-rehearsal/v1",
@@ -47,6 +57,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseEmailPayload: "sena-enterprise-email-payload/v1",
   enterpriseEmailWebhook: "sena-enterprise-email-webhook/v1",
   enterpriseExpertReview: "sena-enterprise-expert-review/v1",
+  enterpriseExpertReviewReceipt: "sena-enterprise-expert-review-receipt/v1",
   enterpriseGoLiveAttestation: "sena-enterprise-go-live-attestation/v1",
   enterpriseGoLiveAttestations: "sena-enterprise-go-live-attestations/v1",
   enterpriseGoLiveChecklist: "sena-enterprise-go-live-checklist/v1",
@@ -105,7 +116,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterprisePrimaryStateRuntime: "sena-enterprise-primary-state-runtime/v1",
   enterpriseProductionRuntimeEnvPacket: "sena-enterprise-production-runtime-env-packet/v1",
   enterpriseProductionGoLiveGate: "sena-enterprise-production-go-live-gate/v1",
-  enterpriseProductionPerformanceBudget: "sena-enterprise-production-performance-budget/v1",
+  enterpriseProductionPerformanceBudget: "sena-enterprise-production-performance-budget/v2",
   enterpriseProductionPerformancePath: "sena-enterprise-production-performance-path/v1",
   enterpriseProductionEvidenceManifest: "sena-enterprise-production-evidence-manifest/v1",
   enterpriseProductionEvidenceArchive: "sena-enterprise-production-evidence-archive/v1",
@@ -121,8 +132,8 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseSaasOperationsReadiness: "sena-enterprise-saas-operations-readiness/v1",
   enterpriseSecurityPosture: "sena-enterprise-security-posture/v1",
   enterpriseServerJobQueueContract: "sena-enterprise-server-job-queue-contract/v1",
-  enterpriseServerJobQueueWebhook: "sena-enterprise-server-job-queue-webhook/v1",
-  enterpriseServerJobQueueWebhookReceipt: "sena-enterprise-server-job-queue-webhook-receipt/v1",
+  enterpriseServerJobQueueWebhook: "sena-enterprise-server-job-queue-webhook/v2",
+  enterpriseServerJobQueueWebhookReceipt: "sena-enterprise-server-job-queue-webhook-receipt/v2",
   enterpriseServerJobQueueProbe: "sena-enterprise-server-job-queue-probe/v1",
   enterpriseServerJobQueue: "sena-enterprise-server-job-queue/v1",
   enterpriseServerJobList: "sena-enterprise-server-job-list/v1",
@@ -130,7 +141,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseServerJobStatusUpdate: "sena-enterprise-server-job-status-update/v1",
   enterpriseServerJobWorkerContract: "sena-enterprise-server-job-worker-contract/v1",
   enterpriseServerJobWorkerHeartbeat: "sena-enterprise-server-job-worker-heartbeat/v1",
-  enterpriseServerJob: "sena-enterprise-server-job/v1",
+  enterpriseServerJob: "sena-enterprise-server-job/v2",
   enterpriseSessionList: "sena-enterprise-session-list/v1",
   enterpriseSessionRevocation: "sena-enterprise-session-revocation/v1",
   enterpriseSsoFallbackPolicy: "sena-enterprise-sso-fallback-policy/v1",
@@ -144,10 +155,10 @@ export const SENA_SCHEMA_VERSIONS = {
   expertReviewResponse: "sena-expert-review-response/v1",
   formalInferenceReadiness: "sena-formal-inference-readiness/v1",
   fusionMathAuditArtifact: "sena-fusion-math-audit-artifact/v1",
-  fusionMathAudit: "sena-fusion-math-audit/v1",
+  fusionMathAudit: "sena-fusion-math-audit/v2",
   goLiveCloseoutCheck: "sena-go-live-closeout-check/v1",
-  groupComparisonSuite: "sena-group-comparison-suite/v1",
-  groupComparison: "sena-group-comparison/v1",
+  groupComparisonSuite: "sena-group-comparison-suite/v2",
+  groupComparison: "sena-group-comparison/v2",
   humanConceptFigureData: "sena-human-concept-figure-data/v1",
   humanConceptPublicationFigureManifest: "sena-human-concept-publication-figure-manifest/v1",
   humanReview: "sena-human-review/v1",
@@ -175,10 +186,12 @@ export const SENA_SCHEMA_VERSIONS = {
   project: "sena-project/v1",
   publicationBackupOwner: "sena-publication-backup-owner/v1",
   publicationCommitReceipt: "sena-publication-commit-receipt/v1",
-  publicationEnterpriseProjectEvidence: "sena-publication-enterprise-project-evidence/v1",
+  publicationDerivationManifest: "sena-publication-derivation-manifest/v3",
+  publicationEnterpriseProjectEvidence: "sena-publication-enterprise-project-evidence/v2",
   publicationLock: "sena-publication-lock/v1",
   publicationPackage: "sena-publication-package/v1",
   publicationPackageOwner: "sena-publication-package-owner/v1",
+  publicationStateBinding: "sena-publication-state-binding/v2",
   publicationSourceSnapshot: "sena-publication-source-snapshot/v1",
   publicationStagingOwner: "sena-publication-staging-owner/v2",
   publicationVerificationCertificate: "sena-publication-verification-certificate/v1",
@@ -202,6 +215,8 @@ export const SENA_SCHEMA_VERSIONS = {
   scimServiceProviderConfig: "sena-scim-service-provider-config/v1",
   scimUsersList: "sena-scim-users-list/v1",
   snaReport: "sena-sna-report/v1",
+  snapshotRestoreRequest: "sena-snapshot-restore-request/v1",
+  snapshotRestoreResult: "sena-snapshot-restore-result/v1",
   ssoAuthorization: "sena-sso-authorization/v1",
   ssoProviderStatus: "sena-sso-provider-status/v1",
   stableFnv1a32: "sena-stable-fnv1a32/v1",
@@ -220,8 +235,11 @@ export const SENA_SCHEMA_VERSIONS = {
 
 export type SenaSchemaVersionKey = keyof typeof SENA_SCHEMA_VERSIONS;
 export type SenaSchemaVersion = (typeof SENA_SCHEMA_VERSIONS)[SenaSchemaVersionKey];
+export type SenaLegacySchemaVersionKey = keyof typeof SENA_LEGACY_SCHEMA_VERSIONS;
+export type SenaLegacySchemaVersion = (typeof SENA_LEGACY_SCHEMA_VERSIONS)[SenaLegacySchemaVersionKey];
 
 const senaSchemaVersionSet = new Set<string>(Object.values(SENA_SCHEMA_VERSIONS));
+const senaLegacySchemaVersions = SENA_LEGACY_SCHEMA_VERSIONS as Partial<Record<SenaSchemaVersionKey, SenaLegacySchemaVersion>>;
 
 export function getSenaSchemaVersion(key: SenaSchemaVersionKey): SenaSchemaVersion {
   return SENA_SCHEMA_VERSIONS[key];
@@ -254,6 +272,18 @@ export function hasSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
     value !== null &&
     !Array.isArray(value) &&
     (value as { schemaVersion?: unknown }).schemaVersion === SENA_SCHEMA_VERSIONS[key]
+  );
+}
+
+export function hasCompatibleSenaSchemaVersion<Key extends SenaSchemaVersionKey>(
+  value: unknown,
+  key: Key
+): value is { schemaVersion: (typeof SENA_SCHEMA_VERSIONS)[Key] | SenaLegacySchemaVersion } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
+  const legacySchemaVersion = senaLegacySchemaVersions[key];
+  return schemaVersion === SENA_SCHEMA_VERSIONS[key] || (
+    legacySchemaVersion !== undefined && schemaVersion === legacySchemaVersion
   );
 }
 

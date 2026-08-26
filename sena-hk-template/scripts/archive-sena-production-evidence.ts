@@ -1,6 +1,19 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  isSenaFullGitObjectId,
+  senaBuildInputSha256,
+  senaNextBuildIdSha256FromInputSha256,
+  SENA_NEXT_BUILD_ID_GENERATOR
+} from "../lib/sena/enterprise/performance-build-identity.mjs";
+import {
+  observeSenaLocalPerformanceBuildEvidence,
+  validateSenaLocalPerformanceBuildEvidence
+} from "../lib/sena/enterprise/performance-build-measurement.mjs";
+import { validateSenaPerformanceBudgetSemantics } from "../lib/sena/enterprise/performance-budget-validation.mjs";
 import { buildSenaGoLiveCloseoutCheck } from "../lib/sena/enterprise/go-live-closeout-check";
 import { buildEnterpriseProductionEvidenceManifest } from "../lib/sena/enterprise/ops-production-evidence";
 import { buildSenaEnterpriseProductionGoLiveGate } from "../lib/sena/enterprise/production-go-live-gate";
@@ -87,6 +100,8 @@ type VerifierDefinition = {
   requiredForProduction: boolean;
   nextAction: string;
 };
+
+const senaProjectRoot = fileURLToPath(new URL("../", import.meta.url));
 
 function timestampForPath(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
@@ -229,53 +244,106 @@ function isProductionRuntimeEnvPacketArtifact(value: unknown): value is ReturnTy
     Array.isArray(summary?.blockerIds);
 }
 
-function validGitCommit(value: unknown) {
-  return typeof value === "string" && /^[a-f0-9]{40,64}$/.test(value);
-}
-
-function performanceArchiveValidation(artifact: {
+export function validateSenaPerformanceBudgetArtifactForArchive(artifact: {
+  summary?: { totalStaticJsFiles?: number };
   buildIdentity?: Record<string, unknown>;
   sourceCustody?: Record<string, unknown>;
-}) {
+}, localEvidence: ReturnType<typeof observeSenaLocalPerformanceBuildEvidence>) {
+  const semanticProblem = validateSenaPerformanceBudgetSemantics(artifact);
+  if (semanticProblem) return semanticProblem;
   const identity = artifact.buildIdentity;
   const sourceCustody = artifact.sourceCustody;
   if (!identity || identity.values !== "hashes-and-commit-only") {
     return "performance-build-identity-missing";
   }
-  if (!validSha256(identity.nextBuildIdSha256) || !validSha256(identity.packageLockSha256)) {
+  if (identity.nextBuildIdGenerator !== SENA_NEXT_BUILD_ID_GENERATOR ||
+    typeof identity.nextBuildMatchesCurrentSource !== "boolean" ||
+    !validSha256(identity.buildInputSha256) ||
+    !validSha256(identity.currentExpectedBuildInputSha256) ||
+    typeof identity.buildObservationStable !== "boolean" ||
+    typeof identity.measuredArtifactSetStable !== "boolean" ||
+    identity.buildInputEnvironmentScope !== "not-bound-use-measured-artifact-set-sha256" ||
+    !validSha256(identity.measuredArtifactSetSha256) ||
+    !nonNegativeInteger(identity.measuredArtifactFileCount) ||
+    identity.measuredArtifactFileCount <= 0) {
+    return "performance-build-provenance-missing";
+  }
+  const totalStaticJsFiles = artifact.summary?.totalStaticJsFiles;
+  if (identity.nextBuildMatchesCurrentSource !== true ||
+    identity.buildObservationStable !== true ||
+    identity.measuredArtifactSetStable !== true ||
+    identity.buildInputSha256 !== identity.currentExpectedBuildInputSha256 ||
+    !nonNegativeInteger(totalStaticJsFiles) ||
+    identity.measuredArtifactFileCount !== totalStaticJsFiles + 1) {
+    return "performance-build-provenance-mismatch";
+  }
+  if (!validSha256(identity.nextBuildIdSha256) ||
+    !validSha256(identity.packageLockSha256) ||
+    !validSha256(identity.gitStatusSha256) ||
+    !validSha256(identity.sourceTreeSha256) ||
+    !validSha256(identity.sourceFileListSha256) ||
+    !validSha256(identity.sourceReadErrorSha256) ||
+    !nonNegativeInteger(identity.gitDirtyFileCount) ||
+    !nonNegativeInteger(identity.sourceFileCount) ||
+    identity.sourceFileCount <= 0 ||
+    !nonNegativeInteger(identity.sourceReadErrorCount) ||
+    identity.sourceReadErrorCount !== 0 ||
+    identity.sourceReadErrorSha256 !== createHash("sha256").update("").digest("hex")) {
     return "performance-build-identity-hash-missing";
   }
-  if (!validGitCommit(identity.gitCommit)) {
+  if (!isSenaFullGitObjectId(identity.gitCommit)) {
     return "performance-build-git-commit-missing";
   }
-  if (!sourceCustody) {
-    return identity.gitDirty === false ? undefined : "performance-build-git-dirty";
+  const cleanGitStatusSha256 = createHash("sha256").update("").digest("hex");
+  const coherentGitDirtyIdentity = identity.gitDirty === false
+    ? identity.gitDirtyFileCount === 0 && identity.gitStatusSha256 === cleanGitStatusSha256
+    : identity.gitDirty === true && (identity.gitDirtyFileCount as number) > 0;
+  if (!coherentGitDirtyIdentity) {
+    return "performance-build-git-identity-invalid";
   }
+  const expectedBuildInputSha256 = senaBuildInputSha256({
+    gitCommit: identity.gitCommit as string,
+    gitDirty: identity.gitDirty as boolean,
+    gitStatusSha256: identity.gitStatusSha256 as string,
+    gitDirtyFileCount: identity.gitDirtyFileCount as number,
+    packageLockSha256: identity.packageLockSha256 as string,
+    sourceTreeSha256: identity.sourceTreeSha256 as string,
+    sourceFileListSha256: identity.sourceFileListSha256 as string,
+    sourceFileCount: identity.sourceFileCount as number,
+    sourceReadErrorCount: identity.sourceReadErrorCount as number,
+    sourceReadErrorSha256: identity.sourceReadErrorSha256 as string
+  });
+  if (identity.buildInputSha256 !== expectedBuildInputSha256 ||
+    identity.nextBuildIdSha256 !== senaNextBuildIdSha256FromInputSha256(expectedBuildInputSha256)) {
+    return "performance-build-provenance-mismatch";
+  }
+  if (identity.gitDirty !== false) return "performance-build-git-dirty";
+  if (!sourceCustody) return "performance-source-custody-missing";
   if (sourceCustody.values !== "hashes-and-counts-only") {
     return "performance-source-custody-missing";
   }
   if (sourceCustody.reviewedClean !== true) {
     return "performance-source-custody-not-clean";
   }
-  if (sourceCustody.mode === "git-clean-worktree") {
-    if (identity.gitDirty !== false || sourceCustody.baseGitCommit !== identity.gitCommit) {
-      return "performance-build-git-dirty";
-    }
-  } else if (sourceCustody.mode === "reviewed-clean-release-slice") {
-    if (!validSha256(sourceCustody.manifestSha256) ||
-      !validSha256(sourceCustody.sourceTreeSha256) ||
-      !validSha256(sourceCustody.fileListSha256) ||
-      !nonNegativeInteger(sourceCustody.fileCount) ||
-      sourceCustody.fileCount <= 0 ||
-      sourceCustody.baseGitCommit !== identity.gitCommit ||
-      !validSha256(sourceCustody.rootGitStatusSha256) ||
-      sourceCustody.generator !== "sena-performance-source-custody/v1") {
-      return "performance-source-custody-invalid";
-    }
-  } else {
-    return "performance-build-git-dirty";
+  if (sourceCustody.mode !== "git-clean-worktree" ||
+    sourceCustody.baseGitCommit !== identity.gitCommit ||
+    sourceCustody.rootGitDirty !== false ||
+    sourceCustody.rootGitDirtyFileCount !== 0 ||
+    sourceCustody.rootGitStatusSha256 !== identity.gitStatusSha256) {
+    return "performance-source-custody-invalid";
   }
-  return undefined;
+  return validateSenaLocalPerformanceBuildEvidence(artifact, localEvidence);
+}
+
+function performanceArchiveValidation(artifact: {
+  summary?: { totalStaticJsFiles?: number };
+  buildIdentity?: Record<string, unknown>;
+  sourceCustody?: Record<string, unknown>;
+}) {
+  return validateSenaPerformanceBudgetArtifactForArchive(
+    artifact,
+    observeSenaLocalPerformanceBuildEvidence(senaProjectRoot)
+  );
 }
 
 function numericValue(value: unknown) {
@@ -549,7 +617,7 @@ function verifierDefinitions(options: Options): VerifierDefinition[] {
       script: "scripts/verify-sena-job-worker-contract.ts",
       outputFile: "server-job-worker-contract.json",
       requiredForProduction: true,
-      nextAction: "Configure worker callback, owner, runbook, and heartbeat evidence."
+      nextAction: "Implement and verify a nonce-bound managed-queue to external-worker authenticated callback receipt; the same-process status-store self-test is insufficient."
     },
     {
       id: "observability-contract",
@@ -670,7 +738,12 @@ function copyArtifactForArchive(sourcePath: string, outputPath: string) {
   }
 }
 
-function archiveExistingArtifact(definition: VerifierDefinition, outputPath: string, sourcePath: string, options: Options): ArchiveItem {
+function archiveExistingArtifact(
+  definition: VerifierDefinition,
+  outputPath: string,
+  sourcePath: string,
+  options: Options
+): ArchiveItem {
   copyArtifactForArchive(sourcePath, outputPath);
   const artifact = readArtifact(outputPath);
   const artifactStatus = artifact.parsed.status ?? (artifact.parsed.productionReady ? "pass" : "review");
@@ -735,7 +808,10 @@ function replayCommand(definition: VerifierDefinition, outputPath: string, optio
   return command;
 }
 
-function runVerifier(definition: VerifierDefinition, options: Options): ArchiveItem {
+function runVerifier(
+  definition: VerifierDefinition,
+  options: Options
+): ArchiveItem {
   const outputPath = path.join(options.outputDir, definition.outputFile);
   const reuseArtifactPath = maybeReuseArtifactPath(definition, options);
   if (reuseArtifactPath) {
@@ -1143,34 +1219,45 @@ function buildArchiveManifest(options: Options, items: ArchiveItem[]): ArchiveMa
   };
 }
 
-const options = parseArgs(process.argv.slice(2));
-assertConferenceLoadTarget(options);
-options.outputDir = path.resolve(options.outputDir);
-mkdirSync(options.outputDir, { recursive: true });
-const items = verifierDefinitions(options)
-  .filter((definition) => !(options.skipVercelPreflight && definition.id === "vercel-production-preflight"))
-  .map((definition) => runVerifier(definition, options));
-if (options.skipVercelPreflight) items.unshift(skippedVercelPreflightItem());
-if (!options.includeLoad) items.splice(items.length - 1, 0, skippedLoadItem());
-items.push(productionRuntimeEnvPacketItem(options, items));
-items.push(await productionGoLiveGateItem(options, items));
-const manifest = buildArchiveManifest(options, items);
-const serialized = serializeVerificationArtifact(manifest);
-const artifactSha256 = sha256VerificationArtifact(serialized);
-const manifestPath = writeVerificationArtifact(
-  path.join(options.outputDir, "sena-production-evidence-archive.json"),
-  serialized,
-  artifactSha256
-);
+async function runSenaProductionEvidenceArchive(
+  argv: string[]
+) {
+  const options = parseArgs(argv);
+  assertConferenceLoadTarget(options);
+  options.outputDir = path.resolve(options.outputDir);
+  mkdirSync(options.outputDir, { recursive: true });
+  const items = verifierDefinitions(options)
+    .filter((definition) => !(options.skipVercelPreflight && definition.id === "vercel-production-preflight"))
+    .map((definition) => runVerifier(definition, options));
+  if (options.skipVercelPreflight) items.unshift(skippedVercelPreflightItem());
+  if (!options.includeLoad) items.splice(items.length - 1, 0, skippedLoadItem());
+  items.push(productionRuntimeEnvPacketItem(options, items));
+  items.push(await productionGoLiveGateItem(options, items));
+  const manifest = buildArchiveManifest(options, items);
+  const serialized = serializeVerificationArtifact(manifest);
+  const artifactSha256 = sha256VerificationArtifact(serialized);
+  const manifestPath = writeVerificationArtifact(
+    path.join(options.outputDir, "sena-production-evidence-archive.json"),
+    serialized,
+    artifactSha256
+  );
 
-process.stdout.write(`productionEvidenceArchivePath=${manifestPath}\n`);
-process.stdout.write(`productionEvidenceArchiveSha256=${artifactSha256}\n`);
-process.stdout.write(`productionEvidenceArchiveStatus=${manifest.status}\n`);
-process.stdout.write(`productionEvidenceArchiveBlockers=${manifest.summary.productionBlockers.join("|") || "none"}\n`);
+  process.stdout.write(`productionEvidenceArchivePath=${manifestPath}\n`);
+  process.stdout.write(`productionEvidenceArchiveSha256=${artifactSha256}\n`);
+  process.stdout.write(`productionEvidenceArchiveStatus=${manifest.status}\n`);
+  process.stdout.write(`productionEvidenceArchiveBlockers=${manifest.summary.productionBlockers.join("|") || "none"}\n`);
 
-if (manifest.status !== "ready") {
-  console.error("SENA production evidence archive is blocked. Inspect the archive manifest and complete the required production evidence before handoff.");
-  process.exit(1);
+  if (manifest.status !== "ready") {
+    console.error("SENA production evidence archive is blocked. Inspect the archive manifest and complete the required production evidence before handoff.");
+    return 1;
+  }
+
+  console.log("SENA production evidence archive passed.");
+  return 0;
 }
 
-console.log("SENA production evidence archive passed.");
+const archiveInvokedDirectly = path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+
+if (archiveInvokedDirectly) {
+  process.exitCode = await runSenaProductionEvidenceArchive(process.argv.slice(2));
+}

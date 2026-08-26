@@ -14,7 +14,13 @@ function workerContractHeaders(contract: ReturnType<typeof getEnterpriseServerJo
     "x-sena-server-job-worker-missing": contract.missing.join("|") || "none",
     "x-sena-server-job-worker-runtime": contract.worker.runtime,
     "x-sena-server-job-worker-callback": contract.worker.callbackConfigured ? "configured" : "missing",
-    "x-sena-server-job-worker-heartbeat": contract.worker.heartbeatConfirmed ? "confirmed" : "missing",
+    "x-sena-server-job-worker-heartbeat": contract.worker.heartbeatConfirmed
+      ? "same-process-status-store-self-test-confirmed"
+      : "missing",
+    "x-sena-server-job-worker-status-store-self-test": contract.worker.heartbeatConfirmed ? "confirmed" : "missing",
+    "x-sena-server-job-worker-external-callback-receipt": contract.worker.externalWorkerCallbackReceiptSupported
+      ? (contract.worker.externalWorkerCallbackReceiptConfirmed ? "confirmed" : "missing")
+      : "unsupported",
     "x-sena-server-job-worker-url-values": "excluded"
   };
 }

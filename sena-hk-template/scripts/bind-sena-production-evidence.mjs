@@ -1,10 +1,23 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  isSenaFullGitObjectId,
+  senaBuildInputSha256,
+  senaNextBuildIdSha256FromInputSha256,
+  SENA_NEXT_BUILD_ID_GENERATOR
+} from "../lib/sena/enterprise/performance-build-identity.mjs";
+import {
+  observeSenaLocalPerformanceBuildEvidence,
+  validateSenaLocalPerformanceBuildEvidence
+} from "../lib/sena/enterprise/performance-build-measurement.mjs";
+import { validateSenaPerformanceBudgetSemantics } from "../lib/sena/enterprise/performance-budget-validation.mjs";
 
 const defaultProductionTargetUrl = process.env.SENA_CDN_VERIFY_URL || "https://www.sena.hk";
+const senaProjectRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const artifactBindings = new Map([
   ["sena-enterprise-vercel-production-preflight/v1", {
@@ -144,7 +157,7 @@ const artifactBindings = new Map([
     },
     validate: validateObservabilityProbeArtifact
   }],
-  ["sena-enterprise-production-performance-budget/v1", {
+  ["sena-enterprise-production-performance-budget/v2", {
     label: "Production performance budget",
     expectedStatus: "pass",
     env: {
@@ -154,13 +167,15 @@ const artifactBindings = new Map([
     },
     validate: validatePerformanceBudgetArtifact,
     extraEnv: (artifact) => ({
+      SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION: artifact.schemaVersion,
+      SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256: artifact.buildIdentity?.measuredArtifactSetSha256,
       SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256: artifact.buildIdentity?.nextBuildIdSha256,
       SENA_PERFORMANCE_BUDGET_GIT_COMMIT: artifact.buildIdentity?.gitCommit,
-      SENA_PERFORMANCE_BUDGET_GIT_DIRTY: String(artifact.sourceCustody?.reviewedClean === true ? false : artifact.buildIdentity?.gitDirty),
+      // Preserve the observed Git fact. Dirty release slices are not bindable
+      // and must never be normalized into a false clean-worktree claim.
+      SENA_PERFORMANCE_BUDGET_GIT_DIRTY: String(artifact.buildIdentity?.gitDirty),
       SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256: artifact.buildIdentity?.packageLockSha256,
-      SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE: artifact.sourceCustody?.mode,
-      SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MANIFEST_SHA256: artifact.sourceCustody?.manifestSha256,
-      SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_TREE_SHA256: artifact.sourceCustody?.sourceTreeSha256
+      SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE: artifact.sourceCustody?.mode
     })
   }],
   ["sena-enterprise-conference-load-rehearsal/v1", {
@@ -214,10 +229,6 @@ const artifactBindings = new Map([
 
 function validSha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-}
-
-function validGitCommit(value) {
-  return typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
 }
 
 const productionRuntimeHeaderValues = new Set(["enterprise-neon", "enterprise-postgres"]);
@@ -387,46 +398,85 @@ function validateCdnContractArtifact(artifact) {
   return undefined;
 }
 
-function validatePerformanceBudgetArtifact(artifact) {
+export function validateSenaPerformanceBudgetArtifactForBinding(artifact, localEvidence) {
+  const semanticProblem = validateSenaPerformanceBudgetSemantics(artifact);
+  if (semanticProblem) return semanticProblem;
   const identity = artifact?.buildIdentity;
   const sourceCustody = artifact?.sourceCustody;
   if (!identity || identity.values !== "hashes-and-commit-only") {
     return "performance-build-identity-missing";
   }
-  if (!validSha256(identity.nextBuildIdSha256) || !validSha256(identity.packageLockSha256)) {
+  if (identity.nextBuildIdGenerator !== SENA_NEXT_BUILD_ID_GENERATOR ||
+    typeof identity.nextBuildMatchesCurrentSource !== "boolean" ||
+    !validSha256(identity.buildInputSha256) ||
+    !validSha256(identity.currentExpectedBuildInputSha256) ||
+    typeof identity.buildObservationStable !== "boolean" ||
+    typeof identity.measuredArtifactSetStable !== "boolean" ||
+    identity.buildInputEnvironmentScope !== "not-bound-use-measured-artifact-set-sha256" ||
+    !validSha256(identity.measuredArtifactSetSha256) ||
+    !nonNegativeInteger(identity.measuredArtifactFileCount) ||
+    identity.measuredArtifactFileCount <= 0) {
+    return "performance-build-provenance-missing";
+  }
+  if (identity.nextBuildMatchesCurrentSource !== true ||
+    identity.buildObservationStable !== true ||
+    identity.measuredArtifactSetStable !== true ||
+    identity.buildInputSha256 !== identity.currentExpectedBuildInputSha256 ||
+    identity.measuredArtifactFileCount !== artifact.summary.totalStaticJsFiles + 1) {
+    return "performance-build-provenance-mismatch";
+  }
+  if (!validSha256(identity.nextBuildIdSha256) ||
+    !validSha256(identity.packageLockSha256) ||
+    !validSha256(identity.gitStatusSha256) ||
+    !validSha256(identity.sourceTreeSha256) ||
+    !validSha256(identity.sourceFileListSha256) ||
+    !validSha256(identity.sourceReadErrorSha256) ||
+    !nonNegativeInteger(identity.gitDirtyFileCount) ||
+    !nonNegativeInteger(identity.sourceFileCount) ||
+    identity.sourceFileCount <= 0 ||
+    !nonNegativeInteger(identity.sourceReadErrorCount) ||
+    identity.sourceReadErrorCount !== 0 ||
+    identity.sourceReadErrorSha256 !== createHash("sha256").update("").digest("hex")) {
     return "performance-build-identity-hash-missing";
   }
-  if (!validGitCommit(identity.gitCommit)) {
+  if (!isSenaFullGitObjectId(identity.gitCommit)) {
     return "performance-build-git-commit-missing";
   }
-  if (!sourceCustody) {
-    return identity.gitDirty === false ? undefined : "performance-build-git-dirty";
+  const cleanGitStatusSha256 = createHash("sha256").update("").digest("hex");
+  const coherentGitDirtyIdentity = identity.gitDirty === false
+    ? identity.gitDirtyFileCount === 0 && identity.gitStatusSha256 === cleanGitStatusSha256
+    : identity.gitDirty === true && identity.gitDirtyFileCount > 0;
+  if (!coherentGitDirtyIdentity) {
+    return "performance-build-git-identity-invalid";
   }
+  const expectedBuildInputSha256 = senaBuildInputSha256(identity);
+  if (identity.buildInputSha256 !== expectedBuildInputSha256 ||
+    identity.nextBuildIdSha256 !== senaNextBuildIdSha256FromInputSha256(expectedBuildInputSha256)) {
+    return "performance-build-provenance-mismatch";
+  }
+  if (identity.gitDirty !== false) return "performance-build-git-dirty";
+  if (!sourceCustody) return "performance-source-custody-missing";
   if (sourceCustody.values !== "hashes-and-counts-only") {
     return "performance-source-custody-missing";
   }
   if (sourceCustody.reviewedClean !== true) {
     return "performance-source-custody-not-clean";
   }
-  if (sourceCustody.mode === "git-clean-worktree") {
-    if (identity.gitDirty !== false || sourceCustody.baseGitCommit !== identity.gitCommit) {
-      return "performance-build-git-dirty";
-    }
-  } else if (sourceCustody.mode === "reviewed-clean-release-slice") {
-    if (!validSha256(sourceCustody.manifestSha256) ||
-      !validSha256(sourceCustody.sourceTreeSha256) ||
-      !validSha256(sourceCustody.fileListSha256) ||
-      !Number.isSafeInteger(sourceCustody.fileCount) ||
-      sourceCustody.fileCount <= 0 ||
-      sourceCustody.baseGitCommit !== identity.gitCommit ||
-      !validSha256(sourceCustody.rootGitStatusSha256) ||
-      sourceCustody.generator !== "sena-performance-source-custody/v1") {
-      return "performance-source-custody-invalid";
-    }
-  } else {
-    return "performance-build-git-dirty";
+  if (sourceCustody.mode !== "git-clean-worktree" ||
+    sourceCustody.baseGitCommit !== identity.gitCommit ||
+    sourceCustody.rootGitDirty !== false ||
+    sourceCustody.rootGitDirtyFileCount !== 0 ||
+    sourceCustody.rootGitStatusSha256 !== identity.gitStatusSha256) {
+    return "performance-source-custody-invalid";
   }
-  return undefined;
+  return validateSenaLocalPerformanceBuildEvidence(artifact, localEvidence);
+}
+
+function validatePerformanceBudgetArtifact(artifact, _options, localEvidence) {
+  return validateSenaPerformanceBudgetArtifactForBinding(
+    artifact,
+    localEvidence ?? observeSenaLocalPerformanceBuildEvidence(senaProjectRoot)
+  );
 }
 
 function validateVercelProductionPreflightArtifact(artifact, options) {
@@ -579,6 +629,15 @@ function validateServerJobWorkerContractArtifact(artifact) {
     artifact.statusStore.postgresPrimaryActive !== true ||
     artifact.statusStore.indexed !== true) {
     return "server-job-worker-contract-status-store-missing";
+  }
+  if (artifact?.worker?.externalWorkerCallbackReceiptSupported !== true ||
+    artifact.worker.externalWorkerCallbackReceiptConfirmed !== true ||
+    !validSha256(artifact.worker.externalWorkerCallbackReceiptSha256) ||
+    !validIsoTimestamp(artifact.worker.externalWorkerCallbackReceiptVerifiedAt) ||
+    artifact?.contract?.statusStoreSelfTestSatisfiesExternalWorkerReadiness !== false ||
+    artifact.contract.externalWorkerProofPolicy !==
+      "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback") {
+    return "server-job-worker-contract-external-callback-receipt-missing";
   }
   if (artifact?.worker?.ownerConfigured !== true ||
     artifact.worker.runbookConfigured !== true ||
@@ -928,9 +987,9 @@ function hostHashFromDomainValue(value) {
   }
 }
 
-function readArtifact(file) {
+function readArtifact(file, contentFile = file) {
   const absolutePath = path.resolve(file);
-  const text = readFileSync(absolutePath, "utf8");
+  const text = readFileSync(path.resolve(contentFile), "utf8");
   const artifact = JSON.parse(text);
   const artifactSha256 = sha256(text);
   const shaPath = `${absolutePath}.sha256`;
@@ -950,7 +1009,7 @@ function pathIsInsideDir(file, dir) {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function bindableEnvForArtifact(read, options) {
+export function planSenaProductionEvidenceArtifactBinding(read, options, localPerformanceEvidence) {
   const schemaVersion = read.artifact?.schemaVersion;
   const binding = artifactBindings.get(schemaVersion);
   if (!binding) {
@@ -982,7 +1041,7 @@ function bindableEnvForArtifact(read, options) {
       reason: "generatedAt-missing-or-invalid"
     };
   }
-  const validationReason = binding.validate?.(read.artifact, options);
+  const validationReason = binding.validate?.(read.artifact, options, localPerformanceEvidence);
   if (validationReason) {
     return {
       bindable: false,
@@ -1008,17 +1067,34 @@ function bindableEnvForArtifact(read, options) {
   };
 }
 
-function resolveArchiveChildArtifactPath(archiveDir, outputFile) {
+function resolveArchiveChildArtifactCandidate(archiveDir, outputFile) {
   if (typeof outputFile !== "string" || !outputFile.endsWith(".json")) return undefined;
+  const realArchiveDir = realpathSync(archiveDir);
   const candidates = [
     path.resolve(process.cwd(), outputFile),
     path.resolve(archiveDir, outputFile)
   ];
-  return candidates.find((candidate) => existsSync(candidate) && pathIsInsideDir(candidate, archiveDir));
+  let escapedCandidate;
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const canonicalFile = realpathSync(candidate);
+      const resolved = {
+        file: candidate,
+        canonicalFile,
+        realArchiveDir,
+        contained: pathIsInsideDir(canonicalFile, realArchiveDir)
+      };
+      if (resolved.contained) return resolved;
+      escapedCandidate ??= resolved;
+    } catch {
+      // A disappearing or unreadable child is not archive-bound evidence.
+    }
+  }
+  return escapedCandidate;
 }
 
-function archiveChildArtifactFiles(file) {
-  const read = readArtifact(file);
+function archiveChildArtifactPins(read) {
   if (read.artifact?.schemaVersion !== "sena-enterprise-production-evidence-archive/v1") {
     return [];
   }
@@ -1030,9 +1106,125 @@ function archiveChildArtifactFiles(file) {
   }
   const archiveDir = path.dirname(read.file);
   return (Array.isArray(read.artifact.items) ? read.artifact.items : [])
-    .filter((item) => item?.status === "pass" && item?.artifactHashMatches === true)
-    .map((item) => resolveArchiveChildArtifactPath(archiveDir, item.outputFile))
+    .map((item) => {
+      const resolved = resolveArchiveChildArtifactCandidate(archiveDir, item.outputFile);
+      return resolved
+        ? {
+            ...resolved,
+            itemStatus: item?.status,
+            artifactHashMatches: item?.artifactHashMatches,
+            artifactSha256: item?.artifactSha256
+          }
+        : undefined;
+    })
     .filter(Boolean);
+}
+
+function sha256SidecarMatches(file, artifactSha256) {
+  const shaPath = `${file}.sha256`;
+  if (!existsSync(shaPath)) return false;
+  try {
+    return readFileSync(shaPath, "utf8").trim() ===
+      `${artifactSha256}  ${path.basename(file)}`;
+  } catch {
+    return false;
+  }
+}
+
+export function classifySenaProductionEvidenceArchiveChildClaims(claims) {
+  const pinGroups = new Map();
+  const pinHashesByFile = new Map();
+  const canonicalFilesByFile = new Map();
+
+  for (const claim of claims) {
+    const group = pinGroups.get(claim.canonicalFile) ?? [];
+    group.push(claim);
+    pinGroups.set(claim.canonicalFile, group);
+    const filePins = pinHashesByFile.get(claim.file) ?? new Set();
+    filePins.add(claim.artifactSha256);
+    pinHashesByFile.set(claim.file, filePins);
+    const fileCanonicals = canonicalFilesByFile.get(claim.file) ?? new Set();
+    fileCanonicals.add(claim.canonicalFile);
+    canonicalFilesByFile.set(claim.file, fileCanonicals);
+  }
+
+  const conflictingFiles = new Set(
+    [...pinHashesByFile.entries()]
+      .filter(([file, hashes]) =>
+        hashes.size !== 1 || canonicalFilesByFile.get(file)?.size !== 1
+      )
+      .map(([file]) => file)
+  );
+  const blockedCanonicalFiles = new Set();
+  for (const [canonicalFile, pins] of pinGroups) {
+    const recordedHashes = new Set(pins.map((pin) => pin.artifactSha256));
+    if (recordedHashes.size !== 1 || pins.some((pin) => conflictingFiles.has(pin.file))) {
+      blockedCanonicalFiles.add(canonicalFile);
+    }
+  }
+  return {
+    pinGroups,
+    pinHashesByFile,
+    canonicalFilesByFile,
+    blockedCanonicalFiles
+  };
+}
+
+export function collectSenaProductionEvidenceArtifactReads(options) {
+  const seedFiles = new Set([
+    ...options.artifacts,
+    ...options.evidenceDirs.flatMap((dir) => walkJsonFiles(path.resolve(dir)))
+  ].map((file) => path.resolve(file)));
+  const seedRecords = [...seedFiles].sort().map((file) => ({
+    read: readArtifact(file),
+    canonicalFile: realpathSync(file)
+  }));
+  const claims = seedRecords.flatMap(({ read }) => archiveChildArtifactPins(read));
+  const {
+    pinGroups,
+    pinHashesByFile,
+    blockedCanonicalFiles
+  } = classifySenaProductionEvidenceArchiveChildClaims(claims);
+
+  const pinnedReads = [];
+  for (const [canonicalFile, pins] of [...pinGroups.entries()].sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )) {
+    if (blockedCanonicalFiles.has(canonicalFile) ||
+      pins.some((pin) => pin.itemStatus !== "pass") ||
+      pins.some((pin) => pin.artifactHashMatches !== true) ||
+      pins.some((pin) => !pin.contained) ||
+      !validSha256(pins[0]?.artifactSha256)) {
+      continue;
+    }
+    const expectedSha256 = pins[0].artifactSha256;
+    const orderedPins = [...pins].sort((left, right) =>
+      left.file < right.file ? -1 : left.file > right.file ? 1 : 0
+    );
+    if (!orderedPins.every((pin) => sha256SidecarMatches(pin.file, expectedSha256))) {
+      continue;
+    }
+    try {
+      const pinnedRead = readArtifact(orderedPins[0].file, canonicalFile);
+      if (pinnedRead.artifactSha256 === expectedSha256) {
+        pinnedReads.push(pinnedRead);
+      }
+    } catch {
+      // Unreadable or concurrently replaced canonical content is not evidence.
+    }
+  }
+
+  const claimedCanonicalFiles = new Set(pinGroups.keys());
+  const claimedFiles = new Set([...pinHashesByFile.keys()]);
+  return [
+    ...seedRecords
+      .filter((record) =>
+        !claimedFiles.has(record.read.file) &&
+        !claimedCanonicalFiles.has(record.canonicalFile)
+      )
+      .map((record) => record.read),
+    ...pinnedReads
+  ].sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0);
 }
 
 function run(command, args, input) {
@@ -1086,59 +1278,72 @@ function upsertVercelEnv(options, key, value) {
   return "replaced";
 }
 
-function collectArtifacts(options) {
-  const seedFiles = [
-    ...options.artifacts,
-    ...options.evidenceDirs.flatMap((dir) => walkJsonFiles(path.resolve(dir)))
-  ];
-  const files = new Set(seedFiles.map((file) => path.resolve(file)));
-  for (const file of [...files]) {
-    for (const childFile of archiveChildArtifactFiles(file)) {
-      files.add(path.resolve(childFile));
+export function writeSenaProductionEvidenceBindingPlanToVercel(options, result) {
+  const confirmedKey = result.binding.env.confirmed;
+  const confirmedValue = result.env.get(confirmedKey);
+  try {
+    const revokeAction = upsertVercelEnv(options, confirmedKey, "0");
+    console.log(`  ${confirmedKey}=${revokeAction}`);
+    for (const [key, value] of result.env) {
+      if (key === confirmedKey) continue;
+      const action = upsertVercelEnv(options, key, value);
+      console.log(`  ${key}=${action}`);
     }
+    const confirmAction = upsertVercelEnv(options, confirmedKey, confirmedValue);
+    console.log(`  ${confirmedKey}=${confirmAction}`);
+  } catch (error) {
+    try {
+      const rollbackAction = upsertVercelEnv(options, confirmedKey, "0");
+      console.log(`  ${confirmedKey}=${rollbackAction}`);
+    } catch {
+      throw new Error(`Failed to keep ${confirmedKey} unconfirmed after a binding error.`);
+    }
+    throw error;
   }
-  return [...files].sort();
 }
 
-const options = parseArgs(process.argv.slice(2));
-const artifactFiles = collectArtifacts(options);
-const reads = artifactFiles.map((file) => readArtifact(file));
-const plans = reads.map((read) => ({
-  read,
-  result: bindableEnvForArtifact(read, options)
-}));
-const bindablePlans = plans.filter((plan) => plan.result.bindable);
+function runSenaProductionEvidenceBinding(argv) {
+  const options = parseArgs(argv);
+  const reads = collectSenaProductionEvidenceArtifactReads(options);
+  const plans = reads.map((read) => ({
+    read,
+    result: planSenaProductionEvidenceArtifactBinding(read, options)
+  }));
+  const bindablePlans = plans.filter((plan) => plan.result.bindable);
 
-console.log("SENA production evidence binding plan");
-console.log(`  vercelEnvironment=${options.environment}`);
-console.log(`  vercelScope=${options.scope ?? "linked-project-default"}`);
-console.log(`  artifactsScanned=${artifactFiles.length}`);
-console.log(`  bindableArtifacts=${bindablePlans.length}`);
-for (const plan of plans) {
-  const label = plan.result.binding?.label ?? "Unrecognized artifact";
-  console.log(`  ${path.basename(plan.read.file)}: ${label} -> ${plan.result.bindable ? "bind" : `skip(${plan.result.reason})`}`);
-}
+  console.log("SENA production evidence binding plan");
+  console.log(`  vercelEnvironment=${options.environment}`);
+  console.log(`  vercelScope=${options.scope ?? "linked-project-default"}`);
+  console.log(`  artifactsScanned=${reads.length}`);
+  console.log(`  bindableArtifacts=${bindablePlans.length}`);
+  for (const plan of plans) {
+    const label = plan.result.binding?.label ?? "Unrecognized artifact";
+    console.log(`  ${path.basename(plan.read.file)}: ${label} -> ${plan.result.bindable ? "bind" : `skip(${plan.result.reason})`}`);
+  }
 
-if (bindablePlans.length === 0) {
-  console.error("No passed SENA production evidence artifacts were bindable.");
-  process.exit(1);
-}
+  if (bindablePlans.length === 0) {
+    console.error("No passed SENA production evidence artifacts were bindable.");
+    return 1;
+  }
 
-if (!options.yes) {
-  console.log("Dry run only. Re-run with --yes to write evidence env values to Vercel.");
+  if (!options.yes) {
+    console.log("Dry run only. Re-run with --yes to write evidence env values to Vercel.");
+    for (const plan of bindablePlans) {
+      for (const key of plan.result.env.keys()) {
+        console.log(`    ${key}=configured(redacted)`);
+      }
+    }
+    return 0;
+  }
+
+  assertVercelAvailable();
   for (const plan of bindablePlans) {
-    for (const key of plan.result.env.keys()) {
-      console.log(`    ${key}=configured(redacted)`);
-    }
+    writeSenaProductionEvidenceBindingPlanToVercel(options, plan.result);
   }
-  process.exit(0);
+  console.log("SENA production evidence binding complete. Secret values were not read or printed.");
+  return 0;
 }
 
-assertVercelAvailable();
-for (const plan of bindablePlans) {
-  for (const [key, value] of plan.result.env) {
-    const action = upsertVercelEnv(options, key, value);
-    console.log(`  ${key}=${action}`);
-  }
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  process.exitCode = runSenaProductionEvidenceBinding(process.argv.slice(2));
 }
-console.log("SENA production evidence binding complete. Secret values were not read or printed.");

@@ -1,8 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { availableParallelism, tmpdir } from "node:os";
 import path, { join } from "node:path";
+import {
+  assertSenaVerifierEnvironmentFilesUnchanged,
+  assertSenaVerifierEnvironmentIsLocal,
+  buildSenaVerifierEnvironment
+} from "./sena-verifier-environment.mjs";
+import { buildSenaVitestPhaseArgs } from "./sena-vitest-phase-plan.mjs";
 
 // Deliberately duplicated from scripts/resolve-installed-package-file.ts: plain
 // `node` runs this wrapper, so it cannot import the TypeScript helper, and
@@ -22,21 +28,38 @@ function resolveInstalledPackageFile(packageName, relativePath) {
 
 const providedDbDir = process.env.SENA_ENTERPRISE_DB_DIR;
 const enterpriseDbDir = providedDbDir || mkdtempSync(join(tmpdir(), "sena-vitest-enterprise-db-"));
+let vitestEnvironment;
+
+function runVitest(vitestFile, args) {
+  assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
+  let result;
+  try {
+    result = spawnSync(process.execPath, [vitestFile, "run", ...args], {
+      stdio: "inherit",
+      env: vitestEnvironment
+    });
+  } finally {
+    assertSenaVerifierEnvironmentFilesUnchanged(vitestEnvironment, process.cwd());
+  }
+  return result.status ?? 1;
+}
 
 try {
-  const result = spawnSync(process.execPath, [
-    resolveInstalledPackageFile("vitest", "vitest.mjs"),
-    "run",
-    ...process.argv.slice(2)
-  ], {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
-    }
+  vitestEnvironment = buildSenaVerifierEnvironment(process.env, {
+    SENA_ENTERPRISE_DB_DIR: enterpriseDbDir
   });
+  assertSenaVerifierEnvironmentIsLocal(vitestEnvironment, enterpriseDbDir);
+  const vitestFile = resolveInstalledPackageFile("vitest", "vitest.mjs");
+  const phases = buildSenaVitestPhaseArgs(process.argv.slice(2), availableParallelism());
 
-  process.exitCode = result.status ?? 1;
+  process.exitCode = 0;
+  for (const phaseArgs of phases) {
+    const status = runVitest(vitestFile, phaseArgs);
+    if (status !== 0) {
+      process.exitCode = status;
+      break;
+    }
+  }
 } finally {
   if (!providedDbDir) {
     rmSync(enterpriseDbDir, { force: true, recursive: true });

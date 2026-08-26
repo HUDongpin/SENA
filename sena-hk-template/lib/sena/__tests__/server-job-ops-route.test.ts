@@ -47,10 +47,12 @@ describe("SENA server job ops route", () => {
       actorUserId: registered.context.user.id,
       payload: {
         action: "run-analysis",
-        projectId: "project_status_test"
+        projectId: "project_status_test",
+        projectVersion: 1
       },
       payloadSummary: {
         source: "project",
+        projectVersion: 1,
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -124,6 +126,7 @@ describe("SENA server job ops route", () => {
       body: JSON.stringify({
         action: "mark-failed",
         jobId: job.id,
+        workerRunId: "worker_run_1",
         errorCode: "worker_exit",
         errorMessage
       })
@@ -295,6 +298,17 @@ describe("SENA server job ops route", () => {
     expect(tooManyResponse.status).toBe(400);
     expect((await tooManyResponse.json() as { code?: string }).code).toBe("server_job_upload_warnings_too_many");
 
+    const runningResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: authHeaders,
+      body: JSON.stringify({
+        action: "mark-running",
+        jobId: job.id,
+        workerRunId: "worker_run_warnings"
+      })
+    }));
+    expect(runningResponse.status).toBe(200);
+
     const succeededResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
       method: "POST",
       headers: authHeaders,
@@ -342,17 +356,25 @@ describe("SENA server job ops route", () => {
     ] as const;
 
     for (const kind of jobKinds) {
+      const projectId = `project_${kind.replace(/-/g, "_")}`;
+      const reliabilityPayload = {
+        action: "run-reliability",
+        teamId: registered.context.teams[0].id,
+        projectId,
+        uploadIds: ["upload_ops_route_reliability"]
+      };
       await enterprise.enqueueEnterpriseServerJob({
         kind,
         teamId: registered.context.teams[0].id,
-        projectId: `project_${kind.replace(/-/g, "_")}`,
+        projectId,
         actorUserId: registered.context.user.id,
-        payload: {
+        payload: kind === "reliability" ? reliabilityPayload : {
           action: `run-${kind}`,
-          projectId: `project_${kind.replace(/-/g, "_")}`
+          projectId
         },
         payloadSummary: {
           source: "project",
+          uploadIds: kind === "reliability" ? reliabilityPayload.uploadIds : undefined,
           hasInlineSnapshot: false,
           hasInlineDataset: false,
           payloadValuesExcluded: true

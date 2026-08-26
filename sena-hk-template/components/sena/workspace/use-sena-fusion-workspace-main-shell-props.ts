@@ -1139,7 +1139,8 @@ export function useSenaFusionWorkspaceMainShellProps() {
   });
 
   const {
-    restoreProjectSnapshot
+    restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot
   } = useProjectSnapshotRestoreAction({
     setActiveTemporalWindow: setPendingActiveWindow,
     setAdjudicationNotes,
@@ -1239,10 +1240,8 @@ export function useSenaFusionWorkspaceMainShellProps() {
     exportPublication
   } = useEnterprisePublicationActions({
     enterpriseUserPresent: Boolean(enterpriseContext?.user),
-    activeEnterpriseTeamId,
     activeEnterpriseProjectId,
     enterpriseJsonHeaders,
-    buildCurrentProjectSnapshot,
     setEnterpriseBusy,
     setEnterpriseMessage
   });
@@ -1459,6 +1458,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     commitUploadedTables,
     importFilesViaEnterpriseApi,
     restoreProjectSnapshot,
+    restoreValidatedProjectSnapshot,
     setDataset,
     setDemoManualReviews,
     setImportError,
@@ -1831,7 +1831,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     onExportProductionPageContractJson: exportProductionPageContractJson,
     onExportProjectSnapshot: exportProjectSnapshot,
     onExportPublication: exportPublication,
-    hasPublicationAccess: Boolean(enterpriseContext?.user),
+    hasPublicationAccess: Boolean(enterpriseContext?.user && activeEnterpriseProjectId),
     onExportReadinessJson: exportPilotReadinessJson,
     onExportReliabilityDashboardJson: exportReliabilityDashboardJson,
     onExportReviewPacket: exportReviewPacketJson,

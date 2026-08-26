@@ -19,6 +19,12 @@ export async function GET(request: Request) {
         "x-sena-project-id": claimPackage.project.id,
         "x-sena-project-version": String(claimPackage.project.currentVersion),
         "x-sena-source-snapshot-sha256": claimPackage.sourceSnapshotEvidence.snapshotSha256,
+        ...(claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256
+          ? { "x-sena-persisted-source-snapshot-sha256": claimPackage.sourceSnapshotEvidence.persistedSnapshotSha256 }
+          : {}),
+        ...(claimPackage.sourceSnapshotEvidence.stateRevisionSha256
+          ? { "x-sena-claim-state-revision-sha256": claimPackage.sourceSnapshotEvidence.stateRevisionSha256 }
+          : {}),
         "x-sena-report-sha256": claimPackage.sourceSnapshotEvidence.reportSha256,
         "x-sena-claim-evidence-reliability-source": claimPackage.evidenceSource.reliabilityRuns,
         "x-sena-claim-evidence-validation-source": claimPackage.evidenceSource.validationRuns,

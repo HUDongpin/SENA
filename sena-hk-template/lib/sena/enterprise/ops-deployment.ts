@@ -48,6 +48,7 @@ import {
 import {
   getEnterpriseServerJobWorkerContract
 } from "./server-job-worker-contract";
+import { enterpriseExpertReviewReceiptRuntime } from "./expert-review-receipt";
 import {
   deploymentEnv,
   deploymentWebhookEnv,
@@ -204,7 +205,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
 } = {}): SenaEnterpriseOrganizationDeploymentPackage {
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
   const db = input.db ?? readEnterpriseDb();
-  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });
   const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
   const governance = input.governance ?? getEnterpriseGovernanceStatus({ db, opsStatus });
   const postgresConfig = resolveEnterprisePostgresConfig();
@@ -227,6 +228,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
   const governanceCheckById = new Map(governance.checks.map((check) => [check.id, check]));
   const mfaKeyConfigured = Boolean(envValue("SENA_MFA_ENCRYPTION_KEY") || envValue("SENA_SESSION_SECRET"));
   const fullSaasBackendApproved = envValue("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED") === "1";
+  const expertReviewReceiptRuntime = enterpriseExpertReviewReceiptRuntime();
   const identityEvidenceHostAllowlist = identityEvidenceAllowedHostConfig();
   const identityEvidenceHostAllowlistConfigured = identityEvidenceHostAllowlist.configured &&
     identityEvidenceHostAllowlist.hosts.length > 0 &&
@@ -292,6 +294,31 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       configured: mfaKeyConfigured,
       secret: true,
       purpose: "Production auth/MFA secret material"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+      category: "auth",
+      required: fullSaasBackendApproved,
+      configured: expertReviewReceiptRuntime.ready,
+      secret: true,
+      purpose: "Dedicated 32+ character HMAC trust root for exact validation-target expert-review receipts"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_SIGNING_KEY_ID",
+      category: "auth",
+      required: fullSaasBackendApproved,
+      configured: expertReviewReceiptRuntime.ready,
+      secret: false,
+      value: envValue("SENA_EXPERT_REVIEW_SIGNING_KEY_ID"),
+      purpose: "Required opaque active expert-review signing key id; every secret rotation must use a new id"
+    }),
+    deploymentEnv({
+      name: "SENA_EXPERT_REVIEW_VERIFICATION_KEYS_JSON",
+      category: "auth",
+      required: false,
+      configured: expertReviewReceiptRuntime.historicalKeyCount > 0,
+      secret: true,
+      purpose: "Optional redacted historical expert-review verification keyring; active key-id collisions fail closed"
     }),
     deploymentEnv({
       name: "SENA_OPS_TOKEN",
@@ -510,7 +537,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
         workerContract.worker.heartbeatArtifactHashConfigured &&
         workerContract.worker.heartbeatVerifiedAtConfigured,
       secret: false,
-      purpose: "Worker heartbeat artifact binding proving the queue consumer can call status callbacks"
+      purpose: "Same-process status-store CAS self-test binding only; does not prove an external queue consumer or authenticated callback"
     }),
     deploymentEnv({
       name: "SENA_PRODUCTION_EVIDENCE_MANIFEST_REQUIRED",

@@ -48,6 +48,9 @@ function duplicateValues(values: string[]) {
 }
 
 function stableValue(value: unknown): unknown {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return { $senaNonFinite: Number.isNaN(value) ? "NaN" : value > 0 ? "Infinity" : "-Infinity" };
+  }
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {
     return Object.fromEntries(

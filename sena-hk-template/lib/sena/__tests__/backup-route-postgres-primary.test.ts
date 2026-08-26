@@ -65,6 +65,8 @@ describe("SENA governance backup route Postgres primary state", () => {
       const verification = await verifyResponse.json() as { backupId?: string; checks?: Array<{ id: string; status: string }> };
       expect(verifyResponse.status).toBe(200);
       expect(existsSync(path.join(enterpriseDbDir, "enterprise-db.json"))).toBe(false);
+      if (!pg.state) throw new Error("Postgres primary state was not initialized before restore dry-run.");
+      const beforeDryRun = structuredClone(pg.state);
       const restoreResponse = await route.POST(new Request("https://sena.example.test/api/sena/governance/backup", {
         method: "POST",
         headers: {
@@ -91,6 +93,17 @@ describe("SENA governance backup route Postgres primary state", () => {
       expect(restore.status).toBe("dry-run");
       expect(restore.dryRun).toBe(true);
       expect(restore.backupId).toBe(backup.backupId);
+      expect(pg.state?.revision).toBe(beforeDryRun.revision + 1);
+      const { auditLog: beforeDryRunAudit, ...beforeDryRunDomainState } = beforeDryRun.payload;
+      const { auditLog: afterDryRunAudit, ...afterDryRunDomainState } = pg.state!.payload;
+      expect(afterDryRunDomainState).toEqual(beforeDryRunDomainState);
+      expect(afterDryRunAudit).toHaveLength(beforeDryRunAudit.length + 1);
+      expect(afterDryRunAudit.filter((entry) => entry.event === "governance.backup.verify")).toHaveLength(
+        beforeDryRunAudit.filter((entry) => entry.event === "governance.backup.verify").length + 1
+      );
+      expect(afterDryRunAudit.filter((entry) => entry.event === "governance.backup.restore")).toHaveLength(
+        beforeDryRunAudit.filter((entry) => entry.event === "governance.backup.restore").length
+      );
       expect(pg.state?.payload.auditLog.some((entry) => entry.event === "governance.backup")).toBe(true);
       expect(pg.state?.payload.auditLog.filter((entry) => entry.event === "governance.backup.verify").length).toBeGreaterThanOrEqual(2);
       expect(pg.queries.some((query) => /UPDATE "public"\."sena_enterprise_state" SET payload/i.test(query))).toBe(true);

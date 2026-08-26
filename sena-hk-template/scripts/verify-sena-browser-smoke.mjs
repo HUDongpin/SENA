@@ -935,14 +935,14 @@ async function verifyPilotAssetLinks(page, url) {
     manifest.exportArtifactSchemas?.["sena-metric-provenance.json"] !== "sena-metric-provenance/v1") {
     throw new Error("Pilot manifest has stale metric-provenance export artifact metadata.");
   }
-  if (manifest.exportArtifactSchemas?.["sena-fusion-math-audit.json"] !== "sena-fusion-math-audit/v1") {
+  if (manifest.exportArtifactSchemas?.["sena-fusion-math-audit.json"] !== "sena-fusion-math-audit/v2") {
     throw new Error("Pilot manifest has stale fusion-math audit schema.");
   }
   if (manifest.exportArtifactSchemas?.["sena-runtime-consistency-audit.json"] !== "sena-runtime-consistency/v1") {
     throw new Error("Pilot manifest has stale runtime-consistency audit schema.");
   }
   if (!manifest.exportArtifacts?.includes("sena-coding-reliability-gate.json") ||
-    manifest.exportArtifactSchemas?.["sena-coding-reliability-gate.json"] !== "sena-coding-reliability-gate/v1") {
+    manifest.exportArtifactSchemas?.["sena-coding-reliability-gate.json"] !== "sena-coding-reliability-gate/v2") {
     throw new Error("Pilot manifest has stale coding-reliability gate export artifact metadata.");
   }
   const handoffChecks = manifest.handoffChecks ?? [];
@@ -1302,7 +1302,7 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   }
 
   const fusionMathAudit = runtimeBundle.fusionMathAudit;
-  if (fusionMathAudit?.schemaVersion !== "sena-fusion-math-audit/v1") {
+  if (fusionMathAudit?.schemaVersion !== "sena-fusion-math-audit/v2") {
     throw new Error("Runtime bundle is missing the archived fusion math audit.");
   }
   if (fusionMathAudit.status !== "verified") {
@@ -1611,7 +1611,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Report JSON is missing the claim-readiness gate.");
   }
   assertTextIncludes(reportJson.claimReadinessGate?.claimUse ?? "", "exploratory-only", "report JSON claim readiness");
-  if (reportJson.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v1") {
+  if (reportJson.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v2") {
     throw new Error("Report JSON is missing the coding-reliability gate.");
   }
   assertTextIncludes(reportJson.codingReliabilityGate?.claimUse ?? "", "coding-reliability-needed", "report JSON coding reliability");
@@ -1665,7 +1665,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     page,
     /Export reliability gate/i,
     "sena-coding-reliability-gate.json",
-    "sena-coding-reliability-gate/v1"
+    "sena-coding-reliability-gate/v2"
   );
   assertTextIncludes(codingReliabilityGate.claimUse ?? "", "coding-reliability-needed", "coding reliability gate export");
   if (codingReliabilityGate.status !== reportJson.codingReliabilityGate.status) {
@@ -1851,7 +1851,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
   if (reviewPacket.contents?.claimReadinessGate?.schemaVersion !== "sena-claim-readiness-gate/v1") {
     throw new Error("Review packet is missing embedded claim-readiness gate.");
   }
-  if (reviewPacket.contents?.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v1") {
+  if (reviewPacket.contents?.codingReliabilityGate?.schemaVersion !== "sena-coding-reliability-gate/v2") {
     throw new Error("Review packet is missing embedded coding-reliability gate.");
   }
   const pilotPackageHandoff = reviewPacket.reviewPacketAudit?.items?.find((item) => item.id === "pilot-package-manifest");

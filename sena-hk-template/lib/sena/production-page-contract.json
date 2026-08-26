@@ -231,7 +231,7 @@
       "label": "Coding reliability gate",
       "requiredText": [
         "Coding reliability gate",
-        "sena-coding-reliability-gate/v1",
+        "sena-coding-reliability-gate/v2",
         "sena-coding-reliability-gate.json",
         "coding-reliability-needed",
         "Coding reliability evidence",
@@ -1264,7 +1264,7 @@
     {
       "id": "enterprise-claim-evidence-package-schema",
       "label": "Enterprise claim evidence package schema",
-      "requiredText": "sena-enterprise-claim-evidence-package/v1",
+      "requiredText": "sena-enterprise-claim-evidence-package/v2",
       "expectedOutcome": "The enterprise claim package UI names the machine-readable evidence package schema."
     },
     {

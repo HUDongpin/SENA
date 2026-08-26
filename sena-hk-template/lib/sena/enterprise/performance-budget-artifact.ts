@@ -1,11 +1,22 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { brotliCompressSync, constants } from "node:zlib";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { booleanEnvFrom, senaProductionPostureFrom } from "./auth-config";
 import { now } from "./ops-runtime";
+import {
+  collectSenaBuildInputIdentity,
+  isSenaFullGitObjectId,
+  parseSenaNextBuildId,
+  senaNextBuildIdSha256FromInputSha256,
+  senaPerformanceSourceCustodyManifestSha256,
+  SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR,
+  SENA_NEXT_BUILD_ID_GENERATOR
+} from "./performance-build-identity.mjs";
+import {
+  measureSenaPerformanceBuildOutput,
+  senaBuildIdIsRegularFile
+} from "./performance-build-measurement.mjs";
 
 export type SenaEnterpriseProductionPerformanceBudgetCheckId =
   "production-build-present" |
@@ -20,6 +31,8 @@ export type SenaEnterpriseProductionPerformanceBudgetCheck = {
   status: "pass" | "fail";
   actualBrotliBytes?: number;
   budgetBytes?: number;
+  headroomBytes?: number;
+  minimumHeadroomBytes?: number;
   evidence: string[];
   nextAction: string;
 };
@@ -41,15 +54,30 @@ export type SenaEnterpriseProductionPerformanceBudgetArtifact = {
     localFileStoreIsProductionBackend: false;
     artifactPurpose: "archive-performance-budget-json-plus-sha256";
     buildIdentityRequiredForBinding: true;
+    totalStaticJsHeadroomReserveRequired: true;
     strictProductionEvidenceRequired: boolean;
   };
   buildIdentity: {
     nextBuildIdSha256: string | "missing";
+    nextBuildIdGenerator: typeof SENA_NEXT_BUILD_ID_GENERATOR | "unknown";
+    nextBuildMatchesCurrentSource: boolean;
+    buildInputSha256: string | "unavailable";
+    currentExpectedBuildInputSha256: string;
+    buildInputEnvironmentScope: "not-bound-use-measured-artifact-set-sha256";
+    buildObservationStable: boolean;
+    measuredArtifactSetStable: boolean;
+    measuredArtifactSetSha256: string | "unavailable";
+    measuredArtifactFileCount: number | "unknown";
     gitCommit: string | "unavailable";
     gitDirty: boolean | "unknown";
     gitDirtyFileCount: number | "unknown";
     gitStatusSha256: string | "unavailable";
     packageLockSha256: string | "missing";
+    sourceTreeSha256: string | "unavailable";
+    sourceFileListSha256: string | "unavailable";
+    sourceFileCount: number | "unknown";
+    sourceReadErrorCount: number | "unknown";
+    sourceReadErrorSha256: string | "unavailable";
     values: "hashes-and-commit-only";
   };
   sourceCustody: {
@@ -70,11 +98,13 @@ export type SenaEnterpriseProductionPerformanceBudgetArtifact = {
     workspaceHtmlBrotliBytes: number;
     workspaceRouteJsBrotliBytes: number;
     totalStaticJsBrotliBytes: number;
+    totalStaticJsMinimumHeadroomBytes: number;
   };
   budgetEnv: {
     workspaceHtmlBrotliBytes: "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES";
     workspaceRouteJsBrotliBytes: "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES";
     totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES";
+    totalStaticJsMinimumHeadroomBytes: "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES";
   };
   checks: SenaEnterpriseProductionPerformanceBudgetCheck[];
   evidence: string[];
@@ -85,26 +115,6 @@ export type SenaEnterpriseProductionPerformanceBudgetArtifact = {
     secretValuesExcluded: true;
   };
 };
-
-function walk(dir: string): string[] {
-  try {
-    return readdirSync(dir).flatMap((entry) => {
-      const entryPath = path.join(dir, entry);
-      const stats = statSync(entryPath);
-      return stats.isDirectory() ? walk(entryPath) : [entryPath];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function brotliSize(buffer: Buffer) {
-  return brotliCompressSync(buffer, {
-    params: {
-      [constants.BROTLI_PARAM_QUALITY]: 11
-    }
-  }).length;
-}
 
 function budgetEnv(env: NodeJS.ProcessEnv | Record<string, string | undefined>, key: string, defaultValue: number) {
   const parsed = Number(env[key]);
@@ -176,53 +186,46 @@ function readFileWithStabilization(file: string, readFile: FileReader, policy: F
   };
 }
 
-function optionalFileSha256(file: string, readFile: FileReader, policy: FileReadPolicy) {
-  try {
-    if (!existsSync(file)) return "missing" as const;
-    const read = readFileWithStabilization(file, readFile, policy);
-    return read.ok ? sha256Text(read.buffer) : "missing" as const;
-  } catch {
-    return "missing" as const;
-  }
-}
-
-function gitBuildIdentity(root: string) {
-  const commit = spawnSync("git", ["-C", root, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"]
-  });
-  if (commit.status !== 0) {
-    return {
-      gitCommit: "unavailable" as const,
-      gitDirty: "unknown" as const,
-      gitDirtyFileCount: "unknown" as const,
-      gitStatusSha256: "unavailable" as const
-    };
-  }
-  const status = spawnSync("git", ["-C", root, "status", "--porcelain"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"]
-  });
-  const statusText = status.status === 0 ? status.stdout.trim() : undefined;
-  return {
-    gitCommit: commit.stdout.trim() || "unavailable",
-    gitDirty: statusText !== undefined ? statusText.length > 0 : "unknown" as const,
-    gitDirtyFileCount: statusText !== undefined && statusText.length > 0 ? statusText.split(/\r?\n/).filter(Boolean).length : statusText === "" ? 0 : "unknown" as const,
-    gitStatusSha256: statusText !== undefined ? sha256Text(statusText) : "unavailable" as const
-  };
+function sameBuildInputIdentity(
+  left: ReturnType<typeof collectSenaBuildInputIdentity>,
+  right: ReturnType<typeof collectSenaBuildInputIdentity>
+) {
+  return left.buildInputSha256 === right.buildInputSha256 &&
+    left.buildId === right.buildId &&
+    left.gitCommit === right.gitCommit &&
+    left.gitDirty === right.gitDirty &&
+    left.gitDirtyFileCount === right.gitDirtyFileCount &&
+    left.gitStatusSha256 === right.gitStatusSha256 &&
+    left.packageLockSha256 === right.packageLockSha256 &&
+    left.sourceTreeSha256 === right.sourceTreeSha256 &&
+    left.sourceFileListSha256 === right.sourceFileListSha256 &&
+    left.sourceFileCount === right.sourceFileCount &&
+    left.sourceReadErrorCount === right.sourceReadErrorCount &&
+    left.sourceReadErrorSha256 === right.sourceReadErrorSha256;
 }
 
 function validSha256(value: string | "missing") {
   return /^[a-f0-9]{64}$/.test(value);
 }
 
-function validGitCommit(value: string | "unavailable") {
-  return /^[a-f0-9]{40,64}$/.test(value);
+function coherentGitDirtyIdentity(identity: SenaEnterpriseProductionPerformanceBudgetArtifact["buildIdentity"]) {
+  if (identity.gitDirty === false) {
+    return identity.gitDirtyFileCount === 0 && identity.gitStatusSha256 === sha256Text("");
+  }
+  if (identity.gitDirty === true) {
+    return typeof identity.gitDirtyFileCount === "number" && identity.gitDirtyFileCount > 0;
+  }
+  return false;
 }
 
 function positiveIntegerString(value: string | undefined) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function nonNegativeIntegerString(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function validSourceCustodyHash(value: string | undefined) {
@@ -231,15 +234,15 @@ function validSourceCustodyHash(value: string | undefined) {
 
 function sourceCustodyFromEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
-  gitIdentity: ReturnType<typeof gitBuildIdentity>
+  gitIdentity: ReturnType<typeof collectSenaBuildInputIdentity>
 ): SenaEnterpriseProductionPerformanceBudgetArtifact["sourceCustody"] {
   const mode = env.SENA_PERFORMANCE_SOURCE_CUSTODY_MODE;
-  const cleanGit = gitIdentity.gitDirty === false && validGitCommit(gitIdentity.gitCommit);
+  const cleanGit = gitIdentity.gitDirty === false && isSenaFullGitObjectId(gitIdentity.gitCommit);
   if (mode !== "reviewed-clean-release-slice") {
     return {
       mode: cleanGit ? "git-clean-worktree" : "none",
       reviewedClean: cleanGit,
-      baseGitCommit: validGitCommit(gitIdentity.gitCommit) ? gitIdentity.gitCommit : undefined,
+      baseGitCommit: isSenaFullGitObjectId(gitIdentity.gitCommit) ? gitIdentity.gitCommit : undefined,
       rootGitDirty: gitIdentity.gitDirty,
       rootGitDirtyFileCount: gitIdentity.gitDirtyFileCount,
       rootGitStatusSha256: gitIdentity.gitStatusSha256,
@@ -253,17 +256,31 @@ function sourceCustodyFromEnv(
   const fileCount = positiveIntegerString(env.SENA_PERFORMANCE_SOURCE_CUSTODY_FILE_COUNT);
   const baseGitCommit = env.SENA_PERFORMANCE_SOURCE_CUSTODY_BASE_GIT_COMMIT;
   const rootGitStatusSha256 = env.SENA_PERFORMANCE_SOURCE_CUSTODY_ROOT_GIT_STATUS_SHA256;
-  const rootGitDirtyFileCount = positiveIntegerString(env.SENA_PERFORMANCE_SOURCE_CUSTODY_ROOT_GIT_DIRTY_FILE_COUNT);
+  const rootGitDirtyFileCount = nonNegativeIntegerString(env.SENA_PERFORMANCE_SOURCE_CUSTODY_ROOT_GIT_DIRTY_FILE_COUNT);
   const reviewedClean = validSourceCustodyHash(manifestSha256) &&
     validSourceCustodyHash(sourceTreeSha256) &&
     validSourceCustodyHash(fileListSha256) &&
     fileCount !== undefined &&
-    validGitCommit(baseGitCommit ?? "unavailable") &&
+    isSenaFullGitObjectId(baseGitCommit) &&
     baseGitCommit === gitIdentity.gitCommit &&
     validSourceCustodyHash(rootGitStatusSha256) &&
     rootGitStatusSha256 === gitIdentity.gitStatusSha256 &&
     rootGitDirtyFileCount !== undefined &&
-    rootGitDirtyFileCount === gitIdentity.gitDirtyFileCount;
+    rootGitDirtyFileCount === gitIdentity.gitDirtyFileCount &&
+    gitIdentity.gitDirty === false &&
+    rootGitDirtyFileCount === 0 &&
+    sourceTreeSha256 === gitIdentity.sourceTreeSha256 &&
+    fileListSha256 === gitIdentity.sourceFileListSha256 &&
+    fileCount === gitIdentity.sourceFileCount &&
+    gitIdentity.sourceReadErrorCount === 0 &&
+    manifestSha256 === senaPerformanceSourceCustodyManifestSha256({
+      baseGitCommit: gitIdentity.gitCommit,
+      rootGitStatusSha256: gitIdentity.gitStatusSha256,
+      rootGitDirtyFileCount: gitIdentity.gitDirtyFileCount,
+      fileListSha256: gitIdentity.sourceFileListSha256,
+      sourceTreeSha256: gitIdentity.sourceTreeSha256,
+      fileCount: gitIdentity.sourceFileCount
+    });
 
   return {
     mode: "reviewed-clean-release-slice",
@@ -276,7 +293,7 @@ function sourceCustodyFromEnv(
     rootGitDirty: gitIdentity.gitDirty,
     rootGitDirtyFileCount: gitIdentity.gitDirtyFileCount,
     rootGitStatusSha256: gitIdentity.gitStatusSha256,
-    generator: "sena-performance-source-custody/v1",
+    generator: SENA_PERFORMANCE_SOURCE_CUSTODY_GENERATOR,
     values: "hashes-and-counts-only"
   };
 }
@@ -286,55 +303,31 @@ function buildIdentityBindable(
   sourceCustody: SenaEnterpriseProductionPerformanceBudgetArtifact["sourceCustody"]
 ) {
   return validSha256(identity.nextBuildIdSha256) &&
-    validGitCommit(identity.gitCommit) &&
+    identity.nextBuildIdGenerator === SENA_NEXT_BUILD_ID_GENERATOR &&
+    identity.nextBuildMatchesCurrentSource === true &&
+    identity.buildObservationStable === true &&
+    identity.measuredArtifactSetStable === true &&
+    validSha256(identity.buildInputSha256) &&
+    validSha256(identity.currentExpectedBuildInputSha256) &&
+    identity.buildInputSha256 === identity.currentExpectedBuildInputSha256 &&
+    identity.buildInputEnvironmentScope === "not-bound-use-measured-artifact-set-sha256" &&
+    validSha256(identity.measuredArtifactSetSha256) &&
+    typeof identity.measuredArtifactFileCount === "number" &&
+    identity.measuredArtifactFileCount > 0 &&
+    identity.nextBuildIdSha256 === senaNextBuildIdSha256FromInputSha256(identity.buildInputSha256) &&
+    isSenaFullGitObjectId(identity.gitCommit) &&
+    coherentGitDirtyIdentity(identity) &&
+    identity.gitDirty === false &&
+    sourceCustody.mode === "git-clean-worktree" &&
     sourceCustody.reviewedClean === true &&
-    validSha256(identity.packageLockSha256);
-}
-
-function brotliFileBudgetRead(file: string, readFile: FileReader, policy: FileReadPolicy) {
-  const read = readFileWithStabilization(file, readFile, policy);
-  if (read.ok) {
-    return {
-      actualBrotliBytes: brotliSize(read.buffer),
-      missingArtifactFiles: 0,
-      readErrorHashes: [],
-      readAttempts: read.attempts,
-      transientReadRecoveries: read.attempts > 1 ? 1 : 0
-    };
-  }
-  return {
-    actualBrotliBytes: undefined,
-    missingArtifactFiles: 1,
-    readErrorHashes: read.errorHashes,
-    readAttempts: read.attempts,
-    transientReadRecoveries: 0
-  };
-}
-
-function brotliFilesBudgetRead(files: string[], readFile: FileReader, policy: FileReadPolicy) {
-  let total = 0;
-  let failedFiles = 0;
-  const readErrorHashes: string[] = [];
-  let readAttempts = 0;
-  let transientReadRecoveries = 0;
-  for (const file of files) {
-    const read = readFileWithStabilization(file, readFile, policy);
-    readAttempts += read.attempts;
-    if (read.ok) {
-      if (read.attempts > 1) transientReadRecoveries += 1;
-      total += brotliSize(read.buffer);
-    } else {
-      failedFiles += 1;
-      readErrorHashes.push(...read.errorHashes);
-    }
-  }
-  return {
-    actualBrotliBytes: readErrorHashes.length === 0 ? total : undefined,
-    missingArtifactFiles: failedFiles,
-    readErrorHashes,
-    readAttempts,
-    transientReadRecoveries
-  };
+    validSha256(identity.packageLockSha256) &&
+    validSha256(identity.sourceTreeSha256) &&
+    validSha256(identity.sourceFileListSha256) &&
+    typeof identity.sourceFileCount === "number" &&
+    identity.sourceFileCount > 0 &&
+    identity.sourceReadErrorCount === 0 &&
+    validSha256(identity.sourceReadErrorSha256) &&
+    identity.sourceReadErrorSha256 === sha256Text("");
 }
 
 function buildSizeCheck(input: {
@@ -348,6 +341,7 @@ function buildSizeCheck(input: {
   readErrorHashes?: string[];
   readAttempts?: number;
   transientReadRecoveries?: number;
+  minimumHeadroomBytes?: number;
   nextAction: string;
 }): SenaEnterpriseProductionPerformanceBudgetCheck {
   const readComplete = (input.missingArtifactFiles ?? 0) === 0;
@@ -355,7 +349,13 @@ function buildSizeCheck(input: {
   // empty (stale or dev-polluted .next with no matching chunks), never a
   // legitimately weightless build output — fail instead of trivially passing.
   const zeroByteActual = input.actualBrotliBytes === 0;
-  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && !zeroByteActual && input.actualBrotliBytes <= input.budgetBytes
+  const headroomBytes = input.actualBrotliBytes === undefined
+    ? undefined
+    : input.budgetBytes - input.actualBrotliBytes;
+  const minimumHeadroomBytes = input.minimumHeadroomBytes;
+  const headroomReserveSatisfied = headroomBytes !== undefined &&
+    (minimumHeadroomBytes === undefined || headroomBytes >= minimumHeadroomBytes);
+  const status = !input.missingBuild && readComplete && input.actualBrotliBytes !== undefined && !zeroByteActual && input.actualBrotliBytes <= input.budgetBytes && headroomReserveSatisfied
     ? "pass"
     : "fail";
   return {
@@ -364,10 +364,15 @@ function buildSizeCheck(input: {
     status,
     actualBrotliBytes: input.actualBrotliBytes,
     budgetBytes: input.budgetBytes,
+    headroomBytes,
+    minimumHeadroomBytes,
     evidence: [
       ...input.evidence,
       `actualBrotliBytes=${input.actualBrotliBytes ?? "missing"}`,
       `budgetBytes=${input.budgetBytes}`,
+      `headroomBytes=${headroomBytes ?? "missing"}`,
+      `minimumHeadroomBytes=${minimumHeadroomBytes ?? "not-required"}`,
+      `headroomReserveSatisfied=${headroomReserveSatisfied}`,
       `missingProductionBuild=${input.missingBuild}`,
       `zeroByteActual=${zeroByteActual}`,
       `artifactReadComplete=${readComplete}`,
@@ -381,7 +386,9 @@ function buildSizeCheck(input: {
       : zeroByteActual
         ? "Run npm run build to refresh the stale or incomplete .next output, then rerun npm run sena:performance:check."
         : readComplete
-          ? input.nextAction
+          ? minimumHeadroomBytes !== undefined && headroomBytes !== undefined && headroomBytes < minimumHeadroomBytes
+            ? `Reduce static JavaScript until at least ${minimumHeadroomBytes} bytes of budget headroom remain. Production binding fixes the ADR-0011 reserve at 12000 bytes; an override requires a separately implemented and verified release-owner attestation contract.`
+            : input.nextAction
           : "Run npm run build after any in-progress build finishes, then rerun npm run sena:performance:check."
   };
 }
@@ -400,48 +407,99 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
   const strictProductionEvidenceRequired = performanceBudgetStrictBindingRequired(env);
   const nextDir = path.join(root, ".next");
   const nextBuildIdPath = path.join(nextDir, "BUILD_ID");
-  const staticChunksDir = path.join(nextDir, "static", "chunks");
-  const workspaceHtmlPath = path.join(nextDir, "server", "app", "workspace", "sena.html");
+  const totalStaticJsBrotliBytes = budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 848_000);
+  const defaultTotalStaticJsMinimumHeadroomBytes = Math.min(12_000, Math.floor(totalStaticJsBrotliBytes * 0.05));
   const budgets = {
     workspaceHtmlBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES", 80_000),
     workspaceRouteJsBrotliBytes: budgetEnv(env, "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES", 180_000),
-    // 900_000 → 852_000, set 2026-08-03 after the runtime-constants win and held.
+    // 900_000 → 852_000 (2026-08-03) → 848_000 (2026-08-23).
     //
     // It was provisional only because it had been set against a pre-redesign build and
     // nobody had re-measured since; iteration 9 (2026-08-16) did, by same-session A/B.
     // Actual is 824,791 B — 27,209 B (3.19%) of headroom — with the fusion redesign
     // accounting for +9,505 B of the growth and the 2026-08-15 remediation +2,808 B.
     //
-    // Confirmed at 852_000 rather than re-ratcheted down to the new actual: T7 is still
-    // open, and every option for it reorganises this payload (one attempt already moved
-    // it +7,874 B before being reverted). Tightening now would spend the headroom that
-    // work needs and turn an unrelated build into a red gate. Re-ratchet once T7 lands.
-    // Confirmed under delegated authority; see docs/adr/0011.
-    totalStaticJsBrotliBytes: budgetEnv(env, "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES", 852_000)
+    // Round 21 moved canonical snapshot/review-packet restore validation behind a
+    // bounded, stateless server boundary. The accepted build measured 830,811 B,
+    // 22,101 B below the 852,912 B pre-change build. ADR-0011 therefore closes its
+    // deferred re-ratchet at 848,000 B and reserves at least 12,000 B of displayed
+    // headroom. The reserve makes a near-zero-headroom green build fail before release.
+    totalStaticJsBrotliBytes,
+    totalStaticJsMinimumHeadroomBytes: boundedIntegerEnv(
+      env,
+      "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES",
+      defaultTotalStaticJsMinimumHeadroomBytes,
+      0,
+      totalStaticJsBrotliBytes
+    )
   };
-  const productionBuildPresent = existsSync(nextDir) && existsSync(staticChunksDir);
-  const jsFiles = productionBuildPresent
-    ? walk(staticChunksDir).filter((file) => file.endsWith(".js"))
-    : [];
-  const workspaceRouteFiles = jsFiles.filter((file) => file.includes(`${path.sep}app${path.sep}workspace${path.sep}sena${path.sep}page-`));
-  const totalStaticJsRead = productionBuildPresent
-    ? brotliFilesBudgetRead(jsFiles, readFile, readPolicy)
-    : { actualBrotliBytes: undefined, missingArtifactFiles: 0, readErrorHashes: [], readAttempts: 0, transientReadRecoveries: 0 };
-  const workspaceRouteJsRead = productionBuildPresent
-    ? brotliFilesBudgetRead(workspaceRouteFiles, readFile, readPolicy)
-    : { actualBrotliBytes: undefined, missingArtifactFiles: 0, readErrorHashes: [], readAttempts: 0, transientReadRecoveries: 0 };
-  const workspaceHtmlRead = productionBuildPresent && existsSync(workspaceHtmlPath)
-    ? brotliFileBudgetRead(workspaceHtmlPath, readFile, readPolicy)
-    : { actualBrotliBytes: undefined, missingArtifactFiles: productionBuildPresent ? 1 : 0, readErrorHashes: [], readAttempts: 0, transientReadRecoveries: 0 };
-  const gitIdentity = gitBuildIdentity(root);
-  const sourceCustody = sourceCustodyFromEnv(env, gitIdentity);
+  // Bracket both the current source identity and every measured build artifact.
+  // This turns concurrent source/build writes into an explicit non-bindable
+  // observation instead of combining values from different instants.
+  const currentBuildInputBefore = collectSenaBuildInputIdentity(root);
+  const nextBuildIdPresentBefore = senaBuildIdIsRegularFile(root);
+  const nextBuildIdReadBefore = nextBuildIdPresentBefore
+    ? readFileWithStabilization(nextBuildIdPath, readFile, readPolicy)
+    : undefined;
+  const nextBuildIdBufferBefore = nextBuildIdReadBefore?.ok ? nextBuildIdReadBefore.buffer : undefined;
+
+  // One shared measurement reads each selected output once, and derives both
+  // the exact output-set digest and all three Brotli values from those same
+  // buffers. A second snapshot is used only to prove the observation stayed
+  // stable while the measurement was made.
+  const buildMeasurement = measureSenaPerformanceBuildOutput(root, {
+    readFile,
+    attempts: readPolicy.attempts
+  });
+  const productionBuildPresent = buildMeasurement.productionBuildPresent;
+  const totalStaticJsRead = buildMeasurement.metrics.totalStaticJs;
+  const workspaceRouteJsRead = buildMeasurement.metrics.workspaceRouteJs;
+  const workspaceHtmlRead = buildMeasurement.metrics.workspaceHtml;
+  const nextBuildIdPresentAfter = senaBuildIdIsRegularFile(root);
+  const nextBuildIdReadAfter = nextBuildIdPresentAfter
+    ? readFileWithStabilization(nextBuildIdPath, readFile, readPolicy)
+    : undefined;
+  const nextBuildIdBufferAfter = nextBuildIdReadAfter?.ok ? nextBuildIdReadAfter.buffer : undefined;
+  const currentBuildInputAfter = collectSenaBuildInputIdentity(root);
+  const sourceCustody = sourceCustodyFromEnv(env, currentBuildInputAfter);
+  const buildIdObservationStable = nextBuildIdPresentBefore && nextBuildIdPresentAfter &&
+    nextBuildIdBufferBefore !== undefined &&
+    nextBuildIdBufferAfter !== undefined &&
+    sha256Text(nextBuildIdBufferBefore) === sha256Text(nextBuildIdBufferAfter);
+  const buildObservationStable = buildIdObservationStable &&
+    sameBuildInputIdentity(currentBuildInputBefore, currentBuildInputAfter);
+  const measuredArtifactSetStable = buildMeasurement.observationStable;
+  const nextBuildId = nextBuildIdBufferBefore?.toString("utf8").trim();
+  const parsedBuildId = parseSenaNextBuildId(nextBuildId);
+  const nextBuildMatchesCurrentSource = buildObservationStable &&
+    parsedBuildId.generator === SENA_NEXT_BUILD_ID_GENERATOR &&
+    parsedBuildId.buildInputSha256 === currentBuildInputAfter.buildInputSha256;
+  const attributeCurrentIdentityToBuild = nextBuildMatchesCurrentSource;
   const buildIdentity = {
-    nextBuildIdSha256: optionalFileSha256(nextBuildIdPath, readFile, readPolicy),
-    gitCommit: gitIdentity.gitCommit,
-    gitDirty: gitIdentity.gitDirty,
-    gitDirtyFileCount: gitIdentity.gitDirtyFileCount,
-    gitStatusSha256: gitIdentity.gitStatusSha256,
-    packageLockSha256: optionalFileSha256(path.join(root, "package-lock.json"), readFile, readPolicy),
+    nextBuildIdSha256: nextBuildIdBufferBefore ? sha256Text(nextBuildIdBufferBefore) : "missing" as const,
+    nextBuildIdGenerator: parsedBuildId.generator,
+    nextBuildMatchesCurrentSource,
+    buildInputSha256: parsedBuildId.buildInputSha256,
+    currentExpectedBuildInputSha256: currentBuildInputAfter.buildInputSha256,
+    buildInputEnvironmentScope: "not-bound-use-measured-artifact-set-sha256" as const,
+    buildObservationStable,
+    measuredArtifactSetStable,
+    measuredArtifactSetSha256: measuredArtifactSetStable && buildMeasurement.measuredArtifactFileCount > 0
+      ? buildMeasurement.measuredArtifactSetSha256
+      : "unavailable" as const,
+    measuredArtifactFileCount: measuredArtifactSetStable && buildMeasurement.measuredArtifactFileCount > 0
+      ? buildMeasurement.measuredArtifactFileCount
+      : "unknown" as const,
+    gitCommit: attributeCurrentIdentityToBuild ? currentBuildInputAfter.gitCommit : "unavailable" as const,
+    gitDirty: attributeCurrentIdentityToBuild ? currentBuildInputAfter.gitDirty : "unknown" as const,
+    gitDirtyFileCount: attributeCurrentIdentityToBuild ? currentBuildInputAfter.gitDirtyFileCount : "unknown" as const,
+    gitStatusSha256: attributeCurrentIdentityToBuild ? currentBuildInputAfter.gitStatusSha256 : "unavailable" as const,
+    packageLockSha256: attributeCurrentIdentityToBuild ? currentBuildInputAfter.packageLockSha256 : "missing" as const,
+    sourceTreeSha256: attributeCurrentIdentityToBuild ? currentBuildInputAfter.sourceTreeSha256 : "unavailable" as const,
+    sourceFileListSha256: attributeCurrentIdentityToBuild ? currentBuildInputAfter.sourceFileListSha256 : "unavailable" as const,
+    sourceFileCount: attributeCurrentIdentityToBuild ? currentBuildInputAfter.sourceFileCount : "unknown" as const,
+    sourceReadErrorCount: attributeCurrentIdentityToBuild ? currentBuildInputAfter.sourceReadErrorCount : "unknown" as const,
+    sourceReadErrorSha256: attributeCurrentIdentityToBuild ? currentBuildInputAfter.sourceReadErrorSha256 : "unavailable" as const,
     values: "hashes-and-commit-only" as const
   };
   const bindableBuildIdentity = buildIdentityBindable(buildIdentity, sourceCustody);
@@ -453,8 +511,17 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       status: productionBuildPresent ? "pass" : "fail",
       evidence: [
         `nextBuildPresent=${productionBuildPresent}`,
-        `staticChunksPresent=${existsSync(staticChunksDir)}`,
+        `staticChunksPresent=${productionBuildPresent}`,
         `nextBuildIdSha256=${buildIdentity.nextBuildIdSha256 === "missing" ? "missing" : "present"}`,
+        `nextBuildIdGenerator=${buildIdentity.nextBuildIdGenerator}`,
+        `nextBuildMatchesCurrentSource=${buildIdentity.nextBuildMatchesCurrentSource}`,
+        `buildInputSha256=${validSha256(buildIdentity.buildInputSha256) ? "present" : "missing-or-invalid"}`,
+        `currentExpectedBuildInputSha256=${validSha256(buildIdentity.currentExpectedBuildInputSha256) ? "present" : "missing-or-invalid"}`,
+        `buildInputEnvironmentScope=${buildIdentity.buildInputEnvironmentScope}`,
+        `buildObservationStable=${buildIdentity.buildObservationStable}`,
+        `measuredArtifactSetStable=${buildIdentity.measuredArtifactSetStable}`,
+        `measuredArtifactSetSha256=${validSha256(buildIdentity.measuredArtifactSetSha256) ? "present" : "missing-or-invalid"}`,
+        `measuredArtifactFileCount=${buildIdentity.measuredArtifactFileCount}`,
         `gitCommit=${buildIdentity.gitCommit === "unavailable" ? "unavailable" : "present"}`,
         `gitDirty=${buildIdentity.gitDirty}`,
         `gitDirtyFileCount=${buildIdentity.gitDirtyFileCount}`,
@@ -462,6 +529,10 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
         `sourceCustodyMode=${sourceCustody.mode}`,
         `sourceCustodyReviewedClean=${sourceCustody.reviewedClean}`,
         `packageLockSha256=${buildIdentity.packageLockSha256 === "missing" ? "missing" : "present"}`,
+        `sourceTreeSha256=${validSha256(buildIdentity.sourceTreeSha256) ? "present" : "missing-or-invalid"}`,
+        `sourceFileListSha256=${validSha256(buildIdentity.sourceFileListSha256) ? "present" : "missing-or-invalid"}`,
+        `sourceFileCount=${buildIdentity.sourceFileCount}`,
+        `sourceReadErrorCount=${buildIdentity.sourceReadErrorCount}`,
         "localBuildPaths=excluded",
         "buildIdentityValues=hashes-and-commit-only",
         "requiredBeforePerformanceBudget=true"
@@ -478,7 +549,16 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
         `strictProductionEvidenceRequired=${strictProductionEvidenceRequired}`,
         `bindableBuildIdentity=${bindableBuildIdentity}`,
         `nextBuildIdSha256=${validSha256(buildIdentity.nextBuildIdSha256) ? "present" : "missing-or-invalid"}`,
-        `gitCommit=${validGitCommit(buildIdentity.gitCommit) ? "present" : "missing-or-invalid"}`,
+        `nextBuildIdGenerator=${buildIdentity.nextBuildIdGenerator}`,
+        `nextBuildMatchesCurrentSource=${buildIdentity.nextBuildMatchesCurrentSource}`,
+        `buildInputSha256=${validSha256(buildIdentity.buildInputSha256) ? "present" : "missing-or-invalid"}`,
+        `currentExpectedBuildInputSha256=${validSha256(buildIdentity.currentExpectedBuildInputSha256) ? "present" : "missing-or-invalid"}`,
+        `buildInputEnvironmentScope=${buildIdentity.buildInputEnvironmentScope}`,
+        `buildObservationStable=${buildIdentity.buildObservationStable}`,
+        `measuredArtifactSetStable=${buildIdentity.measuredArtifactSetStable}`,
+        `measuredArtifactSetSha256=${validSha256(buildIdentity.measuredArtifactSetSha256) ? "present" : "missing-or-invalid"}`,
+        `measuredArtifactFileCount=${buildIdentity.measuredArtifactFileCount}`,
+        `gitCommit=${isSenaFullGitObjectId(buildIdentity.gitCommit) ? "present" : "missing-or-invalid"}`,
         `gitDirtyClean=${buildIdentity.gitDirty === false}`,
         `gitDirtyFileCount=${buildIdentity.gitDirtyFileCount}`,
         `gitStatusSha256=${buildIdentity.gitStatusSha256 === "unavailable" ? "unavailable" : "present"}`,
@@ -489,12 +569,16 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
         `sourceCustodyFileListSha256=${sourceCustody.fileListSha256 ? "present" : "missing"}`,
         `sourceCustodyFileCount=${sourceCustody.fileCount ?? "missing"}`,
         `packageLockSha256=${validSha256(buildIdentity.packageLockSha256) ? "present" : "missing-or-invalid"}`,
+        `sourceTreeSha256=${validSha256(buildIdentity.sourceTreeSha256) ? "present" : "missing-or-invalid"}`,
+        `sourceFileListSha256=${validSha256(buildIdentity.sourceFileListSha256) ? "present" : "missing-or-invalid"}`,
+        `sourceFileCount=${buildIdentity.sourceFileCount}`,
+        `sourceReadErrorCount=${buildIdentity.sourceReadErrorCount}`,
         "buildIdentityValues=hashes-and-commit-only",
         "requiredForProductionEvidenceBinding=true"
       ],
       nextAction: !strictProductionEvidenceRequired || bindableBuildIdentity
         ? "Keep this clean build identity attached to the release evidence."
-        : "Run npm run build and npm run sena:performance:check from a clean git tree or reviewed clean release-slice source custody before binding or archiving production performance evidence."
+        : "Run npm run build and npm run sena:performance:check from a clean Git worktree before binding or archiving production performance evidence. Source-custody snapshots are diagnostic only and cannot authorize a dirty build."
     },
     buildSizeCheck({
       id: "workspace-html-br",
@@ -511,11 +595,11 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
         "route=/workspace/sena",
         "content=excluded"
       ],
-      nextAction: "Reduce prerendered /workspace/sena shell HTML or raise SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES with release-owner approval."
+      nextAction: "Reduce prerendered /workspace/sena shell HTML. Production binding fixes the ADR-0011 budget at 80000 bytes; an override requires a separately implemented and verified release-owner attestation contract."
     }),
     buildSizeCheck({
       id: "workspace-route-js-br",
-      label: "Workspace route JavaScript Brotli size",
+      label: "Workspace route entry-chunk JavaScript Brotli size",
       actualBrotliBytes: workspaceRouteJsRead.actualBrotliBytes,
       budgetBytes: budgets.workspaceRouteJsBrotliBytes,
       missingBuild: !productionBuildPresent,
@@ -524,11 +608,13 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       readAttempts: workspaceRouteJsRead.readAttempts,
       transientReadRecoveries: workspaceRouteJsRead.transientReadRecoveries,
       evidence: [
-        `workspaceRouteJsFiles=${workspaceRouteFiles.length}`,
+        `workspaceRouteJsFiles=${buildMeasurement.workspaceRouteJsFiles}`,
         "route=/workspace/sena",
+        "measurementScope=next-app-route-entry-chunks-only",
+        "dynamicChunksIncluded=false",
         "chunkPaths=excluded"
       ],
-      nextAction: "Keep SENA workspace code split behind the dynamic shell, or raise SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES with release-owner approval."
+      nextAction: "Keep the SENA workspace route entry shell within the canonical 180000-byte ADR-0011 budget; an override requires a separately implemented and verified release-owner attestation contract."
     }),
     buildSizeCheck({
       id: "total-static-js-br",
@@ -540,12 +626,13 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       readErrorHashes: totalStaticJsRead.readErrorHashes,
       readAttempts: totalStaticJsRead.readAttempts,
       transientReadRecoveries: totalStaticJsRead.transientReadRecoveries,
+      minimumHeadroomBytes: budgets.totalStaticJsMinimumHeadroomBytes,
       evidence: [
-        `staticJsFiles=${jsFiles.length}`,
+        `staticJsFiles=${buildMeasurement.totalStaticJsFiles}`,
         "chunkPaths=excluded",
         "sourceContents=excluded"
       ],
-      nextAction: "Reduce shared/static JavaScript payload or raise SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES with release-owner approval."
+      nextAction: "Reduce shared/static JavaScript payload to the canonical 848000-byte ADR-0011 budget with at least 12000 bytes of headroom; an override requires a separately implemented and verified release-owner attestation contract."
     })
   ];
   const failed = checks.filter((check) => check.status === "fail").length;
@@ -558,8 +645,8 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       checks: checks.length,
       passed: checks.length - failed,
       failed,
-      totalStaticJsFiles: jsFiles.length,
-      workspaceRouteJsFiles: workspaceRouteFiles.length
+      totalStaticJsFiles: buildMeasurement.totalStaticJsFiles,
+      workspaceRouteJsFiles: buildMeasurement.workspaceRouteJsFiles
     },
     policy: {
       productionBuildRequired: true,
@@ -567,6 +654,7 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       localFileStoreIsProductionBackend: false,
       artifactPurpose: "archive-performance-budget-json-plus-sha256",
       buildIdentityRequiredForBinding: true,
+      totalStaticJsHeadroomReserveRequired: true,
       strictProductionEvidenceRequired
     },
     buildIdentity,
@@ -575,16 +663,26 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
     budgetEnv: {
       workspaceHtmlBrotliBytes: "SENA_PERF_WORKSPACE_HTML_BR_BUDGET_BYTES",
       workspaceRouteJsBrotliBytes: "SENA_PERF_WORKSPACE_ROUTE_JS_BR_BUDGET_BYTES",
-      totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES"
+      totalStaticJsBrotliBytes: "SENA_PERF_TOTAL_STATIC_JS_BR_BUDGET_BYTES",
+      totalStaticJsMinimumHeadroomBytes: "SENA_PERF_TOTAL_STATIC_JS_MIN_HEADROOM_BYTES"
     },
     checks,
     evidence: [
       `status=${failed === 0 ? "pass" : "fail"}`,
       `checks=${checks.length}`,
       `failed=${failed}`,
-      `workspaceRouteJsFiles=${workspaceRouteFiles.length}`,
-      `totalStaticJsFiles=${jsFiles.length}`,
+      `workspaceRouteJsFiles=${buildMeasurement.workspaceRouteJsFiles}`,
+      `totalStaticJsFiles=${buildMeasurement.totalStaticJsFiles}`,
       `nextBuildIdSha256=${buildIdentity.nextBuildIdSha256 === "missing" ? "missing" : "present"}`,
+      `nextBuildIdGenerator=${buildIdentity.nextBuildIdGenerator}`,
+      `nextBuildMatchesCurrentSource=${buildIdentity.nextBuildMatchesCurrentSource}`,
+      `buildInputSha256=${validSha256(buildIdentity.buildInputSha256) ? "present" : "missing-or-invalid"}`,
+      `currentExpectedBuildInputSha256=${validSha256(buildIdentity.currentExpectedBuildInputSha256) ? "present" : "missing-or-invalid"}`,
+      `buildInputEnvironmentScope=${buildIdentity.buildInputEnvironmentScope}`,
+      `buildObservationStable=${buildIdentity.buildObservationStable}`,
+      `measuredArtifactSetStable=${buildIdentity.measuredArtifactSetStable}`,
+      `measuredArtifactSetSha256=${validSha256(buildIdentity.measuredArtifactSetSha256) ? "present" : "missing-or-invalid"}`,
+      `measuredArtifactFileCount=${buildIdentity.measuredArtifactFileCount}`,
       `gitCommit=${buildIdentity.gitCommit === "unavailable" ? "unavailable" : "present"}`,
       `gitDirty=${buildIdentity.gitDirty}`,
       `gitDirtyFileCount=${buildIdentity.gitDirtyFileCount}`,
@@ -596,12 +694,18 @@ export function buildEnterpriseProductionPerformanceBudgetArtifact(input: {
       `sourceCustodyFileListSha256=${sourceCustody.fileListSha256 ? "present" : "missing"}`,
       `sourceCustodyFileCount=${sourceCustody.fileCount ?? "missing"}`,
       `packageLockSha256=${buildIdentity.packageLockSha256 === "missing" ? "missing" : "present"}`,
+      `sourceTreeSha256=${validSha256(buildIdentity.sourceTreeSha256) ? "present" : "missing-or-invalid"}`,
+      `sourceFileListSha256=${validSha256(buildIdentity.sourceFileListSha256) ? "present" : "missing-or-invalid"}`,
+      `sourceFileCount=${buildIdentity.sourceFileCount}`,
+      `sourceReadErrorCount=${buildIdentity.sourceReadErrorCount}`,
       `strictProductionEvidenceRequired=${strictProductionEvidenceRequired}`,
       `bindableBuildIdentity=${bindableBuildIdentity}`,
       "buildIdentityValues=hashes-and-commit-only",
       `artifactReadIncomplete=${checks.some((check) => check.evidence.includes("artifactReadComplete=false"))}`,
       `artifactReadAttempts=${(workspaceHtmlRead.readAttempts ?? 0) + (workspaceRouteJsRead.readAttempts ?? 0) + (totalStaticJsRead.readAttempts ?? 0)}`,
       `artifactReadTransientRecoveries=${(workspaceHtmlRead.transientReadRecoveries ?? 0) + (workspaceRouteJsRead.transientReadRecoveries ?? 0) + (totalStaticJsRead.transientReadRecoveries ?? 0)}`,
+      `artifactObservationReadAttempts=${buildMeasurement.observationReadAttempts}`,
+      `artifactObservationTransientRecoveries=${buildMeasurement.observationTransientRecoveries}`,
       "localBuildPaths=excluded",
       "sourceContents=excluded",
       "secretValues=excluded",

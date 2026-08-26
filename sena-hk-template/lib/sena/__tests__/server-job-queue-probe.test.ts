@@ -10,6 +10,7 @@ const envNames = [
   "SENA_JOB_QUEUE_NAME",
   "SENA_JOB_QUEUE_SECRET",
   "SENA_JOB_QUEUE_TIMEOUT_MS",
+  "SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD",
   "SENA_JOB_QUEUE_CONTRACT_REQUIRED",
   "SENA_JOB_QUEUE_CONTRACT_CONFIRMED",
   "SENA_JOB_QUEUE_CONTRACT_ARTIFACT_SHA256",
@@ -105,7 +106,7 @@ describe("SENA server job queue live probe", () => {
       attempted: true,
       httpStatus: 202,
       payloadSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v1",
+      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v2",
       probePayloadSchema: "sena-enterprise-server-job-queue-probe/v1"
     }));
     expect(requests).toHaveLength(1);
@@ -160,14 +161,22 @@ describe("SENA server job queue live probe", () => {
       postgresPrimaryActive: true
     }));
     expect(contract.dispatch).toEqual(expect.objectContaining({
-      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v1",
+      queuePayloadSchema: "sena-enterprise-server-job-queue-webhook/v2",
       probeSchema: "sena-enterprise-server-job-queue-probe/v1",
       enqueueEvent: "server_job.queue",
       probeEvent: "server_job.queue.probe",
       signatureAlgorithm: "hmac-sha256",
+      transportPayloadHashHeader: "x-sena-job-payload-sha256",
+      workerPayloadHashHeader: "x-sena-worker-payload-sha256",
+      hashSemantics: "exact-body-and-canonical-worker-payload-separated",
       statusCallback: "/api/sena/ops/jobs",
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated",
+      inlinePayloadRequiresExplicitEnv: null,
       rawPayloadPersistedInJobStore: false
     }));
+    expect(contract.evidence).toContain("serverJobQueueContractInlinePayloadCustody=durable-pointers-only");
     expect(contract.dispatch.acceptedJobKinds).toEqual([
       "analysis",
       "import",
@@ -182,6 +191,16 @@ describe("SENA server job queue live probe", () => {
       "retry",
       "dead-letter"
     ]);
+    expect(contract.lifecycle).toEqual(expect.objectContaining({
+      retryDispatchPolicy: "local-polling-only",
+      pushProviderRetryPolicy: "provider-native-or-resubmit"
+    }));
+    process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
+    expect(buildEnterpriseServerJobQueueContract().dispatch).toEqual(expect.objectContaining({
+      inlinePayloadAllowed: false,
+      inlinePayloadPolicy: "disabled",
+      legacyInlineEnvEffect: "none-deprecated"
+    }));
     expect(serialized).not.toContain("jobs.example.test");
     expect(serialized).not.toContain("sena-test-job-secret");
     expect(serialized).not.toContain("super-secret");
@@ -476,7 +495,8 @@ describe("SENA server job queue live probe", () => {
       "serverJobQueueLiveProbeConfirmed=true",
       "serverJobQueueProbeArtifactSha256=present"
     ]));
-    expect(queueItem?.nextAction).toContain("sena:jobs:worker-contract");
+    expect(queueItem?.nextAction).toContain("nonce-bound managed-queue to external-worker authenticated callback receipt");
+    expect(queueItem?.nextAction).toContain("same-process status-store self-test is insufficient");
     expect(serialized).not.toContain("super-secret");
     expect(serialized).not.toContain("sena-test-job-secret");
     expect(serialized).not.toContain("example.db");

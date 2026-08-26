@@ -8,6 +8,7 @@ import {
   resolveEnterpriseProjectCommentWithPostgresMirrorAsync,
   touchEnterpriseProjectPresenceWithPostgresMirrorAsync
 } from "@/lib/sena/enterprise/team-collaboration";
+import { parseSenaReliabilityAdjudicationDecision } from "@/lib/sena/enterprise/reliability-adjudication-decision";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -76,7 +77,7 @@ export async function POST(request: Request, { params }: ProjectRouteContext) {
     }
 
     if (action === "adjudication") {
-      const decision = body.decision === "exclude" || body.decision === "revise" ? body.decision : "include";
+      const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
       return NextResponse.json({
         schemaVersion: SENA_SCHEMA_VERSIONS.projectAdjudication,
         adjudication: await createEnterpriseAdjudicationRecordWithPostgresMirrorAsync(context, projectId, {

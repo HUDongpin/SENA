@@ -17,6 +17,7 @@ import type { SenaEnterpriseOpsStatus } from "./ops-status";
 import { auditStoreRuntime } from "./ops-audit";
 import { conferenceLoadRehearsalProductionEvidenceReadiness } from "./conference-load-rehearsal";
 import { enterpriseCdnContractReadiness, enterpriseCdnProbeReadiness } from "./cdn-verification";
+import { isSenaFullGitObjectId } from "./performance-build-identity.mjs";
 import {
   enterpriseAnalysisRunRegistryRuntime,
   enterpriseImportRunRegistryRuntime,
@@ -78,10 +79,6 @@ function booleanEnv(key: string) {
 
 function validSha256(value: string | undefined): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
-}
-
-function validGitCommit(value: string | undefined) {
-  return Boolean(value && /^[a-f0-9]{40,64}$/i.test(value));
 }
 
 const vercelProductionPreflightExpectedHost = "www.sena.hk";
@@ -216,13 +213,22 @@ export function buildEnterpriseProductionPerformancePath(input: {
     observability.productionReady;
   const performanceBudgetArtifactHash = envValue("SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256");
   const performanceBudgetVerifiedAt = envValue("SENA_PERFORMANCE_BUDGET_VERIFIED_AT");
+  const performanceBudgetSchemaCurrent = envValue("SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION") ===
+    SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget;
+  const performanceBudgetMeasuredArtifactSetReady = validSha256(
+    envValue("SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256")
+  );
+  const performanceBudgetRuntimeContractReady = performanceBudgetSchemaCurrent &&
+    performanceBudgetMeasuredArtifactSetReady;
   const performanceBudgetBuildIdentityReady = validSha256(envValue("SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256")) &&
-    validGitCommit(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) &&
+    isSenaFullGitObjectId(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) &&
     envValue("SENA_PERFORMANCE_BUDGET_GIT_DIRTY") === "false" &&
-    validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256"));
+    validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256")) &&
+    envValue("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE") === "git-clean-worktree";
   const performanceBudgetReady = booleanEnv("SENA_PERFORMANCE_BUDGET_CONFIRMED") &&
     validSha256(performanceBudgetArtifactHash) &&
     productionEvidenceTimestampConfigured(performanceBudgetVerifiedAt) &&
+    performanceBudgetRuntimeContractReady &&
     performanceBudgetBuildIdentityReady;
   const conferenceLoad = conferenceLoadRehearsalProductionEvidenceReadiness();
 
@@ -366,13 +372,13 @@ export function buildEnterpriseProductionPerformancePath(input: {
         "statusStoreRequired=postgres-indexed-table"
       ],
       nextAction: queueReady
-        ? "Route heavy analysis/export jobs through the managed queue, keep worker heartbeat evidence current, require worker status callbacks, and monitor retry/dead-letter counts from the indexed Postgres job table."
+        ? "Route heavy analysis/export jobs through the managed queue, retain a nonce-bound external-worker authenticated callback receipt, and monitor retry/dead-letter counts from the indexed Postgres job table."
         : !queueStatus.productionReady
           ? "Configure SENA_JOB_QUEUE_ADAPTER=managed, webhook, or qstash plus the required destination URL, SENA_JOB_QUEUE_SECRET, and provider token before allowing concurrent heavy analysis/export workloads."
           : !queueStatusStoreReady
             ? "Set SENA_ENTERPRISE_STATE_STORE=postgres with the configured Postgres adapter so server job status moves from enterprise-db.serverJobs into the indexed Postgres job table."
             : !workerContract.productionReady
-              ? "Complete /api/sena/ops/jobs/worker-contract evidence with worker runtime, callback URL, owner, runbook, and heartbeat artifact before allowing concurrent heavy analysis/export workloads."
+              ? "Keep concurrent heavy analysis/export workloads blocked until a nonce-bound managed-queue to external-worker authenticated callback receipt exists; the same-process status-store self-test is insufficient."
               : workerContractArtifact.required && !workerContractArtifact.confirmed
                 ? "Run npm run sena:jobs:worker-contract, archive the redacted worker contract artifact, and set SENA_JOB_WORKER_CONTRACT_CONFIRMED with SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256, SENA_JOB_WORKER_CONTRACT_VERIFIED_AT, and SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION=pass before relying on live queue probe evidence."
                 : queueContract.required && !queueContract.confirmed
@@ -419,10 +425,14 @@ export function buildEnterpriseProductionPerformancePath(input: {
         `budgetConfirmed=${performanceBudgetReady}`,
         `budgetArtifactSha256=${validSha256(performanceBudgetArtifactHash) ? "present" : "missing-or-invalid"}`,
         `budgetVerifiedAt=${productionEvidenceTimestampEvidenceValue(performanceBudgetVerifiedAt)}`,
+        `budgetRuntimeContractReady=${performanceBudgetRuntimeContractReady}`,
+        `budgetSchemaCurrent=${performanceBudgetSchemaCurrent}`,
+        `budgetMeasuredArtifactSetSha256=${performanceBudgetMeasuredArtifactSetReady ? "present" : "missing-or-invalid"}`,
         `budgetBuildIdentityReady=${performanceBudgetBuildIdentityReady}`,
         `budgetNextBuildIdSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256")) ? "present" : "missing-or-invalid"}`,
-        `budgetGitCommit=${validGitCommit(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) ? "present" : "missing-or-invalid"}`,
+        `budgetGitCommit=${isSenaFullGitObjectId(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) ? "present" : "missing-or-invalid"}`,
         `budgetGitDirtyClean=${envValue("SENA_PERFORMANCE_BUDGET_GIT_DIRTY") === "false"}`,
+        `budgetSourceCustodyMode=${envValue("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE") || "missing"}`,
         `budgetPackageLockSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256")) ? "present" : "missing-or-invalid"}`,
         "script=npm run sena:performance:check",
         `artifactSchema=${SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget}`,
@@ -431,9 +441,11 @@ export function buildEnterpriseProductionPerformancePath(input: {
       ],
       nextAction: performanceBudgetReady
         ? "Keep the performance budget script in release verification and update budgets deliberately."
+        : !performanceBudgetRuntimeContractReady
+          ? `Rebind the current ${SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget} artifact through npm run sena:production-evidence:bind so SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION, SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256, SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256, and the remaining clean build-identity tuple identify the validated runtime contract and exact measured output set.`
         : !performanceBudgetBuildIdentityReady
-          ? "Run npm run build and npm run sena:performance:check from a clean git tree, archive the redacted performance budget artifact, and bind SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256, SENA_PERFORMANCE_BUDGET_GIT_COMMIT, SENA_PERFORMANCE_BUDGET_GIT_DIRTY=false, and SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256 before claiming the current production build meets the conference budget."
-        : "Run npm run sena:performance:check after production build, archive the redacted sena-enterprise-production-performance-budget/v1 artifact, and set SENA_PERFORMANCE_BUDGET_CONFIRMED with SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256 and SENA_PERFORMANCE_BUDGET_VERIFIED_AT only when the current artifact meets the conference/performance budget."
+          ? "Run npm run build and npm run sena:performance:check from a clean Git tree, then use the binder to attach the complete build identity including SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE=git-clean-worktree before claiming the current production build meets the conference budget."
+        : "Regenerate the current clean-build performance artifact, archive it, and use npm run sena:production-evidence:bind to bind the complete 10-key performance tuple; do not configure individual performance evidence keys by hand."
     },
     {
       id: "production-conference-load-rehearsal",

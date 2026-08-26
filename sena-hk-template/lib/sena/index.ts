@@ -7,6 +7,8 @@ export {
   buildSenaActiveWindowBrief,
   buildSenaEvidenceLedger,
   buildSenaCodingReliabilityGate,
+  isCurrentSenaCodingReliabilityGate,
+  normalizeSenaCodingReliabilityGate,
   buildSenaEnaReportArtifact,
   buildSenaMarkdownReport,
   buildSenaMetricProvenanceArtifact,
@@ -31,8 +33,19 @@ export {
 export { importSenaProjectSnapshotFromHandoff } from "./project-handoff";
 export { buildSenaRuntimeBundle, type SenaRuntimeBundleOptions } from "./runtime-bundle";
 export {
+  importSenaReport,
+  importSenaRuntimeBundle,
+  isSenaReport,
+  isSenaRuntimeBundle,
+  normalizeSenaReportStatisticalLeaves,
+  normalizeSenaRuntimeBundleStatisticalLeaves,
+  reconcileSenaStatisticalReadiness,
+  type SenaStatisticalLeafReadState
+} from "./statistical-leaf-read";
+export {
   buildSenaAnalysisProvenanceEnvelope,
   buildSenaAnalysisRun,
+  resolveSenaAnalysisRunSource,
   type SenaAnalysisRunInput,
   type SenaAnalysisRunSourceKind
 } from "./analysis-run";
@@ -53,7 +66,14 @@ export {
   snaRuntimeVersion
 } from "./runtime-constants";
 export { buildSenaAnalysisConfigHash, buildSenaDataContractAudit, buildSenaDataContractAuditArtifact, buildSenaDatasetContentHash, buildSenaStableContentHash, type SenaDataContractAuditArtifactOptions, type SenaDataContractAuditOptions } from "./data-contract-audit";
-export { buildSenaFusionMathAudit, buildSenaFusionMathAuditArtifact, buildSenaMatrixFingerprints, type SenaFusionMathAuditArtifactOptions } from "./fusion-math";
+export {
+  buildSenaFusionMathAudit,
+  buildSenaFusionMathAuditArtifact,
+  buildSenaMatrixFingerprints,
+  isCurrentSenaFusionMathAudit,
+  normalizeSenaFusionMathAudit,
+  type SenaFusionMathAuditArtifactOptions
+} from "./fusion-math";
 export {
   buildSenaFusionAdjacency,
   senaAttributionOperatorDiagnostics,
@@ -129,10 +149,22 @@ export {
   getSenaSchemaVersion,
   isSenaSchemaVersion,
   listSenaSchemaVersions,
+  SENA_LEGACY_SCHEMA_VERSIONS,
   SENA_SCHEMA_VERSIONS,
   type SenaSchemaVersion,
   type SenaSchemaVersionKey
 } from "./schema-registry";
+export {
+  SenaInputValidationError,
+  SENA_GROUP_COMPARISON_METRICS,
+  SENA_CANONICAL_UINT32_MAX,
+  validateSenaAnalyticalInputs,
+  validateSenaFusionAdjacencyInputs,
+  type SenaFusionAdjacencyValidationInput,
+  type SenaInputValidationIssue,
+  type SenaInputValidationRule,
+  type SenaValidatedGroupComparisonMetric
+} from "./analytical-input-validation";
 export {
   buildSenaDemoVerificationCompatibilityAudit,
   buildSenaDemoVerification,
@@ -173,23 +205,48 @@ export {
 } from "./import";
 export {
   buildSenaReliabilityDashboard,
+  buildSenaReliabilityClaimEligibility,
+  isCurrentSenaReliabilityDashboard,
+  normalizeSenaReliabilityDashboard,
   parseCoderAnnotationsCsv,
   parseCoderAnnotationsFromRows,
   reliabilityDashboardToReview,
   type SenaCodeReliabilityDiagnostic,
+  type SenaCodeReliabilityDiagnosticV1,
   type SenaCoderAnnotation,
   type SenaPairwiseKappa,
+  type SenaPairwiseKappaV1,
+  type SenaReliabilityClaimEligibility,
   type SenaReliabilityDashboard,
-  type SenaReliabilityDisagreement
+  type SenaReliabilityDashboardReadModel,
+  type SenaReliabilityDashboardV1,
+  type SenaReliabilityDisagreement,
+  type SenaReliabilityEstimationStatus
 } from "./reliability";
 export {
   buildSenaGroupComparison,
+  buildSenaGroupComparisonEffectSize,
   buildSenaGroupComparisonSuite,
+  SenaGroupComparisonSourceAdmissionError,
+  assertSenaGroupComparisonValidationResultMatchesSource,
+  isCurrentSenaGroupComparisonValidationResult,
+  normalizeSenaGroupComparisonValidationResult,
+  type SenaEffectSizeStatus,
+  type SenaGroupComparisonEffectSize,
+  type SenaGroupComparisonEffectSizeV1,
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
+  type SenaGroupComparisonResultV1,
+  type SenaGroupComparisonSourceBuildAdmissionLimits,
+  type SenaGroupComparisonSourceContext,
+  type SenaGroupComparisonSourceEvidence,
+  type SenaGroupComparisonSufficientStatistics,
   type SenaGroupComparisonSpec,
   type SenaGroupComparisonSuiteEntry,
+  type SenaGroupComparisonSuiteEntryV1,
   type SenaGroupComparisonSuiteResult,
+  type SenaGroupComparisonSuiteResultV1,
+  type SenaGroupComparisonValidationReadModel,
   type SenaGroupComparisonValidationResult
 } from "./inference";
 export type {
@@ -203,7 +260,10 @@ export type {
   SenaClaimReadinessGate,
   SenaClaimReadinessGateItem,
   SenaCodingReliabilityGate,
+  SenaCodingReliabilityGateReadModel,
+  SenaCodingReliabilityGateV1,
   SenaCodingReliabilityReview,
+  SenaCodingReliabilityReviewV1,
   SenaCodedSegment,
   SenaDataContractAudit,
   SenaDataContractAuditArtifact,
@@ -226,8 +286,11 @@ export type {
   SenaEvidenceSource,
   SenaFusionLayerTotals,
   SenaFusionMathAudit,
+  SenaFusionMathAuditReadModel,
+  SenaFusionMathAuditV1,
   SenaFusionMathAuditArtifact,
   SenaFusionMathAuditItem,
+  SenaMatrixFingerprintV1,
   SenaLayer,
   SenaLayoutMode,
   SenaJenaConceptPairHandoffRow,

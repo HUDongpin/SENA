@@ -1,16 +1,37 @@
 import { createHash, randomBytes } from "node:crypto";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run";
-import { buildSenaAnalysisRunRequestInput } from "../analysis-api";
+import {
+  parseSenaAnalysisQueueCommandEnvelope,
+  SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
+  SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE,
+  SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY
+} from "../analysis-queue-command";
+import { buildSenaAnalysisRunRequestInput, sanitizeSenaClientCodingReliability } from "../analysis-api";
+import {
+  SenaInputValidationError,
+  type SenaInputValidationIssue
+} from "../analytical-input-validation";
 import {
   importSenaEnterpriseFiles,
-  readSenaReliabilityUploadRows,
   withSenaImportDatasetMetadata
 } from "../import-adapters";
 import {
   buildSenaReliabilityDashboard,
-  parseCoderAnnotationsFromRows,
-  reliabilityDashboardToReview
+  normalizeSenaReliabilityUploadIds,
+  reliabilityDashboardToReview,
+  SenaReliabilityAnnotationValidationError,
+  SenaReliabilitySourceInputError,
+  SenaReliabilityUniverseLimitError,
+  senaReliabilitySnapshotFingerprint,
+  type SenaReliabilityAnnotationValidationIssue,
+  type SenaReliabilitySourceInputIssue,
+  type SenaReliabilityUniverseLimitIssue
 } from "../reliability";
+import { type SenaPreparedReliabilityRunInput } from "../reliability-api";
+import {
+  parseSenaReliabilityReviewerEnvelope,
+  SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
+} from "../reliability-queue-reviewer";
 import { contextFromDb, type SenaEnterpriseSession, type SenaEnterpriseSessionContext } from "./auth-session";
 import { SenaEnterpriseError } from "./errors";
 import {
@@ -22,24 +43,39 @@ import {
 } from "./import-analysis";
 import { now } from "./ops-runtime";
 import {
-  buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync,
+  parseEnterpriseReliabilityUploadContents,
+  prepareEnterpriseReliabilityQueuedJsonUploads,
+  readEnterpriseReliabilityUploadPointerContents
+} from "./reliability-upload-reader";
+import {
   buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync
 } from "./reliability-runs";
 import {
+  claimEnterpriseServerJob,
+  findOldestClaimableEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
+  rejectEnterpriseServerJobBeforeClaim,
+  requiredWorkerRunId,
   stableServerJobPayloadSha256,
   updateEnterpriseServerJobStatus,
   type SenaEnterpriseServerJob,
   type SenaEnterpriseServerJobKind,
   type SenaEnterpriseServerJobStatus
 } from "./server-job-queue";
+import {
+  enterpriseServerJobHasDurableSourcePointer,
+  enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
+  enterpriseServerJobIsSyntheticWorkerHeartbeat
+} from "./server-job-contract";
 import { readEnterpriseState } from "./state";
 import {
   createEnterpriseProjectAsync,
-  getEnterpriseProjectAsync,
+  getEnterpriseProjectReadOnlyAsync,
+  getEnterpriseProjectRevisionSourceReadOnlyAsync,
   updateEnterpriseProjectAsync
 } from "./team-project";
+import { runWithSenaValidationRequestScope } from "./validation-request-scope";
 
 /**
  * The in-repo executor for queued SENA server jobs.
@@ -53,9 +89,9 @@ import {
  * through updateEnterpriseServerJobStatus — the existing lifecycle, not a new
  * one.
  *
- * It deliberately does not touch server-job-queue.ts: enqueue, dispatch,
- * signing and the status machine stay where they are, and this module is only
- * ever a caller of them.
+ * It does not duplicate queue persistence: enqueue, dispatch, signing, the
+ * atomic claim, and the status machine stay in server-job-queue.ts, while this
+ * module remains a caller of those boundaries.
  */
 
 export type SenaServerJobWorkerAction = SenaEnterpriseServerJob["worker"]["expectedAction"];
@@ -86,6 +122,11 @@ export type SenaServerJobWorkerResult = {
 
 export type SenaServerJobWorkerOutcomeStatus = "succeeded" | "failed" | "skipped";
 
+export type SenaServerJobWorkerIssue = SenaInputValidationIssue
+  | SenaReliabilityUniverseLimitIssue
+  | SenaReliabilitySourceInputIssue
+  | SenaReliabilityAnnotationValidationIssue;
+
 export type SenaServerJobWorkerOutcome = {
   jobId: string;
   kind: SenaEnterpriseServerJobKind;
@@ -97,6 +138,7 @@ export type SenaServerJobWorkerOutcome = {
   retryable?: boolean;
   errorCode?: string;
   errorHash?: string;
+  issues?: SenaServerJobWorkerIssue[];
   skipReason?: string;
   result?: SenaServerJobWorkerResult;
 };
@@ -125,8 +167,28 @@ function workerRunId() {
 }
 
 function errorCodeOf(error: unknown) {
+  if (error instanceof SenaInputValidationError) return "invalid_sena_numeric_domain";
+  if (error instanceof SenaReliabilityUniverseLimitError ||
+    error instanceof SenaReliabilitySourceInputError ||
+    error instanceof SenaReliabilityAnnotationValidationError) return error.code;
   if (error instanceof SenaEnterpriseError) return error.code;
   return "server_job_worker_execution_failed";
+}
+
+function errorIssuesOf(error: unknown) {
+  if (error instanceof SenaInputValidationError) {
+    return error.issues.map(({ path, rule }) => ({ path, rule }));
+  }
+  if (error instanceof SenaReliabilityUniverseLimitError) {
+    return error.issues.map(({ path, rule, actual, maximum }) => ({ path, rule, actual, maximum }));
+  }
+  if (error instanceof SenaReliabilitySourceInputError) {
+    return error.issues.map(({ path, rule }) => ({ path, rule }));
+  }
+  if (error instanceof SenaReliabilityAnnotationValidationError) {
+    return error.issues.map(({ path, code }) => ({ path, code }));
+  }
+  return undefined;
 }
 
 function errorHashOf(error: unknown) {
@@ -163,10 +225,18 @@ function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
 function uploadPointers(payload: Record<string, unknown>) {
   return Array.isArray(payload.uploadIds)
     ? payload.uploadIds.map((value) => String(value)).filter(Boolean)
     : [];
+}
+
+function reliabilityUploadPointers(payload: Record<string, unknown>) {
+  return normalizeSenaReliabilityUploadIds(payload.uploadIds);
 }
 
 /**
@@ -194,9 +264,9 @@ function importAdapterFile(content: SenaEnterpriseUploadContent) {
 }
 
 /**
- * H10: the queueing routes leave warningCount unset on purpose, because at
- * enqueue time nothing has parsed the file yet and 0 would assert a clean parse
- * that never happened. This worker is that parser, so it reports what it saw.
+ * H10: the queueing routes leave warningCount unset on purpose. Import enqueue
+ * now performs a non-persistent validation preflight, but this worker remains
+ * the authoritative parser of the registered bytes and reports what it saw.
  */
 async function reportUploadParseWarnings(
   teamId: string,
@@ -257,7 +327,7 @@ async function executeImportJob(
     title,
     activeTemporalWindowId: optionalString(payload.activeTemporalWindowId),
     includeRuntimeBundle: payload.includeRuntimeBundle === true,
-    codingReliability: payload.codingReliability as SenaAnalysisRunInput["codingReliability"],
+    codingReliability: sanitizeSenaClientCodingReliability(payload.codingReliability),
     dataGovernance
   });
   const persistedProject = await createEnterpriseProjectAsync(context, {
@@ -281,42 +351,91 @@ async function executeImportJob(
   };
 }
 
-/**
- * Presents a decrypted upload to the shared reliability row reader in the shape
- * the synchronous route hands it a buffered multipart file.
- *
- * The name is upload.originalName for the same reason importAdapterFile uses it:
- * the raw multipart filename is not persisted, so that is the name the reader
- * dispatches on and the name its warnings are prefixed with.
- */
-function reliabilityUploadFile(content: SenaEnterpriseUploadContent) {
-  return { name: content.upload.originalName, bytes: content.bytes };
+async function admitReliabilityUploadContentsJob(
+  contents: SenaEnterpriseUploadContent[]
+) {
+  const pointerInput = await parseEnterpriseReliabilityUploadContents(contents);
+  const dashboard = buildSenaReliabilityDashboard(pointerInput.parsed.annotations, {
+    skippedCells: pointerInput.parsed.skippedCells
+  });
+  return {
+    contents,
+    ...pointerInput,
+    dashboard: {
+      ...dashboard,
+      warnings: [...pointerInput.fileWarnings, ...pointerInput.parsed.warnings, ...dashboard.warnings]
+    }
+  };
+}
+
+type SenaReliabilityJobAdmission =
+  | {
+      source: "uploads";
+      input: Awaited<ReturnType<typeof admitReliabilityUploadContentsJob>>;
+    }
+  | {
+      source: "json";
+      input: SenaPreparedReliabilityRunInput;
+    };
+
+function hasOwn(payload: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(payload, key);
+}
+
+function queuedReliabilityJsonSourceSupplied(payload: Record<string, unknown>) {
+  return ["inlineAnnotations", "files", "annotations", "rows", "data"]
+    .some((key) => hasOwn(payload, key));
+}
+
+async function admitReliabilityJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  context: SenaEnterpriseSessionContext
+): Promise<SenaReliabilityJobAdmission> {
+  const uploadIds = reliabilityUploadPointers(payload);
+  const inlineSourceSupplied = queuedReliabilityJsonSourceSupplied(payload);
+  if (inlineSourceSupplied) {
+    throw new SenaEnterpriseError(
+      "Retained inline reliability payloads require source repair through registered uploads.",
+      409,
+      "server_job_worker_inline_source_custody_required"
+    );
+  }
+  if (uploadIds.length > 0) {
+    const teamId = optionalString(payload.teamId) ?? job.teamId;
+    const { contents } = await readEnterpriseReliabilityUploadPointerContents(context, { teamId, uploadIds });
+    const queuedJson = prepareEnterpriseReliabilityQueuedJsonUploads(contents, context.user.name);
+    if (queuedJson) return { source: "json", input: queuedJson };
+    return {
+      source: "uploads",
+      input: await admitReliabilityUploadContentsJob(contents)
+    };
+  }
+  throw new SenaEnterpriseError(
+    "Queued reliability jobs need registered upload pointers.",
+    400,
+    "server_job_worker_reliability_source_missing"
+  );
 }
 
 async function executeReliabilityUploadsJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext,
-  uploadIds: string[]
+  admission: Awaited<ReturnType<typeof admitReliabilityUploadContentsJob>>,
+  reviewer: string
 ): Promise<SenaServerJobWorkerResult> {
   const teamId = optionalString(payload.teamId) ?? job.teamId;
-  const contents = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds });
-  const parsedFiles = await Promise.all(contents.map((content) => readSenaReliabilityUploadRows(reliabilityUploadFile(content))));
-  const rows = parsedFiles.flatMap((file) => file.rows);
-  const fileWarnings = parsedFiles.flatMap((file) => file.warnings);
-  const parsed = parseCoderAnnotationsFromRows(rows);
-  const dashboard = buildSenaReliabilityDashboard(parsed.annotations, { skippedCells: parsed.skippedCells });
-  const dashboardWithWarnings = {
-    ...dashboard,
-    warnings: [...fileWarnings, ...parsed.warnings, ...dashboard.warnings]
-  };
-  const reviewer = optionalString(payload.reviewer) ?? context.user.name;
+  const { contents, parsedFiles, parsed, dashboard } = admission;
   const response = await buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
     teamId,
     projectId: optionalString(payload.projectId) ?? job.projectId,
+    projectVersion: typeof payload.projectVersion === "number" ? payload.projectVersion : undefined,
     reviewer,
     fileCount: contents.length,
     annotationCount: parsed.annotations.length,
+    annotations: parsed.annotations,
+    skippedCells: parsed.skippedCells,
     // upload.sha256 is the checksum of exactly these plaintext bytes; the
     // reader refuses to return content that no longer matches it.
     inputFiles: contents.map((content) => ({
@@ -324,8 +443,8 @@ async function executeReliabilityUploadsJob(
       size: content.bytes.byteLength,
       sha256: content.upload.sha256
     })),
-    dashboard: dashboardWithWarnings,
-    reviewPatch: reliabilityDashboardToReview(dashboardWithWarnings, reviewer)
+    dashboard,
+    reviewPatch: reliabilityDashboardToReview(dashboard, reviewer)
   });
   await reportUploadParseWarnings(teamId, contents.map((content, index) => ({
     uploadId: content.upload.id,
@@ -336,27 +455,260 @@ async function executeReliabilityUploadsJob(
   return { reliabilityRunId: reliabilityRun?.id };
 }
 
-async function executeAnalysisJob(
+async function executeReliabilityJsonUploadJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  context: SenaEnterpriseSessionContext,
+  admission: SenaPreparedReliabilityRunInput,
+  reviewer: string
+): Promise<SenaServerJobWorkerResult> {
+  const response = await buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
+    teamId: optionalString(payload.teamId) ?? job.teamId,
+    projectId: optionalString(payload.projectId) ?? job.projectId,
+    projectVersion: typeof payload.projectVersion === "number" ? payload.projectVersion : undefined,
+    reviewer,
+    fileCount: admission.fileCount,
+    annotationCount: admission.annotationCount,
+    annotations: admission.annotations,
+    skippedCells: admission.skippedCells,
+    inputFiles: admission.inputFiles,
+    dashboard: admission.dashboard,
+    reviewPatch: reliabilityDashboardToReview(admission.dashboard, reviewer)
+  });
+  const reliabilityRun = (response.body as { reliabilityRun?: { id?: string } }).reliabilityRun;
+  return { reliabilityRunId: reliabilityRun?.id };
+}
+
+async function queuedReliabilityReviewer(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   context: SenaEnterpriseSessionContext
-): Promise<SenaServerJobWorkerResult> {
-  const projectId = optionalString(payload.projectId) ?? job.projectId;
-  const sourceProject = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-  if (sourceProject && typeof payload.projectVersion === "number" && sourceProject.currentVersion !== payload.projectVersion) {
-    // The queued job named a specific project version. Running against a newer
-    // snapshot would silently return an analysis nobody asked for.
+) {
+  const uploadId = optionalString(payload.reviewerEnvelopeUploadId);
+  const expectedSha256 = optionalString(payload.reviewerEnvelopeSha256);
+  if (!uploadId && !expectedSha256) {
+    // Legacy externally delivered jobs carried reviewer directly. Retain that
+    // read compatibility, while every new public queue route uses the encrypted
+    // envelope below so the job receipt and payload summary remain PII-free.
+    return optionalString(payload.reviewer) ?? context.user.name;
+  }
+  if (!uploadId || !expectedSha256) {
     throw new SenaEnterpriseError(
-      "The SENA project changed after this job was queued.",
+      "Queued reliability reviewer evidence is incomplete.",
+      400,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
+  const teamId = optionalString(payload.teamId) ?? job.teamId;
+  const [content] = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds: [uploadId] });
+  if (content.upload.importProfile !== SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE ||
+    content.upload.sha256 !== expectedSha256) {
+    throw new SenaEnterpriseError(
+      "Queued reliability reviewer evidence does not match its canonical envelope.",
+      409,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
+  try {
+    return parseSenaReliabilityReviewerEnvelope(content.bytes);
+  } catch {
+    throw new SenaEnterpriseError(
+      "Queued reliability reviewer evidence is invalid.",
+      400,
+      "server_job_worker_reliability_reviewer_invalid"
+    );
+  }
+}
+
+type SenaAnalysisJobAdmission = {
+  context: SenaEnterpriseSessionContext;
+  currentProject: Awaited<ReturnType<typeof getEnterpriseProjectRevisionSourceReadOnlyAsync>>["currentProject"];
+  sourceProject: Awaited<ReturnType<typeof getEnterpriseProjectRevisionSourceReadOnlyAsync>>["sourceProject"];
+  expectedVersion?: number;
+};
+
+type SenaAnalysisCommandCustodyAdmission = {
+  context?: SenaEnterpriseSessionContext;
+  payload: Record<string, unknown>;
+};
+
+function analysisCommandCustodyError(): SenaEnterpriseError {
+  return new SenaEnterpriseError(
+    "The queued SENA analysis command does not match its durable encrypted custody envelope.",
+    409,
+    "server_job_worker_analysis_command_custody_invalid"
+  );
+}
+
+async function readCurrentAnalysisCommandEnvelope(
+  job: SenaEnterpriseServerJob,
+  context: SenaEnterpriseSessionContext
+): Promise<Record<string, unknown>> {
+  const custody = job.payloadSummary.commandCustody;
+  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
+  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
+  if (custody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY ||
+    typeof uploadId !== "string" || !/^upload_[a-f0-9]{24}$/.test(uploadId) ||
+    typeof envelopeSha256 !== "string" || !/^[a-f0-9]{64}$/.test(envelopeSha256)) {
+    throw analysisCommandCustodyError();
+  }
+  let content: SenaEnterpriseUploadContent;
+  try {
+    [content] = await readEnterpriseUploadContentsAsync(context, {
+      teamId: job.teamId,
+      uploadIds: [uploadId]
+    });
+  } catch {
+    throw analysisCommandCustodyError();
+  }
+  if (!content ||
+    content.upload.teamId !== job.teamId ||
+    content.upload.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE ||
+    content.upload.sha256 !== envelopeSha256) {
+    throw analysisCommandCustodyError();
+  }
+  try {
+    const envelope = parseSenaAnalysisQueueCommandEnvelope(content.bytes);
+    if (envelope.payloadSha256 !== job.payloadSha256 ||
+      stableServerJobPayloadSha256(envelope.payload) !== job.payloadSha256) {
+      throw analysisCommandCustodyError();
+    }
+    return envelope.payload;
+  } catch (error) {
+    if (error instanceof SenaEnterpriseError) throw error;
+    throw analysisCommandCustodyError();
+  }
+}
+
+async function admitAnalysisCommandCustody(
+  job: SenaEnterpriseServerJob,
+  deliveredPayload: Record<string, unknown>
+): Promise<SenaAnalysisCommandCustodyAdmission> {
+  if (stableServerJobPayloadSha256(deliveredPayload) !== job.payloadSha256) {
+    throw analysisCommandCustodyError();
+  }
+  if (!enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) throw analysisCommandCustodyError();
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
+    if (deliveredPayload.commandCustody !== undefined) throw analysisCommandCustodyError();
+    return { payload: deliveredPayload };
+  }
+  const deliveredCustody = deliveredPayload.commandCustody;
+  if (deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) throw analysisCommandCustodyError();
+  const context = await workerSessionContext(job);
+  const retainedPayload = await readCurrentAnalysisCommandEnvelope(job, context);
+  if (stableServerJobPayloadSha256(deliveredPayload) !==
+    stableServerJobPayloadSha256(retainedPayload)) {
+    throw analysisCommandCustodyError();
+  }
+  return { context, payload: retainedPayload };
+}
+
+async function admitAnalysisJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
+): Promise<SenaAnalysisJobAdmission> {
+  const projectId = optionalString(payload.projectId);
+  const teamId = optionalString(payload.teamId);
+  const projectVersion = payload.projectVersion;
+  const summaryVersion = job.payloadSummary.projectVersion;
+  if (!job.projectId || projectId !== job.projectId || teamId !== job.teamId ||
+    !isPositiveSafeInteger(projectVersion) || !isPositiveSafeInteger(summaryVersion) ||
+    projectVersion !== summaryVersion) {
+    throw new SenaEnterpriseError(
+      "The SENA analysis job project binding is incomplete or inconsistent.",
+      409,
+      "server_job_worker_project_binding_invalid"
+    );
+  }
+  const updatesExistingProject = payload.persist === true && payload.updateProject !== false;
+  const suppliedExpectedVersion = Object.hasOwn(payload, "expectedVersion") && payload.expectedVersion !== undefined
+    ? payload.expectedVersion
+    : undefined;
+  const summaryExpectedVersion = job.payloadSummary.expectedVersion;
+  if (summaryExpectedVersion !== undefined &&
+    (!isPositiveSafeInteger(summaryExpectedVersion) || suppliedExpectedVersion !== summaryExpectedVersion)) {
+    throw new SenaEnterpriseError(
+      "Project version conflict: queued expectedVersion does not match its durable receipt.",
+      409,
+      "project_version_conflict"
+    );
+  }
+  if (updatesExistingProject && suppliedExpectedVersion !== undefined &&
+    (!isPositiveSafeInteger(suppliedExpectedVersion) || suppliedExpectedVersion !== projectVersion)) {
+    throw new SenaEnterpriseError(
+      "Project version conflict: queued expectedVersion does not match the immutable source revision.",
+      409,
+      "project_version_conflict"
+    );
+  }
+  const context = admittedContext ?? await workerSessionContext(job);
+  const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(context, projectId, projectVersion);
+  const { currentProject, revision, sourceProject } = revisionSource;
+  if (sourceProject.teamId !== job.teamId || sourceProject.currentVersion !== projectVersion) {
+    throw new SenaEnterpriseError(
+      "The retained SENA project revision does not match this job.",
       409,
       "server_job_worker_project_version_changed"
     );
   }
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    const sourceTitle = optionalString(payload.sourceTitle);
+    if (!sourceTitle || (revision.title !== undefined && sourceTitle !== revision.title)) {
+      throw new SenaEnterpriseError(
+        "The SENA analysis job immutable source title is incomplete or inconsistent.",
+        409,
+        "server_job_worker_project_binding_invalid"
+      );
+    }
+  }
+  const expectedVersion = updatesExistingProject
+    ? suppliedExpectedVersion === undefined ? projectVersion : suppliedExpectedVersion as number
+    : undefined;
+  if (expectedVersion !== undefined && currentProject.currentVersion !== expectedVersion) {
+    throw new SenaEnterpriseError(
+      `Project version conflict: current version is ${currentProject.currentVersion}, but the queued update was based on version ${expectedVersion}.`,
+      409,
+      "project_version_conflict"
+    );
+  }
+  return { context, currentProject, sourceProject, expectedVersion };
+}
+
+/**
+ * Server-side preclaim gate for receipt-only external workers.
+ *
+ * The generic status callback receives no raw analytical command. Current jobs
+ * therefore re-open the encrypted, hash-bound command envelope and repeat the
+ * same project/revision admission used by the built-in executor before the
+ * queue can transition to running. Explicit legacy receipts retain their
+ * narrow envelope-free compatibility profile; unmarked or partial profiles
+ * fail closed.
+ */
+export async function admitEnterpriseExternalAnalysisClaim(
+  job: SenaEnterpriseServerJob
+): Promise<void> {
+  if (job.kind !== "analysis") return;
+  if (!enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) throw analysisCommandCustodyError();
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) return;
+  const context = await workerSessionContext(job);
+  const payload = await readCurrentAnalysisCommandEnvelope(job, context);
+  await admitAnalysisJob(job, payload, context);
+}
+
+async function executeAnalysisJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admission: SenaAnalysisJobAdmission
+): Promise<SenaServerJobWorkerResult> {
+  const { context, sourceProject, expectedVersion } = admission;
+  const projectId = sourceProject.id;
 
   const body = {
     teamId: job.teamId,
     projectId,
     title: payload.title,
+    sourceTitle: payload.sourceTitle,
     snapshot: payload.inlineSnapshot,
     dataset: payload.inlineDataset,
     buildOptions: payload.buildOptions,
@@ -369,25 +721,28 @@ async function executeAnalysisJob(
   const run = buildSenaAnalysisRun(buildSenaAnalysisRunRequestInput({ body, sourceProject }));
 
   const persist = payload.persist === true;
-  const updateExistingProject = persist && sourceProject && payload.updateProject !== false;
+  const updateExistingProject = persist && payload.updateProject !== false;
   const persistedProject = persist
-    ? updateExistingProject && sourceProject
+    ? updateExistingProject
       ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
         title: optionalString(payload.title),
-        expectedVersion: typeof payload.expectedVersion === "number" ? payload.expectedVersion : undefined,
+        description: typeof payload.description === "string" ? payload.description : undefined,
+        expectedVersion,
         snapshot: run.projectSnapshot
       })
       : await createEnterpriseProjectAsync(context, {
         teamId: job.teamId,
         title: optionalString(payload.title) ?? run.summary.title,
-        description: "Created by the SENA server job worker.",
+        description: typeof payload.description === "string"
+          ? payload.description
+          : "Created by /api/sena/analyze.",
         snapshot: run.projectSnapshot
       })
     : null;
 
   const analysisRun = await createEnterpriseAnalysisRunWithPostgresMirrorAsync(context, {
     teamId: job.teamId,
-    projectId: sourceProject?.id,
+    projectId: sourceProject.id,
     persistedProjectId: persistedProject?.id,
     run
   });
@@ -403,46 +758,49 @@ async function executeAnalysisJob(
 async function executeReliabilityJob(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
-  context: SenaEnterpriseSessionContext
+  context: SenaEnterpriseSessionContext,
+  admission: SenaReliabilityJobAdmission
 ): Promise<SenaServerJobWorkerResult> {
-  const uploadIds = uploadPointers(payload);
-  // Upload pointers are the default queued shape (inline annotations exist only
-  // where SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD is set), so they win when both
-  // are present: the uploads are what the enqueueing route actually registered.
-  if (uploadIds.length > 0) {
-    return executeReliabilityUploadsJob(job, payload, context, uploadIds);
+  const projectId = optionalString(payload.projectId) ?? job.projectId;
+  if (projectId) {
+    const project = await getEnterpriseProjectReadOnlyAsync(context, projectId);
+    const projectVersion = payload.projectVersion;
+    const snapshotFingerprint = optionalString(payload.snapshotFingerprint);
+    if (!Number.isInteger(projectVersion) || !snapshotFingerprint ||
+      project.currentVersion !== projectVersion ||
+      senaReliabilitySnapshotFingerprint(project.snapshot) !== snapshotFingerprint) {
+      throw new SenaEnterpriseError(
+        "The SENA project binding changed after this reliability job was queued.",
+        409,
+        "server_job_worker_reliability_project_binding_changed"
+      );
+    }
   }
-
-  const annotations = payload.inlineAnnotations ?? payload.annotations;
-  if (!Array.isArray(annotations) || annotations.length === 0) {
-    // Neither uploads nor annotations: scoring an empty dashboard would publish
-    // a reliability run that no coder ever produced.
-    throw new SenaEnterpriseError(
-      "Queued reliability jobs need either upload pointers or inline annotations.",
-      400,
-      "server_job_worker_reliability_source_missing"
-    );
+  const reviewer = await queuedReliabilityReviewer(job, payload, context);
+  if (admission.source === "uploads") {
+    return executeReliabilityUploadsJob(job, payload, context, admission.input, reviewer);
   }
-
-  const response = await buildEnterpriseReliabilityJsonRunResponseWithPostgresMirrorAsync(context, {
-    teamId: job.teamId,
-    projectId: optionalString(payload.projectId) ?? job.projectId,
-    reviewer: payload.reviewer,
-    sourceName: payload.sourceName,
-    annotations
-  });
-  const reliabilityRun = (response.body as { reliabilityRun?: { id?: string } }).reliabilityRun;
-  return { reliabilityRunId: reliabilityRun?.id };
+  return executeReliabilityJsonUploadJob(job, payload, context, admission.input, reviewer);
 }
 
 async function executeByKind(
   job: SenaEnterpriseServerJob,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options: {
+    analysisAdmission?: SenaAnalysisJobAdmission;
+    reliabilityAdmission?: SenaReliabilityJobAdmission;
+  } = {}
 ): Promise<SenaServerJobWorkerResult> {
+  if (job.kind === "analysis") {
+    const admission = options.analysisAdmission ?? await admitAnalysisJob(job, payload);
+    return executeAnalysisJob(job, payload, admission);
+  }
   const context = await workerSessionContext(job);
-  if (job.kind === "analysis") return executeAnalysisJob(job, payload, context);
   if (job.kind === "import") return executeImportJob(job, payload, context);
-  if (job.kind === "reliability") return executeReliabilityJob(job, payload, context);
+  if (job.kind === "reliability") {
+    const admission = options.reliabilityAdmission ?? await admitReliabilityJob(job, payload, context);
+    return executeReliabilityJob(job, payload, context, admission);
+  }
   throw new SenaEnterpriseError(
     `No in-repo executor is registered for SENA server job kind ${job.kind}.`,
     501,
@@ -462,26 +820,49 @@ function skipped(job: SenaEnterpriseServerJob, skipReason: string): SenaServerJo
   };
 }
 
+function failedBeforeClaim(job: SenaEnterpriseServerJob, error: unknown): SenaServerJobWorkerOutcome {
+  return {
+    jobId: job.id,
+    kind: job.kind,
+    action: job.worker.expectedAction,
+    status: "failed",
+    jobStatus: job.status,
+    attempts: job.lifecycle.attempts,
+    retryable: job.lifecycle.retryable,
+    errorCode: errorCodeOf(error),
+    errorHash: errorHashOf(error),
+    issues: errorIssuesOf(error)
+  };
+}
+
+async function rejectBeforeClaim(
+  job: SenaEnterpriseServerJob,
+  error: unknown,
+  reason = "server-job-worker-preclaim-admission-failed"
+) {
+  const errorCode = errorCodeOf(error);
+  const rejected = await rejectEnterpriseServerJobBeforeClaim({
+    jobId: job.id,
+    errorCode,
+    errorHash: errorHashOf(error),
+    reason
+  });
+  if (rejected.status !== "failed" || rejected.lifecycle.lastErrorCode !== errorCode) {
+    return skipped(rejected, "server_job_worker_job_not_queued");
+  }
+  return failedBeforeClaim(rejected, error);
+}
+
 /**
  * Takes the job out of `queued` for this worker run.
  *
- * Two guards, because the queue's status writer is a read-modify-write and this
- * module may not change it: the in-process set above stops overlapping calls in
- * one runtime, and re-reading the job after mark-running confirms that *our*
- * workerRunId is the one that stuck. A worker that loses that race abandons the
- * job instead of executing it, so a job is executed at most once per claim.
+ * The queue owns the compare-and-set: production Postgres updates only a row
+ * whose status is still queued, while the local development store makes its
+ * synchronous transition in one process turn. A losing contender never
+ * receives the admitted work product for execution.
  */
 async function claimServerJob(jobId: string, runId: string) {
-  const current = await getEnterpriseServerJob(jobId);
-  if (current.status !== "queued") {
-    return { claimed: false as const, reason: "server_job_worker_job_not_queued", job: current };
-  }
-  await updateEnterpriseServerJobStatus({ jobId, action: "mark-running", workerRunId: runId });
-  const claimed = await getEnterpriseServerJob(jobId);
-  if (claimed.status !== "running" || claimed.lifecycle.workerRunId !== runId) {
-    return { claimed: false as const, reason: "server_job_worker_claim_lost", job: claimed };
-  }
-  return { claimed: true as const, job: claimed };
+  return claimEnterpriseServerJob({ jobId, workerRunId: runId });
 }
 
 /**
@@ -497,24 +878,61 @@ export async function runEnterpriseServerJob(input: {
   workerPayload: unknown;
   runId?: string;
 }): Promise<SenaServerJobWorkerOutcome> {
+  const runId = input.runId === undefined ? workerRunId() : requiredWorkerRunId(input.runId);
   const job = input.job;
   if (!isExecutableKind(job.kind)) {
     // Never claimed, so a real external worker can still take it.
     return skipped(job, "server_job_worker_executor_unavailable");
+  }
+  if (job.kind === "analysis" && !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) {
+    return rejectBeforeClaim(job, analysisCommandCustodyError());
+  }
+  if (job.delivery.sourceReady !== true || !enterpriseServerJobHasDurableSourcePointer(job)) {
+    return skipped(job, "server_job_worker_source_not_ready");
   }
   if (inFlightServerJobIds.has(job.id)) {
     return skipped(job, "server_job_worker_job_in_flight");
   }
   inFlightServerJobIds.add(job.id);
 
-  const runId = input.runId ?? workerRunId();
   try {
-    const claim = await claimServerJob(job.id, runId);
+    let payload = (input.workerPayload ?? {}) as Record<string, unknown>;
+    let analysisAdmission: SenaAnalysisJobAdmission | undefined;
+    let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
+    let candidate = job;
+    if (job.kind === "analysis") {
+      try {
+        const commandCustody = await admitAnalysisCommandCustody(job, payload);
+        payload = commandCustody.payload;
+        analysisAdmission = await admitAnalysisJob(job, payload, commandCustody.context);
+      } catch (error) {
+        return rejectBeforeClaim(job, error);
+      }
+    }
+    if (job.kind === "reliability") {
+      // Cross-process contenders may repeat this bounded, read-only preflight,
+      // but no contender mutates the job until its complete source universe is
+      // admitted. claimServerJob below remains the single execution winner.
+      candidate = await getEnterpriseServerJob(job.id);
+      if (candidate.status !== "queued") {
+        return skipped(candidate, "server_job_worker_job_not_queued");
+      }
+      try {
+        const context = await workerSessionContext(candidate);
+        reliabilityAdmission = await admitReliabilityJob(candidate, payload, context);
+      } catch (error) {
+        return failedBeforeClaim(candidate, error);
+      }
+    }
+
+    const claim = await claimServerJob(candidate.id, runId);
     if (!claim.claimed) return skipped(claim.job, claim.reason);
 
-    const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
     try {
-      const result = await executeByKind(claim.job, payload);
+      const result = await executeByKind(claim.job, payload, {
+        analysisAdmission,
+        reliabilityAdmission
+      });
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-succeeded",
@@ -537,6 +955,7 @@ export async function runEnterpriseServerJob(input: {
       // hash of the message (the message itself may quote user data).
       const errorCode = errorCodeOf(error);
       const errorHash = errorHashOf(error);
+      const issues = errorIssuesOf(error);
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-failed",
@@ -555,7 +974,8 @@ export async function runEnterpriseServerJob(input: {
         attempts: update.job.lifecycle.attempts,
         retryable: update.job.lifecycle.retryable,
         errorCode,
-        errorHash
+        errorHash,
+        issues
       };
     }
   } finally {
@@ -577,19 +997,36 @@ async function reproduceAnalysisPayload(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
 ): Promise<Record<string, unknown> | undefined> {
-  if (!job.projectId) return undefined;
-  const project = await getEnterpriseProjectAsync(context, job.projectId).catch(() => null);
-  if (!project) return undefined;
+  if (job.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    try {
+      return await readCurrentAnalysisCommandEnvelope(job, context);
+    } catch {
+      return undefined;
+    }
+  }
+  if (job.payloadSummary.commandCustody !== SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY) {
+    return undefined;
+  }
+  const projectVersion = job.payloadSummary.projectVersion;
+  if (!job.projectId || !isPositiveSafeInteger(projectVersion)) return undefined;
+  const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(
+    context,
+    job.projectId,
+    projectVersion
+  ).catch(() => null);
+  const project = revisionSource?.sourceProject;
+  if (!project || project.teamId !== job.teamId) return undefined;
   return {
     action: "run-analysis",
     teamId: job.teamId,
     projectId: job.projectId,
-    projectVersion: job.payloadSummary.projectVersion,
+    projectVersion,
     title: project.title,
     activeTemporalWindowId: job.payloadSummary.activeTemporalWindowId,
     includeRuntimeBundle: job.payloadSummary.includeRuntimeBundle === true,
     persist: job.payloadSummary.persist === true,
-    updateProject: job.payloadSummary.updateProject !== false
+    updateProject: job.payloadSummary.updateProject !== false,
+    expectedVersion: job.payloadSummary.expectedVersion
   };
 }
 
@@ -600,8 +1037,8 @@ async function reproduceAnalysisPayload(
  * the persist flag and the runtime-bundle/temporal-window switches, but never
  * the title, description, buildOptions, codingReliability or dataGovernance the
  * request may have carried. An import queued with any of those simply will not
- * hash back, and the caller leaves it queued for the signed webhook path rather
- * than importing the same files under different options.
+ * hash back, and local polling terminalizes it before claim rather than
+ * importing the same files under different options.
  */
 function reproduceImportPayload(job: SenaEnterpriseServerJob): Record<string, unknown> | undefined {
   const uploadIds = job.payloadSummary.uploadIds ?? [];
@@ -616,6 +1053,29 @@ function reproduceImportPayload(job: SenaEnterpriseServerJob): Record<string, un
   };
 }
 
+/**
+ * Rebuilds the only reliability shape accepted by the local polling queue.
+ *
+ * The annotations themselves remain in the encrypted upload store. The job
+ * receipt keeps only its opaque upload ids plus the immutable project binding,
+ * which is enough to reproduce and hash-check the worker payload without
+ * persisting coder values in the public server-job record.
+ */
+function reproduceReliabilityPayload(job: SenaEnterpriseServerJob): Record<string, unknown> | undefined {
+  const uploadIds = job.payloadSummary.uploadIds ?? [];
+  if (uploadIds.length === 0) return undefined;
+  return {
+    action: "run-reliability",
+    teamId: job.teamId,
+    projectId: job.projectId,
+    projectVersion: job.payloadSummary.projectVersion,
+    snapshotFingerprint: job.payloadSummary.snapshotFingerprint,
+    uploadIds,
+    reviewerEnvelopeUploadId: job.payloadSummary.reviewerEnvelopeUploadId,
+    reviewerEnvelopeSha256: job.payloadSummary.reviewerEnvelopeSha256
+  };
+}
+
 async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
   const context = await workerSessionContext(job).catch(() => null);
   if (!context) return undefined;
@@ -623,7 +1083,9 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
     ? await reproduceAnalysisPayload(job, context)
     : job.kind === "import"
       ? reproduceImportPayload(job)
-      : undefined;
+      : job.kind === "reliability"
+        ? reproduceReliabilityPayload(job)
+        : undefined;
   if (!candidate) return undefined;
   return stableServerJobPayloadSha256(candidate) === job.payloadSha256 ? candidate : undefined;
 }
@@ -632,41 +1094,103 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
  * The polling half of the worker, for deployments whose queue mode is `local`
  * (no webhook is ever dispatched, so the push path never fires).
  *
- * It only runs jobs whose payload it could reproduce byte-for-byte, proven
- * against job.payloadSha256. Everything else is reported and left queued.
+ * It first identifies ordinary claimable work, excluding the same-process
+ * status-store heartbeat sentinel. A separate bounded, oldest-first data-access
+ * query finds an executable kind before the mixed-kind result is limited, so
+ * newer unsupported receipts cannot hide the reserved slot. If executable work
+ * exists, one slot is reserved before quarantining delivered analysis receipts
+ * whose current or explicit-legacy custody profile is missing or partial. It
+ * never upgrades quarantined rows into legacy work. Every irreproducible command
+ * is atomically terminalized before claim. It does so without incrementing
+ * attempts; the existing attempt count is preserved and retryable=false.
  */
 export async function drainEnterpriseServerJobQueue(input: {
   limit?: number;
   teamId?: string;
   kind?: SenaEnterpriseServerJobKind;
 } = {}): Promise<SenaServerJobWorkerDrainReport> {
-  const queued = await listEnterpriseServerJobs({
-    status: "queued",
-    kind: input.kind,
-    teamId: input.teamId,
-    limit: input.limit ?? 25
+  return runWithSenaValidationRequestScope(async () => {
+    const limit = Math.max(1, Math.min(input.limit ?? 25, 500));
+    const outcomes: SenaServerJobWorkerOutcome[] = [];
+    const executableKinds: readonly SenaEnterpriseServerJobKind[] = input.kind === undefined
+      ? senaServerJobWorkerExecutableKinds
+      : isExecutableKind(input.kind)
+        ? [input.kind]
+        : [];
+    const [queued, executable] = await Promise.all([
+      listEnterpriseServerJobs({
+        status: "queued",
+        claimableOnly: true,
+        excludeSyntheticWorkerHeartbeat: true,
+        kind: input.kind,
+        teamId: input.teamId,
+        limit
+      }),
+      executableKinds.length > 0
+        ? findOldestClaimableEnterpriseServerJob({
+            kinds: executableKinds,
+            teamId: input.teamId
+          })
+        : Promise.resolve(undefined)
+    ]);
+    const reservedExecutable = executable;
+    const processingOrder = reservedExecutable
+      ? [reservedExecutable, ...queued.jobs.filter((job) => job.id !== reservedExecutable.id)]
+      : queued.jobs;
+    const executableReservation = reservedExecutable ? 1 : 0;
+    if (input.kind === undefined || input.kind === "analysis") {
+      const quarantineLimit = limit - executableReservation;
+      if (quarantineLimit > 0) {
+        const quarantined = await listEnterpriseServerJobs({
+          status: "queued",
+          kind: "analysis",
+          teamId: input.teamId,
+          analysisCustodyQuarantineOnly: true,
+          limit: quarantineLimit
+        });
+        for (const job of quarantined.jobs) {
+          outcomes.push(await rejectBeforeClaim(
+            job,
+            analysisCommandCustodyError(),
+            "server-job-worker-analysis-command-custody-quarantined"
+          ));
+        }
+      }
+    }
+    const remaining = limit - outcomes.length;
+    for (const job of processingOrder.slice(0, remaining)) {
+      // The data-access filter is the primary exclusion. Keep this local guard
+      // as a fail-closed defense if another adapter ever ignores that filter.
+      if (enterpriseServerJobIsSyntheticWorkerHeartbeat(job)) continue;
+      if (!isExecutableKind(job.kind)) {
+        outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
+        continue;
+      }
+      const workerPayload = await reproducedWorkerPayload(job);
+      if (!workerPayload) {
+        const error = new SenaEnterpriseError(
+          "The queued SENA worker payload cannot be reproduced from retained custody.",
+          409,
+          "server_job_worker_payload_not_reproducible"
+        );
+        outcomes.push(await rejectBeforeClaim(
+          job,
+          error,
+          "server-job-worker-payload-not-reproducible"
+        ));
+        continue;
+      }
+      outcomes.push(await runEnterpriseServerJob({ job, workerPayload }));
+    }
+    return {
+      generatedAt: now(),
+      scanned: outcomes.length,
+      succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
+      failed: outcomes.filter((outcome) => outcome.status === "failed").length,
+      skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+      outcomes
+    };
   });
-  const outcomes: SenaServerJobWorkerOutcome[] = [];
-  for (const job of queued.jobs) {
-    if (!isExecutableKind(job.kind)) {
-      outcomes.push(skipped(job, "server_job_worker_executor_unavailable"));
-      continue;
-    }
-    const workerPayload = await reproducedWorkerPayload(job);
-    if (!workerPayload) {
-      outcomes.push(skipped(job, "server_job_worker_payload_not_reproducible"));
-      continue;
-    }
-    outcomes.push(await runEnterpriseServerJob({ job, workerPayload }));
-  }
-  return {
-    generatedAt: now(),
-    scanned: queued.jobs.length,
-    succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
-    failed: outcomes.filter((outcome) => outcome.status === "failed").length,
-    skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
-    outcomes
-  };
 }
 
 /**
@@ -681,11 +1205,13 @@ export async function runEnterpriseServerJobFromQueueWebhook(input: {
   jobId: string;
   workerPayload: unknown;
 }): Promise<SenaServerJobWorkerOutcome> {
-  const job = await getEnterpriseServerJob(input.jobId);
-  if (stableServerJobPayloadSha256(input.workerPayload) !== job.payloadSha256) {
-    return skipped(job, "server_job_worker_payload_sha256_mismatch");
-  }
-  return runEnterpriseServerJob({ job, workerPayload: input.workerPayload });
+  return runWithSenaValidationRequestScope(async () => {
+    const job = await getEnterpriseServerJob(input.jobId);
+    if (stableServerJobPayloadSha256(input.workerPayload) !== job.payloadSha256) {
+      return skipped(job, "server_job_worker_payload_sha256_mismatch");
+    }
+    return runEnterpriseServerJob({ job, workerPayload: input.workerPayload });
+  });
 }
 
 export function serverJobWorkerInlineExecutionEnabled() {

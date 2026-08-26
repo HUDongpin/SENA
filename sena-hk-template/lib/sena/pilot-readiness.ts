@@ -16,6 +16,25 @@ import type {
   SenaValidation
 } from "./types";
 
+export const SENA_PILOT_READINESS_ITEM_ID = Object.freeze({
+  dataContract: "data-contract",
+  fusionModel: "fusion-model",
+  modelJsonExport: "model-json-export",
+  fusionMath: "fusion-math",
+  runtimeConsistency: "runtime-consistency",
+  runtimeArtifacts: "runtime-artifacts",
+  methodValidation: "method-validation",
+  evidenceLedger: "evidence-ledger",
+  codingReliability: "coding-reliability",
+  dataGovernance: "data-governance",
+  reportCompleteness: "report-completeness",
+  humanReview: "human-review"
+} as const);
+
+export const SENA_PILOT_READINESS_ITEM_IDS = Object.freeze(
+  Object.values(SENA_PILOT_READINESS_ITEM_ID)
+);
+
 export type SenaPilotReadinessInput = {
   model: SenaModel;
   completenessAudit: SenaReportCompletenessAudit;
@@ -54,15 +73,16 @@ function auditItemPassed(audit: SenaReportCompletenessAudit, id: string) {
   return audit.items.find((item) => item.id === id)?.status === "pass";
 }
 
+function humanReviewTextPresent(value: string) {
+  return Boolean(value.trim()) && value.trim() !== "Pending human review.";
+}
+
 function humanReviewComplete(humanReview: SenaReportHumanReview) {
   return humanReview.status === "human-reviewed" &&
-    Boolean(humanReview.reviewer.trim()) &&
-    Boolean(humanReview.interpretation.trim()) &&
-    Boolean(humanReview.limitations.trim()) &&
-    Boolean(humanReview.nextActions.trim()) &&
-    humanReview.interpretation !== "Pending human review." &&
-    humanReview.limitations !== "Pending human review." &&
-    humanReview.nextActions !== "Pending human review.";
+    humanReviewTextPresent(humanReview.reviewer) &&
+    humanReviewTextPresent(humanReview.interpretation) &&
+    humanReviewTextPresent(humanReview.limitations) &&
+    humanReviewTextPresent(humanReview.nextActions);
 }
 
 type ClaimGateConfig = {
@@ -233,7 +253,7 @@ export function buildSenaPilotReadinessAudit({
 
   const items = [
     readinessItem(
-      "data-contract",
+      SENA_PILOT_READINESS_ITEM_ID.dataContract,
       "Five-table data contract",
       "data",
       dataContractAudit.status === "valid",
@@ -247,7 +267,7 @@ export function buildSenaPilotReadinessAudit({
       "Resolve missing tables, reference issues, derived placeholders, or import warnings before a pilot walkthrough."
     ),
     readinessItem(
-      "fusion-model",
+      SENA_PILOT_READINESS_ITEM_ID.fusionModel,
       "S/W/B/B_PC/B_CP/G fusion model",
       "model",
       hasFusionGraph && auditItemPassed(completenessAudit, "matrices"),
@@ -261,7 +281,7 @@ export function buildSenaPilotReadinessAudit({
       "Check S, W, B, G, and fusion dimensions if the graph is sparse or empty."
     ),
     readinessItem(
-      "model-json-export",
+      SENA_PILOT_READINESS_ITEM_ID.modelJsonExport,
       "Restorable model JSON export",
       "model",
       hasRestorableModelJson,
@@ -281,7 +301,7 @@ export function buildSenaPilotReadinessAudit({
       "Export and re-upload sena-project-snapshot.json before a handoff to confirm nodes, edges, S/W/B/B_PC/B_CP/G, fusion, and temporal trace are restorable."
     ),
     readinessItem(
-      "fusion-math",
+      SENA_PILOT_READINESS_ITEM_ID.fusionMath,
       "Fusion equation audit",
       "math",
       fusionMathAudit.status === "verified",
@@ -290,7 +310,7 @@ export function buildSenaPilotReadinessAudit({
       "Resolve formula block mismatches before using weighted fusion results in a pilot report."
     ),
     readinessItem(
-      "runtime-consistency",
+      SENA_PILOT_READINESS_ITEM_ID.runtimeConsistency,
       "jENA/jSNA runtime consistency",
       "runtime",
       runtimeConsistencyAudit.status === "consistent",
@@ -299,7 +319,7 @@ export function buildSenaPilotReadinessAudit({
       "Review jENA and jSNA manifests against the active SENA model before exporting claims."
     ),
     readinessItem(
-      "runtime-artifacts",
+      SENA_PILOT_READINESS_ITEM_ID.runtimeArtifacts,
       "Runtime artifacts",
       "runtime",
       auditItemPassed(completenessAudit, "jena-manifest") && auditItemPassed(completenessAudit, "jsna-manifest"),
@@ -311,7 +331,7 @@ export function buildSenaPilotReadinessAudit({
       "Export the runtime bundle only after both local JavaScript runtimes are computed or explicitly explained."
     ),
     readinessItem(
-      "method-validation",
+      SENA_PILOT_READINESS_ITEM_ID.methodValidation,
       "Method validation package",
       "method",
       hasMethodValidation,
@@ -324,7 +344,7 @@ export function buildSenaPilotReadinessAudit({
       "Run sensitivity, temporal, and null-model checks before using the pilot for research interpretation."
     ),
     readinessItem(
-      "evidence-ledger",
+      SENA_PILOT_READINESS_ITEM_ID.evidenceLedger,
       "Evidence ledger",
       "evidence",
       evidenceLedger.snippets.length >= minEvidenceSnippets,
@@ -333,7 +353,7 @@ export function buildSenaPilotReadinessAudit({
       "Increase the evidence limit or inspect the evidence ledger if a pilot claim needs broader source coverage."
     ),
     readinessItem(
-      "coding-reliability",
+      SENA_PILOT_READINESS_ITEM_ID.codingReliability,
       "Coding reliability gate",
       "review",
       codingReliabilityGate.status === "ready",
@@ -347,7 +367,7 @@ export function buildSenaPilotReadinessAudit({
       "Document the coding scheme, coding unit, coder count, agreement metric/value, adjudication notes, and limitations before treating SENA patterns as research claims."
     ),
     readinessItem(
-      "data-governance",
+      SENA_PILOT_READINESS_ITEM_ID.dataGovernance,
       "Data governance metadata",
       "review",
       dataGovernanceBlockers.length === 0,
@@ -367,7 +387,7 @@ export function buildSenaPilotReadinessAudit({
       "Document IRB/ethics approval, consent scope, retention policy, usage constraints, and data steward before treating SENA patterns as research claims."
     ),
     readinessItem(
-      "report-completeness",
+      SENA_PILOT_READINESS_ITEM_ID.reportCompleteness,
       "Report completeness",
       "review",
       completenessAudit.status === "complete",
@@ -376,16 +396,16 @@ export function buildSenaPilotReadinessAudit({
       "Complete every report section before sharing a pilot export."
     ),
     readinessItem(
-      "human-review",
+      SENA_PILOT_READINESS_ITEM_ID.humanReview,
       "Human review fields",
       "review",
       humanReviewComplete(humanReview),
       humanReview.status === "human-reviewed" ? `Reviewed by ${humanReview.reviewer || "unassigned"}` : "Draft interpretation",
       [
         `reviewer=${humanReview.reviewer || "unassigned"}`,
-        `interpretation=${humanReview.interpretation.trim() ? "present" : "missing"}`,
-        `limitations=${humanReview.limitations.trim() ? "present" : "missing"}`,
-        `nextActions=${humanReview.nextActions.trim() ? "present" : "missing"}`
+        `interpretation=${humanReviewTextPresent(humanReview.interpretation) ? "present" : "missing"}`,
+        `limitations=${humanReviewTextPresent(humanReview.limitations) ? "present" : "missing"}`,
+        `nextActions=${humanReviewTextPresent(humanReview.nextActions) ? "present" : "missing"}`
       ],
       "Mark as human-reviewed only after interpretation, limitations, and next actions are filled."
     )

@@ -5,10 +5,8 @@ import { authEmailDomain, authEmailHash } from "./auth-password";
 import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
-  readEnterpriseDb,
-  readEnterpriseState,
-  saveDb,
-  saveEnterpriseState,
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -287,15 +285,15 @@ export function enforceEnterpriseApiRateLimit(input: {
   limit?: number;
   windowSeconds?: number;
 }) {
-  const db = readEnterpriseDb();
-  try {
-    const result = applyEnterpriseApiRateLimit(db, input);
-    saveDb(db);
-    return result;
-  } catch (error) {
-    saveDb(db);
-    throw error;
-  }
+  const outcome = mutateEnterpriseDbAtomically((db) => {
+    try {
+      return { ok: true as const, result: applyEnterpriseApiRateLimit(db, input) };
+    } catch (error) {
+      return { ok: false as const, error };
+    }
+  });
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
 }
 
 export async function enforceEnterpriseApiRateLimitAsync(input: {
@@ -304,15 +302,7 @@ export async function enforceEnterpriseApiRateLimitAsync(input: {
   limit?: number;
   windowSeconds?: number;
 }) {
-  const state = await readEnterpriseState();
-  try {
-    const result = applyEnterpriseApiRateLimit(state.db, input);
-    await saveEnterpriseState(state, state.db);
-    return result;
-  } catch (error) {
-    await saveEnterpriseState(state, state.db);
-    throw error;
-  }
+  return mutateEnterpriseStateAtomically((db) => applyEnterpriseApiRateLimit(db, input));
 }
 
 export type SenaEnterpriseAuthSubjectRateLimitInput = {

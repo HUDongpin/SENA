@@ -24,6 +24,7 @@ import {
   type SenaEnterpriseOrganizationDeploymentPackage
 } from "./ops-deployment";
 import {
+  getEnterpriseDeploymentReadiness,
   getEnterpriseDeploymentReadinessWithPostgresEvidence,
   type SenaEnterpriseDeploymentReadiness
 } from "./ops-deployment-readiness";
@@ -40,10 +41,20 @@ import {
   type SenaEnterpriseCapabilityAudit
 } from "./ops-capability-audit";
 import {
+  getEnterpriseOpsStatus,
   getEnterpriseOpsStatusWithPostgresEvidence,
-  type SenaEnterpriseOpsStatus
+  type SenaEnterpriseOpsStatus,
+  type SenaEnterpriseOpsStatusSnapshotSource
 } from "./ops-status";
-import type { SenaEnterpriseAuditLogEntry } from "./ops-audit";
+import { getEnterpriseGovernanceStatus } from "./ops-governance";
+import {
+  summarizeEnterpriseUploadObjectStorageCustodyFromDb,
+  verifyEnterpriseUploadStorageFromDb
+} from "./import-analysis";
+import {
+  verifyEnterpriseAuditIntegrityFromDb,
+  type SenaEnterpriseAuditLogEntry
+} from "./ops-audit";
 import {
   artifactSha256,
   now,
@@ -541,10 +552,52 @@ function buildEnterpriseIdentityProductionEvidenceFromSnapshots(input: {
   });
 }
 
-export function getEnterpriseIdentityProductionEvidence(input: { teamId?: string } = {}): SenaEnterpriseIdentityProductionEvidence {
-  const db = readEnterpriseDb();
-  const deployment = getEnterpriseOrganizationDeploymentPackage();
-  const audit = getEnterpriseCapabilityAudit();
+export function getEnterpriseIdentityProductionEvidence(input: {
+  teamId?: string;
+  db?: SenaEnterpriseDb;
+  snapshotSource?: SenaEnterpriseOpsStatusSnapshotSource;
+} = {}): SenaEnterpriseIdentityProductionEvidence {
+  const db = input.db ?? readEnterpriseDb();
+  const snapshotSource = input.snapshotSource ?? "file-json";
+  const auditIntegrity = verifyEnterpriseAuditIntegrityFromDb(db);
+  const uploadStorageVerification = verifyEnterpriseUploadStorageFromDb(db);
+  const uploadObjectStorageCustody = summarizeEnterpriseUploadObjectStorageCustodyFromDb(db, {
+    source: snapshotSource
+  });
+  const opsStatus = getEnterpriseOpsStatus({
+    db,
+    snapshotSource,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
+  const governance = getEnterpriseGovernanceStatus({
+    db,
+    opsStatus,
+    auditIntegrity,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
+  const readiness = getEnterpriseDeploymentReadiness({
+    opsStatus,
+    governance,
+    uploadStorageVerification,
+    uploadObjectStorageCustody
+  });
+  const deployment = getEnterpriseOrganizationDeploymentPackage({
+    teamId: input.teamId,
+    db,
+    opsStatus,
+    governance,
+    readiness
+  });
+  const audit = getEnterpriseCapabilityAudit({
+    teamId: input.teamId,
+    db,
+    opsStatus,
+    governance,
+    readiness,
+    deployment
+  });
   return buildEnterpriseIdentityProductionEvidenceFromSnapshots({
     teamId: input.teamId,
     db,

@@ -1,4 +1,5 @@
 import type { SenaNormalization } from "./types";
+import { validateSenaFusionAdjacencyInputs } from "./analytical-input-validation";
 
 export type SenaAdmissibleNormalization = Extract<SenaNormalization, "max" | "frobenius" | "log1p-max">;
 
@@ -155,17 +156,6 @@ function zeroSquareMatrix(size: number) {
   return Array.from({ length: size }, () => Array.from({ length: size }, () => 0));
 }
 
-function assertMatrixShape(
-  matrix: number[][],
-  rows: number,
-  columns: number,
-  label: "S" | "W" | "B_PC" | "B_CP"
-) {
-  if (matrix.length !== rows || matrix.some((row) => row.length !== columns)) {
-    throw new Error(`SENA fusion adjacency requires ${label} to have dimensions ${rows} x ${columns}.`);
-  }
-}
-
 function sumMatrices(matrices: number[][][]) {
   const size = matrices[0]?.length ?? 0;
   const total = zeroSquareMatrix(size);
@@ -278,12 +268,9 @@ export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization)
 }
 
 export function buildSenaFusionAdjacency({ S, W, B, Bcp, alpha, beta, gamma }: SenaFusionAdjacencyInput) {
+  validateSenaFusionAdjacencyInputs({ S, W, B, Bcp, alpha, beta, gamma });
   const peopleCount = S.length;
   const codeCount = W.length;
-  assertMatrixShape(S, peopleCount, peopleCount, "S");
-  assertMatrixShape(W, codeCount, codeCount, "W");
-  assertMatrixShape(B, peopleCount, codeCount, "B_PC");
-  if (Bcp) assertMatrixShape(Bcp, codeCount, peopleCount, "B_CP");
   const fusion = Array.from({ length: peopleCount + codeCount }, () => (
     Array.from({ length: peopleCount + codeCount }, () => 0)
   ));
@@ -731,6 +718,9 @@ export function senaSchoenbergMdsDiagnostics(
 ): SenaSchoenbergMdsDiagnostics {
   const tolerance = options.tolerance ?? 1e-9;
   const dimensions = Math.max(1, Math.floor(options.dimensions));
+  if (delta.length === 0) {
+    throw new Error("Classical MDS is unavailable because the fusion graph has zero vertices.");
+  }
   const centeredGram = centeredGramFromDissimilarity(delta);
   const decomposition = senaSymmetricEigenDecomposition(centeredGram);
   const descendingPairs = decomposition.values

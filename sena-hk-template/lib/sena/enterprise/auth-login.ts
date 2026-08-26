@@ -1,9 +1,7 @@
 import { SenaEnterpriseError } from "./errors";
 import {
-  readEnterpriseDb,
-  readEnterpriseState,
-  saveDb,
-  saveEnterpriseState,
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   type SenaEnterpriseDb
 } from "./state";
 import { appendAudit } from "./ops-audit";
@@ -100,25 +98,17 @@ function loginEnterpriseUserInDb(
 }
 
 export function loginEnterpriseUser(input: SenaEnterpriseLoginInput): SenaEnterpriseLoginResult {
-  const db = readEnterpriseDb();
-  try {
-    const result = loginEnterpriseUserInDb(db, input);
-    saveDb(db);
-    return result;
-  } catch (error) {
-    saveDb(db);
-    throw error;
-  }
+  const outcome = mutateEnterpriseDbAtomically((db) => {
+    try {
+      return { ok: true as const, result: loginEnterpriseUserInDb(db, input) };
+    } catch (error) {
+      return { ok: false as const, error };
+    }
+  });
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
 }
 
 export async function loginEnterpriseUserAsync(input: SenaEnterpriseLoginInput): Promise<SenaEnterpriseLoginResult> {
-  const state = await readEnterpriseState();
-  try {
-    const result = loginEnterpriseUserInDb(state.db, input);
-    await saveEnterpriseState(state, state.db);
-    return result;
-  } catch (error) {
-    await saveEnterpriseState(state, state.db);
-    throw error;
-  }
+  return mutateEnterpriseStateAtomically((db) => loginEnterpriseUserInDb(db, input));
 }

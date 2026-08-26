@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "../analysis-run";
+import { SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE } from "../analysis-queue-command";
 import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } from "../import-adapters";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
@@ -17,7 +18,11 @@ import {
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
-import type { SenaEnterpriseProject } from "./team-project";
+import {
+  enterpriseProjectBindingSnapshotSha256,
+  type SenaEnterpriseProject
+} from "./team-project";
+import { senaEnterpriseUploadMaxBytes } from "./upload-limits";
 import {
   localWebhookSinkAttempt,
   objectStorageWebhookEndpointHash,
@@ -232,6 +237,8 @@ export type SenaEnterpriseAnalysisRun = {
   artifactFingerprints: {
     reportSha256: string;
     projectSnapshotSha256: string;
+    /** Canonical binding hash; legacy rows may only carry the serialization-order-sensitive artifact hash. */
+    projectSnapshotBindingSha256?: string;
     runtimeBundleSha256?: string;
   };
   createdAt: string;
@@ -240,7 +247,6 @@ export type SenaEnterpriseAnalysisRun = {
 const dbDir = process.env.SENA_ENTERPRISE_DB_DIR || ".sena-enterprise";
 const dbPath = path.join(dbDir, "enterprise-db.json");
 const uploadScanEngine = "sena-local-upload-scan/v1" as const;
-const maxUploadBytes = Number(process.env.SENA_UPLOAD_MAX_BYTES || 25 * 1024 * 1024);
 const allowedUploadExtensions = new Set([".csv", ".json", ".xlsx", ".txt", ".md", ".srt", ".vtt"]);
 
 function now() {
@@ -269,7 +275,7 @@ function scanEnterpriseUploadFile(file: { name: string; contentType?: string; by
   if (bytes.byteLength === 0) {
     throw new SenaEnterpriseError("Empty upload files are not accepted.", 400, "upload_empty");
   }
-  if (bytes.byteLength > maxUploadBytes) {
+  if (bytes.byteLength > senaEnterpriseUploadMaxBytes()) {
     throw new SenaEnterpriseError("Upload exceeds the configured SENA_UPLOAD_MAX_BYTES limit.", 413, "upload_too_large");
   }
   if (!allowedUploadExtensions.has(extension)) {
@@ -483,6 +489,32 @@ export type SenaEnterpriseUploadContent = {
 };
 
 /**
+ * Resolves only tenant-scoped upload registry metadata. Reliability admission
+ * uses this read-only boundary to reject pointer fan-out and registered byte
+ * totals before any encrypted blob is opened or decrypted.
+ */
+export async function readEnterpriseUploadMetadataAsync(
+  context: SenaEnterpriseSessionContext,
+  input: { teamId: string; uploadIds: string[] }
+): Promise<SenaEnterpriseUpload[]> {
+  requireEnterprisePermission(context, input.teamId, "upload:read");
+  if (input.uploadIds.length === 0) {
+    throw new SenaEnterpriseError("No upload ids were supplied to read.", 400, "upload_ids_required");
+  }
+  const state = await readEnterpriseState();
+  const uploadsById = new Map(state.db.uploads
+    .filter((upload) => upload.teamId === input.teamId)
+    .map((upload) => [upload.id, upload] as const));
+  return input.uploadIds.map((uploadId) => {
+    const upload = uploadsById.get(uploadId);
+    if (!upload) {
+      throw new SenaEnterpriseError("Upload was not found for this team.", 404, "upload_not_found");
+    }
+    return upload;
+  });
+}
+
+/**
  * Resolves registered uploads by id and hands back their decrypted bytes.
  *
  * This is the only way out of this module for upload content, and it exists so
@@ -538,7 +570,7 @@ export async function readEnterpriseUploadContentsAsync(
   });
 }
 
-type CreateEnterpriseUploadsInput = {
+export type CreateEnterpriseUploadsInput = {
   teamId: string;
   files: Array<{
     name: string;
@@ -546,15 +578,28 @@ type CreateEnterpriseUploadsInput = {
     bytes: Buffer;
     importProfile?: string;
     warningCount?: number;
+    reservedId?: string;
   }>;
 };
+
+export function reserveEnterpriseUploadIds(count: number) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 1_024) {
+    throw new SenaEnterpriseError(
+      "SENA upload reservation count is invalid.",
+      400,
+      "upload_reservation_count_invalid"
+    );
+  }
+  return Array.from({ length: count }, () => id("upload"));
+}
 
 function createEnterpriseUploadsInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseUploadsInput,
-  db: ReturnType<typeof readEnterpriseDb>
+  db: ReturnType<typeof readEnterpriseDb>,
+  requiredPermission: "upload:create" | "analysis:run" = "upload:create"
 ) {
-  requireEnterprisePermission(context, input.teamId, "upload:create");
+  requireEnterprisePermission(context, input.teamId, requiredPermission);
   if (input.files.length === 0) return {
     uploads: [] as SenaEnterpriseUpload[],
     auditDetails: [] as Array<Record<string, string | number | boolean | null>>
@@ -565,8 +610,20 @@ function createEnterpriseUploadsInDb(
   mkdirSync(uploadDir, { recursive: true });
   const timestamp = now();
   const auditDetails: Array<Record<string, string | number | boolean | null>> = [];
+  const reservedIds = input.files
+    .map((file) => file.reservedId)
+    .filter((uploadId): uploadId is string => uploadId !== undefined);
+  if (reservedIds.some((uploadId) => !/^upload_[a-f0-9]{24}$/.test(uploadId)) ||
+    new Set(reservedIds).size !== reservedIds.length ||
+    reservedIds.some((uploadId) => db.uploads.some((upload) => upload.id === uploadId))) {
+    throw new SenaEnterpriseError(
+      "SENA upload reservation is invalid or already used.",
+      409,
+      "upload_reservation_invalid"
+    );
+  }
   const uploads = input.files.map((file) => {
-    const uploadId = id("upload");
+    const uploadId = file.reservedId ?? id("upload");
     const scan = scanEnterpriseUploadFile(file);
     const originalName = scan.originalName;
     const storedName = `${uploadId}-${originalName}`;
@@ -655,6 +712,31 @@ export async function createEnterpriseUploadsWithPostgresMirrorAsync(
   return uploads;
 }
 
+export async function createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  if (input.files.length !== 1 ||
+    input.files[0]?.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE) {
+    throw new SenaEnterpriseError(
+      "Queued analysis command custody requires one canonical encrypted envelope.",
+      400,
+      "analysis_queue_command_envelope_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    "analysis:run"
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
+}
+
 export type SenaEnterpriseUploadWarningReport = {
   uploadId: string;
   warningCount: number;
@@ -728,7 +810,7 @@ export async function verifyEnterpriseUploadStorageAsync(
   return verifyEnterpriseUploadStorageFromDb(state.db, context, input);
 }
 
-function verifyEnterpriseUploadStorageFromDb(
+export function verifyEnterpriseUploadStorageFromDb(
   db: ReturnType<typeof readEnterpriseDb>,
   context?: SenaEnterpriseSessionContext,
   input: { teamId?: string } = {}
@@ -1029,16 +1111,27 @@ function summarizeUploadObjectStorageCustodyFromUploads(
   };
 }
 
-export function summarizeEnterpriseUploadObjectStorageCustody(input: { teamId?: string } = {}): SenaEnterpriseUploadObjectStorageCustodySummary {
-  const db = readEnterpriseDb();
+export function summarizeEnterpriseUploadObjectStorageCustodyFromDb(
+  db: ReturnType<typeof readEnterpriseDb>,
+  input: {
+    teamId?: string;
+    source?: SenaEnterpriseUploadObjectStorageCustodySummary["source"];
+  } = {}
+): SenaEnterpriseUploadObjectStorageCustodySummary {
   const uploads = db.uploads.filter((upload) => !input.teamId || upload.teamId === input.teamId);
+  const source = input.source ?? "file-json";
   return summarizeUploadObjectStorageCustodyFromUploads(uploads, {
-    source: "file-json",
+    source,
     evidence: [
       "uploadCustodyRead=pass",
-      "uploadCustodyStore=file-json"
+      `uploadCustodyStore=${source}`
     ]
   });
+}
+
+export function summarizeEnterpriseUploadObjectStorageCustody(input: { teamId?: string } = {}): SenaEnterpriseUploadObjectStorageCustodySummary {
+  const db = readEnterpriseDb();
+  return summarizeEnterpriseUploadObjectStorageCustodyFromDb(db, input);
 }
 
 export async function summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence(
@@ -1551,6 +1644,27 @@ type CreateEnterpriseAnalysisRunInput = {
   run: SenaAnalysisRunArtifact;
 };
 
+const SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT = 1000;
+
+function retainRecentAndValidationReferencedAnalysisRuns(
+  db: Pick<ReturnType<typeof readEnterpriseDb>, "analysisRuns" | "validationRuns">
+) {
+  const referencedAnalysisRunIds = new Set(db.validationRuns.flatMap((validationRun) => {
+    const walkthrough = validationRun.parityEvidence?.walkthrough;
+    return walkthrough?.source === "analysis-run" && typeof walkthrough.sourceId === "string"
+      ? [walkthrough.sourceId]
+      : [];
+  }));
+  const recent = db.analysisRuns.slice(0, SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT);
+  const retainedIds = new Set(recent.map((run) => run.id));
+  const referenced = db.analysisRuns.filter((run) => (
+    referencedAnalysisRunIds.has(run.id) && !retainedIds.has(run.id)
+  ));
+  // validationRuns is independently capped at 1000, so reference-aware
+  // retention remains bounded at 2000 while keeping every live exact source.
+  return [...recent, ...referenced];
+}
+
 function createEnterpriseAnalysisRunInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseAnalysisRunInput,
@@ -1583,12 +1697,13 @@ function createEnterpriseAnalysisRunInDb(
     artifactFingerprints: {
       reportSha256: artifactSha256(input.run.report),
       projectSnapshotSha256: artifactSha256(input.run.projectSnapshot),
+      projectSnapshotBindingSha256: enterpriseProjectBindingSnapshotSha256(input.run.projectSnapshot),
       runtimeBundleSha256: input.run.runtimeBundle ? artifactSha256(input.run.runtimeBundle) : undefined
     },
     createdAt: input.run.generatedAt
   };
   db.analysisRuns.unshift(run);
-  db.analysisRuns = db.analysisRuns.slice(0, 1000);
+  db.analysisRuns = retainRecentAndValidationReferencedAnalysisRuns(db);
   appendAudit(db, {
     event: "analysis.run",
     userId: context.user.id,

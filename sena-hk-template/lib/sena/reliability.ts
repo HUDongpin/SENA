@@ -1,6 +1,19 @@
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { parseSenaCsv, type SenaImportRow } from "./import";
-import type { SenaCodingReliabilityReview } from "./types";
+import { compareSenaCanonicalText } from "./canonical-order.mjs";
+import type {
+  SenaCodingReliabilityMachineEvidence,
+  SenaCodingReliabilityReview,
+  SenaProjectSnapshot,
+  SenaReliabilityAdjudicationCoverageEvidence,
+  SenaReliabilityClaimEligibility,
+  SenaReliabilityClaimEligibilityInputs,
+  SenaReliabilityEstimationStatus,
+  SenaReliabilityPairEstimate,
+  SenaReliabilityProjectBinding
+} from "./types";
+
+export type { SenaReliabilityClaimEligibility, SenaReliabilityEstimationStatus } from "./types";
 
 export type SenaCoderAnnotation = {
   coderId: string;
@@ -9,14 +22,7 @@ export type SenaCoderAnnotation = {
   value: boolean;
 };
 
-export type SenaPairwiseKappa = {
-  coderA: string;
-  coderB: string;
-  units: number;
-  observedAgreement: number;
-  expectedAgreement: number;
-  kappa: number;
-};
+export type SenaPairwiseKappa = SenaReliabilityPairEstimate;
 
 export type SenaReliabilityDisagreement = {
   itemId: string;
@@ -34,14 +40,67 @@ export type SenaCodeReliabilityDiagnostic = {
   pairwiseCohenKappa: SenaPairwiseKappa[];
 };
 
+export type SenaReliabilityDerivationEvidence = {
+  hashAlgorithm: "sena-stable-fnv1a32/v1";
+  annotationCoverageHash: string;
+  skippedCellCoverageHash: string;
+  annotations: SenaCoderAnnotation[];
+  skippedCells: SenaSkippedCoderCell[];
+};
+
 export type SenaReliabilityDashboard = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  sourceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.codingReliabilityDashboard | typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  status: SenaReliabilityEstimationStatus;
   coderCount: number;
+  coderIds: string[];
   itemCount: number;
   codeCount: number;
   binaryUnitCount: number;
   pairwiseCohenKappa: SenaPairwiseKappa[];
   codeDiagnostics: SenaCodeReliabilityDiagnostic[];
+  meanPairwiseKappaStatus: SenaReliabilityEstimationStatus;
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
+  krippendorffAlphaNominal: number | null;
+  claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs;
+  claimEligibility: SenaReliabilityClaimEligibility;
+  disagreementCount: number;
+  adjudicationQueue: SenaReliabilityDisagreement[];
+  derivationEvidence?: SenaReliabilityDerivationEvidence;
+  interpretation: string;
+  warnings: string[];
+  projectBinding?: SenaReliabilityProjectBinding;
+};
+
+export type SenaPairwiseKappaV1 = {
+  coderA: string;
+  coderB: string;
+  units: number;
+  observedAgreement: number;
+  expectedAgreement: number;
+  kappa: number;
+};
+
+export type SenaCodeReliabilityDiagnosticV1 = {
+  codeId: string;
+  unitCount: number;
+  positiveAssignments: number;
+  disagreementCount: number;
+  agreementRate: number;
+  coderPositiveRates: Record<string, number>;
+  pairwiseCohenKappa: SenaPairwiseKappaV1[];
+};
+
+export type SenaReliabilityDashboardV1 = {
+  schemaVersion: typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  coderCount: number;
+  itemCount: number;
+  codeCount: number;
+  binaryUnitCount: number;
+  pairwiseCohenKappa: SenaPairwiseKappaV1[];
+  codeDiagnostics: SenaCodeReliabilityDiagnosticV1[];
   meanPairwiseKappa: number;
   krippendorffAlphaNominal: number;
   disagreementCount: number;
@@ -49,6 +108,866 @@ export type SenaReliabilityDashboard = {
   interpretation: string;
   warnings: string[];
 };
+
+export type SenaReliabilityDashboardReadModel = SenaReliabilityDashboard | SenaReliabilityDashboardV1;
+
+export type SenaReliabilityProjectBindingIssue = {
+  path: string;
+  code: "unknown-item" | "unknown-code" | "duplicate-cell" | "invalid-project-context" | "binding-mismatch" | "derived-metrics-mismatch";
+};
+
+/**
+ * Reliability is defined over the complete item-by-code universe, including
+ * observed false cells. These caps bound that declared semantics before any
+ * cartesian-product or value-row allocation can occur.
+ */
+export const SENA_RELIABILITY_UNIVERSE_LIMITS = Object.freeze({
+  rawRows: 200_000,
+  sources: 100,
+  sourceBytes: 25 * 1024 * 1024,
+  aggregateSourceBytes: 100 * 1024 * 1024,
+  // Transport envelopes include JSON property names or multipart boundaries
+  // in addition to the admitted 100 MiB aggregate source universe.
+  requestBytes: 128 * 1024 * 1024,
+  // 128 MiB / 16 KiB. This independently bounds reader iterations and the
+  // maximum number of retained/replayed body-chunk objects; zero-byte chunks
+  // consume the budget even though they are not retained for replay.
+  requestChunks: 8_192,
+  xlsxArchiveEntries: 2_048,
+  xlsxWorksheets: 100,
+  xlsxRowIndex: 1_048_576,
+  annotationRows: 200_000,
+  binaryUnits: 50_000,
+  assignmentCells: 200_000,
+  // One global pair result is retained per unordered coder pair. This also
+  // bounds the outer pair loops before any pair-result array is allocated.
+  coderPairs: 2_000,
+  // Covers every pair/coder fan-out verified in the core statistics below:
+  // global and per-code Cohen projections/scans, per-code agreement pairs,
+  // and Krippendorff rating collection plus every m-by-m loop check. Linear
+  // input/result preparation is independently bounded by the surrounding raw
+  // row, annotation, assignment-cell, binary-unit, and result-entry caps.
+  algorithmWorkEvaluations: 10_000_000,
+  // Each pair is retained once globally and once for every code diagnostic.
+  pairwiseResultEntries: 100_000,
+  // Sum of all top-level/nested project-binding carrier members admitted
+  // before any semantic traversal, sorting, Set construction, or hashing.
+  projectBindingCarrierMembers: 1_000_000
+});
+
+// Existing import adapters admit a single source up to 25 MiB. Reader
+// admission must not reject an artifact that the same runtime can create;
+// aggregate output text is still independently bounded below.
+const SENA_RELIABILITY_CARRIER_MAX_STRING_BYTES =
+  SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes;
+const SENA_RELIABILITY_CARRIER_MAX_TEXT_BYTES = 100 * 1024 * 1024;
+// Two parser warnings per admitted raw row, five dashboard warnings, and the
+// compatibility warning added while normalizing a legacy carrier.
+const SENA_RELIABILITY_CARRIER_MAX_LEGACY_WARNINGS =
+  (2 * SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows) + 5;
+const SENA_RELIABILITY_CARRIER_MAX_CURRENT_WARNINGS =
+  SENA_RELIABILITY_CARRIER_MAX_LEGACY_WARNINGS + 1;
+const SENA_RELIABILITY_CARRIER_MAX_BLOCKERS = 7;
+
+export type SenaReliabilityUniverseLimitIssue = {
+  path: "annotations" | "skippedCells" | "files" | "uploadIds";
+  rule: string;
+  actual: number | "safe-integer-overflow";
+  maximum: number;
+};
+
+export class SenaReliabilityUniverseLimitError extends Error {
+  readonly name = "SenaReliabilityUniverseLimitError";
+  readonly status = 400;
+  readonly code = "reliability_universe_limit_exceeded";
+  readonly issues: SenaReliabilityUniverseLimitIssue[];
+
+  constructor(issues: SenaReliabilityUniverseLimitIssue[]) {
+    super("SENA coding-reliability input exceeds the supported analysis universe.");
+    this.issues = [];
+    for (const issue of issues) this.issues.push({ ...issue });
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      status: this.status,
+      code: this.code,
+      issues: this.issues
+    };
+  }
+}
+
+export type SenaReliabilitySourceInputIssue = {
+  path: "sources" | "annotations" | "files" | "uploadIds";
+  rule: "exactly-one-source-mode" | "file-array-required" | "file-value-required" |
+    "non-empty-string-upload-id" | "valid-json-required" | "valid-multipart-required";
+};
+
+export class SenaReliabilitySourceInputError extends Error {
+  readonly name = "SenaReliabilitySourceInputError";
+  readonly status = 400;
+  readonly code = "invalid_sena_reliability_sources";
+  readonly issues: SenaReliabilitySourceInputIssue[];
+
+  constructor(issues: SenaReliabilitySourceInputIssue[]) {
+    super("SENA coding-reliability request sources are invalid.");
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+}
+
+export function assertSenaReliabilitySingleSourceMode(input: {
+  json: boolean;
+  uploadPointers: boolean;
+}) {
+  if (input.json && input.uploadPointers) {
+    throw new SenaReliabilitySourceInputError([{
+      path: "sources",
+      rule: "exactly-one-source-mode"
+    }]);
+  }
+}
+
+export function normalizeSenaReliabilityUploadIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new SenaReliabilitySourceInputError([{
+      path: "uploadIds",
+      rule: "non-empty-string-upload-id"
+    }]);
+  }
+  assertSenaReliabilitySourceCountWithinLimits(value.length, "uploadIds");
+  const normalized: string[] = [];
+  for (const uploadId of value) {
+    if (typeof uploadId !== "string" || uploadId.trim() === "") {
+      throw new SenaReliabilitySourceInputError([{
+        path: "uploadIds",
+        rule: "non-empty-string-upload-id"
+      }]);
+    }
+    normalized.push(uploadId.trim());
+  }
+  return normalized;
+}
+
+export type SenaReliabilityAnnotationValidationIssue = {
+  path: string;
+  code: "duplicate-cell" | "conflicting-cell";
+};
+
+export class SenaReliabilityAnnotationValidationError extends Error {
+  readonly name = "SenaReliabilityAnnotationValidationError";
+  readonly status = 400;
+  readonly code = "invalid_sena_reliability_annotations";
+  readonly issues: SenaReliabilityAnnotationValidationIssue[];
+
+  constructor(issues: SenaReliabilityAnnotationValidationIssue[]) {
+    super("SENA coding-reliability annotations contain duplicate coder-item-code cells.");
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      status: this.status,
+      code: this.code,
+      issues: this.issues.map((issue) => ({ ...issue }))
+    };
+  }
+}
+
+function safeCardinalityProduct(left: number, right: number) {
+  if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0) return null;
+  if (left !== 0 && right > Math.floor(Number.MAX_SAFE_INTEGER / left)) return null;
+  return left * right;
+}
+
+function safeCardinalitySum(values: readonly number[]) {
+  let total = 0;
+  for (const value of values) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER - total) return null;
+    total += value;
+  }
+  return total;
+}
+
+function safeUnorderedPairCount(count: number) {
+  if (!Number.isSafeInteger(count) || count < 0) return null;
+  if (count < 2) return 0;
+  const left = count % 2 === 0 ? count / 2 : count;
+  const right = count % 2 === 0 ? count - 1 : (count - 1) / 2;
+  return safeCardinalityProduct(left, right);
+}
+
+export function assertSenaReliabilityReaderCoderPairBudget(coderCount: number) {
+  const coderPairs = safeUnorderedPairCount(coderCount);
+  if (coderPairs === null || coderPairs > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "annotations",
+      rule: `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      actual: coderPairs ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    }]);
+  }
+  return coderPairs;
+}
+
+export function assertSenaReliabilityRawRowsWithinLimits(
+  rawRowCount: number,
+  path: SenaReliabilityUniverseLimitIssue["path"] = "annotations"
+) {
+  if (!Number.isSafeInteger(rawRowCount) || rawRowCount < 0 || rawRowCount > SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `raw-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows}`,
+      actual: Number.isSafeInteger(rawRowCount) && rawRowCount >= 0 ? rawRowCount : "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows
+    }]);
+  }
+  return rawRowCount;
+}
+
+export function assertSenaReliabilityCombinedRawRowsWithinLimits(
+  rowGroups: readonly { readonly length: number }[],
+  path: SenaReliabilityUniverseLimitIssue["path"] = "annotations"
+) {
+  let total = 0;
+  for (const rows of rowGroups) {
+    const next = safeCardinalitySum([total, rows.length]);
+    if (next === null) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `raw-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows}`,
+        actual: "safe-integer-overflow",
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows
+      }]);
+    }
+    total = next;
+    if (total > SENA_RELIABILITY_UNIVERSE_LIMITS.rawRows) {
+      return assertSenaReliabilityRawRowsWithinLimits(total, path);
+    }
+  }
+  return assertSenaReliabilityRawRowsWithinLimits(total, path);
+}
+
+export function assertSenaReliabilitySourceCountWithinLimits(
+  sourceCount: number,
+  path: SenaReliabilityUniverseLimitIssue["path"]
+) {
+  if (!Number.isSafeInteger(sourceCount) || sourceCount < 0 || sourceCount > SENA_RELIABILITY_UNIVERSE_LIMITS.sources) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `source-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sources}`,
+      actual: Number.isSafeInteger(sourceCount) && sourceCount >= 0 ? sourceCount : "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sources
+    }]);
+  }
+  return sourceCount;
+}
+
+export function assertSenaReliabilitySourceBytesWithinLimits(
+  sourceSizes: readonly number[],
+  path: SenaReliabilityUniverseLimitIssue["path"],
+  limits: {
+    sourceBytes?: number;
+    aggregateSourceBytes?: number;
+  } = {}
+) {
+  const sourceBytes = limits.sourceBytes ?? SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes;
+  const aggregateSourceBytes = limits.aggregateSourceBytes ?? SENA_RELIABILITY_UNIVERSE_LIMITS.aggregateSourceBytes;
+  if (!Number.isSafeInteger(sourceBytes) || sourceBytes < 0 ||
+    !Number.isSafeInteger(aggregateSourceBytes) || aggregateSourceBytes < 0) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `source-byte-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes}`,
+      actual: "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.sourceBytes
+    }]);
+  }
+  assertSenaReliabilitySourceCountWithinLimits(sourceSizes.length, path);
+  let aggregateBytes = 0;
+  for (const size of sourceSizes) {
+    if (!Number.isSafeInteger(size) || size < 0 || size > sourceBytes) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `source-byte-count-at-most-${sourceBytes}`,
+        actual: Number.isSafeInteger(size) && size >= 0 ? size : "safe-integer-overflow",
+        maximum: sourceBytes
+      }]);
+    }
+    const next = safeCardinalitySum([aggregateBytes, size]);
+    if (next === null) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path,
+        rule: `aggregate-source-byte-count-at-most-${aggregateSourceBytes}`,
+        actual: "safe-integer-overflow",
+        maximum: aggregateSourceBytes
+      }]);
+    }
+    aggregateBytes = next;
+  }
+  if (aggregateBytes > aggregateSourceBytes) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `aggregate-source-byte-count-at-most-${aggregateSourceBytes}`,
+      actual: aggregateBytes,
+      maximum: aggregateSourceBytes
+    }]);
+  }
+  return aggregateBytes;
+}
+
+export function assertSenaReliabilityDeclaredRequestBytesWithinLimits(
+  byteCount: number,
+  path: "annotations" | "files",
+  maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.requestBytes
+) {
+  if (!Number.isSafeInteger(maximum) || maximum < 0 ||
+    !Number.isSafeInteger(byteCount) || byteCount < 0 || byteCount > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `request-byte-count-at-most-${maximum}`,
+      actual: Number.isSafeInteger(byteCount) && byteCount >= 0 ? byteCount : "safe-integer-overflow",
+      maximum
+    }]);
+  }
+}
+
+export function assertSenaReliabilityRequestChunksWithinLimits(
+  chunkCount: number,
+  path: "annotations" | "files",
+  maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.requestChunks
+) {
+  if (!Number.isSafeInteger(maximum) || maximum < 0 ||
+    !Number.isSafeInteger(chunkCount) || chunkCount < 0 || chunkCount > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path,
+      rule: `request-chunk-count-at-most-${maximum}`,
+      actual: Number.isSafeInteger(chunkCount) && chunkCount >= 0 ? chunkCount : "safe-integer-overflow",
+      maximum
+    }]);
+  }
+}
+
+export type SenaReliabilityAlgorithmWorkComponents = {
+  globalCohenVectorProjections: number;
+  globalCohenScans: number;
+  perCodeCohenVectorProjections: number;
+  perCodeCohenScans: number;
+  perCodeAgreementPairEvaluations: number;
+  krippendorffRatingCollectionPasses: number;
+  krippendorffOrderedPairUpdates: number;
+  krippendorffDiagonalPairChecks: number;
+};
+
+function senaReliabilityAlgorithmWork(input: {
+  binaryUnits: number | null;
+  assignmentCells: number | null;
+  coderPairs: number | null;
+  coderCount: number;
+}): { components: SenaReliabilityAlgorithmWorkComponents; total: number } | null {
+  if (input.binaryUnits === null || input.assignmentCells === null || input.coderPairs === null) return null;
+  const pairwiseUnits = safeCardinalityProduct(input.coderPairs, input.binaryUnits);
+  const orderedCoderPairs = Number.isSafeInteger(input.coderCount) && input.coderCount >= 0
+    ? safeCardinalityProduct(input.coderCount, Math.max(0, input.coderCount - 1))
+    : null;
+  if (pairwiseUnits === null || orderedCoderPairs === null) return null;
+  const globalCohenVectorProjections = safeCardinalityProduct(pairwiseUnits, 2);
+  const perCodeCohenVectorProjections = safeCardinalityProduct(pairwiseUnits, 2);
+  // krippendorffAlphaNominal performs map/filter/map over every coder value in
+  // every binary unit before its m-by-m coincidence loop.
+  const krippendorffRatingCollectionPasses = safeCardinalityProduct(input.assignmentCells, 3);
+  const krippendorffOrderedPairUpdates = safeCardinalityProduct(orderedCoderPairs, input.binaryUnits);
+  const krippendorffDiagonalPairChecks = safeCardinalityProduct(input.coderCount, input.binaryUnits);
+  if (globalCohenVectorProjections === null || perCodeCohenVectorProjections === null ||
+    krippendorffRatingCollectionPasses === null || krippendorffOrderedPairUpdates === null ||
+    krippendorffDiagonalPairChecks === null) return null;
+  const components: SenaReliabilityAlgorithmWorkComponents = {
+    globalCohenVectorProjections,
+    globalCohenScans: pairwiseUnits,
+    perCodeCohenVectorProjections,
+    perCodeCohenScans: pairwiseUnits,
+    perCodeAgreementPairEvaluations: pairwiseUnits,
+    krippendorffRatingCollectionPasses,
+    krippendorffOrderedPairUpdates,
+    krippendorffDiagonalPairChecks
+  };
+  const total = safeCardinalitySum(Object.values(components));
+  return total === null ? null : { components, total };
+}
+
+export function assertSenaReliabilityUniverseWithinLimits(input: {
+  itemCount: number;
+  codeCount: number;
+  coderCount: number;
+}) {
+  const binaryUnits = safeCardinalityProduct(input.itemCount, input.codeCount);
+  const assignmentCells = binaryUnits === null
+    ? null
+    : safeCardinalityProduct(binaryUnits, input.coderCount);
+  const coderPairs = safeUnorderedPairCount(input.coderCount);
+  const algorithmWork = senaReliabilityAlgorithmWork({
+    binaryUnits,
+    assignmentCells,
+    coderPairs,
+    coderCount: input.coderCount
+  });
+  const codeLayers = Number.isSafeInteger(input.codeCount) && input.codeCount >= 0 && input.codeCount < Number.MAX_SAFE_INTEGER
+    ? input.codeCount + 1
+    : null;
+  const pairwiseResultEntries = coderPairs === null || codeLayers === null
+    ? null
+    : safeCardinalityProduct(coderPairs, codeLayers);
+  const issues: SenaReliabilityUniverseLimitIssue[] = [];
+  if (binaryUnits === null || binaryUnits > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) {
+    issues.push({
+      path: "annotations",
+      rule: `binary-unit-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits}`,
+      actual: binaryUnits ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits
+    });
+  } else if (
+    assignmentCells === null
+    || assignmentCells > SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
+  ) {
+    issues.push({
+      path: "annotations",
+      rule: `assignment-cell-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells}`,
+      actual: assignmentCells ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
+    });
+  }
+  if (issues.length === 0 && (coderPairs === null || coderPairs > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs)) {
+    issues.push({
+      path: "annotations",
+      rule: `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      actual: coderPairs ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    });
+  }
+  // Surface arithmetic overflow even when a stricter cardinality issue already
+  // exists. Otherwise an implementation change could make this work estimate
+  // unsafe while tests only observe the earlier cap.
+  if (algorithmWork === null || (
+    issues.length === 0 && algorithmWork.total > SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations
+  )) {
+    issues.push({
+      path: "annotations",
+      rule: `algorithm-work-evaluation-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations}`,
+      actual: algorithmWork?.total ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.algorithmWorkEvaluations
+    });
+  }
+  if (issues.length === 0 && (
+    pairwiseResultEntries === null
+    || pairwiseResultEntries > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries
+  )) {
+    issues.push({
+      path: "annotations",
+      rule: `pairwise-result-entry-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries}`,
+      actual: pairwiseResultEntries ?? "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries
+    });
+  }
+  if (issues.length > 0) throw new SenaReliabilityUniverseLimitError(issues);
+  return {
+    binaryUnits,
+    assignmentCells,
+    coderPairs,
+    algorithmWorkEvaluations: algorithmWork?.total ?? null,
+    algorithmWorkComponents: algorithmWork?.components ?? null,
+    pairwiseResultEntries
+  };
+}
+
+export function preflightSenaReliabilityAnnotations(annotations: readonly SenaCoderAnnotation[]) {
+  if (annotations.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "annotations",
+      rule: `annotation-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows}`,
+      actual: annotations.length,
+      maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows
+    }]);
+  }
+  const coderIds = new Set<string>();
+  const itemIds = new Set<string>();
+  const codeIds = new Set<string>();
+  for (const annotation of annotations) {
+    const { coderId, itemId, codeId } = annotation;
+    coderIds.add(coderId);
+    itemIds.add(itemId);
+    codeIds.add(codeId);
+  }
+  const cardinality = assertSenaReliabilityUniverseWithinLimits({
+    itemCount: itemIds.size,
+    codeCount: codeIds.size,
+    coderCount: coderIds.size
+  });
+  const cells = new Map<string, boolean>();
+  for (const [index, annotation] of annotations.entries()) {
+    const { coderId, itemId, codeId, value } = annotation;
+    const cell = canonicalTupleKey([coderId, itemId, codeId]);
+    const previousValue = cells.get(cell);
+    if (previousValue !== undefined) {
+      throw new SenaReliabilityAnnotationValidationError([{
+        path: `annotations.${index}`,
+        code: previousValue === value ? "duplicate-cell" : "conflicting-cell"
+      }]);
+    }
+    cells.set(cell, value);
+  }
+  return {
+    coders: Array.from(coderIds).sort(compareSenaCanonicalText),
+    items: Array.from(itemIds).sort(compareSenaCanonicalText),
+    codes: Array.from(codeIds).sort(compareSenaCanonicalText),
+    ...cardinality
+  };
+}
+
+export class SenaReliabilityProjectBindingError extends Error {
+  readonly issues: SenaReliabilityProjectBindingIssue[];
+
+  constructor(issues: SenaReliabilityProjectBindingIssue[]) {
+    super("SENA reliability annotations do not match the current project snapshot.");
+    this.name = "SenaReliabilityProjectBindingError";
+    this.issues = issues.map((issue) => ({ ...issue }));
+  }
+
+  toJSON() {
+    return { name: this.name, message: this.message, issues: this.issues };
+  }
+}
+
+function stableBindingValue(value: unknown): string {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return `{"$senaNonFinite":${JSON.stringify(Number.isNaN(value) ? "NaN" : value > 0 ? "Infinity" : "-Infinity")}}`;
+  }
+  if (Array.isArray(value)) return `[${value.map(stableBindingValue).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => compareSenaCanonicalText(left, right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableBindingValue(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function canonicalTupleKey(parts: readonly string[]) {
+  return parts.map((part) => `${part.length}:${part}`).join("");
+}
+
+function reliabilityBindingHash(value: unknown) {
+  const text = stableBindingValue(value);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `0x${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function senaReliabilityProjectBindingsEqual(left: unknown, right: unknown) {
+  return stableBindingValue(left) === stableBindingValue(right);
+}
+
+function sortedUnique(values: string[]) {
+  return Array.from(new Set(values)).sort(compareSenaCanonicalText);
+}
+
+function canonicalAnnotationCoverage(annotations: SenaCoderAnnotation[]) {
+  return annotations.map((annotation) => ({ ...annotation })).sort((left, right) => (
+    compareSenaCanonicalText(left.coderId, right.coderId) ||
+    compareSenaCanonicalText(left.itemId, right.itemId) ||
+    compareSenaCanonicalText(left.codeId, right.codeId) ||
+    Number(left.value) - Number(right.value)
+  ));
+}
+
+function canonicalSkippedCellCoverage(skippedCells: SenaSkippedCoderCell[]) {
+  assertSenaReliabilitySkippedCellsWithinLimits(skippedCells);
+  const byCoder = new Map<string, Map<string, Set<string>>>();
+  for (const cell of skippedCells) {
+    let byItem = byCoder.get(cell.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      byCoder.set(cell.coderId, byItem);
+    }
+    let codeIds = byItem.get(cell.itemId);
+    if (!codeIds) {
+      codeIds = new Set();
+      byItem.set(cell.itemId, codeIds);
+    }
+    for (const codeId of cell.codeIds) codeIds.add(codeId);
+  }
+  const coverage: SenaSkippedCoderCell[] = [];
+  for (const [coderId, byItem] of byCoder) {
+    for (const [itemId, codeIds] of byItem) {
+      coverage.push({ coderId, itemId, codeIds: sortedUnique(Array.from(codeIds)) });
+    }
+  }
+  return coverage.sort((left, right) => (
+    compareSenaCanonicalText(left.coderId, right.coderId) ||
+    compareSenaCanonicalText(left.itemId, right.itemId)
+  ));
+}
+
+function buildReliabilityDerivationEvidence(
+  annotations: SenaCoderAnnotation[],
+  skippedCells: SenaSkippedCoderCell[]
+): SenaReliabilityDerivationEvidence {
+  const canonicalAnnotations = canonicalAnnotationCoverage(annotations);
+  const canonicalSkippedCells = canonicalSkippedCellCoverage(skippedCells);
+  return {
+    hashAlgorithm: "sena-stable-fnv1a32/v1",
+    annotationCoverageHash: reliabilityBindingHash(canonicalAnnotations),
+    skippedCellCoverageHash: reliabilityBindingHash(canonicalSkippedCells),
+    annotations: canonicalAnnotations,
+    skippedCells: canonicalSkippedCells
+  };
+}
+
+export function senaReliabilityAuthoritativeDataset(snapshot: SenaProjectSnapshot) {
+  return snapshot.source.sourceDataset ?? snapshot.dataset;
+}
+
+export function senaReliabilitySnapshotFingerprint(snapshot: SenaProjectSnapshot) {
+  return reliabilityBindingHash({
+    schemaVersion: snapshot.schemaVersion,
+    dataset: senaReliabilityAuthoritativeDataset(snapshot),
+    activeTemporalWindow: snapshot.source.activeTemporalWindow,
+    buildOptions: snapshot.reproducibility.buildOptions
+  });
+}
+
+export function bindSenaReliabilityAnnotationsToProject(
+  annotations: SenaCoderAnnotation[],
+  project: {
+    projectId: string;
+    projectVersion: number;
+    snapshot: SenaProjectSnapshot;
+    skippedCells?: SenaSkippedCoderCell[];
+  }
+): { annotations: SenaCoderAnnotation[]; binding: SenaReliabilityProjectBinding } {
+  assertSenaReliabilitySkippedCellsWithinLimits(project.skippedCells ?? []);
+  const issues: SenaReliabilityProjectBindingIssue[] = [];
+  if (!project.projectId.trim() || !Number.isInteger(project.projectVersion) || project.projectVersion < 1) {
+    issues.push({ path: "project", code: "invalid-project-context" });
+  }
+  const authoritativeDataset = senaReliabilityAuthoritativeDataset(project.snapshot);
+  const codebookUniverse = authoritativeDataset.codebook
+    .map((code) => ({ id: code.id, label: code.label }))
+    .sort((left, right) => compareSenaCanonicalText(left.id, right.id));
+  const exactCodes = new Map(codebookUniverse.map((code) => [code.id, code.id]));
+  const aliases = new Map<string, string | null>();
+  for (const code of codebookUniverse) {
+    for (const alias of [code.id.toLowerCase(), code.label.trim().toLowerCase()]) {
+      if (!alias) continue;
+      const existing = aliases.get(alias);
+      aliases.set(alias, existing === undefined || existing === code.id ? code.id : null);
+    }
+  }
+  const itemUniverse = [
+    ...authoritativeDataset.utterances.map((item) => ({ id: item.id, kind: "utterance" as const })),
+    ...authoritativeDataset.coded_segments.map((item) => ({ id: item.segmentId, kind: "coded-segment" as const }))
+  ].sort((left, right) => (
+    compareSenaCanonicalText(left.id, right.id) || compareSenaCanonicalText(left.kind, right.kind)
+  ));
+  const itemIds = new Set(itemUniverse.map((item) => item.id));
+  const canonical: SenaCoderAnnotation[] = [];
+  const cells = new Set<string>();
+  annotations.forEach((annotation, index) => {
+    if (!itemIds.has(annotation.itemId)) {
+      issues.push({ path: `annotations.${index}.itemId`, code: "unknown-item" });
+    }
+    const canonicalCode = exactCodes.get(annotation.codeId) ?? aliases.get(annotation.codeId.trim().toLowerCase());
+    if (!canonicalCode) {
+      issues.push({ path: `annotations.${index}.codeId`, code: "unknown-code" });
+      return;
+    }
+    const normalized = { ...annotation, codeId: canonicalCode };
+    const cell = canonicalTupleKey([normalized.coderId, normalized.itemId, normalized.codeId]);
+    if (cells.has(cell)) {
+      issues.push({ path: `annotations.${index}`, code: "duplicate-cell" });
+    }
+    cells.add(cell);
+    canonical.push(normalized);
+  });
+  if (issues.length > 0) throw new SenaReliabilityProjectBindingError(issues);
+
+  const annotationCoverage = canonicalAnnotationCoverage(canonical);
+  const skippedCellCoverage = (project.skippedCells ?? []).map((cell, index) => {
+    if (!itemIds.has(cell.itemId)) {
+      issues.push({ path: `skippedCells.${index}.itemId`, code: "unknown-item" });
+    }
+    const codeIds = sortedUnique(cell.codeIds.map((codeId, codeIndex) => {
+      const canonicalCode = exactCodes.get(codeId) ?? aliases.get(codeId.trim().toLowerCase());
+      if (!canonicalCode) {
+        issues.push({ path: `skippedCells.${index}.codeIds.${codeIndex}`, code: "unknown-code" });
+        return "";
+      }
+      return canonicalCode;
+    }).filter(Boolean));
+    return { coderId: cell.coderId, itemId: cell.itemId, codeIds };
+  });
+  const canonicalSkippedCells = canonicalSkippedCellCoverage(skippedCellCoverage);
+  if (issues.length > 0) throw new SenaReliabilityProjectBindingError(issues);
+  const codebookIds = codebookUniverse.map((entry) => entry.id);
+  const itemUniverseIds = sortedUnique(itemUniverse.map((entry) => entry.id));
+  const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
+  const annotatedItemIds = sortedUnique(annotationCoverage.map((entry) => entry.itemId));
+  const annotatedCodeIds = sortedUnique(annotationCoverage.map((entry) => entry.codeId));
+  return {
+    annotations: canonical,
+    binding: {
+      status: "bound-current-project",
+      hashAlgorithm: "sena-stable-fnv1a32/v1",
+      projectId: project.projectId,
+      projectVersion: project.projectVersion,
+      snapshotFingerprint: senaReliabilitySnapshotFingerprint(project.snapshot),
+      codebookUniverseHash: reliabilityBindingHash(codebookUniverse),
+      itemUniverseHash: reliabilityBindingHash(itemUniverse),
+      coderCoverageHash: reliabilityBindingHash(coderIds),
+      annotationCoverageHash: reliabilityBindingHash(annotationCoverage),
+      skippedCellCoverageHash: reliabilityBindingHash(canonicalSkippedCells),
+      annotatedItemCoverageHash: reliabilityBindingHash(annotatedItemIds),
+      annotatedCodeCoverageHash: reliabilityBindingHash(annotatedCodeIds),
+      codebookUniverse,
+      itemUniverse,
+      annotationCoverage,
+      skippedCellCoverage: canonicalSkippedCells,
+      codebookIds,
+      itemUniverseIds,
+      annotatedItemIds,
+      annotatedCodeIds,
+      coderIds,
+      annotationCount: annotationCoverage.length
+    }
+  };
+}
+
+export function isValidSenaReliabilityProjectBinding(value: unknown): value is SenaReliabilityProjectBinding {
+  const carrierBudget = newSenaReliabilityCarrierBudget();
+  if (!admitSenaReliabilityProjectBindingCarrier(value, carrierBudget)) return false;
+  const binding = value;
+  const carrierArrays = [
+    binding.codebookUniverse,
+    binding.itemUniverse,
+    binding.annotationCoverage,
+    binding.skippedCellCoverage,
+    binding.codebookIds,
+    binding.itemUniverseIds,
+    binding.annotatedItemIds,
+    binding.annotatedCodeIds,
+    binding.coderIds
+  ];
+  if (!carrierArrays.every(Array.isArray)) return false;
+  const codebookUniverse = binding.codebookUniverse!;
+  const itemUniverse = binding.itemUniverse!;
+  const annotationCoverageInput = binding.annotationCoverage!;
+  const skippedCellCoverageInput = binding.skippedCellCoverage!;
+  const idArrays = [
+    binding.codebookIds!,
+    binding.itemUniverseIds!,
+    binding.annotatedItemIds!,
+    binding.annotatedCodeIds!
+  ];
+  const binaryUnits = safeCardinalityProduct(codebookUniverse.length, itemUniverse.length);
+  const coderPairs = safeUnorderedPairCount(binding.coderIds!.length);
+  if (codebookUniverse.length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits ||
+    itemUniverse.length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits ||
+    annotationCoverageInput.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    idArrays.some((entries) => entries.length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) ||
+    binaryUnits === null || binaryUnits > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits ||
+    coderPairs === null || coderPairs > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) return false;
+  let skippedCellBudget: ReturnType<typeof assertSenaReliabilitySkippedCellsWithinLimits>;
+  try {
+    skippedCellBudget = assertSenaReliabilitySkippedCellsWithinLimits(skippedCellCoverageInput);
+  } catch {
+    return false;
+  }
+  const carrierMembers = safeCardinalitySum([
+    ...carrierArrays.map((entries) => entries!.length),
+    skippedCellBudget.skippedCellCodeIds
+  ]);
+  if (carrierMembers === null ||
+    carrierMembers > SENA_RELIABILITY_UNIVERSE_LIMITS.projectBindingCarrierMembers) return false;
+  if (binding.status !== "bound-current-project" || binding.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
+    typeof binding.projectId !== "string" || binding.projectId.length === 0 ||
+    !Number.isInteger(binding.projectVersion) || Number(binding.projectVersion) < 1 ||
+    !codebookUniverse.every((entry) => (
+      entry && typeof entry.id === "string" && typeof entry.label === "string"
+    )) ||
+    !itemUniverse.every((entry) => (
+      entry && typeof entry.id === "string" && (entry.kind === "utterance" || entry.kind === "coded-segment")
+    )) ||
+    !annotationCoverageInput.every((entry) => (
+      entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
+      typeof entry.codeId === "string" && typeof entry.value === "boolean"
+    )) ||
+    !skippedCellCoverageInput.every((entry) => (
+      entry && typeof entry.coderId === "string" && typeof entry.itemId === "string" &&
+      Array.isArray(entry.codeIds) && entry.codeIds.every((codeId) => typeof codeId === "string")
+    )) ||
+    ![binding.codebookIds, binding.itemUniverseIds, binding.annotatedItemIds, binding.annotatedCodeIds, binding.coderIds]
+      .every((entry) => Array.isArray(entry) && entry.every((item) => typeof item === "string")) ||
+    !Number.isInteger(binding.annotationCount) || Number(binding.annotationCount) < 0) return false;
+  const canonicalCodebookUniverse = [...codebookUniverse]
+    .sort((left, right) => compareSenaCanonicalText(left.id, right.id));
+  const canonicalItemUniverse = [...itemUniverse].sort((left, right) => (
+    compareSenaCanonicalText(left.id, right.id) || compareSenaCanonicalText(left.kind, right.kind)
+  ));
+  const annotationCoverage = canonicalAnnotationCoverage(annotationCoverageInput);
+  const skippedCellCoverage = canonicalSkippedCellCoverage(skippedCellCoverageInput);
+  const codebookIds = canonicalCodebookUniverse.map((entry) => entry.id);
+  const itemUniverseIds = sortedUnique(canonicalItemUniverse.map((entry) => entry.id));
+  const coderIds = sortedUnique(annotationCoverage.map((entry) => entry.coderId));
+  const annotatedItemIds = sortedUnique(annotationCoverage.map((entry) => entry.itemId));
+  const annotatedCodeIds = sortedUnique(annotationCoverage.map((entry) => entry.codeId));
+  const exactArray = (left: unknown, right: string[]) => JSON.stringify(left) === JSON.stringify(right);
+  const knownCodes = new Set(codebookIds);
+  const knownItems = new Set(itemUniverseIds);
+  return typeof binding.snapshotFingerprint === "string" && /^0x[a-f0-9]{8}$/.test(binding.snapshotFingerprint) &&
+    binding.codebookUniverseHash === reliabilityBindingHash(canonicalCodebookUniverse) &&
+    binding.itemUniverseHash === reliabilityBindingHash(canonicalItemUniverse) &&
+    binding.coderCoverageHash === reliabilityBindingHash(coderIds) &&
+    binding.annotationCoverageHash === reliabilityBindingHash(annotationCoverage) &&
+    binding.skippedCellCoverageHash === reliabilityBindingHash(skippedCellCoverage) &&
+    binding.annotatedItemCoverageHash === reliabilityBindingHash(annotatedItemIds) &&
+    binding.annotatedCodeCoverageHash === reliabilityBindingHash(annotatedCodeIds) &&
+    exactArray(binding.codebookIds, codebookIds) && exactArray(binding.itemUniverseIds, itemUniverseIds) &&
+    exactArray(binding.coderIds, coderIds) && exactArray(binding.annotatedItemIds, annotatedItemIds) &&
+    exactArray(binding.annotatedCodeIds, annotatedCodeIds) &&
+    binding.annotationCount === annotationCoverage.length &&
+    annotationCoverage.every((entry) => knownCodes.has(entry.codeId) && knownItems.has(entry.itemId)) &&
+    stableBindingValue(binding.skippedCellCoverage) === stableBindingValue(skippedCellCoverage) &&
+    skippedCellCoverage.every((entry) => (
+      knownItems.has(entry.itemId) && entry.codeIds.every((codeId) => knownCodes.has(codeId))
+    ));
+}
+
+export function assertSenaReliabilityProjectBindingMatchesSnapshot(
+  binding: SenaReliabilityProjectBinding,
+  snapshot: SenaProjectSnapshot,
+  expected?: { projectId?: string; projectVersion?: number }
+) {
+  if (!isValidSenaReliabilityProjectBinding(binding) ||
+    (expected?.projectId !== undefined && binding.projectId !== expected.projectId) ||
+    (expected?.projectVersion !== undefined && binding.projectVersion !== expected.projectVersion)) {
+    throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+  }
+  const rebuilt = bindSenaReliabilityAnnotationsToProject(binding.annotationCoverage, {
+    projectId: binding.projectId,
+    projectVersion: binding.projectVersion,
+    snapshot,
+    skippedCells: binding.skippedCellCoverage
+  }).binding;
+  if (!senaReliabilityProjectBindingsEqual(rebuilt, binding)) {
+    throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+  }
+}
 
 function scalar(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -79,8 +998,28 @@ function parseBoolean(value: string) {
 // splits multi-value cells on "|" only (ADR-0007 D2) — do not "align" this
 // splitter with lib/sena/import.ts without deciding how comma-bearing code ids
 // in coder files should then be expressed.
-function parseCodes(value: string) {
-  return value.split(/[|;,]/).map((code) => code.trim()).filter(Boolean);
+function parseCodesWithinCellBudget(value: string, budget: { emittedCells: number }) {
+  const codes: string[] = [];
+  let tokenStart = 0;
+  for (let index = 0; index <= value.length; index += 1) {
+    const character = value[index];
+    if (index !== value.length && character !== "|" && character !== ";" && character !== ",") continue;
+    const code = value.slice(tokenStart, index).trim();
+    tokenStart = index + 1;
+    if (!code) continue;
+    const next = budget.emittedCells + 1;
+    if (next > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: "annotations",
+        rule: `annotation-row-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows}`,
+        actual: next,
+        maximum: SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows
+      }]);
+    }
+    budget.emittedCells = next;
+    codes.push(code);
+  }
+  return codes;
 }
 
 // An explicitly skipped cell: the coder's row existed but its value cell was
@@ -93,22 +1032,75 @@ export type SenaSkippedCoderCell = {
   codeIds: string[];
 };
 
+/**
+ * Bounds direct-call and persisted skipped-cell evidence before any code-id
+ * mapping, canonical Set construction, hashing, or missing-cell indexing.
+ * Parser-originated skipped cells already share the same 200,000 emitted-cell
+ * ceiling; this closes the equivalent library/read-model boundary.
+ */
+export function assertSenaReliabilitySkippedCellsWithinLimits(
+  skippedCells: readonly unknown[]
+) {
+  const maximum = SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows;
+  if (skippedCells.length > maximum) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "skippedCells",
+      rule: `skipped-cell-row-count-at-most-${maximum}`,
+      actual: skippedCells.length,
+      maximum
+    }]);
+  }
+  let codeIdCount = 0;
+  for (const cell of skippedCells) {
+    if (!cell || typeof cell !== "object" || Array.isArray(cell)) continue;
+    const codeIds = (cell as { codeIds?: unknown }).codeIds;
+    if (!Array.isArray(codeIds)) continue;
+    const next = codeIdCount + codeIds.length;
+    if (next > maximum) {
+      throw new SenaReliabilityUniverseLimitError([{
+        path: "skippedCells",
+        rule: `skipped-cell-code-id-count-at-most-${maximum}`,
+        actual: next,
+        maximum
+      }]);
+    }
+    codeIdCount = next;
+  }
+  return { skippedCellRows: skippedCells.length, skippedCellCodeIds: codeIdCount };
+}
+
 export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
   annotations: SenaCoderAnnotation[];
   warnings: string[];
   skippedCells: SenaSkippedCoderCell[];
 } {
+  // Defensive direct-call boundary. Public request/file adapters also run this
+  // admission before invoking the semantic parser so invalid rows cannot fan
+  // out warnings or skipped-cell evidence first.
+  assertSenaReliabilityCombinedRawRowsWithinLimits([rows]);
+  const cellBudget = { emittedCells: 0 };
+  // Tokenize every row first. This is deliberately a two-phase pass: an
+  // over-limit code cell or cumulative multi-row fan-out fails before any
+  // annotation, skipped-cell, or warning output object is allocated. The
+  // scanner never calls String#split, so retained tokens and loop work are
+  // bounded by the same 200,000-cell contract.
+  const preparedRows = rows.map((row, index) => ({
+    index,
+    coderId: readAlias(row, ["coder_id", "coder", "rater", "reviewer"]),
+    itemId: readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]),
+    codes: parseCodesWithinCellBudget(
+      readAlias(row, ["code_id", "code", "codes", "label", "coding"]),
+      cellBudget
+    ),
+    valueEntry: readAliasEntry(row, ["value", "applied", "present", "decision", "score"])
+  }));
   const warnings: string[] = [];
   const skippedCells: SenaSkippedCoderCell[] = [];
-  const annotations = rows.flatMap<SenaCoderAnnotation>((row, index) => {
-    const coderId = readAlias(row, ["coder_id", "coder", "rater", "reviewer"]);
-    const itemId = readAlias(row, ["item_id", "segment_id", "utterance_id", "unit_id", "stanza_id", "id"]);
-    const codes = parseCodes(readAlias(row, ["code_id", "code", "codes", "label", "coding"]));
-    const valueEntry = readAliasEntry(row, ["value", "applied", "present", "decision", "score"]);
-
+  const annotations: SenaCoderAnnotation[] = [];
+  for (const { coderId, itemId, codes, valueEntry, index } of preparedRows) {
     if (!coderId || !itemId || codes.length === 0) {
       warnings.push(`coder annotation row ${index + 1} is missing coder, item, or code and was skipped.`);
-      return [];
+      continue;
     }
 
     // A file with no value column is a presence-style export: each row means
@@ -120,18 +1112,18 @@ export function parseCoderAnnotationsFromRows(rows: SenaImportRow[]): {
     if (valueEntry.present && valueEntry.value === "") {
       skippedCells.push({ coderId, itemId, codeIds: codes });
       warnings.push(`coder annotation row ${index + 1} has an empty value cell; it is treated as missing data and excluded from pairable reliability units.`);
-      return [];
+      continue;
     }
     const value = valueEntry.present ? parseBoolean(valueEntry.value) : true;
-
-    return codes.map((codeId) => ({ coderId, itemId, codeId, value }));
-  });
+    for (const codeId of codes) annotations.push({ coderId, itemId, codeId, value });
+  }
 
   return { annotations, warnings, skippedCells };
 }
 
 export function parseCoderAnnotationsCsv(text: string) {
   const parsed = parseSenaCsv(text);
+  assertSenaReliabilityCombinedRawRowsWithinLimits([parsed.rows]);
   const annotations = parseCoderAnnotationsFromRows(parsed.rows);
   // Ragged-row repairs are additive on the existing shape: a row truncated
   // before its value cell is padded here, then skipped (with disclosure) by the
@@ -149,7 +1141,11 @@ function round(value: number, digits = 4) {
   return Number(value.toFixed(digits));
 }
 
-function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>): Omit<SenaPairwiseKappa, "coderA" | "coderB"> {
+function roundNullable(value: number | null, digits = 4) {
+  return value === null || !Number.isFinite(value) ? null : Number(value.toFixed(digits));
+}
+
+function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>): Omit<SenaPairwiseKappa, "coderA" | "coderB" | "raw"> {
   const length = Math.min(a.length, b.length);
   let units = 0;
   let agree = 0;
@@ -168,27 +1164,43 @@ function cohenKappa(a: Array<boolean | undefined>, b: Array<boolean | undefined>
     if (valueB) bYes += 1;
   }
 
-  if (units === 0) return { units: 0, observedAgreement: 0, expectedAgreement: 0, kappa: 0 };
+  if (units < 2) {
+    return {
+      units,
+      status: "insufficient-pairable-units",
+      observedAgreement: null,
+      expectedAgreement: null,
+      kappa: null
+    };
+  }
   const observedAgreement = agree / units;
   const aNo = units - aYes;
   const bNo = units - bYes;
   const expectedAgreement = ((aYes / units) * (bYes / units)) + ((aNo / units) * (bNo / units));
   const denominator = 1 - expectedAgreement;
-  // Fewer than 2 pairable units cannot support a chance-corrected estimate:
-  // report 0 (no evidence), mirroring the alpha guard's standard, rather than
-  // letting the degenerate denominator===0 convention mint a spurious perfect
-  // score — especially now that missing-cell exclusions can shrink the pair
-  // universe far below binaryUnitCount.
-  if (units < 2) return { units, observedAgreement, expectedAgreement, kappa: 0 };
+  if (denominator === 0) {
+    return {
+      units,
+      status: "single-observed-category",
+      observedAgreement,
+      expectedAgreement,
+      kappa: null
+    };
+  }
   return {
     units,
+    status: "estimable",
     observedAgreement,
     expectedAgreement,
-    kappa: denominator === 0 ? 1 : (observedAgreement - expectedAgreement) / denominator
+    kappa: (observedAgreement - expectedAgreement) / denominator
   };
 }
 
-function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, coders: string[]) {
+function krippendorffAlphaNominal(
+  valuesByUnit: Array<Record<string, boolean>>,
+  coders: string[]
+): { status: SenaReliabilityEstimationStatus; value: number | null } {
+  if (coders.length < 2) return { status: "insufficient-coders", value: null };
   // Canonical Krippendorff nominal alpha via the coincidence matrix. Each unit
   // with m>=2 codings contributes its m*(m-1) ordered rating pairs weighted by
   // 1/(m-1); the marginals then drive the sampling-without-replacement expected
@@ -222,10 +1234,7 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
     }
   }
 
-  // A single pairable unit cannot support a chance-corrected estimate: report
-  // 0 (no evidence) rather than the single-category convention's perfect 1 —
-  // missing-cell exclusions can shrink a large unit universe down to one.
-  if (pairableUnits < 2) return 0;
+  if (pairableUnits < 2) return { status: "insufficient-pairable-units", value: null };
 
   const cats = Array.from(categories);
   const marginals = new Map<string, number>();
@@ -236,9 +1245,7 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
     pairableTotal += rowSum;
   }
 
-  // No unit had two or more codings: reliability is undefined, report 0 (no
-  // evidence) rather than a spurious perfect score for the claim-readiness gate.
-  if (pairableTotal < 2) return 0;
+  if (pairableTotal < 2) return { status: "insufficient-pairable-units", value: null };
 
   let observedDisagreement = 0;
   let expectedDisagreement = 0;
@@ -250,9 +1257,11 @@ function krippendorffAlphaNominal(valuesByUnit: Array<Record<string, boolean>>, 
     }
   }
 
-  // Only one category observed: no disagreement is possible, treat as perfect.
-  if (expectedDisagreement === 0) return 1;
-  return 1 - ((pairableTotal - 1) * observedDisagreement) / expectedDisagreement;
+  if (expectedDisagreement === 0) return { status: "single-observed-category", value: null };
+  return {
+    status: "estimable",
+    value: 1 - ((pairableTotal - 1) * observedDisagreement) / expectedDisagreement
+  };
 }
 
 function agreementRate(valuesByUnit: Array<Record<string, boolean>>, coders: string[]) {
@@ -273,56 +1282,99 @@ function agreementRate(valuesByUnit: Array<Record<string, boolean>>, coders: str
   return pairs === 0 ? 0 : agreements / pairs;
 }
 
-// One row per item-code unit; a coder's key is OMITTED (not false) when their
-// only evidence for the unit is an explicitly skipped empty-value cell. A
-// recorded decision always beats a skip; an absent row keeps the historical
-// not-applied reading (presence semantics for the unit universe).
+type SenaReliabilityUnitKey = {
+  itemId: string;
+  codeId: string;
+};
+
+type SenaReliabilityAnnotationIndex = Map<string, Map<string, Map<string, boolean>>>;
+type SenaReliabilityMissingCellIndex = Map<string, Map<string, Set<string>>>;
+
+function buildAnnotationIndex(annotations: SenaCoderAnnotation[]): SenaReliabilityAnnotationIndex {
+  const index: SenaReliabilityAnnotationIndex = new Map();
+  for (const annotation of annotations) {
+    let byItem = index.get(annotation.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      index.set(annotation.coderId, byItem);
+    }
+    let byCode = byItem.get(annotation.itemId);
+    if (!byCode) {
+      byCode = new Map();
+      byItem.set(annotation.itemId, byCode);
+    }
+    byCode.set(annotation.codeId, (byCode.get(annotation.codeId) ?? false) || annotation.value);
+  }
+  return index;
+}
+
+function annotationValue(
+  index: SenaReliabilityAnnotationIndex,
+  coderId: string,
+  itemId: string,
+  codeId: string
+) {
+  return index.get(coderId)?.get(itemId)?.get(codeId);
+}
+
+function buildMissingCellIndex(skippedCells: SenaSkippedCoderCell[]): SenaReliabilityMissingCellIndex {
+  const index: SenaReliabilityMissingCellIndex = new Map();
+  for (const cell of skippedCells) {
+    let byItem = index.get(cell.coderId);
+    if (!byItem) {
+      byItem = new Map();
+      index.set(cell.coderId, byItem);
+    }
+    let codeIds = byItem.get(cell.itemId);
+    if (!codeIds) {
+      codeIds = new Set();
+      byItem.set(cell.itemId, codeIds);
+    }
+    for (const codeId of cell.codeIds) codeIds.add(codeId);
+  }
+  return index;
+}
+
+function isMissingCell(
+  index: SenaReliabilityMissingCellIndex,
+  coderId: string,
+  itemId: string,
+  codeId: string
+) {
+  return index.get(coderId)?.get(itemId)?.has(codeId) ?? false;
+}
+
+// One row per structured item-code unit; a coder's key is OMITTED (not false)
+// when their only evidence for the unit is an explicitly skipped empty-value
+// cell. A recorded decision always beats a skip; an absent row keeps the
+// historical not-applied reading (presence semantics for the unit universe).
 function buildUnitRows(
-  unitKeys: string[],
+  unitKeys: SenaReliabilityUnitKey[],
   coders: string[],
-  annotations: SenaCoderAnnotation[],
-  missingCells: ReadonlySet<string>
+  annotations: SenaReliabilityAnnotationIndex,
+  missingCells: SenaReliabilityMissingCellIndex
 ): Array<Record<string, boolean>> {
-  return unitKeys.map((key) => {
-    const [itemId, codeId] = key.split("::");
+  return unitKeys.map(({ itemId, codeId }) => {
     const row: Record<string, boolean> = {};
     for (const coder of coders) {
-      let recorded = false;
-      let positive = false;
-      for (const annotation of annotations) {
-        if (annotation.coderId !== coder || annotation.itemId !== itemId || annotation.codeId !== codeId) continue;
-        recorded = true;
-        if (annotation.value) {
-          positive = true;
-          break;
-        }
-      }
-      if (!recorded && missingCells.has(`${coder}::${itemId}::${codeId}`)) continue;
-      row[coder] = positive;
+      const value = annotationValue(annotations, coder, itemId, codeId);
+      if (value === undefined && isMissingCell(missingCells, coder, itemId, codeId)) continue;
+      row[coder] = value ?? false;
     }
     return row;
   });
 }
 
-function buildMissingCellLookup(skippedCells: SenaSkippedCoderCell[]): Set<string> {
-  const lookup = new Set<string>();
-  for (const cell of skippedCells) {
-    for (const codeId of cell.codeIds) {
-      lookup.add(`${cell.coderId}::${cell.itemId}::${codeId}`);
-    }
-  }
-  return lookup;
-}
-
 function buildCodeDiagnostics(
-  items: string[],
   codes: string[],
   coders: string[],
-  annotations: SenaCoderAnnotation[],
-  missingCells: ReadonlySet<string>
+  unitKeys: SenaReliabilityUnitKey[],
+  valuesByUnit: Array<Record<string, boolean>>
 ): SenaCodeReliabilityDiagnostic[] {
+  const unitsByCode = new Map(codes.map((codeId) => [codeId, [] as Array<Record<string, boolean>>]));
+  unitKeys.forEach((unit, index) => unitsByCode.get(unit.codeId)?.push(valuesByUnit[index]));
   return codes.map((codeId) => {
-    const codeUnits = buildUnitRows(items.map((itemId) => `${itemId}::${codeId}`), coders, annotations, missingCells);
+    const codeUnits = unitsByCode.get(codeId) ?? [];
     const disagreementCount = codeUnits.filter((unit) => new Set(Object.values(unit)).size > 1).length;
     const positiveAssignments = codeUnits.reduce((total, unit) => (
       total + Object.values(unit).filter(Boolean).length
@@ -343,9 +1395,15 @@ function buildCodeDiagnostics(
           coderA,
           coderB,
           units: stats.units,
-          observedAgreement: round(stats.observedAgreement),
-          expectedAgreement: round(stats.expectedAgreement),
-          kappa: round(stats.kappa)
+          status: stats.status,
+          raw: {
+            observedAgreement: stats.observedAgreement,
+            expectedAgreement: stats.expectedAgreement,
+            kappa: stats.kappa
+          },
+          observedAgreement: roundNullable(stats.observedAgreement),
+          expectedAgreement: roundNullable(stats.expectedAgreement),
+          kappa: roundNullable(stats.kappa)
         });
       }
     }
@@ -361,53 +1419,447 @@ function buildCodeDiagnostics(
   }).sort((a, b) => (
     b.disagreementCount - a.disagreementCount ||
     a.agreementRate - b.agreementRate ||
-    a.codeId.localeCompare(b.codeId)
+    compareSenaCanonicalText(a.codeId, b.codeId)
   ));
+}
+
+export function buildSenaReliabilityClaimEligibility(input: {
+  coderCount: number;
+  pairwiseStatuses: SenaReliabilityEstimationStatus[];
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominal: number | null;
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  unresolvedDisagreementCount: number;
+}): SenaReliabilityClaimEligibility {
+  const checks = {
+    minimumCoders: input.coderCount >= 2,
+    allPairwiseKappaEstimable: input.pairwiseStatuses.length > 0 && input.pairwiseStatuses.every((status) => status === "estimable"),
+    krippendorffAlphaEstimable: input.krippendorffAlphaNominalStatus === "estimable",
+    meanPairwiseKappaAtThreshold: input.meanPairwiseKappa !== null && input.meanPairwiseKappa >= 0.8,
+    krippendorffAlphaAtThreshold: input.krippendorffAlphaNominal !== null && input.krippendorffAlphaNominal >= 0.8,
+    noUnresolvedDisagreements: input.unresolvedDisagreementCount === 0
+  };
+  const blockers = [
+    checks.minimumCoders ? null : "minimum-two-coders",
+    checks.allPairwiseKappaEstimable ? null : "all-pairwise-kappa-estimable",
+    checks.krippendorffAlphaEstimable ? null : "krippendorff-alpha-estimable",
+    checks.meanPairwiseKappaAtThreshold ? null : "mean-pairwise-kappa-at-least-0.80",
+    checks.krippendorffAlphaAtThreshold ? null : "krippendorff-alpha-at-least-0.80",
+    checks.noUnresolvedDisagreements ? null : "unresolved-reliability-disagreements"
+  ].filter((blocker): blocker is string => blocker !== null);
+
+  return {
+    eligible: blockers.length === 0,
+    threshold: {
+      minimumCoders: 2,
+      meanPairwiseKappa: 0.8,
+      krippendorffAlphaNominal: 0.8
+    },
+    checks,
+    blockers,
+    adjudication: {
+      status: "external-not-evaluated",
+      disclosure: checks.noUnresolvedDisagreements
+        ? "No unresolved disagreement is present in the canonical reliability queue; human sign-off remains external evidence."
+        : `${input.unresolvedDisagreementCount} canonical reliability disagreement(s) remain unresolved in machine evidence; external approval cannot override this blocker without bound resolution evidence.`
+    }
+  };
+}
+
+const reliabilityEstimationStatuses = new Set<SenaReliabilityEstimationStatus>([
+  "estimable",
+  "insufficient-pairable-units",
+  "single-observed-category",
+  "insufficient-coders",
+  "legacy-ambiguous"
+]);
+
+function isReliabilityEstimationStatus(value: unknown): value is SenaReliabilityEstimationStatus {
+  return typeof value === "string" && reliabilityEstimationStatuses.has(value as SenaReliabilityEstimationStatus);
+}
+
+function finiteNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function sameNullableNumber(left: number | null, right: number | null) {
+  return left === right;
+}
+
+function sameStringArray(left: string[], right: string[]) {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function sameClaimEligibility(left: SenaReliabilityClaimEligibility, right: SenaReliabilityClaimEligibility) {
+  return left.eligible === right.eligible &&
+    left.threshold.minimumCoders === right.threshold.minimumCoders &&
+    left.threshold.meanPairwiseKappa === right.threshold.meanPairwiseKappa &&
+    left.threshold.krippendorffAlphaNominal === right.threshold.krippendorffAlphaNominal &&
+    left.checks.minimumCoders === right.checks.minimumCoders &&
+    left.checks.allPairwiseKappaEstimable === right.checks.allPairwiseKappaEstimable &&
+    left.checks.krippendorffAlphaEstimable === right.checks.krippendorffAlphaEstimable &&
+    left.checks.meanPairwiseKappaAtThreshold === right.checks.meanPairwiseKappaAtThreshold &&
+    left.checks.krippendorffAlphaAtThreshold === right.checks.krippendorffAlphaAtThreshold &&
+    left.checks.noUnresolvedDisagreements === right.checks.noUnresolvedDisagreements &&
+    sameStringArray(left.blockers, right.blockers) &&
+    left.adjudication.status === right.adjudication.status &&
+    typeof left.adjudication.disclosure === "string";
+}
+
+function isClaimEligibility(value: unknown): value is SenaReliabilityClaimEligibility {
+  if (!isRecord(value) ||
+    !admitSenaReliabilityEligibilityCarrier(value, newSenaReliabilityCarrierBudget())) return false;
+  const threshold = isRecord(value.threshold) ? value.threshold : null;
+  const checks = isRecord(value.checks) ? value.checks : null;
+  const adjudication = isRecord(value.adjudication) ? value.adjudication : null;
+  return typeof value.eligible === "boolean" &&
+    threshold?.minimumCoders === 2 &&
+    threshold.meanPairwiseKappa === 0.8 &&
+    threshold.krippendorffAlphaNominal === 0.8 &&
+    Boolean(checks) &&
+    [
+      checks?.minimumCoders,
+      checks?.allPairwiseKappaEstimable,
+      checks?.krippendorffAlphaEstimable,
+      checks?.meanPairwiseKappaAtThreshold,
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
+    ].every((entry) => typeof entry === "boolean") &&
+    Array.isArray(value.blockers) && value.blockers.every((entry) => typeof entry === "string") &&
+    adjudication?.status === "external-not-evaluated" &&
+    typeof adjudication.disclosure === "string";
+}
+
+function isReliabilityAdjudicationCoverageEvidence(
+  value: unknown,
+  rawDisagreementCount: number
+): value is SenaReliabilityAdjudicationCoverageEvidence {
+  if (!isRecord(value) ||
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage ||
+    !Number.isInteger(value.queuedDisagreements) || Number(value.queuedDisagreements) < 0 ||
+    !Number.isInteger(value.resolvedDisagreements) || Number(value.resolvedDisagreements) < 0 ||
+    !Number.isInteger(value.unresolvedDisagreements) || Number(value.unresolvedDisagreements) < 0 ||
+    typeof value.coverageRate !== "number" || !Number.isFinite(value.coverageRate) ||
+    !isRecord(value.decisions) ||
+    !Number.isInteger(value.decisions.include) || Number(value.decisions.include) < 0 ||
+    !Number.isInteger(value.decisions.exclude) || Number(value.decisions.exclude) < 0 ||
+    !Number.isInteger(value.decisions.revise) || Number(value.decisions.revise) < 0 ||
+    typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))) return false;
+  const queued = Number(value.queuedDisagreements);
+  const resolved = Number(value.resolvedDisagreements);
+  const unresolved = Number(value.unresolvedDisagreements);
+  const decisionCount = Number(value.decisions.include) +
+    Number(value.decisions.exclude) +
+    Number(value.decisions.revise);
+  const expectedRate = queued === 0 ? 1 : Number((resolved / queued).toFixed(4));
+  return queued === rawDisagreementCount &&
+    resolved + unresolved === queued &&
+    decisionCount === resolved &&
+    value.coverageRate === expectedRate;
+}
+
+export function isSenaReliabilityClaimEligibilityInputs(
+  value: unknown
+): value is SenaReliabilityClaimEligibilityInputs {
+  if (!isRecord(value)) return false;
+  const coderCount = Number(value.coderCount);
+  if (!Number.isInteger(value.coderCount) || coderCount < 0) return false;
+  const expectedPairCount = assertSenaReliabilityReaderCoderPairBudget(coderCount);
+  if (!admitSenaReliabilityEligibilityInputsCarrier(
+    value,
+    expectedPairCount,
+    newSenaReliabilityCarrierBudget()
+  )) return false;
+  return Array.isArray(value.pairwiseKappaStatuses) &&
+    value.pairwiseKappaStatuses.length === expectedPairCount &&
+    value.pairwiseKappaStatuses.every(isReliabilityEstimationStatus) &&
+    finiteNumberOrNull(value.meanPairwiseKappa) &&
+    isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) &&
+    finiteNumberOrNull(value.krippendorffAlphaNominal) &&
+    Number.isInteger(value.unresolvedDisagreementCount) && Number(value.unresolvedDisagreementCount) >= 0;
+}
+
+export function deriveSenaReliabilityClaimEligibility(
+  input: SenaReliabilityClaimEligibilityInputs
+): SenaReliabilityClaimEligibility {
+  return buildSenaReliabilityClaimEligibility({
+    coderCount: input.coderCount,
+    pairwiseStatuses: input.pairwiseKappaStatuses,
+    meanPairwiseKappa: input.meanPairwiseKappa,
+    krippendorffAlphaNominal: input.krippendorffAlphaNominal,
+    krippendorffAlphaNominalStatus: input.krippendorffAlphaNominalStatus,
+    unresolvedDisagreementCount: input.unresolvedDisagreementCount
+  });
+}
+
+function isSemanticallyConsistentEligibilityInputs(input: SenaReliabilityClaimEligibilityInputs) {
+  const pairwiseAllEstimable = input.pairwiseKappaStatuses.length > 0 &&
+    input.pairwiseKappaStatuses.every((status) => status === "estimable");
+  if (input.coderCount < 2) {
+    return input.pairwiseKappaStatuses.length === 0 &&
+      input.meanPairwiseKappa === null &&
+      input.krippendorffAlphaNominalStatus === "insufficient-coders" &&
+      input.krippendorffAlphaNominal === null;
+  }
+  if (pairwiseAllEstimable) {
+    return input.meanPairwiseKappa !== null &&
+      input.krippendorffAlphaNominalStatus === "estimable" &&
+      input.krippendorffAlphaNominal !== null;
+  }
+  return input.meanPairwiseKappa === null;
+}
+
+function canonicalReliabilityInputs(value: {
+  coderIds: string[];
+  pairwiseCohenKappa: SenaPairwiseKappa[];
+  krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+  krippendorffAlphaNominalRaw: number | null;
+  unresolvedDisagreementCount: number;
+}): SenaReliabilityClaimEligibilityInputs | null {
+  const coderIds = value.coderIds;
+  const expectedPairCount = assertSenaReliabilityReaderCoderPairBudget(coderIds.length);
+  if (value.pairwiseCohenKappa.length !== expectedPairCount) return null;
+  if (coderIds.some((coderId) => coderId.length === 0) ||
+    new Set(coderIds).size !== coderIds.length ||
+    !sameStringArray(coderIds, [...coderIds].sort(compareSenaCanonicalText)) ||
+    !value.pairwiseCohenKappa.every(isValidPairwiseKappa)) return null;
+  const actualPairKeys = value.pairwiseCohenKappa
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort(compareSenaCanonicalText)))
+    .sort(compareSenaCanonicalText);
+  if (!sameStringArray(actualPairKeys, expectedPairKeys(coderIds))) return null;
+  const pairwiseKappaStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
+  const allPairsEstimable = pairwiseKappaStatuses.length > 0 &&
+    pairwiseKappaStatuses.every((status) => status === "estimable");
+  const meanPairwiseKappa = allPairsEstimable
+    ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
+    : null;
+  const alphaIsEstimable = value.krippendorffAlphaNominalStatus === "estimable";
+  if (!Number.isInteger(value.unresolvedDisagreementCount) || value.unresolvedDisagreementCount < 0 ||
+    (alphaIsEstimable
+    ? value.krippendorffAlphaNominalRaw === null || value.krippendorffAlphaNominalRaw < -1 || value.krippendorffAlphaNominalRaw > 1
+    : value.krippendorffAlphaNominalRaw !== null)) return null;
+  return {
+    coderCount: coderIds.length,
+    pairwiseKappaStatuses,
+    meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw,
+    unresolvedDisagreementCount: value.unresolvedDisagreementCount
+  };
+}
+
+function sameEligibilityInputs(
+  left: SenaReliabilityClaimEligibilityInputs,
+  right: SenaReliabilityClaimEligibilityInputs
+) {
+  return left.coderCount === right.coderCount &&
+    sameStringArray(left.pairwiseKappaStatuses, right.pairwiseKappaStatuses) &&
+    sameNullableNumber(left.meanPairwiseKappa, right.meanPairwiseKappa) &&
+    left.krippendorffAlphaNominalStatus === right.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(left.krippendorffAlphaNominal, right.krippendorffAlphaNominal) &&
+    left.unresolvedDisagreementCount === right.unresolvedDisagreementCount;
+}
+
+export function deriveSenaReliabilityMachineClaimEligibility(
+  value: SenaCodingReliabilityMachineEvidence
+): SenaReliabilityClaimEligibility {
+  const inputs = canonicalReliabilityInputs(value);
+  if (!inputs) throw new Error("SENA reliability machine evidence lacks canonical raw pair or alpha estimates.");
+  return deriveSenaReliabilityClaimEligibility(inputs);
+}
+
+export function isSemanticallyValidSenaReliabilityMachineEvidence(
+  value: unknown
+): value is SenaCodingReliabilityMachineEvidence {
+  if (!isRecord(value) ||
+    value.dashboardSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityDashboard ||
+    (value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+      value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard) ||
+    !Array.isArray(value.coderIds) ||
+    !Array.isArray(value.pairwiseCohenKappa)) return false;
+  const expectedPairCount = assertSenaReliabilityReaderCoderPairBudget(value.coderIds.length);
+  if (value.pairwiseCohenKappa.length > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) {
+    reliabilityReaderCollectionLimit(
+      `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      value.pairwiseCohenKappa.length,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    );
+  }
+  if (value.pairwiseCohenKappa.length !== expectedPairCount) return false;
+  if (!isReliabilityEstimationStatus(value.status) ||
+    !value.coderIds.every((coderId) => typeof coderId === "string") ||
+    !isReliabilityEstimationStatus(value.meanPairwiseKappaStatus) ||
+    !finiteNumberOrNull(value.meanPairwiseKappa) ||
+    !isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
+    typeof value.allPairwiseKappaEstimable !== "boolean" ||
+    !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
+    !isClaimEligibility(value.claimEligibility) ||
+    (value.projectBindingRequired !== undefined && value.projectBindingRequired !== true) ||
+    (value.projectBinding !== undefined && (
+      value.projectBindingRequired !== true || !isValidSenaReliabilityProjectBinding(value.projectBinding)
+    )) ||
+    (value.projectBindingRequired === true && value.projectBinding === undefined)) return false;
+
+  if (value.adjudicationCoverage !== undefined) {
+    if (value.projectBinding === undefined) return false;
+    let rawDashboard: SenaReliabilityDashboard;
+    try {
+      rawDashboard = canonicalDashboardFromProjectBinding(value.projectBinding);
+    } catch {
+      return false;
+    }
+    if (!isReliabilityAdjudicationCoverageEvidence(
+      value.adjudicationCoverage,
+      rawDashboard.disagreementCount
+    ) || value.unresolvedDisagreementCount !== value.adjudicationCoverage.unresolvedDisagreements) return false;
+  }
+
+  const canonicalInputs = canonicalReliabilityInputs(value as unknown as {
+    coderIds: string[];
+    pairwiseCohenKappa: SenaPairwiseKappa[];
+    krippendorffAlphaNominalStatus: SenaReliabilityEstimationStatus;
+    krippendorffAlphaNominalRaw: number | null;
+    unresolvedDisagreementCount: number;
+  });
+  if (!canonicalInputs || !sameEligibilityInputs(value.claimEligibilityInputs, canonicalInputs)) return false;
+  if (value.projectBinding !== undefined &&
+    JSON.stringify(value.projectBinding.coderIds) !== JSON.stringify(value.coderIds)) return false;
+  const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  if (currentSource && value.projectBinding !== undefined &&
+    !matchesProjectBoundMachineEvidenceDerivedMetrics(
+      value as unknown as SenaCodingReliabilityMachineEvidence
+    )) return false;
+  if (currentSource && (
+    value.status === "legacy-ambiguous" ||
+    value.meanPairwiseKappaStatus === "legacy-ambiguous" ||
+    value.krippendorffAlphaNominalStatus === "legacy-ambiguous" ||
+    canonicalInputs.pairwiseKappaStatuses.some((status) => status === "legacy-ambiguous")
+  )) return false;
+  const expected = deriveSenaReliabilityClaimEligibility(canonicalInputs);
+  const expectedStatus = aggregateReliabilityStatus(
+    canonicalInputs.coderCount,
+    canonicalInputs.pairwiseKappaStatuses,
+    canonicalInputs.krippendorffAlphaNominalStatus
+  );
+  const expectedMeanStatus = canonicalInputs.coderCount < 2
+    ? "insufficient-coders"
+    : canonicalInputs.pairwiseKappaStatuses.length === 0 || canonicalInputs.pairwiseKappaStatuses.some((status) => status === "insufficient-pairable-units")
+      ? "insufficient-pairable-units"
+      : canonicalInputs.pairwiseKappaStatuses.some((status) => status === "single-observed-category")
+        ? "single-observed-category"
+        : canonicalInputs.pairwiseKappaStatuses.every((status) => status === "estimable")
+          ? "estimable"
+          : "legacy-ambiguous";
+  const legacySourceValid = !currentSource &&
+    value.status === "legacy-ambiguous" &&
+    value.meanPairwiseKappaStatus === "legacy-ambiguous" &&
+    value.meanPairwiseKappa === null &&
+    value.krippendorffAlphaNominalStatus === "legacy-ambiguous" &&
+    value.krippendorffAlphaNominalRaw === null &&
+    value.krippendorffAlphaNominal === null &&
+    value.claimEligibility.eligible === false &&
+    value.claimEligibility.blockers.includes("current-v2-estimates-required");
+  if (legacySourceValid) return true;
+  return currentSource && isSemanticallyConsistentEligibilityInputs(canonicalInputs) &&
+    value.status === expectedStatus &&
+    value.meanPairwiseKappaStatus === expectedMeanStatus &&
+    sameNullableNumber(value.meanPairwiseKappa, roundNullable(canonicalInputs.meanPairwiseKappa)) &&
+    value.krippendorffAlphaNominalStatus === canonicalInputs.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(canonicalInputs.krippendorffAlphaNominal)) &&
+    value.allPairwiseKappaEstimable === expected.checks.allPairwiseKappaEstimable &&
+    sameClaimEligibility(value.claimEligibility, expected);
+}
+
+function aggregateReliabilityStatus(
+  coderCount: number,
+  pairwiseStatuses: SenaReliabilityEstimationStatus[],
+  alphaStatus: SenaReliabilityEstimationStatus
+): SenaReliabilityEstimationStatus {
+  if (coderCount < 2) return "insufficient-coders";
+  const statuses = [...pairwiseStatuses, alphaStatus];
+  if (statuses.some((status) => status === "legacy-ambiguous")) return "legacy-ambiguous";
+  if (statuses.some((status) => status === "insufficient-pairable-units")) return "insufficient-pairable-units";
+  if (statuses.some((status) => status === "single-observed-category")) return "single-observed-category";
+  return statuses.length > 1 && statuses.every((status) => status === "estimable")
+    ? "estimable"
+    : "insufficient-pairable-units";
 }
 
 export function buildSenaReliabilityDashboard(
   annotations: SenaCoderAnnotation[],
-  options: { skippedCells?: SenaSkippedCoderCell[] } = {}
+  options: {
+    skippedCells?: SenaSkippedCoderCell[];
+    projectBinding?: SenaReliabilityProjectBinding;
+  } = {}
 ): SenaReliabilityDashboard {
   const warnings: string[] = [];
   const skippedCells = options.skippedCells ?? [];
-  const missingCells = buildMissingCellLookup(skippedCells);
-  const coders = Array.from(new Set(annotations.map((annotation) => annotation.coderId))).sort();
-  const items = Array.from(new Set(annotations.map((annotation) => annotation.itemId))).sort();
-  const codes = Array.from(new Set(annotations.map((annotation) => annotation.codeId))).sort();
-  const unitKeys = items.flatMap((itemId) => codes.map((codeId) => `${itemId}::${codeId}`));
+  const { coders, items, codes } = preflightSenaReliabilityAnnotations(annotations);
+  const itemSet = new Set(items);
+  const codeSet = new Set(codes);
+  const derivationEvidence = buildReliabilityDerivationEvidence(annotations, skippedCells);
+  const annotationIndex = buildAnnotationIndex(annotations);
+  const missingCells = buildMissingCellIndex(skippedCells);
+  if (options.projectBinding) {
+    const coverage = canonicalAnnotationCoverage(annotations);
+    if (!isValidSenaReliabilityProjectBinding(options.projectBinding) ||
+      options.projectBinding.annotationCoverageHash !== reliabilityBindingHash(coverage) ||
+      options.projectBinding.skippedCellCoverageHash !== derivationEvidence.skippedCellCoverageHash ||
+      stableBindingValue(options.projectBinding.annotationCoverage) !== stableBindingValue(derivationEvidence.annotations) ||
+      stableBindingValue(options.projectBinding.skippedCellCoverage) !== stableBindingValue(derivationEvidence.skippedCells) ||
+      JSON.stringify(options.projectBinding.coderIds) !== JSON.stringify(coders) ||
+      JSON.stringify(options.projectBinding.annotatedItemIds) !== JSON.stringify(items) ||
+      JSON.stringify(options.projectBinding.annotatedCodeIds) !== JSON.stringify(codes)) {
+      throw new SenaReliabilityProjectBindingError([{ path: "projectBinding", code: "binding-mismatch" }]);
+    }
+  }
+  const unitKeys = items.flatMap((itemId) => codes.map((codeId) => ({ itemId, codeId })));
 
   if (coders.length < 2) warnings.push("At least two coders are required for reliability statistics.");
   if (items.length === 0 || codes.length === 0) warnings.push("No codable item-code units were available.");
   // Count only cells actually excluded: a recorded decision beats a skip, and
   // a skipped cell whose item or code never entered the unit universe excludes
   // nothing. Distinct cells; the per-row warnings disclose each skipped row.
-  const recordedCellKeys = new Set(annotations.map((annotation) => `${annotation.coderId}::${annotation.itemId}::${annotation.codeId}`));
-  const itemSet = new Set(items);
-  const codeSet = new Set(codes);
-  const excludedCellCount = Array.from(missingCells).filter((key) => {
-    const [, itemId, codeId] = key.split("::");
-    return !recordedCellKeys.has(key) && itemSet.has(itemId) && codeSet.has(codeId);
-  }).length;
+  let excludedCellCount = 0;
+  for (const [coderId, byItem] of missingCells) {
+    for (const [itemId, missingCodeIds] of byItem) {
+      if (!itemSet.has(itemId)) continue;
+      for (const codeId of missingCodeIds) {
+        if (codeSet.has(codeId) && annotationValue(annotationIndex, coderId, itemId, codeId) === undefined) {
+          excludedCellCount += 1;
+        }
+      }
+    }
+  }
   if (excludedCellCount > 0) {
     warnings.push(`${excludedCellCount} distinct coder cell(s) with an empty value were treated as missing data and excluded from pairable reliability units.`);
   }
 
-  const valuesByUnit = buildUnitRows(unitKeys, coders, annotations, missingCells);
+  const valuesByUnit = buildUnitRows(unitKeys, coders, annotationIndex, missingCells);
 
   const pairwiseCohenKappa: SenaPairwiseKappa[] = [];
+  const rawPairwiseKappas: number[] = [];
   for (let i = 0; i < coders.length; i += 1) {
     for (let j = i + 1; j < coders.length; j += 1) {
       const coderA = coders[i];
       const coderB = coders[j];
       const stats = cohenKappa(valuesByUnit.map((unit) => unit[coderA]), valuesByUnit.map((unit) => unit[coderB]));
+      if (stats.kappa !== null) rawPairwiseKappas.push(stats.kappa);
       pairwiseCohenKappa.push({
         coderA,
         coderB,
         units: stats.units,
-        observedAgreement: round(stats.observedAgreement),
-        expectedAgreement: round(stats.expectedAgreement),
-        kappa: round(stats.kappa)
+        status: stats.status,
+        raw: {
+          observedAgreement: stats.observedAgreement,
+          expectedAgreement: stats.expectedAgreement,
+          kappa: stats.kappa
+        },
+        observedAgreement: roundNullable(stats.observedAgreement),
+        expectedAgreement: roundNullable(stats.expectedAgreement),
+        kappa: roundNullable(stats.kappa)
       });
     }
   }
@@ -417,42 +1869,1208 @@ export function buildSenaReliabilityDashboard(
     const values = valuesByUnit[index];
     const decisions = new Set(Object.values(values));
     if (decisions.size <= 1) return;
-    const [itemId, codeId] = key.split("::");
-    adjudicationQueue.push({ itemId, codeId, values });
+    adjudicationQueue.push({ itemId: key.itemId, codeId: key.codeId, values });
   });
 
-  // No-evidence floor disclosure: pairs with fewer than 2 pairable units carry
-  // kappa 0 by convention (see cohenKappa), never a degenerate perfect score.
-  const flooredPairCount = pairwiseCohenKappa.filter((entry) => entry.units < 2).length;
-  if (flooredPairCount > 0) {
-    warnings.push(`${flooredPairCount} coder pair(s) had fewer than 2 pairable units; kappa is reported as 0 (no evidence) for them.`);
+  const unestimablePairCount = pairwiseCohenKappa.filter((entry) => entry.status !== "estimable").length;
+  if (unestimablePairCount > 0) {
+    warnings.push(`${unestimablePairCount} coder pair(s) were not estimable; their agreement estimates are reported as null with a stable status.`);
   }
 
-  const meanPairwiseKappa = round(mean(pairwiseCohenKappa.map((entry) => entry.kappa)));
-  const alpha = round(krippendorffAlphaNominal(valuesByUnit, coders));
-  const codeDiagnostics = buildCodeDiagnostics(items, codes, coders, annotations, missingCells);
+  const pairwiseStatuses = pairwiseCohenKappa.map((entry) => entry.status);
+  const meanPairwiseKappaStatus: SenaReliabilityEstimationStatus = coders.length < 2
+    ? "insufficient-coders"
+    : pairwiseStatuses.length === 0 || pairwiseStatuses.some((status) => status === "insufficient-pairable-units")
+      ? "insufficient-pairable-units"
+      : pairwiseStatuses.some((status) => status === "single-observed-category")
+        ? "single-observed-category"
+        : pairwiseStatuses.every((status) => status === "estimable")
+          ? "estimable"
+          : "legacy-ambiguous";
+  const rawMeanPairwiseKappa = meanPairwiseKappaStatus === "estimable"
+    ? mean(rawPairwiseKappas)
+    : null;
+  const meanPairwiseKappa = rawMeanPairwiseKappa === null ? null : round(rawMeanPairwiseKappa);
+  const alphaEstimate = krippendorffAlphaNominal(valuesByUnit, coders);
+  const alpha = roundNullable(alphaEstimate.value);
+  if (alphaEstimate.status !== "estimable") {
+    warnings.push(`Krippendorff alpha was not estimable (${alphaEstimate.status}); the score is reported as null.`);
+  }
+  const claimEligibility = buildSenaReliabilityClaimEligibility({
+    coderCount: coders.length,
+    pairwiseStatuses,
+    meanPairwiseKappa: rawMeanPairwiseKappa,
+    krippendorffAlphaNominal: alphaEstimate.value,
+    krippendorffAlphaNominalStatus: alphaEstimate.status,
+    unresolvedDisagreementCount: adjudicationQueue.length
+  });
+  const claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs = {
+    coderCount: coders.length,
+    pairwiseKappaStatuses: pairwiseStatuses,
+    meanPairwiseKappa: rawMeanPairwiseKappa,
+    krippendorffAlphaNominalStatus: alphaEstimate.status,
+    krippendorffAlphaNominal: alphaEstimate.value,
+    unresolvedDisagreementCount: adjudicationQueue.length
+  };
+  const status = aggregateReliabilityStatus(coders.length, pairwiseStatuses, alphaEstimate.status);
+  const codeDiagnostics = buildCodeDiagnostics(codes, coders, unitKeys, valuesByUnit);
   const interpretation = coders.length < 2
     ? "Reliability cannot be interpreted until at least two coders are uploaded."
-    : meanPairwiseKappa >= 0.8 && alpha >= 0.8
-      ? "Reliability evidence is strong enough for the local SENA claim-readiness gate, subject to study-specific review."
-      : meanPairwiseKappa >= 0.6 && alpha >= 0.6
+    : claimEligibility.eligible
+      ? "The machine reliability thresholds are met; human adjudication coverage and study-specific sign-off remain external evidence."
+      : rawMeanPairwiseKappa !== null && alphaEstimate.value !== null && rawMeanPairwiseKappa >= 0.6 && alphaEstimate.value >= 0.6
         ? "Reliability evidence is moderate; adjudicate disagreements before publication-facing claims."
-        : "Reliability evidence needs review before SENA graph patterns are treated as research claims.";
+        : status === "estimable"
+          ? "Reliability evidence needs review before SENA graph patterns are treated as research claims."
+          : `Reliability is not estimable (${status}); do not substitute a zero or perfect score.`;
 
-  return {
+  const dashboard: SenaReliabilityDashboard = {
     schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+    status,
     coderCount: coders.length,
+    coderIds: coders,
     itemCount: items.length,
     codeCount: codes.length,
     binaryUnitCount: unitKeys.length,
     pairwiseCohenKappa,
     codeDiagnostics,
+    meanPairwiseKappaStatus,
+    meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: alphaEstimate.status,
+    krippendorffAlphaNominalRaw: alphaEstimate.value,
+    krippendorffAlphaNominal: alpha,
+    claimEligibilityInputs,
+    claimEligibility,
+    disagreementCount: adjudicationQueue.length,
+    adjudicationQueue,
+    derivationEvidence,
+    interpretation,
+    warnings,
+    ...(options.projectBinding ? {
+      projectBinding: structuredClone(options.projectBinding)
+    } : {})
+  };
+  if (!isSenaReliabilityDashboardCarrierAdmitted(dashboard)) {
+    throw new SenaReliabilityUniverseLimitError([{
+      path: "annotations",
+      rule: `dashboard-carrier-text-byte-count-at-most-${SENA_RELIABILITY_CARRIER_MAX_TEXT_BYTES}`,
+      actual: "safe-integer-overflow",
+      maximum: SENA_RELIABILITY_CARRIER_MAX_TEXT_BYTES
+    }]);
+  }
+  return dashboard;
+}
+
+function reliabilityDashboardDerivedProjection(dashboard: SenaReliabilityDashboard) {
+  return {
+    status: dashboard.status,
+    coderCount: dashboard.coderCount,
+    coderIds: dashboard.coderIds,
+    itemCount: dashboard.itemCount,
+    codeCount: dashboard.codeCount,
+    binaryUnitCount: dashboard.binaryUnitCount,
+    pairwiseCohenKappa: dashboard.pairwiseCohenKappa,
+    codeDiagnostics: dashboard.codeDiagnostics,
+    meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    claimEligibilityInputs: dashboard.claimEligibilityInputs,
+    claimEligibility: dashboard.claimEligibility,
+    disagreementCount: dashboard.disagreementCount,
+    adjudicationQueue: dashboard.adjudicationQueue,
+    interpretation: dashboard.interpretation
+  };
+}
+
+function sameReliabilityDashboardDerivedMetrics(
+  submitted: SenaReliabilityDashboard,
+  expected: SenaReliabilityDashboard
+) {
+  return stableBindingValue(reliabilityDashboardDerivedProjection(submitted)) ===
+    stableBindingValue(reliabilityDashboardDerivedProjection(expected));
+}
+
+export function assertSenaReliabilityDashboardMatchesAnnotations(
+  dashboard: SenaReliabilityDashboard,
+  annotations: SenaCoderAnnotation[],
+  options: { skippedCells?: SenaSkippedCoderCell[] } = {}
+) {
+  const expected = buildSenaReliabilityDashboard(annotations, options);
+  if (!sameReliabilityDashboardDerivedMetrics(dashboard, expected)) {
+    throw new SenaReliabilityProjectBindingError([
+      { path: "dashboard", code: "derived-metrics-mismatch" }
+    ]);
+  }
+}
+
+function canonicalDashboardFromProjectBinding(binding: SenaReliabilityProjectBinding) {
+  return buildSenaReliabilityDashboard(binding.annotationCoverage, {
+    skippedCells: binding.skippedCellCoverage,
+    projectBinding: binding
+  });
+}
+
+function matchesProjectBoundDashboardDerivedMetrics(dashboard: SenaReliabilityDashboard) {
+  if (!dashboard.projectBinding) return true;
+  try {
+    return sameReliabilityDashboardDerivedMetrics(
+      dashboard,
+      canonicalDashboardFromProjectBinding(dashboard.projectBinding)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function reliabilityMachineDerivedProjection(
+  value: SenaCodingReliabilityMachineEvidence,
+  includeAdjudicationState = true
+) {
+  const statisticalProjection = {
+    status: value.status,
+    coderIds: value.coderIds,
+    pairwiseCohenKappa: value.pairwiseCohenKappa,
+    meanPairwiseKappaStatus: value.meanPairwiseKappaStatus,
+    meanPairwiseKappa: value.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: value.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominal,
+    allPairwiseKappaEstimable: value.allPairwiseKappaEstimable
+  };
+  return includeAdjudicationState ? {
+    ...statisticalProjection,
+    unresolvedDisagreementCount: value.unresolvedDisagreementCount,
+    claimEligibilityInputs: value.claimEligibilityInputs,
+    claimEligibility: value.claimEligibility
+  } : statisticalProjection;
+}
+
+function dashboardMachineDerivedProjection(
+  dashboard: SenaReliabilityDashboard,
+  includeAdjudicationState = true
+) {
+  const statisticalProjection = {
+    status: dashboard.status,
+    coderIds: dashboard.coderIds,
+    pairwiseCohenKappa: dashboard.pairwiseCohenKappa,
+    meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 &&
+      dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable")
+  };
+  return includeAdjudicationState ? {
+    ...statisticalProjection,
+    unresolvedDisagreementCount: dashboard.disagreementCount,
+    claimEligibilityInputs: dashboard.claimEligibilityInputs,
+    claimEligibility: dashboard.claimEligibility
+  } : statisticalProjection;
+}
+
+function matchesProjectBoundMachineEvidenceDerivedMetrics(
+  evidence: SenaCodingReliabilityMachineEvidence
+) {
+  if (!evidence.projectBinding) return true;
+  try {
+    const includeAdjudicationState = evidence.adjudicationCoverage === undefined;
+    return stableBindingValue(reliabilityMachineDerivedProjection(evidence, includeAdjudicationState)) ===
+      stableBindingValue(dashboardMachineDerivedProjection(
+        canonicalDashboardFromProjectBinding(evidence.projectBinding),
+        includeAdjudicationState
+      ));
+  } catch {
+    return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type SenaReliabilityCarrierBudget = {
+  textBytes: number;
+  pairEntries: number;
+  assignmentCells: number;
+  skippedCodeIds: number;
+  projectBindingMembers: number;
+};
+
+function newSenaReliabilityCarrierBudget(): SenaReliabilityCarrierBudget {
+  return {
+    textBytes: 0,
+    pairEntries: 0,
+    assignmentCells: 0,
+    skippedCodeIds: 0,
+    projectBindingMembers: 0
+  };
+}
+
+function hasExactSenaReliabilityCarrierKeys(
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[] = []
+): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string")) return false;
+  const allowed = new Set([...required, ...optional]);
+  if (keys.length < required.length || keys.length > allowed.size) return false;
+  for (const key of keys as string[]) {
+    if (!allowed.has(key)) return false;
+  }
+  return required.every((key) => Object.hasOwn(value, key));
+}
+
+function isDenseSenaReliabilityCarrierArray(
+  value: unknown,
+  maximum: number
+): value is unknown[] {
+  if (!Array.isArray(value) || value.length > maximum) return false;
+  let indexCount = 0;
+  for (const key of Reflect.ownKeys(value)) {
+    if (key === "length") continue;
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) return false;
+    const index = Number(key);
+    if (!Number.isSafeInteger(index) || index < 0 || index >= value.length || String(index) !== key) return false;
+    indexCount += 1;
+  }
+  return indexCount === value.length;
+}
+
+function admitSenaReliabilityCarrierText(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+): value is string {
+  if (typeof value !== "string" || value.length > SENA_RELIABILITY_CARRIER_MAX_STRING_BYTES) return false;
+  const bytes = new TextEncoder().encode(value).byteLength;
+  if (bytes > SENA_RELIABILITY_CARRIER_MAX_STRING_BYTES ||
+    budget.textBytes > SENA_RELIABILITY_CARRIER_MAX_TEXT_BYTES - bytes) return false;
+  budget.textBytes += bytes;
+  return true;
+}
+
+function admitSenaReliabilityCarrierTextArray(
+  value: unknown,
+  maximum: number,
+  budget: SenaReliabilityCarrierBudget
+): value is string[] {
+  if (!isDenseSenaReliabilityCarrierArray(value, maximum)) return false;
+  return value.every((entry) => admitSenaReliabilityCarrierText(entry, budget));
+}
+
+function reserveSenaReliabilityCarrierPairEntries(
+  length: number,
+  budget: SenaReliabilityCarrierBudget
+) {
+  const next = safeCardinalitySum([budget.pairEntries, length]);
+  if (next === null || next > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries) return false;
+  budget.pairEntries = next;
+  return true;
+}
+
+function admitSenaReliabilityPairCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget,
+  legacy: boolean
+) {
+  const required = legacy
+    ? ["coderA", "coderB", "units", "observedAgreement", "expectedAgreement", "kappa"]
+    : ["coderA", "coderB", "units", "status", "raw", "observedAgreement", "expectedAgreement", "kappa"];
+  if (!hasExactSenaReliabilityCarrierKeys(value, required) ||
+    !admitSenaReliabilityCarrierText(value.coderA, budget) ||
+    !admitSenaReliabilityCarrierText(value.coderB, budget)) return false;
+  if (!legacy && !hasExactSenaReliabilityCarrierKeys(
+    value.raw,
+    ["observedAgreement", "expectedAgreement", "kappa"]
+  )) return false;
+  return true;
+}
+
+function admitSenaReliabilityPairArrayCarrier(
+  value: unknown,
+  expectedPairCount: number,
+  budget: SenaReliabilityCarrierBudget,
+  legacy: boolean
+) {
+  if (!isDenseSenaReliabilityCarrierArray(value, SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) ||
+    value.length !== expectedPairCount ||
+    !reserveSenaReliabilityCarrierPairEntries(value.length, budget)) return false;
+  return value.every((entry) => admitSenaReliabilityPairCarrier(entry, budget, legacy));
+}
+
+function admitSenaReliabilityCoderRatesCarrier(
+  value: unknown,
+  coderIds: readonly string[],
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!isRecord(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => typeof key !== "string") || keys.length !== coderIds.length) return false;
+  const admittedCoderIds = new Set(coderIds);
+  for (const key of keys as string[]) {
+    if (!admittedCoderIds.has(key) || !admitSenaReliabilityCarrierText(key, budget)) return false;
+  }
+  for (const key of keys as string[]) {
+    if (typeof value[key] !== "number" || !Number.isFinite(value[key])) return false;
+  }
+  return true;
+}
+
+function admitSenaReliabilityDiagnosticsCarrier(
+  value: unknown,
+  coderIds: readonly string[],
+  expectedPairCount: number,
+  budget: SenaReliabilityCarrierBudget,
+  legacy: boolean
+) {
+  if (!isDenseSenaReliabilityCarrierArray(value, SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits)) return false;
+  for (const diagnostic of value) {
+    if (!hasExactSenaReliabilityCarrierKeys(diagnostic, [
+      "codeId", "unitCount", "positiveAssignments", "disagreementCount",
+      "agreementRate", "coderPositiveRates", "pairwiseCohenKappa"
+    ]) ||
+      !admitSenaReliabilityCarrierText(diagnostic.codeId, budget) ||
+      !admitSenaReliabilityCoderRatesCarrier(diagnostic.coderPositiveRates, coderIds, budget) ||
+      !admitSenaReliabilityPairArrayCarrier(
+        diagnostic.pairwiseCohenKappa,
+        expectedPairCount,
+        budget,
+        legacy
+      )) return false;
+  }
+  return true;
+}
+
+function admitSenaReliabilityDisagreementCarrier(
+  value: unknown,
+  coderIds: readonly string[],
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!hasExactSenaReliabilityCarrierKeys(value, ["itemId", "codeId", "values"]) ||
+    !admitSenaReliabilityCarrierText(value.itemId, budget) ||
+    !admitSenaReliabilityCarrierText(value.codeId, budget) ||
+    !isRecord(value.values)) return false;
+  const keys = Reflect.ownKeys(value.values);
+  if (keys.some((key) => typeof key !== "string") || keys.length < 2 || keys.length > coderIds.length) return false;
+  const admittedCoderIds = new Set(coderIds);
+  const nextAssignments = safeCardinalitySum([budget.assignmentCells, keys.length]);
+  if (nextAssignments === null || nextAssignments > SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells) return false;
+  budget.assignmentCells = nextAssignments;
+  for (const key of keys as string[]) {
+    if (!admittedCoderIds.has(key) || !admitSenaReliabilityCarrierText(key, budget)) return false;
+  }
+  for (const key of keys as string[]) {
+    if (typeof value.values[key] !== "boolean") return false;
+  }
+  return true;
+}
+
+function admitSenaReliabilityDisagreementArrayCarrier(
+  value: unknown,
+  coderIds: readonly string[],
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!isDenseSenaReliabilityCarrierArray(value, SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits)) return false;
+  return value.every((entry) => admitSenaReliabilityDisagreementCarrier(entry, coderIds, budget));
+}
+
+function admitSenaReliabilityAnnotationCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+) {
+  return hasExactSenaReliabilityCarrierKeys(value, ["coderId", "itemId", "codeId", "value"]) &&
+    admitSenaReliabilityCarrierText(value.coderId, budget) &&
+    admitSenaReliabilityCarrierText(value.itemId, budget) &&
+    admitSenaReliabilityCarrierText(value.codeId, budget) &&
+    typeof value.value === "boolean";
+}
+
+function admitSenaReliabilitySkippedCellCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!hasExactSenaReliabilityCarrierKeys(value, ["coderId", "itemId", "codeIds"]) ||
+    !admitSenaReliabilityCarrierText(value.coderId, budget) ||
+    !admitSenaReliabilityCarrierText(value.itemId, budget) ||
+    !isDenseSenaReliabilityCarrierArray(value.codeIds, SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows)) {
+    return false;
+  }
+  const nextCodeIds = safeCardinalitySum([budget.skippedCodeIds, value.codeIds.length]);
+  if (nextCodeIds === null || nextCodeIds > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) return false;
+  budget.skippedCodeIds = nextCodeIds;
+  return value.codeIds.every((codeId) => admitSenaReliabilityCarrierText(codeId, budget));
+}
+
+function admitSenaReliabilityDerivationCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!hasExactSenaReliabilityCarrierKeys(value, [
+    "hashAlgorithm", "annotationCoverageHash", "skippedCellCoverageHash", "annotations", "skippedCells"
+  ]) ||
+    !admitSenaReliabilityCarrierText(value.hashAlgorithm, budget) ||
+    !admitSenaReliabilityCarrierText(value.annotationCoverageHash, budget) ||
+    !admitSenaReliabilityCarrierText(value.skippedCellCoverageHash, budget) ||
+    !isDenseSenaReliabilityCarrierArray(value.annotations, SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows) ||
+    !isDenseSenaReliabilityCarrierArray(value.skippedCells, SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows)) {
+    return false;
+  }
+  for (const annotation of value.annotations) {
+    if (!admitSenaReliabilityAnnotationCarrier(annotation, budget)) return false;
+  }
+  for (const skippedCell of value.skippedCells) {
+    if (!admitSenaReliabilitySkippedCellCarrier(skippedCell, budget)) return false;
+  }
+  return true;
+}
+
+function admitSenaReliabilityProjectBindingCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+): value is SenaReliabilityProjectBinding {
+  if (!hasExactSenaReliabilityCarrierKeys(value, [
+    "status", "hashAlgorithm", "projectId", "projectVersion", "snapshotFingerprint",
+    "codebookUniverseHash", "itemUniverseHash", "coderCoverageHash", "annotationCoverageHash",
+    "skippedCellCoverageHash", "annotatedItemCoverageHash", "annotatedCodeCoverageHash",
+    "codebookUniverse", "itemUniverse", "annotationCoverage", "skippedCellCoverage",
+    "codebookIds", "itemUniverseIds", "annotatedItemIds", "annotatedCodeIds", "coderIds",
+    "annotationCount"
+  ])) return false;
+  const arrays = [
+    value.codebookUniverse,
+    value.itemUniverse,
+    value.annotationCoverage,
+    value.skippedCellCoverage,
+    value.codebookIds,
+    value.itemUniverseIds,
+    value.annotatedItemIds,
+    value.annotatedCodeIds,
+    value.coderIds
+  ];
+  if (!arrays.every((entry) => isDenseSenaReliabilityCarrierArray(
+    entry,
+    SENA_RELIABILITY_UNIVERSE_LIMITS.projectBindingCarrierMembers
+  ))) return false;
+  const memberCount = safeCardinalitySum(arrays.map((entry) => (entry as unknown[]).length));
+  if (memberCount === null ||
+    memberCount > SENA_RELIABILITY_UNIVERSE_LIMITS.projectBindingCarrierMembers) return false;
+  budget.projectBindingMembers = memberCount;
+  if ((value.codebookUniverse as unknown[]).length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits ||
+    (value.itemUniverse as unknown[]).length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits ||
+    (value.annotationCoverage as unknown[]).length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    (value.skippedCellCoverage as unknown[]).length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    !(value.coderIds as unknown[]).length ||
+    safeUnorderedPairCount((value.coderIds as unknown[]).length) === null ||
+    Number(safeUnorderedPairCount((value.coderIds as unknown[]).length)) > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) {
+    return false;
+  }
+  for (const field of [
+    "status", "hashAlgorithm", "projectId", "snapshotFingerprint", "codebookUniverseHash",
+    "itemUniverseHash", "coderCoverageHash", "annotationCoverageHash", "skippedCellCoverageHash",
+    "annotatedItemCoverageHash", "annotatedCodeCoverageHash"
+  ] as const) {
+    if (!admitSenaReliabilityCarrierText(value[field], budget)) return false;
+  }
+  for (const entry of value.codebookUniverse as unknown[]) {
+    if (!hasExactSenaReliabilityCarrierKeys(entry, ["id", "label"]) ||
+      !admitSenaReliabilityCarrierText(entry.id, budget) ||
+      !admitSenaReliabilityCarrierText(entry.label, budget)) return false;
+  }
+  for (const entry of value.itemUniverse as unknown[]) {
+    if (!hasExactSenaReliabilityCarrierKeys(entry, ["id", "kind"]) ||
+      !admitSenaReliabilityCarrierText(entry.id, budget) ||
+      !admitSenaReliabilityCarrierText(entry.kind, budget)) return false;
+  }
+  for (const entry of value.annotationCoverage as unknown[]) {
+    if (!admitSenaReliabilityAnnotationCarrier(entry, budget)) return false;
+  }
+  for (const entry of value.skippedCellCoverage as unknown[]) {
+    const previousSkippedCodeIds = budget.skippedCodeIds;
+    if (!admitSenaReliabilitySkippedCellCarrier(entry, budget)) return false;
+    const added = budget.skippedCodeIds - previousSkippedCodeIds;
+    const nextMembers = safeCardinalitySum([budget.projectBindingMembers, added]);
+    if (nextMembers === null ||
+      nextMembers > SENA_RELIABILITY_UNIVERSE_LIMITS.projectBindingCarrierMembers) return false;
+    budget.projectBindingMembers = nextMembers;
+  }
+  for (const entries of [
+    value.codebookIds,
+    value.itemUniverseIds,
+    value.annotatedItemIds,
+    value.annotatedCodeIds,
+    value.coderIds
+  ]) {
+    if (!(entries as unknown[]).every((entry) => admitSenaReliabilityCarrierText(entry, budget))) return false;
+  }
+  return true;
+}
+
+function admitSenaReliabilityEligibilityInputsCarrier(
+  value: unknown,
+  expectedPairCount: number,
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!hasExactSenaReliabilityCarrierKeys(value, [
+    "coderCount", "pairwiseKappaStatuses", "meanPairwiseKappa",
+    "krippendorffAlphaNominalStatus", "krippendorffAlphaNominal",
+    "unresolvedDisagreementCount"
+  ]) ||
+    !isDenseSenaReliabilityCarrierArray(
+      value.pairwiseKappaStatuses,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    ) ||
+    value.pairwiseKappaStatuses.length !== expectedPairCount) return false;
+  return value.pairwiseKappaStatuses.every((status) => admitSenaReliabilityCarrierText(status, budget)) &&
+    admitSenaReliabilityCarrierText(value.krippendorffAlphaNominalStatus, budget);
+}
+
+function admitSenaReliabilityEligibilityCarrier(
+  value: unknown,
+  budget: SenaReliabilityCarrierBudget
+) {
+  if (!hasExactSenaReliabilityCarrierKeys(value, [
+    "eligible", "threshold", "checks", "blockers", "adjudication"
+  ]) ||
+    !hasExactSenaReliabilityCarrierKeys(value.threshold, [
+      "minimumCoders", "meanPairwiseKappa", "krippendorffAlphaNominal"
+    ]) ||
+    !hasExactSenaReliabilityCarrierKeys(value.checks, [
+      "minimumCoders", "allPairwiseKappaEstimable", "krippendorffAlphaEstimable",
+      "meanPairwiseKappaAtThreshold", "krippendorffAlphaAtThreshold", "noUnresolvedDisagreements"
+    ]) ||
+    !hasExactSenaReliabilityCarrierKeys(value.adjudication, ["status", "disclosure"]) ||
+    !isDenseSenaReliabilityCarrierArray(value.blockers, SENA_RELIABILITY_CARRIER_MAX_BLOCKERS)) {
+    return false;
+  }
+  if (!(value.blockers as unknown[]).every((entry) => admitSenaReliabilityCarrierText(entry, budget))) return false;
+  return admitSenaReliabilityCarrierText(value.adjudication.status, budget) &&
+    admitSenaReliabilityCarrierText(value.adjudication.disclosure, budget);
+}
+
+function admittedLegacySenaReliabilityCoderIds(
+  pairwiseCohenKappa: unknown[],
+  coderCount: number
+) {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of pairwiseCohenKappa) {
+    const pair = candidate as Record<string, unknown>;
+    for (const coderId of [pair.coderA, pair.coderB]) {
+      if (typeof coderId === "string" && !seen.has(coderId)) {
+        seen.add(coderId);
+        ids.push(coderId);
+      }
+    }
+  }
+  while (ids.length < coderCount) ids.push(`legacy-coder-${ids.length + 1}`);
+  return ids.slice(0, coderCount).sort(compareSenaCanonicalText);
+}
+
+function isSenaReliabilityDashboardCarrierAdmitted(
+  value: unknown
+): value is SenaReliabilityDashboardReadModel {
+  if (!isRecord(value)) return false;
+  const budget = newSenaReliabilityCarrierBudget();
+  if (value.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard) {
+    if (!hasExactSenaReliabilityCarrierKeys(value, [
+      "schemaVersion", "sourceSchemaVersion", "status", "coderCount", "coderIds", "itemCount",
+      "codeCount", "binaryUnitCount", "pairwiseCohenKappa", "codeDiagnostics",
+      "meanPairwiseKappaStatus", "meanPairwiseKappa", "krippendorffAlphaNominalStatus",
+      "krippendorffAlphaNominalRaw", "krippendorffAlphaNominal", "claimEligibilityInputs",
+      "claimEligibility", "disagreementCount", "adjudicationQueue", "interpretation", "warnings"
+    ], ["derivationEvidence", "projectBinding"]) ||
+      !admitSenaReliabilityCarrierText(value.schemaVersion, budget) ||
+      !admitSenaReliabilityCarrierText(value.sourceSchemaVersion, budget) ||
+      !admitSenaReliabilityCarrierText(value.status, budget) ||
+      !Number.isSafeInteger(value.coderCount) || Number(value.coderCount) < 0 ||
+      !isDenseSenaReliabilityCarrierArray(value.coderIds, SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs + 1)) {
+      return false;
+    }
+    const coderIds = value.coderIds as unknown[];
+    if (coderIds.length !== value.coderCount ||
+      !coderIds.every((coderId) => admitSenaReliabilityCarrierText(coderId, budget))) return false;
+    const expectedPairCount = safeUnorderedPairCount(coderIds.length);
+    if (expectedPairCount === null || expectedPairCount > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs ||
+      !admitSenaReliabilityPairArrayCarrier(value.pairwiseCohenKappa, expectedPairCount, budget, false) ||
+      !admitSenaReliabilityDiagnosticsCarrier(
+        value.codeDiagnostics,
+        coderIds as string[],
+        expectedPairCount,
+        budget,
+        false
+      ) ||
+      !admitSenaReliabilityDisagreementArrayCarrier(value.adjudicationQueue, coderIds as string[], budget) ||
+      !admitSenaReliabilityEligibilityInputsCarrier(value.claimEligibilityInputs, expectedPairCount, budget) ||
+      !admitSenaReliabilityEligibilityCarrier(value.claimEligibility, budget) ||
+      !admitSenaReliabilityCarrierText(value.meanPairwiseKappaStatus, budget) ||
+      !admitSenaReliabilityCarrierText(value.krippendorffAlphaNominalStatus, budget) ||
+      !admitSenaReliabilityCarrierText(value.interpretation, budget) ||
+      !admitSenaReliabilityCarrierTextArray(
+        value.warnings,
+        SENA_RELIABILITY_CARRIER_MAX_CURRENT_WARNINGS,
+        budget
+      )) return false;
+    const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+    const legacySource = value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard;
+    if ((!currentSource && !legacySource) ||
+      (currentSource && !Object.hasOwn(value, "derivationEvidence")) ||
+      (legacySource && Object.hasOwn(value, "derivationEvidence")) ||
+      (currentSource && !admitSenaReliabilityDerivationCarrier(value.derivationEvidence, budget)) ||
+      (value.projectBinding !== undefined &&
+        !admitSenaReliabilityProjectBindingCarrier(value.projectBinding, budget))) return false;
+    return true;
+  }
+  if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard ||
+    !hasExactSenaReliabilityCarrierKeys(value, [
+      "schemaVersion", "coderCount", "itemCount", "codeCount", "binaryUnitCount",
+      "pairwiseCohenKappa", "codeDiagnostics", "meanPairwiseKappa",
+      "krippendorffAlphaNominal", "disagreementCount", "adjudicationQueue",
+      "interpretation", "warnings"
+    ]) ||
+    !admitSenaReliabilityCarrierText(value.schemaVersion, budget) ||
+    !Number.isSafeInteger(value.coderCount) || Number(value.coderCount) < 0) return false;
+  const expectedPairCount = safeUnorderedPairCount(Number(value.coderCount));
+  if (expectedPairCount === null || expectedPairCount > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs ||
+    !admitSenaReliabilityPairArrayCarrier(value.pairwiseCohenKappa, expectedPairCount, budget, true)) {
+    return false;
+  }
+  const coderIds = admittedLegacySenaReliabilityCoderIds(
+    value.pairwiseCohenKappa as unknown[],
+    Number(value.coderCount)
+  );
+  return admitSenaReliabilityDiagnosticsCarrier(
+    value.codeDiagnostics,
+    coderIds,
+    expectedPairCount,
+    budget,
+    true
+  ) &&
+    admitSenaReliabilityDisagreementArrayCarrier(value.adjudicationQueue, coderIds, budget) &&
+    admitSenaReliabilityCarrierText(value.interpretation, budget) &&
+    admitSenaReliabilityCarrierTextArray(
+      value.warnings,
+      SENA_RELIABILITY_CARRIER_MAX_LEGACY_WARNINGS,
+      budget
+    );
+}
+
+function isValidSenaReliabilityDerivationEvidence(value: unknown): value is SenaReliabilityDerivationEvidence {
+  if (!admitSenaReliabilityDerivationCarrier(value, newSenaReliabilityCarrierBudget()) ||
+    !isRecord(value) || !Array.isArray(value.annotations) ||
+    value.annotations.length > SENA_RELIABILITY_UNIVERSE_LIMITS.annotationRows ||
+    !Array.isArray(value.skippedCells)) return false;
+  try {
+    assertSenaReliabilitySkippedCellsWithinLimits(value.skippedCells);
+  } catch {
+    return false;
+  }
+  if (value.hashAlgorithm !== "sena-stable-fnv1a32/v1" ||
+    typeof value.annotationCoverageHash !== "string" || !/^0x[a-f0-9]{8}$/.test(value.annotationCoverageHash) ||
+    typeof value.skippedCellCoverageHash !== "string" || !/^0x[a-f0-9]{8}$/.test(value.skippedCellCoverageHash) ||
+    !value.annotations.every((entry) => (
+      isRecord(entry) && typeof entry.coderId === "string" && entry.coderId.length > 0 &&
+      typeof entry.itemId === "string" && entry.itemId.length > 0 &&
+      typeof entry.codeId === "string" && entry.codeId.length > 0 &&
+      typeof entry.value === "boolean"
+    )) ||
+    !value.skippedCells.every((entry) => (
+      isRecord(entry) && typeof entry.coderId === "string" && entry.coderId.length > 0 &&
+      typeof entry.itemId === "string" && entry.itemId.length > 0 &&
+      Array.isArray(entry.codeIds) && entry.codeIds.length > 0 &&
+      entry.codeIds.every((codeId) => typeof codeId === "string" && codeId.length > 0)
+    ))) return false;
+  const annotations = canonicalAnnotationCoverage(value.annotations as SenaCoderAnnotation[]);
+  const skippedCells = canonicalSkippedCellCoverage(value.skippedCells as SenaSkippedCoderCell[]);
+  const annotationKeys = annotations.map((entry) => canonicalTupleKey([
+    entry.coderId,
+    entry.itemId,
+    entry.codeId
+  ]));
+  const skippedKeys = skippedCells.flatMap((entry) => entry.codeIds.map((codeId) => (
+    canonicalTupleKey([entry.coderId, entry.itemId, codeId])
+  )));
+  return new Set(annotationKeys).size === annotationKeys.length &&
+    new Set(skippedKeys).size === skippedKeys.length &&
+    stableBindingValue(value.annotations) === stableBindingValue(annotations) &&
+    stableBindingValue(value.skippedCells) === stableBindingValue(skippedCells) &&
+    value.annotationCoverageHash === reliabilityBindingHash(annotations) &&
+    value.skippedCellCoverageHash === reliabilityBindingHash(skippedCells);
+}
+
+function finiteOrNull(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeLegacyPairwiseKappa(value: unknown): SenaPairwiseKappa {
+  const pair = isRecord(value) ? value : {};
+  return {
+    coderA: typeof pair.coderA === "string" ? pair.coderA : "unknown-coder-a",
+    coderB: typeof pair.coderB === "string" ? pair.coderB : "unknown-coder-b",
+    units: typeof pair.units === "number" && Number.isFinite(pair.units) ? Math.max(0, Math.trunc(pair.units)) : 0,
+    status: "legacy-ambiguous",
+    raw: {
+      observedAgreement: null,
+      expectedAgreement: null,
+      kappa: null
+    },
+    observedAgreement: finiteOrNull(pair.observedAgreement),
+    expectedAgreement: finiteOrNull(pair.expectedAgreement),
+    kappa: finiteOrNull(pair.kappa)
+  };
+}
+
+function approximatelyEqual(left: number, right: number, tolerance = 1e-12) {
+  return Math.abs(left - right) <= tolerance * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
+function inClosedUnitInterval(value: number) {
+  return value >= 0 && value <= 1;
+}
+
+function isValidPairwiseKappa(value: unknown) {
+  const raw = isRecord(value) && isRecord(value.raw) ? value.raw : null;
+  if (!isRecord(value) ||
+    typeof value.coderA !== "string" ||
+    typeof value.coderB !== "string" ||
+    !Number.isInteger(value.units) || Number(value.units) < 0 ||
+    !isReliabilityEstimationStatus(value.status) ||
+    !raw ||
+    !finiteNumberOrNull(raw.observedAgreement) ||
+    !finiteNumberOrNull(raw.expectedAgreement) ||
+    !finiteNumberOrNull(raw.kappa) ||
+    !finiteNumberOrNull(value.observedAgreement) ||
+    !finiteNumberOrNull(value.expectedAgreement) ||
+    !finiteNumberOrNull(value.kappa)) return false;
+  if (value.status === "estimable") {
+    if (Number(value.units) < 2 ||
+      typeof raw.observedAgreement !== "number" ||
+      typeof raw.expectedAgreement !== "number" ||
+      typeof raw.kappa !== "number" ||
+      typeof value.observedAgreement !== "number" ||
+      typeof value.expectedAgreement !== "number" ||
+      typeof value.kappa !== "number") return false;
+    if (!inClosedUnitInterval(raw.observedAgreement) ||
+      !inClosedUnitInterval(raw.expectedAgreement) ||
+      raw.expectedAgreement >= 1 ||
+      raw.kappa < -1 || raw.kappa > 1) return false;
+    const expectedKappa = (raw.observedAgreement - raw.expectedAgreement) / (1 - raw.expectedAgreement);
+    return approximatelyEqual(raw.kappa, expectedKappa) &&
+      value.observedAgreement === roundNullable(raw.observedAgreement) &&
+      value.expectedAgreement === roundNullable(raw.expectedAgreement) &&
+      value.kappa === roundNullable(raw.kappa);
+  }
+  if (value.status === "insufficient-pairable-units" || value.status === "insufficient-coders") {
+    return raw.observedAgreement === null && raw.expectedAgreement === null && raw.kappa === null &&
+      value.observedAgreement === null && value.expectedAgreement === null && value.kappa === null;
+  }
+  if (value.status === "legacy-ambiguous") {
+    return raw.observedAgreement === null && raw.expectedAgreement === null && raw.kappa === null;
+  }
+  return Number(value.units) >= 2 &&
+    typeof raw.observedAgreement === "number" && raw.observedAgreement === 1 &&
+    typeof raw.expectedAgreement === "number" && raw.expectedAgreement === 1 &&
+    raw.kappa === null &&
+    value.observedAgreement === roundNullable(raw.observedAgreement) &&
+    value.expectedAgreement === roundNullable(raw.expectedAgreement) &&
+    value.kappa === null;
+}
+
+function expectedPairKeys(coderIds: string[]) {
+  assertSenaReliabilityReaderCoderPairBudget(coderIds.length);
+  const keys: string[] = [];
+  for (let left = 0; left < coderIds.length; left += 1) {
+    for (let right = left + 1; right < coderIds.length; right += 1) {
+      keys.push(canonicalTupleKey([coderIds[left], coderIds[right]].sort(compareSenaCanonicalText)));
+    }
+  }
+  return keys.sort(compareSenaCanonicalText);
+}
+
+function reliabilityReaderCollectionLimit(
+  rule: string,
+  actual: number | "safe-integer-overflow",
+  maximum: number
+): never {
+  throw new SenaReliabilityUniverseLimitError([{
+    path: "annotations",
+    rule,
+    actual,
+    maximum
+  }]);
+}
+
+function assertSenaReliabilityDashboardRawReaderBudgets(value: unknown) {
+  if (!isRecord(value)) return;
+  if (value.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    Array.isArray(value.coderIds)) {
+    assertSenaReliabilityReaderCoderPairBudget(value.coderIds.length);
+  } else if (value.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    Number.isSafeInteger(value.coderCount) && Number(value.coderCount) >= 0) {
+    assertSenaReliabilityReaderCoderPairBudget(Number(value.coderCount));
+  }
+  if (Array.isArray(value.pairwiseCohenKappa) &&
+    value.pairwiseCohenKappa.length > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) {
+    reliabilityReaderCollectionLimit(
+      `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      value.pairwiseCohenKappa.length,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    );
+  }
+}
+
+function assertSenaReliabilityDashboardReaderCollections(
+  value: Record<string, unknown>,
+  expectedPairCount: number
+) {
+  const pairwiseCandidate = value.pairwiseCohenKappa;
+  const adjudicationQueueCandidate = value.adjudicationQueue;
+  const codeDiagnosticsCandidate = value.codeDiagnostics;
+  const pairwisePresent = Array.isArray(pairwiseCandidate);
+  const adjudicationQueuePresent = Array.isArray(adjudicationQueueCandidate);
+  const codeDiagnosticsPresent = Array.isArray(codeDiagnosticsCandidate);
+  const pairwise = pairwisePresent ? pairwiseCandidate : [];
+  const adjudicationQueue = adjudicationQueuePresent ? adjudicationQueueCandidate : [];
+  const codeDiagnostics = codeDiagnosticsPresent ? codeDiagnosticsCandidate : [];
+  if (pairwise.length > SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs) {
+    reliabilityReaderCollectionLimit(
+      `coder-pair-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs}`,
+      pairwise.length,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.coderPairs
+    );
+  }
+  const exactPairCount = pairwise.length === expectedPairCount;
+  if (adjudicationQueue.length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) {
+    reliabilityReaderCollectionLimit(
+      `binary-unit-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits}`,
+      adjudicationQueue.length,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits
+    );
+  }
+  if (codeDiagnostics.length > SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits) {
+    reliabilityReaderCollectionLimit(
+      `binary-unit-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits}`,
+      codeDiagnostics.length,
+      SENA_RELIABILITY_UNIVERSE_LIMITS.binaryUnits
+    );
+  }
+  let pairwiseResultEntries = pairwise.length;
+  let structurallyValid = pairwisePresent && adjudicationQueuePresent && codeDiagnosticsPresent;
+  for (const diagnostic of codeDiagnostics) {
+    if (!isRecord(diagnostic) || !Array.isArray(diagnostic.pairwiseCohenKappa)) {
+      structurallyValid = false;
+      continue;
+    }
+    const next = safeCardinalitySum([
+      pairwiseResultEntries,
+      diagnostic.pairwiseCohenKappa.length
+    ]);
+    if (next === null || next > SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries) {
+      reliabilityReaderCollectionLimit(
+        `pairwise-result-entry-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries}`,
+        next ?? "safe-integer-overflow",
+        SENA_RELIABILITY_UNIVERSE_LIMITS.pairwiseResultEntries
+      );
+    }
+    pairwiseResultEntries = next;
+  }
+  let assignmentCells = 0;
+  for (const candidate of adjudicationQueue) {
+    if (!isRecord(candidate) || !isRecord(candidate.values)) continue;
+    for (const key in candidate.values) {
+      if (!Object.prototype.hasOwnProperty.call(candidate.values, key)) continue;
+      assignmentCells += 1;
+      if (assignmentCells > SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells) {
+        reliabilityReaderCollectionLimit(
+          `assignment-cell-count-at-most-${SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells}`,
+          assignmentCells,
+          SENA_RELIABILITY_UNIVERSE_LIMITS.assignmentCells
+        );
+      }
+    }
+  }
+  return exactPairCount && structurallyValid;
+}
+
+function isSenaReliabilityDashboardV2ReadModel(value: unknown): value is SenaReliabilityDashboard {
+  if (!isSenaReliabilityDashboardCarrierAdmitted(value) ||
+    value.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityDashboard ||
+    (value.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+      value.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard) ||
+    !isReliabilityEstimationStatus(value.status) ||
+    !Number.isInteger(value.coderCount) || Number(value.coderCount) < 0 ||
+    !Array.isArray(value.coderIds) ||
+    !Array.isArray(value.pairwiseCohenKappa) ||
+    !Array.isArray(value.codeDiagnostics) ||
+    !Array.isArray(value.adjudicationQueue)) return false;
+  const expectedPairCount = assertSenaReliabilityReaderCoderPairBudget(value.coderIds.length);
+  if (!assertSenaReliabilityDashboardReaderCollections(value, expectedPairCount) ||
+    !value.coderIds.every((coderId) => typeof coderId === "string" && coderId.length > 0) ||
+    !value.pairwiseCohenKappa.every(isValidPairwiseKappa) ||
+    !isReliabilityEstimationStatus(value.meanPairwiseKappaStatus) ||
+    !finiteNumberOrNull(value.meanPairwiseKappa) ||
+    !isReliabilityEstimationStatus(value.krippendorffAlphaNominalStatus) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominalRaw) ||
+    !finiteNumberOrNull(value.krippendorffAlphaNominal) ||
+    !Number.isInteger(value.disagreementCount) || Number(value.disagreementCount) < 0 ||
+    !isSenaReliabilityClaimEligibilityInputs(value.claimEligibilityInputs) ||
+    !isClaimEligibility(value.claimEligibility) ||
+    (value.projectBinding !== undefined && !isValidSenaReliabilityProjectBinding(value.projectBinding))) return false;
+
+  const currentSource = value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  if (currentSource && !isValidSenaReliabilityDerivationEvidence(value.derivationEvidence)) return false;
+
+  const inputs = value.claimEligibilityInputs;
+  const coderIds = value.coderIds as string[];
+  const coderIdSet = new Set(coderIds);
+  const adjudicationQueue = value.adjudicationQueue as unknown[];
+  const adjudicationKeys = adjudicationQueue.map((candidate) => {
+    if (!isRecord(candidate) || typeof candidate.itemId !== "string" || candidate.itemId.length === 0 ||
+      typeof candidate.codeId !== "string" || candidate.codeId.length === 0 || !isRecord(candidate.values)) return "";
+    const entries = Object.entries(candidate.values);
+    if (entries.length < 2 || entries.some(([coderId, decision]) => (
+      !coderIdSet.has(coderId) || typeof decision !== "boolean"
+    )) || new Set(entries.map(([, decision]) => decision)).size < 2) return "";
+    return canonicalTupleKey([candidate.itemId, candidate.codeId]);
+  });
+  if (adjudicationQueue.length !== Number(value.disagreementCount) ||
+    adjudicationKeys.some((key) => key.length === 0) ||
+    new Set(adjudicationKeys).size !== adjudicationKeys.length) return false;
+  const pairwiseStatuses = value.pairwiseCohenKappa.map((pair) => pair.status);
+  const pairKeys = value.pairwiseCohenKappa
+    .map((pair) => canonicalTupleKey([pair.coderA, pair.coderB].sort(compareSenaCanonicalText)))
+    .sort(compareSenaCanonicalText);
+  const canonicalPairKeys = expectedPairKeys(coderIds);
+  if (new Set(coderIds).size !== coderIds.length ||
+    coderIds.length !== value.coderCount ||
+    !sameStringArray(pairKeys, canonicalPairKeys)) return false;
+  if (value.projectBinding !== undefined && (
+    JSON.stringify(value.projectBinding.coderIds) !== JSON.stringify(coderIds) ||
+    value.projectBinding.annotatedItemIds.length !== Number(value.itemCount) ||
+    value.projectBinding.annotatedCodeIds.length !== Number(value.codeCount) ||
+    JSON.stringify(value.projectBinding.annotatedCodeIds) !== JSON.stringify(
+      (value.codeDiagnostics as SenaCodeReliabilityDiagnostic[])
+        .map((entry) => entry.codeId)
+        .sort(compareSenaCanonicalText)
+    )
+  )) return false;
+  const rawMeanPairwiseKappa = pairwiseStatuses.length > 0 && pairwiseStatuses.every((status) => status === "estimable")
+    ? mean(value.pairwiseCohenKappa.map((pair) => pair.raw.kappa as number))
+    : null;
+  const canonicalInputs: SenaReliabilityClaimEligibilityInputs = {
+    coderCount: coderIds.length,
+    pairwiseKappaStatuses: pairwiseStatuses,
+    meanPairwiseKappa: rawMeanPairwiseKappa,
+    krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+    krippendorffAlphaNominal: value.krippendorffAlphaNominalRaw,
+    unresolvedDisagreementCount: Number(value.disagreementCount)
+  };
+  const expected = deriveSenaReliabilityClaimEligibility(canonicalInputs);
+  const expectedStatus = aggregateReliabilityStatus(
+    Number(value.coderCount),
+    pairwiseStatuses,
+    value.krippendorffAlphaNominalStatus
+  );
+  const expectedMeanStatus: SenaReliabilityEstimationStatus = Number(value.coderCount) < 2
+    ? "insufficient-coders"
+    : pairwiseStatuses.length === 0 || pairwiseStatuses.some((status) => status === "insufficient-pairable-units")
+      ? "insufficient-pairable-units"
+      : pairwiseStatuses.some((status) => status === "single-observed-category")
+        ? "single-observed-category"
+        : pairwiseStatuses.every((status) => status === "estimable")
+          ? "estimable"
+          : "legacy-ambiguous";
+  if (currentSource) {
+    const evidence = value.derivationEvidence as SenaReliabilityDerivationEvidence;
+    let rebuilt: SenaReliabilityDashboard;
+    try {
+      rebuilt = buildSenaReliabilityDashboard(evidence.annotations, {
+        skippedCells: evidence.skippedCells,
+        projectBinding: value.projectBinding as SenaReliabilityProjectBinding | undefined
+      });
+    } catch {
+      return false;
+    }
+    if (!sameReliabilityDashboardDerivedMetrics(value as unknown as SenaReliabilityDashboard, rebuilt) ||
+      (value.projectBinding !== undefined && (
+        stableBindingValue(value.projectBinding.annotationCoverage) !== stableBindingValue(evidence.annotations) ||
+        stableBindingValue(value.projectBinding.skippedCellCoverage) !== stableBindingValue(evidence.skippedCells)
+      ))) return false;
+  }
+  const legacySourceValid = !currentSource &&
+    value.coderIds.length === value.coderCount &&
+    value.status === "legacy-ambiguous" &&
+    value.meanPairwiseKappaStatus === "legacy-ambiguous" &&
+    value.meanPairwiseKappa === null &&
+    value.krippendorffAlphaNominalStatus === "legacy-ambiguous" &&
+    value.krippendorffAlphaNominalRaw === null &&
+    value.krippendorffAlphaNominal === null &&
+    value.claimEligibility.eligible === false &&
+    value.claimEligibility.blockers.includes("current-v2-estimates-required");
+  if (legacySourceValid) return true;
+
+  if (value.status === "legacy-ambiguous" ||
+    value.meanPairwiseKappaStatus === "legacy-ambiguous" ||
+    value.krippendorffAlphaNominalStatus === "legacy-ambiguous" ||
+    pairwiseStatuses.some((status) => status === "legacy-ambiguous")) return false;
+
+  return inputs.coderCount === canonicalInputs.coderCount &&
+    sameStringArray(inputs.pairwiseKappaStatuses, pairwiseStatuses) &&
+    sameNullableNumber(inputs.meanPairwiseKappa, canonicalInputs.meanPairwiseKappa) &&
+    inputs.krippendorffAlphaNominalStatus === canonicalInputs.krippendorffAlphaNominalStatus &&
+    sameNullableNumber(inputs.krippendorffAlphaNominal, canonicalInputs.krippendorffAlphaNominal) &&
+    inputs.unresolvedDisagreementCount === canonicalInputs.unresolvedDisagreementCount &&
+    value.status === expectedStatus &&
+    value.meanPairwiseKappaStatus === expectedMeanStatus &&
+    sameNullableNumber(value.meanPairwiseKappa, roundNullable(canonicalInputs.meanPairwiseKappa)) &&
+    sameNullableNumber(value.krippendorffAlphaNominal, roundNullable(value.krippendorffAlphaNominalRaw)) &&
+    (value.krippendorffAlphaNominalStatus === "estimable"
+      ? typeof value.krippendorffAlphaNominalRaw === "number" && value.krippendorffAlphaNominalRaw >= -1 && value.krippendorffAlphaNominalRaw <= 1
+      : value.krippendorffAlphaNominalRaw === null && value.krippendorffAlphaNominal === null) &&
+    isSemanticallyConsistentEligibilityInputs(canonicalInputs) &&
+    sameClaimEligibility(value.claimEligibility, expected);
+}
+
+export function isCurrentSenaReliabilityDashboard(value: unknown): value is SenaReliabilityDashboard {
+  return isSenaReliabilityDashboardV2ReadModel(value) &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+}
+
+export function normalizeSenaReliabilityDashboard(
+  value: SenaReliabilityDashboardReadModel
+): SenaReliabilityDashboard {
+  // Length-only work limits precede carrier traversal and every semantic map.
+  // They do not inspect array entries or unknown carrier-field values.
+  assertSenaReliabilityDashboardRawReaderBudgets(value);
+  if (!isSenaReliabilityDashboardCarrierAdmitted(value)) {
+    throw new Error(
+      "SENA reliability dashboard raw carrier is outside the exact bounded contract or has contradictory or incomplete semantic eligibility evidence."
+    );
+  }
+  if (value.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard) {
+    if (!isSenaReliabilityDashboardV2ReadModel(value)) {
+      throw new Error("SENA reliability dashboard v2 has contradictory or incomplete semantic eligibility evidence.");
+    }
+    return {
+      schemaVersion: value.schemaVersion,
+      sourceSchemaVersion: value.sourceSchemaVersion,
+      status: value.status,
+      coderCount: value.coderCount,
+      coderIds: structuredClone(value.coderIds),
+      itemCount: value.itemCount,
+      codeCount: value.codeCount,
+      binaryUnitCount: value.binaryUnitCount,
+      pairwiseCohenKappa: structuredClone(value.pairwiseCohenKappa),
+      codeDiagnostics: structuredClone(value.codeDiagnostics),
+      meanPairwiseKappaStatus: value.meanPairwiseKappaStatus,
+      meanPairwiseKappa: value.meanPairwiseKappa,
+      krippendorffAlphaNominalStatus: value.krippendorffAlphaNominalStatus,
+      krippendorffAlphaNominalRaw: value.krippendorffAlphaNominalRaw,
+      krippendorffAlphaNominal: value.krippendorffAlphaNominal,
+      claimEligibilityInputs: structuredClone(value.claimEligibilityInputs),
+      claimEligibility: structuredClone(value.claimEligibility),
+      disagreementCount: value.disagreementCount,
+      adjudicationQueue: structuredClone(value.adjudicationQueue),
+      interpretation: value.interpretation,
+      warnings: structuredClone(value.warnings),
+      ...(value.derivationEvidence !== undefined
+        ? { derivationEvidence: structuredClone(value.derivationEvidence) }
+        : {}),
+      ...(value.projectBinding !== undefined
+        ? { projectBinding: structuredClone(value.projectBinding) }
+        : {})
+    };
+  }
+  if (value.schemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard) {
+    throw new Error("SENA reliability dashboard uses an unsupported schemaVersion.");
+  }
+
+  const legacy = value as unknown as SenaReliabilityDashboardV1;
+  const coderCount = typeof value.coderCount === "number" && Number.isFinite(value.coderCount) ? Math.max(0, Math.trunc(value.coderCount)) : 0;
+  const expectedPairCount = assertSenaReliabilityReaderCoderPairBudget(coderCount);
+  assertSenaReliabilityDashboardReaderCollections(
+    value as unknown as Record<string, unknown>,
+    expectedPairCount
+  );
+  const pairwiseCohenKappa = Array.isArray(value.pairwiseCohenKappa)
+    ? value.pairwiseCohenKappa.map(normalizeLegacyPairwiseKappa)
+    : [];
+  const codeDiagnostics = Array.isArray(value.codeDiagnostics)
+    ? value.codeDiagnostics.filter(isRecord).map((diagnostic) => ({
+      codeId: diagnostic.codeId as string,
+      unitCount: diagnostic.unitCount as number,
+      positiveAssignments: diagnostic.positiveAssignments as number,
+      disagreementCount: diagnostic.disagreementCount as number,
+      agreementRate: diagnostic.agreementRate as number,
+      coderPositiveRates: Object.fromEntries(Object.entries(
+        diagnostic.coderPositiveRates as Record<string, number>
+      )),
+      pairwiseCohenKappa: Array.isArray(diagnostic.pairwiseCohenKappa)
+        ? diagnostic.pairwiseCohenKappa.map(normalizeLegacyPairwiseKappa)
+        : []
+    })) as SenaCodeReliabilityDiagnostic[]
+    : [];
+  const pairCoderIds = Array.from(new Set(pairwiseCohenKappa.flatMap((pair) => [pair.coderA, pair.coderB])))
+    .sort(compareSenaCanonicalText);
+  const coderIds = Array.from({ length: coderCount }, (_, index) => pairCoderIds[index] ?? `legacy-coder-${index + 1}`);
+  const meanPairwiseKappa = null;
+  const alpha = null;
+  const legacyEligibility = buildSenaReliabilityClaimEligibility({
+    coderCount,
+    pairwiseStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
     meanPairwiseKappa,
     krippendorffAlphaNominal: alpha,
-    disagreementCount: adjudicationQueue.length,
-    adjudicationQueue: adjudicationQueue.slice(0, 200),
-    interpretation,
-    warnings
+    krippendorffAlphaNominalStatus: "legacy-ambiguous",
+    unresolvedDisagreementCount: Number.isInteger(legacy.disagreementCount)
+      ? Math.max(0, legacy.disagreementCount)
+      : 0
+  });
+  const claimEligibilityInputs: SenaReliabilityClaimEligibilityInputs = {
+    coderCount,
+    pairwiseKappaStatuses: pairwiseCohenKappa.map(() => "legacy-ambiguous"),
+    meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: "legacy-ambiguous",
+    krippendorffAlphaNominal: alpha,
+    unresolvedDisagreementCount: Number.isInteger(legacy.disagreementCount)
+      ? Math.max(0, legacy.disagreementCount)
+      : 0
+  };
+
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityDashboard,
+    status: "legacy-ambiguous",
+    coderCount,
+    coderIds,
+    itemCount: Number.isFinite(legacy.itemCount) ? Math.max(0, Math.trunc(legacy.itemCount)) : 0,
+    codeCount: Number.isFinite(legacy.codeCount) ? Math.max(0, Math.trunc(legacy.codeCount)) : 0,
+    binaryUnitCount: Number.isFinite(legacy.binaryUnitCount) ? Math.max(0, Math.trunc(legacy.binaryUnitCount)) : 0,
+    pairwiseCohenKappa,
+    codeDiagnostics,
+    meanPairwiseKappaStatus: "legacy-ambiguous",
+    meanPairwiseKappa,
+    krippendorffAlphaNominalStatus: "legacy-ambiguous",
+    krippendorffAlphaNominalRaw: null,
+    krippendorffAlphaNominal: alpha,
+    claimEligibilityInputs,
+    claimEligibility: {
+      ...legacyEligibility,
+      eligible: false,
+      blockers: Array.from(new Set(["current-v2-estimates-required", ...legacyEligibility.blockers]))
+    },
+    disagreementCount: Number.isInteger(legacy.disagreementCount)
+      ? Math.max(0, legacy.disagreementCount)
+      : 0,
+    adjudicationQueue: structuredClone(legacy.adjudicationQueue),
+    interpretation: legacy.interpretation,
+    warnings: [
+      ...(Array.isArray(value.warnings) ? value.warnings.filter((warning): warning is string => typeof warning === "string") : []),
+      "Legacy v1 reliability scores use ambiguous degenerate-case conventions and are not eligible under the v2 machine gate."
+    ]
   };
 }
 
@@ -460,6 +3078,9 @@ export function reliabilityDashboardToReview(
   dashboard: SenaReliabilityDashboard,
   reviewer = "SENA reliability workflow"
 ): Partial<SenaCodingReliabilityReview> {
+  const formatEstimate = (value: number | null, status: SenaReliabilityEstimationStatus) => (
+    value === null ? `not estimable (${status})` : String(value)
+  );
   return {
     status: dashboard.coderCount >= 2 && dashboard.binaryUnitCount > 0 ? "documented" : "not-documented",
     reviewer,
@@ -467,8 +3088,28 @@ export function reliabilityDashboardToReview(
     unitOfCoding: "item-code binary units",
     coderCount: dashboard.coderCount,
     agreementMetric: "Mean pairwise Cohen kappa; Krippendorff alpha nominal",
-    agreementValue: `kappa=${dashboard.meanPairwiseKappa}; alpha=${dashboard.krippendorffAlphaNominal}`,
+    agreementValue: `kappa=${formatEstimate(dashboard.meanPairwiseKappa, dashboard.meanPairwiseKappaStatus)}; alpha=${formatEstimate(dashboard.krippendorffAlphaNominal, dashboard.krippendorffAlphaNominalStatus)}`,
     adjudicationNotes: `${dashboard.disagreementCount} item-code disagreements require or document adjudication.`,
-    limitations: dashboard.interpretation
+    limitations: dashboard.interpretation,
+    machineEvidence: {
+      dashboardSchemaVersion: dashboard.schemaVersion,
+      sourceSchemaVersion: dashboard.sourceSchemaVersion,
+      status: dashboard.status,
+      coderIds: structuredClone(dashboard.coderIds),
+      pairwiseCohenKappa: structuredClone(dashboard.pairwiseCohenKappa),
+      meanPairwiseKappaStatus: dashboard.meanPairwiseKappaStatus,
+      meanPairwiseKappa: dashboard.meanPairwiseKappa,
+      krippendorffAlphaNominalStatus: dashboard.krippendorffAlphaNominalStatus,
+      krippendorffAlphaNominalRaw: dashboard.krippendorffAlphaNominalRaw,
+      krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+      unresolvedDisagreementCount: dashboard.disagreementCount,
+      allPairwiseKappaEstimable: dashboard.pairwiseCohenKappa.length > 0 && dashboard.pairwiseCohenKappa.every((pair) => pair.status === "estimable"),
+      claimEligibilityInputs: structuredClone(dashboard.claimEligibilityInputs),
+      claimEligibility: dashboard.claimEligibility,
+      ...(dashboard.projectBinding ? {
+        projectBindingRequired: true as const,
+        projectBinding: structuredClone(dashboard.projectBinding)
+      } : {})
+    }
   };
 }

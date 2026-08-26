@@ -31,9 +31,10 @@ function jobPayload(teamId: string) {
     kind: "analysis" as const,
     teamId,
     projectId: `project_${teamId}`,
-    payload: { action: "run-analysis", projectId: `project_${teamId}` },
+    payload: { action: "run-analysis", projectId: `project_${teamId}`, projectVersion: 1 },
     payloadSummary: {
       source: "project",
+      projectVersion: 1,
       hasInlineSnapshot: false,
       hasInlineDataset: false,
       payloadValuesExcluded: true
@@ -301,7 +302,7 @@ describe("SENA server job ops route tenant scope", () => {
       const response = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
         method: "POST",
         headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify({ action: "mark-running", jobId })
+        body: JSON.stringify({ action: "mark-running", jobId, workerRunId: `worker_run_bearer_${jobId}` })
       }));
       const body = await response.json() as { job?: { status?: string } };
       expect(response.status, JSON.stringify(body)).toBe(200);

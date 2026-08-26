@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 
-const defaultTimeout = 15000;
+const defaultTimeout = 30000;
 const password = "sena-secure-123";
 const pageOrigins = new WeakMap();
 
@@ -160,6 +160,16 @@ async function fetchJson(page, path, init = {}) {
 
 async function registerThroughApi(page, origin, input) {
   rememberPageOrigin(page, origin);
+  // Keep registration on the browser network stack. The fallback
+  // APIRequestContext can reuse a socket that Next has already closed after a
+  // preceding long publication request, yielding ECONNRESET before any HTTP
+  // response. Retrying this non-idempotent POST would be unsafe because the
+  // account may already have committed, so establish a lightweight same-origin
+  // JSON page first and let browser fetch own both the connection and
+  // Set-Cookie handling without loading the registration application bundle.
+  if (!page.url().startsWith(`${origin}/`)) {
+    await gotoWithRetry(page, `${origin}/api/sena/docs`);
+  }
   const result = await fetchJson(page, "/api/auth/register", {
     method: "POST",
     headers: {

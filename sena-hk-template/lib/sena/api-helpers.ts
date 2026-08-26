@@ -22,6 +22,8 @@ import {
 } from "./enterprise/ops-observability";
 import { getEnterpriseIdentityProductionEvidence } from "./enterprise/identity-production-evidence";
 import type { SenaEnterpriseIdentityInstitutionActionPlan } from "./enterprise/identity-action-plan";
+import { readEnterpriseIdentityEvidenceState } from "./enterprise/state";
+import { runWithSenaValidationRequestScope } from "./enterprise/validation-request-scope";
 
 export function sessionCookieOptions(maxAgeSeconds = 7 * 24 * 60 * 60) {
   return {
@@ -127,10 +129,11 @@ export async function observeSenaApiRoute(
   },
   handler: () => Promise<Response> | Response
 ) {
-  const startedAt = Date.now();
-  const requestId = requestIdFromHeaders(request);
-  try {
-    const response = await handler();
+  return runWithSenaValidationRequestScope(async () => {
+    const startedAt = Date.now();
+    const requestId = requestIdFromHeaders(request);
+    try {
+      const response = await handler();
     // Read from the Response the handler just built, never from `request`: the
     // declaration is the handler's, and a caller must not be able to reclassify
     // its own request.
@@ -145,27 +148,28 @@ export async function observeSenaApiRoute(
     });
     emitEnterpriseObservedRequest(sample);
     void mirrorEnterpriseObservedRequestToPostgres(sample);
-    return applyObservedRequestHeaders(response, sample);
-  } catch (error) {
-    const enterpriseError = enterpriseErrorResponse(error);
-    const sample = recordEnterpriseObservedRequest({
-      routeId: input.routeId,
-      method: request.method,
-      statusCode: enterpriseError.status,
-      durationMs: Date.now() - startedAt,
-      requestId,
-      errorCode: enterpriseError.body.code
-    });
-    emitEnterpriseObservedRequest(sample);
-    void mirrorEnterpriseObservedRequestToPostgres(sample);
-    return applyObservedRequestHeaders(
-      NextResponse.json(
-        input.errorBody ? input.errorBody(enterpriseError.body, enterpriseError.status) : enterpriseError.body,
-        { status: enterpriseError.status }
-      ),
-      sample
-    );
-  }
+      return applyObservedRequestHeaders(response, sample);
+    } catch (error) {
+      const enterpriseError = enterpriseErrorResponse(error);
+      const sample = recordEnterpriseObservedRequest({
+        routeId: input.routeId,
+        method: request.method,
+        statusCode: enterpriseError.status,
+        durationMs: Date.now() - startedAt,
+        requestId,
+        errorCode: enterpriseError.body.code
+      });
+      emitEnterpriseObservedRequest(sample);
+      void mirrorEnterpriseObservedRequestToPostgres(sample);
+      return applyObservedRequestHeaders(
+        NextResponse.json(
+          input.errorBody ? input.errorBody(enterpriseError.body, enterpriseError.status) : enterpriseError.body,
+          { status: enterpriseError.status }
+        ),
+        sample
+      );
+    }
+  });
 }
 
 export async function currentSessionToken() {
@@ -243,7 +247,7 @@ export function authSessionHeaders(context: SenaEnterpriseSessionContext, input:
   provider?: string;
   ssoProvider?: string;
   ssoMode?: "oauth-oidc" | "local-pilot-fallback";
-}) {
+}, identityEvidence = getEnterpriseIdentityProductionEvidence()) {
   const primaryTeam = context.teams[0];
   const primaryMembership = context.memberships.find((membership) => membership.teamId === primaryTeam?.id) ?? context.memberships[0];
   return {
@@ -257,12 +261,13 @@ export function authSessionHeaders(context: SenaEnterpriseSessionContext, input:
     ...(input.provider ? { "x-sena-auth-provider": input.provider } : {}),
     ...(input.ssoProvider ? { "x-sena-sso-provider": input.ssoProvider } : {}),
     ...(input.ssoMode ? { "x-sena-sso-mode": input.ssoMode } : {}),
-    ...authProductionGateHeaders()
+    ...authProductionGateHeaders(identityEvidence)
   };
 }
 
-export function authProductionGateHeaders() {
-  const identityEvidence = getEnterpriseIdentityProductionEvidence();
+export function authProductionGateHeaders(
+  identityEvidence = getEnterpriseIdentityProductionEvidence()
+) {
   return {
     "x-sena-auth-production-gate": identityEvidence.status,
     "x-sena-identity-production-status": identityEvidence.status,
@@ -306,10 +311,19 @@ export function identityOwnerRunbookHeaders(
   };
 }
 
-export function sessionJson(
+export async function sessionJson(
   context: SenaEnterpriseSessionContext,
   status = 200,
-  headers: Record<string, string> = authSessionHeaders(context, { flow: "session-read" })
+  headers?: Record<string, string>
 ) {
-  return NextResponse.json(sanitizeEnterpriseContext(context), { status, headers });
+  const identityState = headers ? undefined : await readEnterpriseIdentityEvidenceState();
+  const resolvedHeaders = headers ?? authSessionHeaders(
+    context,
+    { flow: "session-read" },
+    getEnterpriseIdentityProductionEvidence({
+      db: identityState?.db,
+      snapshotSource: identityState?.snapshotSource
+    })
+  );
+  return NextResponse.json(sanitizeEnterpriseContext(context), { status, headers: resolvedHeaders });
 }

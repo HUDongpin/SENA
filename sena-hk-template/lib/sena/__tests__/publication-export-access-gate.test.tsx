@@ -32,7 +32,7 @@ const PUBLICATION_TEST_IDS: readonly string[] = [
   "export-publication-package"
 ];
 
-const SIGN_IN_NOTE_TEST_ID = "publication-export-signin-note";
+const PUBLICATION_PREREQUISITE_NOTE_TEST_ID = "publication-export-prerequisite-note";
 
 const model = buildSenaModel(lessonStudySenaContract);
 const packet = buildSenaReviewPacket(model, {
@@ -144,8 +144,8 @@ describe("publication export sign-in gate", () => {
   it("tells the signed-out reviewer why the publication exports are dead", () => {
     const markup = renderReportGenerator({ hasPublicationAccess: false });
 
-    expect(markup).toContain(`data-testid="${SIGN_IN_NOTE_TEST_ID}"`);
-    expect(markup).toContain("Sign in to export publication formats.");
+    expect(markup).toContain(`data-testid="${PUBLICATION_PREREQUISITE_NOTE_TEST_ID}"`);
+    expect(markup).toContain("Sign in and save or open a server-side project to export publication formats.");
   });
 
   it("enables every publication export button once signed in", () => {
@@ -159,8 +159,8 @@ describe("publication export sign-in gate", () => {
   it("drops the sign-in note once signed in", () => {
     const markup = renderReportGenerator({ hasPublicationAccess: true });
 
-    expect(markup).not.toContain(`data-testid="${SIGN_IN_NOTE_TEST_ID}"`);
-    expect(markup).not.toContain("Sign in to export publication formats.");
+    expect(markup).not.toContain(`data-testid="${PUBLICATION_PREREQUISITE_NOTE_TEST_ID}"`);
+    expect(markup).not.toContain("Sign in and save or open a server-side project to export publication formats.");
   });
 
   it("leaves the exports that work signed out alone", () => {
@@ -239,7 +239,7 @@ describe("publication export sign-in gate reaches the report section", () => {
     for (const testId of PUBLICATION_TEST_IDS) {
       expect(isDisabled(markup, testId), `${testId} is clickable in the signed-out workspace`).toBe(true);
     }
-    expect(markup).toContain(`data-testid="${SIGN_IN_NOTE_TEST_ID}"`);
+    expect(markup).toContain(`data-testid="${PUBLICATION_PREREQUISITE_NOTE_TEST_ID}"`);
   });
 });
 
@@ -257,7 +257,7 @@ describe("publication access derivation (source contract, not behaviour)", () =>
     "utf8"
   );
 
-  it("sources publication access from the enterprise session user", () => {
-    expect(hookSource).toContain("hasPublicationAccess: Boolean(enterpriseContext?.user)");
+  it("requires both the enterprise session user and an active persisted project", () => {
+    expect(hookSource).toContain("hasPublicationAccess: Boolean(enterpriseContext?.user && activeEnterpriseProjectId)");
   });
 });

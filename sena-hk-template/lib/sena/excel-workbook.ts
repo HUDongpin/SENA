@@ -8,10 +8,8 @@ export type SenaWorkbookSheet = {
   rows: SenaImportRow[];
 };
 
-function workbookBuffer(input: ArrayBuffer | Buffer | Uint8Array) {
-  if (Buffer.isBuffer(input)) return input;
-  if (input instanceof Uint8Array) return Buffer.from(input);
-  return Buffer.from(input);
+function workbookBytes(input: ArrayBuffer | Uint8Array) {
+  return input instanceof Uint8Array ? input : new Uint8Array(input);
 }
 
 function hasKey<T extends string>(value: unknown, key: T): value is Record<T, unknown> {
@@ -100,16 +98,16 @@ function safeSheetName(name: string, usedNames: Set<string>) {
   return candidate;
 }
 
-export async function readXlsxWorkbookRows(input: ArrayBuffer | Buffer | Uint8Array): Promise<SenaWorkbookSheet[]> {
+export async function readXlsxWorkbookRows(input: ArrayBuffer | Uint8Array): Promise<SenaWorkbookSheet[]> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(workbookBuffer(input) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  await workbook.xlsx.load(workbookBytes(input) as unknown as Parameters<typeof workbook.xlsx.load>[0]);
   return workbook.worksheets.map((worksheet) => ({
     name: worksheet.name,
     rows: rowsFromWorksheet(worksheet)
   }));
 }
 
-export async function buildXlsxWorkbookBuffer(sheets: Array<{ name: string; rows: SenaWorkbookExportRow[] }>): Promise<Buffer> {
+export async function buildXlsxWorkbookBuffer(sheets: Array<{ name: string; rows: SenaWorkbookExportRow[] }>): Promise<Uint8Array> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "SENA";
   workbook.lastModifiedBy = "SENA";
@@ -127,5 +125,5 @@ export async function buildXlsxWorkbookBuffer(sheets: Array<{ name: string; rows
   });
 
   const bytes = await workbook.xlsx.writeBuffer();
-  return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  return new Uint8Array(bytes);
 }

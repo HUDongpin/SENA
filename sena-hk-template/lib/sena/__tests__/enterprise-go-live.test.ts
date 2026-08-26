@@ -22,6 +22,8 @@ const goLiveEnvNames = [
   "SENA_MFA_ENCRYPTION_KEY",
   "SENA_CSRF_SECRET",
   "SENA_SESSION_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_SECRET",
+  "SENA_EXPERT_REVIEW_SIGNING_KEY_ID",
   "SENA_PROVISIONING_TOKEN",
   "SENA_PROVISIONING_TOKEN_SECRET_REF",
   "SENA_PROVISIONING_TOKEN_VERSION",
@@ -117,10 +119,13 @@ const goLiveEnvNames = [
   "SENA_PERFORMANCE_BUDGET_CONFIRMED",
   "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
   "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+  "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+  "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
   "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
   "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
   "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
   "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+  "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE",
   "SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED",
   "SENA_PRODUCTION_RUNTIME_ENV_PACKET_CONFIRMED",
   "SENA_PRODUCTION_RUNTIME_ENV_PACKET_ARTIFACT_SHA256",
@@ -211,6 +216,9 @@ function configureGoLiveEnv(enterpriseDbDir: string) {
   process.env.SENA_MFA_ENCRYPTION_KEY = "sena-test-mfa-encryption-key";
   process.env.SENA_CSRF_SECRET = "sena-test-csrf-secret";
   process.env.SENA_SESSION_SECRET = "sena-test-session-secret";
+  process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET =
+    "8c53de6a907f4c21b8a63d34e1429af8812f1f04a06b70c6d619e8a4812cbb79";
+  process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID = "enterprise-go-live-test-v1";
   process.env.SENA_PROVISIONING_TOKEN = "sena_prov_2026_9f4c2a1d8e7b6c5a4f3e2d1c0b9a8765";
   process.env.SENA_PROVISIONING_TOKEN_SECRET_REF = "institution-vault/sena/provisioning-token";
   process.env.SENA_PROVISIONING_TOKEN_VERSION = "provisioning-token-rotation-2026-06";
@@ -305,10 +313,13 @@ function configureGoLiveEnv(enterpriseDbDir: string) {
   process.env.SENA_PERFORMANCE_BUDGET_CONFIRMED = "1";
   process.env.SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256 = "3".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_VERIFIED_AT = new Date().toISOString();
+  process.env.SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION = "sena-enterprise-production-performance-budget/v2";
+  process.env.SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256 = "9".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256 = "4".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_GIT_COMMIT = "a".repeat(40);
   process.env.SENA_PERFORMANCE_BUDGET_GIT_DIRTY = "false";
   process.env.SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256 = "5".repeat(64);
+  process.env.SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE = "git-clean-worktree";
   process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_REQUIRED = "1";
   process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_CONFIRMED = "1";
   process.env.SENA_PRODUCTION_RUNTIME_ENV_PACKET_ARTIFACT_SHA256 = "6".repeat(64);
@@ -397,7 +408,7 @@ function projectSnapshot() {
 const enterpriseGoLiveTestTimeoutMs = 180_000;
 
 describe("SENA enterprise go-live production release", () => {
-  it("reaches ready after SaaS approval, platform acceptance, native adapter certification, and verifier evidence", async () => {
+  it("reaches ready after all evidence including a simulated authenticated external-worker callback receipt", async () => {
     const envSnapshot = snapshotEnv();
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-go-live-"));
     const pg = new RouteMemoryPostgres();
@@ -414,6 +425,48 @@ describe("SENA enterprise go-live production release", () => {
         }
       }
     }));
+    // This long-form test exercises the downstream ready/attestation lifecycle.
+    // Production code deliberately has no implementation for this receipt yet;
+    // the focused worker-contract tests assert that the real runtime stays
+    // review. Here only, simulate the future independently validated receipt so
+    // the rest of the release-state machine remains covered.
+    vi.doMock("../enterprise/server-job-worker-contract", async () => {
+      const actual = await vi.importActual<typeof import("../enterprise/server-job-worker-contract")>(
+        "../enterprise/server-job-worker-contract"
+      );
+      return {
+        ...actual,
+        getEnterpriseServerJobWorkerContract: () => {
+          const contract = actual.getEnterpriseServerJobWorkerContract();
+          return {
+            ...contract,
+            status: "pass" as const,
+            productionReady: true,
+            worker: {
+              ...contract.worker,
+              externalWorkerCallbackReceiptSupported: true,
+              externalWorkerCallbackReceiptConfirmed: true,
+              externalWorkerCallbackReceiptSha256: "4".repeat(64),
+              externalWorkerCallbackReceiptVerifiedAt: new Date().toISOString()
+            },
+            missing: []
+          };
+        },
+        serverJobWorkerContractReadiness: () => {
+          const readiness = actual.serverJobWorkerContractReadiness();
+          return {
+            ...readiness,
+            confirmed: true,
+            evidence: [
+              ...readiness.evidence,
+              "serverJobWorkerExternalCallbackReceiptSupported=true",
+              "serverJobWorkerExternalCallbackReceiptConfirmed=true",
+              "serverJobWorkerExternalCallbackReceiptTestFixture=simulated"
+            ]
+          };
+        }
+      };
+    });
 
     try {
       const enterprise = await import("../enterprise");
@@ -462,6 +515,8 @@ describe("SENA enterprise go-live production release", () => {
         reviewer: "Institution reviewer",
         fileCount: 1,
         annotationCount: reliabilityAnnotations.annotations.length,
+        annotations: reliabilityAnnotations.annotations,
+        skippedCells: reliabilityAnnotations.skippedCells,
         inputFiles: [{ name: "coder-ratings.csv", size: 128, sha256: "1".repeat(64) }],
         dashboard: reliability,
         reviewPatch: reliabilityDashboardToReview(reliability, "Institution reviewer")
@@ -1292,6 +1347,7 @@ describe("SENA enterprise go-live production release", () => {
       restoreEnv(envSnapshot);
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.doUnmock("pg");
+      vi.doUnmock("../enterprise/server-job-worker-contract");
       vi.resetModules();
     }
   }, enterpriseGoLiveTestTimeoutMs);

@@ -56,6 +56,73 @@ describe("SENA API documentation contract", () => {
     expect(documented).toEqual(actual);
   });
 
+  it("documents projectId as a required query parameter for claim-package GET", () => {
+    const claimFact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-validation-claim-package");
+    expect(claimFact?.queryParameters).toEqual([expect.objectContaining({
+      name: "projectId",
+      methods: ["GET"],
+      required: true
+    })]);
+
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        parameters?: Array<{ name: string; in: string; required: boolean }>;
+        requestBody?: unknown;
+      }>>;
+    };
+    const claimGet = openApi.paths["/api/sena/validation/claim-package"].get;
+    expect(claimGet.parameters).toEqual([
+      expect.objectContaining({ name: "projectId", in: "query", required: true })
+    ]);
+    expect(claimGet.requestBody).toBeUndefined();
+  });
+
+  it("documents the signed worker webhook as an HMAC-authenticated JSON-only 202 operation", () => {
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        security?: Array<Record<string, unknown>>;
+        parameters?: Array<{ name: string; in: string; required: boolean; schema?: { enum?: string[] } }>;
+        requestBody?: { content?: Record<string, unknown> };
+        responses: Record<string, { content?: Record<string, unknown> }>;
+      }>>;
+      components: { securitySchemes: Record<string, { name?: string }> };
+    };
+    const operation = openApi.paths["/api/sena/ops/jobs/worker"].post;
+    expect(operation.security).toEqual([{ jobWorkerHmac: [] }]);
+    expect(openApi.components.securitySchemes.jobWorkerHmac.name).toBe("x-sena-webhook-signature");
+    expect(operation.parameters?.map((parameter) => [parameter.name, parameter.in, parameter.required]))
+      .toEqual([
+        ["x-sena-job-payload-sha256", "header", true],
+        ["x-sena-worker-payload-sha256", "header", false],
+        ["x-sena-webhook-timestamp", "header", true],
+        ["x-sena-webhook-signature", "header", true],
+        ["x-sena-webhook-event", "header", true]
+      ]);
+    expect(operation.parameters?.find((parameter) => parameter.name === "x-sena-webhook-event")?.schema?.enum)
+      .toEqual(["server_job.queue", "server_job.queue.probe"]);
+    expect(Object.keys(operation.requestBody?.content ?? {})).toEqual(["application/json"]);
+    expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(["202", "400", "401", "503"]));
+    expect(operation.responses["202"].content).toHaveProperty("application/json");
+  });
+
+  it("documents exact request media types instead of granting multipart to JSON-only handlers", () => {
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        requestBody?: { content?: Record<string, unknown> };
+      }>>;
+    };
+    const bodyTypes = (path: string, method: string) => (
+      Object.keys(openApi.paths[path][method].requestBody?.content ?? {})
+    );
+
+    expect(bodyTypes("/api/sena/exports/publication", "post")).toEqual(["application/json"]);
+    expect(bodyTypes("/api/auth/login", "post")).toEqual(["application/json"]);
+    expect(bodyTypes("/api/sena/import", "post")).toEqual(["multipart/form-data"]);
+    expect(bodyTypes("/api/sena/uploads", "post")).toEqual(["application/json", "multipart/form-data"]);
+    expect(bodyTypes("/api/sena/reliability", "post")).toEqual(["application/json", "multipart/form-data"]);
+    expect(bodyTypes("/api/sena/reliability", "patch")).toEqual(["application/json"]);
+  });
+
   it("freezes the enterprise and ops API surface while analysis is decomposed along M1-M11 seams", () => {
     const frozenEndpointIds = SENA_API_ENDPOINT_FACTS
       .filter((endpoint) => SENA_API_SURFACE_MORATORIUM.freezePolicy.frozenGroups.includes(endpoint.group))
@@ -107,6 +174,159 @@ describe("SENA API documentation contract", () => {
       expect(SENA_API_EVIDENCE_NOTES[endpoint.evidenceNoteId!]).toBeTruthy();
       expect(documentation.endpoints.find((candidate) => candidate.id === endpoint.id)?.request)
         .toBe(SENA_API_EVIDENCE_NOTES[endpoint.evidenceNoteId!]);
+    }
+  });
+
+  it("publishes the stable snapshot and publication complexity failures as typed 413 responses", () => {
+    const expected = [
+      ["sena-snapshot-restore", "snapshot_restore_source_too_complex"],
+      ["sena-publication-export", "publication_export_derivation_too_complex"]
+    ] as const;
+    const documentation = buildSenaApiDocumentation({ baseUrl: "https://sena.example.test" });
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        responses: Record<string, {
+          content?: Record<string, { schema?: { properties?: { code?: { enum?: string[] } } } }>;
+        }>;
+      }>>;
+    };
+
+    for (const [endpointId, code] of expected) {
+      const fact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === endpointId) as
+        | (typeof SENA_API_ENDPOINT_FACTS[number] & {
+            errorResponses?: Array<{ status: number; code: string; description: string }>;
+          })
+        | undefined;
+      const endpoint = documentation.endpoints.find((candidate) => candidate.id === endpointId) as
+        | (typeof documentation.endpoints[number] & {
+            errorResponses?: Array<{ status: number; code: string; description: string }>;
+          })
+        | undefined;
+      expect(fact?.errorResponses).toContainEqual(expect.objectContaining({ status: 413, code }));
+      expect(endpoint?.errorResponses).toContainEqual(expect.objectContaining({ status: 413, code }));
+      expect(SENA_API_EVIDENCE_NOTES[fact!.evidenceNoteId!]).toContain(code);
+      const operation = openApi.paths[fact!.path].post;
+      expect(operation.responses["413"].content?.["application/json"].schema?.properties?.code?.enum)
+        .toContain(code);
+    }
+  });
+
+  it("publishes bounded publication-envelope failures before publication side effects", () => {
+    const fact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-publication-export");
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        responses: Record<string, {
+          content?: Record<string, { schema?: { properties?: { code?: { enum?: string[] } } } }>;
+        }>;
+      }>>;
+    };
+    expect(fact?.errorResponses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 400, code: "publication_export_content_type_invalid" }),
+      expect.objectContaining({ status: 400, code: "publication_export_request_invalid" }),
+      expect.objectContaining({ status: 400, code: "publication_export_format_invalid" }),
+      expect.objectContaining({ status: 400, code: "publication_export_project_required" }),
+      expect.objectContaining({ status: 400, code: "publication_export_inline_snapshot_forbidden" }),
+      expect.objectContaining({ status: 404, code: "project_not_found" }),
+      expect.objectContaining({ status: 409, code: "publication_claim_evidence_not_ready" }),
+      expect.objectContaining({ status: 409, code: "validation_run_evidence_invalid" }),
+      expect.objectContaining({ status: 409, code: "publication_state_binding_invalid" }),
+      expect.objectContaining({ status: 409, code: "publication_export_model_card_blocked" }),
+      expect.objectContaining({ status: 409, code: "publication_derivation_manifest_binding_invalid" }),
+      expect.objectContaining({ status: 413, code: "publication_export_request_too_large" }),
+      expect.objectContaining({ status: 413, code: "publication_export_request_too_fragmented" }),
+      expect.objectContaining({ status: 503, code: "publication_export_async_worker_unavailable" })
+    ]));
+    const operation = openApi.paths["/api/sena/exports/publication"].post;
+    expect(operation.responses["400"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toEqual(expect.arrayContaining([
+        "publication_export_request_invalid",
+        "publication_export_format_invalid"
+      ]));
+    expect(operation.responses["409"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toEqual(expect.arrayContaining([
+        "publication_claim_evidence_not_ready",
+        "validation_run_evidence_invalid",
+        "publication_state_binding_invalid",
+        "publication_export_model_card_blocked",
+        "publication_derivation_manifest_binding_invalid"
+      ]));
+    expect(operation.responses["413"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toEqual(expect.arrayContaining([
+        "publication_export_request_too_large",
+        "publication_export_request_too_fragmented",
+        "publication_export_derivation_too_complex"
+      ]));
+    expect(operation.responses["503"].content?.["application/json"].schema?.properties?.code?.enum)
+      .toContain("publication_export_async_worker_unavailable");
+    expect(SENA_API_EVIDENCE_NOTES["sena-publication-export"]).toContain("65536");
+    expect(SENA_API_EVIDENCE_NOTES["sena-publication-export"]).toContain("1024");
+  });
+
+  it("publishes method-scoped bounded transport contracts for heavy mutation routes", () => {
+    const expected = {
+      "sena-analyze": [
+        "analysis_request_content_type_invalid",
+        "analysis_request_invalid",
+        "analysis_request_fields_invalid",
+        "analysis_request_too_large",
+        "analysis_request_too_fragmented"
+      ],
+      "sena-import": [
+        "import_request_content_type_invalid",
+        "import_request_invalid",
+        "import_request_fields_invalid",
+        "import_request_too_large",
+        "import_request_too_fragmented",
+        "import_request_multipart_limits_exceeded"
+      ],
+      "sena-validation-group-comparison": [
+        "validation_request_content_type_invalid",
+        "validation_request_invalid",
+        "validation_request_fields_invalid",
+        "validation_request_too_large",
+        "validation_request_too_fragmented",
+        "validation_source_too_complex"
+      ],
+      "sena-validation-expert-review": [
+        "expert_review_request_content_type_invalid",
+        "expert_review_request_invalid",
+        "expert_review_request_fields_invalid",
+        "expert_review_request_too_large",
+        "expert_review_request_too_fragmented"
+      ]
+    } as const;
+    const openApi = buildSenaOpenApiDocument({ serverUrl: "https://sena.example.test" }) as {
+      paths: Record<string, Record<string, {
+        responses: Record<string, {
+          content?: Record<string, { schema?: { properties?: { code?: { enum?: string[] } } } }>;
+        }>;
+      }>>;
+    };
+
+    for (const [endpointId, codes] of Object.entries(expected)) {
+      const fact = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === endpointId);
+      expect(fact).toBeDefined();
+      for (const code of codes) {
+        expect(fact?.errorResponses).toContainEqual(expect.objectContaining({ code, methods: expect.any(Array) }));
+        expect(SENA_API_EVIDENCE_NOTES[fact!.evidenceNoteId!]).toContain(code);
+        const status = fact?.errorResponses?.find((error) => error.code === code)?.status;
+        expect(openApi.paths[fact!.path].post.responses[String(status)]
+          .content?.["application/json"].schema?.properties?.code?.enum).toContain(code);
+      }
+      const getResponses = openApi.paths[fact!.path].get.responses;
+      for (const response of Object.values(getResponses)) {
+        const enumValues = response.content?.["application/json"].schema?.properties?.code?.enum ?? [];
+        expect(enumValues).not.toEqual(expect.arrayContaining([...codes]));
+      }
+    }
+    const validation = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-validation-group-comparison")!;
+    const expert = SENA_API_ENDPOINT_FACTS.find((endpoint) => endpoint.id === "sena-validation-expert-review")!;
+    for (const endpoint of [validation, expert]) {
+      for (const error of endpoint.errorResponses ?? []) {
+        if (!error.methods?.includes("PATCH")) continue;
+        expect(openApi.paths[endpoint.path].patch.responses[String(error.status)]
+          .content?.["application/json"].schema?.properties?.code?.enum).toContain(error.code);
+      }
     }
   });
 
@@ -262,6 +482,10 @@ describe("SENA API documentation contract", () => {
       .toContain("annotations");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
       .toContain("x-sena-reliability-run-id");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
+      .toContain("request stream at 65536 bytes");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-reliability")?.request)
+      .toContain("notes at 8192 UTF-8 bytes");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison")?.responses)
       .toContain("sena-formal-inference-readiness/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-group-comparison")?.request)
@@ -274,6 +498,12 @@ describe("SENA API documentation contract", () => {
       .toContain("x-sena-expert-review-claim-scope");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-expert-review")?.request)
       .toContain("x-sena-expert-review-interpretation-validity");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-expert-review")?.request)
+      .toContain("x-sena-expert-review-receipt-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-expert-review")?.request)
+      .toContain("validationRunEvidenceHash");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-expert-review")?.responses)
+      .toContain("sena-enterprise-expert-review-receipt/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
       .toContain("x-sena-analysis-run-id");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
@@ -281,9 +511,9 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
       .toContain("Prefer: respond-async");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
-      .toContain("sena-enterprise-server-job-queue-webhook/v1");
+      .toContain("sena-enterprise-server-job-queue-webhook/v2");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.responses)
-      .toContain("sena-enterprise-server-job/v1");
+      .toContain("sena-enterprise-server-job/v2");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.responses)
       .toContain("sena-analysis-provenance-envelope/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
@@ -294,16 +524,48 @@ describe("SENA API documentation contract", () => {
       .toContain("metric_exact");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-analyze")?.request)
       .toContain("dataset_version");
+    const publicationEndpoint = documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export");
+    expect(publicationEndpoint?.summary).toContain("Async requests fail closed");
+    expect(publicationEndpoint?.request).toContain("publication_export_async_worker_unavailable");
+    expect(publicationEndpoint?.responses).not.toContain("sena-enterprise-server-job/v2");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-source-snapshot-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-claim-evidence-reliability-source");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
       .toContain("x-sena-claim-evidence-adjudication-source");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.summary)
+      .toContain("x-sena-claim-state-revision-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-validation-claim-package")?.request)
+      .toContain("one active primary-state revision");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("format: html|svg|png|xlsx|docx|pdf|package");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("JSON { projectId, format:");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .not.toContain("projectId? or snapshot");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("publication_export_project_required");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("publication_export_inline_snapshot_forbidden");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("publication_export_format_invalid");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("projectId exports the persisted server-side project snapshot");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("status exactly approved");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("current project version and snapshot");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("authoritative live adjudication coverage");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("zero unresolved disagreements");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("claim-ready-with-limits");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("receipt-authenticated expert review");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .not.toContain("latest non-rejected");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-source-snapshot-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
@@ -313,13 +575,19 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("x-sena-publication-verification-status");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("x-sena-claim-package-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("x-sena-validation-evidence-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
+      .toContain("x-sena-expert-receipt-sha256");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("publication_export_model_card_blocked");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .toContain("modelCard.renderGate.status");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
-      .toContain("x-sena-job-payload-sha256");
+      .not.toContain("x-sena-job-payload-sha256");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
-      .toContain("x-sena-job-queue-delivery");
+      .not.toContain("x-sena-job-queue-delivery");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
       .toContain("mark-running|mark-succeeded|mark-failed|retry|dead-letter");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
@@ -331,7 +599,7 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.responses)
       .toContain("sena-enterprise-server-job-worker-contract/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-contract")?.request ?? "")
-      .toContain("SENA_JOB_WORKER_HEARTBEAT_CONFIRMED=1");
+      .toContain("nonce-bound managed-queue-to-external-worker authenticated callback receipt");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.responses)
       .toContain("sena-enterprise-server-job-worker-heartbeat/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs-worker-heartbeat")?.request ?? "")
@@ -347,11 +615,22 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-publication-verification-certificate/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
-      .toContain("sena-publication-enterprise-project-evidence/v1");
+      .toContain("sena-publication-enterprise-project-evidence/v2");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
+      .toContain("sena-publication-derivation-manifest/v3");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
+      .toContain("sena-publication-state-binding/v2");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
       .toContain("sena-data-governance-metadata/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.responses)
-      .toContain("sena-enterprise-server-job/v1");
+      .not.toContain("sena-enterprise-server-job/v2");
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-snapshot-restore")).toEqual(expect.objectContaining({
+      auth: "public",
+      methods: ["POST"],
+      path: "/api/sena/snapshot/restore"
+    }));
+    expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-snapshot-restore")?.responses)
+      .toContain("sena-snapshot-restore-result/v1");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")
       .toContain("x-sena-security-identity-control-blockers");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-governance-security")?.request ?? "")

@@ -123,7 +123,7 @@ export function getEnterpriseCapabilityAudit(input: {
 } = {}): SenaEnterpriseCapabilityAudit {
   const db = input.db ?? readEnterpriseDb();
   const selfManagedEnterprise = isSelfManagedEnterpriseMode();
-  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus();
+  const opsStatus = input.opsStatus ?? getEnterpriseOpsStatus({ db });
   const readiness = input.readiness ?? getEnterpriseDeploymentReadiness({ opsStatus });
   const deployment = input.deployment ?? getEnterpriseOrganizationDeploymentPackage({
     teamId: input.teamId,
@@ -135,9 +135,11 @@ export function getEnterpriseCapabilityAudit(input: {
   const security = getEnterpriseSecurityPosture({ governance, readiness });
   const goLiveRehearsal = input.goLiveRehearsal ?? getEnterpriseGoLiveRehearsal({
     teamId: input.teamId,
+    db,
     deployment,
     readiness,
-    opsStatus
+    opsStatus,
+    governance
   });
   const readinessItem = (id: string) => [...readiness.blocking, ...readiness.advisory].find((item) => item.id === id);
   const governanceItem = (id: string) => governance.checks.find((check) => check.id === id);
@@ -519,11 +521,11 @@ export function getEnterpriseCapabilityAudit(input: {
         "parityEvidence=sena-validation-parity-evidence/v1",
         "preregistration=sena-validation-preregistration-plan/v1",
         "formalInference=sena-formal-inference-readiness/v1",
-        "claimPackage=sena-enterprise-claim-evidence-package/v1",
+        "claimPackage=sena-enterprise-claim-evidence-package/v2",
         "expertReview=sena-enterprise-expert-review/v1"
       ],
       endpoints: ["/api/sena/validation/group-comparison", "/api/sena/validation/expert-review", "/api/sena/validation/claim-package"],
-      requiredArtifacts: ["sena-validation-parity-evidence/v1", "sena-validation-preregistration-plan/v1", "sena-formal-inference-readiness/v1", "sena-enterprise-expert-review/v1", "sena-enterprise-claim-evidence-package/v1"],
+      requiredArtifacts: ["sena-validation-parity-evidence/v1", "sena-validation-preregistration-plan/v1", "sena-formal-inference-readiness/v1", "sena-enterprise-expert-review/v1", "sena-enterprise-claim-evidence-package/v2"],
       productionContractTestIds: ["enterprise-validation-parity-evidence", "enterprise-validation-inference-reference", "enterprise-formal-inference-readiness", "enterprise-expert-review-dossier-export"],
       remainingPlatformDecisions: [],
       nextAction: "Keep formal validation evidence scoped to exploratory or claim-ready-with-limits decisions."
@@ -536,7 +538,7 @@ export function getEnterpriseCapabilityAudit(input: {
       evidence: [
         "formats=svg|png|html|xlsx|docx|pdf|package",
         "xlsxWorkbookEvidence=claim-readiness|coding-reliability|data-governance|matrix-fingerprints|evidence-snippets",
-        "projectSource=projectId|snapshot",
+        "projectSource=projectId-only",
         "package=sena-publication-package/v1",
         "sourceSnapshot=sena-publication-source-snapshot/v1",
         "certificate=sena-publication-verification-certificate/v1"
@@ -545,7 +547,7 @@ export function getEnterpriseCapabilityAudit(input: {
       requiredArtifacts: ["sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-data-governance-metadata/v1"],
       productionContractTestIds: ["export-publication-svg", "export-publication-png", "export-publication-xlsx", "export-publication-docx", "export-publication-pdf", "export-publication-package"],
       remainingPlatformDecisions: [],
-      nextAction: "Keep data-governance metadata and verification certificate bundled with publication exports."
+      nextAction: "Require a persisted projectId and keep data-governance metadata, approved current reliability evidence, atomic state binding, and the verification certificate bundled with publication exports."
     }),
     capability({
       id: "production-security-governance",

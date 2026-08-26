@@ -26,6 +26,7 @@ import {
   buildSenaModel,
   buildSenaPairContributionReportArtifact,
   buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
   buildSenaReport,
   buildSenaReportCompletenessAudit,
   buildSenaReviewPacket,
@@ -44,6 +45,7 @@ import {
   importSenaJsonContract,
   importSenaProjectSnapshot,
   importSenaReviewPacket,
+  isCurrentSenaFusionMathAudit,
   isSenaDemoVerification,
   isSenaProjectSnapshot,
   isSenaReviewPacket,
@@ -55,6 +57,7 @@ import {
   senaPilotAssetIntegrity,
   parseSenaCsv,
   readableEdgeStrokeWidth,
+  reliabilityDashboardToReview,
   senaRuntimeProvenance,
   senaPilotHandoffChecks,
   senaPilotPackageManifestAsset,
@@ -62,11 +65,13 @@ import {
   senaPilotSampleAssets,
   senaPilotSampleCsvAssets,
   senaPilotTemplateAssets,
+  SenaInputValidationError,
   snaRuntimeDependencySpec,
   snaRuntimeVersion,
   scopeSenaDatasetToWindow,
   type SenaImportTable
 } from "../index";
+import { buildSenaPublicationExport } from "../publication-export";
 import { exampleSenaContract } from "../sample-data";
 import { projectSenaPilotPackageArtifactCatalog } from "../artifact-catalog";
 import {
@@ -120,7 +125,7 @@ import {
   submitEnterprisePlatformDecisionReviewAction,
   syncEnterpriseDatabaseAction
 } from "../../../components/sena/workspace/enterprise-ops-actions";
-import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
 import {
   buildSenaWorkspaceApiUrl,
@@ -235,17 +240,15 @@ async function testEnterpriseJsonHeaders() {
   };
 }
 
-const documentedCodingReliability = {
-  status: "documented" as const,
-  reviewer: "Reliability lead",
-  codingScheme: "SENA lesson-study codebook v1",
-  unitOfCoding: "coded_segments",
-  coderCount: 2,
-  agreementMetric: "Cohen kappa",
-  agreementValue: "0.82",
-  adjudicationNotes: "Disagreements were adjudicated before the pilot export.",
-  limitations: "Reliability evidence is documented for the pilot sample only."
-};
+const documentedCodingReliability = reliabilityDashboardToReview(
+  buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "evidence", value: true },
+    { coderId: "c1", itemId: "u2", codeId: "evidence", value: false },
+    { coderId: "c2", itemId: "u2", codeId: "evidence", value: false }
+  ]),
+  "Reliability lead"
+);
 
 const documentedDataGovernance = {
   irbApprovalId: "EDUHK-SENA-2026-014",
@@ -545,9 +548,7 @@ describe("SENA model builder", () => {
     expect(trace.transitions[0]?.interpretationGuardrail).toContain("not causal evidence");
   });
 
-  it("keeps temporal trace matrix totals finite when an interaction weight is not finite", () => {
-    // Guard parity with fusion-math matrixTotal: one NaN interaction weight
-    // must not poison every per-window total and transition delta.
+  it("rejects a temporal trace when an interaction weight is not finite", () => {
     const dataset = {
       ...exampleSenaContract,
       interactions: exampleSenaContract.interactions.map((interaction, index) => (
@@ -555,19 +556,9 @@ describe("SENA model builder", () => {
       ))
     };
 
-    const trace = buildSenaTemporalRuntimeTrace(dataset, {}, {
+    expect(() => buildSenaTemporalRuntimeTrace(dataset, {}, {
       generatedAt: "2026-08-02T00:00:00.000Z"
-    });
-
-    expect(trace.windows.length).toBeGreaterThan(0);
-    for (const entry of trace.windows) {
-      expect(Number.isFinite(entry.sena.matrixTotals.S)).toBe(true);
-      expect(Number.isFinite(entry.sena.matrixTotals.fusion)).toBe(true);
-    }
-    for (const transition of trace.transitions) {
-      expect(Number.isFinite(transition.delta.S)).toBe(true);
-      expect(Number.isFinite(transition.delta.fusion)).toBe(true);
-    }
+    })).toThrowError(SenaInputValidationError);
   });
 
   it("returns an empty temporal runtime trace for an empty dataset", () => {
@@ -710,7 +701,7 @@ describe("SENA model builder", () => {
     expect(report.completenessAudit.items.map((item) => item.id)).toContain("data-governance");
     expect(report.completenessAudit.items.find((item) => item.id === "runtime-api-surface")?.evidence).toContain("jena-api-surface:pass");
     expect(report.completenessAudit.items.find((item) => item.id === "runtime-api-surface")?.evidence).toContain("jsna-api-surface:pass");
-    expect(report.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(report.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(report.codingReliabilityGate.status).toBe("ready");
     expect(markdown).toContain("## Coding Reliability Gate");
     expect(report.completenessAudit.items.every((item) => item.status === "pass")).toBe(true);
@@ -742,12 +733,13 @@ describe("SENA model builder", () => {
       "import-and-model-warnings"
     ]);
     expect(buildSenaDataContractAudit(model.dataset, { modelWarnings: model.summary.warnings })).toEqual(report.dataContractAudit);
-    expect(report.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v1");
+    expect(report.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v2");
     expect(report.fusionMathAudit.status).toBe("verified");
     expect(report.fusionMathAudit.reviewNeeded).toBe(0);
     expect(report.fusionMathAudit.items.map((item) => item.id)).toEqual([
       "labels-and-dimensions",
       "finite-values",
+      "nonnegative-values",
       "social-block",
       "bridge-block",
       "bridge-cp-block",
@@ -1224,8 +1216,10 @@ describe("SENA model builder", () => {
         }
       ]
     };
-    const brokenModel = buildSenaModel(brokenDataset);
-    const brokenAudit = buildSenaDataContractAudit(brokenModel.dataset, { modelWarnings: brokenModel.summary.warnings });
+    expect(() => buildSenaModel(brokenDataset)).toThrowError(SenaInputValidationError);
+    const brokenAudit = buildSenaDataContractAudit(brokenDataset, {
+      modelWarnings: ["Analytical numeric-domain validation failed before model construction."]
+    });
 
     expect(validAudit.status).toBe("valid");
     expect(validAudit.items.every((item) => item.status === "pass")).toBe(true);
@@ -2080,7 +2074,7 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Coding reliability");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Data governance");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "claim-readiness")?.requiredText).toContain("Exploratory until coding reliability, data governance");
-    expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate/v1");
+    expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate/v2");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("sena-coding-reliability-gate.json");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "coding-reliability")?.requiredText).toContain("Coding reliability evidence");
     expect(bundle.productionPageContract.sections.find((section) => section.id === "research-artifact-exports")?.requiredText).toContain("Export metric provenance");
@@ -2500,7 +2494,7 @@ describe("SENA model builder", () => {
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"export-publication-pdf\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"export-publication-package\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-claim-evidence-package\"");
-    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("sena-enterprise-claim-evidence-package/v1");
+    expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("sena-enterprise-claim-evidence-package/v2");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-expert-review-dossier-export\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-testid=\"enterprise-validation-parity-evidence\"");
     expect(bundle.productionPageContract.visualChecks.map((check) => check.requiredText)).toContain("data-visual-role=\"enterprise-validation-parity-evidence\"");
@@ -2628,7 +2622,7 @@ describe("SENA model builder", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=13");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=13");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.handoffChecks).toContain("pilot-asset-integrity");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.matrixCoverage).toContain(`claimUse=${bundle.codingReliabilityGate.claimUse}`);
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.handoffChecks).toContain("coding-reliability-gate");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json")?.matrixCoverage).toContain(`A_fusion=${model.matrices.fusion.labels.length}`);
@@ -2711,37 +2705,17 @@ describe("SENA model builder", () => {
 
     const serverProjectExport = await exportEnterprisePublicationAction(
       {
-        teamId: "team-1",
         format: "pdf",
         projectId: "project-1"
       },
       { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
     );
-    const snapshotExport = await exportEnterprisePublicationAction(
-      {
-        teamId: "team-1",
-        format: "package",
-        snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
-      },
-      { jsonHeaders: testEnterpriseJsonHeaders, fetchImpl }
-    );
-
     expect(SENA_WORKSPACE_API_ROUTES.publicationExport).toBe("/api/sena/exports/publication");
     expect(serverProjectExport.filename).toBe("sena-publication.pdf");
-    expect(snapshotExport.filename).toBe("sena-publication.pdf");
-    expect(calls.map((call) => call.url)).toEqual([
-      SENA_WORKSPACE_API_ROUTES.publicationExport,
-      SENA_WORKSPACE_API_ROUTES.publicationExport
-    ]);
+    expect(calls.map((call) => call.url)).toEqual([SENA_WORKSPACE_API_ROUTES.publicationExport]);
     expect(calls[0].body).toEqual({
-      teamId: "team-1",
       format: "pdf",
       projectId: "project-1"
-    });
-    expect(calls[1].body).toEqual({
-      teamId: "team-1",
-      format: "package",
-      snapshot: { schemaVersion: "sena-project-snapshot/v1", id: "snapshot-1" }
     });
   });
 
@@ -3278,7 +3252,7 @@ describe("SENA model builder", () => {
 
   it("exposes Holm-corrected validation suites from the workspace controls", async () => {
     const recorder = createJsonFetchRecorder({
-      schemaVersion: "sena-group-comparison-suite/v1",
+      schemaVersion: "sena-group-comparison-suite/v2",
       metric: "suite",
       groupA: "coach",
       groupB: "teacher",
@@ -3911,7 +3885,7 @@ describe("SENA model builder", () => {
       "metric-provenance"
     ]);
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-visual-grammar.json"]).toBe("sena-visual-grammar/v1");
-    expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"]).toBe("sena-coding-reliability-gate/v1");
+    expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"]).toBe("sena-coding-reliability-gate/v2");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-claim-readiness-gate.json"]).toBe("sena-claim-readiness-gate/v1");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-sna-report.json"]).toBe("sena-sna-report/v1");
     expect(packet.contents.pilotPackageManifest.exportArtifactSchemas["sena-metric-provenance.json"]).toBe("sena-metric-provenance/v1");
@@ -3974,10 +3948,27 @@ describe("SENA model builder", () => {
     expect(importedPacket.contents.pairContributionReportArtifact.schemaVersion).toBe("sena-person-code-pair-g-report/v1");
     expect(importedPacket.contents.pilotPackageManifest.schemaVersion).toBe("sena-pilot-package-manifest/v1");
     expect(importedPacket.contents.developmentPlan.schemaVersion).toBe("sena-development-plan/v1");
-    expect(importedPacket.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(importedPacket.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(importedPacket.contents.claimReadinessGate.schemaVersion).toBe("sena-claim-readiness-gate/v1");
     expect(importedPacket.contents.demoVerificationCompatibilityAudit.schemaVersion).toBe("sena-demo-verification-compatibility/v1");
     expect(importedPacket.contents.productionPageContract.schemaVersion).toBe("sena-production-page-contract/v1");
+
+    const legacyFusionAuditPacket = {
+      ...packet,
+      contents: {
+        ...packet.contents,
+        fusionMathAudit: {
+          ...packet.contents.fusionMathAudit,
+          schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit
+        },
+        codingReliabilityGate: {
+          ...packet.contents.codingReliabilityGate,
+          schemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+        }
+      }
+    };
+    expect(isSenaReviewPacket(legacyFusionAuditPacket)).toBe(false);
+    expect(() => importSenaReviewPacket(legacyFusionAuditPacket)).toThrow(/genuine seven-item v1 contract/i);
   });
 
   it("rejects malformed review packets before workspace recognition", () => {
@@ -3994,7 +3985,7 @@ describe("SENA model builder", () => {
       contents: {
         reportJson: { schemaVersion: "sena-report/v1" }
       }
-    })).toThrow(/review packet\.summary\.analysisScope/i);
+    })).toThrow(/review packet\.summary\.analysisScope|artifact-manifest membership is invalid/i);
   });
 
   it("rejects invalid review packet analysis scope metadata", () => {
@@ -4064,7 +4055,7 @@ describe("SENA model builder", () => {
           ...packet.contents.pilotPackageManifest,
           exportArtifactSchemas: {
             ...packet.contents.pilotPackageManifest.exportArtifactSchemas,
-            "sena-sna-report.json": undefined
+            "sena-sna-report.json": null as never
           }
         }
       }
@@ -4267,17 +4258,24 @@ describe("SENA model builder", () => {
   });
 
   it("imports legacy v1 snapshots whose buildOptions predate the analysis-config declarations", () => {
-    const snapshot = buildSenaProjectSnapshot(buildSenaModel(exampleSenaContract), {
-      generatedAt: "2026-06-08T02:10:00.000Z"
-    });
-    const legacy = JSON.parse(JSON.stringify(snapshot));
-    legacy.reproducibility.buildOptions = {
+    const snapshot = buildSenaProjectSnapshot(buildSenaModel(exampleSenaContract, {
       alpha: 0.72,
       beta: 0.64,
       gamma: 0.86,
       normalization: "max",
-      undirectedSocial: true,
-      temporal: legacy.reproducibility.buildOptions.temporal
+      undirectedSocial: true
+    }), {
+      generatedAt: "2026-06-08T02:10:00.000Z"
+    });
+    const legacy = JSON.parse(JSON.stringify(snapshot));
+    const legacyBuildOptions = legacy.reproducibility.buildOptions;
+    legacy.reproducibility.buildOptions = {
+      alpha: legacyBuildOptions.alpha,
+      beta: legacyBuildOptions.beta,
+      gamma: legacyBuildOptions.gamma,
+      normalization: legacyBuildOptions.normalization,
+      undirectedSocial: legacyBuildOptions.undirectedSocial,
+      temporal: legacyBuildOptions.temporal
     };
 
     const imported = importSenaProjectSnapshot(JSON.stringify(legacy));
@@ -4413,14 +4411,14 @@ describe("SENA model builder", () => {
     expect(markdown).toContain("## Runtime Consistency Audit");
     expect(markdown).toContain("sena-runtime-consistency/v1");
     expect(markdown).toContain("## Fusion Math Audit");
-    expect(markdown).toContain("sena-fusion-math-audit/v1");
+    expect(markdown).toContain("sena-fusion-math-audit/v2");
     expect(markdown).toContain("## Pilot Readiness Audit");
     expect(markdown).toContain("sena-pilot-readiness/v1");
     expect(markdown).toContain("## Claim Readiness Gate");
     expect(markdown).toContain("sena-claim-readiness-gate/v1");
     expect(markdown).toContain("Exploratory until coding reliability, data governance");
     expect(markdown).toContain("## Coding Reliability Gate");
-    expect(markdown).toContain("sena-coding-reliability-gate/v1");
+    expect(markdown).toContain("sena-coding-reliability-gate/v2");
     expect(markdown).toContain("## Report Completeness Audit");
     expect(markdown).toContain("- Overall status:");
     expect(markdown).toContain("## Validation");
@@ -4658,13 +4656,40 @@ describe("SENA model builder", () => {
     });
   }
 
-  it("handles empty and single-actor edge cases without NaN or crashes", () => {
+  it("handles empty and single-actor edge cases without NaN or crashes", async () => {
     const empty = buildSenaModel(createEmptySenaDataset());
     expect(empty.summary.people).toBe(0);
     expect(empty.summary.socialAnalysis.density).toBe(0);
     expect(empty.summary.socialAnalysis.connected).toBe(true);
     expect(empty.temporal.windows).toHaveLength(0);
+    expect(empty.operatorDiagnostics.embedding.mds).toMatchObject({
+      available: false,
+      metricExact: false,
+      coordinates: null,
+      stress: null,
+      maxDistortion: null,
+      minCenteredGramEigenvalue: null
+    });
+    expect(empty.operatorDiagnostics.embedding.mds.warnings).toContain(
+      "Classical MDS is unavailable because the fusion graph has zero vertices."
+    );
     const emptyReport = buildSenaReport(empty);
+    const emptyDimensionsAudit = emptyReport.fusionMathAudit.items.find(
+      (item) => item.id === "labels-and-dimensions"
+    );
+    expect(emptyDimensionsAudit).toMatchObject({
+      status: "review",
+      actual: "0 fusion labels; 0x0"
+    });
+    expect(emptyDimensionsAudit?.detail).toContain(
+      "Empty 0x0 fusion universe cannot verify labels and dimensions."
+    );
+    expect(emptyReport.fusionMathAudit).toMatchObject({
+      status: "needs-review",
+      passed: 7,
+      reviewNeeded: 1
+    });
+    expect(isCurrentSenaFusionMathAudit(emptyReport.fusionMathAudit)).toBe(true);
     expect(emptyReport.validation.stability.temporal.variants[0]?.utteranceCoverage).toBe(1);
     expect(emptyReport.dataContractAudit.status).toBe("needs-review");
     expect(emptyReport.dataContractAudit.items.find((item) => item.id === "five-table-shape")?.status).toBe("review");
@@ -4672,6 +4697,7 @@ describe("SENA model builder", () => {
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "data-contract-audit")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "jena-manifest")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "jsna-manifest")?.status).toBe("review");
+    expect(emptyReport.completenessAudit.items.find((item) => item.id === "fusion-math-audit")?.status).toBe("review");
     expect(emptyReport.completenessAudit.items.find((item) => item.id === "human-review")?.status).toBe("review");
     expect(emptyReport.runtimeConsistencyAudit.status).toBe("needs-review");
     expect(emptyReport.runtimeConsistencyAudit.items.find((item) => item.id === "jena-status")?.status).toBe("pass");
@@ -4689,7 +4715,50 @@ describe("SENA model builder", () => {
     expect(emptyReport.claimReadinessGate.status).toBe("exploratory");
     expect(emptyReport.claimReadinessGate.claimUse).toBe("exploratory-only");
     expect(emptyReport.claimReadinessGate.blockers).toContain("Data contract");
+    expect(emptyReport.claimReadinessGate.blockers).toContain("Fusion math");
     expect(emptyReport.claimReadinessGate.blockers).toContain("Human review");
+    expect(emptyReport.pilotReadinessAudit.items.find((item) => item.id === "fusion-math")?.status).toBe("review");
+    expect(emptyReport.modelCard.renderGate.status).toBe("blocked");
+    expect(emptyReport.modelCard.embedding).toMatchObject({
+      operator: "layout-only",
+      dimensions: null,
+      metricExact: false,
+      stress: null,
+      maxDistortion: null
+    });
+
+    const emptySnapshot = buildSenaProjectSnapshot(empty, {
+      title: "Empty current JSON carrier",
+      generatedAt: "2026-08-25T00:00:00.000Z",
+      sourceDataset: empty.dataset
+    });
+    const nonJsonPaths: string[] = [];
+    const serializedEmptySnapshot = JSON.stringify(emptySnapshot, (key, value: unknown) => {
+      if (value === undefined || (typeof value === "number" && !Number.isFinite(value))) {
+        nonJsonPaths.push(key);
+      }
+      return value;
+    });
+    expect(nonJsonPaths).toEqual([]);
+    expect(importSenaProjectSnapshot(emptySnapshot)).toEqual(emptySnapshot);
+    expect(importSenaProjectSnapshot(serializedEmptySnapshot)).toEqual(emptySnapshot);
+    await expect(buildSenaPublicationExport(emptySnapshot, "html")).rejects.toMatchObject({
+      code: "publication_export_model_card_blocked",
+      message: expect.stringContaining("fusion-math-audit")
+    });
+
+    const forgedNonemptyAudit = structuredClone(
+      buildSenaFusionMathAudit(buildSenaModel(lessonStudySenaContract))
+    );
+    const forgedDimensions = forgedNonemptyAudit.items.find(
+      (item) => item.id === "labels-and-dimensions"
+    );
+    if (!forgedDimensions) throw new Error("Nonempty fusion audit fixture is missing dimensions evidence.");
+    forgedDimensions.status = "review";
+    forgedNonemptyAudit.passed -= 1;
+    forgedNonemptyAudit.reviewNeeded += 1;
+    forgedNonemptyAudit.status = "needs-review";
+    expect(isCurrentSenaFusionMathAudit(forgedNonemptyAudit)).toBe(false);
 
     const single = buildSenaModel({
       people: [{ id: "solo", label: "Solo", role: "Learner", group: "Solo", initials: "S" }],
@@ -4766,7 +4835,7 @@ describe("SENA model builder", () => {
       })),
       coded_segments: exampleSenaContract.coded_segments.map((segment, index) => ({
         ...segment,
-        confidence: index === 0 ? 10_000 : segment.confidence ?? 1
+        confidence: index === 0 ? 1 : segment.confidence ?? 1
       }))
     }, { normalization: "log-max" });
 

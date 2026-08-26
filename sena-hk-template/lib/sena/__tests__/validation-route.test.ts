@@ -115,6 +115,7 @@ describe("SENA validation group-comparison route", () => {
           projectId?: string;
           comparisonCount?: number;
           minHolmAdjustedP?: number;
+          validationRunEvidenceHash?: string;
           preregistrationPlan?: { planHash?: string };
           parityEvidence?: {
             status?: string;
@@ -123,7 +124,7 @@ describe("SENA validation group-comparison route", () => {
           };
         };
       };
-      expect(body.schemaVersion).toBe("sena-group-comparison-suite/v1");
+      expect(body.schemaVersion).toBe("sena-group-comparison-suite/v2");
       expect(body.comparisonCount).toBe(3);
       expect(body.correction).toBe("holm");
       expect(body.validationRun?.projectId).toBe(project.id);
@@ -135,6 +136,9 @@ describe("SENA validation group-comparison route", () => {
       expect(response.headers.get("x-sena-validation-status")).toBe(body.validationRun?.status);
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-validation-comparison-count")).toBe(String(body.validationRun?.comparisonCount));
+      expect(body.validationRun?.validationRunEvidenceHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(response.headers.get("x-sena-validation-run-evidence-sha256"))
+        .toBe(body.validationRun?.validationRunEvidenceHash);
       expect(response.headers.get("x-sena-validation-preregistration-sha256")).toBe(body.validationRun?.preregistrationPlan?.planHash);
       expect(response.headers.get("x-sena-validation-parity-status")).toBe(body.validationRun?.parityEvidence?.status);
       expect(response.headers.get("x-sena-validation-parity-sha256")).toBe(body.validationRun?.parityEvidence?.validationRunHash);
@@ -148,7 +152,7 @@ describe("SENA validation group-comparison route", () => {
     }
   }, validationRouteTestTimeoutMs);
 
-  it("defaults malformed validation metrics to typed social strength", async () => {
+  it("rejects malformed validation metrics instead of silently defaulting to social strength", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-default-metric-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -199,13 +203,97 @@ describe("SENA validation group-comparison route", () => {
         })
       }));
       const body = await response.json() as {
-        metric?: string;
-        validationRun?: { id?: string; status?: string };
+        error?: string;
+        code?: string;
+        issues?: Array<{ path: string; rule: string }>;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.metric).toBe("socialStrength");
-      expect(body.validationRun?.status).toBe("pending-review");
+      expect(response.status).toBe(400);
+      expect(body).toEqual({
+        error: "SENA analytical inputs violate the numeric domain.",
+        code: "invalid_sena_numeric_domain",
+        issues: [{ path: "metric", rule: "supported-value" }]
+      });
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  }, validationRouteTestTimeoutMs);
+
+  it("returns a stable 413 before persistence for single and suite sources above the model-work ceiling", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-source-complexity-route-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/inference", async () => await import("../inference"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const registered = enterprise.registerEnterpriseUser({
+        name: "Validation Resource Reviewer",
+        email: "validation-resource-reviewer@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Resource Lab",
+        plan: "lab"
+      });
+      sessionToken = registered.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(registered.context);
+      const dataset = structuredClone(lessonStudySenaContract);
+      const personTemplate = structuredClone(dataset.people[0]);
+      dataset.people = [
+        ...dataset.people,
+        ...Array.from({ length: 150 - dataset.people.length }, (_unused, index) => ({
+          ...structuredClone(personTemplate),
+          id: `validation-resource-person-${index}`,
+          label: `Validation resource person ${index}`
+        }))
+      ];
+      const route = await import("../../../app/api/sena/validation/group-comparison/route");
+
+      for (const suite of [false, true]) {
+        const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          },
+          body: JSON.stringify({
+            teamId: registered.context.teams[0].id,
+            dataset,
+            suite,
+            groupField: "role",
+            groupA: "Lead teacher",
+            groupB: "Curriculum designer",
+            ...(suite ? {
+              comparisons: [{
+                groupField: "role",
+                groupA: "Lead teacher",
+                groupB: "Curriculum designer",
+                metric: "bridgeScore"
+              }]
+            } : {}),
+            metric: "bridgeScore",
+            iterations: 100,
+            bootstrapIterations: 100
+          })
+        }));
+        expect(response.status).toBe(413);
+        await expect(response.json()).resolves.toEqual({
+          error: "The SENA validation source exceeds bounded analytical complexity.",
+          code: "validation_source_too_complex"
+        });
+      }
+      expect(enterprise.readEnterpriseDb().validationRuns).toHaveLength(0);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });
@@ -291,6 +379,7 @@ describe("SENA validation group-comparison route", () => {
           comparisonCount?: number;
           validationMethod?: string;
           projectVersion?: number;
+          projectTeamId?: string;
         };
         worker?: { expectedAction?: string; payloadDelivery?: string };
         delivery?: { webhookStatus?: string; httpStatus?: number };
@@ -304,7 +393,8 @@ describe("SENA validation group-comparison route", () => {
         source: "project",
         comparisonCount: 2,
         validationMethod: "group-comparison",
-        projectVersion: project.currentVersion
+        projectVersion: project.currentVersion,
+        projectTeamId: project.teamId
       }));
       expect(body.worker).toEqual(expect.objectContaining({
         expectedAction: "run-validation",
@@ -353,6 +443,107 @@ describe("SENA validation group-comparison route", () => {
         comparisonCount: 2,
         projectVersion: project.currentVersion
       }));
+    } finally {
+      delete process.env.SENA_ENTERPRISE_DB_DIR;
+      delete process.env.SENA_JOB_QUEUE_ADAPTER;
+      delete process.env.SENA_JOB_QUEUE_URL;
+      delete process.env.SENA_JOB_QUEUE_SECRET;
+      rmSync(enterpriseDbDir, { recursive: true, force: true });
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  }, validationRouteTestTimeoutMs);
+
+  it("rejects a queued validation whose requested team differs from the source project team before receipt or dispatch", async () => {
+    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-validation-queue-team-binding-"));
+    let sessionToken = "";
+    vi.resetModules();
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
+    process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
+    const queueRequests: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
+      queueRequests.push(args);
+      return new Response("", { status: 202 });
+    }));
+    vi.doMock("next/headers", () => ({
+      cookies: () => ({
+        get: (name: string) => name === "sena_session" ? { value: sessionToken } : undefined
+      })
+    }));
+    vi.doMock("@/lib/sena/enterprise", async () => await import("../enterprise"));
+    vi.doMock("@/lib/sena/api-helpers", async () => await import("../api-helpers"));
+    vi.doMock("@/lib/sena/inference", async () => await import("../inference"));
+    vi.doMock("@/lib/sena/import", async () => await import("../import"));
+    vi.doMock("@/lib/sena/snapshot", async () => await import("../snapshot"));
+
+    try {
+      const enterprise = await import("../enterprise");
+      const projectOwner = enterprise.registerEnterpriseUser({
+        name: "Validation Project Owner",
+        email: "validation-project-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Project Lab",
+        plan: "lab"
+      });
+      const otherTeamOwner = enterprise.registerEnterpriseUser({
+        name: "Validation Other Team Owner",
+        email: "validation-other-team-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Validation Other Team Lab",
+        plan: "lab"
+      });
+      const projectTeamId = projectOwner.context.teams[0].id;
+      const otherTeamId = otherTeamOwner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(projectOwner.context, {
+        teamId: projectTeamId,
+        title: "Cross-team queued validation source",
+        snapshot: validationRouteSnapshot()
+      });
+      const invitation = enterprise.createEnterpriseInvitation(otherTeamOwner.context, {
+        teamId: otherTeamId,
+        email: projectOwner.context.user.email,
+        role: "coder"
+      });
+      const accepted = enterprise.acceptEnterpriseInvitation(projectOwner.context, {
+        invitationId: invitation.id
+      });
+      sessionToken = projectOwner.token;
+      const csrf = enterprise.createEnterpriseCsrfToken(accepted.context);
+      const jobsBefore = enterprise.readEnterpriseDb().serverJobs.length;
+
+      const route = await import("../../../app/api/sena/validation/group-comparison/route");
+      const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          teamId: otherTeamId,
+          projectId: project.id,
+          queue: true,
+          groupField: "role",
+          groupA: "Lead teacher",
+          groupB: "Curriculum designer",
+          metric: "bridgeScore",
+          iterations: 100,
+          bootstrapIterations: 100
+        })
+      }));
+      const body = await response.json() as { code?: string };
+
+      expect(response.status).toBe(400);
+      expect(body.code).toBe("validation_project_team_mismatch");
+      expect(queueRequests).toHaveLength(0);
+      expect(enterprise.readEnterpriseDb().serverJobs).toHaveLength(jobsBefore);
+      expect(enterprise.listEnterpriseAuditLog(accepted.context, {
+        event: "validation.queue",
+        projectId: project.id,
+        limit: 5
+      }).events).toHaveLength(0);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_JOB_QUEUE_ADAPTER;

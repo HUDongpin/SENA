@@ -15,8 +15,9 @@ import {
  * is the pull half, for `local` queue mode (where no webhook is ever dispatched)
  * and for draining a backlog by hand. Because the job store never keeps the raw
  * payload, the drain only runs jobs whose payload it can reproduce byte-for-byte
- * against the recorded payloadSha256 — anything else is reported and left queued
- * for the signed push path.
+ * against the recorded payloadSha256. An irreproducible retained command is
+ * atomically terminalized before claim, with attempts unchanged, instead of
+ * being left queued indefinitely or silently reinterpreted for the push path.
  */
 
 type WorkerOptions = {

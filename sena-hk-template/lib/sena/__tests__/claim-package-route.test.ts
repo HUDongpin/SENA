@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildSenaModel,
+  buildSenaGroupComparisonSuite,
   buildSenaProjectSnapshot,
   importSenaJsonContract,
   lessonStudySenaContract
@@ -37,8 +38,32 @@ function claimRouteSnapshot() {
   });
 }
 
+type PersistedClaimValidation = {
+  id: string;
+  pTwoSided: number;
+  validationRunEvidenceSchemaVersion?: string;
+  validationRunEvidenceHash?: string;
+};
+
+const claimValidationTamperCases: Array<{
+  label: string;
+  mutate: (run: PersistedClaimValidation) => void;
+}> = [{
+  label: "a divergent cached summary",
+  mutate: (run) => {
+    run.pTwoSided = run.pTwoSided === 0 ? 0.5 : 0;
+  }
+}, {
+  label: "a schema-only partial seal",
+  mutate: (run) => {
+    delete run.validationRunEvidenceHash;
+  }
+}];
+
 describe("SENA claim package route", () => {
-  it("returns project-scoped provenance headers with the claim evidence package", async () => {
+  it.each(claimValidationTamperCases)(
+    "returns project-scoped provenance, then rejects $label through the file reader and claim route",
+    async ({ mutate }) => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-claim-package-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -66,6 +91,28 @@ describe("SENA claim package route", () => {
         title: "Route Claim Package Project",
         snapshot: claimRouteSnapshot()
       });
+      const validation = enterprise.createEnterpriseValidationRun(registered.context, {
+        teamId: project.teamId,
+        projectId: project.id,
+        preregistrationNote: "Claim route full-run seal fixture.",
+        methodNote: "Claim route canonical validation evidence.",
+        result: buildSenaGroupComparisonSuite({
+          dataset: lessonStudySenaContract,
+          defaultGroupField: "role",
+          comparisons: [{
+            groupField: "role",
+            groupA: "Lead teacher",
+            groupB: "Curriculum designer",
+            metric: "bridgeScore"
+          }],
+          iterations: 100,
+          bootstrapIterations: 100
+        })
+      });
+      enterprise.reviewEnterpriseValidationRun(registered.context, validation.id, {
+        status: "approved",
+        notes: "Approved route fixture before the persisted integrity tamper."
+      });
 
       const route = await import("../../../app/api/sena/validation/claim-package/route");
       const response = await route.GET(new Request(`https://sena.example.test/api/sena/validation/claim-package?projectId=${encodeURIComponent(project.id)}`));
@@ -77,11 +124,13 @@ describe("SENA claim package route", () => {
         project?: { id?: string; currentVersion?: number };
         sourceSnapshotEvidence?: {
           snapshotSha256?: string;
+          persistedSnapshotSha256?: string;
+          stateRevisionSha256?: string;
           reportSha256?: string;
           revisionMatchesCurrentVersion?: boolean;
         };
       };
-      expect(body.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v1");
+      expect(body.schemaVersion).toBe("sena-enterprise-claim-evidence-package/v2");
       expect(body.project?.id).toBe(project.id);
       expect(body.status).toBe("exploratory-only");
       expect(body.sourceSnapshotEvidence?.revisionMatchesCurrentVersion).toBe(true);
@@ -91,8 +140,34 @@ describe("SENA claim package route", () => {
       expect(response.headers.get("x-sena-project-id")).toBe(project.id);
       expect(response.headers.get("x-sena-project-version")).toBe(String(body.project?.currentVersion));
       expect(response.headers.get("x-sena-source-snapshot-sha256")).toBe(body.sourceSnapshotEvidence?.snapshotSha256);
+      expect(response.headers.get("x-sena-persisted-source-snapshot-sha256"))
+        .toBe(body.sourceSnapshotEvidence?.persistedSnapshotSha256);
+      expect(response.headers.get("x-sena-claim-state-revision-sha256"))
+        .toBe(body.sourceSnapshotEvidence?.stateRevisionSha256);
       expect(response.headers.get("x-sena-report-sha256")).toBe(body.sourceSnapshotEvidence?.reportSha256);
-      expect(response.headers.get("x-sena-claim-evidence-adjudication-source")).toBe("file-json");
+      expect(response.headers.get("x-sena-claim-evidence-adjudication-source")).toBe("file-primary-state");
+
+      const dbPath = path.join(enterpriseDbDir, "enterprise-db.json");
+      const persisted = JSON.parse(readFileSync(dbPath, "utf8")) as {
+        validationRuns: PersistedClaimValidation[];
+      };
+      const persistedValidation = persisted.validationRuns.find((run) => run.id === validation.id);
+      if (!persistedValidation) throw new Error("Expected persisted validation route fixture.");
+      mutate(persistedValidation);
+      writeFileSync(dbPath, JSON.stringify(persisted, null, 2));
+
+      expect(() => enterprise.readEnterpriseDb()).toThrow(expect.objectContaining({
+        name: "SenaEnterpriseValidationRunIntegrityError",
+        code: "validation_run_evidence_invalid"
+      }));
+      const rejected = await route.GET(new Request(
+        `https://sena.example.test/api/sena/validation/claim-package?projectId=${encodeURIComponent(project.id)}`
+      ));
+      expect(rejected.status).toBe(409);
+      await expect(rejected.json()).resolves.toEqual({
+        error: "Stored validation evidence is not canonically bound to its reviewed result.",
+        code: "validation_run_evidence_invalid"
+      });
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       rmSync(enterpriseDbDir, { recursive: true, force: true });

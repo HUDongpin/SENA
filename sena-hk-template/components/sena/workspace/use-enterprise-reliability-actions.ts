@@ -9,6 +9,10 @@ import {
 import type { EnterpriseCollaborationState } from "./enterprise-contracts";
 import type { SenaCodingReliabilityReview } from "./analysis-runtime";
 
+function reliabilityScoreLabel(value: number | null) {
+  return value === null ? "not estimable" : String(value);
+}
+
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
 type EnterpriseReliabilityRun = EnterpriseCollaborationState["reliabilityRuns"][number];
 type EnterpriseReliabilityReviewStatus = Extract<EnterpriseReliabilityRun["status"], "approved" | "rejected" | "pending-adjudication">;
@@ -147,7 +151,7 @@ export function useEnterpriseReliabilityActions({
       const result = await importSenaReliabilityFiles(files, codingReliabilityReviewer || reviewer || "SENA reliability workflow");
       setLocalEnterpriseReliabilityResult(result);
       applyReliabilityReviewPatch(result.reviewPatch);
-      setEnterpriseMessage(`Local reliability dashboard calculated without sign-in: kappa ${result.dashboard.meanPairwiseKappa}, alpha ${result.dashboard.krippendorffAlphaNominal}, disagreements ${result.dashboard.disagreementCount}. Sign in to persist reliability runs and adjudication coverage.`);
+      setEnterpriseMessage(`Local reliability dashboard calculated without sign-in: kappa ${reliabilityScoreLabel(result.dashboard.meanPairwiseKappa)}, alpha ${reliabilityScoreLabel(result.dashboard.krippendorffAlphaNominal)}, disagreements ${result.dashboard.disagreementCount}. Sign in to persist reliability runs and adjudication coverage.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Local reliability calculation failed.");
     } finally {
@@ -195,7 +199,7 @@ export function useEnterpriseReliabilityActions({
       applyReliabilityReviewPatch(review);
       setLocalEnterpriseReliabilityResult(null);
       if (activeEnterpriseProjectId) await refreshEnterpriseCollaboration(activeEnterpriseProjectId);
-      setEnterpriseMessage(`Reliability run ${payload.reliabilityRun?.id ?? "local"} saved: kappa ${payload.dashboard.meanPairwiseKappa}, alpha ${payload.dashboard.krippendorffAlphaNominal}, disagreements ${payload.dashboard.disagreementCount}.`);
+      setEnterpriseMessage(`Reliability run ${payload.reliabilityRun?.id ?? "local"} saved: kappa ${reliabilityScoreLabel(payload.dashboard.meanPairwiseKappa)}, alpha ${reliabilityScoreLabel(payload.dashboard.krippendorffAlphaNominal)}, disagreements ${payload.dashboard.disagreementCount}.`);
     } catch (error) {
       setEnterpriseMessage(error instanceof Error ? error.message : "Reliability calculation failed.");
     } finally {

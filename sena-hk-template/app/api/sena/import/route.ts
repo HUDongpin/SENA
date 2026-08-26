@@ -6,6 +6,7 @@ import {
   createEnterpriseImportRunWithPostgresMirrorAsync,
   createEnterpriseUploadsWithPostgresMirrorAsync,
   listEnterpriseImportRunsAsync,
+  reserveEnterpriseUploadIds,
   type SenaEnterpriseAnalysisRun,
   type SenaEnterpriseImportRun
 } from "@/lib/sena/enterprise/import-analysis";
@@ -28,6 +29,16 @@ import {
 import type { SenaEnterpriseImportCleaningManifest } from "@/lib/sena/import-adapters";
 import { importSenaEnterpriseFiles, withSenaImportDatasetMetadata } from "@/lib/sena/import-adapters";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { validateSenaAnalyticalInputs } from "@/lib/sena/analytical-input-validation";
+import { sanitizeSenaClientCodingReliability } from "@/lib/sena/analysis-api";
+import {
+  admitSenaImportMultipartRequest,
+  assertSenaImportControlContracts,
+  assertSenaImportFileCollectionLimits,
+  assertSenaImportFormDataContract,
+  SENA_IMPORT_MAX_AGGREGATE_FILE_BYTES
+} from "@/lib/sena/enterprise/heavy-request-admission";
+import { senaEnterpriseUploadMaxBytes } from "@/lib/sena/enterprise/upload-limits";
 
 export const runtime = "nodejs";
 
@@ -98,42 +109,76 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-import" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const form = await request.formData();
+    const admittedRequest = await admitSenaImportMultipartRequest(request);
+    const context = await requireApiSessionForMutation(admittedRequest);
+    const form = await admittedRequest.formData();
+    assertSenaImportFormDataContract(form);
     const files = form.getAll("files").filter((value): value is File => value instanceof File);
-    const bufferedFiles = await Promise.all(files.map(async (file) => {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      return {
-        name: file.name,
-        contentType: file.type || "application/octet-stream",
-        bytes: buffer,
-        text: async () => buffer.toString("utf8"),
-        arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-      };
-    }));
+    assertSenaImportFileCollectionLimits(files);
     const teamId = String(form.get("teamId") || context.teams[0]?.id || "");
     const action = formString(form.get("action"));
     const shouldCreateProject = action === "create-project" || formBoolean(form.get("persistProject"));
     const buildOptions = formJson<SenaAnalysisRunInput["buildOptions"]>(form.get("buildOptions"), "buildOptions");
     const activeTemporalWindowId = formString(form.get("activeTemporalWindowId")) || undefined;
     const includeRuntimeBundle = formBoolean(form.get("includeRuntimeBundle"));
-    const codingReliability = formJson<SenaAnalysisRunInput["codingReliability"]>(form.get("codingReliability"), "codingReliability");
-    const dataGovernance = formJson<SenaAnalysisRunInput["dataGovernance"]>(form.get("dataGovernance"), "dataGovernance");
+    const codingReliabilityInput = formJson<SenaAnalysisRunInput["codingReliability"]>(
+      form.get("codingReliability"),
+      "codingReliability"
+    );
+    const dataGovernance = formJson<SenaAnalysisRunInput["dataGovernance"]>(
+      form.get("dataGovernance"),
+      "dataGovernance"
+    );
+    assertSenaImportControlContracts({
+      buildOptions,
+      codingReliability: codingReliabilityInput,
+      dataGovernance
+    });
+    validateSenaAnalyticalInputs({ buildOptions });
+    const codingReliability = sanitizeSenaClientCodingReliability(codingReliabilityInput);
 
-    if (shouldQueueServerJob(request, { queue: formBoolean(form.get("queue")) })) {
-      const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
-        teamId,
-        files: bufferedFiles.map((file) => ({
-          name: file.name,
-          contentType: file.contentType,
-          bytes: file.bytes
-          // No warningCount: the external run-import worker is the parser, so
-          // the registry must not assert a clean parse it never performed
-          // (2026-08-01 report H10; same rule as the queued reliability route).
-        }))
+    const maximumFileBytes = senaEnterpriseUploadMaxBytes();
+    let bufferedAggregateBytes = 0;
+    const bufferedFiles: Array<{
+      name: string;
+      contentType: string;
+      bytes: Buffer;
+      text: () => Promise<string>;
+      arrayBuffer: () => Promise<ArrayBuffer>;
+    }> = [];
+    for (const file of files) {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      if (buffer.byteLength > maximumFileBytes) {
+        throw new SenaEnterpriseError(
+          "Import multipart request exceeds the per-file-byte limit.",
+          413,
+          "import_request_multipart_limits_exceeded"
+        );
+      }
+      if (buffer.byteLength > SENA_IMPORT_MAX_AGGREGATE_FILE_BYTES - bufferedAggregateBytes) {
+        throw new SenaEnterpriseError(
+          "Import multipart request exceeds the aggregate-file-byte limit.",
+          413,
+          "import_request_multipart_limits_exceeded"
+        );
+      }
+      bufferedAggregateBytes += buffer.byteLength;
+      bufferedFiles.push({
+        name: file.name,
+        contentType: file.type || "application/octet-stream",
+        bytes: buffer,
+        text: async () => buffer.toString("utf8"),
+        arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
       });
+    }
+    const result = await importSenaEnterpriseFiles(bufferedFiles);
+    const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
+    validateSenaAnalyticalInputs({ dataset, buildOptions });
+
+    if (shouldQueueServerJob(admittedRequest, { queue: formBoolean(form.get("queue")) })) {
       const queue = serverJobQueueStatus();
-      const uploadIds = uploads.map((upload) => upload.id);
+      const uploadIds = reserveEnterpriseUploadIds(bufferedFiles.length);
+      let uploads: Awaited<ReturnType<typeof createEnterpriseUploadsWithPostgresMirrorAsync>> = [];
       const job = await enqueueEnterpriseServerJob({
         kind: "import",
         teamId,
@@ -154,7 +199,7 @@ export async function POST(request: Request) {
         },
         payloadSummary: {
           source: "upload",
-          fileCount: uploads.length,
+          fileCount: bufferedFiles.length,
           uploadIds,
           persist: shouldCreateProject,
           activeTemporalWindowId,
@@ -163,7 +208,22 @@ export async function POST(request: Request) {
           hasInlineDataset: false,
           payloadValuesExcluded: true
         },
-        queue
+        queue,
+        beforeDispatch: async () => {
+          uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
+            teamId,
+            files: bufferedFiles.map((file, index) => ({
+              name: file.name,
+              contentType: file.contentType,
+              bytes: file.bytes,
+              reservedId: uploadIds[index]
+              // The preflight parse is validation-only. The external run-import
+              // worker re-reads the registered bytes and owns the persisted warning
+              // count, so enqueue still does not publish preflight warnings as the
+              // completed import result (same custody rule as queued reliability).
+            }))
+          });
+        }
       });
       await recordEnterpriseAuditAsync({
         event: "import.queue",
@@ -188,8 +248,6 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await importSenaEnterpriseFiles(bufferedFiles);
-    const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, new Date().toISOString());
     const sourceByName = new Map(result.sources.map((source) => [source.name, source]));
     const uploads = await createEnterpriseUploadsWithPostgresMirrorAsync(context, {
       teamId,

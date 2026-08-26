@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import {
   buildEnterpriseValidationRunListResponseAsync,
   buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync,
-  buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync
+  buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync,
+  resolveEnterpriseGroupComparisonInput
 } from "@/lib/sena/enterprise/validation-runs";
 import {
   requireEnterprisePermission
@@ -23,6 +24,7 @@ import {
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
+import { admitSenaValidationMutationRequest } from "@/lib/sena/enterprise/heavy-request-admission";
 
 export const runtime = "nodejs";
 
@@ -40,22 +42,35 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json() as Record<string, unknown>;
-    if (shouldQueueServerJob(request, body)) {
-      const projectId = body.projectId ? String(body.projectId) : undefined;
-      const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
-      const teamId = String(body.teamId || project?.teamId || context.teams[0]?.id || "");
+    const admitted = await admitSenaValidationMutationRequest(request, "POST");
+    const context = await requireApiSessionForMutation(admitted.request);
+    const body = admitted.body;
+    const projectId = body.projectId ? String(body.projectId) : undefined;
+    const project = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
+    const queued = shouldQueueServerJob(admitted.request, body);
+    const queue = queued ? serverJobQueueStatus() : null;
+    const resolved = resolveEnterpriseGroupComparisonInput(body, project);
+    if (queued && !projectId) {
+      throw new SenaEnterpriseError(
+        "Queued validation sources require durable project custody; use projectId or run the inline source synchronously.",
+        400,
+        "server_job_inline_source_custody_required"
+      );
+    }
+    const queuedTeamId = queued
+      ? String(body.teamId || project?.teamId || context.teams[0]?.id || "")
+      : undefined;
+    if (queued && project && queuedTeamId !== project.teamId) {
+      throw new SenaEnterpriseError(
+        "Validation run team does not match the project team.",
+        400,
+        "validation_project_team_mismatch"
+      );
+    }
+    if (queued && queue) {
+      const teamId = queuedTeamId ?? "";
       requireEnterprisePermission(context, teamId, "analysis:run");
-      const queue = serverJobQueueStatus();
-      if (!projectId && !queue.inlinePayloadAllowed) {
-        throw new SenaEnterpriseError(
-          "Queued validation jobs require projectId unless SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD=1 is explicitly configured.",
-          400,
-          "validation_queue_source_required"
-        );
-      }
-      const comparisonCount = Array.isArray(body.comparisons) ? body.comparisons.length : 1;
+      const comparisonCount = resolved.comparisons.length;
       const job = await enqueueEnterpriseServerJob({
         kind: "validation",
         teamId,
@@ -66,27 +81,26 @@ export async function POST(request: Request) {
           teamId,
           projectId,
           projectVersion: project?.currentVersion,
-          groupField: body.groupField ? String(body.groupField) : undefined,
-          groupA: body.groupA ? String(body.groupA) : undefined,
-          groupB: body.groupB ? String(body.groupB) : undefined,
-          metric: body.metric ? String(body.metric) : undefined,
+          groupField: resolved.defaultGroupField,
+          groupA: body.comparisons === undefined ? resolved.comparisons[0].groupA : undefined,
+          groupB: body.comparisons === undefined ? resolved.comparisons[0].groupB : undefined,
+          metric: resolved.defaultMetric,
           metrics: body.metrics,
-          comparisons: body.comparisons,
-          suite: body.suite === true,
-          iterations: body.iterations,
-          bootstrapIterations: body.bootstrapIterations,
-          alpha: body.alpha,
-          seed: body.seed,
+          comparisons: body.comparisons === undefined ? undefined : resolved.comparisons,
+          suite: resolved.suite,
+          iterations: resolved.iterations,
+          bootstrapIterations: resolved.bootstrapIterations,
+          alpha: resolved.alpha,
+          seed: resolved.seed,
           preregistrationNote: body.preregistrationNote,
           methodNote: body.methodNote,
           parityEvidence: body.parityEvidence,
-          buildOptions: body.buildOptions,
-          inlineSnapshot: queue.inlinePayloadAllowed ? body.snapshot : undefined,
-          inlineDataset: queue.inlinePayloadAllowed ? body.dataset : undefined
+          buildOptions: body.buildOptions
         },
         payloadSummary: {
           source: project ? "project" : body.snapshot && body.dataset ? "mixed" : body.snapshot ? "snapshot" : body.dataset ? "dataset" : "unknown",
           projectVersion: project?.currentVersion,
+          projectTeamId: project?.teamId,
           comparisonCount,
           validationMethod: "group-comparison",
           hasInlineSnapshot: Boolean(body.snapshot),
@@ -125,8 +139,9 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-validation-group-comparison" }, async () => {
-    const context = await requireApiSessionForMutation(request);
-    const body = await request.json();
+    const admitted = await admitSenaValidationMutationRequest(request, "PATCH");
+    const context = await requireApiSessionForMutation(admitted.request);
+    const body = admitted.body;
     const response = await buildEnterpriseValidationRunReviewResponseWithPostgresMirrorAsync(context, body);
     return NextResponse.json(response.body, { headers: response.headers });
   });

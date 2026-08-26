@@ -479,7 +479,7 @@ function serverJobRow(id: string, status: string, retryable: boolean) {
   const nowIso = new Date("2026-06-30T00:00:00.000Z").toISOString();
   return {
     id,
-    schema_version: "sena-enterprise-server-job/v1",
+    schema_version: "sena-enterprise-server-job/v2",
     kind: "analysis",
     status,
     team_id: "team_status_pg",

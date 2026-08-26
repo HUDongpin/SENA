@@ -1,10 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  createEnterprisePostgresAdjudicationAdapterFromEnv,
-  createEnterprisePostgresExpertReviewAdapterFromEnv,
-  createEnterprisePostgresReliabilityRunAdapterFromEnv,
-  createEnterprisePostgresValidationRunAdapterFromEnv
-} from "../enterprise-postgres";
+import { isDeepStrictEqual } from "node:util";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import { requireEnterprisePermission, type SenaEnterprisePermission } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
@@ -13,18 +8,25 @@ import type {
   SenaEnterpriseExpertReviewStatus
 } from "./expert-review";
 import { enterpriseExpertReviewRegistryRuntime } from "./expert-review";
+import { isEnterpriseExpertReviewReceiptValid } from "./expert-review-receipt";
 import {
   readEnterpriseDb,
   readEnterpriseState,
   type SenaEnterpriseDb
 } from "./state";
-import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
 import { enterpriseAdjudicationRegistryRuntime } from "./team-collaboration";
 import type {
   SenaEnterpriseProject,
+  SenaEnterpriseProjectEvidenceBinding,
   SenaEnterpriseProjectRevision
 } from "./team-project";
-import type { SenaGroupComparisonMetric } from "../inference";
+import { enterpriseProjectEvidenceBindingMatches } from "./team-project";
+import {
+  isCurrentSenaGroupComparisonValidationResult,
+  type SenaGroupComparisonMetric
+} from "../inference";
+import { senaValidationSourceVerificationCache } from "./validation-request-scope";
+import { buildSenaClaimReadinessGate } from "../pilot-readiness";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaProjectSnapshot } from "../types";
 import type {
@@ -33,13 +35,28 @@ import type {
   SenaEnterpriseReliabilityRunStatus
 } from "./reliability-runs";
 import { enterpriseReliabilityRunRegistryRuntime } from "./reliability-runs";
+import {
+  buildEnterpriseReliabilityPublicationReviewProjection,
+  buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
+  resolveEnterpriseReliabilityRunProjectScope
+} from "./reliability-integrity";
 import type {
   SenaEnterpriseValidationParityEvidence,
   SenaEnterpriseValidationPreregistrationPlan,
   SenaEnterpriseValidationRun,
   SenaEnterpriseValidationRunStatus
 } from "./validation-runs";
-import { enterpriseValidationRunRegistryRuntime } from "./validation-runs";
+import {
+  enterpriseValidationRunRegistryRuntime,
+  isEnterpriseValidationParityEvidenceHashValid,
+  isEnterpriseValidationPreregistrationPlanHashValid
+} from "./validation-runs";
+import {
+  isEnterpriseValidationRunCurrentProvenance,
+  normalizeEnterpriseValidationRunEvidence,
+  SenaEnterpriseValidationRunIntegrityError
+} from "./validation-integrity";
 
 export type SenaEnterpriseClaimEvidencePackageStatus =
   | "claim-ready-with-limits"
@@ -51,10 +68,10 @@ export type SenaEnterpriseClaimEvidencePackage = {
   generatedAt: string;
   status: SenaEnterpriseClaimEvidencePackageStatus;
   evidenceSource: {
-    reliabilityRuns: "file-json" | "postgres-table";
-    validationRuns: "file-json" | "postgres-table";
-    expertReviews: "file-json" | "postgres-table";
-    adjudications: "file-json" | "postgres-table" | "reliability-run-payload";
+    reliabilityRuns: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    validationRuns: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    expertReviews: "file-json" | "postgres-table" | "file-primary-state" | "postgres-primary-state";
+    adjudications: "file-json" | "postgres-table" | "reliability-run-payload" | "file-primary-state" | "postgres-primary-state";
     evidence: string[];
   };
   project: {
@@ -76,6 +93,9 @@ export type SenaEnterpriseClaimEvidencePackage = {
     snapshotTitle: string;
     snapshotGeneratedAt: string;
     snapshotSha256: string;
+    readProjectionSnapshotSha256: string;
+    persistedSnapshotSha256?: string;
+    stateRevisionSha256?: string;
     reportSha256: string;
     dataGovernance: SenaProjectSnapshot["report"]["dataGovernance"];
     datasetCounts: SenaEnterpriseProject["datasetCounts"];
@@ -97,6 +117,15 @@ export type SenaEnterpriseClaimEvidencePackage = {
       sha256: string;
     }>;
   };
+  claimReadinessEvidence: {
+    kind: "persisted-project-snapshot" | "current-project-reliability-run";
+    snapshotSchemaVersion: string;
+    snapshotSha256: string;
+    reportSha256: string;
+    claimUse: string;
+    gateStatus: string;
+    reliabilityRunId: string | null;
+  };
   summary: {
     reliability: "approved" | "missing" | "pending-or-rejected";
     validation: "approved" | "missing" | "pending-or-rejected";
@@ -114,8 +143,8 @@ export type SenaEnterpriseClaimEvidencePackage = {
       coderCount: number;
       itemCount: number;
       codeCount: number;
-      meanPairwiseKappa: number;
-      krippendorffAlphaNominal: number;
+      meanPairwiseKappa: number | null;
+      krippendorffAlphaNominal: number | null;
       disagreementCount: number;
       adjudications: number;
       adjudicationCoverage: SenaEnterpriseReliabilityAdjudicationCoverage;
@@ -124,6 +153,10 @@ export type SenaEnterpriseClaimEvidencePackage = {
     validation?: {
       runId: string;
       status: SenaEnterpriseValidationRunStatus;
+      resultSchemaVersion: SenaEnterpriseValidationRun["result"]["schemaVersion"];
+      validationRunEvidenceSchemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseValidationRunEvidence;
+      validationRunEvidenceHash: string;
+      projectBinding?: SenaEnterpriseProjectEvidenceBinding;
       analysis: SenaEnterpriseValidationPreregistrationPlan["analysis"] | "unplanned";
       metric: SenaGroupComparisonMetric;
       groupField: "group" | "role";
@@ -142,6 +175,7 @@ export type SenaEnterpriseClaimEvidencePackage = {
     expertReview?: {
       reviewId: string;
       status: SenaEnterpriseExpertReviewStatus;
+      projectBinding?: SenaEnterpriseProjectEvidenceBinding;
       claimScope: SenaEnterpriseExpertReview["claimScope"];
       reviewerName: string;
       reviewerRole: string;
@@ -149,6 +183,7 @@ export type SenaEnterpriseClaimEvidencePackage = {
       ratings: SenaEnterpriseExpertReview["ratings"];
       target: SenaEnterpriseExpertReview["target"];
       reviewedAt?: string;
+      evidenceReceipt: NonNullable<SenaEnterpriseExpertReview["evidenceReceipt"]>;
     };
   };
   artifacts: Array<{
@@ -198,21 +233,89 @@ function validationCorrection(run: SenaEnterpriseValidationRun): "holm" | undefi
   return run.result.schemaVersion === SENA_SCHEMA_VERSIONS.groupComparisonSuite ? run.result.correction : undefined;
 }
 
+function snapshotIsResearchClaimReady(snapshot: SenaProjectSnapshot, expectedClaimUse: string) {
+  const report = snapshot.report;
+  const gate = report.claimReadinessGate;
+  const canonicalGate = buildSenaClaimReadinessGate(report.pilotReadinessAudit);
+  return expectedClaimUse === "research-claim-ready" &&
+    gate.status === "ready" &&
+    gate.claimUse === "research-claim-ready" &&
+    gate.reviewNeeded === 0 &&
+    gate.blockers.length === 0 &&
+    gate.ready === gate.items.length &&
+    gate.items.every((item) => item.status === "ready") &&
+    isDeepStrictEqual(gate, canonicalGate);
+}
+
+function validationParityAndFormalInferenceReadiness(run: SenaEnterpriseValidationRun) {
+  try {
+    const parity = run.parityEvidence;
+    const plan = run.preregistrationPlan;
+    if (!parity || !plan || !isEnterpriseValidationPreregistrationPlanHashValid(plan) ||
+      !isEnterpriseValidationParityEvidenceHashValid(parity) ||
+      parity.preregistrationPlanHash !== plan.planHash ||
+      !/^[a-f0-9]{64}$/.test(parity.validationRunHash)) {
+      return { parityReady: false, formalReady: false };
+    }
+    const foundationGateIds = ["rena-parity", "r-sna-parity", "real-data-walkthrough"] as const;
+    const foundationGatesReady = foundationGateIds.every((gateId) => {
+      const matches = parity.gates.filter((gate) => gate.id === gateId);
+      return matches.length === 1 && matches[0].status === "passed";
+    });
+    const parityReady = parity.status === "ready-for-review" && foundationGatesReady;
+    const formal = parity.formalInference;
+    const requiredFormalCheckIds = [
+      "preregistration-plan",
+      "study-specific-model",
+      "runtime-parity",
+      "real-data-walkthrough",
+      "multiplicity-control"
+    ] as const;
+    const formalChecksReady = requiredFormalCheckIds.every((checkId) => {
+      const matches = formal.checks.filter((check) => check.id === checkId);
+      return matches.length === 1 && matches[0].status === "passed";
+    });
+    const sampleSizeChecks = formal.checks.filter((check) => check.id === "sample-size");
+    const formalReady =
+      formal.status === "model-referenced" &&
+      formal.preregistrationPlanHash === plan.planHash &&
+      formal.resultSchemaVersion === run.result.schemaVersion &&
+      formal.analysis === plan.analysis &&
+      formal.blockers.length === 0 &&
+      formalChecksReady &&
+      sampleSizeChecks.length === 1 &&
+      (sampleSizeChecks[0].status === "passed" || sampleSizeChecks[0].status === "review");
+    return { parityReady, formalReady };
+  } catch {
+    return { parityReady: false, formalReady: false };
+  }
+}
+
 function claimPackageSourceSnapshotEvidence(
   project: SenaEnterpriseProject,
-  revision: SenaEnterpriseProjectRevision | undefined
+  revision: SenaEnterpriseProjectRevision | undefined,
+  options: Pick<
+    SenaEnterpriseClaimEvidencePackageBuildOptions,
+    "persistedSnapshotSha256" | "stateRevisionSha256"
+  > = {}
 ): SenaEnterpriseClaimEvidencePackage["sourceSnapshotEvidence"] {
   const activeWindow = project.snapshot.source.activeTemporalWindow;
+  const readProjectionSnapshotSha256 = artifactSha256(project.snapshot);
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseClaimSourceSnapshot,
     projectVersion: project.currentVersion,
     revisionId: revision?.id,
     revisionCreatedAt: revision?.createdAt,
-    revisionMatchesCurrentVersion: revision?.version === project.currentVersion,
+    revisionMatchesCurrentVersion: revision?.teamId === project.teamId &&
+      revision.version === project.currentVersion &&
+      artifactSha256(revision.snapshot) === readProjectionSnapshotSha256,
     snapshotSchemaVersion: project.snapshot.schemaVersion,
     snapshotTitle: project.title,
     snapshotGeneratedAt: project.snapshot.generatedAt,
-    snapshotSha256: artifactSha256(project.snapshot),
+    snapshotSha256: readProjectionSnapshotSha256,
+    readProjectionSnapshotSha256,
+    ...(options.persistedSnapshotSha256 ? { persistedSnapshotSha256: options.persistedSnapshotSha256 } : {}),
+    ...(options.stateRevisionSha256 ? { stateRevisionSha256: options.stateRevisionSha256 } : {}),
     reportSha256: artifactSha256(project.snapshot.report),
     dataGovernance: project.snapshot.report.dataGovernance,
     datasetCounts: project.datasetCounts,
@@ -265,28 +368,173 @@ export function enterpriseClaimEvidencePackageRuntime(): SenaEnterpriseClaimEvid
   };
 }
 
-function buildEnterpriseClaimEvidencePackageFromDb(
+export type SenaEnterpriseClaimEvidencePackageBuildOptions = {
+  /** `null` pins publication aggregation to no eligible reliability run. */
+  approvedReliabilityRunId?: string | null;
+  persistedSnapshotSha256?: string;
+  stateRevisionSha256?: string;
+  claimReadinessSnapshot?: SenaProjectSnapshot;
+  claimReadinessReliabilityRunId?: string;
+};
+
+export function buildEnterpriseClaimEvidencePackageFromDb(
   db: SenaEnterpriseDb,
   context: SenaEnterpriseSessionContext,
   input: { projectId: string },
-  evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"]
+  evidenceSource: SenaEnterpriseClaimEvidencePackage["evidenceSource"],
+  options: SenaEnterpriseClaimEvidencePackageBuildOptions = {}
 ): SenaEnterpriseClaimEvidencePackage {
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
-  const currentRevision = db.projectRevisions.find((revision) => (
+  const validationSourceVerificationCache = senaValidationSourceVerificationCache();
+  const currentRevisionCandidates = db.projectRevisions.filter((revision) => (
     revision.projectId === project.id && revision.version === project.currentVersion
   ));
-  const projectReliabilityRuns = db.reliabilityRuns.filter((run) => run.projectId === project.id);
-  const projectValidationRuns = db.validationRuns.filter((run) => run.projectId === project.id);
-  const projectExpertReviews = db.expertReviews.filter((review) => review.projectId === project.id);
-  const approvedReliability = latestByTimestamp(projectReliabilityRuns.filter((run) => run.status === "approved"));
-  const approvedExpertReview = latestByTimestamp(projectExpertReviews.filter((review) => review.status === "approved"));
+  const currentRevisionTenantMismatch = currentRevisionCandidates.some((revision) => (
+    revision.teamId !== project.teamId
+  ));
+  const currentRevision = currentRevisionCandidates.find((revision) => revision.teamId === project.teamId);
+  const currentRevisionMatchesProject = Boolean(
+    !currentRevisionTenantMismatch &&
+    currentRevisionCandidates.length === 1 &&
+    currentRevision &&
+    artifactSha256(currentRevision.snapshot) === artifactSha256(project.snapshot)
+  );
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(
+    db.adjudications.filter((record) => record.projectId === project.id)
+  );
+  const projectReliabilityRuns = db.reliabilityRuns
+    .filter((run) => run.projectId === project.id)
+    .flatMap((run) => {
+      const resolved = resolveEnterpriseReliabilityRunProjectScope(
+        run,
+        project,
+        db.projectRevisions
+      );
+      const adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverageFromResolvedScope(
+        run,
+        resolved,
+        adjudicationsByRunId.get(run.id) ?? []
+      );
+      return resolved.scope === "current" ? [{
+        ...run,
+        dashboard: resolved.dashboard,
+        projectBinding: resolved.dashboard.projectBinding,
+        adjudicationCoverage
+      }] : [];
+    });
+  const projectValidationCandidates = db.validationRuns.filter((run) => run.projectId === project.id);
+  const validationTenantMismatch = projectValidationCandidates.some((run) => run.teamId !== project.teamId);
+  const projectValidationRuns = projectValidationCandidates.filter((run) => run.teamId === project.teamId);
+  const projectExpertReviewCandidates = db.expertReviews.filter((review) => review.projectId === project.id);
+  const expertReviewTenantMismatch = projectExpertReviewCandidates.some((review) => review.teamId !== project.teamId);
+  const projectExpertReviews = projectExpertReviewCandidates.filter((review) => review.teamId === project.teamId);
+  const approvedReliabilityRuns = projectReliabilityRuns
+    .filter((run) => run.status === "approved")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const projectedApprovedReliabilityRuns = approvedReliabilityRuns.flatMap((run) => {
+    try {
+      const projection = buildEnterpriseReliabilityPublicationReviewProjection(
+        run,
+        project,
+        adjudicationsByRunId.get(run.id) ?? []
+      );
+      return [{
+        run: {
+          ...run,
+          dashboard: projection.dashboard,
+          adjudicationCoverage: projection.adjudicationCoverage
+        },
+        projection
+      }];
+    } catch {
+      return [];
+    }
+  });
+  const machineEligibleReliabilityRuns = projectedApprovedReliabilityRuns.filter(({ projection }) => (
+    projection.dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    projection.dashboard.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    projection.review.machineEvidence?.claimEligibility.eligible === true &&
+    projection.adjudicationCoverage.unresolvedDisagreements === 0
+  ));
+  const approvedReliabilityEvidence = Object.hasOwn(options, "approvedReliabilityRunId")
+    ? options.approvedReliabilityRunId
+      ? machineEligibleReliabilityRuns.find(({ run }) => run.id === options.approvedReliabilityRunId)
+      : undefined
+    : machineEligibleReliabilityRuns[0];
+  const approvedReliability = approvedReliabilityEvidence?.run;
+  const reliabilityEligibilityEvidence = Object.hasOwn(options, "approvedReliabilityRunId") && options.approvedReliabilityRunId
+    ? projectedApprovedReliabilityRuns.find(({ run }) => run.id === options.approvedReliabilityRunId)
+    : projectedApprovedReliabilityRuns[0];
+  const approvedExpertReview = expertReviewTenantMismatch
+    ? undefined
+    : latestByTimestamp(projectExpertReviews.filter((review) => review.status === "approved"));
   const approvedValidationRuns = projectValidationRuns.filter((run) => run.status === "approved");
   const expertValidationTargetId = approvedExpertReview?.target.kind === "validation-run" ? approvedExpertReview.target.id : undefined;
-  const approvedValidation = expertValidationTargetId
-    ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId) ?? latestByTimestamp(approvedValidationRuns)
+  const selectedApprovedValidation = approvedExpertReview
+    ? expertValidationTargetId
+      ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId)
+      : undefined
     : latestByTimestamp(approvedValidationRuns);
+  let approvedValidation: SenaEnterpriseValidationRun | undefined;
+  let validationIntegrityBlocker: "approved-validation-run-evidence-hash-required" |
+    "validation-run-integrity-required" | undefined = validationTenantMismatch
+      ? "validation-run-integrity-required"
+      : undefined;
+  if (selectedApprovedValidation) {
+    try {
+      approvedValidation = normalizeEnterpriseValidationRunEvidence(
+        selectedApprovedValidation,
+        project,
+        {
+          evidenceHash: "required",
+          projectRevisions: db.projectRevisions,
+          analysisRuns: db.analysisRuns,
+          sourceVerificationCache: validationSourceVerificationCache
+        }
+      );
+    } catch (error) {
+      if (!(error instanceof SenaEnterpriseValidationRunIntegrityError)) throw error;
+      const fullRunSealMissing = selectedApprovedValidation.validationRunEvidenceHash === undefined &&
+        selectedApprovedValidation.validationRunEvidenceSchemaVersion === undefined;
+      if (!validationIntegrityBlocker || !fullRunSealMissing) {
+        validationIntegrityBlocker = fullRunSealMissing
+          ? "approved-validation-run-evidence-hash-required"
+          : "validation-run-integrity-required";
+      }
+    }
+  }
+  const expertTargetsSelectedValidation = Boolean(
+    approvedExpertReview &&
+    approvedValidation &&
+    approvedExpertReview.target.kind === "validation-run" &&
+    approvedExpertReview.target.id === approvedValidation.id &&
+    approvedExpertReview.target.validationRunEvidenceHash === approvedValidation.validationRunEvidenceHash
+  );
+  const expertReviewReceiptValid = Boolean(
+    approvedExpertReview &&
+    expertTargetsSelectedValidation &&
+    isEnterpriseExpertReviewReceiptValid(approvedExpertReview)
+  );
+  const authorizedExpertReview = expertReviewReceiptValid ? approvedExpertReview : undefined;
+  const validationBindingCurrent = approvedValidation
+    ? enterpriseProjectEvidenceBindingMatches(approvedValidation.projectBinding, project)
+    : false;
+  const expertBindingCurrent = approvedExpertReview
+    ? enterpriseProjectEvidenceBindingMatches(approvedExpertReview.projectBinding, project)
+    : false;
+  const validationReadiness = approvedValidation
+    ? validationParityAndFormalInferenceReadiness(approvedValidation)
+    : { parityReady: false, formalReady: false };
+  const validationProvenanceCurrent = approvedValidation
+    ? isEnterpriseValidationRunCurrentProvenance(approvedValidation, project, {
+        analysisRuns: db.analysisRuns
+      })
+    : false;
+  const validationCurrentV2 = approvedValidation
+    ? isCurrentSenaGroupComparisonValidationResult(approvedValidation.result)
+    : false;
   const loadedReliabilityAdjudications = approvedReliability
-    ? db.adjudications.filter((record) => record.reliabilityRunId === approvedReliability.id).length
+    ? (adjudicationsByRunId.get(approvedReliability.id) ?? []).length
     : 0;
   const reliabilityAdjudications = approvedReliability
     ? evidenceSource.adjudications === "reliability-run-payload"
@@ -296,13 +544,45 @@ function buildEnterpriseClaimEvidencePackageFromDb(
   const blockers: string[] = [];
   const warnings: string[] = [];
 
-  if (!approvedReliability) blockers.push("approved-reliability-run-required");
+  if (approvedReliabilityRuns.length === 0) blockers.push("approved-reliability-run-required");
+  if (approvedReliabilityRuns.length > 0 && !approvedReliability) {
+    blockers.push("approved-reliability-machine-eligibility-required");
+    for (const blocker of reliabilityEligibilityEvidence?.projection.review.machineEvidence?.claimEligibility.blockers ?? []) {
+      if (!blockers.includes(blocker)) blockers.push(blocker);
+    }
+  }
   if (approvedReliability?.adjudicationCoverage.unresolvedDisagreements) {
     blockers.push("approved-reliability-adjudication-coverage-required");
   }
-  if (!approvedValidation) blockers.push("approved-validation-run-required");
+  const claimReadinessSnapshot = options.claimReadinessSnapshot ?? project.snapshot;
+  const claimReadinessExpectedUse = options.claimReadinessSnapshot
+    ? claimReadinessSnapshot.report.claimReadinessGate.claimUse
+    : project.claimUse;
+  if (!snapshotIsResearchClaimReady(claimReadinessSnapshot, claimReadinessExpectedUse) ||
+    !currentRevisionMatchesProject ||
+    (options.claimReadinessReliabilityRunId !== undefined &&
+      options.claimReadinessReliabilityRunId !== approvedReliability?.id)) {
+    blockers.push("project-claim-readiness-required");
+  }
+  if (!approvedValidation && !validationIntegrityBlocker) blockers.push("approved-validation-run-required");
+  if (validationIntegrityBlocker) blockers.push(validationIntegrityBlocker);
   if (approvedValidation && !approvedValidation.preregistrationPlan) blockers.push("validation-preregistration-plan-required");
+  if (approvedValidation && !validationBindingCurrent) blockers.push("validation-current-project-binding-required");
+  if (approvedValidation && !validationProvenanceCurrent) blockers.push("validation-current-provenance-required");
+  if (approvedValidation && !validationReadiness.parityReady) blockers.push("validation-parity-readiness-required");
+  if (approvedValidation && !validationReadiness.formalReady) blockers.push("validation-formal-inference-readiness-required");
+  if (approvedValidation && !validationCurrentV2) blockers.push("validation-current-v2-result-required");
+  if (expertReviewTenantMismatch) blockers.push("expert-review-integrity-required");
   if (!approvedExpertReview) blockers.push("approved-domain-expert-review-required");
+  if (approvedExpertReview && !expertTargetsSelectedValidation) {
+    blockers.push("domain-expert-target-alignment-required");
+  }
+  if (approvedExpertReview && expertTargetsSelectedValidation && !expertReviewReceiptValid) {
+    blockers.push("expert-review-receipt-required");
+  }
+  if (approvedExpertReview && !expertBindingCurrent) {
+    blockers.push("domain-expert-current-project-binding-required");
+  }
   if (approvedExpertReview && approvedExpertReview.claimScope !== "claim-ready-with-limits") {
     blockers.push("domain-expert-claim-ready-with-limits-required");
   }
@@ -330,6 +610,12 @@ function buildEnterpriseClaimEvidencePackageFromDb(
     evidence.validation = {
       runId: approvedValidation.id,
       status: approvedValidation.status,
+      resultSchemaVersion: approvedValidation.result.schemaVersion,
+      validationRunEvidenceSchemaVersion: approvedValidation.validationRunEvidenceSchemaVersion!,
+      validationRunEvidenceHash: approvedValidation.validationRunEvidenceHash!,
+      projectBinding: approvedValidation.projectBinding
+        ? structuredClone(approvedValidation.projectBinding)
+        : undefined,
       analysis: approvedValidation.preregistrationPlan?.analysis ?? "unplanned",
       metric: approvedValidation.metric,
       groupField: approvedValidation.groupField,
@@ -346,17 +632,21 @@ function buildEnterpriseClaimEvidencePackageFromDb(
       reviewedAt: approvedValidation.reviewedAt
     };
   }
-  if (approvedExpertReview) {
+  if (authorizedExpertReview?.evidenceReceipt) {
     evidence.expertReview = {
-      reviewId: approvedExpertReview.id,
-      status: approvedExpertReview.status,
-      claimScope: approvedExpertReview.claimScope,
-      reviewerName: approvedExpertReview.reviewerName,
-      reviewerRole: approvedExpertReview.reviewerRole,
-      expertiseArea: approvedExpertReview.expertiseArea,
-      ratings: approvedExpertReview.ratings,
-      target: approvedExpertReview.target,
-      reviewedAt: approvedExpertReview.reviewedAt
+      reviewId: authorizedExpertReview.id,
+      status: authorizedExpertReview.status,
+      projectBinding: authorizedExpertReview.projectBinding
+        ? structuredClone(authorizedExpertReview.projectBinding)
+        : undefined,
+      claimScope: authorizedExpertReview.claimScope,
+      reviewerName: authorizedExpertReview.reviewerName,
+      reviewerRole: authorizedExpertReview.reviewerRole,
+      expertiseArea: authorizedExpertReview.expertiseArea,
+      ratings: authorizedExpertReview.ratings,
+      target: authorizedExpertReview.target,
+      reviewedAt: authorizedExpertReview.reviewedAt,
+      evidenceReceipt: structuredClone(authorizedExpertReview.evidenceReceipt)
     };
   }
 
@@ -364,7 +654,7 @@ function buildEnterpriseClaimEvidencePackageFromDb(
   if (approvedReliability) {
     artifacts.push({
       id: "reliability-dashboard",
-      schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityDashboard,
+      schemaVersion: approvedReliability.dashboard.sourceSchemaVersion,
       sourceId: approvedReliability.id,
       status: approvedReliability.status
     });
@@ -391,18 +681,24 @@ function buildEnterpriseClaimEvidencePackageFromDb(
       status: approvedValidation.parityEvidence.formalInference.status
     });
   }
-  if (approvedExpertReview) {
+  if (authorizedExpertReview?.evidenceReceipt) {
     artifacts.push({
       id: "domain-expert-review",
       schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseExpertReview,
-      sourceId: approvedExpertReview.id,
-      status: approvedExpertReview.status
+      sourceId: authorizedExpertReview.id,
+      status: authorizedExpertReview.status
+    });
+    artifacts.push({
+      id: "domain-expert-review-receipt",
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseExpertReviewReceipt,
+      sourceId: authorizedExpertReview.id,
+      status: authorizedExpertReview.evidenceReceipt.keySource
     });
   }
 
   const status: SenaEnterpriseClaimEvidencePackageStatus = blockers.length === 0
     ? "claim-ready-with-limits"
-    : approvedExpertReview?.claimScope === "not-claim-ready"
+    : authorizedExpertReview?.claimScope === "not-claim-ready"
       ? "not-claim-ready"
       : "exploratory-only";
 
@@ -420,11 +716,22 @@ function buildEnterpriseClaimEvidencePackageFromDb(
       activeWindowLabel: project.activeWindowLabel,
       datasetCounts: project.datasetCounts
     },
-    sourceSnapshotEvidence: claimPackageSourceSnapshotEvidence(project, currentRevision),
+    sourceSnapshotEvidence: claimPackageSourceSnapshotEvidence(project, currentRevision, options),
+    claimReadinessEvidence: {
+      kind: options.claimReadinessSnapshot
+        ? "current-project-reliability-run"
+        : "persisted-project-snapshot",
+      snapshotSchemaVersion: claimReadinessSnapshot.schemaVersion,
+      snapshotSha256: artifactSha256(claimReadinessSnapshot),
+      reportSha256: artifactSha256(claimReadinessSnapshot.report),
+      claimUse: claimReadinessSnapshot.report.claimReadinessGate.claimUse,
+      gateStatus: claimReadinessSnapshot.report.claimReadinessGate.status,
+      reliabilityRunId: options.claimReadinessReliabilityRunId ?? null
+    },
     summary: {
       reliability: claimEvidenceStatus(projectReliabilityRuns, approvedReliability),
       validation: claimEvidenceStatus(projectValidationRuns, approvedValidation),
-      expertReview: claimEvidenceStatus(projectExpertReviews, approvedExpertReview),
+      expertReview: claimEvidenceStatus(projectExpertReviews, authorizedExpertReview),
       blockers: blockers.length,
       warnings: warnings.length
     },
@@ -435,6 +742,7 @@ function buildEnterpriseClaimEvidencePackageFromDb(
     guardrails: [
       "Claim readiness is limited to the approved project evidence in this package and does not replace study-level preregistration or institutional review.",
       "Treat SENA network patterns as exploratory unless the approved expert review, reliability evidence, and validation plan all support the stated claim scope.",
+      "Expert approval is accepted only with a valid server-authenticated receipt over the full review record and exact validation evidence hash; configure a dedicated signing secret and retain prior keys by opaque key id during rotation.",
       "This package aggregates persisted enterprise evidence; it does not rerun analysis or alter project state."
     ]
   };
@@ -464,44 +772,42 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
 ): Promise<SenaEnterpriseClaimEvidencePackage> {
   const state = await readEnterpriseState();
   const db = state.db;
-  requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
-  const evidenceSource = enterpriseClaimEvidencePackageRuntime();
-  let reliabilityRuns: SenaEnterpriseReliabilityRun[] = db.reliabilityRuns.filter((run) => run.projectId === input.projectId);
-  let validationRuns: SenaEnterpriseValidationRun[] = db.validationRuns.filter((run) => run.projectId === input.projectId);
-  let expertReviews: SenaEnterpriseExpertReview[] = db.expertReviews.filter((review) => review.projectId === input.projectId);
-  let adjudications: SenaEnterpriseAdjudicationRecord[] = db.adjudications.filter((record) => record.projectId === input.projectId);
-  const pools: Array<{ end?: () => Promise<void> }> = [];
-
-  try {
-    if (evidenceSource.reliabilityRuns === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresReliabilityRunAdapterFromEnv({});
-      pools.push(pool);
-      reliabilityRuns = await adapter.listReliabilityRuns({ projectId: input.projectId, limit: 1000 });
-    }
-    if (evidenceSource.validationRuns === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresValidationRunAdapterFromEnv({});
-      pools.push(pool);
-      validationRuns = await adapter.listValidationRuns({ projectId: input.projectId, limit: 1000 });
-    }
-    if (evidenceSource.expertReviews === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresExpertReviewAdapterFromEnv({});
-      pools.push(pool);
-      expertReviews = await adapter.listExpertReviews({ projectId: input.projectId, limit: 1000 });
-    }
-    if (evidenceSource.adjudications === "postgres-table") {
-      const { adapter, pool } = createEnterprisePostgresAdjudicationAdapterFromEnv({});
-      pools.push(pool);
-      adjudications = await adapter.listAdjudications({ projectId: input.projectId, limit: 1000 });
-    }
-  } finally {
-    await Promise.all(pools.map((pool) => pool.end?.()));
+  const project = requireProjectPermissionFromDb(db, context, input.projectId, "project:read");
+  const activePrimary = state.runtime.activePrimary;
+  const primarySource = activePrimary === "postgres"
+    ? "postgres-primary-state" as const
+    : "file-primary-state" as const;
+  const revision = activePrimary === "postgres" ? state.revision : state.fileRevision;
+  if (revision === undefined) {
+    throw new SenaEnterpriseError(
+      "Claim evidence could not be bound to one primary-state revision.",
+      409,
+      "claim_evidence_state_binding_invalid"
+    );
   }
-
-  return buildEnterpriseClaimEvidencePackageFromDb({
-    ...db,
-    adjudications,
-    reliabilityRuns,
-    validationRuns,
-    expertReviews
-  }, context, input, evidenceSource);
+  const persistedProject = (state.persistedDb ?? db).projects.find((candidate) => candidate.id === project.id);
+  if (!persistedProject || persistedProject.teamId !== project.teamId) {
+    throw new SenaEnterpriseError(
+      "Claim evidence project is inconsistent with the selected primary-state revision.",
+      409,
+      "claim_evidence_state_binding_invalid"
+    );
+  }
+  const stateRevision = String(revision);
+  const stateRevisionSha256 = artifactSha256({ activePrimary, stateRevision });
+  return buildEnterpriseClaimEvidencePackageFromDb(db, context, input, {
+    reliabilityRuns: primarySource,
+    validationRuns: primarySource,
+    expertReviews: primarySource,
+    adjudications: primarySource,
+    evidence: [
+      `claimEvidencePrimary=${activePrimary}`,
+      `claimEvidenceStateRevisionSha256=${stateRevisionSha256}`,
+      "claimEvidenceAtomicRead=true",
+      "claimEvidenceIndexedTables=ops-mirrors-only"
+    ]
+  }, {
+    persistedSnapshotSha256: artifactSha256(persistedProject.snapshot),
+    stateRevisionSha256
+  });
 }

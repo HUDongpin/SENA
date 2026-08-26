@@ -1,4 +1,5 @@
 import type { SenaActorType, SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
+import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
 
 export type SenaImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
 
@@ -128,6 +129,10 @@ function parseNumber(value: string, fallback: number, warnings: string[], contex
   return fallback;
 }
 
+function parseAnalyticalNumber(value: string, fallback: number) {
+  return value.length === 0 ? fallback : Number(value);
+}
+
 /**
  * Multi-value cells (`codes`, `target_person_ids`) split on "|" only
  * (ADR-0007 D2). A value with no "|" is one value, taken verbatim — this is
@@ -174,13 +179,42 @@ export function missingRequiredSenaFields(table: SenaImportTable, mapping: SenaC
   return senaImportFields[table].filter((definition) => definition.required && !mapping[definition.field]);
 }
 
-export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImportRow[]; warnings: string[] } {
+export type SenaCsvParseOptions = {
+  /**
+   * Stops the lexical CSV scan before an over-budget data row is retained.
+   * The header is not a data row and blank physical rows do not consume the
+   * budget, matching the parser's existing semantic row selection.
+   */
+  maximumDataRows?: number;
+  onDataRowLimitExceeded?: (actual: number, maximum: number) => never;
+};
+
+export function parseSenaCsv(
+  text: string,
+  options: SenaCsvParseOptions = {}
+): { columns: string[]; rows: SenaImportRow[]; warnings: string[] } {
   const warnings: string[] = [];
   const source = text.replace(/^\uFEFF/, "");
   const parsedRows: string[][] = [];
   let row: string[] = [];
   let cell = "";
   let inQuotes = false;
+  const maximumDataRows = options.maximumDataRows;
+  if (maximumDataRows !== undefined && (!Number.isSafeInteger(maximumDataRows) || maximumDataRows < 0)) {
+    throw new Error("CSV maximumDataRows must be a non-negative safe integer.");
+  }
+
+  const retainCompletedRow = () => {
+    if (!row.some((value) => value.trim().length > 0)) return;
+    const nextDataRowCount = parsedRows.length;
+    if (maximumDataRows !== undefined && nextDataRowCount > maximumDataRows) {
+      if (options.onDataRowLimitExceeded) {
+        options.onDataRowLimitExceeded(nextDataRowCount, maximumDataRows);
+      }
+      throw new Error(`CSV data row count ${nextDataRowCount} exceeds the supported maximum of ${maximumDataRows}.`);
+    }
+    parsedRows.push(row);
+  };
 
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
@@ -206,7 +240,7 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
       cell = "";
     } else if (char === "\n" || char === "\r") {
       row.push(cell);
-      parsedRows.push(row);
+      retainCompletedRow();
       row = [];
       cell = "";
       if (char === "\r" && next === "\n") index += 1;
@@ -218,13 +252,12 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
   if (inQuotes) throw new Error("CSV has an unterminated quoted value.");
   if (cell.length > 0 || row.length > 0 || source.endsWith(",")) {
     row.push(cell);
-    parsedRows.push(row);
+    retainCompletedRow();
   }
 
-  const nonEmptyRows = parsedRows.filter((csvRow) => csvRow.some((value) => value.trim().length > 0));
-  if (nonEmptyRows.length === 0) throw new Error("CSV is empty.");
+  if (parsedRows.length === 0) throw new Error("CSV is empty.");
 
-  const columns = nonEmptyRows[0]?.map((header) => header.trim()) ?? [];
+  const columns = parsedRows[0]?.map((header) => header.trim()) ?? [];
   if (columns.length === 0 || columns.some((header) => header.length === 0)) {
     throw new Error("CSV header row must contain non-empty column names.");
   }
@@ -234,7 +267,7 @@ export function parseSenaCsv(text: string): { columns: string[]; rows: SenaImpor
     throw new Error(`CSV header contains duplicate columns: ${[...new Set(duplicateColumns)].join(", ")}.`);
   }
 
-  const rows = nonEmptyRows.slice(1).map<SenaImportRow>((cells, rowIndex) => {
+  const rows = parsedRows.slice(1).map<SenaImportRow>((cells, rowIndex) => {
     let normalizedCells = cells;
     if (normalizedCells.length > columns.length) {
       // Drop trailing empty cells (a stray trailing delimiter or spreadsheet
@@ -319,10 +352,12 @@ function normalizeInteractions(rows: SenaImportRow[], mapping: SenaColumnMapping
     return [{
       source,
       target,
-      weight: parseNumber(readField(row, mapping, "weight"), 1, warnings, `interactions row ${index + 1} weight`),
+      weight: parseAnalyticalNumber(readField(row, mapping, "weight"), 1),
       channel: readField(row, mapping, "channel") || "interaction",
       stage: readField(row, mapping, "stage") || "Unstaged",
-      turnIndex: turnIndex ? parseNumber(turnIndex, index + 1, warnings, `interactions row ${index + 1} turnIndex`) : undefined,
+      ...(turnIndex ? {
+        turnIndex: parseNumber(turnIndex, index + 1, warnings, `interactions row ${index + 1} turnIndex`)
+      } : {}),
       evidence: readField(row, mapping, "evidence") || `${source} -> ${target}`
     }];
   });
@@ -344,7 +379,9 @@ function normalizeUtterances(rows: SenaImportRow[], mapping: SenaColumnMapping, 
       stage: readField(row, mapping, "stage") || "Unstaged",
       turnIndex: parseNumber(readField(row, mapping, "turnIndex"), index + 1, warnings, `utterances row ${index + 1} turnIndex`),
       text: readField(row, mapping, "text") || "",
-      timestamp: readField(row, mapping, "timestamp") || undefined
+      ...(readField(row, mapping, "timestamp") ? {
+        timestamp: readField(row, mapping, "timestamp")
+      } : {})
     }];
   });
 }
@@ -426,10 +463,10 @@ function normalizeSegments(
       turnIndex: parseNumber(readField(row, mapping, "turnIndex"), utterance?.turnIndex ?? index + 1, warnings, `coded_segments row ${index + 1} turnIndex`),
       text: readField(row, mapping, "text") || utterance?.text || "",
       codes,
-      targetPersonIds: targetPersonIds.length > 0 ? targetPersonIds : undefined,
-      confidence: readField(row, mapping, "confidence")
-        ? parseNumber(readField(row, mapping, "confidence"), 1, warnings, `coded_segments row ${index + 1} confidence`)
-        : undefined
+      ...(targetPersonIds.length > 0 ? { targetPersonIds } : {}),
+      ...(readField(row, mapping, "confidence") ? {
+        confidence: parseAnalyticalNumber(readField(row, mapping, "confidence"), 1)
+      } : {})
     }];
   });
 }
@@ -744,6 +781,7 @@ export function buildSenaDatasetFromTables(tables: SenaMappedTable[]): SenaImpor
   addDerivedContractRows(dataset, warnings);
   const flaggedLegacyValues = warnLegacyMultiValueCells(dataset, legacyCells, warnings);
   warnDelimiterBearingIds(dataset, warnings, flaggedLegacyValues);
+  validateSenaAnalyticalInputs({ dataset });
   return { dataset, warnings };
 }
 

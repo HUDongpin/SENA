@@ -23,17 +23,15 @@ import {
   queueEnterpriseNotification
 } from "./notifications-delivery";
 import {
-  dispatchEnterpriseEmailDelivery,
+  dispatchEnterpriseEmailDeliveryByIdAtomically,
   enterpriseEmailProvider,
   queueEnterpriseEmail,
   type SenaEnterpriseEmailDelivery
 } from "./notifications-email";
 import { appendAudit } from "./ops-audit";
 import {
-  readEnterpriseDb,
-  readEnterpriseState,
-  saveDb,
-  saveEnterpriseState,
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   type SenaEnterpriseDb,
   type SenaEnterpriseUser
 } from "./state";
@@ -145,19 +143,6 @@ function passwordResetDispatchHealth(
     .filter((delivery) => delivery.kind === "auth.password_reset" && delivery.attempts > 0 && delivery.lastAttemptAt)
     .sort((a, b) => (b.lastAttemptAt ?? "").localeCompare(a.lastAttemptAt ?? ""))[0];
   return lastAttempted && lastAttempted.status !== "delivered" ? "failed" : "confirmed";
-}
-
-async function dispatchPasswordResetEmail(
-  db: SenaEnterpriseDb,
-  emailDelivery?: SenaEnterpriseEmailDelivery
-): Promise<SenaEnterprisePasswordResetDispatch> {
-  if (!emailDelivery) return passwordResetDispatchNotAttempted;
-  const outcome = await dispatchEnterpriseEmailDelivery(db, emailDelivery);
-  return {
-    attempted: outcome.attempted,
-    delivered: outcome.delivered,
-    errorCode: outcome.errorCode
-  };
 }
 
 function passwordResetBaseUrl(baseUrl?: string) {
@@ -362,24 +347,50 @@ function finalizeEnterprisePasswordReset(
 // this entry point only queues. Production self-service reset runs through
 // `createEnterprisePasswordResetAsync`, which dispatches inline.
 export function createEnterprisePasswordReset(input: SenaEnterprisePasswordResetInput): SenaEnterprisePasswordResetRequestResult {
-  const db = readEnterpriseDb();
-  const prepared = prepareEnterprisePasswordResetInDb(db, input);
-  const result = finalizeEnterprisePasswordReset(db, prepared, passwordResetDispatchNotAttempted);
-  saveDb(db);
-  return result;
+  return mutateEnterpriseDbAtomically((db) => {
+    const prepared = prepareEnterprisePasswordResetInDb(db, input);
+    return finalizeEnterprisePasswordReset(db, prepared, passwordResetDispatchNotAttempted);
+  });
 }
 
 export async function createEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetInput): Promise<SenaEnterprisePasswordResetRequestResult> {
   // The subject backstop is now counted inside the prepare step, on this same
-  // db handle, so the count and the work it gates land in one save.
-  const state = await readEnterpriseState();
-  const prepared = prepareEnterprisePasswordResetInDb(state.db, input);
-  // Dispatch before the single save so the persisted delivery record, the audit
-  // trail, and the mode the caller is told all describe the same outcome.
-  const dispatch = await dispatchPasswordResetEmail(state.db, prepared.emailDelivery);
-  const result = finalizeEnterprisePasswordReset(state.db, prepared, dispatch);
-  await saveEnterpriseState(state, state.db);
-  return result;
+  // state mutation, so the count, token, and email outbox record commit before
+  // any irreversible provider call.
+  const prepared = await mutateEnterpriseStateAtomically((db) => {
+    const reset = prepareEnterprisePasswordResetInDb(db, input);
+    return {
+      result: finalizeEnterprisePasswordReset(db, reset, passwordResetDispatchNotAttempted),
+      emailDeliveryId: reset.emailDelivery?.id
+    };
+  });
+  if (!prepared.emailDeliveryId) return prepared.result;
+
+  const dispatch = await dispatchEnterpriseEmailDeliveryByIdAtomically(prepared.emailDeliveryId);
+  const mode = await mutateEnterpriseStateAtomically((db) => {
+    const delivery = (db.emailDeliveries ?? []).find((entry) => entry.id === prepared.emailDeliveryId);
+    const nextMode = passwordResetDeliveryMode(
+      passwordResetEmailProviderConfigured(),
+      dispatch.delivered ? "confirmed" : "failed"
+    );
+    const requestAudit = (db.auditLog ?? []).find((entry) => (
+      entry.event === "auth.password_reset.request" &&
+      entry.detail.emailDeliveryId === prepared.emailDeliveryId
+    ));
+    if (requestAudit) {
+      requestAudit.detail = {
+        ...requestAudit.detail,
+        delivery: nextMode,
+        emailStatus: delivery?.status ?? null,
+        dispatchAttempted: dispatch.attempted,
+        dispatchDelivered: dispatch.delivered,
+        dispatchErrorCode: dispatch.errorCode ?? null
+      };
+    }
+    return nextMode;
+  });
+  prepared.result.delivery.mode = mode;
+  return prepared.result;
 }
 
 function completeEnterprisePasswordResetInDb(
@@ -428,15 +439,9 @@ function completeEnterprisePasswordResetInDb(
 }
 
 export function completeEnterprisePasswordReset(input: SenaEnterprisePasswordResetCompleteInput): SenaEnterprisePasswordResetCompleteResult {
-  const db = readEnterpriseDb();
-  const result = completeEnterprisePasswordResetInDb(db, input);
-  saveDb(db);
-  return result;
+  return mutateEnterpriseDbAtomically((db) => completeEnterprisePasswordResetInDb(db, input));
 }
 
 export async function completeEnterprisePasswordResetAsync(input: SenaEnterprisePasswordResetCompleteInput): Promise<SenaEnterprisePasswordResetCompleteResult> {
-  const state = await readEnterpriseState();
-  const result = completeEnterprisePasswordResetInDb(state.db, input);
-  await saveEnterpriseState(state, state.db);
-  return result;
+  return mutateEnterpriseStateAtomically((db) => completeEnterprisePasswordResetInDb(db, input));
 }

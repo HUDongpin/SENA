@@ -5,7 +5,9 @@ import { useContractUploadAction } from "../../../components/sena/workspace/use-
 import { useDataImportMappedTableActions } from "../../../components/sena/workspace/use-data-import-mapped-table-actions";
 import type { UploadedSenaTable } from "../../../components/sena/workspace/uploaded-table-mapper";
 import { createEmptySenaDataset } from "../import";
-import type { SenaDataset } from "../types";
+import { buildSenaSnapshotRestoreResult } from "../snapshot-restore";
+import type { SenaDataset, SenaProjectSnapshot } from "../types";
+import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 
 const raggedPeopleCsv = [
   "person_id,label,role",
@@ -19,6 +21,8 @@ type WorkspaceStore = {
   dataset: SenaDataset;
   uploadedTables: UploadedSenaTable[];
   importError: string | null;
+  restoredSnapshot: SenaProjectSnapshot | null;
+  restoredFileName: string | null;
 };
 
 type WorkspaceHandlers = {
@@ -31,7 +35,13 @@ function resolve<T>(value: T | ((current: T) => T), current: T): T {
 }
 
 function createStore(): WorkspaceStore {
-  return { dataset: createEmptySenaDataset(), uploadedTables: [], importError: null };
+  return {
+    dataset: createEmptySenaDataset(),
+    uploadedTables: [],
+    importError: null,
+    restoredSnapshot: null,
+    restoredFileName: null
+  };
 }
 
 /**
@@ -71,7 +81,14 @@ function mountWorkspace(store: WorkspaceStore): WorkspaceHandlers {
       applyDemoVerificationManualReviews: noop,
       commitUploadedTables: mapped.commitUploadedTables,
       importFilesViaEnterpriseApi: async () => undefined,
-      restoreProjectSnapshot: noop,
+      restoreProjectSnapshot: (snapshot, fileName) => {
+        store.restoredSnapshot = buildSenaSnapshotRestoreResult(snapshot).snapshot;
+        store.restoredFileName = fileName;
+      },
+      restoreValidatedProjectSnapshot: (result, fileName) => {
+        store.restoredSnapshot = result.snapshot;
+        store.restoredFileName = fileName;
+      },
       setDataset: (dataset) => { store.dataset = dataset; },
       setDemoManualReviews: noop,
       setImportError: (message) => { store.importError = message; },
@@ -161,5 +178,35 @@ describe("SENA workspace contract upload warnings", () => {
     expect(store.dataset.warnings ?? []).not.toContain(raggedRowWarning);
     expect(store.uploadedTables[0].warnings).toEqual([]);
     expect(store.importError).toBeNull();
+  });
+
+  it("normalizes the actual 14bb306 nested snapshot through the workspace upload boundary", async () => {
+    const historicalPacket = loadSena14bb306ReviewPacketFixture() as {
+      contents: { projectSnapshot: SenaProjectSnapshot };
+    };
+    const store = createStore();
+    const fileName = "sena-project-snapshot-14bb306.json";
+    const input = {
+      files: [new File([JSON.stringify(historicalPacket.contents.projectSnapshot)], fileName, { type: "application/json" })],
+      value: fileName
+    };
+
+    await mountWorkspace(store).handleContractUpload({ currentTarget: input } as unknown as ChangeEvent<HTMLInputElement>);
+
+    expect(store.restoredFileName).toBe(fileName);
+    expect(store.restoredSnapshot?.report.fusionMathAudit).toEqual(expect.objectContaining({
+      schemaVersion: "sena-fusion-math-audit/v2",
+      sourceSchemaVersion: "sena-fusion-math-audit/v1",
+      status: "needs-review"
+    }));
+    expect(store.restoredSnapshot?.report.codingReliabilityGate).toEqual(expect.objectContaining({
+      schemaVersion: "sena-coding-reliability-gate/v2",
+      sourceSchemaVersion: "sena-coding-reliability-gate/v1",
+      status: "review"
+    }));
+    expect(store.restoredSnapshot?.report.pilotReadinessAudit.status).toBe("needs-review");
+    expect(store.restoredSnapshot?.report.claimReadinessGate.status).toBe("exploratory");
+    expect(store.importError).toBeNull();
+    expect(input.value).toBe("");
   });
 });

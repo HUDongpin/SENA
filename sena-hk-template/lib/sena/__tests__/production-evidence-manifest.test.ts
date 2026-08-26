@@ -23,10 +23,13 @@ const envNames = [
   "SENA_PERFORMANCE_BUDGET_CONFIRMED",
   "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
   "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+  "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+  "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
   "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
   "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
   "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
   "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+  "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE",
   "SENA_OPS_TOKEN",
   "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_REQUIRED",
   "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_CONFIRMED",
@@ -159,10 +162,13 @@ function configureConfirmedProductionEvidence() {
   process.env.SENA_PERFORMANCE_BUDGET_CONFIRMED = "1";
   process.env.SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256 = "f".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_VERIFIED_AT = verifiedAt;
+  process.env.SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION = "sena-enterprise-production-performance-budget/v2";
+  process.env.SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256 = "9".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256 = "6".repeat(64);
   process.env.SENA_PERFORMANCE_BUDGET_GIT_COMMIT = "5".repeat(40);
   process.env.SENA_PERFORMANCE_BUDGET_GIT_DIRTY = "false";
   process.env.SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256 = "4".repeat(64);
+  process.env.SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE = "git-clean-worktree";
   process.env.SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_CONFIRMED = "1";
   process.env.SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_SHA256 = "a".repeat(64);
   process.env.SENA_ENTERPRISE_POSTGRES_PROBE_VERIFIED_AT = verifiedAt;
@@ -222,7 +228,7 @@ describe("SENA production evidence manifest", () => {
     vi.resetModules();
   });
 
-  it("aggregates confirmed external probe artifacts and performance budget evidence without endpoint or secret values", async () => {
+  it("keeps the manifest under review without an authenticated external worker callback receipt", async () => {
     configureConfirmedProductionEvidence();
 
     const { buildEnterpriseProductionEvidenceManifest } = await import("../enterprise/ops-production-evidence");
@@ -230,12 +236,13 @@ describe("SENA production evidence manifest", () => {
     const serialized = JSON.stringify(manifest);
 
     expect(manifest.schemaVersion).toBe("sena-enterprise-production-evidence-manifest/v1");
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
-      missing: 0,
+      confirmed: 13,
+      missing: 1,
       missingRequired: 0,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 0,
       productionRuntimeEnvPacketConfirmed: false,
@@ -254,12 +261,23 @@ describe("SENA production evidence manifest", () => {
       "confirmed",
       "confirmed",
       "confirmed",
-      "confirmed",
+      "missing-advisory",
       "confirmed",
       "confirmed",
       "confirmed",
       "confirmed"
     ]);
+    const workerContract = manifest.items.find((item) => item.id === "server-job-worker-contract");
+    expect(workerContract).toEqual(expect.objectContaining({
+      confirmed: false,
+      status: "missing-advisory",
+      artifactHash: "7".repeat(64)
+    }));
+    expect(workerContract?.evidence).toEqual(expect.arrayContaining([
+      "serverJobWorkerExternalCallbackReceiptSupported=false",
+      "serverJobWorkerExternalCallbackReceiptConfirmed=false"
+    ]));
+    expect(workerContract?.nextAction).toContain("same-process status-store self-test cannot confirm");
     expect(manifest.items.map((item) => item.artifactHash)).toEqual([
       "8".repeat(64),
       "1".repeat(64),
@@ -391,10 +409,12 @@ describe("SENA production evidence manifest", () => {
     const manifest = buildEnterpriseProductionEvidenceManifest();
     const packet = manifest.advisoryItems.find((item) => item.id === "production-runtime-env-packet");
 
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
+      confirmed: 13,
+      missing: 1,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 1,
       productionRuntimeEnvPacketConfirmed: true,
@@ -439,10 +459,12 @@ describe("SENA production evidence manifest", () => {
     const manifest = buildEnterpriseProductionEvidenceManifest();
     const gate = manifest.advisoryItems.find((item) => item.id === "production-go-live-gate");
 
-    expect(manifest.status).toBe("ready");
+    expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
       evidenceItems: 14,
-      confirmed: 14,
+      confirmed: 13,
+      missing: 1,
+      missingAdvisory: 1,
       advisoryItems: 2,
       advisoryConfirmed: 1,
       productionGoLiveGateConfirmed: true,
@@ -527,6 +549,77 @@ describe("SENA production evidence manifest", () => {
     ]));
   });
 
+  it("does not confirm a legacy v1 performance env tuple as current v2 evidence", async () => {
+    const verifiedAt = new Date().toISOString();
+    process.env.SENA_PERFORMANCE_BUDGET_CONFIRMED = "1";
+    process.env.SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256 = "f".repeat(64);
+    process.env.SENA_PERFORMANCE_BUDGET_VERIFIED_AT = verifiedAt;
+    process.env.SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION = "sena-enterprise-production-performance-budget/v1";
+    process.env.SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256 = "7".repeat(64);
+    process.env.SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256 = "6".repeat(64);
+    process.env.SENA_PERFORMANCE_BUDGET_GIT_COMMIT = "5".repeat(40);
+    process.env.SENA_PERFORMANCE_BUDGET_GIT_DIRTY = "false";
+    process.env.SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256 = "4".repeat(64);
+    process.env.SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE = "git-clean-worktree";
+
+    const { buildEnterpriseProductionEvidenceManifest } = await import("../enterprise/ops-production-evidence");
+    const legacyManifest = buildEnterpriseProductionEvidenceManifest();
+    const legacyBudget = legacyManifest.items.find((item) => item.id === "performance-budget-artifact");
+
+    expect(legacyBudget).toEqual(expect.objectContaining({
+      confirmed: false,
+      status: "missing-advisory"
+    }));
+    expect(legacyBudget?.evidence).toEqual(expect.arrayContaining([
+      "performanceBudgetSchemaCurrent=false",
+      "performanceBudgetMeasuredArtifactSetSha256=present"
+    ]));
+
+    process.env.SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION = "sena-enterprise-production-performance-budget/v2";
+    const currentManifest = buildEnterpriseProductionEvidenceManifest();
+    const currentBudget = currentManifest.items.find((item) => item.id === "performance-budget-artifact");
+
+    expect(currentBudget).toEqual(expect.objectContaining({
+      confirmed: true,
+      status: "confirmed"
+    }));
+
+    delete process.env.SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE;
+    const missingCustodyMode = buildEnterpriseProductionEvidenceManifest().items
+      .find((item) => item.id === "performance-budget-artifact");
+    expect(missingCustodyMode).toEqual(expect.objectContaining({
+      confirmed: false,
+      status: "missing-advisory"
+    }));
+    expect(missingCustodyMode?.evidence).toContain("performanceBudgetSourceCustodyMode=missing");
+
+    process.env.SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE = "reviewed-clean-release-slice";
+    const legacyCustodyMode = buildEnterpriseProductionEvidenceManifest().items
+      .find((item) => item.id === "performance-budget-artifact");
+    expect(legacyCustodyMode).toEqual(expect.objectContaining({
+      confirmed: false,
+      status: "missing-advisory"
+    }));
+  });
+
+  it("accepts a complete current performance tuple from a Git SHA-256 repository", async () => {
+    configureConfirmedProductionEvidence();
+    process.env.SENA_PERFORMANCE_BUDGET_GIT_COMMIT = "5".repeat(64);
+
+    const { buildEnterpriseProductionEvidenceManifest } = await import("../enterprise/ops-production-evidence");
+    const manifest = buildEnterpriseProductionEvidenceManifest();
+    const performanceBudget = manifest.items.find((item) => item.id === "performance-budget-artifact");
+
+    expect(performanceBudget).toEqual(expect.objectContaining({
+      confirmed: true,
+      status: "confirmed"
+    }));
+    expect(performanceBudget?.evidence).toEqual(expect.arrayContaining([
+      "performanceBudgetGitCommit=present",
+      "performanceBudgetBuildIdentityReady=true"
+    ]));
+  });
+
   it("does not confirm stale verified-at production evidence even when flags and artifact hashes are configured", async () => {
     configureConfirmedProductionEvidence();
     process.env.SENA_PRODUCTION_EVIDENCE_MAX_AGE_HOURS = "1";
@@ -538,10 +631,10 @@ describe("SENA production evidence manifest", () => {
 
     expect(manifest.status).toBe("review");
     expect(manifest.summary).toEqual(expect.objectContaining({
-      confirmed: 13,
-      missing: 1,
+      confirmed: 12,
+      missing: 2,
       missingRequired: 0,
-      missingAdvisory: 1
+      missingAdvisory: 2
     }));
     expect(manifest.evidence).toEqual(expect.arrayContaining([
       "productionEvidenceMaxAgeHours=1"
@@ -575,7 +668,7 @@ describe("SENA production evidence manifest", () => {
       conferenceLoadConfirmed: false
     }));
     expect(manifest.items.every((item) => item.status === "missing-required")).toBe(true);
-    expect(manifest.nextActions).toContain("Run npm run sena:performance:check after a clean production build, archive the redacted performance budget JSON artifact, and bind it through npm run sena:production-evidence:bind so artifact hash, verified-at, Next build ID hash, git commit, clean status, and package-lock hash are all attached.");
+    expect(manifest.nextActions).toContain("Run npm run sena:performance:check after a clean, identified production build, archive the redacted sena-enterprise-production-performance-budget/v2 artifact, and bind it through npm run sena:production-evidence:bind so schema version, measured output-set hash, artifact hash, verified-at, Next build ID hash, git commit, actual clean status, and package-lock hash are all attached.");
   });
 
   it("requires external live probes, performance budget, and conference rehearsal for production runtime even before manifest-required mode", async () => {

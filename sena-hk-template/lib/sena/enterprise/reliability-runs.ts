@@ -3,7 +3,8 @@ import {
   readEnterpriseDb,
   readEnterpriseState,
   saveDb,
-  writeEnterpriseState
+  writeEnterpriseState,
+  type SenaEnterpriseDb
 } from "./state";
 import {
   createEnterprisePostgresAdjudicationAdapterFromEnv,
@@ -13,6 +14,7 @@ import {
 import { appendAudit } from "./ops-audit";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import type { SenaEnterpriseAdjudicationRecord } from "./team-collaboration";
+import type { SenaEnterpriseProject } from "./team-project";
 import {
   requireEnterprisePermission,
   rolePermissions
@@ -21,29 +23,41 @@ import { SenaEnterpriseError } from "./errors";
 import {
   queueEnterpriseNotification
 } from "./notifications-delivery";
-import type { SenaReliabilityDashboard } from "../reliability";
+import {
+  bindSenaReliabilityAnnotationsToProject,
+  assertSenaReliabilityDashboardMatchesAnnotations,
+  buildSenaReliabilityDashboard,
+  isValidSenaReliabilityProjectBinding,
+  normalizeSenaReliabilityDashboard,
+  reliabilityDashboardToReview,
+  senaReliabilityProjectBindingsEqual,
+  type SenaCoderAnnotation,
+  type SenaReliabilityDashboard,
+  type SenaSkippedCoderCell
+} from "../reliability";
 import {
   prepareSenaReliabilityJsonRequest,
   type SenaReliabilityJsonRequest
 } from "../reliability-api";
 import { createSenaSchemaPayload, SENA_SCHEMA_VERSIONS } from "../schema-registry";
-import type { SenaCodingReliabilityReview } from "../types";
+import type {
+  SenaCodingReliabilityReview,
+  SenaReliabilityAdjudicationCoverageEvidence,
+  SenaReliabilityProjectBinding
+} from "../types";
+import {
+  assertEnterpriseReliabilityRunCurrentProject,
+  buildEnterpriseReliabilityAdjudicationCoverage,
+  buildEnterpriseReliabilityPublicationReviewProjection,
+  groupEnterpriseReliabilityAdjudicationsByRunId,
+  senaReliabilityDisagreementKey
+} from "./reliability-integrity";
+import { parseSenaReliabilityAdjudicationDecision } from "./reliability-adjudication-decision";
 
 export type SenaEnterpriseReliabilityRunStatus = "pending-review" | "pending-adjudication" | "approved" | "rejected";
 
-export type SenaEnterpriseReliabilityAdjudicationCoverage = {
-  schemaVersion: typeof SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage;
-  queuedDisagreements: number;
-  resolvedDisagreements: number;
-  unresolvedDisagreements: number;
-  coverageRate: number;
-  decisions: {
-    include: number;
-    exclude: number;
-    revise: number;
-  };
-  updatedAt: string;
-};
+export type SenaEnterpriseReliabilityAdjudicationCoverage =
+  SenaReliabilityAdjudicationCoverageEvidence;
 
 export type SenaEnterpriseReliabilityRun = {
   id: string;
@@ -60,8 +74,8 @@ export type SenaEnterpriseReliabilityRun = {
   coderCount: number;
   itemCount: number;
   codeCount: number;
-  meanPairwiseKappa: number;
-  krippendorffAlphaNominal: number;
+  meanPairwiseKappa: number | null;
+  krippendorffAlphaNominal: number | null;
   disagreementCount: number;
   inputFiles: Array<{
     name: string;
@@ -69,6 +83,7 @@ export type SenaEnterpriseReliabilityRun = {
     sha256: string;
   }>;
   dashboard: SenaReliabilityDashboard;
+  projectBinding?: SenaReliabilityProjectBinding;
   adjudicationCoverage: SenaEnterpriseReliabilityAdjudicationCoverage;
   reviewPatch: Partial<SenaCodingReliabilityReview>;
   createdAt: string;
@@ -152,65 +167,50 @@ async function upsertAdjudicationsToPostgresIfConfigured(records: SenaEnterprise
   }
 }
 
-function roundedCoverageRate(resolved: number, queued: number) {
-  if (queued === 0) return 1;
-  return Number((resolved / queued).toFixed(4));
-}
-
-function reliabilityDisagreementKey(itemId: string, codeId: string) {
-  return `${itemId}::${codeId}`;
-}
-
-function buildReliabilityAdjudicationCoverage(
-  run: Pick<SenaEnterpriseReliabilityRun, "id" | "createdAt" | "reviewedAt" | "dashboard">,
-  adjudications: SenaEnterpriseAdjudicationRecord[]
-): SenaEnterpriseReliabilityAdjudicationCoverage {
-  const queueKeys = new Set((run.dashboard.adjudicationQueue ?? []).map((disagreement) => (
-    reliabilityDisagreementKey(disagreement.itemId, disagreement.codeId)
-  )));
-  const latestByDisagreement = new Map<string, SenaEnterpriseAdjudicationRecord>();
-  adjudications
-    .filter((record) => record.reliabilityRunId === run.id)
-    .filter((record) => queueKeys.has(reliabilityDisagreementKey(record.itemId, record.codeId)))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .forEach((record) => {
-      latestByDisagreement.set(reliabilityDisagreementKey(record.itemId, record.codeId), record);
-    });
-
-  const decisions = { include: 0, exclude: 0, revise: 0 };
-  let updatedAt = run.reviewedAt ?? run.createdAt;
-  for (const record of latestByDisagreement.values()) {
-    decisions[record.decision] += 1;
-    if (record.createdAt.localeCompare(updatedAt) > 0) updatedAt = record.createdAt;
-  }
-
-  const queuedDisagreements = queueKeys.size;
-  const resolvedDisagreements = latestByDisagreement.size;
-  return {
-    schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
-    queuedDisagreements,
-    resolvedDisagreements,
-    unresolvedDisagreements: Math.max(queuedDisagreements - resolvedDisagreements, 0),
-    coverageRate: roundedCoverageRate(resolvedDisagreements, queuedDisagreements),
-    decisions,
-    updatedAt
-  };
-}
-
 function refreshReliabilityAdjudicationCoverage(
   db: ReturnType<typeof readEnterpriseDb>,
   run: SenaEnterpriseReliabilityRun
 ) {
-  run.adjudicationCoverage = buildReliabilityAdjudicationCoverage(run, db.adjudications ?? []);
+  const project = run.projectId
+    ? db.projects.find((candidate) => candidate.id === run.projectId)
+    : undefined;
+  if (!run.projectId) {
+    const queuedDisagreements = run.dashboard.adjudicationQueue.length;
+    run.adjudicationCoverage = {
+      schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
+      queuedDisagreements,
+      resolvedDisagreements: 0,
+      unresolvedDisagreements: queuedDisagreements,
+      coverageRate: queuedDisagreements === 0 ? 1 : 0,
+      decisions: { include: 0, exclude: 0, revise: 0 },
+      updatedAt: run.reviewedAt ?? run.createdAt
+    };
+    return run.adjudicationCoverage;
+  }
+  if (!project) {
+    throw new SenaEnterpriseError(
+      "Project-bound reliability evidence is required for adjudication coverage.",
+      409,
+      "reliability_adjudication_project_missing"
+    );
+  }
+  run.adjudicationCoverage = buildEnterpriseReliabilityAdjudicationCoverage(
+    run,
+    project,
+    db.adjudications ?? []
+  );
   return run.adjudicationCoverage;
 }
 
 type CreateEnterpriseReliabilityRunInput = {
   teamId: string;
   projectId?: string;
+  projectVersion?: number;
   reviewer: string;
   fileCount: number;
   annotationCount: number;
+  annotations?: SenaCoderAnnotation[];
+  skippedCells?: SenaSkippedCoderCell[];
   inputFiles: SenaEnterpriseReliabilityRun["inputFiles"];
   dashboard: SenaReliabilityDashboard;
   reviewPatch: Partial<SenaCodingReliabilityReview>;
@@ -232,24 +232,71 @@ function createEnterpriseReliabilityRunInDb(
     }
     requireEnterprisePermission(context, project.teamId, "reliability:adjudicate");
   }
+  const project = input.projectId
+    ? db.projects.find((candidate) => candidate.id === input.projectId)
+    : undefined;
+  if (project && input.projectVersion !== undefined && project.currentVersion !== input.projectVersion) {
+    throw new SenaEnterpriseError(
+      "The SENA project changed after the reliability annotations were prepared.",
+      409,
+      "reliability_project_version_changed"
+    );
+  }
+  let dashboard = input.dashboard;
+  let reviewPatch = input.reviewPatch;
+  let projectBinding: SenaReliabilityProjectBinding | undefined;
+  if (project) {
+    if (!Array.isArray(input.annotations) || input.annotations.length !== input.annotationCount) {
+      throw new SenaEnterpriseError(
+        "Project-bound reliability runs require the parsed annotation coverage.",
+        400,
+        "reliability_project_annotations_required"
+      );
+    }
+    assertSenaReliabilityDashboardMatchesAnnotations(
+      input.dashboard,
+      input.annotations,
+      { skippedCells: input.skippedCells }
+    );
+    const bound = bindSenaReliabilityAnnotationsToProject(input.annotations, {
+      projectId: project.id,
+      projectVersion: project.currentVersion,
+      snapshot: project.snapshot,
+      skippedCells: input.skippedCells
+    });
+    projectBinding = bound.binding;
+    const rebuilt = buildSenaReliabilityDashboard(bound.annotations, {
+      skippedCells: projectBinding.skippedCellCoverage,
+      projectBinding
+    });
+    dashboard = {
+      ...rebuilt,
+      warnings: Array.from(new Set([...input.dashboard.warnings, ...rebuilt.warnings]))
+    };
+    reviewPatch = {
+      ...input.reviewPatch,
+      ...reliabilityDashboardToReview(dashboard, input.reviewer)
+    };
+  }
   const timestamp = now();
   const run: SenaEnterpriseReliabilityRun = {
     id: id("rel"),
     teamId: input.teamId,
     projectId: input.projectId,
     userId: context.user.id,
-    status: input.dashboard.disagreementCount > 0 ? "pending-adjudication" : "pending-review",
+    status: dashboard.disagreementCount > 0 ? "pending-adjudication" : "pending-review",
     reviewer: input.reviewer.trim() || context.user.name,
     fileCount: input.fileCount,
     annotationCount: input.annotationCount,
-    coderCount: input.dashboard.coderCount,
-    itemCount: input.dashboard.itemCount,
-    codeCount: input.dashboard.codeCount,
-    meanPairwiseKappa: input.dashboard.meanPairwiseKappa,
-    krippendorffAlphaNominal: input.dashboard.krippendorffAlphaNominal,
-    disagreementCount: input.dashboard.disagreementCount,
+    coderCount: dashboard.coderCount,
+    itemCount: dashboard.itemCount,
+    codeCount: dashboard.codeCount,
+    meanPairwiseKappa: dashboard.meanPairwiseKappa,
+    krippendorffAlphaNominal: dashboard.krippendorffAlphaNominal,
+    disagreementCount: dashboard.disagreementCount,
     inputFiles: input.inputFiles,
-    dashboard: input.dashboard,
+    dashboard,
+    projectBinding,
     adjudicationCoverage: {
       schemaVersion: SENA_SCHEMA_VERSIONS.reliabilityAdjudicationCoverage,
       queuedDisagreements: 0,
@@ -259,7 +306,7 @@ function createEnterpriseReliabilityRunInDb(
       decisions: { include: 0, exclude: 0, revise: 0 },
       updatedAt: timestamp
     },
-    reviewPatch: input.reviewPatch,
+    reviewPatch,
     createdAt: timestamp
   };
   refreshReliabilityAdjudicationCoverage(db, run);
@@ -318,12 +365,102 @@ type CreateEnterpriseReliabilityAdjudicationsInput = {
   limit?: number;
 };
 
+// Postgres mirroring currently persists one adjudication at a time. Keep one
+// mutation deliberately small and require callers to make progress in bounded
+// batches instead of turning a valid 50,000-cell disagreement universe into a
+// single long-running state mutation.
+export const SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT = 100;
+export const SENA_RELIABILITY_PATCH_REQUEST_BYTE_LIMIT = 64 * 1024;
+export const SENA_RELIABILITY_NOTE_BYTE_LIMIT = 8 * 1024;
+const normalizedReliabilityMutationBodies = new WeakMap<object, string | undefined>();
+
+function rejectInvalidSenaReliabilityNotes(): never {
+  throw new SenaEnterpriseError(
+    "Reliability notes must be a string when provided.",
+    400,
+    "reliability_notes_invalid"
+  );
+}
+
+function normalizeSenaReliabilityNotes(value: unknown) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    rejectInvalidSenaReliabilityNotes();
+  }
+  if (Buffer.byteLength(value, "utf8") > SENA_RELIABILITY_NOTE_BYTE_LIMIT) {
+    throw new SenaEnterpriseError(
+      `Reliability notes must be at most ${SENA_RELIABILITY_NOTE_BYTE_LIMIT} UTF-8 bytes.`,
+      413,
+      "reliability_notes_too_large"
+    );
+  }
+  return value.trim();
+}
+
+type SenaReliabilityMutationBody = { notes?: unknown } & Record<string, unknown>;
+
+export function parseSenaReliabilityMutationBody(body: unknown): SenaReliabilityMutationBody {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw new SenaEnterpriseError(
+      "Reliability PATCH body must be a JSON object.",
+      400,
+      "reliability_mutation_body_invalid"
+    );
+  }
+  const mutationBody = body as Record<string, unknown>;
+  const normalized = {
+    ...mutationBody,
+    notes: normalizeSenaReliabilityNotes(mutationBody.notes)
+  };
+  normalizedReliabilityMutationBodies.set(normalized, normalized.notes);
+  return normalized;
+}
+
+function normalizedReliabilityNotesFromBody(body: { notes?: unknown }) {
+  if (normalizedReliabilityMutationBodies.has(body)) {
+    const descriptor = Object.getOwnPropertyDescriptor(body, "notes");
+    if (!descriptor || !("value" in descriptor)) rejectInvalidSenaReliabilityNotes();
+    const notes = descriptor.value;
+    if (normalizedReliabilityMutationBodies.get(body) === notes) {
+      return notes as string | undefined;
+    }
+    return normalizeSenaReliabilityNotes(notes);
+  }
+  const notes = body.notes;
+  return normalizeSenaReliabilityNotes(notes);
+}
+
+function normalizeReliabilityAdjudicationInput(input: CreateEnterpriseReliabilityAdjudicationsInput) {
+  return { ...input, notes: normalizeSenaReliabilityNotes(input.notes) };
+}
+
+function adjudicationRequestLimit(inputLimit: number | undefined, unresolvedCount: number) {
+  const requested = inputLimit ?? unresolvedCount;
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    if (inputLimit === undefined && unresolvedCount === 0) return 0;
+    throw new SenaEnterpriseError(
+      "Reliability adjudication limit must be a positive safe integer.",
+      400,
+      "reliability_adjudication_limit_invalid"
+    );
+  }
+  if (requested > SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT) {
+    throw new SenaEnterpriseError(
+      `Reliability adjudication requests may resolve at most ${SENA_RELIABILITY_ADJUDICATION_REQUEST_LIMIT} unresolved disagreements at a time; submit bounded batches.`,
+      413,
+      "reliability_adjudication_limit_exceeded"
+    );
+  }
+  return Math.min(requested, unresolvedCount);
+}
+
 function createEnterpriseReliabilityAdjudicationsInDb(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: CreateEnterpriseReliabilityAdjudicationsInput,
   db: ReturnType<typeof readEnterpriseDb>
 ): SenaEnterpriseReliabilityAdjudicationResult {
+  const decision = parseSenaReliabilityAdjudicationDecision(input.decision);
   const run = db.reliabilityRuns.find((candidate) => candidate.id === runId);
   if (!run) throw new SenaEnterpriseError("Reliability run was not found.", 404, "reliability_run_not_found");
   if (!run.projectId) {
@@ -335,25 +472,24 @@ function createEnterpriseReliabilityAdjudicationsInDb(
     throw new SenaEnterpriseError("Reliability run team does not match the project team.", 400, "reliability_project_team_mismatch");
   }
   requireEnterprisePermission(context, run.teamId, "reliability:adjudicate");
-
-  const decision = input.decision === "include" || input.decision === "exclude" || input.decision === "revise"
-    ? input.decision
-    : "revise";
-  const queue = run.dashboard.adjudicationQueue.slice(0, Math.min(Math.max(Math.trunc(input.limit ?? run.dashboard.adjudicationQueue.length), 1), 200));
+  const dashboard = assertEnterpriseReliabilityRunCurrentProject(run, project);
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(db.adjudications);
+  const existingForRun = adjudicationsByRunId.get(run.id) ?? [];
+  // Validate all existing records before deciding that a queue item is already
+  // resolved. This is a pure read projection and occurs before any state write.
+  buildEnterpriseReliabilityAdjudicationCoverage(run, project, existingForRun);
+  const existingKeys = new Set(existingForRun.map((record) => (
+    senaReliabilityDisagreementKey(record.itemId, record.codeId)
+  )));
+  const unresolvedQueue = dashboard.adjudicationQueue.filter((disagreement) => (
+    !existingKeys.has(senaReliabilityDisagreementKey(disagreement.itemId, disagreement.codeId))
+  ));
+  const queueLimit = adjudicationRequestLimit(input.limit, unresolvedQueue.length);
+  const queue = unresolvedQueue.slice(0, queueLimit);
   const adjudications: SenaEnterpriseAdjudicationRecord[] = [];
-  let skippedExisting = 0;
+  const skippedExisting = dashboard.adjudicationQueue.length - unresolvedQueue.length;
   const timestamp = now();
   for (const disagreement of queue) {
-    const existing = db.adjudications.find((record) => (
-      record.projectId === run.projectId &&
-      record.reliabilityRunId === run.id &&
-      record.itemId === disagreement.itemId &&
-      record.codeId === disagreement.codeId
-    ));
-    if (existing) {
-      skippedExisting += 1;
-      continue;
-    }
     const record: SenaEnterpriseAdjudicationRecord = {
       id: id("adj"),
       projectId: run.projectId,
@@ -363,14 +499,22 @@ function createEnterpriseReliabilityAdjudicationsInDb(
       codeId: disagreement.codeId,
       decision,
       reviewerId: context.user.id,
-      notes: input.notes?.trim() || `Generated from reliability run ${run.id} disagreement queue.`,
+      notes: input.notes || `Generated from reliability run ${run.id} disagreement queue.`,
       coderValues: disagreement.values,
+      projectVersion: project.currentVersion,
+      snapshotFingerprint: run.projectBinding?.snapshotFingerprint ?? "",
+      coderIds: [...dashboard.coderIds],
       createdAt: timestamp
     };
     db.adjudications.push(record);
     adjudications.push(record);
   }
-  const coverage = refreshReliabilityAdjudicationCoverage(db, run);
+  const coverage = buildEnterpriseReliabilityAdjudicationCoverage(
+    run,
+    project,
+    [...existingForRun, ...adjudications]
+  );
+  run.adjudicationCoverage = coverage;
 
   appendAudit(db, {
     event: "reliability.adjudicate",
@@ -407,7 +551,7 @@ function createEnterpriseReliabilityAdjudicationsInDb(
   };
 }
 
-export function createEnterpriseReliabilityAdjudications(
+function createEnterpriseReliabilityAdjudicationsValidated(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: CreateEnterpriseReliabilityAdjudicationsInput = {}
@@ -418,18 +562,42 @@ export function createEnterpriseReliabilityAdjudications(
   return result;
 }
 
-export async function createEnterpriseReliabilityAdjudicationsWithPostgresMirror(
+export function createEnterpriseReliabilityAdjudications(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: CreateEnterpriseReliabilityAdjudicationsInput = {}
+): SenaEnterpriseReliabilityAdjudicationResult {
+  return createEnterpriseReliabilityAdjudicationsValidated(
+    context,
+    runId,
+    normalizeReliabilityAdjudicationInput(input)
+  );
+}
+
+async function createEnterpriseReliabilityAdjudicationsWithPostgresMirrorValidated(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: CreateEnterpriseReliabilityAdjudicationsInput = {}
 ) {
-  const result = createEnterpriseReliabilityAdjudications(context, runId, input);
+  const result = createEnterpriseReliabilityAdjudicationsValidated(context, runId, input);
   await upsertAdjudicationsToPostgresIfConfigured(result.adjudications);
   await upsertReliabilityRunsToPostgresIfConfigured([result.reliabilityRun]);
   return result;
 }
 
-export async function createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsync(
+export async function createEnterpriseReliabilityAdjudicationsWithPostgresMirror(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: CreateEnterpriseReliabilityAdjudicationsInput = {}
+) {
+  return createEnterpriseReliabilityAdjudicationsWithPostgresMirrorValidated(
+    context,
+    runId,
+    normalizeReliabilityAdjudicationInput(input)
+  );
+}
+
+async function createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsyncValidated(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: CreateEnterpriseReliabilityAdjudicationsInput = {}
@@ -442,10 +610,26 @@ export async function createEnterpriseReliabilityAdjudicationsWithPostgresMirror
   return result;
 }
 
+export async function createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: CreateEnterpriseReliabilityAdjudicationsInput = {}
+) {
+  return createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsyncValidated(
+    context,
+    runId,
+    normalizeReliabilityAdjudicationInput(input)
+  );
+}
+
 type ReviewEnterpriseReliabilityRunInput = {
   status: Extract<SenaEnterpriseReliabilityRunStatus, "pending-adjudication" | "approved" | "rejected">;
   notes?: string;
 };
+
+function normalizeReliabilityReviewInput(input: ReviewEnterpriseReliabilityRunInput) {
+  return { ...input, notes: normalizeSenaReliabilityNotes(input.notes) };
+}
 
 function reviewEnterpriseReliabilityRunInDb(
   context: SenaEnterpriseSessionContext,
@@ -465,7 +649,7 @@ function reviewEnterpriseReliabilityRunInDb(
   run.status = input.status;
   run.reviewedBy = context.user.id;
   run.reviewedAt = now();
-  run.reviewNotes = input.notes?.trim() ?? "";
+  run.reviewNotes = input.notes ?? "";
   refreshReliabilityAdjudicationCoverage(db, run);
   appendAudit(db, {
     event: "reliability.review",
@@ -500,7 +684,7 @@ function reviewEnterpriseReliabilityRunInDb(
   return run;
 }
 
-export function reviewEnterpriseReliabilityRun(
+function reviewEnterpriseReliabilityRunValidated(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: ReviewEnterpriseReliabilityRunInput
@@ -511,17 +695,37 @@ export function reviewEnterpriseReliabilityRun(
   return run;
 }
 
+export function reviewEnterpriseReliabilityRun(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: ReviewEnterpriseReliabilityRunInput
+) {
+  return reviewEnterpriseReliabilityRunValidated(context, runId, normalizeReliabilityReviewInput(input));
+}
+
+async function reviewEnterpriseReliabilityRunWithPostgresMirrorValidated(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: ReviewEnterpriseReliabilityRunInput
+) {
+  const run = reviewEnterpriseReliabilityRunValidated(context, runId, input);
+  await upsertReliabilityRunsToPostgresIfConfigured([run]);
+  return run;
+}
+
 export async function reviewEnterpriseReliabilityRunWithPostgresMirror(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: ReviewEnterpriseReliabilityRunInput
 ) {
-  const run = reviewEnterpriseReliabilityRun(context, runId, input);
-  await upsertReliabilityRunsToPostgresIfConfigured([run]);
-  return run;
+  return reviewEnterpriseReliabilityRunWithPostgresMirrorValidated(
+    context,
+    runId,
+    normalizeReliabilityReviewInput(input)
+  );
 }
 
-export async function reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(
+async function reviewEnterpriseReliabilityRunWithPostgresMirrorAsyncValidated(
   context: SenaEnterpriseSessionContext,
   runId: string,
   input: ReviewEnterpriseReliabilityRunInput
@@ -531,6 +735,18 @@ export async function reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(
   await writeEnterpriseState(state, state.db);
   await upsertReliabilityRunsToPostgresIfConfigured([run]);
   return run;
+}
+
+export async function reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  runId: string,
+  input: ReviewEnterpriseReliabilityRunInput
+) {
+  return reviewEnterpriseReliabilityRunWithPostgresMirrorAsyncValidated(
+    context,
+    runId,
+    normalizeReliabilityReviewInput(input)
+  );
 }
 
 export function listEnterpriseReliabilityRuns(context: SenaEnterpriseSessionContext, input: {
@@ -547,6 +763,74 @@ export async function listEnterpriseReliabilityRunsAsync(context: SenaEnterprise
 } = {}) {
   const state = await readEnterpriseState();
   return listEnterpriseReliabilityRunsFromDb(context, state.db, input);
+}
+
+export async function findEnterprisePublicationReliabilityRunAsync(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">
+) {
+  const state = await readEnterpriseState();
+  return findEnterprisePublicationReliabilityRunFromDb(context, project, state.db);
+}
+
+export type SenaEnterprisePublicationReliabilityEvidence = {
+  reliabilityRun: SenaEnterpriseReliabilityRun;
+  reviewProjection: Partial<SenaCodingReliabilityReview>;
+};
+
+export function findEnterprisePublicationReliabilityRunFromDb(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  db: SenaEnterpriseDb
+) {
+  return findEnterprisePublicationReliabilityEvidenceFromDb(context, project, db)?.reliabilityRun;
+}
+
+export function findEnterprisePublicationReliabilityEvidenceFromDb(
+  context: SenaEnterpriseSessionContext,
+  project: Pick<SenaEnterpriseProject, "id" | "teamId" | "currentVersion" | "snapshot">,
+  db: SenaEnterpriseDb
+): SenaEnterprisePublicationReliabilityEvidence | undefined {
+  requireEnterprisePermission(context, project.teamId, "export:create");
+  const currentProject = db.projects.find((candidate) => candidate.id === project.id);
+  if (!currentProject) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, currentProject.teamId, "export:create");
+  if (currentProject.teamId !== project.teamId || currentProject.currentVersion !== project.currentVersion) return undefined;
+
+  const candidates = db.reliabilityRuns
+    .filter((run) => run.projectId === currentProject.id && run.status === "approved")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const adjudicationsByRunId = groupEnterpriseReliabilityAdjudicationsByRunId(
+    db.adjudications.filter((record) => record.projectId === currentProject.id)
+  );
+  for (const run of candidates) {
+    try {
+      const projection = buildEnterpriseReliabilityPublicationReviewProjection(
+        run,
+        currentProject,
+        adjudicationsByRunId.get(run.id) ?? []
+      );
+      const machineEvidence = projection.review.machineEvidence;
+      if (
+        projection.dashboard.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        projection.dashboard.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+        machineEvidence?.claimEligibility.eligible &&
+        projection.adjudicationCoverage.unresolvedDisagreements === 0
+      ) {
+        return {
+          reliabilityRun: {
+            ...run,
+            dashboard: projection.dashboard,
+            adjudicationCoverage: projection.adjudicationCoverage
+          },
+          reviewProjection: projection.review
+        };
+      }
+    } catch {
+      // Invalid or stale reliability evidence is ineligible for publication.
+    }
+  }
+  return undefined;
 }
 
 function listEnterpriseReliabilityRunsFromDb(context: SenaEnterpriseSessionContext, db: ReturnType<typeof readEnterpriseDb>, input: {
@@ -572,6 +856,19 @@ function listEnterpriseReliabilityRunsFromDb(context: SenaEnterpriseSessionConte
   return db.reliabilityRuns
     .filter((run) => teamIds.has(run.teamId))
     .filter((run) => !input.projectId || run.projectId === input.projectId)
+    .map((run) => {
+      const dashboard = normalizeSenaReliabilityDashboard(run.dashboard);
+      if (run.projectId && (!isValidSenaReliabilityProjectBinding(run.projectBinding) ||
+        !senaReliabilityProjectBindingsEqual(run.projectBinding, dashboard.projectBinding) ||
+        run.projectBinding.projectId !== run.projectId)) {
+        throw new SenaEnterpriseError(
+          "Stored reliability run project binding is missing or contradictory.",
+          409,
+          "reliability_stored_project_binding_invalid"
+        );
+      }
+      return { ...run, dashboard };
+    })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -587,8 +884,8 @@ export function buildEnterpriseReliabilityRunHeaders(run: SenaEnterpriseReliabil
     ...(run.projectId ? { "x-sena-project-id": run.projectId } : {}),
     "x-sena-reliability-coverage-rate": String(run.adjudicationCoverage.coverageRate),
     "x-sena-unresolved-disagreements": String(run.adjudicationCoverage.unresolvedDisagreements),
-    "x-sena-mean-pairwise-kappa": String(run.meanPairwiseKappa),
-    "x-sena-krippendorff-alpha": String(run.krippendorffAlphaNominal)
+    ...(run.meanPairwiseKappa === null ? {} : { "x-sena-mean-pairwise-kappa": String(run.meanPairwiseKappa) }),
+    ...(run.krippendorffAlphaNominal === null ? {} : { "x-sena-krippendorff-alpha": String(run.krippendorffAlphaNominal) })
   };
 }
 
@@ -618,14 +915,18 @@ export async function buildEnterpriseReliabilityRunListResponseAsync(
 export function buildEnterpriseReliabilityRunReviewResponse(
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; status?: unknown; notes?: unknown },
-  reviewRun: typeof reviewEnterpriseReliabilityRun = reviewEnterpriseReliabilityRun
+  reviewRun?: typeof reviewEnterpriseReliabilityRun
 ) {
   const status: Extract<SenaEnterpriseReliabilityRunStatus, "pending-adjudication" | "approved" | "rejected"> =
     body.status === "approved" || body.status === "rejected" ? body.status : "pending-adjudication";
-  const reliabilityRun = reviewRun(context, String(body.runId ?? ""), {
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const input = {
     status,
-    notes: body.notes ? String(body.notes) : undefined
-  });
+    notes
+  };
+  const reliabilityRun = reviewRun
+    ? reviewRun(context, String(body.runId ?? ""), input)
+    : reviewEnterpriseReliabilityRunValidated(context, String(body.runId ?? ""), input);
   return {
     body: createSenaSchemaPayload("reliabilityRunReview", {
       reliabilityRun
@@ -640,9 +941,10 @@ export async function buildEnterpriseReliabilityRunReviewResponseWithPostgresMir
 ) {
   const status: Extract<SenaEnterpriseReliabilityRunStatus, "pending-adjudication" | "approved" | "rejected"> =
     body.status === "approved" || body.status === "rejected" ? body.status : "pending-adjudication";
-  const reliabilityRun = await reviewEnterpriseReliabilityRunWithPostgresMirror(context, String(body.runId ?? ""), {
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const reliabilityRun = await reviewEnterpriseReliabilityRunWithPostgresMirrorValidated(context, String(body.runId ?? ""), {
     status,
-    notes: body.notes ? String(body.notes) : undefined
+    notes
   });
   return {
     body: createSenaSchemaPayload("reliabilityRunReview", {
@@ -658,9 +960,10 @@ export async function buildEnterpriseReliabilityRunReviewResponseWithPostgresMir
 ) {
   const status: Extract<SenaEnterpriseReliabilityRunStatus, "pending-adjudication" | "approved" | "rejected"> =
     body.status === "approved" || body.status === "rejected" ? body.status : "pending-adjudication";
-  const reliabilityRun = await reviewEnterpriseReliabilityRunWithPostgresMirrorAsync(context, String(body.runId ?? ""), {
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const reliabilityRun = await reviewEnterpriseReliabilityRunWithPostgresMirrorAsyncValidated(context, String(body.runId ?? ""), {
     status,
-    notes: body.notes ? String(body.notes) : undefined
+    notes
   });
   return {
     body: createSenaSchemaPayload("reliabilityRunReview", {
@@ -673,16 +976,18 @@ export async function buildEnterpriseReliabilityRunReviewResponseWithPostgresMir
 export function buildEnterpriseReliabilityAdjudicationResponse(
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown },
-  adjudicate: typeof createEnterpriseReliabilityAdjudications = createEnterpriseReliabilityAdjudications
+  adjudicate?: typeof createEnterpriseReliabilityAdjudications
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
-  const adjudication: SenaEnterpriseReliabilityAdjudicationResult = adjudicate(context, String(body.runId ?? ""), {
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const input = {
     decision,
-    notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
-  });
+    notes,
+    limit: body.limit === undefined ? undefined : Number(body.limit)
+  };
+  const adjudication: SenaEnterpriseReliabilityAdjudicationResult = adjudicate
+    ? adjudicate(context, String(body.runId ?? ""), input)
+    : createEnterpriseReliabilityAdjudicationsValidated(context, String(body.runId ?? ""), input);
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {
       adjudication
@@ -696,13 +1001,12 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown }
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
-  const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirror(context, String(body.runId ?? ""), {
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirrorValidated(context, String(body.runId ?? ""), {
     decision,
-    notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
+    notes,
+    limit: body.limit === undefined ? undefined : Number(body.limit)
   });
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {
@@ -717,13 +1021,12 @@ export async function buildEnterpriseReliabilityAdjudicationResponseWithPostgres
   context: SenaEnterpriseSessionContext,
   body: { runId?: unknown; decision?: unknown; notes?: unknown; limit?: unknown }
 ) {
-  const decision = body.decision === "include" || body.decision === "exclude" || body.decision === "revise"
-    ? body.decision
-    : "revise";
-  const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsync(context, String(body.runId ?? ""), {
+  const decision = parseSenaReliabilityAdjudicationDecision(body.decision);
+  const notes = normalizedReliabilityNotesFromBody(body);
+  const adjudication = await createEnterpriseReliabilityAdjudicationsWithPostgresMirrorAsyncValidated(context, String(body.runId ?? ""), {
     decision,
-    notes: body.notes ? String(body.notes) : undefined,
-    limit: body.limit ? Number(body.limit) : undefined
+    notes,
+    limit: body.limit === undefined ? undefined : Number(body.limit)
   });
   return {
     body: createSenaSchemaPayload("reliabilityAdjudicationResponse", {
@@ -746,8 +1049,8 @@ export function buildEnterpriseReliabilityRunResponse(
   return {
     body: createSenaSchemaPayload("reliabilityResponse", {
       ...extraPayload,
-      dashboard: input.dashboard,
-      reviewPatch: input.reviewPatch,
+      dashboard: reliabilityRun.dashboard,
+      reviewPatch: reliabilityRun.reviewPatch,
       reliabilityRun
     }),
     headers: buildEnterpriseReliabilityRunHeaders(reliabilityRun)
@@ -763,8 +1066,8 @@ export async function buildEnterpriseReliabilityRunResponseWithPostgresMirror(
   return {
     body: createSenaSchemaPayload("reliabilityResponse", {
       ...extraPayload,
-      dashboard: input.dashboard,
-      reviewPatch: input.reviewPatch,
+      dashboard: reliabilityRun.dashboard,
+      reviewPatch: reliabilityRun.reviewPatch,
       reliabilityRun
     }),
     headers: buildEnterpriseReliabilityRunHeaders(reliabilityRun)
@@ -780,8 +1083,8 @@ export async function buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsy
   return {
     body: createSenaSchemaPayload("reliabilityResponse", {
       ...extraPayload,
-      dashboard: input.dashboard,
-      reviewPatch: input.reviewPatch,
+      dashboard: reliabilityRun.dashboard,
+      reviewPatch: reliabilityRun.reviewPatch,
       reliabilityRun
     }),
     headers: buildEnterpriseReliabilityRunHeaders(reliabilityRun)
@@ -802,9 +1105,12 @@ export function buildEnterpriseReliabilityJsonRunResponse(
   return buildEnterpriseReliabilityRunResponse(context, {
     teamId: prepared.teamId || context.teams[0]?.id || "",
     projectId: prepared.projectId,
+    projectVersion: prepared.projectVersion,
     reviewer: prepared.reviewer,
     fileCount: prepared.fileCount,
     annotationCount: prepared.annotationCount,
+    annotations: prepared.annotations,
+    skippedCells: prepared.skippedCells,
     inputFiles: prepared.inputFiles,
     dashboard: prepared.dashboard,
     reviewPatch: prepared.reviewPatch
@@ -829,9 +1135,12 @@ export async function buildEnterpriseReliabilityJsonRunResponseWithPostgresMirro
   return buildEnterpriseReliabilityRunResponseWithPostgresMirrorAsync(context, {
     teamId: prepared.teamId || context.teams[0]?.id || "",
     projectId: prepared.projectId,
+    projectVersion: prepared.projectVersion,
     reviewer: prepared.reviewer,
     fileCount: prepared.fileCount,
     annotationCount: prepared.annotationCount,
+    annotations: prepared.annotations,
+    skippedCells: prepared.skippedCells,
     inputFiles: prepared.inputFiles,
     dashboard: prepared.dashboard,
     reviewPatch: prepared.reviewPatch
@@ -854,9 +1163,12 @@ export async function buildEnterpriseReliabilityJsonRunResponseWithPostgresMirro
   return buildEnterpriseReliabilityRunResponseWithPostgresMirror(context, {
     teamId: prepared.teamId || context.teams[0]?.id || "",
     projectId: prepared.projectId,
+    projectVersion: prepared.projectVersion,
     reviewer: prepared.reviewer,
     fileCount: prepared.fileCount,
     annotationCount: prepared.annotationCount,
+    annotations: prepared.annotations,
+    skippedCells: prepared.skippedCells,
     inputFiles: prepared.inputFiles,
     dashboard: prepared.dashboard,
     reviewPatch: prepared.reviewPatch

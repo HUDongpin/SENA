@@ -122,7 +122,7 @@ describe("SENA enterprise Postgres live probe", () => {
         verifierTableCount: 1,
         indexCount: 55,
         uniqueIndexCount: 2,
-        ddlStatementCount: 70,
+        ddlStatementCount: 72,
         destructiveDdlStatementCount: 0,
         migrationMode: "create-if-not-exists"
       }),
@@ -172,13 +172,13 @@ describe("SENA enterprise Postgres live probe", () => {
       verifierTableCount: 1,
       indexCount: 55,
       uniqueIndexCount: 2,
-      ddlStatementCount: 70,
+      ddlStatementCount: 72,
       destructiveDdlStatementCount: 0
     }));
     expect(contract.evidence).toEqual(expect.arrayContaining([
       "schemaContractSource=enterprisePostgresAdapterEnsureSchema",
       "schemaContractSqlValues=hashed",
-      "migrationMode=create-table-if-not-exists|create-index-if-not-exists",
+      "migrationMode=create-table-if-not-exists|alter-column-nullability|create-index-if-not-exists",
       "connectionValues=excluded",
       "secretValues=excluded"
     ]));

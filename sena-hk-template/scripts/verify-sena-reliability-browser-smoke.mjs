@@ -1,9 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { chromium } from "playwright";
+import { gotoHydratedSenaRegisterPage } from "./sena-auth-browser-hydration.mjs";
+import {
+  requireExpectedReceiptKeyId,
+  requireVerifierControlledLoopbackOrigin,
+  requireVerifierControlledServerCustody
+} from "./verify-sena-enterprise-api-browser-smoke.mjs";
 
 const defaultTimeout = 30000;
 const password = "sena-secure-123";
 const reliabilityEvidencePath = "evidence.reliability";
+const reliabilityFixtureContract = Object.freeze({
+  authoritativeItemCount: 3,
+  requiredCodeLabels: Object.freeze(["Question", "Evidence", "Claim", "Explanation", "Reflection"]),
+  binaryUnitCount: 15,
+  intentionalDisagreementCount: 1,
+  minimumMeanPairwiseKappa: 0.8,
+  minimumKrippendorffAlphaNominal: 0.8
+});
 
 function reliabilitySmokeOriginFromCli() {
   const positional = process.argv.find((arg) => arg.startsWith("http://") || arg.startsWith("https://"));
@@ -74,7 +88,7 @@ async function fetchJson(page, path, init = {}) {
 
 async function registerReliabilityReviewer(page, origin, unique) {
   const email = `reliability-smoke-${unique}@example.edu`;
-  await page.goto(`${origin}/register`, { waitUntil: "domcontentloaded", timeout: defaultTimeout });
+  await gotoHydratedSenaRegisterPage(page, origin, defaultTimeout);
   await fillByTestId(page, "register-full-name", "SENA Reliability Smoke");
   await fillByTestId(page, "register-email", email);
   await fillByTestId(page, "register-organization", "SENA Reliability Lab");
@@ -140,27 +154,59 @@ async function createReliabilityProject(page, csrf) {
   if (result.body?.persistedProject?.id !== projectId) {
     throw new Error(`Reliability project header/body mismatch: ${projectId} vs ${result.body?.persistedProject?.id}.`);
   }
-  return projectId;
+  const snapshot = result.body?.persistedProject?.snapshot;
+  if (!snapshot) {
+    throw new Error("Reliability project import did not return the persisted authoritative snapshot.");
+  }
+  return { projectId, snapshot };
 }
 
-function reliabilityAnnotations() {
-  return [
-    { coder_id: "coder-a", item_id: "u1", code_id: "Question", value: "1" },
-    { coder_id: "coder-b", item_id: "u1", code_id: "Question", value: "1" },
-    { coder_id: "coder-a", item_id: "u1", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-b", item_id: "u1", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-a", item_id: "u2", code_id: "Evidence", value: "1" },
-    { coder_id: "coder-b", item_id: "u2", code_id: "Evidence", value: "0" },
-    { coder_id: "coder-a", item_id: "u2", code_id: "Claim", value: "1" },
-    { coder_id: "coder-b", item_id: "u2", code_id: "Claim", value: "1" },
-    { coder_id: "coder-a", item_id: "u3", code_id: "Explanation", value: "1" },
-    { coder_id: "coder-b", item_id: "u3", code_id: "Explanation", value: "0" },
-    { coder_id: "coder-a", item_id: "u3", code_id: "Reflection", value: "1" },
-    { coder_id: "coder-b", item_id: "u3", code_id: "Reflection", value: "1" }
-  ];
+function reliabilityAnnotations(snapshot) {
+  const dataset = snapshot?.source?.sourceDataset ?? snapshot?.dataset;
+  const utteranceIds = Array.isArray(dataset?.utterances)
+    ? dataset.utterances.map((utterance) => utterance?.id).filter((id) => typeof id === "string" && id.length > 0)
+    : [];
+  const codebook = Array.isArray(dataset?.codebook) ? dataset.codebook : [];
+  const codeId = (name) => {
+    const normalized = name.toLowerCase();
+    const code = codebook.find((candidate) => (
+      typeof candidate?.id === "string" && candidate.id.toLowerCase() === normalized
+    ) || (
+      typeof candidate?.label === "string" && candidate.label.toLowerCase() === normalized
+    ));
+    if (!code?.id) throw new Error(`Reliability project snapshot is missing the required ${name} code.`);
+    return code.id;
+  };
+  if (utteranceIds.length < reliabilityFixtureContract.authoritativeItemCount) {
+    throw new Error(
+      `Reliability project snapshot must expose at least ${reliabilityFixtureContract.authoritativeItemCount} authoritative utterance IDs.`
+    );
+  }
+  const authoritativeItemIds = utteranceIds.slice(0, reliabilityFixtureContract.authoritativeItemCount);
+  const authoritativeCodeIds = reliabilityFixtureContract.requiredCodeLabels.map(codeId);
+  const authoritativeUnits = authoritativeItemIds.flatMap((itemId) => (
+    authoritativeCodeIds.map((authoritativeCodeId) => ({ itemId, codeId: authoritativeCodeId }))
+  ));
+  if (authoritativeUnits.length !== reliabilityFixtureContract.binaryUnitCount) {
+    throw new Error(
+      `Reliability fixture expected ${reliabilityFixtureContract.binaryUnitCount} authoritative binary units, received ${authoritativeUnits.length}.`
+    );
+  }
+  return authoritativeUnits.flatMap((unit, unitIndex) => (
+    ["coder-a", "coder-b"].map((coderId, coderIndex) => {
+      const canonicalValue = unitIndex % 2 === 0;
+      const value = unitIndex === 0 && coderIndex === 1 ? !canonicalValue : canonicalValue;
+      return {
+        coder_id: coderId,
+        item_id: unit.itemId,
+        code_id: unit.codeId,
+        value: value ? "1" : "0"
+      };
+    })
+  ));
 }
 
-async function createReliabilityRun(page, csrf, teamId, projectId) {
+async function createReliabilityRun(page, csrf, teamId, projectId, annotations) {
   const result = await fetchJson(page, "/api/sena/reliability", {
     method: "POST",
     headers: {
@@ -173,7 +219,7 @@ async function createReliabilityRun(page, csrf, teamId, projectId) {
       projectId,
       reviewer: "Reliability smoke reviewer",
       sourceName: "reliability-smoke-annotations.json",
-      annotations: reliabilityAnnotations()
+      annotations
     })
   });
   if (result.status !== 200 || result.body?.schemaVersion !== "sena-reliability-response/v1") {
@@ -182,11 +228,40 @@ async function createReliabilityRun(page, csrf, teamId, projectId) {
   if (result.body?.requestSchemaVersion !== "sena-reliability-json-request/v1") {
     throw new Error(`Reliability run did not use JSON request schema: ${JSON.stringify(result.body)}.`);
   }
-  if (result.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v1") {
+  if (result.body?.dashboard?.schemaVersion !== "sena-coding-reliability-dashboard/v2") {
     throw new Error(`Reliability dashboard missing expected schema: ${JSON.stringify(result.body?.dashboard)}.`);
   }
-  if ((result.body?.dashboard?.disagreementCount ?? 0) <= 0) {
-    throw new Error(`Reliability smoke should create adjudication disagreements: ${JSON.stringify(result.body?.dashboard)}.`);
+  const dashboard = result.body.dashboard;
+  if (dashboard.binaryUnitCount !== reliabilityFixtureContract.binaryUnitCount) {
+    throw new Error(
+      `Reliability smoke expected ${reliabilityFixtureContract.binaryUnitCount} binary units, received ${dashboard.binaryUnitCount}.`
+    );
+  }
+  if (dashboard.disagreementCount !== reliabilityFixtureContract.intentionalDisagreementCount) {
+    throw new Error(
+      `Reliability smoke expected ${reliabilityFixtureContract.intentionalDisagreementCount} intentional disagreement, received ${dashboard.disagreementCount}.`
+    );
+  }
+  if (dashboard.meanPairwiseKappa < reliabilityFixtureContract.minimumMeanPairwiseKappa) {
+    throw new Error(
+      `Reliability smoke mean pairwise kappa ${dashboard.meanPairwiseKappa} is below ${reliabilityFixtureContract.minimumMeanPairwiseKappa}.`
+    );
+  }
+  if (dashboard.krippendorffAlphaNominal < reliabilityFixtureContract.minimumKrippendorffAlphaNominal) {
+    throw new Error(
+      `Reliability smoke Krippendorff alpha ${dashboard.krippendorffAlphaNominal} is below ${reliabilityFixtureContract.minimumKrippendorffAlphaNominal}.`
+    );
+  }
+  const initialEligibilityBlockers = dashboard.claimEligibility?.blockers;
+  if (
+    dashboard.claimEligibility?.eligible !== false ||
+    !Array.isArray(initialEligibilityBlockers) ||
+    initialEligibilityBlockers.length !== 1 ||
+    initialEligibilityBlockers[0] !== "unresolved-reliability-disagreements"
+  ) {
+    throw new Error(
+      `Reliability smoke must be statistically eligible but blocked by its one unresolved disagreement before adjudication: ${JSON.stringify(dashboard.claimEligibility)}.`
+    );
   }
   const runId = requireHeader(result.headers, "x-sena-reliability-run-id");
   requireHeader(result.headers, "x-sena-project-id", projectId);
@@ -271,7 +346,7 @@ async function verifyReliabilityPersistence(page, projectId, runId) {
 
 async function verifyClaimPackageReliabilityEvidence(page, projectId, runId) {
   const claim = await fetchJson(page, `/api/sena/validation/claim-package?projectId=${encodeURIComponent(projectId)}`);
-  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v1") {
+  if (claim.status !== 200 || claim.body?.schemaVersion !== "sena-enterprise-claim-evidence-package/v2") {
     throw new Error(`Claim package request failed: ${JSON.stringify(claim)}.`);
   }
   requireHeader(claim.headers, "x-sena-project-id", projectId);
@@ -293,8 +368,14 @@ async function verifyClaimPackageReliabilityEvidence(page, projectId, runId) {
   }
 }
 
-export async function verifySenaReliabilityBrowserSmoke(baseUrl = reliabilitySmokeOriginFromCli()) {
-  const origin = new URL(baseUrl).origin;
+export async function verifySenaReliabilityBrowserSmoke(baseUrl = reliabilitySmokeOriginFromCli(), options = {}) {
+  const expectedReceiptKeyId = requireExpectedReceiptKeyId(options);
+  const origin = requireVerifierControlledLoopbackOrigin(baseUrl);
+  const provisioningToken = options.provisioningToken ??
+    process.env.SENA_ENTERPRISE_API_BROWSER_SMOKE_PROVISIONING_TOKEN ??
+    process.env.SENA_PROVISIONING_TOKEN ??
+    "sena-pilot-provisioning-token";
+  requireVerifierControlledServerCustody(options, origin, expectedReceiptKeyId, provisioningToken);
   const unique = randomUUID().slice(0, 8);
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
@@ -303,13 +384,19 @@ export async function verifySenaReliabilityBrowserSmoke(baseUrl = reliabilitySmo
   try {
     const reviewer = await registerReliabilityReviewer(page, origin, unique);
     const csrf = await csrfToken(page);
-    const projectId = await createReliabilityProject(page, csrf);
-    const runId = await createReliabilityRun(page, csrf, reviewer.teamId, projectId);
+    const project = await createReliabilityProject(page, csrf);
+    const runId = await createReliabilityRun(
+      page,
+      csrf,
+      reviewer.teamId,
+      project.projectId,
+      reliabilityAnnotations(project.snapshot)
+    );
     await adjudicateReliabilityRun(page, csrf, runId);
     await approveReliabilityRun(page, csrf, runId);
-    await verifyReliabilityPersistence(page, projectId, runId);
-    await verifyClaimPackageReliabilityEvidence(page, projectId, runId);
-    console.log(`Reliability browser smoke passed for approved multi-coder run ${runId} on project ${projectId}.`);
+    await verifyReliabilityPersistence(page, project.projectId, runId);
+    await verifyClaimPackageReliabilityEvidence(page, project.projectId, runId);
+    console.log(`Reliability browser smoke passed for approved multi-coder run ${runId} on project ${project.projectId}.`);
   } finally {
     await browser.close();
   }
@@ -317,7 +404,7 @@ export async function verifySenaReliabilityBrowserSmoke(baseUrl = reliabilitySmo
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   verifySenaReliabilityBrowserSmoke().catch((error) => {
-    console.error(error);
+    console.error(error instanceof Error ? error.message : "Reliability browser smoke failed.");
     process.exit(1);
   });
 }

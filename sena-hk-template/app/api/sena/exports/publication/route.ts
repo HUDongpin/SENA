@@ -1,34 +1,149 @@
-import { NextResponse } from "next/server";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
 import {
-  getEnterpriseClaimEvidencePackageWithPostgresEvidence
-} from "@/lib/sena/enterprise/claim-evidence-package";
-import {
-  getEnterpriseProjectAsync
-} from "@/lib/sena/enterprise/team-project";
+  resolveEnterprisePublicationStateBundle
+} from "@/lib/sena/enterprise/publication-state-binding";
 import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
-import { requireEnterprisePermission } from "@/lib/sena/enterprise/access-control";
 import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
 import {
-  assertServerJobPayloadAllowed,
-  enqueueEnterpriseServerJob,
-  serverJobHeaders,
-  serverJobQueueStatus,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
-import { buildSenaPublicationExport, type SenaPublicationEnterpriseProjectEvidence, type SenaPublicationFormat } from "@/lib/sena/publication-export";
-import { importSenaProjectSnapshot } from "@/lib/sena/snapshot";
+import {
+  assertSenaPublicationModelCardReady,
+  buildSenaPublicationExport,
+  type SenaPublicationEnterpriseProjectEvidence,
+  type SenaPublicationFormat
+} from "@/lib/sena/publication-export";
+import {
+  assertSenaEnterprisePublicationRequestDerivationWorkBudget,
+  SenaProjectSnapshotResourceLimitError
+} from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
 
 const formats = new Set<SenaPublicationFormat>(["html", "svg", "png", "xlsx", "docx", "pdf", "package"]);
+const SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES = 64 * 1024;
+const SENA_PUBLICATION_EXPORT_REQUEST_MAX_CHUNKS = 1_024;
+
+function publicationRequestInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request must be a JSON object.",
+    400,
+    "publication_export_request_invalid"
+  );
+}
+
+function publicationRequestContentTypeInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request media type must be application/json.",
+    400,
+    "publication_export_content_type_invalid"
+  );
+}
+
+function publicationFormatInvalid(): never {
+  throw new SenaEnterpriseError(
+    "Publication export format must be one of html, svg, png, xlsx, docx, pdf, or package.",
+    400,
+    "publication_export_format_invalid"
+  );
+}
+
+function assertPublicationRequestContentType(request: Request) {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") publicationRequestContentTypeInvalid();
+}
+
+function publicationRequestTooLarge(): never {
+  throw new SenaEnterpriseError(
+    `Publication export request exceeds the ${SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES}-byte limit.`,
+    413,
+    "publication_export_request_too_large"
+  );
+}
+
+function publicationRequestTooFragmented(): never {
+  throw new SenaEnterpriseError(
+    "Publication export request uses too many streamed chunks.",
+    413,
+    "publication_export_request_too_fragmented"
+  );
+}
+
+async function cancelPublicationRequestReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) {
+  try {
+    await reader.cancel();
+  } catch {
+    // Admission errors are stable even when an untrusted stream rejects cancel.
+  }
+}
+
+async function readBoundedPublicationRequest(request: Request): Promise<Record<string, unknown>> {
+  const declaredLength = request.headers.get("content-length")?.trim();
+  if (declaredLength) {
+    if (!/^\d+$/.test(declaredLength)) publicationRequestInvalid();
+    const parsedLength = Number(declaredLength);
+    if (!Number.isSafeInteger(parsedLength) ||
+      parsedLength > SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES) {
+      publicationRequestTooLarge();
+    }
+  }
+  if (!request.body) publicationRequestInvalid();
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let chunkCount = 0;
+  while (true) {
+    let read: ReadableStreamReadResult<Uint8Array>;
+    try {
+      read = await reader.read();
+    } catch {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestInvalid();
+    }
+    const { done, value } = read;
+    if (done) break;
+    chunkCount += 1;
+    if (chunkCount > SENA_PUBLICATION_EXPORT_REQUEST_MAX_CHUNKS) {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestTooFragmented();
+    }
+    const chunk = value ?? new Uint8Array();
+    if (chunk.byteLength > SENA_PUBLICATION_EXPORT_REQUEST_MAX_BYTES - bytes) {
+      await cancelPublicationRequestReader(reader);
+      publicationRequestTooLarge();
+    }
+    bytes += chunk.byteLength;
+    if (chunk.byteLength > 0) chunks.push(chunk);
+  }
+
+  const bodyBytes = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  let parsed: unknown;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bodyBytes);
+    parsed = JSON.parse(text);
+  } catch {
+    publicationRequestInvalid();
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    publicationRequestInvalid();
+  }
+  return parsed as Record<string, unknown>;
+}
 
 function bodyBuffer(body: string | Buffer) {
   return typeof body === "string" ? Buffer.from(body, "utf8") : body;
@@ -36,6 +151,36 @@ function bodyBuffer(body: string | Buffer) {
 
 function sha256Buffer(buffer: Buffer) {
   return createHash("sha256").update(buffer).digest("hex");
+}
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function publicationDerivationBudgetError(error: unknown): never {
+  if (error instanceof SenaProjectSnapshotResourceLimitError) {
+    throw new SenaEnterpriseError(
+      "Publication export exceeds the supported canonical derivation budget.",
+      413,
+      "publication_export_derivation_too_complex"
+    );
+  }
+  throw error;
+}
+
+async function resolvePublicationStateBeforeDerivation(
+  context: Awaited<ReturnType<typeof requireApiSessionForMutation>>,
+  projectId: string
+) {
+  return resolveEnterprisePublicationStateBundle(context, projectId, {
+    beforeNormalize: ({ targetSnapshot }) => {
+      try {
+        assertSenaEnterprisePublicationRequestDerivationWorkBudget(targetSnapshot);
+      } catch (error) {
+        publicationDerivationBudgetError(error);
+      }
+    }
+  });
 }
 
 function publicationPackageHeaders(format: SenaPublicationFormat, body: string | Buffer) {
@@ -65,88 +210,51 @@ function publicationPackageHeaders(format: SenaPublicationFormat, body: string |
 export async function POST(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-publication-export" }, async () => {
     const context = await requireApiSessionForMutation(request);
-    const requestBody = await request.json();
-    const format = formats.has(requestBody.format) ? requestBody.format : "html";
-    const projectId = requestBody.projectId ? String(requestBody.projectId) : "";
-    if (shouldQueueServerJob(request, requestBody)) {
-      const queue = serverJobQueueStatus();
-      assertServerJobPayloadAllowed({
-        projectId,
-        hasInlinePayload: Boolean(requestBody.snapshot),
-        queue
-      });
-      let teamId = String(requestBody.teamId || context.teams[0]?.id || "");
-      let projectVersion: number | undefined;
-      let source: "project" | "snapshot" = "snapshot";
-      if (projectId) {
-        const project = await getEnterpriseProjectAsync(context, projectId);
-        teamId = project.teamId;
-        projectVersion = project.currentVersion;
-        source = "project";
-      } else if (!requestBody.snapshot) {
-        throw new SenaEnterpriseError("Provide projectId or snapshot for publication export.", 400, "publication_export_source_required");
-      }
-      requireEnterprisePermission(context, teamId, "export:create");
-      const job = await enqueueEnterpriseServerJob({
-        kind: "publication-export",
-        teamId,
-        projectId: projectId || undefined,
-        actorUserId: context.user.id,
-        payload: {
-          action: "run-publication-export",
-          teamId,
-          projectId: projectId || undefined,
-          projectVersion,
-          format,
-          inlineSnapshot: queue.inlinePayloadAllowed ? requestBody.snapshot : undefined
-        },
-        payloadSummary: {
-          source,
-          projectVersion,
-          format,
-          hasInlineSnapshot: Boolean(requestBody.snapshot),
-          hasInlineDataset: false,
-          payloadValuesExcluded: true
-        },
-        queue
-      });
-      await recordEnterpriseAuditAsync({
-        event: "export.queue",
-        userId: context.user.id,
-        teamId,
-        projectId: projectId || undefined,
-        detail: {
-          serverJobId: job.id,
-          serverJobKind: job.kind,
-          queueProvider: job.provider.mode,
-          queueDelivery: job.delivery.webhookStatus,
-          queueHttpStatus: job.delivery.httpStatus ?? null,
-          queueProductionReady: job.provider.productionReady,
-          payloadSha256: job.payloadSha256,
-          source,
-          format,
-          inlinePayloadAllowed: job.provider.inlinePayloadAllowed,
-          projectVersion: projectVersion ?? null
-        }
-      });
-      return NextResponse.json(job, {
-        status: 202,
-        headers: serverJobHeaders(job)
-      });
+    assertPublicationRequestContentType(request);
+    const requestBody = await readBoundedPublicationRequest(request);
+    const hasExplicitFormat = Object.prototype.hasOwnProperty.call(requestBody, "format");
+    if (hasExplicitFormat && (
+      typeof requestBody.format !== "string" ||
+      !formats.has(requestBody.format as SenaPublicationFormat)
+    )) {
+      publicationFormatInvalid();
     }
-    let snapshot: SenaProjectSnapshot;
-    let teamId = String(requestBody.teamId || context.teams[0]?.id || "");
-    let source = "snapshot";
-    let projectVersion: number | undefined;
-    let enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence | undefined;
-    if (projectId) {
-      const project = await getEnterpriseProjectAsync(context, projectId);
-      const claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(context, { projectId });
-      snapshot = project.snapshot;
-      teamId = project.teamId;
-      source = "project";
-      projectVersion = project.currentVersion;
-      enterpriseProjectEvidence = {
+    const format: SenaPublicationFormat = hasExplicitFormat
+      ? requestBody.format as SenaPublicationFormat
+      : "html";
+    const projectId = requestBody.projectId ? String(requestBody.projectId).trim() : "";
+    if (!projectId) {
+      throw new SenaEnterpriseError(
+        "Enterprise publication export requires a persisted projectId; inline snapshots cannot establish approved, current reliability and atomic state-revision evidence.",
+        400,
+        "publication_export_project_required"
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(requestBody, "snapshot")) {
+      throw new SenaEnterpriseError(
+        "Inline snapshots are not accepted by the enterprise publication route; export the persisted project by projectId.",
+        400,
+        "publication_export_inline_snapshot_forbidden"
+      );
+    }
+    if (shouldQueueServerJob(request, requestBody)) {
+      const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
+      assertSenaPublicationModelCardReady(publicationState.publicationSnapshot.report);
+      throw new SenaEnterpriseError(
+        "Queued publication export is unavailable until an evidence-bound publication worker can revalidate the complete state, reliability, adjudication, and derivation lease before producing artifacts.",
+        503,
+        "publication_export_async_worker_unavailable"
+      );
+    }
+    const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
+    const { project, claimPackage, stateBinding } = publicationState;
+    const snapshot: SenaProjectSnapshot = publicationState.publicationSnapshot;
+    const teamId = project.teamId;
+    const source = "project";
+    const projectVersion = project.currentVersion;
+    const sourceSnapshotSha256 = sha256Json(snapshot);
+    const reportSha256 = sha256Json(snapshot.report);
+    const enterpriseProjectEvidence: SenaPublicationEnterpriseProjectEvidence = {
         schemaVersion: SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence,
         projectId: project.id,
         teamId: project.teamId,
@@ -154,21 +262,34 @@ export async function POST(request: Request) {
         title: project.title,
         activeWindowLabel: project.activeWindowLabel,
         claimUse: project.claimUse,
-        sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
-        reportSha256: claimPackage.sourceSnapshotEvidence.reportSha256,
+        sourceSnapshotSha256,
+        reportSha256,
+        stateBinding,
+        ...(publicationState.reliabilityRun ? {
+          publicationDerivation: {
+            kind: "current-project-reliability-run",
+            reliabilityRunId: publicationState.reliabilityRun.id,
+            reliabilityRunSha256: sha256Json(publicationState.reliabilityRun),
+            reliabilityDashboardSchemaVersion: publicationState.reliabilityRun.dashboard.schemaVersion,
+            projectVersion: publicationState.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
+            persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+            readProjectionSourceSnapshotSha256: stateBinding.project.readProjectionSnapshotSha256,
+            derivedPublicationSnapshotSha256: sourceSnapshotSha256
+          }
+        } : {}),
         claimPackage: {
           schemaVersion: claimPackage.schemaVersion,
           status: claimPackage.status,
           blockers: claimPackage.summary.blockers,
           warnings: claimPackage.summary.warnings,
-          sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256
+          sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
+          persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+          claimReadinessKind: claimPackage.claimReadinessEvidence.kind,
+          claimReadinessSnapshotSha256: claimPackage.claimReadinessEvidence.snapshotSha256,
+          sha256: stateBinding.claimPackage.sha256,
+          payload: structuredClone(claimPackage)
         }
       };
-    } else if (requestBody.snapshot) {
-      snapshot = importSenaProjectSnapshot(requestBody.snapshot);
-    } else {
-      throw new SenaEnterpriseError("Provide projectId or snapshot for publication export.", 400, "publication_export_source_required");
-    }
     const result = await buildSenaPublicationExport(snapshot, format, enterpriseProjectEvidence);
     await recordEnterpriseAuditAsync({
       event: "export.run",
@@ -181,7 +302,13 @@ export async function POST(request: Request) {
         title: snapshot.title,
         projectVersion: projectVersion ?? null,
         sourceSnapshotSha256: enterpriseProjectEvidence?.sourceSnapshotSha256 ?? null,
-        claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null
+        persistedSourceSnapshotSha256: enterpriseProjectEvidence?.stateBinding.project.persistedSnapshotSha256 ?? null,
+        readProjectionSourceSnapshotSha256: enterpriseProjectEvidence?.stateBinding.project.readProjectionSnapshotSha256 ?? null,
+        reliabilityRunId: enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId ?? null,
+        claimPackageStatus: enterpriseProjectEvidence?.claimPackage.status ?? null,
+        publicationStateRevisionSha256: enterpriseProjectEvidence?.stateBinding.stateRevisionSha256 ?? null,
+        publicationStateBindingSha256: enterpriseProjectEvidence?.stateBinding.bindingSha256 ?? null,
+        publicationDerivationManifestSha256: result.derivationManifest.manifestSha256
       }
     });
     const exportBuffer = bodyBuffer(result.body);
@@ -196,11 +323,33 @@ export async function POST(request: Request) {
         "x-sena-export-filename": result.filename,
         "x-sena-export-bytes": String(exportBuffer.byteLength),
         "x-sena-export-sha256": sha256Buffer(exportBuffer),
+        "x-sena-publication-derivation-manifest-sha256": result.derivationManifest.manifestSha256,
         ...(projectId ? { "x-sena-project-id": projectId } : {}),
         ...(projectVersion ? { "x-sena-project-version": String(projectVersion) } : {}),
         ...(enterpriseProjectEvidence?.sourceSnapshotSha256 ? { "x-sena-source-snapshot-sha256": enterpriseProjectEvidence.sourceSnapshotSha256 } : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.project.persistedSnapshotSha256
+          ? { "x-sena-persisted-source-snapshot-sha256": enterpriseProjectEvidence.stateBinding.project.persistedSnapshotSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.project.readProjectionSnapshotSha256
+          ? { "x-sena-read-projection-source-snapshot-sha256": enterpriseProjectEvidence.stateBinding.project.readProjectionSnapshotSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.publicationDerivation?.reliabilityRunId
+          ? { "x-sena-publication-reliability-run-id": enterpriseProjectEvidence.publicationDerivation.reliabilityRunId }
+          : {}),
         ...(enterpriseProjectEvidence?.reportSha256 ? { "x-sena-report-sha256": enterpriseProjectEvidence.reportSha256 } : {}),
         ...(enterpriseProjectEvidence?.claimPackage.status ? { "x-sena-claim-package-status": enterpriseProjectEvidence.claimPackage.status } : {}),
+        "x-sena-claim-package-sha256": stateBinding.claimPackage.sha256,
+        "x-sena-validation-run-id": stateBinding.validationRun.runId,
+        "x-sena-validation-evidence-sha256": stateBinding.validationRun.validationRunEvidenceHash,
+        "x-sena-expert-review-id": stateBinding.expertReview.reviewId,
+        "x-sena-expert-receipt-sha256": stateBinding.expertReview.receiptSha256,
+        "x-sena-expert-receipt-key-id": stateBinding.expertReview.receipt.keyId,
+        ...(enterpriseProjectEvidence?.stateBinding.stateRevisionSha256
+          ? { "x-sena-publication-state-revision-sha256": enterpriseProjectEvidence.stateBinding.stateRevisionSha256 }
+          : {}),
+        ...(enterpriseProjectEvidence?.stateBinding.bindingSha256
+          ? { "x-sena-publication-state-binding-sha256": enterpriseProjectEvidence.stateBinding.bindingSha256 }
+          : {}),
         ...packageHeaders
       }
     });

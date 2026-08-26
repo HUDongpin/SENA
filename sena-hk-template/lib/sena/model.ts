@@ -16,6 +16,7 @@ import {
   buildSenaAnalysisConfigHash,
   buildSenaDatasetContentHash
 } from "./data-contract-audit";
+import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
 import {
   buildSenaFusionAdjacency,
   findSenaIsolatedVertices,
@@ -1240,7 +1241,7 @@ function buildTemporalWindow({
     index,
     startTurn,
     endTurn,
-    centerTurn,
+    ...(centerTurn === undefined ? {} : { centerTurn }),
     stages,
     utteranceIds: utterances.map((utterance) => utterance.id),
     segmentIds: segments.map((segment) => segment.segmentId),
@@ -1331,8 +1332,8 @@ function buildTemporalWindows(dataset: SenaDataset, settings: SenaTemporalOption
   }
 
   if (settings.mode === "moving-window") {
-    const size = Math.max(1, Math.round(settings.movingWindowSize));
-    const step = Math.max(1, Math.round(settings.movingWindowStep));
+    const size = settings.movingWindowSize;
+    const step = settings.movingWindowStep;
     const windows: SenaTemporalWindow[] = [];
     for (let startIndex = 0; startIndex < turns.length; startIndex += step) {
       const selectedTurns = turns.slice(startIndex, startIndex + size);
@@ -1354,7 +1355,7 @@ function buildTemporalWindows(dataset: SenaDataset, settings: SenaTemporalOption
     return normalizeTemporalWindows(windows);
   }
 
-  const radius = Math.max(0, Math.round(settings.turnWindowRadius));
+  const radius = settings.turnWindowRadius;
   const windows = turns.map((turn, index) => {
     const startTurn = turn - radius;
     const endTurn = turn + radius;
@@ -1390,7 +1391,7 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
     coded_segments: codedSegments.map((segment) => ({
       ...segment,
       codes: [...segment.codes],
-      targetPersonIds: segment.targetPersonIds ? [...segment.targetPersonIds] : undefined
+      ...(segment.targetPersonIds ? { targetPersonIds: [...segment.targetPersonIds] } : {})
     })),
     interactions: dataset.interactions
       // Stage windows are defined by stage membership in buildTemporalWindows, so
@@ -1405,7 +1406,7 @@ export function scopeSenaDatasetToWindow(dataset: SenaDataset, window: SenaTempo
           : interactionInTurnWindow(interaction, window.startTurn, window.endTurn, stages)
       ))
       .map((interaction) => ({ ...interaction })),
-    warnings: dataset.warnings ? [...dataset.warnings] : undefined
+    ...(dataset.warnings ? { warnings: [...dataset.warnings] } : {})
   };
 }
 
@@ -1546,27 +1547,6 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
   const direction = buildOptions.direction ?? (
     buildOptions.undirectedSocial === true ? "undirected" : defaultOptions.direction
   );
-  if (buildOptions.undirectedSocial !== undefined && buildOptions.direction !== undefined) {
-    const socialDirection = buildOptions.undirectedSocial ? "undirected" : "directed";
-    if (socialDirection !== buildOptions.direction) {
-      throw new Error("SENA buildOptions.direction conflicts with buildOptions.undirectedSocial.");
-    }
-  }
-  if (buildOptions.deg_convention !== undefined && buildOptions.deg_convention !== "row-sum") {
-    throw new Error("SENA buildOptions.deg_convention currently supports only row-sum.");
-  }
-  if (buildOptions.Phi !== undefined && buildOptions.Phi !== "classical_mds") {
-    throw new Error("SENA buildOptions.Phi currently supports classical_mds for the analysis provenance envelope.");
-  }
-  if (buildOptions.delta !== undefined && buildOptions.delta !== "shortest_path_reciprocal_weight") {
-    throw new Error("SENA buildOptions.delta currently supports shortest_path_reciprocal_weight for classical_mds.");
-  }
-  if (buildOptions.d !== undefined && (!Number.isFinite(buildOptions.d) || buildOptions.d < 1)) {
-    throw new Error("SENA buildOptions.d must be a positive finite number.");
-  }
-  if (buildOptions.seed !== undefined && !Number.isFinite(buildOptions.seed)) {
-    throw new Error("SENA buildOptions.seed must be a finite number.");
-  }
 
   return {
     ...defaultOptions,
@@ -1576,7 +1556,7 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
     deg_convention: buildOptions.deg_convention ?? defaultOptions.deg_convention,
     delta: buildOptions.delta ?? defaultOptions.delta,
     Phi: buildOptions.Phi ?? defaultOptions.Phi,
-    d: Math.floor(buildOptions.d ?? defaultOptions.d),
+    d: buildOptions.d ?? defaultOptions.d,
     seed: buildOptions.seed ?? defaultOptions.seed,
     undirectedSocial: buildOptions.undirectedSocial ?? direction === "undirected",
     temporal: {
@@ -1587,6 +1567,7 @@ function resolveBuildOptions(buildOptions: Partial<SenaBuildOptions>): SenaResol
 }
 
 export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaBuildOptions> = {}): SenaModel {
+  validateSenaAnalyticalInputs({ dataset, buildOptions });
   const options = resolveBuildOptions(buildOptions);
   const personIndex = idIndex(dataset.people, "person");
   const codeIndex = idIndex(dataset.codebook, "code");
@@ -1680,6 +1661,9 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
   const directionDiagnostics = buildDirectionDiagnostics(options, bridge.B, bridge.Bcp, bridge.hasIndependentCpEvidence);
   const attributionDiagnostics = buildAttributionDiagnostics(dataset, pairContribution.G, personIndex, codeIndex, participation);
   const typedCentralityDiagnostics = buildTypedCentralityDiagnostics(dataset, social.S, concept.W, bridge.B, degreeVector);
+  const strongestSocialTie = strongest(edges, "social");
+  const strongestConceptTie = strongest(edges, "concept");
+  const strongestBridgeTie = strongest(edges, "bridge");
 
   return {
     dataset,
@@ -1780,9 +1764,9 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
         averagePathLength: socialAnalysis.averagePathLength,
         communityCount: socialAnalysis.communityCount
       },
-      strongestSocialTie: strongest(edges, "social"),
-      strongestConceptTie: strongest(edges, "concept"),
-      strongestBridgeTie: strongest(edges, "bridge"),
+      ...(strongestSocialTie ? { strongestSocialTie } : {}),
+      ...(strongestConceptTie ? { strongestConceptTie } : {}),
+      ...(strongestBridgeTie ? { strongestBridgeTie } : {}),
       warnings: [...(dataset.warnings ?? []), ...social.warnings, ...concept.warnings, ...bridge.warnings]
     }
   };

@@ -53,7 +53,7 @@ function datasetCounts(dataset: SenaDataset) {
   };
 }
 
-function resolveDatasetSource(input: SenaAnalysisRunInput) {
+export function resolveSenaAnalysisRunSource(input: SenaAnalysisRunInput) {
   if (input.snapshot) {
     const snapshot = importSenaProjectSnapshot(input.snapshot);
     return {
@@ -137,7 +137,7 @@ export function buildSenaAnalysisProvenanceEnvelope(
 
 export function buildSenaAnalysisRun(input: SenaAnalysisRunInput) {
   const generatedAt = input.generatedAt ?? new Date().toISOString();
-  const source = resolveDatasetSource(input);
+  const source = resolveSenaAnalysisRunSource(input);
   const activeTemporalWindow = resolveActiveWindow(source.dataset, source.buildOptions, input.activeTemporalWindowId);
   const analysisDataset = activeTemporalWindow
     ? scopeSenaDatasetToWindow(source.dataset, activeTemporalWindow)

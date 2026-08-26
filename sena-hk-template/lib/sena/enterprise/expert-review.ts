@@ -22,6 +22,15 @@ import {
   notifyProjectReaders,
   queueEnterpriseNotification
 } from "./notifications-delivery";
+import {
+  buildEnterpriseProjectEvidenceBinding,
+  type SenaEnterpriseProjectEvidenceBinding
+} from "./team-project";
+import {
+  buildEnterpriseExpertReviewReceipt,
+  enterpriseExpertReviewReceiptRuntime,
+  type SenaEnterpriseExpertReviewReceipt
+} from "./expert-review-receipt";
 
 export type SenaEnterpriseExpertReviewStatus = "requested" | "approved" | "changes-requested" | "rejected";
 
@@ -29,12 +38,16 @@ export type SenaEnterpriseExpertReview = {
   id: string;
   teamId: string;
   projectId: string;
+  /** Historical records may be unbound; claim aggregation treats them as exploratory-only. */
+  projectBinding?: SenaEnterpriseProjectEvidenceBinding;
   userId: string;
   status: SenaEnterpriseExpertReviewStatus;
   target: {
     kind: "project" | "validation-run" | "reliability-run" | "claim";
     id?: string;
     label?: string;
+    /** Server-derived exact seal reviewed for a validation-run target. */
+    validationRunEvidenceHash?: string;
   };
   reviewerName: string;
   reviewerRole: string;
@@ -52,6 +65,8 @@ export type SenaEnterpriseExpertReview = {
   reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+  /** Server-authenticated approval receipt; historical records may not carry one. */
+  evidenceReceipt?: SenaEnterpriseExpertReviewReceipt;
 };
 
 function now() {
@@ -79,17 +94,21 @@ export function enterpriseExpertReviewRegistryRuntime() {
   const postgresConfig = resolveEnterprisePostgresConfig();
   const requested = postgresExpertReviewRegistryRequested();
   const activeStore = requested && postgresConfig.configured ? "postgres-table" as const : "file-json" as const;
+  const receiptRuntime = enterpriseExpertReviewReceiptRuntime();
   return {
     activeStore,
     requested,
     postgresConfigured: postgresConfig.configured,
     table: "sena_enterprise_expert_reviews",
+    receiptSigningReady: receiptRuntime.ready,
+    receiptSigningStrength: receiptRuntime.secretStrength,
     evidence: [
       `expertReviewRegistryStore=${activeStore}`,
       `expertReviewRegistryPostgresRequested=${requested}`,
       `expertReviewRegistryPostgresConfigured=${postgresConfig.configured}`,
       `expertReviewRegistryPostgresTable=sena_enterprise_expert_reviews`,
-      `expertReviewRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`
+      `expertReviewRegistryPostgresConnectionHash=${postgresConfig.connectionHash ? "present" : "missing"}`,
+      ...receiptRuntime.evidence
     ]
   };
 }
@@ -132,15 +151,62 @@ function normalizeExpertClaimScope(value: unknown): SenaEnterpriseExpertReview["
   return "exploratory-only";
 }
 
-function validateExpertReviewTarget(db: SenaEnterpriseDb, projectId: string, target: SenaEnterpriseExpertReview["target"]) {
-  if (target.kind === "validation-run" && target.id) {
-    const run = db.validationRuns.find((candidate) => candidate.id === target.id && candidate.projectId === projectId);
+function bindExpertReviewTarget(
+  db: SenaEnterpriseDb,
+  projectId: string,
+  teamId: string,
+  target: SenaEnterpriseExpertReview["target"],
+  requireSealedValidation = false
+): SenaEnterpriseExpertReview["target"] {
+  if (target.kind === "validation-run") {
+    const run = target.id
+      ? db.validationRuns.find((candidate) => (
+          candidate.id === target.id &&
+          candidate.projectId === projectId &&
+          candidate.teamId === teamId
+        ))
+      : undefined;
     if (!run) throw new SenaEnterpriseError("Expert review validation target was not found for this project.", 404, "expert_validation_target_not_found");
+    const validationRunEvidenceHash = run.validationRunEvidenceHash;
+    const boundValidationRunEvidenceHash = target.validationRunEvidenceHash;
+    if (boundValidationRunEvidenceHash && validationRunEvidenceHash !== boundValidationRunEvidenceHash) {
+      throw new SenaEnterpriseError(
+        "The validation evidence changed after this expert-review target was bound. Create a new review for the new evidence.",
+        409,
+        "expert_validation_target_evidence_changed"
+      );
+    }
+    if (requireSealedValidation && !/^[a-f0-9]{64}$/.test(validationRunEvidenceHash ?? "")) {
+      throw new SenaEnterpriseError(
+        "An approved expert review must target an exactly sealed validation run.",
+        409,
+        "expert_validation_target_evidence_unsealed"
+      );
+    }
+    return {
+      kind: target.kind,
+      id: target.id,
+      label: target.label,
+      ...(boundValidationRunEvidenceHash
+        ? { validationRunEvidenceHash: boundValidationRunEvidenceHash }
+        : validationRunEvidenceHash
+          ? { validationRunEvidenceHash }
+          : {})
+    };
   }
   if (target.kind === "reliability-run" && target.id) {
-    const run = db.reliabilityRuns.find((candidate) => candidate.id === target.id && candidate.projectId === projectId);
+    const run = db.reliabilityRuns.find((candidate) => (
+      candidate.id === target.id &&
+      candidate.projectId === projectId &&
+      candidate.teamId === teamId
+    ));
     if (!run) throw new SenaEnterpriseError("Expert review reliability target was not found for this project.", 404, "expert_reliability_target_not_found");
   }
+  return {
+    kind: target.kind,
+    id: target.id,
+    label: target.label
+  };
 }
 
 type CreateEnterpriseExpertReviewInput = {
@@ -165,19 +231,26 @@ function createEnterpriseExpertReviewInDb(
 ) {
   const project = requireProjectPermissionFromDb(db, context, input.projectId, "expert:review");
   const timestamp = now();
-  const target: SenaEnterpriseExpertReview["target"] = {
+  const requestedTarget: SenaEnterpriseExpertReview["target"] = {
     kind: input.target?.kind === "validation-run" || input.target?.kind === "reliability-run" || input.target?.kind === "claim"
       ? input.target.kind
       : "project",
     id: input.target?.id?.trim() || undefined,
     label: input.target?.label?.trim() || undefined
   };
-  validateExpertReviewTarget(db, project.id, target);
   const status = normalizeExpertReviewStatus(input.status);
+  const target = bindExpertReviewTarget(
+    db,
+    project.id,
+    project.teamId,
+    requestedTarget,
+    status === "approved"
+  );
   const review: SenaEnterpriseExpertReview = {
     id: id("expert"),
     teamId: project.teamId,
     projectId: project.id,
+    projectBinding: buildEnterpriseProjectEvidenceBinding(project),
     userId: context.user.id,
     status,
     target,
@@ -198,6 +271,8 @@ function createEnterpriseExpertReviewInDb(
     createdAt: timestamp,
     updatedAt: timestamp
   };
+  const evidenceReceipt = buildEnterpriseExpertReviewReceipt(review);
+  if (evidenceReceipt) review.evidenceReceipt = evidenceReceipt;
   db.expertReviews.unshift(review);
   db.expertReviews = db.expertReviews.slice(0, 1000);
   appendAudit(db, {
@@ -277,6 +352,26 @@ function reviewEnterpriseExpertReviewInDb(
   if (!review) throw new SenaEnterpriseError("Expert review was not found.", 404, "expert_review_not_found");
   requireEnterprisePermission(context, review.teamId, "expert:review");
   const nextStatus = input.status ? normalizeExpertReviewStatus(input.status) : review.status;
+  if (
+    review.status === "approved" && nextStatus === "approved" &&
+    review.target.kind === "validation-run" &&
+    !/^[a-f0-9]{64}$/.test(review.target.validationRunEvidenceHash ?? "")
+  ) {
+    throw new SenaEnterpriseError(
+      "This historical approval is not bound to exact validation evidence. Create a new review to approve current evidence.",
+      409,
+      "expert_validation_target_evidence_unbound"
+    );
+  }
+  if (nextStatus === "approved") {
+    review.target = bindExpertReviewTarget(
+      db,
+      review.projectId,
+      review.teamId,
+      review.target,
+      true
+    );
+  }
   review.status = nextStatus;
   review.claimScope = input.claimScope ? normalizeExpertClaimScope(input.claimScope) : review.claimScope;
   if (input.ratings) {
@@ -292,6 +387,9 @@ function reviewEnterpriseExpertReviewInDb(
   if (input.limitations !== undefined) review.limitations = input.limitations.trim();
   review.updatedAt = now();
   if (review.status !== "requested") review.reviewedAt = review.updatedAt;
+  const evidenceReceipt = buildEnterpriseExpertReviewReceipt(review);
+  if (evidenceReceipt) review.evidenceReceipt = evidenceReceipt;
+  else delete review.evidenceReceipt;
   appendAudit(db, {
     event: "expert.review",
     userId: context.user.id,

@@ -6,8 +6,10 @@ import {
   enterpriseImportRunRegistryRuntime,
   enterpriseUploadRegistryRuntime,
   summarizeEnterpriseUploadObjectStorageCustody,
+  summarizeEnterpriseUploadObjectStorageCustodyFromDb,
   summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence,
   verifyEnterpriseUploadStorage,
+  verifyEnterpriseUploadStorageFromDb,
   verifyEnterpriseUploadStorageAsync,
   type SenaEnterpriseUploadObjectStorageCustodySummary,
   type SenaEnterpriseUploadStorageVerification
@@ -197,7 +199,7 @@ export function backupAgeSeconds(lastBackupAt?: string) {
   return Math.max(0, Math.floor((Date.now() - Date.parse(lastBackupAt)) / 1000));
 }
 
-type SenaEnterpriseOpsStatusSnapshotSource =
+export type SenaEnterpriseOpsStatusSnapshotSource =
   | "file-json"
   | "file-primary-state"
   | "postgres-primary-state";
@@ -687,8 +689,21 @@ function buildEnterpriseOpsStatus(
   };
 }
 
-export function getEnterpriseOpsStatus(): SenaEnterpriseOpsStatus {
-  return buildEnterpriseOpsStatus(readEnterpriseDb(), "file-json");
+export function getEnterpriseOpsStatus(input: {
+  db?: SenaEnterpriseDb;
+  snapshotSource?: SenaEnterpriseOpsStatusSnapshotSource;
+  uploadStorageVerification?: SenaEnterpriseUploadStorageVerification;
+  uploadObjectStorageCustody?: SenaEnterpriseUploadObjectStorageCustodySummary;
+} = {}): SenaEnterpriseOpsStatus {
+  const db = input.db ?? readEnterpriseDb();
+  return buildEnterpriseOpsStatus(db, input.snapshotSource ?? "file-json", {
+    uploadStorageVerification: input.uploadStorageVerification ?? (
+      input.db ? verifyEnterpriseUploadStorageFromDb(db) : undefined
+    ),
+    uploadObjectStorageCustody: input.uploadObjectStorageCustody ?? (
+      input.db ? summarizeEnterpriseUploadObjectStorageCustodyFromDb(db) : undefined
+    )
+  });
 }
 
 function serverJobRuntimeCheck(input: {

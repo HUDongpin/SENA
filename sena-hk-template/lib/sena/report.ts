@@ -4,6 +4,8 @@ import type {
   SenaActiveWindowComparison,
   SenaClaimReadinessGate,
   SenaCodingReliabilityGate,
+  SenaCodingReliabilityGateReadModel,
+  SenaCodingReliabilityGateV1,
   SenaCodingReliabilityReview,
   SenaDataContractAudit,
   SenaDataGovernanceMetadata,
@@ -57,9 +59,37 @@ import { buildSenaAttributionWordingCopy } from "./attribution-wording";
 import { buildSenaJenaConceptPairHandoffRows } from "./jena-handoff";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
 import { senaRuntimeProvenance } from "./runtime-constants";
-import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
+import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
+import { senaJsonValuesEqual } from "./canonical-json";
+import {
+  deriveSenaReliabilityMachineClaimEligibility,
+  isSemanticallyValidSenaReliabilityMachineEvidence
+} from "./reliability";
+
+export const SENA_REPORT_COMPLETENESS_ITEM_ID = Object.freeze({
+  parameters: "parameters",
+  analysisScope: "analysis-scope",
+  dataContractAudit: "data-contract-audit",
+  matrices: "matrices",
+  fusionMathAudit: "fusion-math-audit",
+  jenaManifest: "jena-manifest",
+  jsnaManifest: "jsna-manifest",
+  runtimeApiSurface: "runtime-api-surface",
+  temporalTrace: "temporal-trace",
+  evidence: "evidence",
+  validation: "validation",
+  guardrails: "guardrails",
+  codingReliability: "coding-reliability",
+  dataGovernance: "data-governance",
+  humanReview: "human-review",
+  warnings: "warnings"
+} as const);
+
+export const SENA_REPORT_COMPLETENESS_ITEM_IDS = Object.freeze(
+  Object.values(SENA_REPORT_COMPLETENESS_ITEM_ID)
+);
 
 export type SenaReportOptions = {
   title?: string;
@@ -92,6 +122,18 @@ const pendingReliabilityText = "Pending coding reliability documentation.";
 const defaultNullModelIterations = 12;
 const nullModelSeed = 20260608;
 const runtimeProvenance = senaRuntimeProvenance;
+
+export function isSenaReportHumanReviewTextPresent(value: string) {
+  return Boolean(value.trim()) && value.trim() !== pendingReviewText;
+}
+
+export function isSenaReportHumanReviewComplete(review: SenaReportHumanReview) {
+  return review.status === "human-reviewed" &&
+    isSenaReportHumanReviewTextPresent(review.reviewer) &&
+    isSenaReportHumanReviewTextPresent(review.interpretation) &&
+    isSenaReportHumanReviewTextPresent(review.limitations) &&
+    isSenaReportHumanReviewTextPresent(review.nextActions);
+}
 
 const interpretationGuardrails: SenaInterpretationGuardrail[] = [
   {
@@ -265,8 +307,11 @@ function countBy<T extends string>(values: T[]) {
   return Array.from(counts.entries()).map(([value, count]) => ({ value, count }));
 }
 
-function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: string): SenaDataGovernanceMetadata {
-  const governance = options.dataGovernance ?? {};
+export function normalizeSenaDataGovernanceMetadata(
+  value: Partial<SenaDataGovernanceMetadata> | undefined,
+  generatedAt: string
+): SenaDataGovernanceMetadata {
+  const governance = value ?? {};
   const usageConstraints = Array.isArray(governance.usageConstraints)
     ? governance.usageConstraints.map((constraint) => String(constraint).trim()).filter(Boolean)
     : [];
@@ -301,6 +346,10 @@ function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: 
     blockers,
     guardrail: "SENA data-governance metadata documents approval, consent, retention, and use constraints; it does not replace institutional ethics review."
   };
+}
+
+function resolveDataGovernanceMetadata(options: SenaReportOptions, generatedAt: string): SenaDataGovernanceMetadata {
+  return normalizeSenaDataGovernanceMetadata(options.dataGovernance, generatedAt);
 }
 
 function datasetCounts(dataset: SenaDataset) {
@@ -525,7 +574,7 @@ function gPairRankingContext({
   };
 }
 
-function buildActiveWindowComparison(
+export function buildActiveWindowComparison(
   model: SenaModel,
   sourceDataset: SenaDataset | undefined,
   activeWindow: SenaTemporalWindow | null | undefined
@@ -543,6 +592,10 @@ function buildActiveWindowComparison(
   const baselineConceptEdges = rankedEdges(baselineModel, "concept");
   const baselineBridgeEdges = rankedEdges(baselineModel, "bridge");
   const baselineGPairs = rankedGPairs(baselineModel);
+  const currentTopConceptTie = edgeHighlight(model.summary.strongestConceptTie);
+  const baselineTopConceptTie = edgeHighlight(baselineModel.summary.strongestConceptTie);
+  const currentTopGPairHighlight = pairHighlight(currentTopGPair);
+  const baselineTopGPairHighlight = pairHighlight(baselineTopGPair);
   const metricInputs: Array<Omit<SenaActiveWindowComparison["metrics"][number], "delta" | "share">> = [
     {
       id: "sna-density",
@@ -593,10 +646,10 @@ function buildActiveWindowComparison(
       share: shareOf(metric.current, metric.baseline)
     })),
     topSignals: {
-      currentTopConceptTie: edgeHighlight(model.summary.strongestConceptTie),
-      baselineTopConceptTie: edgeHighlight(baselineModel.summary.strongestConceptTie),
-      currentTopGPair: pairHighlight(currentTopGPair),
-      baselineTopGPair: pairHighlight(baselineTopGPair)
+      ...(currentTopConceptTie ? { currentTopConceptTie } : {}),
+      ...(baselineTopConceptTie ? { baselineTopConceptTie } : {}),
+      ...(currentTopGPairHighlight ? { currentTopGPair: currentTopGPairHighlight } : {}),
+      ...(baselineTopGPairHighlight ? { baselineTopGPair: baselineTopGPairHighlight } : {})
     },
     rankingContext: [
       edgeRankingContext({
@@ -824,14 +877,7 @@ export function buildSenaReportCompletenessAudit({
       fingerprint.shape.includes("x")
     ));
   const fusionMatrixFingerprint = fusionMathAudit.matrixFingerprints.find((fingerprint) => fingerprint.id === "A_fusion");
-  const humanReviewComplete = humanReview.status === "human-reviewed" &&
-    Boolean(humanReview.reviewer.trim()) &&
-    Boolean(humanReview.interpretation.trim()) &&
-    Boolean(humanReview.limitations.trim()) &&
-    Boolean(humanReview.nextActions.trim()) &&
-    humanReview.interpretation !== pendingReviewText &&
-    humanReview.limitations !== pendingReviewText &&
-    humanReview.nextActions !== pendingReviewText;
+  const humanReviewComplete = isSenaReportHumanReviewComplete(humanReview);
   const dataGovernanceUsageConstraints = Array.isArray(dataGovernance?.usageConstraints)
     ? dataGovernance.usageConstraints.map((constraint) => String(constraint).trim()).filter(Boolean)
     : [];
@@ -845,7 +891,7 @@ export function buildSenaReportCompletenessAudit({
 
   const items = [
     completenessItem(
-      "parameters",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.parameters,
       "Build parameters",
       hasFiniteWeights && Boolean(options.normalization) && Boolean(options.temporal.mode),
       `alpha=${formatReportNumber(options.alpha)}, beta=${formatReportNumber(options.beta)}, gamma=${formatReportNumber(options.gamma)}, normalization=${options.normalization}, temporal=${options.temporal.mode}`,
@@ -857,7 +903,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "analysis-scope",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.analysisScope,
       "Analysis scope",
       hasExplicitScope,
       scopeWindow
@@ -878,14 +924,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "data-contract-audit",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.dataContractAudit,
       "Data contract audit",
       dataContractAudit.status === "valid",
       `${dataContractAudit.passed} data-contract checks passed; ${dataContractAudit.reviewNeeded} need review`,
       dataContractAudit.items.map((auditItem) => `${auditItem.label}: ${auditItem.status}`)
     ),
     completenessItem(
-      "matrices",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.matrices,
       "S/W/B/B_PC/B_CP/Y/G/fusion matrices",
       matrixDimensionsAreComplete(model) && matrixFingerprintsComplete,
       `${model.matrices.S.labels.length} S labels, ${model.matrices.W.labels.length} W labels, ${model.matrices.Y.windowIds.length} Y windows, ${model.matrices.G.pairs.length} G pairs, ${model.matrices.fusion.labels.length} fusion labels`,
@@ -903,14 +949,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "fusion-math-audit",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.fusionMathAudit,
       "Fusion equation audit",
       fusionMathAudit.status === "verified",
       `${fusionMathAudit.passed} formula checks passed; ${fusionMathAudit.reviewNeeded} need review`,
       fusionMathAudit.items.map((item) => `${item.label}: ${item.status}`)
     ),
     completenessItem(
-      "jena-manifest",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.jenaManifest,
       "jENA manifest",
       enaManifest.status === "computed",
       `${enaManifest.engine} ${enaManifest.engineVersion}; status=${enaManifest.status}`,
@@ -922,7 +968,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "jsna-manifest",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.jsnaManifest,
       "jSNA manifest",
       snaManifest.status === "computed",
       `${snaManifest.engineAlias}/${snaManifest.engine} ${snaManifest.engineVersion}; status=${snaManifest.status}`,
@@ -935,7 +981,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "runtime-api-surface",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.runtimeApiSurface,
       "jENA/jSNA API surface audit",
       runtimeConsistencyAudit.items.some((auditItem) => auditItem.id === "jena-api-surface" && auditItem.status === "pass") &&
         runtimeConsistencyAudit.items.some((auditItem) => auditItem.id === "jsna-api-surface" && auditItem.status === "pass"),
@@ -949,21 +995,21 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "temporal-trace",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.temporalTrace,
       "Temporal trace",
       model.temporal.windows.length > 0,
       `${model.temporal.windows.length} ${model.temporal.settings.mode} windows`,
       model.temporal.windows.slice(0, 5).map((window) => `${window.label}: turns ${window.startTurn}-${window.endTurn}`)
     ),
     completenessItem(
-      "evidence",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.evidence,
       "Evidence snippets",
       evidenceSnippets.length > 0,
       `${evidenceSnippets.length} traceable evidence snippets`,
       Object.entries(evidenceCounts).map(([source, count]) => `${source}=${count}`)
     ),
     completenessItem(
-      "validation",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.validation,
       "Method validation",
       model.summary.people > 0 && model.summary.concepts > 0 && metricProvenance.length > 0,
       `${metricProvenance.length} metric provenance entries; null target ${model.matrices.G.pairs[0]?.label ?? "NA"}`,
@@ -976,14 +1022,14 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "guardrails",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.guardrails,
       "Interpretation guardrails",
       interpretationGuardrails.length >= 3,
       `${interpretationGuardrails.length} guardrails included`,
       interpretationGuardrails.map((guardrail) => guardrail.label)
     ),
     completenessItem(
-      "coding-reliability",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.codingReliability,
       "Coding reliability gate",
       codingReliabilityGate.status === "ready",
       codingReliabilityGate.status === "ready"
@@ -1001,7 +1047,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "data-governance",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.dataGovernance,
       "Data governance metadata",
       dataGovernanceBlockers.length === 0,
       dataGovernanceBlockers.length === 0
@@ -1019,7 +1065,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "human-review",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.humanReview,
       "Human review fields",
       humanReviewComplete,
       humanReviewComplete ? `Reviewed by ${humanReview.reviewer}` : "Draft or incomplete human-review fields",
@@ -1032,7 +1078,7 @@ export function buildSenaReportCompletenessAudit({
       ]
     ),
     completenessItem(
-      "warnings",
+      SENA_REPORT_COMPLETENESS_ITEM_ID.warnings,
       "Model warnings",
       model.summary.warnings.length === 0 && enaManifest.warnings.length === 0 && snaManifest.warnings.length === 0,
       `${model.summary.warnings.length + enaManifest.warnings.length + snaManifest.warnings.length} warnings across SENA/jENA/jSNA`,
@@ -1055,10 +1101,243 @@ export function buildSenaReportCompletenessAudit({
   };
 }
 
+function reliabilityGateRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function validReliabilityGateBase(record: Record<string, unknown>) {
+  const review = reliabilityGateRecord(record.review);
+  return (record.status === "ready" || record.status === "review") &&
+    (record.claimUse === "coding-reliability-documented" || record.claimUse === "coding-reliability-needed") &&
+    Boolean(review) &&
+    (review?.status === "documented" || review?.status === "not-documented") &&
+    typeof review?.reviewer === "string" &&
+    typeof review?.reviewedAt === "string" &&
+    typeof review?.codingScheme === "string" &&
+    typeof review?.unitOfCoding === "string" &&
+    Number.isInteger(review?.coderCount) && Number(review?.coderCount) >= 0 &&
+    typeof review?.agreementMetric === "string" &&
+    typeof review?.agreementValue === "string" &&
+    typeof review?.adjudicationNotes === "string" &&
+    typeof review?.limitations === "string" &&
+    stringArray(record.requiredEvidence) &&
+    stringArray(record.evidence) &&
+    stringArray(record.blockers) &&
+    typeof record.guardrail === "string" &&
+    stringArray(record.notes);
+}
+
+function isGenuineSenaCodingReliabilityGateV1(value: unknown): value is SenaCodingReliabilityGateV1 {
+  const record = reliabilityGateRecord(value);
+  if (!record) return false;
+  const review = reliabilityGateRecord(record?.review);
+  return record.schemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate &&
+    validReliabilityGateBase(record) &&
+    review?.machineEvidence === undefined &&
+    record.machineClaimEligibility === undefined;
+}
+
+function isSenaCodingReliabilityGateV2ReadModel(value: unknown): value is SenaCodingReliabilityGate {
+  const record = reliabilityGateRecord(value);
+  if (!record || record.schemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate || !validReliabilityGateBase(record)) return false;
+  if (
+    record.sourceSchemaVersion !== SENA_SCHEMA_VERSIONS.codingReliabilityGate &&
+    record.sourceSchemaVersion !== SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+  ) return false;
+  const machine = reliabilityGateRecord(record.machineClaimEligibility);
+  if (!machine) return false;
+  const threshold = reliabilityGateRecord(machine.threshold);
+  const checks = reliabilityGateRecord(machine.checks);
+  const adjudication = reliabilityGateRecord(machine.adjudication);
+  const validStatus = [
+    "estimable",
+    "insufficient-pairable-units",
+    "single-observed-category",
+    "insufficient-coders",
+    "legacy-ambiguous"
+  ].includes(String(machine.status));
+  const structurallyValid = typeof machine.eligible === "boolean" &&
+    validStatus &&
+    stringArray(machine.blockers) &&
+    Boolean(threshold) &&
+    threshold?.minimumCoders === 2 &&
+    threshold?.meanPairwiseKappa === 0.8 &&
+    threshold?.krippendorffAlphaNominal === 0.8 &&
+    Boolean(checks) &&
+    [
+      checks?.minimumCoders,
+      checks?.allPairwiseKappaEstimable,
+      checks?.krippendorffAlphaEstimable,
+      checks?.meanPairwiseKappaAtThreshold,
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
+    ].every((entry) => typeof entry === "boolean") &&
+    Boolean(adjudication) &&
+    adjudication?.status === "external-not-evaluated" &&
+    typeof adjudication?.disclosure === "string" &&
+    (machine.dashboardSchemaVersion === null || typeof machine.dashboardSchemaVersion === "string") &&
+    (machine.sourceSchemaVersion === null || typeof machine.sourceSchemaVersion === "string");
+  if (!structurallyValid) return false;
+
+  const review = reliabilityGateRecord(record.review);
+  const reviewMachineEvidence = review?.machineEvidence;
+  const allChecksPass = [
+    checks?.minimumCoders,
+    checks?.allPairwiseKappaEstimable,
+    checks?.krippendorffAlphaEstimable,
+    checks?.meanPairwiseKappaAtThreshold,
+    checks?.krippendorffAlphaAtThreshold,
+    checks?.noUnresolvedDisagreements
+  ].every((entry) => entry === true);
+  if (machine.eligible !== (allChecksPass && (machine.blockers as string[]).length === 0)) return false;
+  if (!machine.eligible && (
+    record.status !== "review" ||
+    record.claimUse !== "coding-reliability-needed"
+  )) return false;
+
+  if (record.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate) {
+    return record.status === "review" &&
+      record.claimUse === "coding-reliability-needed" &&
+      reviewMachineEvidence === undefined &&
+      machine.eligible === false &&
+      machine.status === "legacy-ambiguous" &&
+      machine.dashboardSchemaVersion === null &&
+      machine.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate &&
+      [
+        checks?.minimumCoders,
+        checks?.allPairwiseKappaEstimable,
+        checks?.krippendorffAlphaEstimable,
+        checks?.meanPairwiseKappaAtThreshold,
+        checks?.krippendorffAlphaAtThreshold,
+        checks?.noUnresolvedDisagreements
+      ].every((entry) => entry === false) &&
+      JSON.stringify(machine.blockers) === JSON.stringify(["current-v2-reliability-evidence-required"]) &&
+      (record.blockers as string[]).includes("current-v2-reliability-evidence-required");
+  }
+
+  if (reviewMachineEvidence !== undefined) {
+    if (!isSemanticallyValidSenaReliabilityMachineEvidence(reviewMachineEvidence)) return false;
+    const expected = deriveSenaReliabilityMachineClaimEligibility(reviewMachineEvidence);
+    return machine.eligible === expected.eligible &&
+      machine.status === reviewMachineEvidence.status &&
+      machine.dashboardSchemaVersion === reviewMachineEvidence.dashboardSchemaVersion &&
+      machine.sourceSchemaVersion === reviewMachineEvidence.sourceSchemaVersion &&
+      senaJsonValuesEqual(machine.threshold, expected.threshold) &&
+      senaJsonValuesEqual(machine.checks, expected.checks) &&
+      JSON.stringify(machine.blockers) === JSON.stringify(expected.blockers) &&
+      (expected.eligible || (
+        record.status === "review" &&
+        record.claimUse === "coding-reliability-needed"
+      ));
+  }
+
+  return machine.eligible === false &&
+    machine.status === "legacy-ambiguous" &&
+    [
+      checks?.minimumCoders,
+      checks?.allPairwiseKappaEstimable,
+      checks?.krippendorffAlphaEstimable,
+      checks?.meanPairwiseKappaAtThreshold,
+      checks?.krippendorffAlphaAtThreshold,
+      checks?.noUnresolvedDisagreements
+    ].every((entry) => entry === false) &&
+    (machine.blockers as string[]).some((blocker) =>
+      blocker === "current-v2-reliability-dashboard-required" ||
+      blocker === "invalid-or-contradictory-current-v2-reliability-evidence" ||
+      blocker === "current-v2-reliability-evidence-required"
+    );
+}
+
+export function isCurrentSenaCodingReliabilityGate(value: unknown): value is SenaCodingReliabilityGate {
+  return isSenaCodingReliabilityGateV2ReadModel(value) &&
+    value.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate;
+}
+
+export function normalizeSenaCodingReliabilityGate(
+  value: SenaCodingReliabilityGateReadModel | unknown
+): SenaCodingReliabilityGate {
+  if (isSenaCodingReliabilityGateV2ReadModel(value)) {
+    if (value.sourceSchemaVersion === SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate) {
+      return structuredClone(value);
+    }
+    const canonical = buildSenaCodingReliabilityGate({
+      generatedAt: value.review.reviewedAt,
+      codingReliability: value.review
+    }, value.review.reviewedAt);
+    const status = canonical.blockers.length === 0 && value.machineClaimEligibility.eligible
+      ? "ready" as const
+      : "review" as const;
+    return {
+      ...structuredClone(value),
+      status,
+      claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
+      review: canonical.review,
+      evidence: canonical.evidence,
+      blockers: canonical.blockers
+    };
+  }
+  if (!isGenuineSenaCodingReliabilityGateV1(value)) {
+    throw new Error("SENA coding reliability gate must be a complete v2 contract or the genuine v1 contract without machine eligibility.");
+  }
+  const blocker = "current-v2-reliability-evidence-required";
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
+    sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate,
+    status: "review",
+    claimUse: "coding-reliability-needed",
+    review: structuredClone(value.review),
+    machineClaimEligibility: {
+      eligible: false,
+      threshold: {
+        minimumCoders: 2,
+        meanPairwiseKappa: 0.8,
+        krippendorffAlphaNominal: 0.8
+      },
+      checks: {
+        minimumCoders: false,
+        allPairwiseKappaEstimable: false,
+        krippendorffAlphaEstimable: false,
+        meanPairwiseKappaAtThreshold: false,
+        krippendorffAlphaAtThreshold: false,
+        noUnresolvedDisagreements: false
+      },
+      blockers: [blocker],
+      adjudication: {
+        status: "external-not-evaluated",
+        disclosure: "Historical v1 gate evidence cannot establish current machine eligibility; adjudication and human sign-off remain external evidence."
+      },
+      status: "legacy-ambiguous",
+      dashboardSchemaVersion: null,
+      sourceSchemaVersion: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+    },
+    requiredEvidence: [...value.requiredEvidence],
+    evidence: [...value.evidence, `sourceSchemaVersion=${SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate}`, "machineEligibility=ineligible"],
+    blockers: Array.from(new Set([...value.blockers, blocker])),
+    guardrail: value.guardrail,
+    notes: [
+      ...value.notes,
+      "Normalized in memory from coding-reliability-gate/v1; current v2 machine eligibility evidence is required."
+    ]
+  };
+}
+
 export function buildSenaCodingReliabilityGate(
   options: SenaReportOptions = {},
   generatedAt = options.generatedAt ?? new Date().toISOString()
 ): SenaCodingReliabilityGate {
+  const suppliedMachineEvidence = options.codingReliability?.machineEvidence;
+  const validMachineEvidence = isSemanticallyValidSenaReliabilityMachineEvidence(suppliedMachineEvidence)
+    ? {
+      ...structuredClone(suppliedMachineEvidence),
+      claimEligibility: deriveSenaReliabilityMachineClaimEligibility(suppliedMachineEvidence)
+    }
+    : undefined;
   const review: SenaCodingReliabilityReview = {
     status: options.codingReliability?.status ?? "not-documented",
     reviewer: options.codingReliability?.reviewer?.trim() ?? "",
@@ -1069,8 +1348,45 @@ export function buildSenaCodingReliabilityGate(
     agreementMetric: options.codingReliability?.agreementMetric?.trim() || pendingReliabilityText,
     agreementValue: options.codingReliability?.agreementValue?.trim() || pendingReliabilityText,
     adjudicationNotes: options.codingReliability?.adjudicationNotes?.trim() || pendingReliabilityText,
-    limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText
+    limitations: options.codingReliability?.limitations?.trim() || pendingReliabilityText,
+    ...(validMachineEvidence ? { machineEvidence: validMachineEvidence } : {})
   };
+  const machineEvidence = review.machineEvidence;
+  const currentMachineEvidence = machineEvidence?.dashboardSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard &&
+    machineEvidence.sourceSchemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityDashboard;
+  const machineClaimEligibility: SenaCodingReliabilityGate["machineClaimEligibility"] = currentMachineEvidence
+    ? {
+      ...deriveSenaReliabilityMachineClaimEligibility(machineEvidence),
+      status: machineEvidence.status,
+      dashboardSchemaVersion: machineEvidence.dashboardSchemaVersion,
+      sourceSchemaVersion: machineEvidence.sourceSchemaVersion
+    }
+    : {
+      eligible: false,
+      threshold: {
+        minimumCoders: 2,
+        meanPairwiseKappa: 0.8,
+        krippendorffAlphaNominal: 0.8
+      },
+      checks: {
+        minimumCoders: false,
+        allPairwiseKappaEstimable: false,
+        krippendorffAlphaEstimable: false,
+        meanPairwiseKappaAtThreshold: false,
+        krippendorffAlphaAtThreshold: false,
+        noUnresolvedDisagreements: false
+      },
+      blockers: [suppliedMachineEvidence
+        ? "invalid-or-contradictory-current-v2-reliability-evidence"
+        : "current-v2-reliability-dashboard-required"],
+      adjudication: {
+        status: "external-not-evaluated",
+        disclosure: "Machine eligibility cannot infer adjudication coverage or human sign-off; those remain external evidence."
+      },
+      status: "legacy-ambiguous",
+      dashboardSchemaVersion: machineEvidence?.dashboardSchemaVersion ?? null,
+      sourceSchemaVersion: machineEvidence?.sourceSchemaVersion ?? null
+    };
   const requiredEvidence = [
     "documented status",
     "named reliability reviewer",
@@ -1093,13 +1409,15 @@ export function buildSenaCodingReliabilityGate(
     review.adjudicationNotes !== pendingReliabilityText ? null : "Adjudication notes are missing.",
     review.limitations !== pendingReliabilityText ? null : "Reliability limitations are missing."
   ].filter((blocker): blocker is string => Boolean(blocker));
-  const status = blockers.length === 0 ? "ready" : "review";
+  const status = blockers.length === 0 && machineClaimEligibility.eligible ? "ready" : "review";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
+    sourceSchemaVersion: SENA_SCHEMA_VERSIONS.codingReliabilityGate,
     status,
     claimUse: status === "ready" ? "coding-reliability-documented" : "coding-reliability-needed",
     review,
+    machineClaimEligibility,
     requiredEvidence,
     evidence: [
       `status=${review.status}`,
@@ -1109,6 +1427,9 @@ export function buildSenaCodingReliabilityGate(
       `coderCount=${review.coderCount}`,
       `agreementMetric=${review.agreementMetric !== pendingReliabilityText ? review.agreementMetric : "missing"}`,
       `agreementValue=${review.agreementValue !== pendingReliabilityText ? review.agreementValue : "missing"}`,
+      `machineEligibility=${machineClaimEligibility.eligible ? "eligible" : "ineligible"}`,
+      `machineStatus=${machineClaimEligibility.status}`,
+      `machineSourceSchema=${machineClaimEligibility.sourceSchemaVersion ?? "missing"}`,
       `adjudication=${review.adjudicationNotes !== pendingReliabilityText ? "present" : "missing"}`,
       `limitations=${review.limitations !== pendingReliabilityText ? "present" : "missing"}`
     ],
@@ -1116,13 +1437,15 @@ export function buildSenaCodingReliabilityGate(
     guardrail: "SENA graph patterns remain exploratory until coding reliability evidence is documented and reviewed with the study context.",
     notes: [
       "This standalone report gate records the reviewed reliability evidence attached to the current export.",
+      "The gate remains in review unless both documentation and canonical machine claim-eligibility checks pass; human sign-off cannot override unresolved canonical disagreements.",
+      machineClaimEligibility.adjudication.disclosure,
       "Use the enterprise reliability workflow for raw multi-coder files, Cohen kappa, Krippendorff alpha, code-level diagnostics, adjudication history, and reviewer sign-off before publication-facing claims."
     ]
   };
 }
 
 function resolveHumanReview(options: SenaReportOptions, generatedAt: string): SenaReportHumanReview {
-  return {
+  const review: SenaReportHumanReview = {
     status: options.humanReview?.status ?? "draft",
     reviewer: options.humanReview?.reviewer?.trim() ?? "",
     reviewedAt: options.humanReview?.reviewedAt || generatedAt,
@@ -1130,6 +1453,9 @@ function resolveHumanReview(options: SenaReportOptions, generatedAt: string): Se
     limitations: options.humanReview?.limitations?.trim() || pendingReviewText,
     nextActions: options.humanReview?.nextActions?.trim() || pendingReviewText
   };
+  return review.status === "human-reviewed" && !isSenaReportHumanReviewComplete(review)
+    ? { ...review, status: "draft" }
+    : review;
 }
 
 function mergeBuildOptions(model: SenaModel, overrides: Partial<SenaBuildOptions> = {}): SenaBuildOptions {
@@ -1199,6 +1525,7 @@ function strongestScaledEdge(model: SenaModel): SenaSensitivityVariant["stronges
 
 function sensitivityVariant(model: SenaModel, id: string, label: string, baselineFusionTotal: number): SenaSensitivityVariant {
   const totals = fusionLayerTotals(model);
+  const strongest = strongestScaledEdge(model);
   return {
     id,
     label,
@@ -1207,7 +1534,7 @@ function sensitivityVariant(model: SenaModel, id: string, label: string, baselin
     fusionTotalDelta: totals.total - baselineFusionTotal,
     socialDensity: model.summary.socialAnalysis.density,
     communityCount: model.summary.socialAnalysis.communityCount,
-    strongestScaledEdge: strongestScaledEdge(model)
+    ...(strongest ? { strongestScaledEdge: strongest } : {})
   };
 }
 
@@ -1605,7 +1932,10 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
   // buildActiveWindowComparison.
   const timelineDataset = options.sourceDataset ?? model.dataset;
   const timelineModel = options.sourceDataset ? buildSenaModel(options.sourceDataset, model.options) : model;
-  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(timelineDataset, model.options, { timelineModel });
+  const temporalRuntimeTrace = buildSenaTemporalRuntimeTrace(timelineDataset, model.options, {
+    timelineModel,
+    generatedAt
+  });
   const temporalRuntimeNarrative = buildTemporalRuntimeNarrative(timelineModel, temporalRuntimeTrace);
   const activeWindowComparison = buildActiveWindowComparison(model, options.sourceDataset, options.activeTemporalWindow ?? null);
   const pilotReadinessAudit = buildSenaPilotReadinessAudit({
@@ -1680,7 +2010,7 @@ export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {
       temporalRuntimeNarrative,
       temporalRuntimeTransitions: temporalRuntimeTrace.transitions,
       socialCommunities: model.socialReport.communities,
-      visualGrammar: senaVisualGrammar
+      visualGrammar: structuredClone(senaVisualGrammar)
     },
     socialReport: model.socialReport,
     pairReport: model.pairReport,
@@ -1838,7 +2168,7 @@ function pairDriversToMarkdown(report: SenaReport) {
   }).join("\n");
 }
 
-function buildTemporalRuntimeNarrative(
+export function buildTemporalRuntimeNarrative(
   model: SenaModel,
   trace = buildSenaTemporalRuntimeTrace(model.dataset, model.options, { timelineModel: model })
 ): SenaTemporalRuntimeNarrativeWindow[] {
@@ -1851,10 +2181,10 @@ function buildTemporalRuntimeNarrative(
     matrixTotals: entry.sena.matrixTotals,
     matrixFingerprints: entry.sena.matrixFingerprints,
     activeGPairs: entry.sena.activeGPairs,
-    strongestSocialTie: entry.sena.strongestSocialTie,
-    strongestConceptTie: entry.sena.strongestConceptTie,
-    strongestBridgeTie: entry.sena.strongestBridgeTie,
-    strongestGPair: entry.sena.strongestGPair
+    ...(entry.sena.strongestSocialTie ? { strongestSocialTie: entry.sena.strongestSocialTie } : {}),
+    ...(entry.sena.strongestConceptTie ? { strongestConceptTie: entry.sena.strongestConceptTie } : {}),
+    ...(entry.sena.strongestBridgeTie ? { strongestBridgeTie: entry.sena.strongestBridgeTie } : {}),
+    ...(entry.sena.strongestGPair ? { strongestGPair: entry.sena.strongestGPair } : {})
   }));
 }
 
@@ -2212,6 +2542,8 @@ function codingReliabilityGateToMarkdown(gate: SenaCodingReliabilityGate) {
     `| Coder count | ${gate.review.coderCount} |`,
     `| Agreement metric | ${markdownCell(gate.review.agreementMetric)} |`,
     `| Agreement value | ${markdownCell(gate.review.agreementValue)} |`,
+    `| Machine eligibility | ${gate.machineClaimEligibility.eligible ? "eligible" : "ineligible"} (${gate.machineClaimEligibility.status}) |`,
+    `| Machine evidence schema | ${markdownCell(gate.machineClaimEligibility.sourceSchemaVersion ?? "Not available")} |`,
     `| Adjudication notes | ${markdownCell(gate.review.adjudicationNotes)} |`,
     `| Limitations | ${markdownCell(gate.review.limitations)} |`,
     "",

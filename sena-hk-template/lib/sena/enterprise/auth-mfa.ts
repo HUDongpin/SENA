@@ -8,6 +8,8 @@ import {
 import { SenaEnterpriseError } from "./errors";
 import { appendAudit } from "./ops-audit";
 import {
+  mutateEnterpriseDbAtomically,
+  mutateEnterpriseStateAtomically,
   readEnterpriseDb,
   readEnterpriseState,
   saveDb,
@@ -472,30 +474,22 @@ function enableEnterpriseMfaInDb(
 }
 
 export function enableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: SenaEnterpriseMfaEnableInput): SenaEnterpriseMfaEnableResult {
-  const db = readEnterpriseDb();
-  try {
-    const result = enableEnterpriseMfaInDb(db, context, input);
-    saveDb(db);
-    return result;
-  } catch (error) {
-    saveDb(db);
-    throw error;
-  }
+  const outcome = mutateEnterpriseDbAtomically((db) => {
+    try {
+      return { ok: true as const, result: enableEnterpriseMfaInDb(db, context, input) };
+    } catch (error) {
+      return { ok: false as const, error };
+    }
+  });
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
 }
 
 export async function enableEnterpriseMfaAsync(
   context: SenaEnterpriseSessionContext,
   input: SenaEnterpriseMfaEnableInput
 ): Promise<SenaEnterpriseMfaEnableResult> {
-  const state = await readEnterpriseState();
-  try {
-    const result = enableEnterpriseMfaInDb(state.db, context, input);
-    await saveEnterpriseState(state, state.db);
-    return result;
-  } catch (error) {
-    await saveEnterpriseState(state, state.db);
-    throw error;
-  }
+  return mutateEnterpriseStateAtomically((db) => enableEnterpriseMfaInDb(db, context, input));
 }
 
 function disableEnterpriseMfaInDb(
@@ -541,28 +535,20 @@ function disableEnterpriseMfaInDb(
 }
 
 export function disableEnterpriseMfa(context: SenaEnterpriseSessionContext, input: SenaEnterpriseMfaDisableInput): SenaEnterpriseMfaDisableResult {
-  const db = readEnterpriseDb();
-  try {
-    const result = disableEnterpriseMfaInDb(db, context, input);
-    saveDb(db);
-    return result;
-  } catch (error) {
-    saveDb(db);
-    throw error;
-  }
+  const outcome = mutateEnterpriseDbAtomically((db) => {
+    try {
+      return { ok: true as const, result: disableEnterpriseMfaInDb(db, context, input) };
+    } catch (error) {
+      return { ok: false as const, error };
+    }
+  });
+  if (!outcome.ok) throw outcome.error;
+  return outcome.result;
 }
 
 export async function disableEnterpriseMfaAsync(
   context: SenaEnterpriseSessionContext,
   input: SenaEnterpriseMfaDisableInput
 ): Promise<SenaEnterpriseMfaDisableResult> {
-  const state = await readEnterpriseState();
-  try {
-    const result = disableEnterpriseMfaInDb(state.db, context, input);
-    await saveEnterpriseState(state, state.db);
-    return result;
-  } catch (error) {
-    await saveEnterpriseState(state, state.db);
-    throw error;
-  }
+  return mutateEnterpriseStateAtomically((db) => disableEnterpriseMfaInDb(db, context, input));
 }

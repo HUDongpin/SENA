@@ -179,7 +179,7 @@ function buildEnterpriseOpsMetricsFromObservability(
     "# HELP sena_enterprise_server_job_worker_contract_missing Missing external server job worker contract requirements.",
     "# TYPE sena_enterprise_server_job_worker_contract_missing gauge",
     metricLine("sena_enterprise_server_job_worker_contract_missing", workerContract.missing.length),
-    "# HELP sena_enterprise_server_job_worker_heartbeat_confirmed Whether the external server job worker heartbeat artifact is confirmed.",
+    "# HELP sena_enterprise_server_job_worker_heartbeat_confirmed Whether the same-process status-store CAS self-test artifact is configured; this is not external-worker readiness.",
     "# TYPE sena_enterprise_server_job_worker_heartbeat_confirmed gauge",
     metricLine("sena_enterprise_server_job_worker_heartbeat_confirmed", workerContract.worker.heartbeatConfirmed ? 1 : 0),
     "# HELP sena_enterprise_server_job_queue_probe_required Whether production server job queue requires a signed live dispatch probe artifact.",

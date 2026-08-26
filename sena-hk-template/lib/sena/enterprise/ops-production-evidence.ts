@@ -2,6 +2,7 @@ import { enterprisePostgresProbeReadiness, enterprisePostgresSchemaContractReadi
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { conferenceLoadRehearsalProductionEvidenceReadiness } from "./conference-load-rehearsal";
 import { enterpriseCdnContractReadiness, enterpriseCdnProbeReadiness } from "./cdn-verification";
+import { isSenaFullGitObjectId } from "./performance-build-identity.mjs";
 import { enterpriseObjectStorageContractReadiness, enterpriseObjectStorageProbeReadiness } from "./object-storage-adapter";
 import { enterpriseObservabilityContractReadiness, enterpriseObservabilityProbeReadiness } from "./ops-observability";
 import {
@@ -51,6 +52,13 @@ export type SenaEnterpriseProductionEvidenceItem = {
     artifactSha256: string;
     verifiedAt: string;
     artifactValidation?: string;
+    artifactSchemaVersion?: string;
+    measuredArtifactSetSha256?: string;
+    nextBuildIdSha256?: string;
+    gitCommit?: string;
+    gitDirty?: string;
+    packageLockSha256?: string;
+    sourceCustodyMode?: string;
   };
   evidence: string[];
   nextAction: string;
@@ -142,10 +150,6 @@ function validSha256(value: string | undefined): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
-function validGitCommit(value: string | undefined) {
-  return Boolean(value && /^[a-f0-9]{40}$/i.test(value));
-}
-
 const vercelProductionPreflightExpectedHost = "www.sena.hk";
 const productionRuntimeHeaderValues = ["enterprise-neon", "enterprise-postgres"] as const;
 
@@ -194,9 +198,16 @@ function vercelProductionPreflightRequired() {
 
 function performanceBudgetBuildIdentityReady() {
   return validSha256(envValue("SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256")) &&
-    validGitCommit(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) &&
+    isSenaFullGitObjectId(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) &&
     envValue("SENA_PERFORMANCE_BUDGET_GIT_DIRTY") === "false" &&
-    validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256"));
+    validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256")) &&
+    envValue("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE") === "git-clean-worktree";
+}
+
+function performanceBudgetRuntimeContractReady() {
+  return envValue("SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION") ===
+    SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget &&
+    validSha256(envValue("SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256"));
 }
 
 function evidenceStatus(input: { required: boolean; confirmed: boolean }): SenaEnterpriseProductionEvidenceItemStatus {
@@ -587,7 +598,7 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
         artifactValidation: "SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION"
       },
       evidence: serverJobWorkerContract.evidence,
-      nextAction: "Run npm run sena:jobs:worker-contract after configuring the managed queue, Postgres job store, worker callback, owner, runbook, and heartbeat artifact; then bind SENA_JOB_WORKER_CONTRACT_CONFIRMED with its sha256, verified-at timestamp, and artifact-validation pass."
+      nextAction: "Implement a nonce-bound managed-queue to external-worker authenticated callback receipt, then run and bind the worker contract; the same-process status-store self-test cannot confirm this production item."
     }),
     buildEvidenceItem({
       id: "observability-contract",
@@ -636,7 +647,9 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
       label: "Production performance budget",
       category: "performance-budget",
       required: performanceBudgetRequired,
-      confirmed: booleanEnv("SENA_PERFORMANCE_BUDGET_CONFIRMED") && performanceBudgetBuildIdentityReady(),
+      confirmed: booleanEnv("SENA_PERFORMANCE_BUDGET_CONFIRMED") &&
+        performanceBudgetRuntimeContractReady() &&
+        performanceBudgetBuildIdentityReady(),
       artifactHash: envValue("SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256"),
       verifiedAt: envValue("SENA_PERFORMANCE_BUDGET_VERIFIED_AT"),
       artifactSchema: SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget,
@@ -646,7 +659,14 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
         required: "SENA_PERFORMANCE_BUDGET_ARTIFACT_REQUIRED",
         confirmed: "SENA_PERFORMANCE_BUDGET_CONFIRMED",
         artifactSha256: "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
-        verifiedAt: "SENA_PERFORMANCE_BUDGET_VERIFIED_AT"
+        verifiedAt: "SENA_PERFORMANCE_BUDGET_VERIFIED_AT",
+        artifactSchemaVersion: "SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION",
+        measuredArtifactSetSha256: "SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256",
+        nextBuildIdSha256: "SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256",
+        gitCommit: "SENA_PERFORMANCE_BUDGET_GIT_COMMIT",
+        gitDirty: "SENA_PERFORMANCE_BUDGET_GIT_DIRTY",
+        packageLockSha256: "SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256",
+        sourceCustodyMode: "SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE"
       },
       evidence: [
         `performanceBudgetRequired=${performanceBudgetRequired}`,
@@ -658,15 +678,19 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
         `performanceBudgetSaasOperatingModelApproved=${booleanEnv("SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED")}`,
         `performanceBudgetArtifactSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256")) ? "present" : "missing-or-invalid"}`,
         `performanceBudgetVerifiedAt=${productionEvidenceTimestampEvidenceValue(envValue("SENA_PERFORMANCE_BUDGET_VERIFIED_AT"))}`,
+        `performanceBudgetRuntimeContractReady=${performanceBudgetRuntimeContractReady()}`,
+        `performanceBudgetSchemaCurrent=${envValue("SENA_PERFORMANCE_BUDGET_SCHEMA_VERSION") === SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget}`,
+        `performanceBudgetMeasuredArtifactSetSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_MEASURED_ARTIFACT_SET_SHA256")) ? "present" : "missing-or-invalid"}`,
         `performanceBudgetBuildIdentityReady=${performanceBudgetBuildIdentityReady()}`,
         `performanceBudgetNextBuildIdSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_NEXT_BUILD_ID_SHA256")) ? "present" : "missing-or-invalid"}`,
-        `performanceBudgetGitCommit=${validGitCommit(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) ? "present" : "missing-or-invalid"}`,
+        `performanceBudgetGitCommit=${isSenaFullGitObjectId(envValue("SENA_PERFORMANCE_BUDGET_GIT_COMMIT")) ? "present" : "missing-or-invalid"}`,
         `performanceBudgetGitDirtyClean=${envValue("SENA_PERFORMANCE_BUDGET_GIT_DIRTY") === "false"}`,
+        `performanceBudgetSourceCustodyMode=${envValue("SENA_PERFORMANCE_BUDGET_SOURCE_CUSTODY_MODE") || "missing"}`,
         `performanceBudgetPackageLockSha256=${validSha256(envValue("SENA_PERFORMANCE_BUDGET_PACKAGE_LOCK_SHA256")) ? "present" : "missing-or-invalid"}`,
         `performanceBudgetSchema=${SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget}`,
         "performanceBudgetCommand=npm run sena:performance:check"
       ],
-      nextAction: "Run npm run sena:performance:check after a clean production build, archive the redacted performance budget JSON artifact, and bind it through npm run sena:production-evidence:bind so artifact hash, verified-at, Next build ID hash, git commit, clean status, and package-lock hash are all attached."
+      nextAction: `Run npm run sena:performance:check after a clean, identified production build, archive the redacted ${SENA_SCHEMA_VERSIONS.enterpriseProductionPerformanceBudget} artifact, and bind it through npm run sena:production-evidence:bind so schema version, measured output-set hash, artifact hash, verified-at, Next build ID hash, git commit, actual clean status, and package-lock hash are all attached.`
     }),
     buildEvidenceItem({
       id: "conference-load-rehearsal",
