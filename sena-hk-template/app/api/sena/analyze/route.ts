@@ -134,15 +134,17 @@ export async function POST(request: Request) {
     const persistedProject = persist
       ? updateExistingProject
         ? await updateEnterpriseProjectAsync(context, sourceProject.id, {
-          title: body.title === undefined ? undefined : String(body.title),
-          description: body.description === undefined ? undefined : String(body.description),
+          title: typeof body.title === "string" ? body.title : undefined,
+          description: typeof body.description === "string" ? body.description : undefined,
           expectedVersion: body.expectedVersion === undefined ? undefined : Number(body.expectedVersion),
           snapshot: run.projectSnapshot
         })
         : await createEnterpriseProjectAsync(context, {
           teamId,
-          title: String(body.title ?? run.summary.title),
-          description: String(body.description ?? "Created by /api/sena/analyze."),
+          title: typeof body.title === "string" ? body.title : run.summary.title,
+          description: typeof body.description === "string"
+            ? body.description
+            : "Created by /api/sena/analyze.",
           snapshot: run.projectSnapshot
         })
       : null;

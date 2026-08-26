@@ -414,6 +414,11 @@ function assertAnalysisBody(body: Record<string, unknown>) {
     "expectedVersion",
     "description"
   ], { label: "Analysis request", code });
+  for (const field of ["title", "description"] as const) {
+    if (Object.hasOwn(body, field) && body[field] !== undefined && typeof body[field] !== "string") {
+      fieldsInvalid(`Analysis request.${field}`, code);
+    }
+  }
   assertBuildOptions(body.buildOptions, "Analysis request.buildOptions", code);
   assertSenaRequestStringTreeBudget({
     projectId: body.projectId,

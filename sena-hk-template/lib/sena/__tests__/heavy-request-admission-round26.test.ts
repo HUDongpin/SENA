@@ -78,6 +78,36 @@ describe("heavy SENA route request admission", () => {
     });
   });
 
+  it.each([
+    ["title", null],
+    ["title", false],
+    ["title", 0],
+    ["title", {}],
+    ["title", []],
+    ["description", null],
+    ["description", false],
+    ["description", 0],
+    ["description", {}],
+    ["description", []]
+  ] as const)("rejects non-string analysis %s=%j at admission", async (field, value) => {
+    await expect(admitSenaAnalysisMutationRequest(jsonRequest("/api/sena/analyze", {
+      dataset: { people: [], interactions: [], utterances: [], coded_segments: [], codebook: [] },
+      [field]: value
+    }))).rejects.toMatchObject({
+      status: 400,
+      code: "analysis_request_fields_invalid"
+    });
+  });
+
+  it.each(["", "   "])("keeps explicit string analysis metadata, including %j", async (value) => {
+    const admitted = await admitSenaAnalysisMutationRequest(jsonRequest("/api/sena/analyze", {
+      dataset: { people: [], interactions: [], utterances: [], coded_segments: [], codebook: [] },
+      title: value,
+      description: value
+    }));
+    expect(admitted.body).toEqual(expect.objectContaining({ title: value, description: value }));
+  });
+
   it("preflights import multipart limits and rejects duplicate or unknown form fields", async () => {
     const tooMany = new FormData();
     for (let index = 0; index < 101; index += 1) {

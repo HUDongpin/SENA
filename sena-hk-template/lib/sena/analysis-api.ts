@@ -1,4 +1,5 @@
 import type { SenaAnalysisRunInput } from "./analysis-run";
+import { SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY } from "./analysis-queue-command";
 import type { SenaEnterpriseServerJobPayloadSummary } from "./enterprise/server-job-queue";
 
 export type SenaAnalysisApiBody = Record<string, unknown>;
@@ -38,7 +39,7 @@ export type SenaAnalysisQueueJobInput = {
 };
 
 function optionalString(value: unknown) {
-  return value ? String(value) : undefined;
+  return typeof value === "string" ? value : undefined;
 }
 
 function optionalNumber(value: unknown) {
@@ -99,6 +100,8 @@ export function buildSenaAnalysisQueueJobInput(input: {
   const persist = body.persist === true;
   const updateProject = body.updateProject !== false;
   const expectedVersion = optionalNumber(body.expectedVersion);
+  const title = optionalString(body.title);
+  const description = optionalString(body.description);
 
   return {
     kind: "analysis",
@@ -107,11 +110,12 @@ export function buildSenaAnalysisQueueJobInput(input: {
     actorUserId: input.actorUserId,
     payload: {
       action: "run-analysis",
+      commandCustody: SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
       teamId: input.teamId,
       projectId: sourceProject?.id,
       projectVersion: sourceProject?.currentVersion,
-      title: optionalString(body.title) ?? sourceProject?.title,
-      description: body.description === undefined ? undefined : String(body.description),
+      ...(title !== undefined ? { title } : {}),
+      ...(description !== undefined ? { description } : {}),
       activeTemporalWindowId,
       buildOptions: body.buildOptions,
       includeRuntimeBundle,

@@ -277,6 +277,7 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   uploadIds?: string[];
   reviewerEnvelopeUploadId?: string;
   reviewerEnvelopeSha256?: string;
+  commandCustody?: "encrypted-upload-v1";
   commandEnvelopeUploadId?: string;
   commandEnvelopeSha256?: string;
   annotationCount?: number;

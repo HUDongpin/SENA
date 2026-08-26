@@ -130,7 +130,7 @@ const SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_REQUIRED_KEYS = [
   "projectId", "teamId", "version", "snapshot"
 ] as const;
 const SENA_ENTERPRISE_VALIDATION_REVISION_SOURCE_OPTIONAL_KEYS = [
-  "id", "userId", "summary", "datasetCounts", "activeWindowLabel",
+  "id", "userId", "summary", "title", "description", "datasetCounts", "activeWindowLabel",
   "claimUse", "createdAt"
 ] as const;
 

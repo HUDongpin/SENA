@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { buildSenaAnalysisRun, type SenaAnalysisRunInput } from "../analysis-run";
 import {
   parseSenaAnalysisQueueCommandEnvelope,
+  SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
   SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE
 } from "../analysis-queue-command";
 import { buildSenaAnalysisRunRequestInput, sanitizeSenaClientCodingReliability } from "../analysis-api";
@@ -520,9 +521,96 @@ type SenaAnalysisJobAdmission = {
   expectedVersion?: number;
 };
 
+type SenaAnalysisCommandCustodyAdmission = {
+  context?: SenaEnterpriseSessionContext;
+  payload: Record<string, unknown>;
+};
+
+function analysisCommandCustodyError(): SenaEnterpriseError {
+  return new SenaEnterpriseError(
+    "The queued SENA analysis command does not match its durable encrypted custody envelope.",
+    409,
+    "server_job_worker_analysis_command_custody_invalid"
+  );
+}
+
+function analysisCommandCustodyDeclared(job: SenaEnterpriseServerJob) {
+  return job.payloadSummary.commandCustody !== undefined ||
+    job.payloadSummary.commandEnvelopeUploadId !== undefined ||
+    job.payloadSummary.commandEnvelopeSha256 !== undefined;
+}
+
+async function readCurrentAnalysisCommandEnvelope(
+  job: SenaEnterpriseServerJob,
+  context: SenaEnterpriseSessionContext
+): Promise<Record<string, unknown>> {
+  const custody = job.payloadSummary.commandCustody;
+  const uploadId = job.payloadSummary.commandEnvelopeUploadId;
+  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
+  if (custody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY ||
+    typeof uploadId !== "string" || !/^upload_[a-f0-9]{24}$/.test(uploadId) ||
+    typeof envelopeSha256 !== "string" || !/^[a-f0-9]{64}$/.test(envelopeSha256)) {
+    throw analysisCommandCustodyError();
+  }
+  let content: SenaEnterpriseUploadContent;
+  try {
+    [content] = await readEnterpriseUploadContentsAsync(context, {
+      teamId: job.teamId,
+      uploadIds: [uploadId]
+    });
+  } catch {
+    throw analysisCommandCustodyError();
+  }
+  if (!content ||
+    content.upload.teamId !== job.teamId ||
+    content.upload.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE ||
+    content.upload.sha256 !== envelopeSha256) {
+    throw analysisCommandCustodyError();
+  }
+  try {
+    const envelope = parseSenaAnalysisQueueCommandEnvelope(content.bytes);
+    if (envelope.payloadSha256 !== job.payloadSha256 ||
+      stableServerJobPayloadSha256(envelope.payload) !== job.payloadSha256) {
+      throw analysisCommandCustodyError();
+    }
+    return envelope.payload;
+  } catch (error) {
+    if (error instanceof SenaEnterpriseError) throw error;
+    throw analysisCommandCustodyError();
+  }
+}
+
+async function admitAnalysisCommandCustody(
+  job: SenaEnterpriseServerJob,
+  deliveredPayload: Record<string, unknown>
+): Promise<SenaAnalysisCommandCustodyAdmission> {
+  if (stableServerJobPayloadSha256(deliveredPayload) !== job.payloadSha256) {
+    throw analysisCommandCustodyError();
+  }
+  const deliveredCustody = deliveredPayload.commandCustody;
+  if (deliveredCustody !== undefined && deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+    throw analysisCommandCustodyError();
+  }
+  if (deliveredCustody !== SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY &&
+    !analysisCommandCustodyDeclared(job)) {
+    // Narrow compatibility path for v2 receipts created before encrypted
+    // command custody was introduced. Every current public route declares the
+    // marker and both opaque pointers, so partial/current shapes fail closed.
+    return { payload: deliveredPayload };
+  }
+  const context = await workerSessionContext(job);
+  const retainedPayload = await readCurrentAnalysisCommandEnvelope(job, context);
+  if (stableServerJobPayloadSha256(deliveredPayload) !==
+    stableServerJobPayloadSha256(retainedPayload)) {
+    throw analysisCommandCustodyError();
+  }
+  return { context, payload: retainedPayload };
+}
+
 async function admitAnalysisJob(
   job: SenaEnterpriseServerJob,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
 ): Promise<SenaAnalysisJobAdmission> {
   const projectId = optionalString(payload.projectId);
   const teamId = optionalString(payload.teamId);
@@ -558,7 +646,7 @@ async function admitAnalysisJob(
       "project_version_conflict"
     );
   }
-  const context = await workerSessionContext(job);
+  const context = admittedContext ?? await workerSessionContext(job);
   const revisionSource = await getEnterpriseProjectRevisionSourceReadOnlyAsync(context, projectId, projectVersion);
   const { currentProject, sourceProject } = revisionSource;
   if (sourceProject.teamId !== job.teamId || sourceProject.currentVersion !== projectVersion) {
@@ -777,13 +865,15 @@ export async function runEnterpriseServerJob(input: {
   inFlightServerJobIds.add(job.id);
 
   try {
-    const payload = (input.workerPayload ?? {}) as Record<string, unknown>;
+    let payload = (input.workerPayload ?? {}) as Record<string, unknown>;
     let analysisAdmission: SenaAnalysisJobAdmission | undefined;
     let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
     let candidate = job;
     if (job.kind === "analysis") {
       try {
-        analysisAdmission = await admitAnalysisJob(job, payload);
+        const commandCustody = await admitAnalysisCommandCustody(job, payload);
+        payload = commandCustody.payload;
+        analysisAdmission = await admitAnalysisJob(job, payload, commandCustody.context);
       } catch (error) {
         return rejectBeforeClaim(job, error);
       }
@@ -876,22 +966,9 @@ async function reproduceAnalysisPayload(
   job: SenaEnterpriseServerJob,
   context: SenaEnterpriseSessionContext
 ): Promise<Record<string, unknown> | undefined> {
-  const commandEnvelopeUploadId = job.payloadSummary.commandEnvelopeUploadId;
-  const commandEnvelopeSha256 = job.payloadSummary.commandEnvelopeSha256;
-  if (commandEnvelopeUploadId !== undefined || commandEnvelopeSha256 !== undefined) {
-    if (!commandEnvelopeUploadId || !commandEnvelopeSha256) return undefined;
-    const [content] = await readEnterpriseUploadContentsAsync(context, {
-      teamId: job.teamId,
-      uploadIds: [commandEnvelopeUploadId]
-    }).catch(() => []);
-    if (!content ||
-      content.upload.importProfile !== SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE ||
-      content.upload.sha256 !== commandEnvelopeSha256) {
-      return undefined;
-    }
+  if (analysisCommandCustodyDeclared(job)) {
     try {
-      const envelope = parseSenaAnalysisQueueCommandEnvelope(content.bytes);
-      return envelope.payloadSha256 === job.payloadSha256 ? envelope.payload : undefined;
+      return await readCurrentAnalysisCommandEnvelope(job, context);
     } catch {
       return undefined;
     }

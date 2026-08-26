@@ -236,6 +236,7 @@ export {
   type SenaGroupComparisonMetric,
   type SenaGroupComparisonResult,
   type SenaGroupComparisonResultV1,
+  type SenaGroupComparisonSourceBuildAdmissionLimits,
   type SenaGroupComparisonSourceContext,
   type SenaGroupComparisonSourceEvidence,
   type SenaGroupComparisonSufficientStatistics,

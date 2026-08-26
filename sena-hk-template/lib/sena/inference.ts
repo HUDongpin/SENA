@@ -471,14 +471,17 @@ type SenaGroupComparisonBuildInput = {
 };
 
 function buildSenaGroupComparisonFromCanonicalSource(
-  input: SenaGroupComparisonBuildInput
+  input: SenaGroupComparisonBuildInput,
+  admittedModel?: SenaModel
 ): SenaGroupComparisonResult {
-  validateSenaAnalyticalInputs({
-    dataset: input.dataset,
-    buildOptions: input.buildOptions,
-    groupComparison: input
-  });
-  const model = buildSenaModel(input.dataset, input.buildOptions ?? {});
+  if (!admittedModel) {
+    validateSenaAnalyticalInputs({
+      dataset: input.dataset,
+      buildOptions: input.buildOptions,
+      groupComparison: input
+    });
+  }
+  const model = admittedModel ?? buildSenaModel(input.dataset, input.buildOptions ?? {});
   const metric = input.metric ?? "socialStrength";
   const groupField = input.groupField ?? "group";
   const sourceEvidence = buildSenaGroupComparisonSourceEvidence({
@@ -524,12 +527,13 @@ function buildSenaGroupComparisonFromCanonicalSource(
 }
 
 export function buildSenaGroupComparison(
-  input: SenaGroupComparisonBuildInput
+  input: SenaGroupComparisonBuildInput,
+  sourceAdmissionLimits: SenaGroupComparisonSourceBuildAdmissionLimits = {}
 ): SenaGroupComparisonResult {
-  const { source } = projectSenaGroupComparisonSourceContextCarrier({
+  const { source } = admitSenaGroupComparisonSourceForPublicBuild({
     dataset: input.dataset,
     buildOptions: input.buildOptions
-  });
+  }, sourceAdmissionLimits);
   return buildSenaGroupComparisonFromCanonicalSource({
     ...input,
     dataset: source.dataset,
@@ -557,16 +561,17 @@ export function buildSenaGroupComparisonSuite(input: {
   seed?: number;
   bootstrapIterations?: number;
   alpha?: number;
-}): SenaGroupComparisonSuiteResult {
-  const { source } = projectSenaGroupComparisonSourceContextCarrier({
+}, sourceAdmissionLimits: SenaGroupComparisonSourceBuildAdmissionLimits = {}): SenaGroupComparisonSuiteResult {
+  const { source } = admitSenaGroupComparisonSourceForPublicBuild({
     dataset: input.dataset,
     buildOptions: input.buildOptions
-  });
+  }, sourceAdmissionLimits);
   validateSenaAnalyticalInputs({
     dataset: source.dataset,
     buildOptions: source.buildOptions,
     groupComparison: input
   });
+  const admittedModel = buildSenaModel(source.dataset, source.buildOptions ?? {});
   const alpha = input.alpha ?? 0.05;
   const comparisons = input.comparisons.map((comparison, index) => buildSenaGroupComparisonFromCanonicalSource({
     dataset: source.dataset,
@@ -578,7 +583,7 @@ export function buildSenaGroupComparisonSuite(input: {
     iterations: input.iterations,
     seed: addCanonicalUint32(input.seed ?? 20260611, index * 101),
     bootstrapIterations: input.bootstrapIterations
-  }));
+  }, admittedModel));
   const entries = comparisons.map<SenaGroupComparisonSuiteEntry>((comparison) => ({
     ...comparison,
     comparisonId: comparisonId(comparison),
@@ -686,6 +691,7 @@ function carrierOwnDataDescriptors(value: object, expectedPrototype: object | nu
 
 type SenaGroupComparisonCarrierTraversalBudget = {
   reserveWork: (units?: number) => void;
+  reserveText?: (value: string) => void;
 };
 
 function hasOnlyCarrierKeys(
@@ -1522,8 +1528,18 @@ export const SENA_GROUP_COMPARISON_SOURCE_REPLAY_DEFAULT_MAX_UNIQUE_SOURCES = 1_
 export const SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS = 50_000_000;
 export const SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 export const SENA_GROUP_COMPARISON_SOURCE_DIGEST_DEFAULT_MAX_WORK_UNITS = 5_000_000;
+export const SENA_GROUP_COMPARISON_SOURCE_PROJECTION_DEFAULT_MAX_WORK_UNITS = 5_000_000;
 const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES = 65_536;
 const SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES = 16 * 1024 * 1024;
+
+export type SenaGroupComparisonSourceBuildAdmissionLimits = {
+  /** Complete structural preflight plus canonical projection work for one public builder call. */
+  maxProjectionWorkUnits?: number;
+  /** Request-wide upper bound across every model a single/suite builder will construct. */
+  maxSourceModelWorkUnits?: number;
+  /** Aggregate UTF-8 bytes across every canonical source string value. */
+  maxSourceTextBytes?: number;
+};
 
 type SenaGroupComparisonVerificationLeaf = {
   key: string;
@@ -1873,6 +1889,7 @@ function projectSourceCarrierObject(
     }
     if (!("value" in descriptor) || !descriptor.enumerable) invalidSourceDatasetCarrier();
     if (descriptor.value === undefined && optionalKeys.includes(key)) continue;
+    if (typeof descriptor.value === "string") traversalBudget?.reserveText?.(descriptor.value);
     projected[key] = descriptor.value;
   }
   return projected;
@@ -1921,6 +1938,7 @@ function projectSourceCarrierArray<T>(
     if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
       invalidSourceDatasetCarrier();
     }
+    if (typeof descriptor.value === "string") traversalBudget?.reserveText?.(descriptor.value);
     projected.push(projectEntry(descriptor.value));
   }
   return projected;
@@ -2092,6 +2110,280 @@ function projectSenaGroupComparisonSourceContextCarrier(
   };
 }
 
+function preflightSourceCarrierArray(
+  value: unknown,
+  minimumEntries: number,
+  maximumEntries: number,
+  traversalBudget: SenaGroupComparisonCarrierTraversalBudget,
+  visitEntry?: (entry: unknown) => void
+) {
+  let arrayCarrier = false;
+  try {
+    arrayCarrier = Array.isArray(value);
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (!arrayCarrier) invalidSourceDatasetCarrier();
+  traversalBudget.reserveWork(3);
+  if (carrierRuntimeIdentifiesProxy(value as object)) invalidSourceDatasetCarrier();
+  let prototype: object | null;
+  let lengthDescriptor: PropertyDescriptor | undefined;
+  try {
+    prototype = Object.getPrototypeOf(value as object);
+    lengthDescriptor = Object.getOwnPropertyDescriptor(value as object, "length");
+  } catch {
+    invalidSourceDatasetCarrier();
+  }
+  if (prototype !== Array.prototype && prototype !== null) invalidSourceDatasetCarrier();
+  const length = lengthDescriptor && "value" in lengthDescriptor ? lengthDescriptor.value : undefined;
+  if (!Number.isSafeInteger(length) ||
+    (length as number) < minimumEntries || (length as number) > maximumEntries) {
+    invalidSourceDatasetCarrier();
+  }
+  if ((length as number) > 0) traversalBudget.reserveWork(length as number);
+  if (!visitEntry) return length as number;
+  for (let index = 0; index < (length as number); index += 1) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value as object, String(index));
+    } catch {
+      invalidSourceDatasetCarrier();
+    }
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+      invalidSourceDatasetCarrier();
+    }
+    visitEntry(descriptor.value);
+  }
+  return length as number;
+}
+
+function assertSenaGroupComparisonSourceStructuralModelBudget(input: {
+  people: number;
+  codes: number;
+  interactions: number;
+  utterances: number;
+  segments: Array<{ codes: number; targets: number }>;
+}, maximumWorkUnits: number) {
+  const codedSegments = input.segments.length;
+  const nodes = safeAdmissionWorkSum([input.people, input.codes]);
+  const rows = safeAdmissionWorkSum([input.interactions, input.utterances, codedSegments]);
+  if (nodes === undefined || rows === undefined) {
+    throw new Error("SENA group-comparison source model work budget exceeded.");
+  }
+  const minimumWork = safeAdmissionWorkSum([
+    safeAdmissionWorkProduct(64, input.people + input.codes + rows) ?? Number.MAX_SAFE_INTEGER,
+    safeAdmissionWorkProduct(16, input.people, input.people, input.people) ?? Number.MAX_SAFE_INTEGER,
+    safeAdmissionWorkProduct(16, nodes, nodes) ?? Number.MAX_SAFE_INTEGER
+  ]);
+  if (minimumWork === undefined || minimumWork > maximumWorkUnits) {
+    throw new Error("SENA group-comparison source model work budget exceeded.");
+  }
+  const pairProduct = input.codes < 2
+    ? 0
+    : safeAdmissionWorkProduct(input.codes, input.codes - 1);
+  const pairCount = pairProduct === undefined ? undefined : pairProduct / 2;
+  if (pairCount === undefined || !Number.isSafeInteger(pairCount)) {
+    throw new Error("SENA group-comparison holder model work is not safely representable.");
+  }
+  let cumulativeSegmentWork = 0;
+  let segmentCodeReferences = 0;
+  for (const segment of input.segments) {
+    const segmentLowerBound = safeAdmissionWorkSum([
+      safeAdmissionWorkProduct(segment.codes, segment.codes) ?? Number.MAX_SAFE_INTEGER,
+      safeAdmissionWorkProduct(segment.targets, 16) ?? Number.MAX_SAFE_INTEGER,
+      segment.codes,
+      segment.targets
+    ]);
+    const nextSegmentWork = segmentLowerBound === undefined
+      ? undefined
+      : safeAdmissionWorkSum([cumulativeSegmentWork, segmentLowerBound]);
+    const nextReferences = safeAdmissionWorkSum([segmentCodeReferences, segment.codes]);
+    const nextFanout = nextReferences === undefined
+      ? undefined
+      : safeAdmissionWorkSum([codedSegments, nextReferences]);
+    const cumulativeLowerBound = nextSegmentWork === undefined || nextFanout === undefined
+      ? undefined
+      : safeAdmissionWorkSum([
+          minimumWork,
+          nextSegmentWork,
+          safeAdmissionWorkProduct(4, input.people, input.codes, nextFanout) ?? Number.MAX_SAFE_INTEGER,
+          safeAdmissionWorkProduct(6, pairCount, nextFanout) ?? Number.MAX_SAFE_INTEGER
+        ]);
+    if (segmentLowerBound === undefined || nextSegmentWork === undefined ||
+      nextReferences === undefined || cumulativeLowerBound === undefined ||
+      cumulativeLowerBound > maximumWorkUnits) {
+      throw new Error("SENA group-comparison source model work budget exceeded.");
+    }
+    cumulativeSegmentWork = nextSegmentWork;
+    segmentCodeReferences = nextReferences;
+  }
+  return {
+    nodes,
+    rows,
+    minimumWork,
+    pairCount,
+    cumulativeSegmentWork,
+    segmentCodeReferences
+  };
+}
+
+function preflightSenaGroupComparisonSourceContextCarrier(
+  source: SenaGroupComparisonSourceContext,
+  traversalBudget: SenaGroupComparisonCarrierTraversalBudget,
+  maximumModelWorkUnits: number
+) {
+  // This first pass reads only schema-known data descriptors and array lengths.
+  // Nested scalar entries are deliberately untouched until their complete
+  // repeated-alias fan-out has been reserved and structurally admitted.
+  const workOnlyBudget = { reserveWork: traversalBudget.reserveWork };
+  const holder = projectSourceCarrierObject(source, ["dataset"], ["buildOptions"], workOnlyBudget);
+  const dataset = projectSourceCarrierObject(holder.dataset, [
+    "people",
+    "interactions",
+    "utterances",
+    "coded_segments",
+    "codebook"
+  ], ["metadata", "warnings"], workOnlyBudget);
+  const preflightRows = (
+    rows: unknown,
+    requiredKeys: readonly string[],
+    optionalKeys: readonly string[] = [],
+    visitRow?: (row: Record<string, unknown>) => void
+  ) => preflightSourceCarrierArray(
+    rows,
+    0,
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+    workOnlyBudget,
+    (entry) => {
+      const row = projectSourceCarrierObject(entry, requiredKeys, optionalKeys, workOnlyBudget);
+      visitRow?.(row);
+    }
+  );
+  const people = preflightRows(dataset.people, ["id", "label", "role", "group"], ["initials", "actorType"]);
+  const interactions = preflightRows(dataset.interactions, [
+    "source", "target", "channel", "stage", "evidence"
+  ], ["weight", "turnIndex"]);
+  const utterances = preflightRows(dataset.utterances, [
+    "id", "personId", "unitId", "stanzaId", "stage", "turnIndex", "text"
+  ], ["timestamp"]);
+  const segments: Array<{ codes: number; targets: number }> = [];
+  preflightRows(dataset.coded_segments, [
+    "segmentId", "utteranceId", "personId", "unitId", "stanzaId", "stage", "turnIndex", "text", "codes"
+  ], ["targetPersonIds", "confidence"], (row) => {
+    const codes = preflightSourceCarrierArray(
+      row.codes,
+      0,
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+      workOnlyBudget
+    );
+    const targets = Object.hasOwn(row, "targetPersonIds") && row.targetPersonIds !== undefined
+      ? preflightSourceCarrierArray(
+        row.targetPersonIds,
+        0,
+        SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+        workOnlyBudget
+      )
+      : 0;
+    segments.push({ codes, targets });
+  });
+  const codes = preflightRows(dataset.codebook, ["id", "label", "family", "description", "color"]);
+  if (Object.hasOwn(dataset, "metadata") && dataset.metadata !== undefined) {
+    projectSourceMetadataCarrier(dataset.metadata, workOnlyBudget);
+  }
+  if (Object.hasOwn(dataset, "warnings") && dataset.warnings !== undefined) {
+    preflightSourceCarrierArray(
+      dataset.warnings,
+      0,
+      SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES,
+      workOnlyBudget
+    );
+  }
+  if (Object.hasOwn(holder, "buildOptions") && holder.buildOptions !== undefined) {
+    projectSourceBuildOptionsCarrier(holder.buildOptions, workOnlyBudget);
+  }
+  assertSenaGroupComparisonSourceStructuralModelBudget({
+    people,
+    codes,
+    interactions,
+    utterances,
+    segments
+  }, maximumModelWorkUnits);
+}
+
+function createSenaGroupComparisonSourceBuildBudget(
+  limits: SenaGroupComparisonSourceBuildAdmissionLimits
+) {
+  const requestedWorkUnits = limits.maxProjectionWorkUnits ??
+    SENA_GROUP_COMPARISON_SOURCE_PROJECTION_DEFAULT_MAX_WORK_UNITS;
+  const requestedTextBytes = limits.maxSourceTextBytes ??
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES;
+  const requestedModelWorkUnits = limits.maxSourceModelWorkUnits ??
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS;
+  if (!Number.isSafeInteger(requestedWorkUnits) || requestedWorkUnits < 1 ||
+    !Number.isSafeInteger(requestedTextBytes) || requestedTextBytes < 1 ||
+    !Number.isSafeInteger(requestedModelWorkUnits) || requestedModelWorkUnits < 1) {
+    throw new Error("SENA group-comparison source build budgets must use positive safe integers.");
+  }
+  // Injection exists only so callers/tests can ratchet a stricter budget.
+  // No caller can raise the mandatory public-builder ceilings.
+  const maximumWorkUnits = Math.min(
+    requestedWorkUnits,
+    SENA_GROUP_COMPARISON_SOURCE_PROJECTION_DEFAULT_MAX_WORK_UNITS
+  );
+  const maximumTextBytes = Math.min(
+    requestedTextBytes,
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES
+  );
+  const maximumModelWorkUnits = Math.min(
+    requestedModelWorkUnits,
+    SENA_GROUP_COMPARISON_SOURCE_MODEL_DEFAULT_MAX_WORK_UNITS
+  );
+  let workUnits = 0;
+  let textBytes = 0;
+  const reserveWork = (units = 1) => {
+    if (!Number.isSafeInteger(units) || units < 1 || units > maximumWorkUnits - workUnits) {
+      throw new Error("SENA group-comparison source projection work budget exceeded.");
+    }
+    workUnits += units;
+  };
+  const reserveText = (value: string) => {
+    if (value.length > maximumTextBytes) {
+      throw new Error("SENA group-comparison source model text budget exceeded.");
+    }
+    const bytes = sourceDigestUtf8ByteLength(value);
+    if (bytes > maximumTextBytes - textBytes) {
+      throw new Error("SENA group-comparison source model text budget exceeded.");
+    }
+    textBytes += bytes;
+  };
+  return {
+    traversalBudget: { reserveWork, reserveText },
+    maximumModelWorkUnits
+  };
+}
+
+function admitSenaGroupComparisonSourceForPublicBuild(
+  source: SenaGroupComparisonSourceContext,
+  limits: SenaGroupComparisonSourceBuildAdmissionLimits
+) {
+  const { traversalBudget, maximumModelWorkUnits } =
+    createSenaGroupComparisonSourceBuildBudget(limits);
+  preflightSenaGroupComparisonSourceContextCarrier(
+    source,
+    traversalBudget,
+    maximumModelWorkUnits
+  );
+  const projected = projectSenaGroupComparisonSourceContextCarrier(source, traversalBudget);
+  estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
+    projected.source,
+    maximumModelWorkUnits
+  );
+  // Single and suite builders both construct exactly one admitted source
+  // model. Suites reuse that immutable model across their bounded comparison
+  // universe instead of multiplying the heaviest model kernel by N.
+  return projected;
+}
+
 export function estimateSenaGroupComparisonSourceModelWorkUnits(
   source: SenaGroupComparisonSourceContext,
   maximumWorkUnits = Number.MAX_SAFE_INTEGER
@@ -2130,28 +2422,23 @@ function estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
   if (collections.some((value) => value.length > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_COLLECTION_ENTRIES)) {
     throw new Error("SENA group-comparison source model work budget exceeded.");
   }
-  const nodes = safeAdmissionWorkSum([people, codes]);
-  if (nodes === undefined) throw new Error("SENA group-comparison holder model work is not safely representable.");
-  const rows = safeAdmissionWorkSum([interactions, utterances, codedSegments]);
-  const minimumWork = rows === undefined
-    ? undefined
-    : safeAdmissionWorkSum([
-        safeAdmissionWorkProduct(64, people + codes + rows) ?? Number.MAX_SAFE_INTEGER,
-        safeAdmissionWorkProduct(16, people, people, people) ?? Number.MAX_SAFE_INTEGER,
-        safeAdmissionWorkProduct(16, nodes, nodes) ?? Number.MAX_SAFE_INTEGER
-      ]);
-  if (minimumWork === undefined || minimumWork > maximumWorkUnits) {
-    throw new Error("SENA group-comparison source model work budget exceeded.");
-  }
-  // Exact source admission has already proven dense arrays and data-only
-  // descriptors. Do not materialize those descriptors a second time here.
-  const pairProduct = codes < 2 ? 0 : safeAdmissionWorkProduct(codes, codes - 1);
-  const pairCount = pairProduct === undefined ? undefined : pairProduct / 2;
-  if (pairCount === undefined || !Number.isSafeInteger(pairCount)) {
-    throw new Error("SENA group-comparison holder model work is not safely representable.");
-  }
-  let segmentCodeReferences = 0;
-  let cumulativeSegmentWork = 0;
+  if (codedSegments > 0) attemptBudget?.reserveWork(codedSegments);
+  const {
+    nodes,
+    rows,
+    pairCount,
+    cumulativeSegmentWork,
+    segmentCodeReferences
+  } = assertSenaGroupComparisonSourceStructuralModelBudget({
+    people,
+    codes,
+    interactions,
+    utterances,
+    segments: dataset.coded_segments.map((segment) => ({
+      codes: segment.codes.length,
+      targets: segment.targetPersonIds?.length ?? 0
+    }))
+  }, maximumWorkUnits);
   let sourceTextBytes = 0;
   const reserveSourceText = (value: unknown) => {
     if (typeof value !== "string" || value.length > SENA_GROUP_COMPARISON_SOURCE_MODEL_MAX_TEXT_BYTES) {
@@ -2178,34 +2465,6 @@ function estimateAdmittedSenaGroupComparisonSourceModelWorkUnits(
       throw new Error("SENA group-comparison source model work budget exceeded.");
     }
     if (nestedEntries > 0) attemptBudget?.reserveWork(nestedEntries);
-    const segmentLowerBound = safeAdmissionWorkSum([
-      safeAdmissionWorkProduct(codeReferences.length, codeReferences.length) ?? Number.MAX_SAFE_INTEGER,
-      safeAdmissionWorkProduct(targets.length, 16) ?? Number.MAX_SAFE_INTEGER,
-      codeReferences.length,
-      targets.length
-    ]);
-    const nextSegmentWork = segmentLowerBound === undefined
-      ? undefined
-      : safeAdmissionWorkSum([cumulativeSegmentWork, segmentLowerBound]);
-    const nextReferences = safeAdmissionWorkSum([segmentCodeReferences, codeReferences.length]);
-    const nextFanout = nextReferences === undefined
-      ? undefined
-      : safeAdmissionWorkSum([codedSegments, nextReferences]);
-    const cumulativeLowerBound = nextSegmentWork === undefined || nextFanout === undefined
-      ? undefined
-      : safeAdmissionWorkSum([
-          minimumWork,
-          nextSegmentWork,
-          safeAdmissionWorkProduct(4, people, codes, nextFanout) ?? Number.MAX_SAFE_INTEGER,
-          safeAdmissionWorkProduct(6, pairCount, nextFanout) ?? Number.MAX_SAFE_INTEGER
-        ]);
-    if (segmentLowerBound === undefined || nextSegmentWork === undefined ||
-      nextReferences === undefined || cumulativeLowerBound === undefined ||
-      cumulativeLowerBound > maximumWorkUnits) {
-      throw new Error("SENA group-comparison source model work budget exceeded.");
-    }
-    cumulativeSegmentWork = nextSegmentWork;
-    segmentCodeReferences = nextReferences;
     for (const code of codeReferences) {
       reserveSourceText(code);
       referencedCodes.add(code);

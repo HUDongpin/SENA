@@ -48,6 +48,10 @@ export type SenaEnterpriseProjectRevision = {
   userId: string;
   version: number;
   summary: string;
+  /** Present on current revisions; absent legacy rows retain snapshot-only restore semantics. */
+  title?: string;
+  /** Present on current revisions; absent legacy rows retain snapshot-only restore semantics. */
+  description?: string;
   snapshot: SenaProjectSnapshot;
   datasetCounts: SenaEnterpriseProject["datasetCounts"];
   activeWindowLabel: string;
@@ -135,6 +139,8 @@ function buildProjectRevision(project: SenaEnterpriseProject, userId: string, ve
     userId,
     version,
     summary: summary?.trim() || revisionSummary(project.snapshot),
+    title: project.title,
+    description: project.description,
     snapshot: project.snapshot,
     datasetCounts: project.datasetCounts,
     activeWindowLabel: project.activeWindowLabel,
@@ -338,6 +344,8 @@ export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
   const sourceProject: SenaEnterpriseProject = {
     ...project,
     currentVersion: revision.version,
+    title: revision.title ?? project.title,
+    description: revision.description ?? project.description,
     snapshot: revision.snapshot,
     datasetCounts: revision.datasetCounts,
     activeWindowLabel: revision.activeWindowLabel,
@@ -359,13 +367,18 @@ export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, p
   requireEnterprisePermission(context, project.teamId, "project:update");
   assertEnterpriseProjectExpectedVersion(project, input.expectedVersion);
   const snapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : undefined;
-  if (input.title !== undefined) project.title = input.title.trim() || project.title;
-  if (input.description !== undefined) project.description = input.description.trim();
+  const nextTitle = input.title === undefined ? project.title : input.title.trim() || project.title;
+  const nextDescription = input.description === undefined ? project.description : input.description.trim();
+  const metadataChanged = nextTitle !== project.title || nextDescription !== project.description;
+  project.title = nextTitle;
+  project.description = nextDescription;
   if (snapshot) {
     project.snapshot = snapshot;
     project.datasetCounts = snapshotCounts(snapshot);
     project.activeWindowLabel = snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
     project.claimUse = snapshot.report.claimReadinessGate.claimUse;
+  }
+  if (snapshot || metadataChanged) {
     project.currentVersion += 1;
     db.projectRevisions.push(buildProjectRevision(project, context.user.id, project.currentVersion));
   }
@@ -394,13 +407,18 @@ export async function updateEnterpriseProjectAsync(context: SenaEnterpriseSessio
   requireEnterprisePermission(context, project.teamId, "project:update");
   assertEnterpriseProjectExpectedVersion(project, input.expectedVersion);
   const snapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : undefined;
-  if (input.title !== undefined) project.title = input.title.trim() || project.title;
-  if (input.description !== undefined) project.description = input.description.trim();
+  const nextTitle = input.title === undefined ? project.title : input.title.trim() || project.title;
+  const nextDescription = input.description === undefined ? project.description : input.description.trim();
+  const metadataChanged = nextTitle !== project.title || nextDescription !== project.description;
+  project.title = nextTitle;
+  project.description = nextDescription;
   if (snapshot) {
     project.snapshot = snapshot;
     project.datasetCounts = snapshotCounts(snapshot);
     project.activeWindowLabel = snapshot.source.activeTemporalWindow?.label ?? "Full conversation";
     project.claimUse = snapshot.report.claimReadinessGate.claimUse;
+  }
+  if (snapshot || metadataChanged) {
     project.currentVersion += 1;
     db.projectRevisions.push(buildProjectRevision(project, context.user.id, project.currentVersion));
   }
@@ -444,6 +462,8 @@ export function restoreEnterpriseProjectRevision(context: SenaEnterpriseSessionC
   }
   const restoredSnapshot = importSenaProjectSnapshot(targetRevision.snapshot);
   const previousVersion = project.currentVersion;
+  if (targetRevision.title !== undefined) project.title = targetRevision.title;
+  if (targetRevision.description !== undefined) project.description = targetRevision.description;
   project.snapshot = restoredSnapshot;
   project.datasetCounts = snapshotCounts(restoredSnapshot);
   project.activeWindowLabel = restoredSnapshot.source.activeTemporalWindow?.label ?? "Full conversation";
@@ -516,6 +536,8 @@ export async function restoreEnterpriseProjectRevisionAsync(context: SenaEnterpr
   }
   const restoredSnapshot = importSenaProjectSnapshot(targetRevision.snapshot);
   const previousVersion = project.currentVersion;
+  if (targetRevision.title !== undefined) project.title = targetRevision.title;
+  if (targetRevision.description !== undefined) project.description = targetRevision.description;
   project.snapshot = restoredSnapshot;
   project.datasetCounts = snapshotCounts(restoredSnapshot);
   project.activeWindowLabel = restoredSnapshot.source.activeTemporalWindow?.label ?? "Full conversation";

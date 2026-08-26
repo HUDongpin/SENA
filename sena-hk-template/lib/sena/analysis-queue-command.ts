@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE = "analysis-command-envelope";
 export const SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_NAME = "queued-analysis-command.json";
+export const SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY = "encrypted-upload-v1";
 
 const analysisCommandEnvelopeFormat = "sena-analysis-queue-command";
 const analysisCommandEnvelopeVersion = 1;
@@ -47,6 +48,7 @@ export function planSenaAnalysisQueueCommandCustody<
       ...input,
       payloadSummary: {
         ...input.payloadSummary,
+        commandCustody: SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY as typeof SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY,
         commandEnvelopeUploadId,
         commandEnvelopeSha256: commandEnvelope.sha256
       }

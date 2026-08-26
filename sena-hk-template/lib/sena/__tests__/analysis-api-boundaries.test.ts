@@ -91,10 +91,10 @@ describe("SENA analysis API decomposition boundaries", () => {
       actorUserId: "user_123",
       payload: {
         action: "run-analysis",
+        commandCustody: "encrypted-upload-v1",
         teamId: sourceProject.teamId,
         projectId: sourceProject.id,
         projectVersion: 7,
-        title: "Persisted project",
         activeTemporalWindowId: "window-a",
         includeRuntimeBundle: true,
         persist: true,
@@ -128,6 +128,41 @@ describe("SENA analysis API decomposition boundaries", () => {
     });
     expect(request.payload).not.toHaveProperty("inlineSnapshot");
     expect(request.payload).not.toHaveProperty("inlineDataset");
+  });
+
+  it("keeps omitted project metadata as omitted queue intent while resolving the run title from the retained source", () => {
+    const sourceProject = {
+      id: "project_metadata_intent",
+      teamId: "team_metadata_intent",
+      currentVersion: 11,
+      title: "Retained source title",
+      snapshot: { schemaVersion: "sena-project-snapshot/v1" }
+    };
+    const body = {
+      persist: true,
+      updateProject: true,
+      expectedVersion: sourceProject.currentVersion
+    };
+
+    const direct = buildSenaAnalysisRunRequestInput({ body, sourceProject });
+    const queued = buildSenaAnalysisQueueJobInput({
+      body,
+      teamId: sourceProject.teamId,
+      sourceProject,
+      actorUserId: "user_metadata_intent",
+      inlinePayloadAllowed: false
+    });
+
+    expect(direct.title).toBe(sourceProject.title);
+    expect(queued.payload).not.toHaveProperty("title");
+    expect(queued.payload).not.toHaveProperty("description");
+    expect(queued.payload).toEqual(expect.objectContaining({
+      commandCustody: "encrypted-upload-v1",
+      projectVersion: sourceProject.currentVersion,
+      expectedVersion: sourceProject.currentVersion,
+      persist: true,
+      updateProject: true
+    }));
   });
 
   it("builds direct analysis run input and provenance headers through reusable helpers", () => {

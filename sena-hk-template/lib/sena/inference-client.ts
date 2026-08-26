@@ -9,3 +9,5 @@ export {
   buildSenaGroupComparison,
   buildSenaGroupComparisonSuite
 } from "./inference";
+
+export type { SenaGroupComparisonSourceBuildAdmissionLimits } from "./inference";

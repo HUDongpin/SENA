@@ -273,6 +273,7 @@ describe("SENA analyze route", () => {
           source?: string;
           projectVersion?: number;
           includeRuntimeBundle?: boolean;
+          commandCustody?: string;
           commandEnvelopeUploadId?: string;
           commandEnvelopeSha256?: string;
           payloadValuesExcluded?: boolean;
@@ -316,6 +317,7 @@ describe("SENA analyze route", () => {
         source: "project",
         projectVersion: project.currentVersion,
         includeRuntimeBundle: true,
+        commandCustody: "encrypted-upload-v1",
         commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
         commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         payloadValuesExcluded: true
@@ -371,6 +373,7 @@ describe("SENA analyze route", () => {
         job?: { id?: string; delivery?: unknown; payloadSha256?: string };
         workerPayload?: {
           action?: string;
+          commandCustody?: string;
           projectId?: string;
           description?: string;
           includeRuntimeBundle?: boolean;
@@ -389,6 +392,7 @@ describe("SENA analyze route", () => {
       expect(queuePayload.job?.delivery).toBeUndefined();
       expect(queuePayload.workerPayload).toEqual(expect.objectContaining({
         action: "run-analysis",
+        commandCustody: "encrypted-upload-v1",
         projectId: project.id,
         description: "Managed queue description",
         includeRuntimeBundle: true
@@ -538,6 +542,7 @@ describe("SENA analyze route", () => {
       };
       expect(updateResponse.status).toBe(202);
       expect(updateReceipt.payloadSummary).toEqual(expect.objectContaining({
+        commandCustody: "encrypted-upload-v1",
         commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
         commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         payloadValuesExcluded: true
@@ -612,6 +617,65 @@ describe("SENA analyze route", () => {
         description: "Created through the queued command envelope."
       }));
 
+      for (const [field, value] of [
+        ["title", "Concurrent local title"],
+        ["description", "Concurrent local description"]
+      ] as const) {
+        const beforeConcurrentUpdate = await enterprise.getEnterpriseProjectAsync(
+          registered.context,
+          project.id
+        );
+        const concurrentResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token,
+            prefer: "respond-async"
+          },
+          body: JSON.stringify({
+            projectId: project.id,
+            queue: true,
+            persist: true,
+            updateProject: true,
+            expectedVersion: beforeConcurrentUpdate.currentVersion,
+            includeRuntimeBundle: false
+          })
+        }));
+        const concurrentReceipt = await concurrentResponse.json() as { id?: string };
+        expect(concurrentResponse.status).toBe(202);
+
+        const concurrentlyUpdated = await enterprise.updateEnterpriseProjectAsync(
+          registered.context,
+          project.id,
+          {
+            expectedVersion: beforeConcurrentUpdate.currentVersion,
+            [field]: value
+          }
+        );
+        expect(concurrentlyUpdated.currentVersion).toBe(beforeConcurrentUpdate.currentVersion + 1);
+
+        const concurrentDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+        expect(concurrentDrain.outcomes.find((outcome) => outcome.jobId === concurrentReceipt.id)).toEqual(
+          expect.objectContaining({
+            status: "failed",
+            attempts: 0,
+            retryable: false,
+            errorCode: "project_version_conflict"
+          })
+        );
+        await expect(enterprise.getEnterpriseProjectAsync(registered.context, project.id)).resolves.toEqual(
+          expect.objectContaining({
+            currentVersion: beforeConcurrentUpdate.currentVersion + 1,
+            [field]: value
+          })
+        );
+      }
+
+      const projectAfterConcurrentMetadata = await enterprise.getEnterpriseProjectAsync(
+        registered.context,
+        project.id
+      );
+
       const corruptResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
         method: "POST",
         headers: {
@@ -648,9 +712,9 @@ describe("SENA analyze route", () => {
       );
       await expect(enterprise.getEnterpriseProjectAsync(registered.context, project.id)).resolves.toEqual(
         expect.objectContaining({
-          currentVersion: updatedProject.currentVersion,
-          title: updatedProject.title,
-          description: updatedProject.description
+          currentVersion: projectAfterConcurrentMetadata.currentVersion,
+          title: projectAfterConcurrentMetadata.title,
+          description: projectAfterConcurrentMetadata.description
         })
       );
     } finally {
@@ -660,7 +724,7 @@ describe("SENA analyze route", () => {
       rmSync(enterpriseDbDir, { recursive: true, force: true });
       vi.resetModules();
     }
-  }, analysisRouteTestTimeoutMs);
+  }, analysisRouteTestTimeoutMs * 2);
 
   it("requires the async queue for heavy analysis when the production performance path is enabled", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-analysis-required-queue-route-"));
@@ -902,6 +966,7 @@ describe("SENA analyze route", () => {
       };
       expect(queueResponse.status).toBe(202);
       expect(queueReceipt.payloadSummary).toEqual(expect.objectContaining({
+        commandCustody: "encrypted-upload-v1",
         commandEnvelopeUploadId: expect.stringMatching(/^upload_/),
         commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
       }));
@@ -918,6 +983,52 @@ describe("SENA analyze route", () => {
       }));
       expect((queuedProject.snapshot as Record<string, any>).reproducibility.buildOptions.alpha).toBe(0.5);
       expect(pg.state?.payload.projects.find((candidate) => candidate.id === project.id)?.currentVersion).toBe(3);
+
+      const staleMetadataResponse = await route.POST(new Request("https://sena.example.test/api/sena/analyze", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-sena-csrf-token": csrf.token,
+          prefer: "respond-async"
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          queue: true,
+          persist: true,
+          updateProject: true,
+          expectedVersion: queuedProject.currentVersion,
+          includeRuntimeBundle: false
+        })
+      }));
+      const staleMetadataReceipt = await staleMetadataResponse.json() as { id?: string };
+      expect(staleMetadataResponse.status).toBe(202);
+      const concurrentMetadataProject = await enterprise.updateEnterpriseProjectAsync(
+        registered.context,
+        project.id,
+        {
+          expectedVersion: queuedProject.currentVersion,
+          description: "Concurrent Postgres description"
+        }
+      );
+      expect(concurrentMetadataProject.currentVersion).toBe(queuedProject.currentVersion + 1);
+      const staleMetadataDrain = await workerRuntime.drainEnterpriseServerJobQueue({ limit: 10 });
+      expect(staleMetadataDrain.outcomes.find(
+        (outcome) => outcome.jobId === staleMetadataReceipt.id
+      )).toEqual(expect.objectContaining({
+        status: "failed",
+        attempts: 0,
+        retryable: false,
+        errorCode: "project_version_conflict"
+      }));
+      expect(await enterprise.getEnterpriseProjectAsync(registered.context, project.id)).toEqual(
+        expect.objectContaining({
+          currentVersion: queuedProject.currentVersion + 1,
+          description: "Concurrent Postgres description"
+        })
+      );
+      expect(pg.state?.payload.projects.find(
+        (candidate) => candidate.id === project.id
+      )?.currentVersion).toBe(queuedProject.currentVersion + 1);
 
       const listResponse = await route.GET(new Request(`https://sena.example.test/api/sena/analyze?projectId=${project.id}`));
       const listBody = await listResponse.json() as {

@@ -23,6 +23,7 @@ vi.mock("../model", async (importOriginal) => {
 });
 
 import {
+  buildSenaGroupComparison,
   buildSenaGroupComparisonSuite,
   buildSenaAnalysisRun,
   buildSenaModel,
@@ -140,6 +141,135 @@ describe("validation source verification replay budget", () => {
     expect(estimateSenaGroupComparisonSourceModelWorkUnits({ dataset }))
       .toBeGreaterThan(50_000_000);
     expect(modelReplayProbe.buildCount).toBe(0);
+  });
+
+  it.each(["single", "suite"] as const)(
+    "preflights repeated-alias projection fan-out for the public %s builder before validation or model work",
+    (mode) => {
+      const sharedCodes = Array.from({ length: 128 }, () => (
+        lessonStudySenaContract.coded_segments[0].codes[0]
+      ));
+      const dataset = {
+        ...structuredClone(lessonStudySenaContract),
+        coded_segments: Array.from({ length: 64 }, (_unused, index) => ({
+          ...structuredClone(lessonStudySenaContract.coded_segments[0]),
+          segmentId: `aliased-segment-${index}`,
+          codes: sharedCodes
+        }))
+      };
+      const limits = {
+        maxProjectionWorkUnits: 500,
+        maxSourceModelWorkUnits: 50_000_000,
+        maxSourceTextBytes: 16 * 1024 * 1024
+      };
+      modelReplayProbe.buildCount = 0;
+
+      const build = () => mode === "single"
+        ? (buildSenaGroupComparison as unknown as (
+          input: Record<string, unknown>,
+          limits: Record<string, number>
+        ) => unknown)({
+          dataset,
+          groupField: "role",
+          groupA: "Lead teacher",
+          groupB: "Curriculum designer",
+          metric: "bridgeScore",
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits)
+        : (buildSenaGroupComparisonSuite as unknown as (
+          input: Record<string, unknown>,
+          limits: Record<string, number>
+        ) => unknown)({
+          dataset,
+          defaultGroupField: "role",
+          comparisons: [
+            { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+          ],
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits);
+
+      expect(build).toThrow(/source projection work budget exceeded/i);
+      expect(modelReplayProbe.buildCount).toBe(0);
+    }
+  );
+
+  it.each(["single", "suite"] as const)(
+    "enforces the aggregate source-text budget for the public %s builder before model work",
+    (mode) => {
+      const dataset = structuredClone(lessonStudySenaContract);
+      const limits = {
+        maxProjectionWorkUnits: 5_000_000,
+        maxSourceModelWorkUnits: 50_000_000,
+        maxSourceTextBytes: 64
+      };
+      modelReplayProbe.buildCount = 0;
+
+      const build = () => mode === "single"
+        ? (buildSenaGroupComparison as unknown as (
+          input: Record<string, unknown>,
+          limits: Record<string, number>
+        ) => unknown)({
+          dataset,
+          groupField: "role",
+          groupA: "Lead teacher",
+          groupB: "Curriculum designer",
+          metric: "bridgeScore",
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits)
+        : (buildSenaGroupComparisonSuite as unknown as (
+          input: Record<string, unknown>,
+          limits: Record<string, number>
+        ) => unknown)({
+          dataset,
+          defaultGroupField: "role",
+          comparisons: [
+            { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" }
+          ],
+          iterations: 100,
+          bootstrapIterations: 100
+        }, limits);
+
+      expect(build).toThrow(/source model text budget exceeded/i);
+      expect(modelReplayProbe.buildCount).toBe(0);
+    }
+  );
+
+  it("builds one admitted source model for an entire public suite", () => {
+    const dataset = structuredClone(lessonStudySenaContract);
+    const oneModelWorkUnits = estimateSenaGroupComparisonSourceModelWorkUnits({ dataset });
+    const limits = {
+      maxProjectionWorkUnits: 5_000_000,
+      maxSourceModelWorkUnits: oneModelWorkUnits,
+      maxSourceTextBytes: 16 * 1024 * 1024
+    };
+
+    modelReplayProbe.buildCount = 0;
+    expect(() => buildSenaGroupComparison({
+      dataset,
+      groupField: "role",
+      groupA: "Lead teacher",
+      groupB: "Curriculum designer",
+      metric: "bridgeScore",
+      iterations: 100,
+      bootstrapIterations: 100
+    }, limits)).not.toThrow();
+    expect(modelReplayProbe.buildCount).toBe(1);
+
+    modelReplayProbe.buildCount = 0;
+    expect(() => buildSenaGroupComparisonSuite({
+      dataset,
+      defaultGroupField: "role",
+      comparisons: [
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" },
+        { groupA: "Lead teacher", groupB: "Curriculum designer", metric: "socialStrength" }
+      ],
+      iterations: 100,
+      bootstrapIterations: 100
+    }, limits)).not.toThrow();
+    expect(modelReplayProbe.buildCount).toBe(1);
   });
 
   it("rejects an oversized sparse holder collection before reading an entry", () => {
