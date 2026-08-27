@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T22:17:40Z",
+  "updatedAt": "2026-08-27T22:20:22Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a9c20f1ea9714ae4b31136f87caf2cbeee10f2e4",
+      "headSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,11 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T22:17:40Z",
-      "lastObservedAt": "2026-08-27T22:17:40Z",
+      "lastHeartbeatAt": "2026-08-27T22:20:22Z",
+      "lastObservedAt": "2026-08-27T22:20:22Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 35,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 34,
         "headSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
@@ -1017,20 +1020,20 @@
         "postMainRepositorySecurityRunId": 33120771065,
         "postMainChecksPassed": true
       },
-      "noPrReason": "Exact candidate a9c20f1 is committed locally; the protected hook blocked the first push until this heartbeat binds the actual remote 982959f. Draft PR 35 will be created immediately after the ordinary hook-verified push.",
-      "dirtyState": "staged-registry-heartbeat-for-a9c20f1-hook-verified-push-and-draft-pr35",
+      "noPrReason": null,
+      "dirtyState": "staged-pr35-draft-lifecycle-binding-at-15a99e1",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "Exact local candidate a9c20f1 adds a narrowly bound integrated-cleanup behind-drift rule and regression tests; full governance tests, type-check, production build, exact live audit, staged write-policy and staged security pass",
-        "ci": "Candidate a9c20f1 has no CI receipt yet; PR 34 post-main build 33120771074 and repository-security 33120771065 passed on e9af8a8",
+        "local": "Draft PR 35 exact first registry-bound head 15a99e1 contains candidate a9c20f1 plus the actual remote observation heartbeat; full governance tests, type-check, production build, exact live audit, push-policy and security passed",
+        "ci": "PR 35 exact-head checks are pending; no merge authorization exists",
         "merged": "PR 34 is protected-main complete at e9af8a8, but the audit repair is not merged and Node24 cleanup remains frozen",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1314,28 +1317,35 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a9c20f1ea9714ae4b31136f87caf2cbeee10f2e4",
+      "headSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
-      "remoteObservedAt": "2026-08-27T22:17:40Z",
-      "pr": null,
-      "noPrReason": "Exact candidate a9c20f1 is local-only until this remote observation heartbeat permits an ordinary hook-verified push and immediate draft PR 35 creation.",
+      "remoteHeadSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
+      "remoteObservedAt": "2026-08-27T22:20:22Z",
+      "pr": 35,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
+      "prBase": "main",
+      "noPrReason": null,
+      "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 34,
         "headSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
         "mergeCommitSha": "e9af8a89a3d2736d5f993408e06670a6f30c5e83",
         "mergedAt": "2026-08-27T22:01:37Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T22:17:40Z",
-      "lastObservedAt": "2026-08-27T22:17:40Z",
-      "lastCommitAt": "2026-08-28T06:15:54+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T22:20:22Z",
+      "lastObservedAt": "2026-08-27T22:20:22Z",
+      "lastCommitAt": "2026-08-28T06:19:19+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "Candidate a9c20f1 is local-only; remote remains exact 982959f after one native hook refusal with no mutation; draft PR 35 is required immediately after the ordinary push"
+      "disposition": "ready-for-pr",
+      "closeout": "Draft PR 35 is OPEN at exact first bound head 15a99e1; merge authorization is false until final exact-head build/security and protected-main metadata approval"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
