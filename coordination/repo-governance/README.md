@@ -1,0 +1,232 @@
+# SENA repository governance
+
+This directory is the SENA control-plane ledger for sessions, branches, Git
+worktrees, rescue refs, incident boundaries, and evidence maturity. It does not
+contain credential values, provider tokens, runtime databases, or copies of
+sensitive documents.
+
+## Current operating boundary
+
+Ordinary feature development remains frozen while the credential incident in
+`active-work.json` is `blocked-owner`. The safe work allowed during that freeze
+is limited to preservation, redacted security containment, governance tooling,
+sanitized salvage review, and exact-SHA verification.
+
+The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
+checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
+used for feature work until the P0 owner gate is closed. New work uses a branch
+and a Git-registered worktree created from a freshly verified `origin/main`.
+
+## Hard rules
+
+1. One top-level write task has one owner, one branch, and one registered
+   worktree.
+2. A branch has at most one active writer. Review agents are read-only unless a
+   written handoff changes ownership.
+3. At most three write worktrees may be active: one integration/release lane
+   and two feature lanes.
+4. The first reviewable commit must gain an upstream plus draft PR, or a
+   machine-readable `noPrReason`, within 24 hours.
+5. A dirty worktree without a heartbeat for 24 hours is warned. At 72 hours it
+   is frozen for preservation review. It is never auto-deleted.
+6. An ownerless/no-PR branch older than seven calendar days enters manual
+   review. Patch equivalence is not ancestry and never authorizes force delete.
+7. Merged plus clean worktrees receive ordinary same-day closeout. `git stash`,
+   `git clean -fdx`, `git reset --hard`, forced worktree removal, and
+   unauthorized branch deletion are not closeout tools.
+8. Every evidence claim names its layer: local, CI, merged, deployed, and live.
+   A green layer never implies the later layers.
+
+## Registry lifecycle
+
+Every write task is entered in `active-work.json` before its first tracked
+write. Required fields include task/thread identity, absolute cwd, owner lane,
+branch, worktree, base/head SHA, allowed paths, owner heartbeat/review date, PR or
+`noPrReason`, dirty state, sensitive paths, five-layer evidence state, and one
+of these dispositions:
+
+- `active`
+- `ready-for-pr`
+- `integrated`
+- `frozen-recovery`
+- `security-quarantine`
+- `preservation-review`
+- `archived`
+- `cleanup-approved`
+
+`lastHeartbeatAt` is an owner/writer signal and is never refreshed merely
+because an auditor observed the branch. `lastObservedAt` records the audit and
+`lastCommitAt` is Git evidence; frozen/legacy objects may therefore have a null
+owner heartbeat. `nextReviewAt` is always an ISO date even when final closeout
+remains owner-gated.
+
+`headSha` is the last heartbeated exact head. An active lane may advance only
+forward from that SHA and only through its declared `allowedPaths`; the audit
+warns until the next heartbeat records the new head. Inactive/frozen lanes must
+match exactly. The audit also checks the registered worktree/branch pairing,
+upstream, ahead/behind tuple, dirty allowed paths, 24/72-hour heartbeat policy,
+one release plus at most two feature lanes, and preservation custody.
+
+While the P0 incident is open, an active task cannot obtain write permission by
+choosing a `freezeException` label. Each exception is bound in policy to one
+exact task, owner key, owner lane, branch, and complete allowed-path set, with
+its authorization basis recorded. A writable work item and its branch must
+also have the same `active` or `ready-for-pr` disposition.
+
+An ownership handoff records the old owner acknowledgement, exact head SHA,
+clean/dirty state, untracked-file inventory, and new owner acknowledgement
+before the new writer starts.
+
+## Commands
+
+Run from `sena-hk-template`:
+
+```bash
+npm run sena:repo:registry
+npm run sena:repo:security
+npm run sena:repo:audit
+```
+
+The full local topology audit re-hashes the rescue ref list, bundle, inventory,
+and disk-only source copies and runs `git bundle verify` on the recorded
+custodian clone. It can additionally
+perform a fail-closed live read-only GitHub heads/tags and PR query:
+
+```bash
+node ../scripts/verify-sena-repo-governance.mjs audit --live
+```
+
+Generate a non-generated orphan-worktree inventory only into an owner-controlled
+path outside the repository:
+
+```bash
+npm run sena:repo:inventory -- --output /approved/owner-only/path/inventory.json
+```
+
+The inventory hashes reviewable files, compares their Git blob IDs with
+`origin/main`, local/remote branches, rescue refs, and the object database, and
+reports disk-only candidates. Generated directories are size-summarized.
+Sensitive runtime directories are classified but not copied.
+
+## Security gate
+
+During this P0 freeze the shared clone is configured to the absolute,
+owner-recorded hook custody path in `active-work.json`. The hooks discover the
+actual caller worktree and run the governance script against that target, so
+the quarantined root and completed release worktree are fail-closed while the
+registered governance exception remains writable. After this change is
+integrated and the owner authorizes root restoration, hook custody should move
+to relative `.githooks` in the restored checkout.
+
+`.githooks/pre-commit` reads the stage-0 registry object from the index, binds
+every staged path to that snapshot's exact writer/freeze allowlist, and scans
+the staged index before a prohibited object enters a commit. An unstaged policy
+overlay therefore cannot authorize a commit. `.githooks/pre-push` requires one
+current-branch update, reads the registry from that outgoing commit, and uses
+the same commit snapshot for the live topology/preservation audit and writer
+policy. Working-tree policy text is not a push authorization source.
+
+The push policy requires `origin`, the current registered writer's exact local
+branch ref, and the same exact remote branch ref. The hook-provided remote
+location plus all resolved fetch/push URLs must normalize to the hard-coded and
+registry-bound `github.com/HUDongpin/SENA` identity; a `pushurl`,
+`pushInsteadOf`, lookalike host, credential-bearing URL, alternate path, or
+ambiguous URL set fails without echoing the URL. It rejects direct `main`
+updates, other owners' or unregistered branches, tags, notes, rescue refs,
+deletions, and non-fast-forward updates unless a future separately authorized
+receipt policy is implemented. Empty, multi-ref, or partially captured update
+input fails closed.
+The scanner examines the final tree and every outgoing commit, including every
+parent comparison of a merge commit, so adding a forbidden file during merge
+resolution and deleting it later still fails. It blocks:
+
+- any case variant of `All API Keys.docx` at any depth;
+- non-example `.env*` files;
+- private-key filenames and extensions;
+- explicitly named credential/key exports and sensitive archives;
+- the known quarantined credential-document blob by exact object ID, even if it
+  is renamed to an innocuous binary filename;
+- high-confidence private-key and provider-token shapes in text blobs.
+
+Binary document protection is path-based and therefore does not rely on a text
+scanner. Blobs beyond the bounded text scanner are rejected fail-closed rather
+than silently skipped. Ref deletion and non-fast-forward updates are rejected
+without a separately implemented authorization receipt. New branches are
+compared against trusted `origin/main`, so a contaminated ancestor already
+reachable from another remote branch is not excluded. Findings contain only a
+sanitized path (or stable redacted path hash), rule ID, and sanitized source;
+the matched value is never printed. Tests construct explicitly fake
+credentials at runtime and assert that neither content nor filename values are
+emitted.
+
+The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
+checked-out ref contains that workflow. It cannot retroactively protect an old
+branch that lacks the workflow, and it detects a pushed commit after server
+acceptance rather than acting as server-side push protection. When it does run,
+it records forced/deleted/non-branch mutations as failures and binds non-main
+push events to an active registry branch and its forward-only allowed paths.
+Post-PR updates to `main` remain governed by the GitHub ruleset because CI
+cannot reliably distinguish every server-mediated merge strategy from a direct
+push after acceptance. The existing
+type-check/build gate remains a separate `main`/PR-to-main check. CI also runs a
+portable checkout-topology audit; clone-specific rescue custody stays in the
+full local pre-push audit on the recorded custodian. Other clones cannot claim
+custody of artifacts they do not hold. Repository-wide required workflow/push
+protection and GitHub secret scanning remain owner/platform gates.
+
+## P0 preservation state
+
+The local `refs/rescue/sena-20260827/*` namespace protects every maximal
+unreachable tip identified during the 2026-08-27 audit, including the
+patch-unique `6654112` and reflog-only `0190acc`. Rescue refs are local-only and
+must not be pushed without a separate security review.
+
+The verified bundle and orphan-source quarantine are outside the repository.
+Their paths and SHA-256 values are recorded in `active-work.json` and the rescue
+receipt. Neither sensitive DOCX is included in that bundle or copied into the
+ordinary rescue area.
+
+Four broken worktree directories remain preserved in place. Their `.git`
+pointers target the pre-migration Desktop repository and are invalid. Listing
+them in the registry makes them audited preservation objects; it does not make
+them valid Git worktrees and does not authorize cleanup.
+
+The two disk-only navigation files were compared semantically with current
+`main`. The old `xl` implementation is superseded by current `lg` compaction and
+must not be cherry-picked. Its still-useful breakpoint-complement invariant was
+selectively re-expressed as a current-strategy regression test.
+
+## Development frontier
+
+`developmental-gap-register-20260827.md` is the source-bound priority ledger.
+Its highest product gaps are an authorized real-data researcher walkthrough,
+genuine coding-reliability/adjudication/human-review evidence on that same
+revision, and an independent mathematical/statistical oracle. It keeps claim
+readiness exploratory and production cutover separately owner-gated.
+
+## Exact-main handoff receipt
+
+`exact-main-release-receipt-20260827.md` binds the complete local research-pilot
+gate sequence to commit `5cdea568a053347dbc82069bde3e836cffb55cc6` and tree
+`4a0f018023803cb5eef8d67b05658d8656ca1f58`. It records real test counts,
+responsive browser coverage, strict performance custody, and the clean final
+worktree state. It deliberately leaves deployment and live behavior unproved.
+
+## Owner-gated actions
+
+The following actions require distinct owner authorization and must not be
+inferred from this governance implementation:
+
+- identify provider/account/environment entries in the quarantined documents;
+- revoke or rotate credentials and record provider-side redacted readback;
+- update formal secret stores or Vercel environment variables;
+- delete the contaminated remote branch with an exact old-SHA lease;
+- rewrite history or request GitHub cached-object removal;
+- remove or archive broken worktree directories;
+- switch the root checkout and fast-forward local `main`;
+- deploy or change the production alias.
+
+The root checkout can return to `main` only after the rescue receipt, sanitized
+salvage, credential rotation readback, live-ref audit, lock/process checks, and
+owner authorization are all present. The allowed transition is ordinary
+checkout plus fast-forward; reset and force are not part of the procedure.

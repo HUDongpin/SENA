@@ -45,4 +45,21 @@ describe("SENA navigation control styling", () => {
     expect(navSource).toContain('wordmarkClassName="hidden xl:block"');
     expect(navSource).toContain('taglineClassName="hidden 2xl:block"');
   });
+
+  // Salvaged invariant from the preserved pre-migration worktree: the desktop
+  // actions and both mobile-menu surfaces must switch at the same breakpoint.
+  // The old implementation used xl; the current compact strategy deliberately
+  // uses lg. Keeping the complement prevents a width with both controls shown
+  // or with neither control reachable.
+  it("keeps desktop actions and mobile navigation complementary at lg", () => {
+    const navSource = readProjectFile("components/NavBar.tsx");
+
+    expect(navSource).toContain('<div className="hidden shrink-0 items-center gap-2 lg:flex">');
+    expect(navSource).toContain(
+      'className="grid h-12 w-12 place-items-center rounded-full border border-cardBorder/60 bg-card/70 text-foreground lg:hidden"'
+    );
+    expect(navSource).toContain(
+      'className="fixed inset-0 z-50 bg-slate-950/45 p-4 backdrop-blur-sm lg:hidden"'
+    );
+  });
 });
