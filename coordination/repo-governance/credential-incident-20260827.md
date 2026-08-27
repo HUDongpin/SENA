@@ -370,14 +370,16 @@ artifact or log.
 
 The current provider aggregate is nine of nine rows complete: DeepSeek,
 Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No
-provider row remains open, and provider containment is true. PR #21 subsequently
-became Ready and merged through protected `main` as
-`9ecc72b09d51e2426868eb7569449ed9aea0f774`; its exact-head checks and the two
-post-main checks passed. This follow-up declares the one-shot deletion receipt
-active, but the declaration is executable only after this exact registry
-snapshot itself reaches protected `main`. Feature work remains frozen. Ref
-deletion, live absence, incident closure, root-checkout movement, and deployment
-have not occurred.
+provider row remains open, and provider containment is true. PR #21 merged as
+`9ecc72b...`; activation PR #22 then merged exact head `aaf679d...` through
+protected `main` as `b002f976...`, with both post-main checks green. The first
+exact-lease deletion attempt passed actor/remote identity, push policy, and the
+exact deletion boundary, but the local governance audit then failed closed
+before remote mutation because two historical ahead/behind observations and the
+PR #22 lifecycle state were stale. Fresh live readback proved the contaminated
+ref remained at the exact expected old SHA. Feature work remains frozen while
+the immutable-base correction reaches protected `main`; deletion, live absence,
+incident closure, root-checkout movement, and deployment have not occurred.
 
 ## Complete superseding provider readback
 
@@ -520,9 +522,12 @@ The mandatory order is:
 2. **Satisfied:** merge PR #21 into protected `main` only through its required
    review and CI controls; exact head `24d24c8...` merged as `9ecc72b...`, and
    both post-main checks passed.
-3. **Current follow-up:** merge activation PR #22 through protected
-   `main`; it binds the one-shot receipt to the completed provider evidence,
-   exact PR/merge SHAs, owner authorization, and post-main check runs.
+3. **Satisfied:** activation PR #22 merged exact head `aaf679d...` through
+   protected `main` as `b002f976...`; both exact post-main checks passed.
+3a. **Current fail-closed correction:** bind historical read-only work-item
+   ahead/behind evidence to immutable `b002f976...`, record PR #22 as merged,
+   and preserve the first blocked attempt as no-remote-mutation evidence on
+   protected `main`.
 4. Delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
    exact old-SHA lease for
    `18d542f707e56aa9d043dd497e0efe48b540db20`; abort on drift.
