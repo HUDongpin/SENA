@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T19:29:47Z",
+  "updatedAt": "2026-08-27T19:34:40Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "2939d35a42928e676c274a3078d188329061f7c3",
+      "headSha": "9156b5afe9d0bf91c0788d4cd55aa5f242cd4876",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,14 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T19:29:47Z",
-      "lastObservedAt": "2026-08-27T19:29:47Z",
+      "lastHeartbeatAt": "2026-08-27T19:34:40Z",
+      "lastObservedAt": "2026-08-27T19:34:40Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 27,
-      "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 26,
         "headSha": "90c1093be6825e254535d190e4819a3c9d934d63",
@@ -1021,19 +1021,19 @@
         "postMainChecksPassed": true
       },
       "noPrReason": null,
-      "dirtyState": "active-governance-pr27-draft-metadata-head-pending",
+      "dirtyState": "ready-for-pr27-authorization-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "PR 26 lane registration is on protected main; audit-lifecycle fix e454ef1 plus closeout metadata head 2939d35 pass RED/GREEN regression, full governance tests 38/38, live audit, index write-policy, and staged security; draft PR 27 is open",
-        "ci": "PR 26 final and post-main checks passed; PR 27 checks started on first reviewable head 2939d35 and will be superseded by its metadata candidate",
-        "merged": "lane registration PR 26 head 90c1093 merged as protected main 8a7709a2; draft PR 27 carries the audit-lifecycle fix and is not merged",
+        "local": "PR 26 lane registration is on protected main; audit-lifecycle fix and PR 27 metadata pass RED/GREEN regression, full governance tests 38/38, live audit, index write-policy, and staged security; PR 27 is Ready and owner-authorized after exact head 9156b5a passed required checks",
+        "ci": "PR 27 exact metadata head 9156b5a passed build 33108878899 and repository-security 33108878869 plus 33108875981; those checks will be superseded by the authorization metadata candidate",
+        "merged": "lane registration PR 26 head 90c1093 merged as protected main 8a7709a2; Ready PR 27 carries the audit-lifecycle fix and remains unmerged until its final exact-SHA checks pass",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1297,19 +1297,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "2939d35a42928e676c274a3078d188329061f7c3",
+      "headSha": "9156b5afe9d0bf91c0788d4cd55aa5f242cd4876",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "2939d35a42928e676c274a3078d188329061f7c3",
-      "remoteObservedAt": "2026-08-27T19:29:47Z",
+      "remoteHeadSha": "9156b5afe9d0bf91c0788d4cd55aa5f242cd4876",
+      "remoteObservedAt": "2026-08-27T19:34:40Z",
       "pr": 27,
       "prState": "OPEN",
-      "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "2939d35a42928e676c274a3078d188329061f7c3",
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "9156b5afe9d0bf91c0788d4cd55aa5f242cd4876",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1319,13 +1319,13 @@
         "mergeCommitSha": "8a7709a2c1ce09c933b310faaed023146488b24f",
         "mergedAt": "2026-08-27T19:15:17Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T19:29:47Z",
-      "lastObservedAt": "2026-08-27T19:29:47Z",
-      "lastCommitAt": "2026-08-28T03:28:41+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T19:34:40Z",
+      "lastObservedAt": "2026-08-27T19:34:40Z",
+      "lastCommitAt": "2026-08-28T03:31:15+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "lane registration PR 26 merged and post-main checks passed; draft PR 27 carries the tested audit-lifecycle consistency fix with first reviewable head 2939d35"
+      "disposition": "ready-for-pr",
+      "closeout": "PR 27 is Ready and explicitly merge-authorized after exact metadata head 9156b5a passed required checks; authorization metadata candidate must independently pass before protected merge"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
