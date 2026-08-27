@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const projectRoot = resolve(process.cwd(), "..");
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
@@ -199,6 +200,41 @@ describe("SENA repository governance", () => {
     expect(featureBranches.every((branch: { remoteObservationMode?: string }) => !branch.remoteObservationMode)).toBe(
       true
     );
+  });
+
+  it("permits a monotonic PR close after the recorded head advances only through allowed paths", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+
+    expect(
+      governance.monotonicPrTransitionAllowed({
+        observationMode: "monotonic",
+        recordedState: "OPEN",
+        liveState: "MERGED",
+        recordedHeadPresent: true,
+        recordedHeadMatches: false,
+        permittedForwardAdvance: true
+      })
+    ).toBe(true);
+    expect(
+      governance.monotonicPrTransitionAllowed({
+        observationMode: "monotonic",
+        recordedState: "OPEN",
+        liveState: "MERGED",
+        recordedHeadPresent: true,
+        recordedHeadMatches: false,
+        permittedForwardAdvance: false
+      })
+    ).toBe(false);
+    expect(
+      governance.monotonicPrTransitionAllowed({
+        observationMode: "monotonic",
+        recordedState: "MERGED",
+        liveState: "OPEN",
+        recordedHeadPresent: true,
+        recordedHeadMatches: true,
+        permittedForwardAdvance: true
+      })
+    ).toBe(false);
   });
 
   it("fails closed when an active writer exceeds the 72-hour heartbeat freeze threshold", () => {
@@ -1354,6 +1390,13 @@ describe("SENA repository governance", () => {
     for (const active of registry.workItems.filter(isActiveWriter)) {
       if (active.freezeException === "governance-preservation") continue;
       active.disposition = "integrated";
+      const [ahead, behind] = runGit(projectRoot, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        `${active.branch}...${active.aheadBehind.baseRef}`
+      ]).split(/\s+/).map(Number);
+      active.aheadBehind = { ...active.aheadBehind, ahead, behind };
       const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
       branch.disposition = "integrated";
     }
@@ -1361,7 +1404,7 @@ describe("SENA repository governance", () => {
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
     const result = runNode(governanceScript, ["audit", "--registry", registryPath]);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stdout).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("blocked-owner");
     expect(report.errors).toEqual([]);

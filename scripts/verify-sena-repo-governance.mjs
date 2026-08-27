@@ -78,6 +78,22 @@ const MANUAL_REVIEW_BRANCH_DISPOSITIONS = new Set([
   "archived",
   "cleanup-approved"
 ]);
+
+export function monotonicPrTransitionAllowed({
+  observationMode,
+  recordedState,
+  liveState,
+  recordedHeadPresent,
+  recordedHeadMatches,
+  permittedForwardAdvance
+}) {
+  return Boolean(
+    observationMode === "monotonic" &&
+      recordedState === "OPEN" &&
+      new Set(["CLOSED", "MERGED"]).has(liveState) &&
+      (!recordedHeadPresent || recordedHeadMatches || permittedForwardAdvance)
+  );
+}
 const KNOWN_SENSITIVE_BLOB_OIDS = new Set([
   "15a131415d0206782265902b0af612a80e16bae2",
   ...String(process.env.SENA_GOVERNANCE_ADDITIONAL_DENY_BLOB_OIDS ?? "")
@@ -2386,17 +2402,22 @@ function runAudit(flags) {
       if (!pr) errors.push(`registry PR could not be found: #${branchRecord.pr}`);
       else {
         if (pr.headRefName !== branchRecord.name) errors.push(`registry PR head branch mismatch: #${branchRecord.pr}`);
-        if (branchRecord.prHeadSha && pr.headRefOid !== branchRecord.prHeadSha) {
-          const activeItem = (registry.workItems ?? []).find(
-            (item) => item.branch === branchRecord.name && ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
-          );
-          const isPermittedForwardAdvance = Boolean(
+        const activeItem = (registry.workItems ?? []).find(
+          (item) => item.branch === branchRecord.name && ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
+        );
+        const recordedHeadMatches = Boolean(
+          branchRecord.prHeadSha && pr.headRefOid === branchRecord.prHeadSha
+        );
+        const isPermittedForwardAdvance = Boolean(
+          branchRecord.prHeadSha &&
+            !recordedHeadMatches &&
             activeItem &&
             git(["merge-base", "--is-ancestor", branchRecord.prHeadSha, pr.headRefOid], { allowFailure: true }).status === 0 &&
             changedPathsAcrossCommitRange(branchRecord.prHeadSha, pr.headRefOid).every((path) =>
               pathIsAllowed(path, activeItem.allowedPaths)
             )
-          );
+        );
+        if (branchRecord.prHeadSha && pr.headRefOid !== branchRecord.prHeadSha) {
           if (isPermittedForwardAdvance) {
             warnings.push(`active PR head advanced beyond its last observed SHA: #${branchRecord.pr}`);
           } else {
@@ -2404,12 +2425,14 @@ function runAudit(flags) {
           }
         }
         if (branchRecord.prState && pr.state !== branchRecord.prState) {
-          const isPermittedMonotonicPrTransition = Boolean(
-            branchRecord.prStateObservationMode === "monotonic" &&
-            branchRecord.prState === "OPEN" &&
-            new Set(["CLOSED", "MERGED"]).has(pr.state) &&
-            (!branchRecord.prHeadSha || pr.headRefOid === branchRecord.prHeadSha)
-          );
+          const isPermittedMonotonicPrTransition = monotonicPrTransitionAllowed({
+            observationMode: branchRecord.prStateObservationMode,
+            recordedState: branchRecord.prState,
+            liveState: pr.state,
+            recordedHeadPresent: Boolean(branchRecord.prHeadSha),
+            recordedHeadMatches,
+            permittedForwardAdvance: isPermittedForwardAdvance
+          });
           if (isPermittedMonotonicPrTransition) {
             warnings.push(`PR lifecycle advanced beyond its registry observation: #${branchRecord.pr}`);
           } else {
