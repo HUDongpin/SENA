@@ -2110,6 +2110,41 @@ function changedPathsAcrossCommitRange(baseSha, headSha) {
   return [...paths];
 }
 
+function scopedWorkItemAdvance(item, actualHeadSha) {
+  const isForward =
+    git(["merge-base", "--is-ancestor", item.headSha, actualHeadSha], { allowFailure: true }).status === 0;
+  if (!isForward) {
+    return { isForward: false, protectedMainBaseline: false, laneChangedPaths: [] };
+  }
+
+  const baseRef = item.aheadBehind?.baseRef;
+  const protectedMainSha =
+    baseRef === "origin/main" && gitObjectExists("origin/main^{commit}")
+      ? gitText(["rev-parse", "origin/main"]).trim()
+      : null;
+  if (!protectedMainSha) {
+    return {
+      isForward: true,
+      protectedMainBaseline: false,
+      laneChangedPaths: changedPathsAcrossCommitRange(item.headSha, actualHeadSha)
+    };
+  }
+
+  const actualIsProtectedMainHistory =
+    git(["merge-base", "--is-ancestor", actualHeadSha, protectedMainSha], { allowFailure: true }).status === 0;
+  if (actualIsProtectedMainHistory) {
+    return { isForward: true, protectedMainBaseline: true, laneChangedPaths: [] };
+  }
+
+  const mergeBase = git(["merge-base", actualHeadSha, protectedMainSha], { allowFailure: true });
+  const candidateBase = mergeBase.status === 0 ? String(mergeBase.stdout ?? "").trim() : item.headSha;
+  return {
+    isForward: true,
+    protectedMainBaseline: false,
+    laneChangedPaths: changedPathsAcrossCommitRange(candidateBase || item.headSha, actualHeadSha)
+  };
+}
+
 function runPortableAudit(registry, validation) {
   const errors = [...validation.errors];
   const warnings = [...validation.warnings];
@@ -2256,13 +2291,12 @@ function runAudit(flags) {
     }
 
     if (actual.headSha !== item.headSha) {
-      const isForward = git(["merge-base", "--is-ancestor", item.headSha, actual.headSha], { allowFailure: true }).status === 0;
-      const changed = isForward
-        ? changedPathsAcrossCommitRange(item.headSha, actual.headSha)
-        : [];
-      const unexpected = changed.filter((path) => !pathIsAllowed(path, item.allowedPaths));
-      if (!isActive || !isForward || unexpected.length > 0) {
+      const advance = scopedWorkItemAdvance(item, actual.headSha);
+      const unexpected = advance.laneChangedPaths.filter((path) => !pathIsAllowed(path, item.allowedPaths));
+      if (!isActive || !advance.isForward || unexpected.length > 0) {
         errors.push(`workItem headSha is not a permitted forward-only allowed-path advance: ${item.taskId}`);
+      } else if (advance.protectedMainBaseline) {
+        warnings.push(`active workItem absorbed a protected-main baseline advance: ${item.taskId}`);
       } else {
         warnings.push(`active workItem HEAD advanced beyond last-heartbeated headSha: ${item.taskId}`);
       }

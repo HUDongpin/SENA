@@ -237,6 +237,45 @@ describe("SENA repository governance", () => {
     ).toBe(false);
   });
 
+  it("treats protected-main fast-forwards as baseline intake while still rejecting lane-authored path escapes", () => {
+    const fixture = createGovernedFixture("protected-main-baseline-intake");
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    registry.workItems[0].headSha = fixture.head;
+    registry.workItems[0].allowedPaths = ["README.md"];
+    registry.workItems[0].aheadBehind = { baseRef: "origin/main", ahead: 0, behind: 0 };
+    registry.workItems[0].dirtyState = "clean-protected-main-baseline";
+    registry.policy.freezeExceptionBindings[0].allowedPaths = ["README.md"];
+    registry.branches[0].headSha = fixture.head;
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "protected main governance heartbeat"]);
+    const protectedMainHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", protectedMainHead]);
+
+    const protectedMainAudit = runNode(
+      fixture.script,
+      ["audit", "--registry-from-commit", protectedMainHead],
+      { cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } }
+    );
+    const protectedMainReport = JSON.parse(protectedMainAudit.stdout);
+    expect(protectedMainReport.errors).not.toContain(
+      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-GOVERNANCE-TEST-WRITER"
+    );
+
+    writeFileSync(join(fixture.root, "outside.txt"), "lane-authored path escape\n");
+    runGit(fixture.root, ["add", "outside.txt"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "unauthorized lane candidate"]);
+    const candidateAudit = runNode(
+      fixture.script,
+      ["audit", "--registry-from-commit", protectedMainHead],
+      { cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } }
+    );
+    const candidateReport = JSON.parse(candidateAudit.stdout);
+    expect(candidateReport.errors).toContain(
+      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-GOVERNANCE-TEST-WRITER"
+    );
+  });
+
   it("fails closed when an active writer exceeds the 72-hour heartbeat freeze threshold", () => {
     const root = temporaryRoot("stale-heartbeat");
     const registry = JSON.parse(
