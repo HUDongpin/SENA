@@ -82,8 +82,9 @@ names the exact-main release worktree.
 
 | Gate | Result |
 |---|---|
-| Governance + navigation focused tests | 2/2 files, 33/33 tests passed |
-| Final full suite, broad phase | 208 files passed, 1 live file skipped; 2,953 tests passed, 2 live tests skipped |
+| Governance + navigation focused tests | 2/2 files, 34/34 tests passed |
+| Sandbox full-suite attempt | 207 files and 2,953 tests passed; the exact-loopback listener test exited before readiness in the restricted sandbox |
+| Controlled-loopback full-suite rerun | 208 files passed, 1 live file skipped; 2,954 tests passed, 2 live tests skipped |
 | Final full suite, serial phase | 5/5 files, 63/63 tests passed |
 | `npx tsc --noEmit` | passed |
 | `npm run lint` | passed |
@@ -92,6 +93,8 @@ names the exact-main release worktree.
 | Patch hygiene | `git diff --check` passed |
 | Local governance audit | `errors=[]`, `status=blocked-owner`, 26 rescue refs, 0 unreachable commits |
 | Live governance audit at `2026-08-27T06:29:44.349Z` | `errors=[]`, `status=blocked-owner`; 2 live heads, 2 tags, 0 open PRs before this governance draft |
+| First reviewable governance commit | `531f320e7b6fe98b29356c7fb2a51b7b52d334ab`; pushed through the pre-push gate |
+| GitHub review surface | Draft PR #21 opened against `main`; CI pending at this receipt update |
 | Exact-main handoff | separate receipt binds the full pilot gate to commit `5cdea568` / tree `4a0f018` |
 
 The skipped live Postgres tests are reported as skipped, not passed. The exact
