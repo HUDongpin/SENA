@@ -90,9 +90,10 @@ and both exact post-main checks passed. The first exact-lease deletion attempt
 was correctly blocked by the local governance audit before any remote mutation:
 two historical work-item ahead/behind observations and the PR #22 lifecycle
 record were stale after the merge. The contaminated ref remains at its exact
-old SHA. Feature work remains frozen while this fail-closed state is corrected
-on protected `main`; deletion, root-checkout movement, incident closure, feature
-thaw, and deployment remain pending.
+old SHA. PR #23 now carries the immutable-base correction; its final exact-head
+checks and protected merge are pending. Feature work remains frozen; deletion,
+root-checkout movement, incident closure, feature thaw, and deployment remain
+pending.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -372,8 +373,8 @@ inferred from provider or governance implementation evidence:
   `24d24c8...`, consumed by the protected merge, and closed out against merge
   commit `9ecc72b...` plus successful post-main checks;
 - PR #22 merged exact head `aaf679d...` as `b002f976...` with post-main checks
-  green; merge the fail-closed dynamic-observation correction through protected
-  `main`, then use the already owner-authorized one-shot receipt to delete only
+  green; merge PR #23's fail-closed dynamic-observation correction through
+  protected `main`, then use the already owner-authorized one-shot receipt to delete only
   the contaminated remote branch with an exact old-SHA lease, read back live
   absence, and record the protected-main consumed/event-custody receipt in that
   order;

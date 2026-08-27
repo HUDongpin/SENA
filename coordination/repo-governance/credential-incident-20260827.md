@@ -377,9 +377,10 @@ exact-lease deletion attempt passed actor/remote identity, push policy, and the
 exact deletion boundary, but the local governance audit then failed closed
 before remote mutation because two historical ahead/behind observations and the
 PR #22 lifecycle state were stale. Fresh live readback proved the contaminated
-ref remained at the exact expected old SHA. Feature work remains frozen while
-the immutable-base correction reaches protected `main`; deletion, live absence,
-incident closure, root-checkout movement, and deployment have not occurred.
+ref remained at the exact expected old SHA. PR #23 now carries the immutable-base
+correction; its final exact-head checks and protected merge are pending. Feature
+work remains frozen; deletion, live absence, incident closure, root-checkout
+movement, and deployment have not occurred.
 
 ## Complete superseding provider readback
 
@@ -527,7 +528,7 @@ The mandatory order is:
 3a. **Current fail-closed correction:** bind historical read-only work-item
    ahead/behind evidence to immutable `b002f976...`, record PR #22 as merged,
    and preserve the first blocked attempt as no-remote-mutation evidence on
-   protected `main`.
+   protected `main` through PR #23.
 4. Delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
    exact old-SHA lease for
    `18d542f707e56aa9d043dd497e0efe48b540db20`; abort on drift.
