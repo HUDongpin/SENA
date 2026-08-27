@@ -39,7 +39,7 @@ Read-only live-ref metadata audit at `2026-08-27T12:07:09.098Z`:
   both known paths and the known blob;
 - no file body was fetched, opened, or printed by this audit;
 - no deletion was performed;
-- current open pull requests at this update's pre-edit heartbeat: `1` (Draft PR #21, exact head `65cdf83ce55157207d377f8bbbbcf4c168c3b25a`);
+- current open pull requests at this update's pre-edit heartbeat: `1` (Draft PR #21, exact head `307eec3d2c55bc3d992c440b90a6edfb2ebc6d79`);
 - repository visibility: private; forks: `0`;
 - `main-minimum-safety` ruleset: active;
 - GitHub Actions repository secrets: `0` (names/values not requested);
@@ -80,7 +80,7 @@ The machine-readable source of truth is
 `provider-containment-ledger-20260827.json`. It records no credential value and
 no credential-value hash. This governance task performed no provider write.
 EvidenceFlow separately reports provider-side/local/Vercel configuration writes
-for DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, BUG LRS, and LRS. No SENA
+for DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No SENA
 or MAIS production deployment or redeployment, remote-ref deletion, or history
 rewrite was reported.
 
@@ -89,10 +89,10 @@ rewrite was reported.
 | DeepSeek | API key | replacement in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false`; current MAIS credential DOCX not reverified after replacement | partial durable receipt marks provider row complete: replacement active through official read-only balance endpoint; old key deleted and returns `401`; owner later classifies both named usage concentrations as expected | later complete durable receipt must include the additive Preview correction; no deployed-runtime consumption claim because deployment was not authorized |
 | Qwen/Ali | API key | replacement installed in local MAIS plus sensitive Vercel Preview and Production bindings; readiness receipt records three direct consumers, while independent source review adds `scripts/probe-tutor-providers.mjs` as a fourth minimum-known consumer; the leaked MAIS credential DOCX was not rewritten by this operation | closeout receipt marks this provider row complete: replacement official read-only status remained `200`; legacy changed from `200` to `401` after console deletion | provider containment row closed; the default usage view showed no visible data but has an approximately one-hour reporting-delay boundary, so no historical-zero-use or anomaly claim is made; runtime-consumer execution and deployment remain unproved |
 | SimpleTex | API credential | replacement in local MAIS and Vercel Preview/Production environment configuration; combined Preview+Production binding preserved | partial durable receipt marks provider row complete: old app deleted; only the named replacement remains; console-only review and no OCR call | no deployed-runtime consumption claim because deployment was not authorized |
-| Mathpix | application identifier and API key | local app identifier/key pair exists; Vercel key exists in Preview/Production but the app identifier is absent in both; consumer is `app/api/handwriting-recognition/route.ts`; prior equality to leaked value in current MAIS credential DOCX | read-only receipt confirms exposed/current OCR-usage `200`, active, with zero usage signal; the `2026-08-27T13:12:06Z` pre-action receipt still records login required and create dialog not reached | console login, action-time confirmation, replacement/revocation, usage review, local pair update, add app identifier and replace key in both Vercel targets, and complete provider receipt |
+| Mathpix | application identifier and API key | local app identifier/key pair exists; Vercel key exists in Preview/Production but the app identifier is absent in both; consumer is `app/api/handwriting-recognition/route.ts`; prior equality to leaked value in current MAIS credential DOCX | read-only receipt confirms exposed/current OCR-usage `200`, active, with zero usage signal; a later governance-only browser observation confirms authentication, the API Keys surface, and an open but unsubmitted create form | independent action-time confirmation, replacement/revocation, bounded usage review, local pair update, add app identifier and replace key in both Vercel targets, and complete provider receipt |
 | Resend | API key | replacement sending-only key in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false` | partial durable receipt marks provider row complete: old key deleted in dashboard; only replacement row remains; Logs showed no visible retained entries | later complete durable receipt must include the additive Preview correction; no deployed-runtime send claim because deployment was not authorized; dashboard log visibility remains a bounded review, not proof of no historical use |
 | OpenRouter | API key | owner-requested dormant replacement now exists in local MAIS plus sensitive Vercel Preview and Production bindings; no current code consumer and no deployment authorized | closeout receipt marks this provider row complete: replacement status `200`, effective limit `0`, replacement usage `0`; the uniquely matched legacy console row was deleted | historical legacy usage was nonzero, but no owner-frozen anomaly threshold existed, so no anomaly classification is made; no legacy endpoint-negative probe or deployed-runtime proof is claimed |
-| Clerk | secret key | current local/Vercel binding and code consumers remain absent; owner still requires a dormant replacement in MAIS `.env.local` plus Vercel Preview/Production before revocation | prior `403` remains indeterminate with no revocation/Stripe inference; the latest operational handoff reports a verification-code challenge, and no closeout receipt is bound | complete the challenge, create the dormant replacement, obtain redacted three-target secret-store readback, review usage, revoke legacy material, and issue a closeout receipt; no deployment authorized |
+| Clerk | secret key | owner-requested dormant replacement is installed in MAIS `.env.local` plus sensitive, unscoped Vercel Preview and Production bindings; exact private local readback matched; no current code consumer and no deployment authorized | closeout receipt marks this provider row complete: replacement secret created in the official console; the uniquely matched legacy default secret was deleted and absent after stable refresh; only the replacement secret remains; the publishable key was not modified | provider verification was intentionally limited to the official console because no safe non-user-data endpoint was used; no usage-absence, runtime execution, deployment, or live-behavior claim is made |
 | BUG LRS | username/password pair | shared replacement is present in local MAIS and sensitive Vercel Preview/Production bindings; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; the leaked MAIS credential DOCX was not rewritten by this operation | one shared LRS.io receipt closes both BUG LRS/LRS provider rows; the old shared Access Key was precisely deleted in console and absent after stable refresh | all legacy/replacement `/about` probes stopped at cross-origin `302` before an auth result and did not forward credentials, so runtime authentication remains unproved; key-level usage was unavailable within the safe authorized surface |
 | LRS | username/password pair | same shared replacement and complete local/Preview/Production binding set as BUG LRS | same one-to-two closeout receipt mapping and console deletion evidence | same cross-origin `302` non-auth-proof and bounded usage-review limitation; no xAPI statement, deployment, or production behavior was exercised |
 
@@ -257,11 +257,12 @@ merge or ref deletion.
 
 ## Provider closeout receipts bound after pre-action readiness
 
-Three later immutable closeout receipts close four provider rows. Independent
+Four later immutable closeout receipts close five provider rows. Independent
 local verification confirmed each file is regular, non-symlink, link count one,
 mode `0600`, exact-size and exact-hash matched, valid JSON with schema
 `sena-provider-rotation-closeout/v1`, `redacted=true`, and zero high-risk
-credential-pattern findings:
+credential-pattern findings; the Clerk receipt also has zero sensitive
+semantic-string leaf findings:
 
 ```text
 Qwen/Ali
@@ -284,6 +285,13 @@ sha256     = c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266
 bytes      = 2834
 mode       = 0600
 recordedAt = 2026-08-27T13:57:05Z
+
+Clerk
+path       = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json
+sha256     = e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5
+bytes      = 2242
+mode       = 0600
+recordedAt = 2026-08-27T14:48:32Z
 ```
 
 The Qwen closeout proves replacement creation, redacted local plus
@@ -320,12 +328,23 @@ contains the old credential object; it does not erase the prior diagnostic
 disclosure or prove the username is absent from every session artifact or log.
 No username, value, value fragment, or value hash is recorded here.
 
-The current aggregate is seven of nine rows complete: DeepSeek, Qwen/Ali,
-SimpleTex, Resend, OpenRouter, BUG LRS, and LRS. Exactly two rows remain open:
-Mathpix (rotation incomplete) and Clerk (verification-code challenge, without a
-durable closeout receipt). Consequently, provider containment remains false,
-the deletion receipt remains inactive, feature work remains frozen, PR #21
-remains Draft, and neither merge nor deployment is authorized.
+The Clerk closeout proves the owner-requested dormant replacement was created in
+the official console, transferred through a mode-`0600` FIFO, and installed as
+one local assignment plus sensitive, branch-unscoped Preview and Production
+bindings. Exact private local readback matched. The uniquely matched legacy
+default secret was deleted and absent after stable refresh; only the replacement
+secret remains. The publishable key was not modified. No user-data endpoint,
+billable operation, deployment, or history rewrite was performed. The bounded
+verification class is official-console-only, so no usage-absence or runtime
+execution claim is made.
+
+The current aggregate is eight of nine rows complete: DeepSeek, Qwen/Ali,
+SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. Exactly one row remains
+open: Mathpix, whose official API-key create form is authenticated and open but
+unsubmitted pending independent action-time confirmation and the complete
+replacement/readback/revocation receipt. Consequently, provider containment
+remains false, the deletion receipt remains inactive, feature work remains
+frozen, PR #21 remains Draft, and neither merge nor deployment is authorized.
 
 ## File relationship and runtime boundary
 

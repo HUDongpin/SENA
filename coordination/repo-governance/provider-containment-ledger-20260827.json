@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-provider-containment-ledger/v1",
-  "updatedAt": "2026-08-27T14:04:08Z",
+  "updatedAt": "2026-08-27T14:52:26Z",
   "status": "blocked-owner",
   "severity": "P0",
   "incidentId": "SENA-P0-CREDENTIAL-CONTAINMENT-20260827",
@@ -16,6 +16,7 @@
       "SimpleTex",
       "Resend",
       "OpenRouter",
+      "Clerk",
       "BUG LRS",
       "LRS"
     ],
@@ -466,6 +467,45 @@
           "noSymlink": true,
           "jsonParses": true,
           "highRiskCredentialPatternCount": 0
+        }
+      },
+      {
+        "id": "clerk-rotation-closeout-20260827T144832Z",
+        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json",
+        "sha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+        "bytes": 2242,
+        "mode": "0600",
+        "fileType": "regular",
+        "symlink": false,
+        "schemaVersion": "sena-provider-rotation-closeout/v1",
+        "recordedAt": "2026-08-27T14:48:32Z",
+        "redacted": true,
+        "mappedProviderRows": [
+          "Clerk"
+        ],
+        "containmentClosedForMappedRows": true,
+        "ownerRequestedDormantBindingInstalled": true,
+        "localAssignmentCount": 1,
+        "localExactPrivateReadbackMatched": true,
+        "vercelPreviewSensitiveUnscopedBinding": true,
+        "vercelProductionSensitiveUnscopedBinding": true,
+        "legacyDefaultSecretConsoleDeletionConfirmed": true,
+        "legacyObjectPresentAfterStableRefresh": false,
+        "replacementObjectPresentAfterStableRefresh": true,
+        "remainingSecretKeyObjectCount": 1,
+        "publishableKeyModified": false,
+        "userDataEndpointCalled": false,
+        "billableOperationPerformed": false,
+        "deploymentTriggered": false,
+        "localVerification": {
+          "sha256Matches": true,
+          "bytesMatch": true,
+          "modeMatches": true,
+          "regularFile": true,
+          "noSymlink": true,
+          "jsonParses": true,
+          "highRiskCredentialPatternCount": 0,
+          "sensitiveSemanticKeyCount": 0
         }
       }
     ],
@@ -1142,9 +1182,9 @@
       "provider": "Clerk",
       "credentialNameClass": "secret key",
       "environment": "owner-requested dormant replacement target: MAIS-MVP local plus Vercel Preview/Production; no current code consumer and no deployment authorized",
-      "maisEnvLocalState": "not-present",
+      "maisEnvLocalState": "owner-requested-dormant-replacement-installed-and-exact-private-readback-matched",
       "maisCredentialDocxState": "not-present",
-      "providerReadbackState": "legacy-official-read-only-instance-returned-403-active-state-indeterminate-current-runtime-binding-absent-owner-requested-dormant-replacement-blocked-at-verification-code-challenge-without-closeout-receipt",
+      "providerReadbackState": "provider-row-containment-closed-official-console-replacement-created-local-preview-production-sensitive-bindings-updated-legacy-default-secret-deleted-stable-refresh-retains-only-replacement-secret-and-unchanged-publishable-key",
       "legacyReadback": {
         "endpointClass": "official-read-only-instance",
         "httpStatus": 403,
@@ -1179,25 +1219,47 @@
       "latestOperationalHandoff": {
         "source": "codex-delegation",
         "taskReference": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f",
-        "recordedAt": "2026-08-27T14:04:08Z",
-        "state": "verification-code-challenge-pending",
-        "durableCloseoutReceiptBound": false,
-        "replacementCreationProved": false,
-        "secretStoreUpdateProved": false,
-        "usageReviewComplete": false,
-        "legacyRevocationProved": false,
-        "containmentClosed": false
+        "recordedAt": "2026-08-27T14:48:32Z",
+        "state": "provider-row-closeout-complete",
+        "durableCloseoutReceiptBound": true,
+        "replacementCreationProved": true,
+        "secretStoreUpdateProved": true,
+        "usageReviewBoundaryRecorded": true,
+        "legacyRevocationProved": true,
+        "containmentClosed": true,
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5"
+      },
+      "latestRotationCloseout": {
+        "receiptId": "clerk-rotation-closeout-20260827T144832Z",
+        "recordedAt": "2026-08-27T14:48:32Z",
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+        "containmentClosed": true,
+        "ownerRequestedDormantBindingInstalled": true,
+        "localAssignmentCount": 1,
+        "localExactPrivateReadbackMatched": true,
+        "vercelPreviewSensitiveUnscopedBinding": true,
+        "vercelProductionSensitiveUnscopedBinding": true,
+        "legacyDefaultSecretConsoleDeletionConfirmed": true,
+        "legacyObjectPresentAfterStableRefresh": false,
+        "replacementObjectPresentAfterStableRefresh": true,
+        "remainingSecretKeyObjectCount": 1,
+        "publishableKeyModified": false,
+        "userDataEndpointCalled": false,
+        "billableOperationPerformed": false,
+        "productionDeploymentOrRedeploymentPerformed": false
       },
       "secretStoreReadiness": {
-        "localBinding": "absent",
-        "vercelBinding": "absent-preview-and-production",
+        "localBinding": "owner-requested-dormant-replacement-present-single-assignment-mode-0600-exact-private-readback-matched",
+        "vercelBinding": "replacement-present-sensitive-unscoped-preview-and-production",
         "runtimeConsumers": [],
         "ownerRequestedDormantReplacement": true,
         "productionDeploymentAuthorized": false,
         "recordedAt": "2026-08-27T12:26:52Z",
-        "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db"
+        "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
+        "replacementStillRequired": false,
+        "supersedingCloseoutReceiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5"
       },
-      "currentRuntimeBinding": "absent",
+      "currentRuntimeBinding": "owner-requested-dormant-replacement-installed-no-current-code-consumer-no-deployment",
       "replacementRequired": true,
       "replacementRequirement": {
         "classification": "owner-requested-dormant-replacement-binding",
@@ -1212,32 +1274,39 @@
         "recordedAt": "2026-08-27T12:12:44Z"
       },
       "replacementProof": {
-        "status": "pending-owner-requested-dormant-replacement-creation",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-official-console-owner-requested-dormant-replacement-created",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T14:48:32Z",
+        "evidenceId": "clerk-rotation-closeout-20260827T144832Z#replacement",
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-legacy-default-secret-console-deleted-stable-refresh-absent",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T14:48:32Z",
+        "evidenceId": "clerk-rotation-closeout-20260827T144832Z#legacy-console-deletion",
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+        "publishableKeyModified": false
       },
       "usageReviewProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "bounded-unavailable-within-authorized-no-user-data-scope",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T14:48:32Z",
+        "evidenceId": "clerk-rotation-closeout-20260827T144832Z#provider-verification-boundary",
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+        "userDataEndpointCalled": false,
+        "usageAbsenceClaimed": false
       },
       "secretStoreProof": {
-        "status": "pending-owner-requested-local-and-vercel-preview-production-sensitive-bindings",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-owner-requested-dormant-local-preview-production-sensitive-unscoped-bindings",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T14:48:32Z",
+        "evidenceId": "clerk-rotation-closeout-20260827T144832Z#secret-store",
+        "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5"
       },
       "dependentRuntimeProof": {
         "status": "no-current-code-consumer-no-deployment-authorized",
@@ -1530,25 +1599,25 @@
         "SimpleTex",
         "Resend",
         "OpenRouter",
+        "Clerk",
         "BUG LRS",
         "LRS"
       ],
       "partialReceiptObservedAt": "2026-08-27T11:46:54Z",
-      "latestCloseoutReceiptObservedAt": "2026-08-27T13:57:05Z",
+      "latestCloseoutReceiptObservedAt": "2026-08-27T14:48:32Z",
       "allProviderClosureRequiredForDeletionActivation": true,
       "remainingProviderRows": [
-        "Mathpix",
-        "Clerk"
-      ],
-      "pendingBrowserLogin": [
         "Mathpix"
       ],
-      "pendingVerificationChallenge": [
-        "Clerk"
+      "pendingBrowserLogin": [],
+      "pendingVerificationChallenge": [],
+      "preActionReadyButUnsubmitted": [
+        "Mathpix"
       ],
-      "preActionReadyButUnsubmitted": [],
       "authenticatedButCreateNotOpened": [],
-      "pendingActionTimeConfirmation": [],
+      "pendingActionTimeConfirmation": [
+        "Mathpix"
+      ],
       "pendingOwnerWorkloadReconciliation": [],
       "dependentRuntimeBoundaryRecordedWithoutExecutionFor": [
         "DeepSeek",

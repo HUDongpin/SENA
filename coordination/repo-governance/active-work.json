@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T14:15:40Z",
+  "updatedAt": "2026-08-27T14:52:26Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -109,8 +109,10 @@
           "openRouterCloseoutReceiptRecordedAt": "2026-08-27T13:44:30Z",
           "lrsCloseoutReceiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
           "lrsCloseoutReceiptRecordedAt": "2026-08-27T13:57:05Z",
-          "completedProviderRowCount": 7,
-          "remainingProviderRowCount": 2,
+          "clerkCloseoutReceiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+          "clerkCloseoutReceiptRecordedAt": "2026-08-27T14:48:32Z",
+          "completedProviderRowCount": 8,
+          "remainingProviderRowCount": 1,
           "providerContainmentComplete": false,
           "remoteDeletionReceiptActivationAllowed": false,
           "supersessionRequired": true
@@ -388,12 +390,40 @@
               "residualArtifactAbsenceProved": false,
               "deploymentTriggered": false,
               "highRiskCredentialPatternCount": 0
+            },
+            {
+              "id": "clerk-rotation-closeout-20260827T144832Z",
+              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json",
+              "sha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+              "bytes": 2242,
+              "mode": "0600",
+              "fileType": "regular",
+              "symlink": false,
+              "schemaVersion": "sena-provider-rotation-closeout/v1",
+              "recordedAt": "2026-08-27T14:48:32Z",
+              "redacted": true,
+              "mappedProviderRows": [
+                "Clerk"
+              ],
+              "containmentClosedForMappedRows": true,
+              "ownerRequestedDormantBindingInstalled": true,
+              "localExactPrivateReadbackMatched": true,
+              "vercelPreviewSensitiveUnscopedBinding": true,
+              "vercelProductionSensitiveUnscopedBinding": true,
+              "legacyDefaultSecretConsoleDeletionConfirmed": true,
+              "legacyObjectPresentAfterStableRefresh": false,
+              "replacementObjectPresentAfterStableRefresh": true,
+              "publishableKeyModified": false,
+              "userDataEndpointCalled": false,
+              "deploymentTriggered": false,
+              "highRiskCredentialPatternCount": 0,
+              "sensitiveSemanticKeyCount": 0
             }
           ]
         }
       },
       "providerContainmentStatus": "in-progress",
-      "rotationReadback": "seven-of-nine-provider-rows-closed:DeepSeek-Qwen-SimpleTex-Resend-OpenRouter-BUG-LRS-LRS;three-redacted-closeout-receipts-at-2026-08-27T13:38:59Z-through-13:57:05Z-close-Qwen-OpenRouter-and-shared-BUG-LRS-LRS-rows;Qwen-usage-readback-has-default-view-and-approximately-one-hour-delay-boundary;OpenRouter-historical-nonzero-usage-has-no-owner-frozen-anomaly-threshold;LRS-cross-origin-302-is-not-auth-proof-and-one-legacy-username-only-diagnostic-exposure-remains-an-incident-record;Clerk-verification-code-challenge-and-Mathpix-rotation-remain-open;overall-containment-false",
+      "rotationReadback": "eight-of-nine-provider-rows-closed:DeepSeek-Qwen-SimpleTex-Resend-OpenRouter-Clerk-BUG-LRS-LRS;four-redacted-closeout-receipts-at-2026-08-27T13:38:59Z-through-14:48:32Z-close-Qwen-OpenRouter-Clerk-and-shared-BUG-LRS-LRS-rows;Clerk-owner-requested-dormant-local-preview-production-sensitive-bindings-installed-and-legacy-default-secret-console-deleted-with-publishable-key-unchanged;Mathpix-authenticated-create-form-reached-but-independent-action-time-confirmation-and-rotation-remain-open;overall-containment-false",
       "evidenceFlowCorrection": "the prior Stripe-candidate classification remains withdrawn because the observed live-secret shape was in Clerk context; current Resend replacement and dashboard deletion are newly reported, while the old 403 remains semantically indeterminate and is not revocation proof",
       "providerWritesPerformedByThisGovernanceTask": false,
       "providerWritesReportedByEvidenceFlow": true,
@@ -403,6 +433,7 @@
         "SimpleTex",
         "Resend",
         "OpenRouter",
+        "Clerk",
         "BUG LRS",
         "LRS"
       ],
@@ -413,34 +444,31 @@
           "SimpleTex",
           "Resend",
           "OpenRouter",
+          "Clerk",
           "BUG LRS",
           "LRS"
         ],
         "remainingProviderRows": [
-          "Mathpix",
-          "Clerk"
+          "Mathpix"
         ],
         "providerRowCount": 9,
-        "completedProviderRowCount": 7,
-        "remainingProviderRowCount": 2,
+        "completedProviderRowCount": 8,
+        "remainingProviderRowCount": 1,
         "providerContainmentComplete": false,
         "deletionReceiptActivationEligible": false,
         "featureWorkFrozen": true,
-        "pendingBrowserLogin": [
-          "Mathpix"
-        ],
-        "pendingVerificationChallenge": [
-          "Clerk"
-        ],
+        "pendingBrowserLogin": [],
+        "pendingVerificationChallenge": [],
         "pendingProviderSignals": {
-          "Mathpix": "latest 2026-08-27T12:23:17Z exposed/current read-only OCR usage both 200 active with zero usage signal; console login required; local app-id/key pair exists, Vercel key exists in Preview/Production but app-id is absent in both; readiness receipt records one actual code consumer",
-          "Clerk": "latest operational handoff records a verification-code challenge with no durable closeout receipt; prior 403 remains indeterminate with no revocation inference; dormant replacement, local plus Vercel Preview/Production bindings, usage review, and legacy revocation remain pending; no deployment authorized"
+          "Mathpix": "authenticated official API-key surface reached with create form open but unsubmitted; latest read-only receipt records exposed/current active status and zero usage signal; local app-id/key pair exists, Vercel key exists in Preview/Production but app-id is absent in both; independent action-time confirmation, replacement pair, secret-store parity, usage-boundary review, legacy revocation, and durable closeout remain pending"
         },
         "ownerScopeCorrections": {
           "OpenRouter": "base receipt replacement-not-required planning state superseded by explicit owner request for dormant replacement binding",
           "Clerk": "base receipt replacement-not-required planning state superseded by explicit owner request for dormant replacement binding"
         },
-        "pendingActionTimeConfirmation": [],
+        "pendingActionTimeConfirmation": [
+          "Mathpix"
+        ],
         "latestLrsConsoleState": "shared-provider-row-closeout-complete-console-old-object-deleted-runtime-auth-inconclusive-cross-origin-302",
         "latestReadOnlyFollowUpReceipt": {
           "id": "provider-containment-readback-20260827T122317Z",
@@ -531,6 +559,22 @@
             "runtimeAuthenticationProof": "inconclusive-cross-origin-302-before-auth-result",
             "xapiWritePerformed": false,
             "deploymentTriggered": false
+          },
+          {
+            "providerRows": [
+              "Clerk"
+            ],
+            "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
+            "recordedAt": "2026-08-27T14:48:32Z",
+            "containmentClosed": true,
+            "ownerRequestedDormantBindingInstalled": true,
+            "localExactPrivateReadbackMatched": true,
+            "vercelPreviewProductionSensitiveUnscopedBindings": true,
+            "legacyDefaultSecretConsoleDeletionConfirmed": true,
+            "publishableKeyModified": false,
+            "userDataEndpointCalled": false,
+            "currentCodeConsumerObserved": false,
+            "deploymentTriggered": false
           }
         ],
         "lrsSecondaryExposure": {
@@ -545,10 +589,11 @@
         },
         "clerkLatestOperationalHandoff": {
           "taskReference": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f",
-          "recordedAt": "2026-08-27T14:04:08Z",
-          "state": "verification-code-challenge-pending",
-          "durableCloseoutReceiptBound": false,
-          "containmentClosed": false
+          "recordedAt": "2026-08-27T14:48:32Z",
+          "state": "provider-row-closeout-complete",
+          "durableCloseoutReceiptBound": true,
+          "containmentClosed": true,
+          "receiptSha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5"
         },
         "currentOwnerBlockerReceipt": {
           "id": "provider-containment-blocker-20260827T123124Z",
@@ -706,10 +751,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "65cdf83ce55157207d377f8bbbbcf4c168c3b25a",
+      "headSha": "307eec3d2c55bc3d992c440b90a6edfb2ebc6d79",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 11,
+        "ahead": 13,
         "behind": 0
       },
       "allowedPaths": [
@@ -724,8 +769,8 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T14:13:35Z",
-      "lastObservedAt": "2026-08-27T14:13:35Z",
+      "lastHeartbeatAt": "2026-08-27T14:52:26Z",
+      "lastObservedAt": "2026-08-27T14:52:26Z",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "prNumber": 21,
@@ -733,14 +778,14 @@
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "active-governance-closeout-receipt-update-seven-of-nine-provider-rows-complete-p0-open",
+      "dirtyState": "active-governance-clerk-closeout-receipt-update-eight-of-nine-provider-rows-complete-p0-open",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "final pre-commit verification passed for the four-file provider-closeout governance update: the three new external receipts matched exact hash/size/0600/regular/non-symlink/link-count/JSON/schema custody with zero credential-pattern findings; 7-of-9 provider and fail-closed cross-file assertions passed; changed and staged scope was exactly four governance paths; registry, staged security, staged write-policy, pre-commit, git diff --check, and the focused governance suite passed 36/36",
-        "ci": "exact pre-update baseline 65cdf83c: build run 33076978417 success, repository-security PR run 33076978410 success, and repository-security push run 33076972615 success; these prior-head checks do not cover the current four-file closeout-receipt delta until it is committed, pushed, and checked",
+        "local": "final pre-commit verification passed for the four-file Clerk closeout governance update: the external receipt matched exact hash, 2242-byte size, mode 0600, regular non-symlink JSON, schema, redacted and provider-row containment flags with zero high-confidence credential-pattern and sensitive semantic-string findings; 8-of-9 and fail-closed cross-file assertions passed; changed and staged scope was exactly four governance paths; registry, audit, staged security, staged write-policy, pre-commit, git diff --check, JSON validation, and the focused governance suite passed 36/36",
+        "ci": "exact pre-update baseline 307eec3d: build run 33081457382 success, repository-security PR run 33081457400 success, and repository-security push run 33081452396 success; these prior-head checks do not cover the current Clerk four-file governance delta until it is committed, pushed, and checked",
         "merged": "pending",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
@@ -914,24 +959,24 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "65cdf83ce55157207d377f8bbbbcf4c168c3b25a",
+      "headSha": "307eec3d2c55bc3d992c440b90a6edfb2ebc6d79",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "65cdf83ce55157207d377f8bbbbcf4c168c3b25a",
-      "remoteObservedAt": "2026-08-27T14:14:51Z",
+      "remoteHeadSha": "307eec3d2c55bc3d992c440b90a6edfb2ebc6d79",
+      "remoteObservedAt": "2026-08-27T14:52:26Z",
       "pr": 21,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "prStateObservationMode": "monotonic",
-      "prHeadSha": "65cdf83ce55157207d377f8bbbbcf4c168c3b25a",
+      "prHeadSha": "307eec3d2c55bc3d992c440b90a6edfb2ebc6d79",
       "prBase": "main",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-08-27T14:15:40Z",
-      "lastObservedAt": "2026-08-27T14:15:40Z",
+      "lastOwnerHeartbeatAt": "2026-08-27T14:52:26Z",
+      "lastObservedAt": "2026-08-27T14:52:26Z",
       "lastCommitAt": "2026-08-27T22:14:51+08:00",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",

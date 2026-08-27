@@ -14,14 +14,14 @@ sanitized salvage review, and exact-SHA verification.
 
 `provider-containment-ledger-20260827.json` is the machine-readable no-value
 provider ledger. This governance task performed no provider write. EvidenceFlow
-now reports provider-side/local/Vercel containment operations for seven of nine
-rows: DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, BUG LRS, and LRS. No
+now reports provider-side/local/Vercel containment operations for eight of nine
+rows: DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No
 SENA or MAIS production deployment/redeployment, remote-ref deletion, or history
 rewrite is reported.
 
 The earlier partial readback, secret-store correction, follow-up, readiness,
 blocker, owner-attestation, and pre-action receipts remain immutable historical
-evidence. Three later mode-`0600` closeout receipts are additionally bound by
+evidence. Four later mode-`0600` closeout receipts are additionally bound by
 exact path, SHA-256, byte count, schema, and time:
 
 - Qwen/Ali: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json`;
@@ -34,8 +34,11 @@ exact path, SHA-256, byte count, schema, and time:
 - Shared BUG LRS/LRS event: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/lrs-rotation-closeout-20260827T135705Z.json`;
   SHA-256 `c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266`;
   2834 bytes; the same schema; `2026-08-27T13:57:05Z`.
+- Clerk: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json`;
+  SHA-256 `e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5`;
+  2242 bytes; the same schema; `2026-08-27T14:48:32Z`.
 
-Fresh independent checks confirmed all three are regular non-symlink files with
+Fresh independent checks confirmed all four are regular non-symlink files with
 link count one, exact hashes/sizes/modes, valid redacted JSON, and zero high-risk
 credential-pattern findings. Qwen's no-visible-data default usage view retains
 an approximately one-hour reporting-delay boundary. OpenRouter's legacy row had
@@ -46,9 +49,17 @@ rows. Its cross-origin `302` probes forwarded no credentials and are not auth
 proof. It also records one legacy-username-only selector-timeout diagnostic
 exposure; no password or replacement credential was echoed, but deleting the
 old Access Key does not prove every diagnostic/session artifact has been erased.
+Clerk's owner-requested dormant replacement is now present in one local
+assignment plus sensitive, branch-unscoped Preview and Production bindings;
+exact private local readback matched. The uniquely matched legacy default secret
+was deleted and absent after stable refresh, only the replacement secret remains,
+and the publishable key was not modified. No user-data endpoint, billable
+operation, deployment, runtime execution, or usage-absence claim is made.
 
-Exactly two rows remain open: Mathpix has not completed rotation, and Clerk is
-blocked at a verification-code challenge without a durable closeout receipt.
+Exactly one row remains open: Mathpix is authenticated with the official API-key
+create form open but unsubmitted; it still requires independent action-time
+confirmation, replacement/secret-store parity, bounded usage review, legacy
+revocation, and a durable closeout receipt.
 Overall containment and deletion activation therefore remain false, feature
 work remains frozen, and PR #21 remains Draft. These receipts authorize neither
 PR Ready, merge, contaminated-ref deletion, root-checkout movement, feature thaw,
@@ -326,10 +337,10 @@ remain unproved.
 The following actions require distinct owner authorization and must not be
 inferred from this governance implementation:
 
-- finish the two still-pending provider rows in the no-value ledger: Mathpix
-  rotation/secret-store/revocation evidence and the owner-requested dormant
-  Clerk replacement after its verification-code challenge, including
-  local/Preview/Production bindings, usage review, and legacy revocation;
+- finish the one still-pending provider row in the no-value ledger: Mathpix
+  replacement, local/Preview/Production secret-store parity, bounded usage
+  review, legacy revocation, and durable closeout evidence after independent
+  action-time confirmation;
 - bind all remaining and future rotations/revocations, secret-store changes,
   usage reviews, and runtime boundaries to a later complete redacted readback
   that supersedes the current partial receipt;
