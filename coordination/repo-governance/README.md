@@ -84,12 +84,16 @@ independent exact hash/mode/type/JSON/no-value checks.
 
 Provider containment is therefore true. Those provider receipts alone did not
 authorize PR Ready or merge. A separate exact-head owner-authorization receipt
-was subsequently consumed when PR #21 became Ready and merged as
-`9ecc72b09d51e2426868eb7569449ed9aea0f774`; exact-head and post-main checks
-passed. This follow-up declares the deletion receipt active but it remains
-non-executable until the activation snapshot is itself on protected `main`.
-Feature work remains frozen, and contaminated-ref deletion, root-checkout
-movement, incident closure, feature thaw, and deployment remain pending.
+was consumed when PR #21 became Ready and merged as `9ecc72b...`; activation PR
+#22 then merged exact head `aaf679d...` as protected-main commit `b002f976...`,
+and both exact post-main checks passed. The first exact-lease deletion attempt
+was correctly blocked by the local governance audit before any remote mutation:
+two historical work-item ahead/behind observations and the PR #22 lifecycle
+record were stale after the merge. The contaminated ref remains at its exact
+old SHA. PR #23 now carries the immutable-base correction; its final exact-head
+checks and protected merge are pending. Feature work remains frozen; deletion,
+root-checkout movement, incident closure, feature thaw, and deployment remain
+pending.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -264,14 +268,14 @@ emitted.
 
 The deletion is strictly ordered: (1) provider containment plus timestamped
 redacted readback, satisfied; (2) protected merge of PR #21, satisfied as
-`9ecc72b...` with post-main checks green; (3) protected-main follow-up activation
-of the one-shot receipt bound to provider evidence, current step; (4)
-exact-old-SHA lease deletion of only the quarantined docs ref; (5) fresh live
-absence readback; and (6) protected-main consumed/deletion-event custody
-receipt. The existing owner authorization is declared `active` in this
-follow-up, but it is not executable until this exact registry snapshot is the
-freshly fetched protected `main`. No deletion may be attempted from an older
-main snapshot.
+`9ecc72b...` with post-main checks green; (3) protected-main activation PR #22,
+satisfied as `b002f976...` with post-main checks green; (3a) bind the resulting
+historical read-only comparisons to immutable `b002f976...` and record the
+fail-closed first attempt on protected `main`; (4) exact-old-SHA lease deletion
+of only the quarantined docs ref; (5) fresh live absence readback; and (6)
+protected-main consumed/deletion-event custody receipt. The existing owner
+authorization remains `active`; no deletion may be attempted from an older or
+audit-failing main snapshot.
 
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
@@ -368,10 +372,12 @@ inferred from provider or governance implementation evidence:
 - PR #21 Ready/merge authorization was separately bound to exact head
   `24d24c8...`, consumed by the protected merge, and closed out against merge
   commit `9ecc72b...` plus successful post-main checks;
-- merge activation PR #22 onto protected `main`, then use the already
-  owner-authorized one-shot receipt to delete only the contaminated remote
-  branch with an exact old-SHA lease, read back live absence, and record the
-  protected-main consumed/event-custody receipt in that order;
+- PR #22 merged exact head `aaf679d...` as `b002f976...` with post-main checks
+  green; merge PR #23's fail-closed dynamic-observation correction through
+  protected `main`, then use the already owner-authorized one-shot receipt to delete only
+  the contaminated remote branch with an exact old-SHA lease, read back live
+  absence, and record the protected-main consumed/event-custody receipt in that
+  order;
 - rewrite history or request GitHub cached-object removal;
 - remove or archive broken worktree directories;
 - switch the root checkout and fast-forward local `main`;
