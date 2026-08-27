@@ -962,6 +962,8 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
+    registry.incident.credentialExposure.status = "blocked-owner";
+    delete registry.incident.credentialExposure.closureEvidence;
     const active = registry.workItems.find(isActiveWriter);
     active.allowedPaths = ["sena-hk-template/app/**"];
     const registryPath = join(root, "active-work.json");
@@ -1326,8 +1328,16 @@ describe("SENA repository governance", () => {
   });
 
   it("rejects writes from the quarantined root checkout during the P0 freeze", () => {
-    const result = runNode(governanceScript, ["audit", "--pre-commit"], {
-      env: { SENA_GOVERNANCE_TARGET_ROOT: "/Volumes/Starship/SENA" }
+    const fixture = createGovernedFixture("quarantined-root");
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    registry.incident.credentialExposure.status = "blocked-owner";
+    delete registry.incident.credentialExposure.closureEvidence;
+    registry.branches[0].disposition = "security-quarantine";
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const result = runNode(fixture.script, ["audit", "--pre-commit"], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
     });
     expect(result.status).toBe(1);
     const report = JSON.parse(result.stdout);
@@ -1335,7 +1345,16 @@ describe("SENA repository governance", () => {
   });
 
   it("reports owner blockers separately from machine-control failures", () => {
-    const result = runNode(governanceScript, ["audit"]);
+    const root = temporaryRoot("owner-blocker-state");
+    const registry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    registry.incident.credentialExposure.status = "blocked-owner";
+    delete registry.incident.credentialExposure.closureEvidence;
+    const registryPath = join(root, "active-work.json");
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const result = runNode(governanceScript, ["audit", "--registry", registryPath]);
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("blocked-owner");
@@ -1345,6 +1364,15 @@ describe("SENA repository governance", () => {
     expect(report.ownerBlockers).toContain(
       "credential inventory, provider rotation/revocation, and remote contaminated-ref cleanup require owner action"
     );
+  });
+
+  it("reports a closed incident with restored root control plane as pass", () => {
+    const result = runNode(governanceScript, ["audit"]);
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.status).toBe("pass");
+    expect(report.errors).toEqual([]);
+    expect(report.ownerBlockers).toEqual([]);
   });
 
   it("does not leak a pre-commit candidate index into other registered worktrees", () => {
@@ -1359,7 +1387,8 @@ describe("SENA repository governance", () => {
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.errors).toEqual([]);
-    expect(report.status).toBe("blocked-owner");
+    expect(report.status).toBe("pass");
+    expect(report.ownerBlockers).toEqual([]);
   });
 
   it("enforces rescue bundle custody instead of trusting the ledger text", () => {

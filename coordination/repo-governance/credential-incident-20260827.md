@@ -1,6 +1,6 @@
 # SENA credential incident action packet — 2026-08-27
 
-Status: **P0 / blocked-owner (remote containment complete; root restoration pending)**
+Status: **P0 / closed by this final protected-main governance change**
 
 Coordinator: SENA-A01
 
@@ -11,13 +11,13 @@ Values inspected or recorded by this governance task: **no**
 ## Confirmed evidence
 
 - Private GitHub repository: `HUDongpin/SENA`.
-- Live remote branch: `docs/ledger-reconciliation-2026-08-19`.
+- Former live remote branch, now absent: `docs/ledger-reconciliation-2026-08-19`.
 - Exact branch SHA: `18d542f707e56aa9d043dd497e0efe48b540db20`.
 - Two tracked paths:
   - `All API Keys.docx`
   - `sena-hk-template/All API Keys.docx`
 - Both paths use Git blob `15a131415d0206782265902b0af612a80e16bae2`.
-- The two paths and blob are absent from live `main=5cdea568a053347dbc82069bde3e836cffb55cc6`.
+- The two paths and blob are absent from live `main=91f832d183efcf8c5cc8307c922c5677b63dab44`.
 - No credential value was opened, extracted, displayed, logged, copied to the
   ordinary rescue bundle, or committed by this task. The EvidenceFlow handoff
   used below contains names, state enums, and controlled equality booleans only.
@@ -53,12 +53,12 @@ external receipt at
 with SHA-256
 `0f50fdebd37520288c3a409e635c6cb92bfb75c74fa4e93b8fafe04517922845`.
 
-The live governance incident remains `blocked-owner`: later evidence now closes
-provider containment, but the contaminated remote head, protected-main
-activation/consumption sequence, sanitized-salvage disposition, and quarantined
-root checkout are still open. The finding count is not a provider-containment
-receipt and does not authorize the already owner-approved remote deletion
-receipt to become active.
+That paragraph above is the immutable pre-delete observation. Later evidence
+closes every gate: nine-provider containment, protected activation and consumed
+custody, exact remote deletion, official ruleset suite, 27-ref zero-finding
+post-delete metadata audit, explicit SALVAGE-01–04 dispositions, and ordinary
+root checkout plus fast-forward-only restoration. The local contaminated branch
+remains local-only under quarantine/rescue custody and is not a working checkout.
 
 Private visibility reduces public exposure but does not make a pushed secret
 safe. Provider-side revocation/rotation is required before Git ref or history
@@ -382,10 +382,12 @@ ref remained at the exact expected old SHA. PR #23 then merged exact head
 exact-old-SHA deletion succeeded. GitHub ruleset suite `3846639027` binds the
 owner actor, exact ref, old SHA, zero after-SHA, and bypass result. A fresh
 mode-`0600` recursive Git Trees metadata audit covered all 27 live head/tag/pull
-candidates and found neither forbidden path nor the known blob. Feature work
-remains frozen while the consumed/event-custody record reaches protected main
-and the root checkout remains locally quarantined. No deployment or history
-rewrite occurred.
+candidates and found neither forbidden path nor the known blob. Consumed/event
+custody PR #24 then merged exact head `9e34516...` as `91f832d...`; both
+post-main checks passed. The owner-authorized root transition used ordinary
+checkout plus fast-forward only to exact `91f832d...`; root is clean and both
+forbidden working-copy/index paths are absent. This final governance change
+records closure and feature thaw. No deployment or history rewrite occurred.
 
 ## Complete superseding provider readback
 
@@ -512,13 +514,10 @@ For every slice:
 
 ## Destructive cleanup authorization gate
 
-An owner authorization receipt already exists for the exact contaminated ref
-and old SHA. The timestamped redacted provider prerequisite is complete, PR #21
-is merged, and this follow-up changes the registry status from
-`pending-provider-readback` to `active`. The activation still remains
-non-executable while it exists only on this branch: the deletion hook requires
-the authorization registry commit to be the freshly fetched protected `main`
-commit, the exact old SHA to match, and the live quarantine ruleset to match.
+An owner authorization receipt existed for the exact contaminated ref and old
+SHA. The timestamped redacted provider prerequisite, protected activation,
+exact-old-SHA deletion, live absence, and protected-main consumption are now
+complete. The receipt is `consumed`; any replay must fail closed.
 
 The mandatory order is:
 
@@ -541,8 +540,14 @@ The mandatory order is:
 5. **Satisfied:** perform a fresh live absence readback across heads, tags, and
    PR candidate refs for both forbidden paths and the known blob; 27 candidates,
    complete recursive tree metadata, zero findings.
-6. **Current follow-up:** merge PR #24's protected-main consumed receipt with
-   deletion-event custody and the live absence timestamp.
+6. **Satisfied:** merge PR #24's protected-main consumed receipt with
+   deletion-event custody and the live absence timestamp; exact head
+   `9e34516...` merged as `91f832d...`, with post-main checks green.
+7. **Satisfied:** restore root by ordinary checkout and fast-forward only to
+   exact `91f832d...`; verify clean status and absence of both forbidden working
+   copies and index entries while retaining local quarantine/rescue custody.
+8. **Current final record:** close the incident and thaw feature work only for
+   separately registered owner/branch/worktree/allowed-path lanes.
 
 The post-delete reachability receipt is the regular mode-`0600`, 1,266-byte
 file `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json`,
@@ -570,7 +575,8 @@ References:
 
 ## Closure gate
 
-This incident can move from `blocked-owner` to `closed` only when all are true:
+This incident can move from `blocked-owner` to `closed` only when all are true.
+All conditions below are now satisfied and bound in `active-work.json`:
 
 - every real credential is revoked/rotated with provider-side redacted readback;
 - provider/repository/automation usage review is complete;

@@ -7,11 +7,13 @@ sensitive documents.
 
 ## Current operating boundary
 
-Ordinary feature development remains frozen while the credential incident in
-`active-work.json` is `blocked-owner` and the root checkout is still locally
-quarantined. Remote containment is complete, but the safe work allowed during
-this freeze remains limited to preservation, redacted security containment,
-governance tooling, sanitized salvage review, and exact-SHA verification.
+The credential incident in `active-work.json` is closed by this final governance
+change: provider containment, exact remote deletion, official event custody,
+27-ref zero-finding reachability, consumed receipt, sanitized salvage
+dispositions, and root restoration are all present. Once this change reaches
+protected `main`, ordinary work is thawed only for separately registered owner,
+branch, worktree, and allowed-path lanes. The root remains a read-only control
+plane and is never a feature worktree.
 
 `provider-containment-ledger-20260827.json` is the machine-readable no-value
 provider ledger. This governance task performed no provider write. EvidenceFlow
@@ -97,14 +99,18 @@ old SHA. PR #23 subsequently merged exact head `b008cad...` as protected-main
 succeeded. GitHub ruleset suite `3846639027` binds actor, ref, old SHA, zero
 after-SHA, and bypass result; a mode-`0600` Git Trees metadata receipt proves
 the deleted ref is absent and all 27 live head/tag/pull candidates have zero
-forbidden path/blob findings. Feature work remains frozen until this
-consumed/event-custody record reaches protected `main` through PR #24 and the
-root checkout is restored. No deployment or history rewrite occurred.
+forbidden path/blob findings. Consumed/event custody PR #24 then merged exact
+head `9e34516...` as `91f832d...`; both post-main checks passed. The root was
+restored by ordinary checkout plus fast-forward only to exact `91f832d...`, is
+clean, and contains neither forbidden working copy nor index entry. The local
+quarantine branch and rescue custody remain for controlled recovery. This final
+change records incident closure and feature thaw; no deployment or history
+rewrite occurred.
 
-The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
-checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
-used for feature work until the P0 owner gate is closed. New work uses a branch
-and a Git-registered worktree created from a freshly verified `origin/main`.
+The root checkout at `/Volumes/Starship/SENA` is the clean read-only control
+plane on exact protected main. It must not be used for feature edits. New work
+uses a branch and Git-registered worktree created from freshly verified
+`origin/main` and entered in `active-work.json` before tracked writes begin.
 
 ## Hard rules
 
@@ -279,8 +285,11 @@ satisfied as `b002f976...` with post-main checks green; (3a) immutable-base
 correction PR #23, satisfied as `606daa6...` with post-main checks green; (4)
 exact-old-SHA lease deletion of only the quarantined docs ref, satisfied; (5)
 fresh live absence readback, satisfied across 27 candidates with zero findings;
-and (6) protected-main consumed/deletion-event custody receipt, current step.
-The owner authorization is now consumed; replay must fail closed.
+and (6) protected-main consumed/deletion-event custody PR #24, satisfied as
+`91f832d...` with post-main checks green; (7) owner-authorized ordinary root
+checkout and fast-forward-only restoration, satisfied; and (8) this final
+incident-closure/feature-thaw record. The owner authorization is consumed;
+replay must fail closed.
 
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
@@ -380,12 +389,11 @@ inferred from provider or governance implementation evidence:
 - PR #22 merged exact head `aaf679d...` as `b002f976...`; PR #23's fail-closed
   correction then merged exact head `b008cad...` as `606daa6...`; both have
   exact post-main checks green; the one-shot exact-old-SHA deletion, official
-  ruleset-suite custody, and live absence readback are complete; merge the
-  consumed/event-custody receipt to protected `main`, then restore the root
-  checkout by ordinary checkout and fast-forward only;
+  ruleset-suite custody, and live absence readback are complete; consumed
+  custody PR #24 merged as `91f832d...` with post-main checks green; root
+  ordinary checkout and fast-forward-only restoration are complete;
 - rewrite history or request GitHub cached-object removal;
 - remove or archive broken worktree directories;
-- switch the root checkout and fast-forward local `main`;
 - deploy or change the production alias.
 
 The root checkout can return to `main` only after the rescue receipt, sanitized
