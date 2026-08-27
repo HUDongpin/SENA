@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T20:53:31Z",
+  "updatedAt": "2026-08-27T20:59:06Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -927,7 +927,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 0,
+      "currentOpenPullRequestCount": 1,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
+      "headSha": "86fef108d0698fb5a5cf0f1aaacbe99f1a316d16",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,11 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T20:53:31Z",
-      "lastObservedAt": "2026-08-27T20:53:31Z",
+      "lastHeartbeatAt": "2026-08-27T20:59:06Z",
+      "lastObservedAt": "2026-08-27T20:59:06Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 31,
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 30,
         "headSha": "6e728a09d2d905ff43f61175b5878a5a89a867a9",
@@ -1017,20 +1020,20 @@
         "postMainRepositorySecurityRunId": 33114698958,
         "postMainChecksPassed": true
       },
-      "noPrReason": "Merge-parent-aware protected-main candidate path scoping and regression are local governance changes; draft PR is pending.",
-      "dirtyState": "dirty-governance-merge-parent-scope-fix-pre-pr",
+      "noPrReason": null,
+      "dirtyState": "ready-for-pr31-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "RED/GREEN merge-parent regression and exact e44132b simulation prove protected-main merge parents are excluded while every candidate-side commit remains path-audited; audit and push-policy both pass exact Node24 state",
-        "ci": "PR 30 exact head 6e728a0 and post-main build 33114699071 plus repository-security 33114698958 passed on fd58ea6; merge-parent scoping fix has no CI receipt yet",
-        "merged": "push-scope PR 30 head 6e728a0 merged as protected main fd58ea6; merge-parent-aware path scoping remains local and unmerged",
+        "local": "PR 31 is Ready and owner-authorized; merge-parent regression and exact e44132b simulation prove protected-main parents are excluded while every candidate-side commit remains path-audited",
+        "ci": "PR 31 first head 86fef10 has exact-head build and repository-security in progress; those checks will be superseded by this authorization metadata candidate",
+        "merged": "push-scope PR 30 head 6e728a0 merged as protected main fd58ea6; Ready PR 31 carries merge-parent-aware path attribution and remains unmerged until final exact-SHA checks pass",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1294,15 +1297,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
+      "headSha": "86fef108d0698fb5a5cf0f1aaacbe99f1a316d16",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "6e728a09d2d905ff43f61175b5878a5a89a867a9",
-      "remoteObservedAt": "2026-08-27T20:53:31Z",
-      "pr": null,
-      "noPrReason": "Merge-parent-aware protected-main candidate path scoping and regression are local governance changes; draft PR is pending.",
+      "remoteHeadSha": "86fef108d0698fb5a5cf0f1aaacbe99f1a316d16",
+      "remoteObservedAt": "2026-08-27T20:59:06Z",
+      "pr": 31,
+      "prState": "OPEN",
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "86fef108d0698fb5a5cf0f1aaacbe99f1a316d16",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 30,
@@ -1310,13 +1319,13 @@
         "mergeCommitSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
         "mergedAt": "2026-08-27T20:43:18Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T20:53:31Z",
-      "lastObservedAt": "2026-08-27T20:53:31Z",
-      "lastCommitAt": "2026-08-28T04:43:17+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T20:59:06Z",
+      "lastObservedAt": "2026-08-27T20:59:06Z",
+      "lastCommitAt": "2026-08-28T04:58:20+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "PR 30 merged as fd58ea6 with exact post-main checks and commit-bound audit green; lane remains active for merge-parent-aware candidate scoping"
+      "disposition": "ready-for-pr",
+      "closeout": "PR 31 is Ready and explicitly merge-authorized; exact first implementation head 86fef10 must be superseded by independently green authorization metadata before protected merge"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
