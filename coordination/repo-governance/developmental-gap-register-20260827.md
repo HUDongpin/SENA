@@ -14,6 +14,8 @@
 - Evidence not proved by this ledger: a fresh full local suite, current CI,
   deployment, production alias, live behavior, real-data validity, or human
   review. Those layers require their own receipts.
+- Later external compatibility-spike receipts are recorded as bounded addenda;
+  they do not modify the audited source tree or authorize implementation lanes.
 
 The default delivery target remains **research-pilot/reviewer handoff**. It is
 not silently promoted to institution-owned production SaaS.
@@ -182,29 +184,52 @@ is the separately quarantined credential/control-plane incident.
 
 ### GAP-06 — P1 — Cross-browser, viewport, accessibility, and negative-path matrix
 
-- Problem and impact: declared widths are not a genuine multi-browser test
-  matrix, and unexpected console/page errors plus systematic failure paths are
-  not uniformly gated.
-- Target: enterprise readiness.
-- Current evidence layer: source-only Chromium verifier definitions with useful
-  individual negative checks. Firefox/WebKit and comprehensive accessibility
-  evidence are absent.
+- Problem and impact: independent visual review found an exact mobile defect on
+  the same `5cdea568` source that passed the automated ladder. At `375x900`, the
+  persistent rail occupies `y=180..263` and fully covers the Data Import heading
+  at `y=181..209`; the people metric overlaps by `34 px`; five internal elements
+  are clipped at the right edge. Document scroll width and client width are both
+  `375`, so page-level horizontal scrolling cannot recover the clipped content.
+  This is a real research-pilot/reviewer-handoff P1, not a generic future matrix
+  concern.
+- Target: research-pilot/reviewer handoff first; the expanded matrix also
+  strengthens later enterprise readiness.
+- Current evidence layer: exact mobile diagnostic SHA-256
+  `58e8eb0148491833ca640b1c29e193856f02bafd80b4b51f0de5f0e6158664ac`;
+  the companion browser observer SHA-256
+  `a58a429b8dd1662f957776b2fc60244e404f189cd8072d9b88253b0a9cec319b`
+  had no unexpected observer-array entries and desktop visual review passed,
+  while independent mobile/overall visual review failed. Firefox/WebKit and
+  comprehensive accessibility evidence remain absent.
 - Owner lane: A11 lead; A06 accessibility/UI; A09/A10 auth/ops failures.
-- Dependencies and authorization: CI capacity, browser/device set, accessibility
-  criteria, role accounts, and manual review availability.
-- Smallest next step: execute Chromium/Firefox/WebKit at 375/768/1024/1440;
-  capture unexpected console/page errors; add keyboard, focus, overflow,
-  reduced-motion, and contrast checks; cover anonymous, revoked/expired,
-  invalid CSRF, forbidden role, malformed/oversized import, corrupt restore,
-  offline/provider, timeout/retry, concurrency, and double-submit paths.
-- Automated acceptance: all projects/widths pass with traces on failure and are
-  promoted into protected CI or the pre-release workflow.
-- Human acceptance: keyboard and screen-reader review of auth, workspace, and
-  enterprise panels.
+- Dependencies and authorization: the P0 credential freeze must close before
+  product-code work starts. The mobile layout fix itself requires no external
+  real dataset or provider write; CI capacity, Firefox/WebKit projects,
+  accessibility criteria, and manual review are needed for closure.
+- Smallest next step: repair the persistent-rail overlay, remove the `34 px`
+  people-metric overlap, and eliminate all five internal right-edge clipping
+  findings. Then execute Chromium, Firefox, and WebKit at
+  375/768/1024/1440; capture unexpected console/page errors; add keyboard,
+  focus, screen-reader, overflow, reduced-motion, and contrast checks; retain
+  anonymous, revoked/expired, invalid-CSRF, forbidden-role,
+  malformed/oversized-import, corrupt-restore, offline/provider, timeout/retry,
+  concurrency, and double-submit paths.
+- Automated acceptance: at 375/768/1024/1440, no rail covers Data Import or
+  another primary heading, no metric/control overlap remains, no internal
+  element is right-clipped, and Chromium/Firefox/WebKit projects pass with
+  traces on failure. The matrix is then promoted into protected CI or the
+  pre-release workflow.
+- Human acceptance: keyboard and screen-reader review at all four widths for
+  auth, workspace, Data Import, primary controls, and enterprise panels, with
+  reading/focus order and reachable content explicitly recorded.
 - Effort: M–L.
-- Blocker: cross-browser projects and acceptance ownership are not configured.
+- Blocker: ordinary product work is still frozen by the P0 credential incident;
+  after that closes, this is the first product-code lane that can start without
+  external real data. Cross-browser projects and acceptance ownership must also
+  be configured.
 - Do not claim: headless Chromium happy paths are not cross-browser,
-  accessibility, mobile, or resilient negative-behavior proof.
+  accessibility, mobile, or resilient negative-behavior proof; an observer
+  array with no unexpected entries is not visual acceptance.
 
 ### GAP-07 — P2 — Production load evidence and sustained performance headroom
 
@@ -269,6 +294,53 @@ is the separately quarantined credential/control-plane incident.
 - Current evidence layer: source contracts/adapters and local/self-managed
   rehearsal artifacts. ADR 0001 and ADR 0004 explicitly retain institution
   decisions and distinguish the local file store from managed infrastructure.
+- Bounded external compatibility addendum: the mode-`0600` regular-file receipt
+  `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/evidenceflow-spike/evidenceflow-compatibility-spike-20260827T115636Z.json`
+  was observed at `2026-08-27T11:56:36Z`, is 1,657 bytes, and has SHA-256
+  `0ecf61c30dea76b78d803662f404da4d5928e971d94513ef5f4d6b3c34e8cf45`.
+  Its baseline is exact `main=5cdea568`, which an independent live-ref readback
+  confirmed remained current; the receipt states that it modified no SENA
+  feature code. It records Node `24.15.0`, npm `11.12.1`,
+  `@langchain/core@1.2.9`,
+  `@langchain/langgraph@1.4.13`,
+  `@langchain/langgraph-checkpoint-postgres@1.0.5`, and `pg@8.21.0`; its
+  package-lock artifact SHA-256 is
+  `994ae38c5d39f3364a730a7d3d8be4a1ca0f7bbd4f26a402361641ada580c090`.
+- That isolated in-memory spike supports package installation, StateGraph
+  compile/invoke, two concurrent thread IDs, interrupt/resume, observed node
+  replay, digest-keyed side-effect deduplication, and a pointer/digest-only
+  checkpoint fixture. `PostgresSaver` import passed, but its runtime was not run
+  in that first receipt because local Postgres and the Docker daemon were
+  unavailable.
+- A later mode-`0600`, 2,307-byte durable extension at
+  `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/evidenceflow-spike/evidenceflow-postgres-recovery-spike-20260827T121556Z.json`
+  was observed at `2026-08-27T12:15:56Z`, has SHA-256
+  `dc65ba83cbbb34cfa96c642619eab0dd09b6dc12ef24691845387859ea4f3644`,
+  and binds the first spike's exact SHA-256. On Node `24.15.0` and PostgreSQL
+  `16.15` in an ephemeral localhost-only cluster, it records
+  `PostgresSaver.setup` in schema `sena_langgraph`, four checkpoint tables,
+  three interrupt checkpoints, persistence before `SIGKILL`/exit `137`, and
+  same-`thread_id` resume from a new Node process with node replay observed.
+- The extension also records an authoritative
+  `UNIQUE(runId,nodeId,inputDigest)` receipt boundary, one row after replay, and
+  zero duplicate simulated side effects. EvidenceFlow's handoff additionally
+  reports one row before replay, but that pre-replay count is not a field in the
+  fixed JSON receipt. The checkpoint fixture persisted only source
+  pointers/digests, with no raw research row or credential material.
+  EvidenceFlow separately reports that the temporary cluster was stopped and
+  moved to Trash and that no real database was touched; those cleanup facts are
+  handoff evidence, not fields in the fixed JSON receipt.
+- Even with the extension, the evidence does **not** prove compatibility with an
+  institution-managed SENA Postgres instance or its backup/retention policy,
+  transactional outbox/server-job integration, multi-host failover or managed
+  worker operations, SENA application integration, deployment, or production
+  readiness. It does not thaw this lane. Independent audits check fixed receipt
+  bytes, structure, sensitive-data boundaries, and internal claim consistency;
+  they do not rerun either spike or independently prove every working tree
+  clean. The extension's recorded source SHA-256 could not be independently
+  recomputed because no source script/log accompanied the durable receipt. The
+  first receipt's zero-known-vulnerability audit remains observation-time
+  evidence only.
 - Owner lane: A10 ops/deployment; A09 identity/state; institutional platform,
   identity, security, data-governance, and operations owners.
 - Dependencies and authorization: procurement/configuration; IdP/SCIM; secret
@@ -279,7 +351,10 @@ is the separately quarantined credential/control-plane incident.
   service, configure real providers, run safe live probes and restore rehearsal,
   bind receipts, staff operating ownership, and execute go-live/rollback review.
 - Automated acceptance: provider verifiers, production-evidence check, strict
-  performance/load, environment packet, go-live check, and production gate.
+  performance/load, environment packet, go-live check, and production gate;
+  for any future EvidenceFlow integration, repeat recovery against the accepted
+  institution-managed Postgres topology and add transactional outbox/server-job,
+  multi-host kill/restart, replay, and exactly-once side-effect custody tests.
 - Human acceptance: provider-dashboard readback, backup restore, alert delivery
   and acknowledgement, worker recovery, IdP lifecycle, on-call response, and
   final institutional attestation.
@@ -319,11 +394,18 @@ frozen. After closure, start at most two substantive lanes and only when each
 has owner, authorized input, branch, registered worktree, allowed paths, exact
 acceptance, and closeout date:
 
-1. GAP-01 + GAP-02 as one tightly bound real-pilot evidence lane, if data,
-   coders, reviewer, and ethics/governance authorization are available.
-2. GAP-04 as the independent oracle/adversarial validation lane, if statistical
-   semantics and the reference implementation are agreed.
+1. Start the mobile portion of GAP-06 first: fix the known persistent-rail
+   overlay and internal clipping, then close the 375/768/1024/1440,
+   keyboard/screen-reader, Chromium/Firefox/WebKit acceptance above. This is the
+   first product-code lane that needs no external real data, but it is not
+   authorized while P0 remains open.
+2. Use the second lane for GAP-01 + GAP-02 when data, coders, reviewer, and
+   ethics/governance authorization are available; otherwise use it for GAP-04
+   only after statistical semantics and the reference implementation are
+   agreed.
 
-GAP-03 remains fail-closed over those inputs. GAP-05 through GAP-08 follow only
-after research-pilot blockers are explicit or resolved. GAP-09 is a separate
-institutional program, not an automatic continuation of local pilot work.
+GAP-03 remains fail-closed over real-pilot inputs. The broader negative-path
+portion of GAP-06 and GAP-05/GAP-07/GAP-08 follow after the known mobile P1 is
+closed or explicitly owner-accepted and the research-pilot blockers are
+explicit. GAP-09 is a separate institutional program, not an automatic
+continuation of local pilot work.

@@ -1,7 +1,12 @@
 # SENA exact-main research-pilot release receipt — 2026-08-27
 
-Status: **local exact-SHA gate passed; software/reviewer-package handoff eligible
-within the stated evidence boundary**
+Status: **CONDITIONAL / NOT FULLY APPROVED**
+
+Automated exact-main release ladder: **PASS**
+
+Desktop visual acceptance: **PASS**
+
+Mobile and overall visual acceptance: **FAIL / P1 / OPEN**
 
 Governed real-data pilot execution/completion: **not yet eligible or proven**
 
@@ -33,7 +38,99 @@ Source identity:
 The release branch contains no receipt commit and no application change. The
 receipt itself is maintained on the separate A01 governance branch.
 
-## Ordered gate ledger
+## Superseding revalidation and current disposition
+
+This section supersedes the earlier same-SHA handoff conclusion below. The
+earlier command evidence remains historical provenance, but its
+software/reviewer-package `eligible` conclusion is no longer operative because
+the independent mobile diagnostic established a real P1 blocker.
+
+Exact revalidation identity and clean custody:
+
+- commit `5cdea568a053347dbc82069bde3e836cffb55cc6`;
+- tree `4a0f018023803cb5eef8d67b05658d8656ca1f58`;
+- final Git status `0` tracked changes / `0` untracked changes;
+- preserved failed ledger SHA-256
+  `14304b03c464097eff22387ecd4e1f4309c5685cfa99157c0e858fb9cbccfc88`:
+  first step-03 attempt timed out and exited `1`; it is failure evidence, not a
+  partial pass;
+- successful complete rerun ledger SHA-256
+  `acc03c38bc41c9d851432e11b70ff728c772f4805fd784e5854878f6ba2ba74d`.
+
+The superseding automated ladder passed:
+
+- focused suite: 27/27 files and 447/447 tests;
+- independent full suite: 2,985 passed and 2 skipped;
+- pilot verification: smoke 1/1 plus a second full suite with 2,985 passed and
+  2 skipped;
+- TypeScript, lint, build, and the complete pilot gate passed.
+
+The later browser observer artifact has SHA-256
+`a58a429b8dd1662f957776b2fc60244e404f189cd8072d9b88253b0a9cec319b`.
+Its observer arrays contained no unexpected entries, and desktop visual review
+passed. Independent visual review nevertheless failed mobile. The exact mobile
+diagnostic artifact has SHA-256
+`58e8eb0148491833ca640b1c29e193856f02bafd80b4b51f0de5f0e6158664ac`
+and records at `375x900`:
+
+- the persistent rail occupied `y=180..263` and fully covered the Data Import
+  heading at `y=181..209`;
+- the people metric overlapped by `34 px`;
+- five internal elements were clipped at the right edge;
+- document scroll width and client width were both `375`, so the defect was
+  internal clipping/overlay rather than recoverable horizontal page scrolling.
+
+After that diagnostic, strict performance was rerun as the final release gate.
+Artifact SHA-256
+`2b707b5a123c025a9fec613db4f663ac8df0d863c081eda1b97b5cedb3628554`
+passed 5/5 checks, bound the exact commit with `gitDirty=false`, and measured
+833,069 / 848,000 static JavaScript bytes: 14,931 bytes headroom against the
+12,000-byte minimum. No later build displaced it as the last release gate.
+
+Append-only metadata custody is bound as follows:
+
+| Artifact | SHA-256 / state |
+|---|---|
+| v1 review addendum | `6f6cc3f4b7a7a3b67829e4d4e54237aad247a4732bef82d72fe17851843d5621` |
+| v1 evidence manifest | `b6404ccb6645c9e5daf9a421cad884212ae53cc5d0a00e9fd6190b30fafd083f` |
+| v2 quality-closure directory | `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/release-receipts/exact-main-5cdea568-quality-v2-20260827` |
+| v2 closure | `e7e0cf43b7055ec4e4e141e1c4b385e7a2314a87371a5a1034fa854ec7b74c1d` |
+| v2 manifest | `1cb4c3d196bf0ae12b8c5afd2ff9cc8e7c50718e337beccb44263d37a9aae685`; 41 entries |
+| post-generation independent review | APPROVE; package-scope P0=0, P1=0, P2=0 |
+
+The immutable v2 closure bytes correctly retain
+`REMEDIATED_PENDING_INDEPENDENT_REVIEW`. The later review establishes the
+separate effective tracked-receipt status
+`INDEPENDENTLY_VERIFIED_COMPLETE_BY_POST_GENERATION_REVIEW`; it does not imply
+that the closure bytes were rewritten. Only the v2 generator executed. The v2
+performance and browser tools did not execute, and the old generic v1 tools are
+`deprecated-do-not-reuse`.
+
+Historical GitHub integration evidence remains separately bounded: PR #20 head
+was `d72246a269dfafb4a585cd5d3a63784c477b3b20`; head build run
+`33007461716` passed; merge/main became `5cdea568a053347dbc82069bde3e836cffb55cc6`;
+post-main run `33007704490` passed. Those CI jobs ran TypeScript/build only, not
+the full local, visual, or metadata ladder.
+
+The controlling boundary is therefore:
+
+- automated ladder: PASS;
+- metadata package: independently verified complete by the later external
+  review;
+- desktop visual: PASS;
+- mobile and overall visual: FAIL / P1 / OPEN;
+- research-pilot/reviewer handoff: CONDITIONAL / NOT FULLY APPROVED until the
+  mobile P1 is fixed or the owner explicitly accepts it;
+- production: NOT AUTHORIZED / NOT PROVEN;
+- deployment: NOT PERFORMED;
+- exact-SHA live behavior: NOT VERIFIED;
+- empirical claims: EXPLORATORY-ONLY.
+
+## Historical ordered gate ledger (superseded for current disposition)
+
+The table below preserves the first same-SHA run. It does not override the
+superseding revalidation, mobile finding, final performance artifact, or current
+conditional handoff state.
 
 The gates ran in the order below. Where a runner printed an exact start
 timestamp, it is recorded. The original runner did not persist per-command
@@ -55,7 +152,11 @@ should emit a machine-readable start/end/exit ledger automatically.
 The full suite is intentionally reported as its two real phases. The skipped
 files/tests are not represented as passes.
 
-## Browser and interaction evidence
+## Historical browser and interaction evidence
+
+This earlier scripted coverage proved encoded assertions, not independent
+visual acceptance at every width. The later mobile diagnostic above supersedes
+any implication that exercising `375x900` meant that viewport passed visually.
 
 The temporary production server used by `sena:pilot:verify` listened on local
 port `3101` and was stopped by the gate. The browser stages exercised:
@@ -84,7 +185,11 @@ The load stage was a bounded local smoke only: 2 users for 1 second, 4 requests,
 0 errors, p95 21 ms. It is not a 50-user test and is not production capacity
 evidence.
 
-## Strict performance custody
+## Historical strict performance custody (superseded)
+
+The artifact below was the first-run custody copy. It is retained for provenance
+and was superseded by the later final performance artifact
+`2b707b5a123c025a9fec613db4f663ac8df0d863c081eda1b97b5cedb3628554`.
 
 Strict artifact identity:
 
@@ -107,7 +212,10 @@ The external copy is a custody receipt, not a production deployment artifact.
 No performance value has been promoted into a claim about institution-scale
 traffic.
 
-## Clean-state proof
+## Historical first-run clean-state proof
+
+This section describes the first-run state only. The superseding section above
+records the later revalidation's final `0/0` clean state.
 
 After the strict performance command, read-only checks established:
 
@@ -129,7 +237,7 @@ later build, test, or mutation command was run in the release worktree.
 | Local gate finding | all ordered gates above passed |
 | Statistical/research finding | fixture and synthetic/approved test evidence is strong; a real governed pilot dataset, real coder adjudication/human review on the same revision, and an independent oracle remain open |
 | Security finding | exact-main verification does not close the separate credential incident on the quarantined docs branch |
-| Disposition | eligible for software/reviewer-package handoff as code-and-fixture evidence; governed real-data pilot completion and empirical claims remain blocked/exploratory-only |
+| Disposition | automated exact-main ladder passed, but research-pilot/reviewer handoff is conditional and not fully approved because mobile visual acceptance is FAIL/P1/OPEN; governed real-data pilot completion and empirical claims remain blocked/exploratory-only |
 
 Historical GitHub evidence is separate:
 
@@ -153,9 +261,15 @@ production deployment created on 2026-08-01. They do not prove that commit
 Final release statement:
 
 ```text
-software/reviewer-package handoff: eligible under this exact-SHA local receipt
+automated exact-main release ladder: PASS
+metadata package: INDEPENDENTLY_VERIFIED_COMPLETE_BY_POST_GENERATION_REVIEW
+desktop visual acceptance: PASS
+mobile / overall visual acceptance: FAIL / P1 / OPEN
+research-pilot/reviewer handoff: CONDITIONAL / NOT FULLY APPROVED
 governed real-data pilot execution/completion: not yet eligible / not proven
 production promotion: not authorized / not yet proven
+deployment: not performed for 5cdea568
 deployment evidence: none for 5cdea568
 live-behavior evidence: none for 5cdea568
+empirical claims: exploratory-only
 ```

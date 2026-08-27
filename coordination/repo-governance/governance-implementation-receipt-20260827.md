@@ -22,6 +22,10 @@ The quarantined root checkout was not switched, reset, stashed, merged,
 rebased, cleaned, or used for tracked writes. The implementation did not
 delete a branch/ref/worktree, rewrite history, read either credential DOCX,
 revoke or rotate a provider credential, change a Vercel setting, or deploy.
+Separately, a redacted EvidenceFlow handoff reports provider-side/local/Vercel
+environment-configuration writes for DeepSeek, Resend, and SimpleTex. That
+external evidence is recorded without values and does not imply a SENA or MAIS
+production deployment/redeployment.
 
 ## Implemented controls
 
@@ -29,6 +33,57 @@ revoke or rotate a provider credential, change a Vercel setting, or deploy.
   ownership lane, exact base/head observation, allowed paths, heartbeat,
   review/closeout date, PR disposition, sensitive paths, and five distinct
   evidence layers.
+- `provider-containment-ledger-20260827.json` records the corrected nine-provider
+  inventory using names, credential classes, environment scope, controlled
+  equality states, and redacted proof fields only. It records no values or value
+  hashes. A durable mode-`0600` partial receipt is bound by exact path, SHA-256,
+  byte count, file type, and observed time. It marks DeepSeek, Resend, and
+  SimpleTex complete and records a no-deployment runtime boundary; Resend has a
+  bounded dashboard-log review. A later exact owner-attestation receipt
+  classifies DeepSeek's two named usage concentrations as expected, closing only
+  that reconciliation blocker. The same six remaining provider rows stay open,
+  overall containment is false, and remote deletion activation remains
+  disallowed.
+- A later durable additive no-value receipt records separate sensitive Vercel
+  Preview and Production bindings for DeepSeek and Resend, with each new Preview
+  binding returning `201`, follow-up inventory reporting `branchScoped=false`,
+  and one local assignment in a mode-`0600` file. It extends rather than mutates
+  the first receipt, marks only these two secret-store scopes complete, and
+  records no value emission, provider call, or deployment/redeployment; overall
+  containment and deletion activation remain false.
+- A fresh 4,501-byte mode-`0600` read-only receipt extends both prior hashes and
+  directly refreshes the six remaining provider rows. It records active and
+  console/usage continuity without credential writes/deletes, billable calls,
+  model generation, OCR, email, or xAPI statements. DeepSeek, Resend, and
+  SimpleTex are carried through the receipt's closure section rather than new
+  direct rows; all-provider containment, deletion activation, and feature thaw
+  remain false.
+- A separate 5,591-byte mode-`0600` readiness receipt binds three
+  receipt-attested Qwen consumers, one Mathpix consumer, the owner-requested
+  no-deployment dormant OpenRouter/Clerk target, and incomplete BUG_LRS/LRS
+  Vercel slots. Independent source review found a fourth minimum-known Qwen
+  consumer, `scripts/probe-tutor-providers.mjs`; its default path performs a
+  provider POST and only `--list` is read-only. The receipt uses `recordedAt`
+  plus `sourceReceipts` and has no separately registered schema. It explicitly
+  requires action-time confirmation for credential creation and deletion and is
+  sequencing evidence, not replacement, revocation, runtime, deployment,
+  containment, or deletion-activation proof.
+- A 3,979-byte mode-`0600` blocker receipt freezes the provider-console and
+  pre-commit Git boundary at `2026-08-27T12:31:24Z`: root/remote refs remain
+  unchanged, PR #21 is Draft/Open at `e6a4533`, and old-head checks do not cover
+  current A01 edits. Its later DeepSeek classification action is now satisfied;
+  the provider-login and LRS action-time-confirmation blockers remain.
+- The mode-`0600`, 848-byte owner-attestation receipt at
+  `2026-08-27T12:35:03Z`, SHA-256
+  `b4a7aeaab9f4b364bb235e61c9735b15f02e0628eb5111a0f5c580dd33544af1`,
+  clears only DeepSeek's named usage-reconciliation blocker. It changes no
+  credential rotation, other-provider containment, deletion activation, or
+  feature-freeze state.
+- Although the base receipt observed no OpenRouter/Clerk runtime binding, an
+  explicit owner scope correction requires dormant replacements in MAIS local
+  plus Vercel Preview/Production before legacy revocation. Their console login,
+  creation, redacted secret-store readback, usage review, and revocation remain
+  pending; no current code consumer or deployment authorization is claimed.
 - The open P0 freeze permits only an exact task/owner/lane/branch/allowed-path
   exception. A label alone cannot create write authority.
 - Pre-commit reads the stage-0 registry object from the index, checks all
@@ -59,8 +114,11 @@ revoke or rotate a provider credential, change a Vercel setting, or deploy.
   refs, tags, notes, and non-branch namespaces.
 - The exact-SHA contaminated-ref deletion receipt is currently
   `pending-provider-readback`; pending receipts cannot authorize a push. After
-  provider containment is proven, the receipt may be activated for one exact
-  lease deletion and must then be marked consumed.
+  provider containment is proven, Draft PR #21 must first merge through
+  protected `main`; a protected-main follow-up may then bind the provider
+  evidence and activate the receipt for one exact-lease deletion. Fresh live
+  absence readback must precede a protected-main consumed/event-custody receipt.
+  Pre-governance `main` must never be used for the deletion.
 - GitHub ruleset `21635990` is active on the exact contaminated branch and
   restricts creation, deletion, and non-fast-forward updates. Its sole bypass
   actor is the receipt-bound repository owner. The owner-authenticated hook
@@ -108,6 +166,8 @@ names the exact-main release worktree.
 
 | Gate | Result |
 |---|---|
+| Current no-value ledger/receipt refresh | nine external artifacts matched exact path/hash/byte count/0600 mode/schema; provider/registry/fail-closed cross-assertions, exact seven-path scope, real-index-clean check, `git diff --check`, registry audit, temporary-index write/security hooks, and the focused governance suite all passed; final focused result was 1 file / 36 tests; no product suite/build was required for governance-only evidence updates |
+| EvidenceFlow compatibility/recovery-spike binding | first receipt binds exact path/SHA-256/1,657-byte size/0600 mode and in-memory StateGraph/thread/interrupt/replay/digest-dedup evidence; a 2,307-byte mode-0600 extension binds the first hash and records localhost PostgreSQL 16.15 PostgresSaver setup, interrupt persistence, SIGKILL/137, new-process same-thread resume, replay, one receipt row after replay, and zero duplicate effects; the handoff reports one row before replay but the fixed JSON does not record that pre-replay count; institution-managed topology, outbox/server-job integration, multi-host operations, SENA integration, deployment, and production readiness remain unproved; neither audit reran the spike |
 | Governance + navigation focused tests | 2/2 files, 39/39 tests passed after adding protected-main deletion, full-hook, event-time CI, candidate-index isolation, and failure-log non-disclosure regressions |
 | Sandbox full-suite attempt | 207 files and 2,953 tests passed; the exact-loopback listener test exited before readiness in the restricted sandbox |
 | Controlled-loopback full-suite rerun | 208 files passed, 1 live file skipped; 2,954 tests passed, 2 live tests skipped |
@@ -118,10 +178,10 @@ names the exact-main release worktree.
 | Script/hook/JSON syntax | `node --check`, both `sh -n` checks, and JSON parse passed |
 | Patch hygiene | `git diff --check` passed |
 | Local governance audit | `errors=[]`, `status=blocked-owner`, 26 rescue refs, 0 unreachable commits |
-| Live governance audit at `2026-08-27T06:29:44.349Z` | `errors=[]`, `status=blocked-owner`; 2 live heads, 2 tags, 0 open PRs before this governance draft |
+| Durable pre-delete live-ref audit at `2026-08-27T12:07:09.098Z` | mode-0600 external receipt bound by exact path/SHA-256/1,593-byte size; 3 heads, 2 tags, 22 PR candidate refs, 27 candidate refs / 24 distinct objects; recursive tree metadata complete; exactly 4 findings, all on exact quarantined docs ref `18d542f`; credential contents not read; deletion not performed; `status=blocked-owner` |
 | First reviewable governance commit | `531f320e7b6fe98b29356c7fb2a51b7b52d334ab`; pushed through the pre-push gate |
-| GitHub review surface | Draft PR #21 opened against `main`; `build` and `repository-security` are both required by the active ruleset; automatic branch deletion is disabled |
-| Exact-main handoff | separate receipt binds the full pilot gate to commit `5cdea568` / tree `4a0f018` |
+| GitHub review surface | Draft PR #21 exact head `e6a4533f8335c5b6107e33df702fd703c193cfe8`; build run `33055439241`, repository-security PR run `33055439229`, and repository-security push run `33055436146` all succeeded; `build` and `repository-security` are required; automatic branch deletion is disabled |
+| Exact-main handoff | automated ladder passes on commit `5cdea568` / tree `4a0f018`, metadata package is independently verified complete, desktop visual passes, and mobile/overall visual fails with an open P1; handoff is conditional/not fully approved |
 
 The skipped live Postgres tests are reported as skipped, not passed. The exact
 main release receipt remains the authority for the pilot/browser/performance
@@ -135,6 +195,18 @@ release evidence.
 | Evidence review | receipt counts, custody facts, and separation of local/CI/merge/deployment/live claims | APPROVE |
 | Plan-compliance review | preservation-first implementation and owner-gated destructive/external boundaries | APPROVE |
 | Security review | iterative attack reviews covering staged type changes, writer/disposition binding, freeze exceptions, remote spoofing, protected-main authorization, exact deletion hook wiring, event-time main custody, ruleset readback, actor binding, candidate-index isolation, and failure-log disclosure | APPROVE under the trusted-owner threat model after all reproducible findings were fixed; final focused rerun passed 36/36 governance tests |
+| Prior no-value provider/receipt spec review | nine-provider ledger, EvidenceFlow corrections, live-ref counts, deletion order, exact-main boundaries, GAP-06, and changed-path scope before the durable partial receipt arrived | APPROVE after closing one stale production-authorization P1 and two identity/authorization-wording P2 findings; latest partial-receipt binding receives a new review below |
+| Durable partial provider receipt integrity review | external file integrity, structure, redaction boundary, provider-row counts, completion boundary, and deletion-activation state | APPROVE; read-only independent audit confirmed 3 completed / 6 remaining, overall containment false, deletion activation false, and no credential values/value hashes/response bodies/endpoint URLs emitted; this is artifact verification, not a second provider login |
+| Durable provider secret-store correction integrity review | additive chain to the base provider receipt, DeepSeek/Resend local plus Preview/Production binding metadata, redaction and side-effect boundary | APPROVE; fixed 1,687-byte mode-0600 receipt and prior hash chain verified; distinct environment slots, not retained remote object IDs; no values, provider calls, or deployment; overall containment false |
+| Durable provider follow-up readback integrity review | fixed 4,501-byte read-only receipt, two-parent hash chain, six direct pending rows plus three carried completed providers, global side-effect and closure boundary | APPROVE at receipt level; fixed JSON directly contains six rows, not nine; three completed providers come from closure/prior receipts; no writes/deletes/billable actions are receipt-attested globally, containment/deletion remain false, and no live provider call was independently rerun |
+| Durable secret-store readiness integrity review | fixed 5,591-byte readiness receipt, source DAG, consumer paths, environment-slot gaps, action-time/deployment boundary, and source comparison | APPROVE with explicit limitation: receipt uses `recordedAt`/`sourceReceipts`, has no independent schema registry, and its three-item Qwen consumer list is non-exhaustive; independent source review found `scripts/probe-tutor-providers.mjs` as a fourth minimum-known Qwen consumer whose default path performs a provider POST; readiness remains non-containment evidence |
+| Durable provider blocker integrity and live Git review | fixed 3,979-byte blocker receipt, recursive source chain, console/write fields, root/remote/PR baseline, CI scope, and fail-closed gates | APPROVE as a timestamped blocker baseline; independent `2026-08-27T12:37:26Z` Git/GitHub readback matched root, three heads, Draft PR #21, and old-head green checks; fixed provider rows record writes as false but contain no delete-performed field, and old checks do not cover current A01 edits |
+| Durable DeepSeek owner-attestation integrity review | fixed 848-byte receipt, owner/date/classification/effect/redaction boundary and task provenance | Integrity and bounded effect APPROVE: both named concentrations are owner-classified expected and only that reconciliation blocker clears; NOT FULLY CONFORMANT for self-contained provenance because the fixed JSON lacks a task/thread reference, so this governance ledger separately binds the current task reference to the immutable path/hash |
+| Durable pre-delete live-ref receipt integrity review | fixed file integrity, counts, complete-tree flag, exact finding confinement, and deletion boundary | APPROVE at receipt level; 1,593-byte mode-0600 file/hash and internal predicates verified, with no credential body read and `deletionPerformed=false`; reviewer did not independently rerun the full remote tree enumeration |
+| EvidenceFlow compatibility-spike integrity review | external file integrity, exact runtime/package declarations, in-memory checks, sensitive-data boundary, and negative claim boundary | APPROVE as isolated compatibility evidence only; not implementation, Postgres runtime, cross-process recovery, deployment, production readiness, or authorization to thaw feature work |
+| EvidenceFlow PostgreSQL recovery-spike integrity review | external file/hash-chain integrity, fixed PostgresSaver/checkpoint/kill/resume/replay/dedup fields, sensitive-data boundary, and negative claim boundary | APPROVE as fixed-receipt evidence only; independently confirmed 2,307-byte mode-0600 regular file and prior-receipt hash chain, but did not rerun PostgreSQL or the worker; fixed JSON records only the post-replay row count, does not record cleanup/no-real-DB facts, and retains a source SHA-256 that could not be recomputed without the absent source script/log |
+| Current partial-receipt governance spec review | provider/live-ref receipts, pending-provider states, owner scope corrections, ledger/registry/incident prose consistency, fail-closed deletion sequence, runtime/deployment and sensitive-data boundaries | APPROVE after remediating one P1 incomplete pending-provider transcription and one P2 runtime-boundary summary mismatch; final P0=0, P1=0, P2=0; reviewer made no writes |
+| Final additive provider/governance delta review | follow-up/readiness/blocker/owner-attestation artifacts, Qwen consumer correction, fixed-vs-handoff field attribution, six-row closure consistency, registry timestamps, and seven-path scope | APPROVE after closing two P1 attribution/wording findings and the earlier P2 timestamp finding; final P0=0, P1=0, P2=0; remaining six providers stay open, containment/deletion activation remain false, feature freeze remains true, and reviewer made no writes |
 
 The final security approval is limited to the implemented controls and the
 explicit trusted-owner threat model. Local hooks can still be bypassed with
@@ -150,17 +222,21 @@ and owner discipline remain necessary layers.
 Machine implementation does not close the P0 incident. The remaining actions
 require distinct owner authorization and evidence:
 
-1. identify affected providers/accounts/environments without disclosing values;
-2. revoke/rotate every real credential and capture provider-side redacted
+1. confirm the corrected nine-provider accounts/environments without disclosing
+   values, complete containment, and capture timestamped redacted provider
    readback;
-3. update approved secret stores and dependent environments;
-4. delete the contaminated remote docs ref with an exact old-SHA lease after
-   sanitized salvage and owner approval;
-5. restore the root checkout to live `main` by ordinary checkout plus
+2. merge Draft PR #21 through protected `main` after its required checks;
+3. add the protected-main follow-up that binds provider evidence and activates
+   the existing one-shot deletion receipt;
+4. delete only the contaminated docs ref with the exact old-SHA lease and abort
+   on drift;
+5. perform the live absence readback, then add the protected-main
+   consumed/deletion-event custody receipt;
+6. restore the root checkout to live `main` by ordinary checkout plus
    fast-forward only;
-6. decide preservation/archive/cleanup disposition for the four broken
+7. decide preservation/archive/cleanup disposition for the four broken
    worktree directories and remaining frozen branches;
-7. separately authorize any production promotion.
+8. separately authorize any production promotion.
 
 Until those gates close, the correct top-level state is:
 
@@ -168,7 +244,7 @@ Until those gates close, the correct top-level state is:
 governance implementation: reviewable and machine-verified
 credential incident: blocked-owner
 root checkout: quarantined
-research-pilot software/reviewer package: locally eligible only under exact-SHA receipt
+research-pilot software/reviewer package: CONDITIONAL / NOT FULLY APPROVED; mobile P1 open
 governed real-data pilot: not yet proven
 production promotion: not authorized / not proven
 ```

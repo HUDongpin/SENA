@@ -12,6 +12,37 @@ Ordinary feature development remains frozen while the credential incident in
 is limited to preservation, redacted security containment, governance tooling,
 sanitized salvage review, and exact-SHA verification.
 
+`provider-containment-ledger-20260827.json` is the machine-readable no-value
+provider ledger. EvidenceFlow reports replacement and revocation for DeepSeek,
+Resend, and SimpleTex, while this governance task itself performed no provider
+write. A mode-`0600` durable partial receipt observed at
+`2026-08-27T11:46:54Z` is bound by path, SHA-256, byte count, and file mode; it
+marks those three provider rows complete and records the no-deployment runtime
+boundary. The owner has since classified DeepSeek's two named concentration
+dates as expected activity, closing that one reconciliation blocker; the other
+six rows remain open. The receipt itself says overall containment is incomplete
+and remote deletion activation is disallowed, so no completed incident
+containment is claimed. A second durable additive receipt extends the first for
+DeepSeek/Resend secret-store scope, binding separate sensitive Preview and
+Production assignments without value emission, provider calls, or deployment;
+it also keeps overall containment and deletion activation false. A third
+read-only receipt refreshes the six remaining rows at `2026-08-27T12:23:17Z`
+without a credential write/delete or billable/runtime side effect. A fourth
+readiness receipt at `2026-08-27T12:26:52Z` binds a non-exhaustive
+Qwen/Mathpix/LRS consumer and environment-slot inventory plus the
+owner-requested dormant OpenRouter/Clerk target; independent source review adds
+`scripts/probe-tutor-providers.mjs` as a fourth minimum-known Qwen consumer.
+Those additions improve sequencing evidence only: six provider rows remain
+open, credential creation/deletion still requires action-time confirmation,
+feature work remains frozen, and deletion activation remains false.
+A fifth mode-`0600` blocker receipt at `2026-08-27T12:31:24Z` freezes the
+remaining owner-login/action-time-confirmation boundary and the pre-commit Git
+snapshot. It explicitly states that PR #21's old-head green checks do not cover
+the current A01 edits; it authorizes no merge, remote-ref deletion, root
+movement, EvidenceFlow feature worktree, or thaw. Its DeepSeek classification
+action was subsequently satisfied by owner attestation; the remaining provider
+login/rotation/revocation actions are unchanged.
+
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
 used for feature work until the P0 owner gate is closed. New work uses a branch
@@ -183,6 +214,15 @@ the matched value is never printed. Tests construct explicitly fake
 credentials at runtime and assert that neither content nor filename values are
 emitted.
 
+The deletion is strictly ordered: (1) provider containment plus timestamped
+redacted readback; (2) protected merge of Draft PR #21; (3) protected-main
+follow-up activation of the one-shot receipt bound to provider evidence; (4)
+exact-old-SHA lease deletion of only the quarantined docs ref; (5) fresh live
+absence readback; and (6) protected-main consumed/deletion-event custody
+receipt. The existing owner authorization remains
+`pending-provider-readback`; it is neither absent nor executable. No deletion
+may be attempted from pre-governance `main`.
+
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
 branch that lacks the workflow, and it detects a pushed commit after server
@@ -238,13 +278,25 @@ The two disk-only navigation files were compared semantically with current
 must not be cherry-picked. Its still-useful breakpoint-complement invariant was
 selectively re-expressed as a current-strategy regression test.
 
+The durable pre-delete live-ref audit at `2026-08-27T12:07:09.098Z` covered 3 heads, 2
+tags, and 22 PR candidate refs: 27 candidate refs backed by 24 distinct objects.
+Recursive tree metadata was complete. Exactly four findings were confined to
+the two forbidden path/blob occurrences on the quarantined docs head; every
+other head, tag, PR-head candidate, and PR-merge candidate was clear. No file
+body was obtained or printed, and no deletion was performed. Its regular,
+non-symlink, mode-`0600`, 1,593-byte external receipt is bound by SHA-256 in the
+registry.
+
 ## Development frontier
 
 `developmental-gap-register-20260827.md` is the source-bound priority ledger.
-Its highest product gaps are an authorized real-data researcher walkthrough,
-genuine coding-reliability/adjudication/human-review evidence on that same
-revision, and an independent mathematical/statistical oracle. It keeps claim
-readiness exploratory and production cutover separately owner-gated.
+It now records an exact 375x900 mobile P1: persistent-rail heading coverage,
+metric overlap, and five internally clipped elements. Ordinary product work is
+still frozen; after P0 closes, the mobile GAP-06 fix is the first product-code
+lane that can start without external real data. The real-data walkthrough,
+genuine coding-reliability/adjudication/human-review evidence, and independent
+mathematical/statistical oracle remain separate research inputs. Claim readiness
+stays exploratory and production cutover stays owner-gated.
 
 ## Exact-main handoff receipt
 
@@ -252,17 +304,28 @@ readiness exploratory and production cutover separately owner-gated.
 gate sequence to commit `5cdea568a053347dbc82069bde3e836cffb55cc6` and tree
 `4a0f018023803cb5eef8d67b05658d8656ca1f58`. It records real test counts,
 responsive browser coverage, strict performance custody, and the clean final
-worktree state. It deliberately leaves deployment and live behavior unproved.
+worktree state. The automated ladder passes and the later metadata package is
+independently verified complete, but independent visual review passes desktop
+and fails mobile/overall with an open P1. Research-pilot/reviewer handoff is
+therefore conditional and not fully approved. Deployment and live behavior
+remain unproved.
 
 ## Owner-gated actions
 
 The following actions require distinct owner authorization and must not be
 inferred from this governance implementation:
 
-- identify provider/account/environment entries in the quarantined documents;
-- revoke or rotate credentials and record provider-side redacted readback;
-- update formal secret stores or Vercel environment variables;
-- delete the contaminated remote branch with an exact old-SHA lease;
+- finish every still-pending provider action and proof in the no-value provider
+  ledger, including Qwen/Ali, Mathpix, the owner-requested dormant
+  OpenRouter/Clerk replacements plus local/Preview/Production bindings, and the
+  shared LRS.io binding represented by BUG LRS/LRS;
+- bind all remaining and future rotations/revocations, secret-store changes,
+  usage reviews, and runtime boundaries to a later complete redacted readback
+  that supersedes the current partial receipt;
+- merge Draft PR #21, activate the one-shot receipt on protected `main`, delete
+  the contaminated remote branch with an exact old-SHA lease, read back live
+  absence, and record the protected-main consumed/event-custody receipt in that
+  order;
 - rewrite history or request GitHub cached-object removal;
 - remove or archive broken worktree directories;
 - switch the root checkout and fast-forward local `main`;
