@@ -1091,6 +1091,76 @@ describe("SENA repository governance", () => {
     }
   });
 
+  it("scopes push-policy and push-event checks to lane commits after protected-main baseline intake", () => {
+    const fixture = createGovernedFixture("push-protected-main-baseline");
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    registry.workItems[0].headSha = fixture.head;
+    registry.workItems[0].allowedPaths = ["README.md"];
+    registry.workItems[0].aheadBehind = { baseRef: "origin/main", ahead: 0, behind: 0 };
+    registry.workItems[0].dirtyState = "clean-protected-main-baseline";
+    registry.policy.freezeExceptionBindings[0].allowedPaths = ["README.md"];
+    registry.branches[0].headSha = fixture.head;
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "protected main baseline intake"]);
+    const protectedMainHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", protectedMainHead]);
+
+    writeFileSync(join(fixture.root, "README.md"), "allowed lane candidate\n");
+    runGit(fixture.root, ["add", "README.md"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "allowed lane candidate"]);
+    const allowedHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const allowedPush = runNode(fixture.script, ["push-policy", "--remote-name", "origin"], {
+      cwd: fixture.root,
+      input: `${fixture.ref} ${allowedHead} ${fixture.ref} ${"0".repeat(40)}\n`,
+      env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+    });
+    expect(allowedPush.status, `${allowedPush.stdout}${allowedPush.stderr}`).toBe(0);
+    const allowedEvent = runNode(fixture.script, [
+      "security",
+      "--push-event",
+      "--event-ref",
+      fixture.ref,
+      "--event-before",
+      "0".repeat(40),
+      "--event-after",
+      allowedHead,
+      "--event-forced",
+      "false",
+      "--event-deleted",
+      "false"
+    ], { cwd: fixture.root });
+    expect(allowedEvent.status, `${allowedEvent.stdout}${allowedEvent.stderr}`).toBe(0);
+
+    writeFileSync(join(fixture.root, "outside.txt"), "unauthorized lane path\n");
+    runGit(fixture.root, ["add", "outside.txt"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "unauthorized lane candidate"]);
+    const rejectedHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const rejectedPush = runNode(fixture.script, ["push-policy", "--remote-name", "origin"], {
+      cwd: fixture.root,
+      input: `${fixture.ref} ${rejectedHead} ${fixture.ref} ${"0".repeat(40)}\n`,
+      env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+    });
+    expect(rejectedPush.status).toBe(1);
+    expect(rejectedPush.stderr).toContain("rule=outgoing-head-not-permitted-by-commit-registry");
+    const rejectedEvent = runNode(fixture.script, [
+      "security",
+      "--push-event",
+      "--event-ref",
+      fixture.ref,
+      "--event-before",
+      "0".repeat(40),
+      "--event-after",
+      rejectedHead,
+      "--event-forced",
+      "false",
+      "--event-deleted",
+      "false"
+    ], { cwd: fixture.root });
+    expect(rejectedEvent.status).toBe(1);
+    expect(rejectedEvent.stderr).toContain("rule=push-event-head-not-permitted");
+  });
+
   it("rejects empty pre-push input and non-origin remotes without falling back to HEAD", () => {
     const empty = runNode(governanceScript, ["security", "--pre-push", "--remote-name", "origin"], {
       cwd: projectRoot,
