@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T22:20:22Z",
+  "updatedAt": "2026-08-27T22:36:55Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
+      "headSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,14 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T22:20:22Z",
-      "lastObservedAt": "2026-08-27T22:20:22Z",
+      "lastHeartbeatAt": "2026-08-27T22:36:55Z",
+      "lastObservedAt": "2026-08-27T22:36:55Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 35,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 34,
         "headSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
@@ -1021,14 +1021,14 @@
         "postMainChecksPassed": true
       },
       "noPrReason": null,
-      "dirtyState": "staged-pr35-draft-lifecycle-binding-at-15a99e1",
+      "dirtyState": "staged-pr35-final-authorization-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "Draft PR 35 exact first registry-bound head 15a99e1 contains candidate a9c20f1 plus the actual remote observation heartbeat; full governance tests, type-check, production build, exact live audit, push-policy and security passed",
-        "ci": "PR 35 exact-head checks are pending; no merge authorization exists",
+        "local": "Draft PR 35 exact current head 44bba8e contains the narrow cleanup audit repair and complete lifecycle bindings; full governance tests, type-check, production build, exact live audit, push-policy and security passed",
+        "ci": "PR 35 head 44bba8e build 33122204526 and repository-security 33122204509/33122201459 passed; the forthcoming authorization-metadata head must independently pass before Ready/merge",
         "merged": "PR 34 is protected-main complete at e9af8a8, but the audit repair is not merged and Node24 cleanup remains frozen",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
@@ -1317,19 +1317,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
+      "headSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
-      "remoteObservedAt": "2026-08-27T22:20:22Z",
+      "remoteHeadSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
+      "remoteObservedAt": "2026-08-27T22:36:55Z",
       "pr": 35,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "15a99e19dd5926a4ae67db450418a5033b97467a",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1339,13 +1339,13 @@
         "mergeCommitSha": "e9af8a89a3d2736d5f993408e06670a6f30c5e83",
         "mergedAt": "2026-08-27T22:01:37Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T22:20:22Z",
-      "lastObservedAt": "2026-08-27T22:20:22Z",
-      "lastCommitAt": "2026-08-28T06:19:19+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T22:36:55Z",
+      "lastObservedAt": "2026-08-27T22:36:55Z",
+      "lastCommitAt": "2026-08-28T06:21:22+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "ready-for-pr",
-      "closeout": "Draft PR 35 is OPEN at exact first bound head 15a99e1; merge authorization is false until final exact-head build/security and protected-main metadata approval"
+      "closeout": "Draft PR 35 head 44bba8e is exact-check green and metadata-authorized; only the forthcoming metadata head may become Ready/merge after its own exact build/security pass"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
