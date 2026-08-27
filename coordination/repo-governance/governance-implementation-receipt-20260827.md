@@ -82,7 +82,7 @@ names the exact-main release worktree.
 
 | Gate | Result |
 |---|---|
-| Governance + navigation focused tests | 2/2 files, 34/34 tests passed |
+| Governance + navigation focused tests | 2/2 files, 35/35 tests passed after adding candidate-index isolation and failure-log non-disclosure regressions |
 | Sandbox full-suite attempt | 207 files and 2,953 tests passed; the exact-loopback listener test exited before readiness in the restricted sandbox |
 | Controlled-loopback full-suite rerun | 208 files passed, 1 live file skipped; 2,954 tests passed, 2 live tests skipped |
 | Final full suite, serial phase | 5/5 files, 63/63 tests passed |
@@ -108,7 +108,7 @@ release evidence.
 |---|---|---|
 | Evidence review | receipt counts, custody facts, and separation of local/CI/merge/deployment/live claims | APPROVE |
 | Plan-compliance review | preservation-first implementation and owner-gated destructive/external boundaries | APPROVE |
-| Security review | four iterative attack reviews covering staged type changes, writer/disposition binding, freeze exceptions, remote spoofing, snapshot authorization, and pre-network ordering | APPROVE after all reproducible findings were fixed |
+| Security review | iterative attack reviews covering staged type changes, writer/disposition binding, freeze exceptions, remote spoofing, snapshot authorization, pre-network ordering, candidate-index isolation, and failure-log disclosure | APPROVE after all reproducible findings were fixed; final focused rerun passed 32/32 governance tests |
 
 The final security approval is limited to the implemented cooperative controls.
 Local hooks can still be bypassed by an authorized local user with

@@ -12,21 +12,11 @@ source_root=$(dirname -- "$hook_dir")
 export GIT_OPTIONAL_LOCKS=0
 
 echo "pre-commit: enforcing the registered P0 write boundary" >&2
-audit_log=$(mktemp "${TMPDIR:-/tmp}/sena-precommit-audit.XXXXXX") || {
-  echo "pre-commit: could not create a private audit diagnostic file; commit refused." >&2
-  exit 1
-}
-trap 'rm -f "$audit_log"' EXIT HUP INT TERM
 if ! env SENA_GOVERNANCE_TARGET_ROOT="$target_root" \
-  node "$source_root/scripts/verify-sena-repo-governance.mjs" audit --pre-commit --registry-from-index >"$audit_log" 2>&1; then
-  # The governance audit is deliberately value-redacted. Emit its bounded
-  # diagnostic only on failure so a fail-closed hook remains debuggable.
-  sed -n '1,220p' "$audit_log" >&2
+  node "$source_root/scripts/verify-sena-repo-governance.mjs" audit --pre-commit --registry-from-index >/dev/null 2>&1; then
   echo "pre-commit: repository governance write gate failed; commit refused." >&2
   exit 1
 fi
-rm -f "$audit_log"
-trap - EXIT HUP INT TERM
 
 echo "pre-commit: binding staged paths to the stage-0 registry snapshot" >&2
 if ! env SENA_GOVERNANCE_TARGET_ROOT="$target_root" \

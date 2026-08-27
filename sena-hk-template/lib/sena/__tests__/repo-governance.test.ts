@@ -50,6 +50,10 @@ function runGit(root: string, args: string[]) {
   return result.stdout.trim();
 }
 
+function isActiveWriter(entry: { disposition: string }) {
+  return ["active", "ready-for-pr"].includes(entry.disposition);
+}
+
 function createGovernedFixture(label: string, allowedPaths = ["README.md", "coordination/repo-governance/**"]) {
   const root = temporaryRoot(label);
   const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
@@ -69,8 +73,8 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
   const template = JSON.parse(
     readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
   );
-  const templateItem = template.workItems.find((item: { disposition: string }) => item.disposition === "active");
-  const templateBranch = template.branches.find((branch: { disposition: string }) => branch.disposition === "active");
+  const templateItem = template.workItems.find(isActiveWriter);
+  const templateBranch = template.branches.find(isActiveWriter);
   const now = new Date().toISOString();
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const taskId = "SENA-GOVERNANCE-TEST-WRITER";
@@ -181,7 +185,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     active.lastHeartbeatAt = "2020-01-01T00:00:00Z";
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
@@ -328,6 +332,28 @@ describe("SENA repository governance", () => {
     expect(combined).not.toContain(fakeToken);
   });
 
+  it("does not echo a token-shaped branch name when the pre-commit audit fails", () => {
+    const fixture = createGovernedFixture("precommit-log-redaction");
+    const fakeToken = `ghp_${"A".repeat(36)}`;
+    runGit(fixture.root, ["branch", "-m", fakeToken]);
+
+    const hookDirectory = join(fixture.root, ".githooks");
+    const hookPath = join(hookDirectory, "pre-commit");
+    mkdirSync(hookDirectory, { recursive: true });
+    copyFileSync(join(projectRoot, ".githooks", "pre-commit"), hookPath);
+    chmodSync(hookPath, 0o755);
+
+    const result = spawnSync(hookPath, [], {
+      cwd: fixture.root,
+      encoding: "utf8",
+      env: process.env
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("repository governance write gate failed");
+    expect(result.stderr).not.toContain(fakeToken);
+    expect(result.stdout).not.toContain(fakeToken);
+  });
+
   it("scans every commit in an outgoing range even when the forbidden file is later removed", () => {
     const root = temporaryRoot("outgoing-range");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
@@ -472,7 +498,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     active.laneType = "release-like-but-unregistered";
     active.disposition = "actively-writing-typo";
     const registryPath = join(root, "active-work.json");
@@ -489,7 +515,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     active.allowedPaths = ["sena-hk-template/app/**"];
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
@@ -504,7 +530,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
     branch.disposition = "integrated";
     const registryPath = join(root, "active-work.json");
@@ -744,7 +770,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const branch = registry.branches.find((entry: { disposition: string }) => entry.disposition === "active");
+    const branch = registry.branches.find(isActiveWriter);
     const ref = `refs/heads/${branch.name}`;
     const head = runGit(projectRoot, ["rev-parse", ref]);
     const before = branch.remotePresent ? branch.remoteHeadSha : "0".repeat(40);
@@ -801,9 +827,13 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
     active.ownerKey = "mismatched-owner";
+    active.prNumber = null;
+    active.noPrReason = "fixture deliberately has no PR";
+    branch.pr = null;
+    branch.noPrReason = "fixture deliberately has no PR";
     branch.lastCommitAt = "2020-01-01T00:00:00Z";
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
@@ -819,7 +849,7 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find((item: { disposition: string }) => item.disposition === "active");
+    const active = registry.workItems.find(isActiveWriter);
     const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
     active.nextReviewAt = "2020-01-01T00:00:00Z";
     branch.nextReviewAt = "2020-01-01T00:00:00Z";
