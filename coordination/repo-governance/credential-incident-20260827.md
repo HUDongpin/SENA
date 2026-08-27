@@ -1,6 +1,6 @@
 # SENA credential incident action packet — 2026-08-27
 
-Status: **P0 / blocked-owner**
+Status: **P0 / blocked-owner (remote containment complete; root restoration pending)**
 
 Coordinator: SENA-A01
 
@@ -377,10 +377,15 @@ exact-lease deletion attempt passed actor/remote identity, push policy, and the
 exact deletion boundary, but the local governance audit then failed closed
 before remote mutation because two historical ahead/behind observations and the
 PR #22 lifecycle state were stale. Fresh live readback proved the contaminated
-ref remained at the exact expected old SHA. PR #23 now carries the immutable-base
-correction; its final exact-head checks and protected merge are pending. Feature
-work remains frozen; deletion, live absence, incident closure, root-checkout
-movement, and deployment have not occurred.
+ref remained at the exact expected old SHA. PR #23 then merged exact head
+`b008cad...` as `606daa6...`, with both post-main checks green. The next
+exact-old-SHA deletion succeeded. GitHub ruleset suite `3846639027` binds the
+owner actor, exact ref, old SHA, zero after-SHA, and bypass result. A fresh
+mode-`0600` recursive Git Trees metadata audit covered all 27 live head/tag/pull
+candidates and found neither forbidden path nor the known blob. Feature work
+remains frozen while the consumed/event-custody record reaches protected main
+and the root checkout remains locally quarantined. No deployment or history
+rewrite occurred.
 
 ## Complete superseding provider readback
 
@@ -525,17 +530,28 @@ The mandatory order is:
    both post-main checks passed.
 3. **Satisfied:** activation PR #22 merged exact head `aaf679d...` through
    protected `main` as `b002f976...`; both exact post-main checks passed.
-3a. **Current fail-closed correction:** bind historical read-only work-item
+3a. **Satisfied:** bind historical read-only work-item
    ahead/behind evidence to immutable `b002f976...`, record PR #22 as merged,
    and preserve the first blocked attempt as no-remote-mutation evidence on
-   protected `main` through PR #23.
-4. Delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
+   protected `main` through PR #23; exact head `b008cad...` merged as
+   `606daa6...` and post-main checks passed.
+4. **Satisfied:** delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
    exact old-SHA lease for
    `18d542f707e56aa9d043dd497e0efe48b540db20`; abort on drift.
-5. Perform a fresh live absence readback across heads, tags, and PR candidate
-   refs for both forbidden paths and the known blob.
-6. Commit a protected-main consumed receipt with deletion-event custody and the
+5. **Satisfied:** perform a fresh live absence readback across heads, tags, and
+   PR candidate refs for both forbidden paths and the known blob; 27 candidates,
+   complete recursive tree metadata, zero findings.
+6. **Current follow-up:** commit a protected-main consumed receipt with deletion-event custody and the
    live absence timestamp.
+
+The post-delete reachability receipt is the regular mode-`0600`, 1,266-byte
+file `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json`,
+SHA-256 `e4137d7394b0bace0c9e39f1c26f4eda61bd83b6abc928c48936676ab8668672`,
+observed at `2026-08-27T18:05:51.205Z`. The deletion closeout is the regular
+mode-`0600`, 3,515-byte file
+`/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/remote-ref-deletion-closeout-20260827T180709Z.json`,
+SHA-256 `d614f86d3a058afbf5aab08466fcac4b41ab08ad148a8bbd3ed966e345fe3873`.
+Neither receipt contains credential values or document bodies.
 
 Never attempt the deletion from pre-governance `main` or activate the receipt
 before provider readback. The prior sanitized-salvage disposition remains a
