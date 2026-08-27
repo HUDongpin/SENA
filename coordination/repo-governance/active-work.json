@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T19:50:28Z",
+  "updatedAt": "2026-08-27T19:55:56Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -927,7 +927,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 0,
+      "currentOpenPullRequestCount": 1,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f8dc4ebf5a8e6c2011a74441bb1b60cdd56fe3bd",
+      "headSha": "95713b1fe80698c3a8897950c6ebb3d9d9faa601",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,11 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T19:50:28Z",
-      "lastObservedAt": "2026-08-27T19:50:28Z",
+      "lastHeartbeatAt": "2026-08-27T19:55:56Z",
+      "lastObservedAt": "2026-08-27T19:55:56Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 28,
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 27,
         "headSha": "9f8b49c17073585458ed3c391167a75557714a44",
@@ -1017,20 +1020,20 @@
         "postMainRepositorySecurityRunId": 33109521632,
         "postMainChecksPassed": true
       },
-      "noPrReason": "Governance-only heartbeat increment for the two active implementation lanes; first reviewable commit and draft PR are pending.",
-      "dirtyState": "active-governance-lane-heartbeat-pre-pr",
+      "noPrReason": null,
+      "dirtyState": "ready-for-pr28-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "PR 27 repaired commit-bound live audit and its exact protected-main snapshot passed with errors=[] and ownerBlockers=[]; this increment heartbeats the actual f8dc4ebf heads and allowed dirty states of Node 24 and EvidenceFlow",
-        "ci": "PR 27 exact final head 9f8b49c passed required checks; post-main build 33109521672 and repository-security 33109521632 passed on f8dc4ebf",
-        "merged": "audit-lifecycle PR 27 head 9f8b49c merged as protected main f8dc4ebf; lane heartbeat increment is not merged",
+        "local": "PR 28 is Ready and owner-authorized; exact first heartbeat head 95713b1 records the actual f8dc4ebf heads and allowed dirty states of Node 24 and EvidenceFlow; PR metadata candidate must independently pass governance gates",
+        "ci": "PR 28 first head 95713b1 has repository-security green and build in progress; those checks will be superseded by this authorization metadata candidate",
+        "merged": "audit-lifecycle PR 27 head 9f8b49c merged as protected main f8dc4ebf; Ready PR 28 heartbeat remains unmerged until its final exact-SHA checks pass",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1299,10 +1302,16 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "9f8b49c17073585458ed3c391167a75557714a44",
-      "remoteObservedAt": "2026-08-27T19:50:28Z",
-      "pr": null,
-      "noPrReason": "Governance-only heartbeat increment for the two active implementation lanes; first reviewable commit and draft PR are pending.",
+      "remoteHeadSha": "95713b1fe80698c3a8897950c6ebb3d9d9faa601",
+      "remoteObservedAt": "2026-08-27T19:55:56Z",
+      "pr": 28,
+      "prState": "OPEN",
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "95713b1fe80698c3a8897950c6ebb3d9d9faa601",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 27,
@@ -1310,13 +1319,13 @@
         "mergeCommitSha": "f8dc4ebf5a8e6c2011a74441bb1b60cdd56fe3bd",
         "mergedAt": "2026-08-27T19:39:49Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T19:50:28Z",
-      "lastObservedAt": "2026-08-27T19:50:28Z",
-      "lastCommitAt": "2026-08-28T03:39:48+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T19:55:56Z",
+      "lastObservedAt": "2026-08-27T19:55:56Z",
+      "lastCommitAt": "2026-08-28T03:53:10+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "PR 27 merged as f8dc4ebf with post-main checks green and commit-bound live audit pass; lane remains active for exact heartbeat governance"
+      "disposition": "ready-for-pr",
+      "closeout": "PR 28 is Ready and explicitly merge-authorized; exact first heartbeat head 95713b1 must be superseded by independently green authorization metadata before protected merge"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
