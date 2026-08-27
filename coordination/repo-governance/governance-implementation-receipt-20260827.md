@@ -72,7 +72,19 @@ production deployment/redeployment.
   pre-commit Git boundary at `2026-08-27T12:31:24Z`: root/remote refs remain
   unchanged, PR #21 is Draft/Open at `e6a4533`, and old-head checks do not cover
   current A01 edits. Its later DeepSeek classification action is now satisfied;
-  the provider-login and LRS action-time-confirmation blockers remain.
+  its provider-console states remain a historical snapshot.
+- A later independent 4,393-byte mode-`0600` pre-action receipt at
+  `2026-08-27T13:12:06Z` records Qwen/OpenRouter/Clerk authenticated with create
+  dialogs open but unsubmitted, Mathpix still login-required, and LRS
+  authenticated without opening the create action. All final submits, external
+  writes/deletes, billable calls, and deployments are false. A non-sensitive
+  browser-memory-to-`0600`-FIFO transport-mechanism probe passed without using
+  credential material; it does not prove real credential transfer, provider
+  creation, secret-store update, runtime binding, rotation, revocation, or
+  deployment. The fixed receipt has no parent/source-receipt hash field, so it
+  is bound as an independent additive artifact. The same six provider rows
+  remain open, containment/deletion activation remain false, feature freeze
+  remains true, and PR #21 remains Draft.
 - The mode-`0600`, 848-byte owner-attestation receipt at
   `2026-08-27T12:35:03Z`, SHA-256
   `b4a7aeaab9f4b364bb235e61c9735b15f02e0628eb5111a0f5c580dd33544af1`,
@@ -81,9 +93,11 @@ production deployment/redeployment.
   feature-freeze state.
 - Although the base receipt observed no OpenRouter/Clerk runtime binding, an
   explicit owner scope correction requires dormant replacements in MAIS local
-  plus Vercel Preview/Production before legacy revocation. Their console login,
-  creation, redacted secret-store readback, usage review, and revocation remain
-  pending; no current code consumer or deployment authorization is claimed.
+  plus Vercel Preview/Production before legacy revocation. Their consoles are
+  now authenticated with create dialogs open but unsubmitted; action-time
+  confirmation, creation, redacted secret-store readback, usage review, and
+  revocation remain pending. No current code consumer or deployment
+  authorization is claimed.
 - The open P0 freeze permits only an exact task/owner/lane/branch/allowed-path
   exception. A label alone cannot create write authority.
 - Pre-commit reads the stage-0 registry object from the index, checks all
@@ -166,7 +180,7 @@ names the exact-main release worktree.
 
 | Gate | Result |
 |---|---|
-| Current no-value ledger/receipt refresh | nine external artifacts matched exact path/hash/byte count/0600 mode/schema; provider/registry/fail-closed cross-assertions, exact seven-path scope, real-index-clean check, `git diff --check`, registry audit, temporary-index write/security hooks, and the focused governance suite all passed; final focused result was 1 file / 36 tests; no product suite/build was required for governance-only evidence updates |
+| Current no-value ledger/receipt refresh | ten external artifacts matched exact path/hash/byte count/0600 mode/regular/non-symlink/JSON custody; the new receipt's credential-pattern and sensitive semantic-key counts were zero; provider/registry/fail-closed cross-assertions, exact five-path scope, real-index-clean check, `git diff --check`, registry audit, temporary-index write/security hooks, and the focused governance suite all passed; final focused result was 1 file / 36 tests; no product suite/build was required for governance-only evidence updates |
 | EvidenceFlow compatibility/recovery-spike binding | first receipt binds exact path/SHA-256/1,657-byte size/0600 mode and in-memory StateGraph/thread/interrupt/replay/digest-dedup evidence; a 2,307-byte mode-0600 extension binds the first hash and records localhost PostgreSQL 16.15 PostgresSaver setup, interrupt persistence, SIGKILL/137, new-process same-thread resume, replay, one receipt row after replay, and zero duplicate effects; the handoff reports one row before replay but the fixed JSON does not record that pre-replay count; institution-managed topology, outbox/server-job integration, multi-host operations, SENA integration, deployment, and production readiness remain unproved; neither audit reran the spike |
 | Governance + navigation focused tests | 2/2 files, 39/39 tests passed after adding protected-main deletion, full-hook, event-time CI, candidate-index isolation, and failure-log non-disclosure regressions |
 | Sandbox full-suite attempt | 207 files and 2,953 tests passed; the exact-loopback listener test exited before readiness in the restricted sandbox |
@@ -180,7 +194,7 @@ names the exact-main release worktree.
 | Local governance audit | `errors=[]`, `status=blocked-owner`, 26 rescue refs, 0 unreachable commits |
 | Durable pre-delete live-ref audit at `2026-08-27T12:07:09.098Z` | mode-0600 external receipt bound by exact path/SHA-256/1,593-byte size; 3 heads, 2 tags, 22 PR candidate refs, 27 candidate refs / 24 distinct objects; recursive tree metadata complete; exactly 4 findings, all on exact quarantined docs ref `18d542f`; credential contents not read; deletion not performed; `status=blocked-owner` |
 | First reviewable governance commit | `531f320e7b6fe98b29356c7fb2a51b7b52d334ab`; pushed through the pre-push gate |
-| GitHub review surface | Draft PR #21 exact head `e6a4533f8335c5b6107e33df702fd703c193cfe8`; build run `33055439241`, repository-security PR run `33055439229`, and repository-security push run `33055436146` all succeeded; `build` and `repository-security` are required; automatic branch deletion is disabled |
+| GitHub review surface at this update's pre-edit heartbeat | Draft PR #21 exact head `0943a93cef288ba93715c1a5ecf23cac8d527f6d`; build run `33073674556`, repository-security PR run `33073674552`, and repository-security push run `33073670785` all succeeded; these prior-head checks do not cover the new additive receipt update; `build` and `repository-security` are required; automatic branch deletion is disabled |
 | Exact-main handoff | automated ladder passes on commit `5cdea568` / tree `4a0f018`, metadata package is independently verified complete, desktop visual passes, and mobile/overall visual fails with an open P1; handoff is conditional/not fully approved |
 
 The skipped live Postgres tests are reported as skipped, not passed. The exact
@@ -201,6 +215,7 @@ release evidence.
 | Durable provider follow-up readback integrity review | fixed 4,501-byte read-only receipt, two-parent hash chain, six direct pending rows plus three carried completed providers, global side-effect and closure boundary | APPROVE at receipt level; fixed JSON directly contains six rows, not nine; three completed providers come from closure/prior receipts; no writes/deletes/billable actions are receipt-attested globally, containment/deletion remain false, and no live provider call was independently rerun |
 | Durable secret-store readiness integrity review | fixed 5,591-byte readiness receipt, source DAG, consumer paths, environment-slot gaps, action-time/deployment boundary, and source comparison | APPROVE with explicit limitation: receipt uses `recordedAt`/`sourceReceipts`, has no independent schema registry, and its three-item Qwen consumer list is non-exhaustive; independent source review found `scripts/probe-tutor-providers.mjs` as a fourth minimum-known Qwen consumer whose default path performs a provider POST; readiness remains non-containment evidence |
 | Durable provider blocker integrity and live Git review | fixed 3,979-byte blocker receipt, recursive source chain, console/write fields, root/remote/PR baseline, CI scope, and fail-closed gates | APPROVE as a timestamped blocker baseline; independent `2026-08-27T12:37:26Z` Git/GitHub readback matched root, three heads, Draft PR #21, and old-head green checks; fixed provider rows record writes as false but contain no delete-performed field, and old checks do not cover current A01 edits |
+| Durable provider pre-action readiness integrity review | fixed 4,393-byte independent receipt, file integrity, provider UI states, final-submit and side-effect fields, private transport boundary, and fail-closed gates | APPROVE as pre-action evidence only: Qwen/OpenRouter/Clerk authenticated dialogs are open but unsubmitted, Mathpix still needs login, and LRS has not opened its create action; all final submits/writes/deletes/billable calls/deployment are false; the non-sensitive FIFO probe used no credential material and proves no real credential transfer or secret-store update; the fixed receipt has no parent/source hash link; containment/deletion activation stay false and feature freeze stays true |
 | Durable DeepSeek owner-attestation integrity review | fixed 848-byte receipt, owner/date/classification/effect/redaction boundary and task provenance | Integrity and bounded effect APPROVE: both named concentrations are owner-classified expected and only that reconciliation blocker clears; NOT FULLY CONFORMANT for self-contained provenance because the fixed JSON lacks a task/thread reference, so this governance ledger separately binds the current task reference to the immutable path/hash |
 | Durable pre-delete live-ref receipt integrity review | fixed file integrity, counts, complete-tree flag, exact finding confinement, and deletion boundary | APPROVE at receipt level; 1,593-byte mode-0600 file/hash and internal predicates verified, with no credential body read and `deletionPerformed=false`; reviewer did not independently rerun the full remote tree enumeration |
 | EvidenceFlow compatibility-spike integrity review | external file integrity, exact runtime/package declarations, in-memory checks, sensitive-data boundary, and negative claim boundary | APPROVE as isolated compatibility evidence only; not implementation, Postgres runtime, cross-process recovery, deployment, production readiness, or authorization to thaw feature work |

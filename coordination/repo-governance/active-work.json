@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T12:45:26Z",
+  "updatedAt": "2026-08-27T13:24:54Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -101,6 +101,8 @@
           "providerBlockerReceiptRecordedAt": "2026-08-27T12:31:24Z",
           "deepSeekOwnerAttestationReceiptSha256": "b4a7aeaab9f4b364bb235e61c9735b15f02e0628eb5111a0f5c580dd33544af1",
           "deepSeekOwnerAttestationReceiptRecordedAt": "2026-08-27T12:35:03Z",
+          "providerPreActionReadinessReceiptSha256": "96b9bc5beb8557b421164c1bbc5898a71d2fa3d664ca5c1685054896772846e7",
+          "providerPreActionReadinessReceiptRecordedAt": "2026-08-27T13:12:06Z",
           "providerContainmentComplete": false,
           "remoteDeletionReceiptActivationAllowed": false,
           "supersessionRequired": true
@@ -275,11 +277,42 @@
               "evidenceFlowFeatureWorktreeCreationAllowed": false,
               "featureWorkFrozen": true
             }
+          ],
+          "preActionReadinessReceipts": [
+            {
+              "id": "provider-rotation-preaction-readiness-20260827T131206Z",
+              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-rotation-preaction-readiness-20260827T131206Z.json",
+              "sha256": "96b9bc5beb8557b421164c1bbc5898a71d2fa3d664ca5c1685054896772846e7",
+              "bytes": 4393,
+              "mode": "0600",
+              "schemaVersion": "provider-rotation-preaction-readiness/v1",
+              "recordedAt": "2026-08-27T13:12:06Z",
+              "sourceReceiptLinkPresent": false,
+              "authenticatedOpenUnsubmittedCreateDialogs": [
+                "Qwen/Ali",
+                "OpenRouter",
+                "Clerk"
+              ],
+              "mathpixState": "login-required-create-dialog-not-reached",
+              "lrsState": "authenticated-create-dialog-not-opened-before-action-time-confirmation",
+              "anyFinalSubmitPerformed": false,
+              "externalWritesPerformed": false,
+              "externalDeletesPerformed": false,
+              "billableCallsPerformed": false,
+              "deploymentTriggered": false,
+              "nonSensitivePrivateTransportProbePassed": true,
+              "credentialMaterialUsedByTransportProbe": false,
+              "credentialValuesEmitted": false,
+              "actionTimeConfirmationRequired": true,
+              "providerContainmentComplete": false,
+              "remoteDeletionReceiptActivationAllowed": false,
+              "featureWorkFrozen": true
+            }
           ]
         }
       },
       "providerContainmentStatus": "in-progress",
-      "rotationReadback": "partial-durable-receipt:DeepSeek-Resend-SimpleTex-completed-provider-rows-at-2026-08-27T11:46:54Z;durable-additive-correction-completes-DeepSeek-Resend-separate-sensitive-Preview-and-Production-secret-store-scope;fresh-read-only-follow-up-at-2026-08-27T12:23:17Z-confirms-six-remaining-rows-still-open-with-no-provider-write-or-delete;readiness-receipt-at-2026-08-27T12:26:52Z-binds-a-non-exhaustive-consumer-inventory-owner-requested-dormant-OpenRouter-Clerk-and-incomplete-LRS-Vercel-slots;independent-source-review-adds-Qwen-probe-consumer;owner-at-2026-08-27T12:34:26Z-classifies-DeepSeek-Aug10-request-and-Aug24-cost-concentrations-as-expected;Qwen-page-timeout-and-rotation-pending;Mathpix-login-and-rotation-pending;OpenRouter-Clerk-owner-requested-dormant-replacement-plus-local-Preview-Production-bindings-usage-review-and-revocation-pending;shared-LRSio-binding-still-active-console-ready-action-time-confirmation-pending;overall-containment-false",
+      "rotationReadback": "partial-durable-receipt:DeepSeek-Resend-SimpleTex-completed-provider-rows-at-2026-08-27T11:46:54Z;durable-additive-correction-completes-DeepSeek-Resend-separate-sensitive-Preview-and-Production-secret-store-scope;fresh-read-only-follow-up-at-2026-08-27T12:23:17Z-confirms-six-remaining-rows-still-open-with-no-provider-write-or-delete;readiness-receipt-at-2026-08-27T12:26:52Z-binds-a-non-exhaustive-consumer-inventory-owner-requested-dormant-OpenRouter-Clerk-and-incomplete-LRS-Vercel-slots;independent-source-review-adds-Qwen-probe-consumer;owner-at-2026-08-27T12:34:26Z-classifies-DeepSeek-Aug10-request-and-Aug24-cost-concentrations-as-expected;independent-pre-action-receipt-at-2026-08-27T13:12:06Z-records-Qwen-OpenRouter-Clerk-authenticated-create-dialog-open-unsubmitted-Mathpix-login-required-and-LRS-authenticated-create-action-not-opened-with-zero-writes-deletes-billable-calls-or-deployments;non-sensitive-0600-FIFO-probe-does-not-prove-real-credential-transfer-or-secret-store-update;all-six-remaining-provider-rows-still-open;overall-containment-false",
       "evidenceFlowCorrection": "the prior Stripe-candidate classification remains withdrawn because the observed live-secret shape was in Clerk context; current Resend replacement and dashboard deletion are newly reported, while the old 403 remains semantically indeterminate and is not revocation proof",
       "providerWritesPerformedByThisGovernanceTask": false,
       "providerWritesReportedByEvidenceFlow": true,
@@ -305,26 +338,26 @@
         "providerContainmentComplete": false,
         "deletionReceiptActivationEligible": false,
         "pendingBrowserLogin": [
-          "Qwen/Ali",
-          "Mathpix",
-          "OpenRouter",
-          "Clerk"
+          "Mathpix"
         ],
         "pendingProviderSignals": {
-          "Qwen/Ali": "latest 2026-08-27T12:23:17Z exposed/current read-only model-list both 200 active; console page did not return before safe timeout; local plus Preview/Production key binding exists and remains legacy; readiness receipt records three consumers and independent source review adds scripts/probe-tutor-providers.mjs, whose default probe path performs a provider POST while --list is read-only",
+          "Qwen/Ali": "latest pre-action receipt at 2026-08-27T13:12:06Z records authenticated create dialog open but unsubmitted; no replacement creation, secret-store update, usage review, or revocation is proved; local plus Preview/Production key binding remains legacy; four minimum-known consumers remain in scope",
           "Mathpix": "latest 2026-08-27T12:23:17Z exposed/current read-only OCR usage both 200 active with zero usage signal; console login required; local app-id/key pair exists, Vercel key exists in Preview/Production but app-id is absent in both; readiness receipt records one actual code consumer",
-          "OpenRouter": "latest 2026-08-27T12:23:17Z legacy read-only metadata 200 active with nonzero usage signal; current binding and code consumer absent; console login, owner-requested dormant replacement and local plus Vercel Preview/Production bindings pending; no deployment authorized",
-          "Clerk": "latest 2026-08-27T12:23:17Z legacy read-only instance 403 with active state indeterminate and no revocation inference; current binding and code consumer absent; console login, owner-requested dormant replacement and local plus Vercel Preview/Production bindings pending; no deployment authorized"
+          "OpenRouter": "latest pre-action receipt at 2026-08-27T13:12:06Z records authenticated create dialog open but unsubmitted; current binding and code consumer remain absent; owner-requested dormant replacement, local plus Vercel Preview/Production bindings, usage review, and legacy revocation remain pending; no deployment authorized",
+          "Clerk": "latest pre-action receipt at 2026-08-27T13:12:06Z records authenticated create dialog open but unsubmitted; prior 403 remains indeterminate with no revocation inference; current binding and code consumer remain absent; owner-requested dormant replacement, local plus Vercel Preview/Production bindings, usage review, and legacy revocation remain pending; no deployment authorized"
         },
         "ownerScopeCorrections": {
           "OpenRouter": "base receipt replacement-not-required planning state superseded by explicit owner request for dormant replacement binding",
           "Clerk": "base receipt replacement-not-required planning state superseded by explicit owner request for dormant replacement binding"
         },
         "pendingActionTimeConfirmation": [
+          "Qwen/Ali",
+          "OpenRouter",
+          "Clerk",
           "BUG LRS",
           "LRS"
         ],
-        "latestLrsConsoleState": "logged-in-key-management-ready-but-action-time-confirmation-missing",
+        "latestLrsConsoleState": "authenticated-create-action-not-opened-before-action-time-confirmation",
         "latestReadOnlyFollowUpReceipt": {
           "id": "provider-containment-readback-20260827T122317Z",
           "sha256": "c00fa574dba8925a9e761674e9046e6ca5f12765d74e445a1d8d023b83aa5b3a",
@@ -356,6 +389,28 @@
           "deletionReceiptActivationEligible": false,
           "featureWorkFrozen": true
         },
+        "latestPreActionReadinessReceipt": {
+          "id": "provider-rotation-preaction-readiness-20260827T131206Z",
+          "sha256": "96b9bc5beb8557b421164c1bbc5898a71d2fa3d664ca5c1685054896772846e7",
+          "recordedAt": "2026-08-27T13:12:06Z",
+          "sourceReceiptLinkPresent": false,
+          "qwenOpenRouterClerkState": "authenticated-create-dialog-open-unsubmitted",
+          "mathpixState": "login-required-create-dialog-not-reached",
+          "lrsState": "authenticated-create-dialog-not-opened-before-action-time-confirmation",
+          "privateTransportProof": "non-sensitive-browser-memory-to-0600-fifo-to-secret-store-mechanism-probe-only",
+          "credentialMaterialUsedByTransportProbe": false,
+          "realCredentialTransferProved": false,
+          "secretStoreUpdateProved": false,
+          "replacementCreationProved": false,
+          "legacyRevocationProved": false,
+          "externalWritesPerformed": false,
+          "externalDeletesPerformed": false,
+          "billableCallsPerformed": false,
+          "deploymentTriggered": false,
+          "providerContainmentComplete": false,
+          "deletionReceiptActivationEligible": false,
+          "featureWorkFrozen": true
+        },
         "currentOwnerBlockerReceipt": {
           "id": "provider-containment-blocker-20260827T123124Z",
           "sha256": "c6b003d5b45adfe69551ab495f314867761b5e26cc1551bcb24001e31a81a824",
@@ -373,7 +428,14 @@
           "rootCheckoutFastForwardAllowed": false,
           "evidenceFlowFeatureWorktreeCreationAllowed": false,
           "featureWorkFrozen": true,
-          "deepSeekOwnerActionResolvedAfterReceipt": true
+          "deepSeekOwnerActionResolvedAfterReceipt": true,
+          "providerConsoleReadinessAdvancedAfterReceipt": true,
+          "historicalConsoleStateSupersededFor": [
+            "Qwen/Ali",
+            "OpenRouter",
+            "Clerk",
+            "LRS"
+          ]
         },
         "ownerAttestations": [
           {
@@ -500,10 +562,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "e6a4533f8335c5b6107e33df702fd703c193cfe8",
+      "headSha": "0943a93cef288ba93715c1a5ecf23cac8d527f6d",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 9,
+        "ahead": 10,
         "behind": 0
       },
       "allowedPaths": [
@@ -518,11 +580,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T12:45:26Z",
-      "lastObservedAt": "2026-08-27T12:45:26Z",
+      "lastHeartbeatAt": "2026-08-27T13:24:54Z",
+      "lastObservedAt": "2026-08-27T13:24:54Z",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "prNumber": 21,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "noPrReason": null,
       "dirtyState": "active-governance-receipt-update-partial-provider-containment-p0-open",
       "sensitivePaths": [
@@ -530,8 +595,8 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "final pre-commit verification passed: nine external artifacts matched exact hash/size/0600/schema, both machine ledgers and fail-closed cross-assertions passed, changed scope was seven governance paths, real index remained clean, registry passed, temporary-index pre-commit write/security gates passed, git diff --check passed, and the focused governance suite passed 36/36",
-        "ci": "exact e6a4533f head: build run 33055439241 success, repository-security PR run 33055439229 success, and repository-security push run 33055436146 success; these old-head checks do not cover the current governance update until it is committed, pushed, and checked",
+        "local": "final pre-commit verification passed for the additive pre-action receipt update: ten external artifacts matched exact hash/size/0600/regular/non-symlink/JSON custody, the new receipt's credential-pattern and semantic-key counts were zero, provider/registry/fail-closed cross-assertions passed, changed scope was exactly five governance paths, real index remained clean, registry passed, temporary-index pre-commit write/security gates passed, git diff --check passed, and the focused governance suite passed 36/36",
+        "ci": "exact 0943a93f head: build run 33073674556 success, repository-security PR run 33073674552 success, and repository-security push run 33073670785 success; these prior-head checks do not cover the additive pre-action receipt update until it is committed, pushed, and checked",
         "merged": "pending",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
@@ -705,22 +770,25 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "e6a4533f8335c5b6107e33df702fd703c193cfe8",
+      "headSha": "0943a93cef288ba93715c1a5ecf23cac8d527f6d",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "e6a4533f8335c5b6107e33df702fd703c193cfe8",
-      "remoteObservedAt": "2026-08-27T12:15:05Z",
+      "remoteHeadSha": "0943a93cef288ba93715c1a5ecf23cac8d527f6d",
+      "remoteObservedAt": "2026-08-27T13:16:54Z",
       "pr": 21,
       "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "prStateObservationMode": "monotonic",
-      "prHeadSha": "e6a4533f8335c5b6107e33df702fd703c193cfe8",
+      "prHeadSha": "0943a93cef288ba93715c1a5ecf23cac8d527f6d",
       "prBase": "main",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-08-27T12:16:21Z",
-      "lastObservedAt": "2026-08-27T12:16:21Z",
-      "lastCommitAt": "2026-08-27T16:44:28+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T13:24:54Z",
+      "lastObservedAt": "2026-08-27T13:24:54Z",
+      "lastCommitAt": "2026-08-27T20:47:58+08:00",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "disposition": "ready-for-pr",

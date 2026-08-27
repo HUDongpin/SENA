@@ -39,7 +39,7 @@ Read-only live-ref metadata audit at `2026-08-27T12:07:09.098Z`:
   both known paths and the known blob;
 - no file body was fetched, opened, or printed by this audit;
 - no deletion was performed;
-- current open pull requests: `1` (Draft PR #21, exact head `e6a4533f8335c5b6107e33df702fd703c193cfe8`);
+- current open pull requests at this update's pre-edit heartbeat: `1` (Draft PR #21, exact head `0943a93cef288ba93715c1a5ecf23cac8d527f6d`);
 - repository visibility: private; forks: `0`;
 - `main-minimum-safety` ruleset: active;
 - GitHub Actions repository secrets: `0` (names/values not requested);
@@ -86,14 +86,14 @@ redeployment, remote-ref deletion, or history rewrite was reported.
 | Provider | Credential name class | Current redacted configuration state | Provider/readback state | Remaining closure evidence |
 |---|---|---|---|---|
 | DeepSeek | API key | replacement in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false`; current MAIS credential DOCX not reverified after replacement | partial durable receipt marks provider row complete: replacement active through official read-only balance endpoint; old key deleted and returns `401`; owner later classifies both named usage concentrations as expected | later complete durable receipt must include the additive Preview correction; no deployed-runtime consumption claim because deployment was not authorized |
-| Qwen/Ali | API key | local plus Vercel Preview/Production key binding exists and remains legacy; readiness receipt records three direct consumers, while independent source review adds `scripts/probe-tutor-providers.mjs` as a fourth minimum-known consumer; prior equality to leaked value in current MAIS credential DOCX | fresh `2026-08-27T12:23:17Z` read-only receipt confirms exposed/current model-list `200` and active; console page did not return before the safe timeout | verified console access, replacement/revocation, usage review, update of all four minimum-known bindings/consumers, and complete provider receipt; the probe script defaults to a provider POST and only `--list` is read-only |
+| Qwen/Ali | API key | local plus Vercel Preview/Production key binding exists and remains legacy; readiness receipt records three direct consumers, while independent source review adds `scripts/probe-tutor-providers.mjs` as a fourth minimum-known consumer; prior equality to leaked value in current MAIS credential DOCX | read-only receipt confirms exposed/current model-list `200` and active; the later `2026-08-27T13:12:06Z` pre-action receipt records authenticated create dialog open but unsubmitted | action-time confirmation, replacement creation, redacted update/readback for all required bindings and four minimum-known consumers, usage review, legacy revocation, and complete provider receipt; the probe script defaults to a provider POST and only `--list` is read-only |
 | SimpleTex | API credential | replacement in local MAIS and Vercel Preview/Production environment configuration; combined Preview+Production binding preserved | partial durable receipt marks provider row complete: old app deleted; only the named replacement remains; console-only review and no OCR call | no deployed-runtime consumption claim because deployment was not authorized |
-| Mathpix | application identifier and API key | local app identifier/key pair exists; Vercel key exists in Preview/Production but the app identifier is absent in both; consumer is `app/api/handwriting-recognition/route.ts`; prior equality to leaked value in current MAIS credential DOCX | fresh `2026-08-27T12:23:17Z` read-only receipt confirms exposed/current OCR-usage `200`, active, with zero usage signal; console login required | replacement/revocation, usage review, local pair update, add app identifier and replace key in both Vercel targets, and complete provider receipt |
+| Mathpix | application identifier and API key | local app identifier/key pair exists; Vercel key exists in Preview/Production but the app identifier is absent in both; consumer is `app/api/handwriting-recognition/route.ts`; prior equality to leaked value in current MAIS credential DOCX | read-only receipt confirms exposed/current OCR-usage `200`, active, with zero usage signal; the `2026-08-27T13:12:06Z` pre-action receipt still records login required and create dialog not reached | console login, action-time confirmation, replacement/revocation, usage review, local pair update, add app identifier and replace key in both Vercel targets, and complete provider receipt |
 | Resend | API key | replacement sending-only key in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false` | partial durable receipt marks provider row complete: old key deleted in dashboard; only replacement row remains; Logs showed no visible retained entries | later complete durable receipt must include the additive Preview correction; no deployed-runtime send claim because deployment was not authorized; dashboard log visibility remains a bounded review, not proof of no historical use |
-| OpenRouter | API key | current local/Vercel binding and code consumers are absent; owner nevertheless requires a dormant replacement in MAIS `.env.local` plus Vercel Preview/Production before revocation | fresh `2026-08-27T12:23:17Z` read-only receipt confirms exposed key-metadata `200`, active, with nonzero usage; current binding absent and console login required | console login, dormant replacement creation, redacted three-target secret-store readback, console usage review, legacy revocation, and complete provider receipt; no deployment authorized |
-| Clerk | secret key | current local/Vercel binding and code consumers are absent; owner nevertheless requires a dormant replacement in MAIS `.env.local` plus Vercel Preview/Production before revocation | fresh `2026-08-27T12:23:17Z` read-only receipt confirms exposed instance `403`, active unresolved and current binding absent; interpretation remains indeterminate with no revocation/Stripe inference; console login required | console login, dormant replacement creation, redacted three-target secret-store readback, usage review, legacy revocation, and complete provider receipt; no deployment authorized |
-| BUG LRS | username/password pair | local endpoint/username/password bindings exist; no BUG_LRS Vercel binding exists in Preview or Production; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; prior equality to leaked value in local MAIS and current MAIS credential DOCX | fresh `2026-08-27T12:23:17Z` read-only receipt classifies LRS.io, confirms exposed/current `200` only at configured `/about`, and reports console key-management ready | action-time confirmation, shared replacement/revocation, usage review, add both Vercel targets, secret-store/runtime readback, and timestamped receipt |
-| LRS | username/password pair | local endpoint/username/password bindings exist; Vercel endpoint/username/password exists only in Production, not Preview; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; prior equality to leaked value in local MAIS and current MAIS credential DOCX | fresh `2026-08-27T12:23:17Z` read-only receipt classifies LRS.io, confirms exposed/current `200` only at configured `/about`, and reports console key-management ready | action-time confirmation, shared replacement/revocation, usage review, add Preview, update Production, secret-store/runtime readback, and timestamped receipt |
+| OpenRouter | API key | current local/Vercel binding and code consumers are absent; owner nevertheless requires a dormant replacement in MAIS `.env.local` plus Vercel Preview/Production before revocation | read-only receipt confirms exposed key-metadata `200`, active, with nonzero usage; the later pre-action receipt records authenticated create dialog open but unsubmitted | action-time confirmation, dormant replacement creation, redacted three-target secret-store readback, console usage review, legacy revocation, and complete provider receipt; no deployment authorized |
+| Clerk | secret key | current local/Vercel binding and code consumers are absent; owner nevertheless requires a dormant replacement in MAIS `.env.local` plus Vercel Preview/Production before revocation | read-only receipt confirms exposed instance `403`, active unresolved and current binding absent; interpretation remains indeterminate with no revocation/Stripe inference; the later pre-action receipt records authenticated create dialog open but unsubmitted | action-time confirmation, dormant replacement creation, redacted three-target secret-store readback, usage review, legacy revocation, and complete provider receipt; no deployment authorized |
+| BUG LRS | username/password pair | local endpoint/username/password bindings exist; no BUG_LRS Vercel binding exists in Preview or Production; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; prior equality to leaked value in local MAIS and current MAIS credential DOCX | read-only receipt classifies LRS.io and confirms exposed/current `200` only at configured `/about`; the shared `lrs` pre-action row records authenticated state but create action not opened | action-time confirmation, shared replacement/revocation, usage review, add both Vercel targets, secret-store/runtime readback, and timestamped receipt |
+| LRS | username/password pair | local endpoint/username/password bindings exist; Vercel endpoint/username/password exists only in Production, not Preview; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; prior equality to leaked value in local MAIS and current MAIS credential DOCX | read-only receipt classifies LRS.io and confirms exposed/current `200` only at configured `/about`; the later pre-action receipt records authenticated state but create action not opened | action-time confirmation, shared replacement/revocation, usage review, add Preview, update Production, secret-store/runtime readback, and timestamped receipt |
 
 The base partial receipt recorded `replacementRequired=false` for OpenRouter and
 Clerk because no current runtime binding was found. A later explicit owner scope
@@ -215,8 +215,44 @@ not cover the then-uncommitted A01 changes. This is a timestamped blocker
 baseline, not permission to mark PR #21 ready, merge, activate deletion, move
 the root checkout, create an EvidenceFlow feature worktree, or thaw feature
 development. The receipt's DeepSeek owner-classification action was subsequently
-satisfied by the `2026-08-27T12:34:26Z` attestation above; the console-login and
-LRS action-time-confirmation blockers remain.
+satisfied by the `2026-08-27T12:34:26Z` attestation above. Its console snapshot
+is historical: a later pre-action receipt supersedes Qwen/OpenRouter/Clerk to
+authenticated and leaves Mathpix as the only pending browser login, while LRS
+remains authenticated without opening the create action. No provider action is
+thereby complete.
+
+The independent additive pre-action readiness receipt is:
+
+```text
+path   = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-rotation-preaction-readiness-20260827T131206Z.json
+sha256 = 96b9bc5beb8557b421164c1bbc5898a71d2fa3d664ca5c1685054896772846e7
+bytes  = 4393
+mode   = 0600
+schemaVersion = provider-rotation-preaction-readiness/v1
+recordedAt = 2026-08-27T13:12:06Z
+```
+
+Independent local checks confirmed a regular non-symlink file, matching hash,
+size and mode, valid JSON, `redacted=true`, and no high-risk credential-pattern
+or sensitive semantic-key finding. The five fixed provider objects map to six
+governance rows because the one `lrs` action covers the shared BUG LRS/LRS
+binding. Qwen, OpenRouter, and Clerk are authenticated with create dialogs open
+but unsubmitted; Mathpix remains login-required; LRS is authenticated with the
+create dialog not opened. Every provider row has `finalSubmitPerformed=false`,
+and the receipt records no external write, delete, billable call, or deployment.
+It has no source/parent receipt-hash field, so this ledger binds it as an
+independent additive artifact rather than claiming an internal hash chain.
+
+The receipt also records that a non-sensitive browser-memory-to-mode-`0600`
+FIFO-to-secret-store-process transport-mechanism probe passed. The probe did
+not use credential material, place it in arguments/terminal/persistent temporary
+files, or emit the probe value. It therefore proves no real credential transfer,
+replacement creation, secret-store update, runtime binding, deployment,
+rotation, or revocation. Action-time confirmation and the actual provider,
+secret-store, usage-review, and legacy-revocation evidence remain pending.
+Overall containment is false, remote deletion activation is false, feature
+freeze is true, and this artifact does not make PR #21 ready or authorize a
+merge or ref deletion.
 
 ## File relationship and runtime boundary
 
