@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-provider-containment-ledger/v1",
-  "updatedAt": "2026-08-27T14:52:26Z",
+  "updatedAt": "2026-08-27T15:28:26Z",
   "status": "blocked-owner",
   "severity": "P0",
   "incidentId": "SENA-P0-CREDENTIAL-CONTAINMENT-20260827",
@@ -14,6 +14,7 @@
       "DeepSeek",
       "Qwen/Ali",
       "SimpleTex",
+      "Mathpix",
       "Resend",
       "OpenRouter",
       "Clerk",
@@ -52,11 +53,44 @@
     "providerRowCount": 9,
     "providerContainmentComplete": false,
     "remoteDeletionReceiptActivationAllowed": false,
-    "supersessionRequired": true,
+    "supersessionRequired": false,
+    "supersessionSatisfied": true,
     "requiredSupersedingState": {
       "providerContainmentComplete": true,
       "remoteDeletionReceiptActivationAllowed": true,
       "allProviderRowsComplete": true
+    },
+    "completeSupersedingReadback": {
+      "id": "provider-containment-readback-20260827T151341Z",
+      "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T151341Z.json",
+      "sha256": "49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2",
+      "bytes": 12089,
+      "mode": "0600",
+      "fileType": "regular",
+      "symlink": false,
+      "schemaVersion": "sena-provider-containment-readback/v1",
+      "observedAt": "2026-08-27T15:13:41Z",
+      "redacted": true,
+      "providerRowCount": 9,
+      "allProviderRowsComplete": true,
+      "providerContainmentComplete": true,
+      "providerPrerequisiteForProtectedMainActivationSatisfied": true,
+      "remoteDeletionReceiptActivationAllowedAtReceiptLayer": true,
+      "remoteDeletionReceiptCurrentlyActive": false,
+      "protectedMainMergeRequiredBeforeActivation": true,
+      "featureWorkFrozen": true,
+      "incidentClosed": false,
+      "localVerification": {
+        "sha256Matches": true,
+        "bytesMatch": true,
+        "modeMatches": true,
+        "regularFile": true,
+        "noSymlink": true,
+        "linkCountOne": true,
+        "jsonParses": true,
+        "highRiskCredentialPatternCount": 0,
+        "sensitiveSemanticKeyCount": 0
+      }
     },
     "postReceiptCorrections": [
       {
@@ -507,6 +541,46 @@
           "highRiskCredentialPatternCount": 0,
           "sensitiveSemanticKeyCount": 0
         }
+      },
+      {
+        "id": "mathpix-rotation-closeout-20260827T150838Z",
+        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/mathpix-rotation-closeout-20260827T150838Z.json",
+        "sha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "bytes": 3819,
+        "mode": "0600",
+        "fileType": "regular",
+        "symlink": false,
+        "schemaVersion": "sena-provider-rotation-closeout/v1",
+        "recordedAt": "2026-08-27T15:08:38Z",
+        "redacted": true,
+        "mappedProviderRows": [
+          "Mathpix"
+        ],
+        "containmentClosedForMappedRows": true,
+        "replacementCreatedAndEnabled": true,
+        "localAppIdAndKeyExactPrivateReadbackMatched": true,
+        "vercelPreviewProductionSensitiveUnscopedBindings": true,
+        "vercelSensitiveValuesExactReadbackClaimed": false,
+        "legacyRevocationMechanism": "official-supported-disable-key",
+        "legacyEnabledAfterStableRefresh": false,
+        "replacementEnabledAfterStableRefresh": true,
+        "usagePageRead": true,
+        "usageDataAvailable": false,
+        "ocrOrBillableOperationPerformed": false,
+        "secondaryExposureMaterialClass": "legacy-application-identifier-only",
+        "legacyOrReplacementKeyEmitted": false,
+        "deploymentTriggered": false,
+        "localVerification": {
+          "sha256Matches": true,
+          "bytesMatch": true,
+          "modeMatches": true,
+          "regularFile": true,
+          "noSymlink": true,
+          "linkCountOne": true,
+          "jsonParses": true,
+          "highRiskCredentialPatternCount": 0,
+          "sensitiveSemanticKeyCount": 0
+        }
       }
     ],
     "localVerification": {
@@ -888,11 +962,11 @@
     {
       "provider": "Mathpix",
       "credentialNameClass": "application identifier and API key",
-      "environment": "MAIS-MVP document-processing runtime; exact provider account and environment pending operator confirmation",
-      "maisEnvLocalState": "same-as-leaked",
+      "environment": "MAIS-MVP document-processing runtime; owner-confirmed current organization; no OCR or deployment performed",
+      "maisEnvLocalState": "replacement-app-id-and-key-installed-single-assignment-each-exact-private-readback-matched",
       "maisCredentialDocxState": "same-as-leaked",
-      "secretStoreState": "local-app-id-and-key-configured-once;vercel-app-id-absent-preview-production;vercel-key-present-preview-production-and-still-legacy",
-      "providerReadbackState": "old-current-binding-active-official-read-only-ocr-usage-returned-200-zero-usage-signal-latest-pre-action-console-login-required-create-dialog-not-reached-rotation-pending",
+      "secretStoreState": "replacement-local-app-id-and-key-single-assignments;vercel-preview-production-app-id-and-key-sensitive-unscoped-bindings;vercel-sensitive-values-write-only-no-exact-readback-claim",
+      "providerReadbackState": "provider-row-containment-closed-official-console-replacement-created-and-enabled-legacy-disabled-by-official-supported-mechanism-usage-page-no-data-no-ocr-call",
       "currentAndLegacyReadback": {
         "endpointClass": "official-read-only-ocr-usage",
         "httpStatus": 200,
@@ -922,53 +996,96 @@
         "legacyRevocationProved": false,
         "actionTimeConfirmationRequired": true
       },
+      "latestRotationCloseout": {
+        "receiptId": "mathpix-rotation-closeout-20260827T150838Z",
+        "recordedAt": "2026-08-27T15:08:38Z",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "actionTimeConfirmationReceived": true,
+        "containmentClosed": true,
+        "replacementCreatedAndEnabled": true,
+        "localAppIdAssignmentCount": 1,
+        "localAppKeyAssignmentCount": 1,
+        "localAppIdAndKeyExactPrivateReadbackMatched": true,
+        "vercelPreviewHasAppIdAndKey": true,
+        "vercelProductionHasAppIdAndKey": true,
+        "vercelBindingsSensitiveAndUnscoped": true,
+        "vercelSensitiveValuesExactReadbackClaimed": false,
+        "legacySelfServiceDeletionAvailable": false,
+        "legacyRevocationMechanism": "official-supported-disable-key",
+        "legacyEnabledAfterStableRefresh": false,
+        "replacementEnabledAfterStableRefresh": true,
+        "usagePageRead": true,
+        "usageDataAvailable": false,
+        "ocrOrBillableOperationPerformed": false,
+        "productionDeploymentOrRedeploymentPerformed": false
+      },
       "secretStoreReadiness": {
-        "localBindings": "app-id-and-key-configured-once",
-        "vercelAppIdBinding": "absent-preview-and-production",
-        "vercelAppKeyBinding": "present-preview-and-production",
+        "localBindings": "replacement-app-id-and-key-present-single-assignment-each-exact-private-readback-matched",
+        "vercelAppIdBinding": "replacement-present-sensitive-unscoped-preview-and-production",
+        "vercelAppKeyBinding": "replacement-present-sensitive-unscoped-preview-and-production",
         "runtimeConsumers": [
           "app/api/handwriting-recognition/route.ts"
         ],
         "recordedAt": "2026-08-27T12:26:52Z",
         "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
-        "replacementStillRequired": true
+        "replacementStillRequired": false,
+        "supersedingCloseoutReceiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598"
       },
       "billableOcrCallPerformed": false,
+      "secondaryExposure": {
+        "occurred": true,
+        "materialClass": "legacy-application-identifier-only",
+        "causeClass": "browser-checkbox-state-diagnostic",
+        "legacyApplicationKeyEmitted": false,
+        "replacementApplicationIdentifierEmitted": false,
+        "replacementApplicationKeyEmitted": false,
+        "legacyKeyDisabledInSameRotationWindow": true,
+        "residualArtifactAbsenceProved": false
+      },
       "replacementProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-official-console-replacement-created-and-enabled",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T15:08:38Z",
+        "evidenceId": "mathpix-rotation-closeout-20260827T150838Z#replacement",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-legacy-disabled-by-official-supported-mechanism-stable-refresh-disabled",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T15:08:38Z",
+        "evidenceId": "mathpix-rotation-closeout-20260827T150838Z#legacy-disable",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "selfServiceDeletionControlAvailable": false
       },
       "usageReviewProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-bounded-official-usage-page-no-data",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T15:08:38Z",
+        "evidenceId": "mathpix-rotation-closeout-20260827T150838Z#usage-review",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "historicalZeroUsageClaimed": false
       },
       "secretStoreProof": {
-        "status": "pending-rotation-existing-local-and-combined-preview-production-key-binding-still-legacy",
-        "completed": false,
+        "status": "complete-local-exact-private-readback-preview-production-sensitive-unscoped-bindings",
+        "completed": true,
         "operator": "recorded-in-external-receipt",
-        "verifiedAt": "2026-08-27T11:46:54Z",
-        "evidenceId": "provider-containment-readback-20260827T114654Z#Mathpix-secretStoreState",
-        "receiptSha256": "b46f9c559ac19146f0fc97169615143cac98a1ee39fcbf08175f78331d9e77ca"
+        "verifiedAt": "2026-08-27T15:08:38Z",
+        "evidenceId": "mathpix-rotation-closeout-20260827T150838Z#secret-store",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "vercelSensitiveValuesExactReadbackClaimed": false
       },
       "dependentRuntimeProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "consumer-identified-not-executed-no-ocr-no-deployment",
+        "completed": true,
+        "operator": "recorded-in-readiness-and-closeout-receipts",
+        "verifiedAt": "2026-08-27T15:08:38Z",
+        "evidenceId": "mathpix-rotation-closeout-20260827T150838Z#runtime-boundary",
+        "receiptSha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
+        "runtimeExecutionVerified": false,
+        "productionDeploymentAuthorized": false
       }
     },
     {
@@ -1597,6 +1714,7 @@
         "DeepSeek",
         "Qwen/Ali",
         "SimpleTex",
+        "Mathpix",
         "Resend",
         "OpenRouter",
         "Clerk",
@@ -1604,20 +1722,14 @@
         "LRS"
       ],
       "partialReceiptObservedAt": "2026-08-27T11:46:54Z",
-      "latestCloseoutReceiptObservedAt": "2026-08-27T14:48:32Z",
+      "latestCloseoutReceiptObservedAt": "2026-08-27T15:08:38Z",
       "allProviderClosureRequiredForDeletionActivation": true,
-      "remainingProviderRows": [
-        "Mathpix"
-      ],
+      "remainingProviderRows": [],
       "pendingBrowserLogin": [],
       "pendingVerificationChallenge": [],
-      "preActionReadyButUnsubmitted": [
-        "Mathpix"
-      ],
+      "preActionReadyButUnsubmitted": [],
       "authenticatedButCreateNotOpened": [],
-      "pendingActionTimeConfirmation": [
-        "Mathpix"
-      ],
+      "pendingActionTimeConfirmation": [],
       "pendingOwnerWorkloadReconciliation": [],
       "dependentRuntimeBoundaryRecordedWithoutExecutionFor": [
         "DeepSeek",
@@ -1632,8 +1744,13 @@
         "LRS"
       ]
     },
-    "providerContainmentComplete": false,
+    "providerContainmentComplete": true,
+    "completeSupersedingReadbackBound": true,
+    "providerPrerequisiteForProtectedMainActivationSatisfied": true,
     "remoteDeletionReceiptActivationAllowed": false,
+    "remoteDeletionReceiptCurrentlyActive": false,
+    "protectedMainMergeRequiredBeforeActivation": true,
+    "incidentClosed": false,
     "featureWorkFrozen": true
   }
 }

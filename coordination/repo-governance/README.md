@@ -14,14 +14,14 @@ sanitized salvage review, and exact-SHA verification.
 
 `provider-containment-ledger-20260827.json` is the machine-readable no-value
 provider ledger. This governance task performed no provider write. EvidenceFlow
-now reports provider-side/local/Vercel containment operations for eight of nine
-rows: DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No
-SENA or MAIS production deployment/redeployment, remote-ref deletion, or history
-rewrite is reported.
+now reports provider-side/local/Vercel containment operations for all nine rows:
+DeepSeek, Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS, and
+LRS. No SENA or MAIS production deployment/redeployment, remote-ref deletion,
+or history rewrite is reported.
 
 The earlier partial readback, secret-store correction, follow-up, readiness,
 blocker, owner-attestation, and pre-action receipts remain immutable historical
-evidence. Four later mode-`0600` closeout receipts are additionally bound by
+evidence. Five later mode-`0600` closeout receipts are additionally bound by
 exact path, SHA-256, byte count, schema, and time:
 
 - Qwen/Ali: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json`;
@@ -37,8 +37,11 @@ exact path, SHA-256, byte count, schema, and time:
 - Clerk: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json`;
   SHA-256 `e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5`;
   2242 bytes; the same schema; `2026-08-27T14:48:32Z`.
+- Mathpix: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/mathpix-rotation-closeout-20260827T150838Z.json`;
+  SHA-256 `579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598`;
+  3819 bytes; the same schema; `2026-08-27T15:08:38Z`.
 
-Fresh independent checks confirmed all four are regular non-symlink files with
+Fresh independent checks confirmed all five are regular non-symlink files with
 link count one, exact hashes/sizes/modes, valid redacted JSON, and zero high-risk
 credential-pattern findings. Qwen's no-visible-data default usage view retains
 an approximately one-hour reporting-delay boundary. OpenRouter's legacy row had
@@ -56,14 +59,34 @@ was deleted and absent after stable refresh, only the replacement secret remains
 and the publishable key was not modified. No user-data endpoint, billable
 operation, deployment, runtime execution, or usage-absence claim is made.
 
-Exactly one row remains open: Mathpix is authenticated with the official API-key
-create form open but unsubmitted; it still requires independent action-time
-confirmation, replacement/secret-store parity, bounded usage review, legacy
-revocation, and a durable closeout receipt.
-Overall containment and deletion activation therefore remain false, feature
-work remains frozen, and PR #21 remains Draft. These receipts authorize neither
-PR Ready, merge, contaminated-ref deletion, root-checkout movement, feature thaw,
-nor deployment.
+Mathpix's replacement is enabled, exact private local pair readback matched, and
+sensitive, branch-unscoped Preview/Production bindings are present. Vercel
+sensitive values are write-only, so no exact remote value readback is claimed.
+The legacy key was disabled through Mathpix's documented revocation mechanism
+and remained disabled after stable refresh; the replacement remained enabled.
+Usage showed no data, but no historical-never-used claim is made, and no OCR,
+Playground, Results, Requests, runtime execution, deployment, or history rewrite
+occurred. Its receipt also records one checkbox-state diagnostic that echoed
+only the legacy application identifier; no key or replacement identifier was
+echoed, the legacy key was disabled in the same rotation window, and the
+identifier itself is not reproduced here.
+
+All nine provider rows are now complete. The superseding no-value readback is
+the regular, non-symlink, link-count-one mode-`0600`, 12,089-byte file
+`/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T151341Z.json`,
+observed at `2026-08-27T15:13:41Z`, with SHA-256
+`49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2`.
+Independent checks confirmed valid redacted
+`sena-provider-containment-readback/v1` JSON, nine complete rows, an exact
+twelve-receipt supersession chain, and zero high-risk credential-pattern or
+sensitive semantic-string findings. The twelve source receipts also passed
+independent exact hash/mode/type/JSON/no-value checks.
+
+Provider containment is therefore true, but deletion activation remains false,
+feature work remains frozen, and PR #21 remains Draft. Protected-main merge and
+activation are still pending; these receipts authorize neither PR Ready, merge,
+contaminated-ref deletion, root-checkout movement, feature thaw, incident
+closure, nor deployment.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -337,14 +360,10 @@ remain unproved.
 The following actions require distinct owner authorization and must not be
 inferred from this governance implementation:
 
-- finish the one still-pending provider row in the no-value ledger: Mathpix
-  replacement, local/Preview/Production secret-store parity, bounded usage
-  review, legacy revocation, and durable closeout evidence after independent
-  action-time confirmation;
-- bind all remaining and future rotations/revocations, secret-store changes,
-  usage reviews, and runtime boundaries to a later complete redacted readback
-  that supersedes the current partial receipt;
-- merge Draft PR #21, activate the one-shot receipt on protected `main`, delete
+- authorize and merge Draft PR #21 through its protected-main review and CI
+  controls; provider containment is complete, but the current registry still
+  records `prReadyForReview=false` and `mergeAuthorized=false`;
+- after that merge, activate the one-shot receipt on protected `main`, delete
   the contaminated remote branch with an exact old-SHA lease, read back live
   absence, and record the protected-main consumed/event-custody receipt in that
   order;

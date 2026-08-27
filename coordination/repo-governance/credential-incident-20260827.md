@@ -39,7 +39,7 @@ Read-only live-ref metadata audit at `2026-08-27T12:07:09.098Z`:
   both known paths and the known blob;
 - no file body was fetched, opened, or printed by this audit;
 - no deletion was performed;
-- current open pull requests at this update's pre-edit heartbeat: `1` (Draft PR #21, exact head `307eec3d2c55bc3d992c440b90a6edfb2ebc6d79`);
+- current open pull requests at this update's pre-edit heartbeat: `1` (Draft PR #21, exact head `8c4a75157cac2a368ccc9633c554ae9234072320`);
 - repository visibility: private; forks: `0`;
 - `main-minimum-safety` ruleset: active;
 - GitHub Actions repository secrets: `0` (names/values not requested);
@@ -53,10 +53,12 @@ external receipt at
 with SHA-256
 `0f50fdebd37520288c3a409e635c6cb92bfb75c74fa4e93b8fafe04517922845`.
 
-The live governance audit remains `blocked-owner`: the contaminated remote head,
-provider containment/readback, and quarantined root checkout are still open.
-The finding count is not a provider-containment receipt and does not authorize
-the already owner-approved remote deletion receipt to become active.
+The live governance incident remains `blocked-owner`: later evidence now closes
+provider containment, but the contaminated remote head, protected-main
+activation/consumption sequence, sanitized-salvage disposition, and quarantined
+root checkout are still open. The finding count is not a provider-containment
+receipt and does not authorize the already owner-approved remote deletion
+receipt to become active.
 
 Private visibility reduces public exposure but does not make a pushed secret
 safe. Provider-side revocation/rotation is required before Git ref or history
@@ -80,17 +82,17 @@ The machine-readable source of truth is
 `provider-containment-ledger-20260827.json`. It records no credential value and
 no credential-value hash. This governance task performed no provider write.
 EvidenceFlow separately reports provider-side/local/Vercel configuration writes
-for DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No SENA
-or MAIS production deployment or redeployment, remote-ref deletion, or history
-rewrite was reported.
+for DeepSeek, Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS,
+and LRS. No SENA or MAIS production deployment or redeployment, remote-ref
+deletion, or history rewrite was reported.
 
-| Provider | Credential name class | Current redacted configuration state | Provider/readback state | Remaining closure evidence |
+| Provider | Credential name class | Current redacted configuration state | Provider/readback state | Evidence boundary / remaining non-provider proof |
 |---|---|---|---|---|
-| DeepSeek | API key | replacement in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false`; current MAIS credential DOCX not reverified after replacement | partial durable receipt marks provider row complete: replacement active through official read-only balance endpoint; old key deleted and returns `401`; owner later classifies both named usage concentrations as expected | later complete durable receipt must include the additive Preview correction; no deployed-runtime consumption claim because deployment was not authorized |
+| DeepSeek | API key | replacement in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false`; current MAIS credential DOCX not reverified after replacement | partial durable receipt marks provider row complete: replacement active through official read-only balance endpoint; old key deleted and returns `401`; owner later classifies both named usage concentrations as expected | provider row closed; the complete superseding readback includes the additive Preview correction; no deployed-runtime consumption claim because deployment was not authorized |
 | Qwen/Ali | API key | replacement installed in local MAIS plus sensitive Vercel Preview and Production bindings; readiness receipt records three direct consumers, while independent source review adds `scripts/probe-tutor-providers.mjs` as a fourth minimum-known consumer; the leaked MAIS credential DOCX was not rewritten by this operation | closeout receipt marks this provider row complete: replacement official read-only status remained `200`; legacy changed from `200` to `401` after console deletion | provider containment row closed; the default usage view showed no visible data but has an approximately one-hour reporting-delay boundary, so no historical-zero-use or anomaly claim is made; runtime-consumer execution and deployment remain unproved |
 | SimpleTex | API credential | replacement in local MAIS and Vercel Preview/Production environment configuration; combined Preview+Production binding preserved | partial durable receipt marks provider row complete: old app deleted; only the named replacement remains; console-only review and no OCR call | no deployed-runtime consumption claim because deployment was not authorized |
-| Mathpix | application identifier and API key | local app identifier/key pair exists; Vercel key exists in Preview/Production but the app identifier is absent in both; consumer is `app/api/handwriting-recognition/route.ts`; prior equality to leaked value in current MAIS credential DOCX | read-only receipt confirms exposed/current OCR-usage `200`, active, with zero usage signal; a later governance-only browser observation confirms authentication, the API Keys surface, and an open but unsubmitted create form | independent action-time confirmation, replacement/revocation, bounded usage review, local pair update, add app identifier and replace key in both Vercel targets, and complete provider receipt |
-| Resend | API key | replacement sending-only key in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false` | partial durable receipt marks provider row complete: old key deleted in dashboard; only replacement row remains; Logs showed no visible retained entries | later complete durable receipt must include the additive Preview correction; no deployed-runtime send claim because deployment was not authorized; dashboard log visibility remains a bounded review, not proof of no historical use |
+| Mathpix | application identifier and API key | replacement pair is installed in local MAIS and as sensitive, branch-unscoped Vercel Preview/Production bindings; exact private local readback matched both fields; Vercel sensitive values are write-only, so exact remote value readback is not claimed; consumer is `app/api/handwriting-recognition/route.ts` | closeout receipt marks this row complete: replacement key is enabled; the legacy key was disabled through Mathpix's documented revocation mechanism and remained disabled after stable refresh; replacement remained enabled; Usage showed no data | provider row closed; no OCR, Playground, Results, Requests, deployment, or runtime-consumer execution occurred, and the no-data usage view is not expanded into a historical-never-used claim |
+| Resend | API key | replacement sending-only key in local MAIS plus separate sensitive Vercel Preview and Production bindings; post-receipt Preview creation returned `201`, inventory reports `branchScoped=false` | partial durable receipt marks provider row complete: old key deleted in dashboard; only replacement row remains; Logs showed no visible retained entries | provider row closed; the complete superseding readback includes the additive Preview correction; no deployed-runtime send claim because deployment was not authorized; dashboard log visibility remains a bounded review, not proof of no historical use |
 | OpenRouter | API key | owner-requested dormant replacement now exists in local MAIS plus sensitive Vercel Preview and Production bindings; no current code consumer and no deployment authorized | closeout receipt marks this provider row complete: replacement status `200`, effective limit `0`, replacement usage `0`; the uniquely matched legacy console row was deleted | historical legacy usage was nonzero, but no owner-frozen anomaly threshold existed, so no anomaly classification is made; no legacy endpoint-negative probe or deployed-runtime proof is claimed |
 | Clerk | secret key | owner-requested dormant replacement is installed in MAIS `.env.local` plus sensitive, unscoped Vercel Preview and Production bindings; exact private local readback matched; no current code consumer and no deployment authorized | closeout receipt marks this provider row complete: replacement secret created in the official console; the uniquely matched legacy default secret was deleted and absent after stable refresh; only the replacement secret remains; the publishable key was not modified | provider verification was intentionally limited to the official console because no safe non-user-data endpoint was used; no usage-absence, runtime execution, deployment, or live-behavior claim is made |
 | BUG LRS | username/password pair | shared replacement is present in local MAIS and sensitive Vercel Preview/Production bindings; shares consumers `lib/server/lrsClient.ts` and `scripts/bug-triage.js`; the leaked MAIS credential DOCX was not rewritten by this operation | one shared LRS.io receipt closes both BUG LRS/LRS provider rows; the old shared Access Key was precisely deleted in console and absent after stable refresh | all legacy/replacement `/about` probes stopped at cross-origin `302` before an auth result and did not forward credentials, so runtime authentication remains unproved; key-level usage was unavailable within the safe authorized surface |
@@ -108,10 +110,10 @@ identity/name row, 12 positive-use days, no replacement usage, and concentration
 signals at or above ten times the median on `2026-08-10` for requests and
 `2026-08-24` for cost. At `2026-08-27T12:34:26Z`, the owner classified both
 named concentrations as expected activity in the current task. That owner
-attestation closes only the DeepSeek workload-reconciliation blocker; it does
-not change the other six provider rows, deletion activation, feature freeze, or
-prove that every other account event was authorized. The exact durable receipt
-is the regular mode-`0600`, 848-byte file
+attestation closed only the DeepSeek workload-reconciliation blocker at that
+time; it did not by itself change the other provider rows, deletion activation,
+feature freeze, or prove that every other account event was authorized. The
+exact durable receipt is the regular mode-`0600`, 848-byte file
 `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/deepseek-usage-owner-attestation-20260827T123503Z.json`,
 recorded at `2026-08-27T12:35:03Z`, with SHA-256
 `b4a7aeaab9f4b364bb235e61c9735b15f02e0628eb5111a0f5c580dd33544af1`.
@@ -136,9 +138,9 @@ credential pattern match, `providerContainmentComplete=false`, and
 `remoteDeletionReceiptActivationAllowed=false`. The operator identity remains
 inside the mode-`0600` artifact and is not duplicated here. The receipt marks
 DeepSeek, Resend, and SimpleTex complete and leaves six provider rows open.
-Because deletion activation requires completion of all provider rows, the
-one-shot deletion receipt remains `pending-provider-readback` and P0 remains
-fail-closed.
+This receipt is now superseded by the complete readback recorded below. It
+remains immutable evidence of the earlier partial state and did not itself
+activate the one-shot deletion receipt.
 
 After that fixed receipt, a durable additive no-value secret-store correction
 records that DeepSeek and Resend each gained a separate sensitive Vercel Preview
@@ -249,20 +251,22 @@ FIFO-to-secret-store-process transport-mechanism probe passed. The probe did
 not use credential material, place it in arguments/terminal/persistent temporary
 files, or emit the probe value. It therefore proves no real credential transfer,
 replacement creation, secret-store update, runtime binding, deployment,
-rotation, or revocation. Action-time confirmation and the actual provider,
-secret-store, usage-review, and legacy-revocation evidence remain pending.
-Overall containment is false, remote deletion activation is false, feature
-freeze is true, and this artifact does not make PR #21 ready or authorize a
-merge or ref deletion.
+rotation, or revocation. At that timestamp, action-time confirmation and the
+actual provider, secret-store, usage-review, and legacy-revocation evidence
+remained pending.
+At the time of this artifact, overall containment was false, remote deletion
+activation was false, and feature freeze was true. Later closeouts supersede its
+provider-progress state; this historical artifact still does not make PR #21
+ready or authorize a merge or ref deletion.
 
 ## Provider closeout receipts bound after pre-action readiness
 
-Four later immutable closeout receipts close five provider rows. Independent
+Five later immutable closeout receipts close six provider rows. Independent
 local verification confirmed each file is regular, non-symlink, link count one,
 mode `0600`, exact-size and exact-hash matched, valid JSON with schema
 `sena-provider-rotation-closeout/v1`, `redacted=true`, and zero high-risk
-credential-pattern findings; the Clerk receipt also has zero sensitive
-semantic-string leaf findings:
+credential-pattern findings; the Clerk and Mathpix receipts also have zero
+sensitive semantic-string leaf findings:
 
 ```text
 Qwen/Ali
@@ -292,6 +296,13 @@ sha256     = e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5
 bytes      = 2242
 mode       = 0600
 recordedAt = 2026-08-27T14:48:32Z
+
+Mathpix
+path       = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/mathpix-rotation-closeout-20260827T150838Z.json
+sha256     = 579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598
+bytes      = 3819
+mode       = 0600
+recordedAt = 2026-08-27T15:08:38Z
 ```
 
 The Qwen closeout proves replacement creation, redacted local plus
@@ -338,13 +349,63 @@ billable operation, deployment, or history rewrite was performed. The bounded
 verification class is official-console-only, so no usage-absence or runtime
 execution claim is made.
 
-The current aggregate is eight of nine rows complete: DeepSeek, Qwen/Ali,
-SimpleTex, Resend, OpenRouter, Clerk, BUG LRS, and LRS. Exactly one row remains
-open: Mathpix, whose official API-key create form is authenticated and open but
-unsubmitted pending independent action-time confirmation and the complete
-replacement/readback/revocation receipt. Consequently, provider containment
-remains false, the deletion receipt remains inactive, feature work remains
-frozen, PR #21 remains Draft, and neither merge nor deployment is authorized.
+The Mathpix closeout proves creation and enablement of the replacement key,
+mode-`0600` private transfer, exact private local pair readback, and sensitive,
+branch-unscoped Preview/Production bindings. The provider exposes sensitive
+Vercel values as write-only, so only binding state—not exact remote value
+readback—is claimed. Mathpix provides no self-service delete control; its
+documented disable-key mechanism is the revocation operation. The legacy key
+was disabled and remained disabled after stable refresh, while the replacement
+remained enabled. Usage displayed no data, but no historical-never-used claim is
+made. No OCR, Playground, Results, Requests, deployment, or history rewrite was
+performed.
+
+One Mathpix secondary-exposure event is retained: a failed checkbox-state
+diagnostic echoed only the legacy application identifier. It did not display
+the legacy application key, replacement identifier, or replacement key. The
+legacy key was disabled in the same rotation window. No identifier, value,
+fragment, object ID, or private URL is reproduced here, and provider-side
+disablement does not prove the diagnostic material is absent from every session
+artifact or log.
+
+The current provider aggregate is nine of nine rows complete: DeepSeek,
+Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No
+provider row remains open, and provider containment is true. The deletion
+receipt nevertheless remains inactive until the governance controls are merged
+through protected `main` and a protected-main follow-up activates it. Feature
+work remains frozen, PR #21 remains Draft, and neither merge, ref deletion,
+incident closure, root-checkout movement, nor deployment is claimed or
+authorized by these provider receipts.
+
+## Complete superseding provider readback
+
+The final no-value provider prerequisite is held in this immutable receipt:
+
+```text
+path       = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T151341Z.json
+sha256     = 49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2
+bytes      = 12089
+mode       = 0600
+observedAt = 2026-08-27T15:13:41Z
+```
+
+Independent checks confirmed a regular, non-symlink, link-count-one file,
+matching size/hash/mode, valid redacted JSON using
+`sena-provider-containment-readback/v1`, exactly nine complete provider rows,
+and zero high-risk credential-pattern or sensitive semantic-string findings.
+Its `supersedes` chain binds twelve immutable receipts by exact identifier and
+SHA-256. All twelve source receipts were independently rechecked as mode-`0600`
+regular, non-symlink, link-count-one valid JSON with matching expected hashes
+and no high-risk credential-pattern finding.
+
+The receipt establishes only the provider prerequisite:
+`providerContainmentComplete=true` and
+`providerPrerequisiteForProtectedMainActivationSatisfied=true`. At the same
+time it records `remoteDeletionReceiptCurrentlyActive=false`,
+`protectedMainMergeRequiredBeforeActivation=true`, `incidentClosed=false`, and
+`featureWorkFrozen=true`. Its receipt-layer eligibility flag is not the actual
+registry activation state and must not be used to skip protected-main merge,
+activate deletion on this branch, make PR #21 Ready, or claim deployment.
 
 ## File relationship and runtime boundary
 
@@ -370,12 +431,13 @@ Until closure:
   bundle, screenshot, issue, PR, or chat;
 - the root checkout remains a quarantined read-only control object.
 
-## Owner-only containment completion
+## Provider-containment evidence boundary
 
-An authorized human/security operator completes the pending proof fields in a
-secure system and records only redacted status, operator, timestamp, and evidence
-ID in the linked ledger. Do not paste values or value hashes into this file or
-Git.
+The authorized human/security operations are complete for all nine provider
+rows. Only redacted status, operator role, timestamp, and evidence identifiers
+are bound here; values and value hashes must never be pasted into this file or
+Git. The per-credential sequence below records the procedure that produced the
+now-complete evidence and remains the rule for any future rotation.
 
 Required sequence per credential:
 
@@ -429,16 +491,16 @@ For every slice:
 ## Destructive cleanup authorization gate
 
 An owner authorization receipt already exists for the exact contaminated ref
-and old SHA, but its status is `pending-provider-readback`. It is neither
-unapproved nor executable. It must remain pending until provider containment
-has timestamped redacted readback and the governance controls are protected on
-`main`.
+and old SHA. The timestamped redacted provider prerequisite is now complete,
+but the registry status intentionally remains `pending-provider-readback` to
+keep the existing fail-closed invariant until the governance controls are
+protected on `main`. It is owner-approved but not yet executable.
 
 The mandatory order is:
 
-1. Complete provider containment for every ledger row and capture timestamped,
-   redacted readback for replacement/revocation, usage review, secret-store
-   state, and dependent-runtime state as applicable.
+1. **Satisfied:** complete provider containment for every ledger row and capture
+   timestamped, redacted readback for replacement/revocation, usage review,
+   secret-store state, and dependent-runtime state as applicable.
 2. Merge Draft PR #21 into protected `main` only through its required review and
    CI controls.
 3. Commit a protected-main follow-up that activates the one-shot deletion
