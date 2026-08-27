@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-provider-containment-ledger/v1",
-  "updatedAt": "2026-08-27T13:24:54Z",
+  "updatedAt": "2026-08-27T14:04:08Z",
   "status": "blocked-owner",
   "severity": "P0",
   "incidentId": "SENA-P0-CREDENTIAL-CONTAINMENT-20260827",
@@ -12,8 +12,12 @@
     "providerWritesReportedByEvidenceFlow": true,
     "providerWritesReportedFor": [
       "DeepSeek",
+      "Qwen/Ali",
+      "SimpleTex",
       "Resend",
-      "SimpleTex"
+      "OpenRouter",
+      "BUG LRS",
+      "LRS"
     ],
     "productionDeploymentOrRedeploymentReported": false,
     "historyRewriteReported": false,
@@ -343,6 +347,128 @@
         "interpretation": "Pre-action UI and transport-mechanism readiness only. No replacement, rotation, secret-store write, usage closure, revocation, deployment, provider containment, PR readiness, merge, or remote-ref deletion is proved or authorized."
       }
     ],
+    "rotationCloseoutReceipts": [
+      {
+        "id": "qwen-rotation-closeout-20260827T133859Z",
+        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json",
+        "sha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff",
+        "bytes": 1863,
+        "mode": "0600",
+        "fileType": "regular",
+        "symlink": false,
+        "schemaVersion": "sena-provider-rotation-closeout/v1",
+        "recordedAt": "2026-08-27T13:38:59Z",
+        "redacted": true,
+        "mappedProviderRows": [
+          "Qwen/Ali"
+        ],
+        "containmentClosedForMappedRows": true,
+        "replacementReadOnlyStatusBeforeAndAfterLegacyRevocation": 200,
+        "legacyReadOnlyStatusBeforeRevocation": 200,
+        "legacyReadOnlyStatusAfterRevocation": 401,
+        "localPreviewProductionReplacementBindingsUpdated": true,
+        "usageReviewBoundary": "default-view-no-visible-data-with-approximately-one-hour-reporting-delay; no claim about historical, delayed, or other-window usage",
+        "billableGenerationPerformed": false,
+        "deploymentTriggered": false,
+        "localVerification": {
+          "sha256Matches": true,
+          "bytesMatch": true,
+          "modeMatches": true,
+          "regularFile": true,
+          "noSymlink": true,
+          "jsonParses": true,
+          "highRiskCredentialPatternCount": 0
+        }
+      },
+      {
+        "id": "openrouter-rotation-closeout-20260827T134430Z",
+        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/openrouter-rotation-closeout-20260827T134430Z.json",
+        "sha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3",
+        "bytes": 1978,
+        "mode": "0600",
+        "fileType": "regular",
+        "symlink": false,
+        "schemaVersion": "sena-provider-rotation-closeout/v1",
+        "recordedAt": "2026-08-27T13:44:30Z",
+        "redacted": true,
+        "mappedProviderRows": [
+          "OpenRouter"
+        ],
+        "containmentClosedForMappedRows": true,
+        "replacementStatus": 200,
+        "replacementEffectiveLimit": "zero",
+        "replacementUsage": "zero-at-recorded-readback",
+        "legacyConsoleRowDeletionConfirmed": true,
+        "legacyNegativeEndpointProbePerformed": false,
+        "legacyHistoricalUsage": "nonzero",
+        "usageAnomalyClassification": "not-made-no-owner-frozen-threshold",
+        "localPreviewProductionDormantBindingsUpdated": true,
+        "currentCodeConsumerObserved": false,
+        "deploymentTriggered": false,
+        "localVerification": {
+          "sha256Matches": true,
+          "bytesMatch": true,
+          "modeMatches": true,
+          "regularFile": true,
+          "noSymlink": true,
+          "jsonParses": true,
+          "highRiskCredentialPatternCount": 0
+        }
+      },
+      {
+        "id": "lrs-rotation-closeout-20260827T135705Z",
+        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/lrs-rotation-closeout-20260827T135705Z.json",
+        "sha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "bytes": 2834,
+        "mode": "0600",
+        "fileType": "regular",
+        "symlink": false,
+        "schemaVersion": "sena-provider-rotation-closeout/v1",
+        "recordedAt": "2026-08-27T13:57:05Z",
+        "redacted": true,
+        "mappedProviderRows": [
+          "BUG LRS",
+          "LRS"
+        ],
+        "sharedCredentialEventCount": 1,
+        "containmentClosedForMappedRows": true,
+        "localAssignmentCount": 6,
+        "vercelPreviewBindingCount": 6,
+        "vercelProductionBindingCount": 6,
+        "legacySharedAccessKeyConsoleDeletionConfirmed": true,
+        "configuredAboutReadback": {
+          "legacyAndReplacementStatus": 302,
+          "redirectClass": "cross-origin",
+          "credentialsForwardedToRedirectTarget": false,
+          "authenticationProof": false,
+          "interpretation": "The redirect occurred before an authentication result; the probes cannot distinguish legacy from replacement authentication state."
+        },
+        "usageReviewBoundary": "key-level usage unavailable in the safe authorized surface; no real-user xAPI analytics read and no zero-usage claim",
+        "xapiStatementSent": false,
+        "deploymentTriggered": false,
+        "secondaryExposure": {
+          "eventCount": 1,
+          "occurred": true,
+          "materialClass": "legacy-username-only",
+          "causeClass": "browser-selector-timeout-diagnostic",
+          "legacyPasswordEmitted": false,
+          "replacementUsernameEmitted": false,
+          "replacementPasswordEmitted": false,
+          "legacyAccessKeyDeletedInSameRotationWindow": true,
+          "residualArtifactAbsenceProved": false,
+          "interpretation": "Provider-side deletion contains the old shared credential object but does not erase the prior username-only diagnostic disclosure or prove absence from other artifacts."
+        },
+        "localVerification": {
+          "sha256Matches": true,
+          "bytesMatch": true,
+          "modeMatches": true,
+          "regularFile": true,
+          "noSymlink": true,
+          "jsonParses": true,
+          "highRiskCredentialPatternCount": 0
+        }
+      }
+    ],
     "localVerification": {
       "sha256Matches": true,
       "bytesMatch": true,
@@ -555,11 +681,12 @@
     {
       "provider": "Qwen/Ali",
       "credentialNameClass": "API key",
-      "environment": "MAIS-MVP runtime; exact provider account and environment pending operator confirmation",
-      "maisEnvLocalState": "same-as-leaked",
+      "environment": "MAIS-MVP runtime; exact provider account identity is not recorded",
+      "maisEnvLocalState": "replacement-installed-and-redacted-readback-matched",
       "maisCredentialDocxState": "same-as-leaked",
-      "secretStoreState": "existing-local-and-combined-preview-production-binding-still-legacy",
-      "providerReadbackState": "old-current-binding-active-official-read-only-model-list-returned-200-latest-pre-action-console-authenticated-create-dialog-open-unsubmitted-rotation-usage-review-and-revocation-pending",
+      "secretStoreState": "replacement-present-in-local-plus-separate-sensitive-preview-and-production-bindings",
+      "providerReadbackState": "provider-row-containment-closed-replacement-official-read-only-status-200-before-and-after-revocation-legacy-status-200-before-and-401-after-console-deletion",
+      "containmentClosed": true,
       "currentAndLegacyReadback": {
         "endpointClass": "official-read-only-model-list",
         "httpStatus": 200,
@@ -588,6 +715,16 @@
         "legacyRevocationProved": false,
         "actionTimeConfirmationRequired": true
       },
+      "latestRotationCloseout": {
+        "receiptId": "qwen-rotation-closeout-20260827T133859Z",
+        "recordedAt": "2026-08-27T13:38:59Z",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff",
+        "containmentClosed": true,
+        "replacementReadOnlyStatus": 200,
+        "legacyReadOnlyStatusAfterRevocation": 401,
+        "usageBoundary": "default-view-no-visible-data-with-approximately-one-hour-reporting-delay; no historical, delayed-window, or anomaly claim",
+        "productionDeploymentOrRedeploymentPerformed": false
+      },
       "secretStoreReadiness": {
         "localBinding": "configured-once",
         "vercelBinding": "present-preview-and-production",
@@ -603,43 +740,50 @@
         "minimumKnownRuntimeConsumerCount": 4,
         "recordedAt": "2026-08-27T12:26:52Z",
         "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
-        "replacementStillRequired": true
+        "replacementStillRequired": false
       },
       "replacementProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-official-console-created-private-transfer-and-read-only-200",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:38:59Z",
+        "evidenceId": "qwen-rotation-closeout-20260827T133859Z#replacement",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-console-deletion-and-legacy-read-only-status-401",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:38:59Z",
+        "evidenceId": "qwen-rotation-closeout-20260827T133859Z#legacy-revocation",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff"
       },
       "usageReviewProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "bounded-complete-default-view-no-visible-data-delay-window-not-expired",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:38:59Z",
+        "evidenceId": "qwen-rotation-closeout-20260827T133859Z#usage-review",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff",
+        "interpretation": "The default view showed no visible data, subject to an approximately one-hour reporting delay; this is not proof of zero historical, delayed, or other-window usage and does not support an anomaly classification."
       },
       "secretStoreProof": {
-        "status": "pending-rotation-existing-local-and-combined-preview-production-binding-still-legacy",
-        "completed": false,
+        "status": "complete-replacement-local-preview-production-sensitive-bindings",
+        "completed": true,
         "operator": "recorded-in-external-receipt",
-        "verifiedAt": "2026-08-27T11:46:54Z",
-        "evidenceId": "provider-containment-readback-20260827T114654Z#Qwen-secretStoreState",
-        "receiptSha256": "b46f9c559ac19146f0fc97169615143cac98a1ee39fcbf08175f78331d9e77ca"
+        "verifiedAt": "2026-08-27T13:38:59Z",
+        "evidenceId": "qwen-rotation-closeout-20260827T133859Z#secret-store",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff"
       },
       "dependentRuntimeProof": {
-        "status": "pending",
+        "status": "replacement-provider-read-only-status-200-runtime-consumer-and-deployment-not-verified",
         "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:38:59Z",
+        "evidenceId": "qwen-rotation-closeout-20260827T133859Z#runtime-boundary",
+        "receiptSha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff",
+        "runtimeConsumerExecutionVerified": false,
+        "productionDeploymentOrRedeploymentPerformed": false
       }
     },
     {
@@ -871,9 +1015,10 @@
       "provider": "OpenRouter",
       "credentialNameClass": "API key",
       "environment": "owner-requested dormant replacement target: MAIS-MVP local plus Vercel Preview/Production; no current code consumer and no deployment authorized",
-      "maisEnvLocalState": "not-present",
+      "maisEnvLocalState": "owner-requested-dormant-replacement-installed-and-redacted-readback-matched",
       "maisCredentialDocxState": "not-present",
-      "providerReadbackState": "legacy-official-read-only-key-metadata-returned-200-active-with-nonzero-usage-signal-current-runtime-binding-absent-owner-requested-dormant-replacement-latest-pre-action-console-authenticated-create-dialog-open-unsubmitted-creation-secret-store-readback-usage-review-and-revocation-pending",
+      "providerReadbackState": "provider-row-containment-closed-dormant-replacement-status-200-effective-limit-zero-usage-zero-legacy-console-row-precisely-deleted-without-negative-endpoint-probe",
+      "containmentClosed": true,
       "legacyReadback": {
         "endpointClass": "official-read-only-key-metadata",
         "httpStatus": 200,
@@ -904,17 +1049,33 @@
         "actionTimeConfirmationRequired": true,
         "dormantNoConsumerBoundarySource": "prior-owner-scope-and-secret-store-readiness-receipts"
       },
+      "latestRotationCloseout": {
+        "receiptId": "openrouter-rotation-closeout-20260827T134430Z",
+        "recordedAt": "2026-08-27T13:44:30Z",
+        "receiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3",
+        "containmentClosed": true,
+        "replacementStatus": 200,
+        "replacementEffectiveLimit": "zero",
+        "replacementUsage": "zero-at-recorded-readback",
+        "legacyConsoleRowDeletionConfirmed": true,
+        "legacyNegativeEndpointProbePerformed": false,
+        "legacyHistoricalUsage": "nonzero",
+        "usageAnomalyClassification": "not-made-no-owner-frozen-threshold",
+        "currentCodeConsumerObserved": false,
+        "productionDeploymentOrRedeploymentPerformed": false
+      },
       "secretStoreReadiness": {
-        "localBinding": "absent",
-        "vercelBinding": "absent-preview-and-production",
+        "localBinding": "dormant-replacement-present",
+        "vercelBinding": "dormant-replacement-present-preview-and-production",
         "runtimeConsumers": [],
         "ownerRequestedDormantReplacement": true,
         "productionDeploymentAuthorized": false,
         "recordedAt": "2026-08-27T12:26:52Z",
-        "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db"
+        "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
+        "supersedingCloseoutReceiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3"
       },
-      "currentRuntimeBinding": "absent",
-      "replacementRequired": true,
+      "currentRuntimeBinding": "dormant-secret-store-binding-present-no-code-consumer",
+      "replacementRequired": false,
       "replacementRequirement": {
         "classification": "owner-requested-dormant-replacement-binding",
         "baseReceiptReplacementRequired": false,
@@ -925,36 +1086,46 @@
           "Vercel Production"
         ],
         "authorizationEvidenceId": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f:owner-scope-correction",
-        "recordedAt": "2026-08-27T12:12:44Z"
+        "recordedAt": "2026-08-27T12:12:44Z",
+        "fulfilled": true,
+        "fulfilledAt": "2026-08-27T13:44:30Z",
+        "fulfillmentReceiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3"
       },
       "replacementProof": {
-        "status": "pending-owner-requested-dormant-replacement-creation",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-owner-requested-dormant-replacement-status-200-limit-zero",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:44:30Z",
+        "evidenceId": "openrouter-rotation-closeout-20260827T134430Z#replacement",
+        "receiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-legacy-console-row-precisely-matched-and-deleted-no-negative-endpoint-probe",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:44:30Z",
+        "evidenceId": "openrouter-rotation-closeout-20260827T134430Z#legacy-console-deletion",
+        "receiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3",
+        "providerEndpointRejectionProved": false
       },
       "usageReviewProof": {
-        "status": "pending-console-review-nonzero-usage-signal-observed",
-        "completed": false,
+        "status": "complete-bounded-review-legacy-historical-usage-nonzero-no-anomaly-classification",
+        "completed": true,
         "operator": "recorded-in-external-receipt",
-        "verifiedAt": "2026-08-27T11:46:54Z",
-        "evidenceId": "provider-containment-readback-20260827T114654Z#OpenRouter-legacyReadback",
-        "receiptSha256": "b46f9c559ac19146f0fc97169615143cac98a1ee39fcbf08175f78331d9e77ca"
+        "verifiedAt": "2026-08-27T13:44:30Z",
+        "evidenceId": "openrouter-rotation-closeout-20260827T134430Z#usage-review",
+        "receiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3",
+        "legacyHistoricalUsage": "nonzero",
+        "replacementUsage": "zero-at-recorded-readback",
+        "usageAnomalyClassification": "not-made-no-owner-frozen-threshold"
       },
       "secretStoreProof": {
-        "status": "pending-owner-requested-local-and-vercel-preview-production-sensitive-bindings",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-owner-requested-dormant-local-preview-production-sensitive-bindings",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:44:30Z",
+        "evidenceId": "openrouter-rotation-closeout-20260827T134430Z#secret-store",
+        "receiptSha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3"
       },
       "dependentRuntimeProof": {
         "status": "no-current-code-consumer-no-deployment-authorized",
@@ -973,7 +1144,7 @@
       "environment": "owner-requested dormant replacement target: MAIS-MVP local plus Vercel Preview/Production; no current code consumer and no deployment authorized",
       "maisEnvLocalState": "not-present",
       "maisCredentialDocxState": "not-present",
-      "providerReadbackState": "legacy-official-read-only-instance-returned-403-active-state-indeterminate-current-runtime-binding-absent-owner-requested-dormant-replacement-latest-pre-action-console-authenticated-create-dialog-open-unsubmitted-creation-secret-store-readback-usage-review-and-revocation-pending",
+      "providerReadbackState": "legacy-official-read-only-instance-returned-403-active-state-indeterminate-current-runtime-binding-absent-owner-requested-dormant-replacement-blocked-at-verification-code-challenge-without-closeout-receipt",
       "legacyReadback": {
         "endpointClass": "official-read-only-instance",
         "httpStatus": 403,
@@ -1004,6 +1175,18 @@
         "legacyRevocationProved": false,
         "actionTimeConfirmationRequired": true,
         "dormantNoConsumerBoundarySource": "prior-owner-scope-and-secret-store-readiness-receipts"
+      },
+      "latestOperationalHandoff": {
+        "source": "codex-delegation",
+        "taskReference": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+        "recordedAt": "2026-08-27T14:04:08Z",
+        "state": "verification-code-challenge-pending",
+        "durableCloseoutReceiptBound": false,
+        "replacementCreationProved": false,
+        "secretStoreUpdateProved": false,
+        "usageReviewComplete": false,
+        "legacyRevocationProved": false,
+        "containmentClosed": false
       },
       "secretStoreReadiness": {
         "localBinding": "absent",
@@ -1071,7 +1254,7 @@
       "provider": "BUG LRS",
       "credentialNameClass": "username and password pair",
       "environment": "MAIS-MVP LRS.io learning-record-store integration; exact account identity is not recorded",
-      "maisEnvLocalState": "same-as-leaked",
+      "maisEnvLocalState": "replacement-installed-and-redacted-readback-matched",
       "maisCredentialDocxState": "same-as-leaked",
       "sharedBinding": {
         "provider": "LRS.io",
@@ -1115,65 +1298,98 @@
         "legacyRevocationProved": false,
         "actionTimeConfirmationRequired": true
       },
+      "latestRotationCloseout": {
+        "receiptId": "lrs-rotation-closeout-20260827T135705Z",
+        "recordedAt": "2026-08-27T13:57:05Z",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "sharedLedgerRows": [
+          "BUG LRS",
+          "LRS"
+        ],
+        "sharedCredentialEventCount": 1,
+        "containmentClosed": true,
+        "localAssignmentCountAcrossSharedRows": 6,
+        "vercelPreviewBindingCountAcrossSharedRows": 6,
+        "vercelProductionBindingCountAcrossSharedRows": 6,
+        "legacySharedAccessKeyConsoleDeletionConfirmed": true,
+        "aboutReadbackStatus": 302,
+        "aboutReadbackAuthenticationProof": false,
+        "xapiStatementSent": false,
+        "productionDeploymentOrRedeploymentPerformed": false
+      },
       "secretStoreReadiness": {
-        "localBugLrsBindings": "endpoint-username-password-configured-once",
-        "localLrsBindings": "endpoint-username-password-configured-once",
-        "vercelBugLrsBindings": "absent-preview-and-production",
-        "vercelLrsBindings": "present-production-only-preview-absent",
+        "localBugLrsBindings": "replacement-endpoint-username-password-present",
+        "localLrsBindings": "replacement-endpoint-username-password-present",
+        "vercelBugLrsBindings": "replacement-present-preview-and-production",
+        "vercelLrsBindings": "replacement-present-preview-and-production",
         "runtimeConsumers": [
           "lib/server/lrsClient.ts",
           "scripts/bug-triage.js"
         ],
         "recordedAt": "2026-08-27T12:26:52Z",
         "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
-        "replacementStillRequired": true
+        "replacementStillRequired": false,
+        "supersedingCloseoutReceiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "statementWritePerformed": false,
-      "providerReadbackState": "old-credential-still-active-configured-about-endpoint-returned-200-replacement-and-revocation-staged-pending-action-time-confirmation",
+      "providerReadbackState": "provider-row-containment-closed-shared-legacy-access-key-console-deleted-replacement-secret-stores-updated-about-readback-inconclusive-cross-origin-302-before-auth-result",
+      "containmentClosed": true,
+      "sharedSecondaryExposureEventId": "lrs-rotation-closeout-20260827T135705Z#legacy-username-only",
       "replacementProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-replacement-access-key-created",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#replacement",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-legacy-access-key-console-deletion-stable-refresh-old-absent",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#legacy-console-deletion",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "endpointRejectionProved": false
       },
       "usageReviewProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "not-available-within-safe-authorized-surface",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#usage-review-boundary",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "zeroUsageProved": false,
+        "realUserXapiAnalyticsRead": false
       },
       "secretStoreProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-replacement-local-six-assignments-preview-six-production-six-sensitive-bindings",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#secret-store",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "dependentRuntimeProof": {
-        "status": "old-binding-read-only-about-endpoint-returned-200-replacement-runtime-proof-pending",
+        "status": "inconclusive-cross-origin-302-before-auth-result",
         "completed": false,
-        "operator": "EvidenceFlow delegated task",
-        "verifiedAt": null,
-        "evidenceId": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f:provider-containment-live-update",
-        "reportedAt": "2026-08-27T11:44:07Z",
-        "configuredAboutEndpointStatus": 200,
-        "oldCredentialStillActive": true
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#about-readback",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "configuredAboutEndpointStatus": 302,
+        "redirectClass": "cross-origin",
+        "credentialsForwardedToRedirectTarget": false,
+        "replacementAuthenticationProved": false,
+        "legacyAuthenticationStateProved": false,
+        "xapiWritePerformed": false
       }
     },
     {
       "provider": "LRS",
       "credentialNameClass": "username and password pair",
       "environment": "MAIS-MVP LRS.io learning-record-store integration; exact account identity is not recorded",
-      "maisEnvLocalState": "same-as-leaked",
+      "maisEnvLocalState": "replacement-installed-and-redacted-readback-matched",
       "maisCredentialDocxState": "same-as-leaked",
       "sharedBinding": {
         "provider": "LRS.io",
@@ -1217,105 +1433,134 @@
         "legacyRevocationProved": false,
         "actionTimeConfirmationRequired": true
       },
+      "latestRotationCloseout": {
+        "receiptId": "lrs-rotation-closeout-20260827T135705Z",
+        "recordedAt": "2026-08-27T13:57:05Z",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "sharedLedgerRows": [
+          "BUG LRS",
+          "LRS"
+        ],
+        "sharedCredentialEventCount": 1,
+        "containmentClosed": true,
+        "localAssignmentCountAcrossSharedRows": 6,
+        "vercelPreviewBindingCountAcrossSharedRows": 6,
+        "vercelProductionBindingCountAcrossSharedRows": 6,
+        "legacySharedAccessKeyConsoleDeletionConfirmed": true,
+        "aboutReadbackStatus": 302,
+        "aboutReadbackAuthenticationProof": false,
+        "xapiStatementSent": false,
+        "productionDeploymentOrRedeploymentPerformed": false
+      },
       "secretStoreReadiness": {
-        "localBugLrsBindings": "endpoint-username-password-configured-once",
-        "localLrsBindings": "endpoint-username-password-configured-once",
-        "vercelBugLrsBindings": "absent-preview-and-production",
-        "vercelLrsBindings": "present-production-only-preview-absent",
+        "localBugLrsBindings": "replacement-endpoint-username-password-present",
+        "localLrsBindings": "replacement-endpoint-username-password-present",
+        "vercelBugLrsBindings": "replacement-present-preview-and-production",
+        "vercelLrsBindings": "replacement-present-preview-and-production",
         "runtimeConsumers": [
           "lib/server/lrsClient.ts",
           "scripts/bug-triage.js"
         ],
         "recordedAt": "2026-08-27T12:26:52Z",
         "receiptSha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
-        "replacementStillRequired": true
+        "replacementStillRequired": false,
+        "supersedingCloseoutReceiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "statementWritePerformed": false,
-      "providerReadbackState": "old-credential-still-active-configured-about-endpoint-returned-200-replacement-and-revocation-staged-pending-action-time-confirmation",
+      "providerReadbackState": "provider-row-containment-closed-shared-legacy-access-key-console-deleted-replacement-secret-stores-updated-about-readback-inconclusive-cross-origin-302-before-auth-result",
+      "containmentClosed": true,
+      "sharedSecondaryExposureEventId": "lrs-rotation-closeout-20260827T135705Z#legacy-username-only",
       "replacementProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-replacement-access-key-created",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#replacement",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "revocationProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-legacy-access-key-console-deletion-stable-refresh-old-absent",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#legacy-console-deletion",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "endpointRejectionProved": false
       },
       "usageReviewProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "not-available-within-safe-authorized-surface",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#usage-review-boundary",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "zeroUsageProved": false,
+        "realUserXapiAnalyticsRead": false
       },
       "secretStoreProof": {
-        "status": "pending",
-        "completed": false,
-        "operator": null,
-        "verifiedAt": null,
-        "evidenceId": null
+        "status": "complete-shared-replacement-local-six-assignments-preview-six-production-six-sensitive-bindings",
+        "completed": true,
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#secret-store",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266"
       },
       "dependentRuntimeProof": {
-        "status": "old-binding-read-only-about-endpoint-returned-200-replacement-runtime-proof-pending",
+        "status": "inconclusive-cross-origin-302-before-auth-result",
         "completed": false,
-        "operator": "EvidenceFlow delegated task",
-        "verifiedAt": null,
-        "evidenceId": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f:provider-containment-live-update",
-        "reportedAt": "2026-08-27T11:44:07Z",
-        "configuredAboutEndpointStatus": 200,
-        "oldCredentialStillActive": true
+        "operator": "recorded-in-external-receipt",
+        "verifiedAt": "2026-08-27T13:57:05Z",
+        "evidenceId": "lrs-rotation-closeout-20260827T135705Z#about-readback",
+        "receiptSha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
+        "configuredAboutEndpointStatus": 302,
+        "redirectClass": "cross-origin",
+        "credentialsForwardedToRedirectTarget": false,
+        "replacementAuthenticationProved": false,
+        "legacyAuthenticationStateProved": false,
+        "xapiWritePerformed": false
       }
     }
   ],
   "closureBoundary": {
     "allProviderRowsRequireTimestampedRedactedReadback": true,
     "reportedContainmentProgress": {
-      "completedProviderRowsInPartialExternalReceipt": [
+      "completedProviderRows": [
         "DeepSeek",
-        "Resend",
-        "SimpleTex"
-      ],
-      "partialReceiptObservedAt": "2026-08-27T11:46:54Z",
-      "allProviderClosureRequiredForDeletionActivation": true,
-      "remainingProviderRows": [
         "Qwen/Ali",
+        "SimpleTex",
+        "Resend",
         "OpenRouter",
-        "Clerk",
-        "Mathpix",
         "BUG LRS",
         "LRS"
+      ],
+      "partialReceiptObservedAt": "2026-08-27T11:46:54Z",
+      "latestCloseoutReceiptObservedAt": "2026-08-27T13:57:05Z",
+      "allProviderClosureRequiredForDeletionActivation": true,
+      "remainingProviderRows": [
+        "Mathpix",
+        "Clerk"
       ],
       "pendingBrowserLogin": [
         "Mathpix"
       ],
-      "preActionReadyButUnsubmitted": [
-        "Qwen/Ali",
-        "OpenRouter",
+      "pendingVerificationChallenge": [
         "Clerk"
       ],
-      "authenticatedButCreateNotOpened": [
-        "BUG LRS",
-        "LRS"
-      ],
-      "pendingActionTimeConfirmation": [
-        "Qwen/Ali",
-        "OpenRouter",
-        "Clerk",
-        "BUG LRS",
-        "LRS"
-      ],
+      "preActionReadyButUnsubmitted": [],
+      "authenticatedButCreateNotOpened": [],
+      "pendingActionTimeConfirmation": [],
       "pendingOwnerWorkloadReconciliation": [],
       "dependentRuntimeBoundaryRecordedWithoutExecutionFor": [
         "DeepSeek",
+        "Qwen/Ali",
         "Resend",
         "SimpleTex",
         "OpenRouter",
         "Clerk"
+      ],
+      "inconclusiveRuntimeAuthenticationFor": [
+        "BUG LRS",
+        "LRS"
       ]
     },
     "providerContainmentComplete": false,

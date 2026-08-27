@@ -13,47 +13,46 @@ is limited to preservation, redacted security containment, governance tooling,
 sanitized salvage review, and exact-SHA verification.
 
 `provider-containment-ledger-20260827.json` is the machine-readable no-value
-provider ledger. EvidenceFlow reports replacement and revocation for DeepSeek,
-Resend, and SimpleTex, while this governance task itself performed no provider
-write. A mode-`0600` durable partial receipt observed at
-`2026-08-27T11:46:54Z` is bound by path, SHA-256, byte count, and file mode; it
-marks those three provider rows complete and records the no-deployment runtime
-boundary. The owner has since classified DeepSeek's two named concentration
-dates as expected activity, closing that one reconciliation blocker; the other
-six rows remain open. The receipt itself says overall containment is incomplete
-and remote deletion activation is disallowed, so no completed incident
-containment is claimed. A second durable additive receipt extends the first for
-DeepSeek/Resend secret-store scope, binding separate sensitive Preview and
-Production assignments without value emission, provider calls, or deployment;
-it also keeps overall containment and deletion activation false. A third
-read-only receipt refreshes the six remaining rows at `2026-08-27T12:23:17Z`
-without a credential write/delete or billable/runtime side effect. A fourth
-readiness receipt at `2026-08-27T12:26:52Z` binds a non-exhaustive
-Qwen/Mathpix/LRS consumer and environment-slot inventory plus the
-owner-requested dormant OpenRouter/Clerk target; independent source review adds
-`scripts/probe-tutor-providers.mjs` as a fourth minimum-known Qwen consumer.
-Those additions improve sequencing evidence only: six provider rows remain
-open, credential creation/deletion still requires action-time confirmation,
-feature work remains frozen, and deletion activation remains false.
-A fifth mode-`0600` blocker receipt at `2026-08-27T12:31:24Z` freezes the
-remaining owner-login/action-time-confirmation boundary and the pre-commit Git
-snapshot. It explicitly states that PR #21's old-head green checks do not cover
-the current A01 edits; it authorizes no merge, remote-ref deletion, root
-movement, EvidenceFlow feature worktree, or thaw. Its DeepSeek classification
-action was subsequently satisfied by owner attestation. A sixth, independently
-additive mode-`0600` pre-action receipt at `2026-08-27T13:12:06Z` advances the
-console-readiness snapshot: Qwen, OpenRouter, and Clerk are authenticated with
-create dialogs open but unsubmitted; Mathpix still requires login; LRS is
-authenticated but its create action has not been opened. Every final submit,
-external write/delete, billable call, and deployment remains false. Its
-non-sensitive browser-memory-to-`0600`-FIFO transport probe proves only the
-mechanism rehearsal—it did not use credential material and does not prove a
-real credential transfer, replacement creation, secret-store update, rotation,
-or revocation. The fixed receipt contains no parent/source-receipt hash link,
-so it is recorded as an independent addition to the governance evidence chain.
-All six provider rows remain open; containment and deletion activation remain
-false, feature work remains frozen, and PR #21 remains Draft with no merge or
-ref-deletion authorization.
+provider ledger. This governance task performed no provider write. EvidenceFlow
+now reports provider-side/local/Vercel containment operations for seven of nine
+rows: DeepSeek, Qwen/Ali, SimpleTex, Resend, OpenRouter, BUG LRS, and LRS. No
+SENA or MAIS production deployment/redeployment, remote-ref deletion, or history
+rewrite is reported.
+
+The earlier partial readback, secret-store correction, follow-up, readiness,
+blocker, owner-attestation, and pre-action receipts remain immutable historical
+evidence. Three later mode-`0600` closeout receipts are additionally bound by
+exact path, SHA-256, byte count, schema, and time:
+
+- Qwen/Ali: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json`;
+  SHA-256 `7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff`;
+  1863 bytes; `sena-provider-rotation-closeout/v1`;
+  `2026-08-27T13:38:59Z`.
+- OpenRouter: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/openrouter-rotation-closeout-20260827T134430Z.json`;
+  SHA-256 `ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3`;
+  1978 bytes; the same schema; `2026-08-27T13:44:30Z`.
+- Shared BUG LRS/LRS event: `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/lrs-rotation-closeout-20260827T135705Z.json`;
+  SHA-256 `c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266`;
+  2834 bytes; the same schema; `2026-08-27T13:57:05Z`.
+
+Fresh independent checks confirmed all three are regular non-symlink files with
+link count one, exact hashes/sizes/modes, valid redacted JSON, and zero high-risk
+credential-pattern findings. Qwen's no-visible-data default usage view retains
+an approximately one-hour reporting-delay boundary. OpenRouter's legacy row had
+nonzero historical usage, but no owner-frozen threshold exists, so no anomaly
+classification is made; console deletion is not restated as an unperformed
+legacy endpoint-negative probe. One LRS receipt maps to two shared governance
+rows. Its cross-origin `302` probes forwarded no credentials and are not auth
+proof. It also records one legacy-username-only selector-timeout diagnostic
+exposure; no password or replacement credential was echoed, but deleting the
+old Access Key does not prove every diagnostic/session artifact has been erased.
+
+Exactly two rows remain open: Mathpix has not completed rotation, and Clerk is
+blocked at a verification-code challenge without a durable closeout receipt.
+Overall containment and deletion activation therefore remain false, feature
+work remains frozen, and PR #21 remains Draft. These receipts authorize neither
+PR Ready, merge, contaminated-ref deletion, root-checkout movement, feature thaw,
+nor deployment.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -327,10 +326,10 @@ remain unproved.
 The following actions require distinct owner authorization and must not be
 inferred from this governance implementation:
 
-- finish every still-pending provider action and proof in the no-value provider
-  ledger, including Qwen/Ali, Mathpix, the owner-requested dormant
-  OpenRouter/Clerk replacements plus local/Preview/Production bindings, and the
-  shared LRS.io binding represented by BUG LRS/LRS;
+- finish the two still-pending provider rows in the no-value ledger: Mathpix
+  rotation/secret-store/revocation evidence and the owner-requested dormant
+  Clerk replacement after its verification-code challenge, including
+  local/Preview/Production bindings, usage review, and legacy revocation;
 - bind all remaining and future rotations/revocations, secret-store changes,
   usage reviews, and runtime boundaries to a later complete redacted readback
   that supersedes the current partial receipt;
