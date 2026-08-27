@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T23:36:56Z",
+  "updatedAt": "2026-08-27T23:39:08Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5a5a1514677cd159d6c79126aa5297e560a1a07a",
+      "headSha": "d280820b041156e070b9af79d37af03fdb46c648",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,12 +1003,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T23:36:56Z",
-      "lastObservedAt": "2026-08-27T23:36:56Z",
+      "lastHeartbeatAt": "2026-08-27T23:39:08Z",
+      "lastObservedAt": "2026-08-27T23:39:08Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 37,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1020,15 +1020,15 @@
         "postMainRepositorySecurityRunId": 33126050001,
         "postMainChecksPassed": true
       },
-      "noPrReason": "Node24 cleanup receipt candidate is committed locally; draft closeout PR creation awaits this lifecycle heartbeat.",
-      "dirtyState": "staged-node24-cleanup-closeout-lifecycle-binding-at-5a5a151",
+      "noPrReason": null,
+      "dirtyState": "staged-pr37-draft-lifecycle-binding-at-d280820",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "Node24 remote/local branch and worktree are absent; candidate 5a5a151 consumes the one-shot authorization, preserves a deletion receipt, and removes only the stale Node24 workItem/branch expectations; registry/live audit and 43 governance tests pass",
-        "ci": "PR 36 and exact post-main build 33126050004 / repository-security 33126050001 passed; this cleanup-closeout candidate has no PR or CI yet",
+        "local": "Draft PR 37 exact first bound head d280820 contains the Node24 consumed authorization, redacted deletion receipt, and removal of only the stale Node24 workItem/branch expectations; registry/live audit and 43 governance tests pass",
+        "ci": "PR 37 exact-head checks are pending; merge authorization is false",
         "merged": "PR 36 is protected-main complete at a3eeb37; the successful Node24 cleanup fact is not yet recorded on protected main",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
@@ -1257,15 +1257,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5a5a1514677cd159d6c79126aa5297e560a1a07a",
+      "headSha": "d280820b041156e070b9af79d37af03fdb46c648",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f60442b3a76db4cab42dcd537fc6c8a24071ed57",
-      "remoteObservedAt": "2026-08-27T23:36:56Z",
-      "pr": null,
-      "noPrReason": "Node24 cleanup receipt candidate is committed locally; draft closeout PR creation awaits this lifecycle heartbeat.",
+      "remoteHeadSha": "d280820b041156e070b9af79d37af03fdb46c648",
+      "remoteObservedAt": "2026-08-27T23:39:08Z",
+      "pr": 37,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "d280820b041156e070b9af79d37af03fdb46c648",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 36,
@@ -1273,13 +1279,13 @@
         "mergeCommitSha": "a3eeb37ea8db2ea7a00d83b53c906d2b3e0d261f",
         "mergedAt": "2026-08-27T23:22:30Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T23:36:56Z",
-      "lastObservedAt": "2026-08-27T23:36:56Z",
-      "lastCommitAt": "2026-08-28T07:36:26+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T23:39:08Z",
+      "lastObservedAt": "2026-08-27T23:39:08Z",
+      "lastCommitAt": "2026-08-28T07:37:58+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "ready-for-pr",
-      "closeout": "Node24 cleanup is physically complete and receipt-bound at local candidate 5a5a151; protected-main closeout PR is not yet created"
+      "closeout": "Draft PR 37 is OPEN at exact first bound head d280820; merge authorization remains false until exact build/security and final authorization metadata"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
