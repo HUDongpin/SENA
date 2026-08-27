@@ -10,7 +10,7 @@ sensitive documents.
 The credential incident in `active-work.json` is closed by this final governance
 change: provider containment, exact remote deletion, official event custody,
 27-ref zero-finding reachability, consumed receipt, sanitized salvage
-dispositions, and root restoration are all present. Once this change reaches
+dispositions, and root restoration are all present. Once PR #25 reaches
 protected `main`, ordinary work is thawed only for separately registered owner,
 branch, worktree, and allowed-path lanes. The root remains a read-only control
 plane and is never a feature worktree.
@@ -287,7 +287,7 @@ exact-old-SHA lease deletion of only the quarantined docs ref, satisfied; (5)
 fresh live absence readback, satisfied across 27 candidates with zero findings;
 and (6) protected-main consumed/deletion-event custody PR #24, satisfied as
 `91f832d...` with post-main checks green; (7) owner-authorized ordinary root
-checkout and fast-forward-only restoration, satisfied; and (8) this final
+checkout and fast-forward-only restoration, satisfied; and (8) PR #25's final
 incident-closure/feature-thaw record. The owner authorization is consumed;
 replay must fail closed.
 

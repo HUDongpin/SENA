@@ -1,6 +1,6 @@
 # SENA credential incident action packet — 2026-08-27
 
-Status: **P0 / closed by this final protected-main governance change**
+Status: **P0 / closure recorded by PR #25's final protected-main governance change**
 
 Coordinator: SENA-A01
 
@@ -546,8 +546,8 @@ The mandatory order is:
 7. **Satisfied:** restore root by ordinary checkout and fast-forward only to
    exact `91f832d...`; verify clean status and absence of both forbidden working
    copies and index entries while retaining local quarantine/rescue custody.
-8. **Current final record:** close the incident and thaw feature work only for
-   separately registered owner/branch/worktree/allowed-path lanes.
+8. **Current final record:** merge PR #25 to close the incident and thaw feature
+   work only for separately registered owner/branch/worktree/allowed-path lanes.
 
 The post-delete reachability receipt is the regular mode-`0600`, 1,266-byte
 file `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json`,
