@@ -35,6 +35,7 @@ const MAX_ACTIVE_WRITE_WORKTREES = 3;
 const MAX_ACTIVE_INTEGRATION_RELEASE_LANES = 1;
 const MAX_ACTIVE_FEATURE_LANES = 2;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
+const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
 const EXPECTED_REMOTE_IDENTITY = Object.freeze({
   name: "origin",
   provider: "github.com",
@@ -570,6 +571,28 @@ function addRemoteIdentityFindings(remoteName, remoteLocation, registry, finding
   }
 }
 
+function loadProtectedMainAuthorizationRegistry(flags, { required = false } = {}) {
+  const commits = flagValues(flags, "authorization-registry-commit");
+  if (commits.length === 0) {
+    if (required) throw new Error("protected-main authorization registry commit is required");
+    return null;
+  }
+  if (commits.length !== 1 || !isSha(commits[0])) {
+    throw new Error("protected-main authorization registry requires exactly one commit SHA");
+  }
+  const trackedMain = git(["rev-parse", "--verify", "refs/remotes/origin/main"], { allowFailure: true });
+  const trackedMainSha = trackedMain.status === 0 ? String(trackedMain.stdout).trim() : null;
+  if (trackedMainSha !== commits[0]) {
+    throw new Error("protected-main authorization registry is not the fetched origin/main commit");
+  }
+  const loaded = loadRegistryFromCommit(commits[0]);
+  const validation = validateRegistry(loaded.parsed);
+  if (validation.errors.length > 0) {
+    throw new Error("protected-main authorization registry snapshot is invalid");
+  }
+  return { ...loaded, commit: commits[0] };
+}
+
 function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry, findings) {
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
   const branchName = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
@@ -604,10 +627,12 @@ function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry,
 
   for (const update of updates) {
     const { localRef, localSha, remoteRef, remoteSha } = update;
-    if (localRef !== expectedRef) {
+    const deletionAuthorization =
+      localSha === ZERO_SHA ? activeRefDeletionAuthorization(registry, remoteRef, remoteSha) : null;
+    if (localRef !== expectedRef && !deletionAuthorization) {
       addFinding(findings, { path: localRef, rule: "outgoing-local-ref-ownership-mismatch", source: "push-policy" });
     }
-    if (remoteRef !== expectedRef) {
+    if (remoteRef !== expectedRef && !deletionAuthorization) {
       let rule = "outgoing-remote-ref-ownership-mismatch";
       if (remoteRef === "refs/heads/main") rule = "protected-main-direct-push-not-authorized";
       else if (remoteRef.startsWith("refs/rescue/")) rule = "rescue-ref-remote-push-not-authorized";
@@ -640,7 +665,7 @@ function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry,
         source: "push-policy"
       });
     }
-    if (branchRecord) {
+    if (branchRecord && !deletionAuthorization) {
       if (branchRecord.remotePresent && remoteSha === ZERO_SHA) {
         addFinding(findings, { path: remoteRef, rule: "registered-remote-state-mismatch", source: "expected-present" });
       } else if (!branchRecord.remotePresent && remoteSha !== ZERO_SHA) {
@@ -652,6 +677,9 @@ function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry,
       ) {
         addFinding(findings, { path: remoteRef, rule: "registered-remote-sha-mismatch", source: remoteSha });
       }
+    }
+    if (localSha === ZERO_SHA && !deletionAuthorization) {
+      addFinding(findings, { path: remoteRef, rule: "ref-deletion-receipt-missing-or-inactive", source: remoteSha });
     }
   }
 }
@@ -665,15 +693,138 @@ function permittedActiveAdvance(fromSha, toSha, item) {
   return changedPathsAcrossCommitRange(fromSha, toSha).every((path) => pathIsAllowed(path, item.allowedPaths));
 }
 
-function addPushEventPolicyFindings(flags, registry, findings) {
+function activeRefDeletionAuthorization(registry, remoteRef, remoteSha, options = {}) {
+  if (!remoteRef.startsWith("refs/heads/") || remoteRef === "refs/heads/main" || !isSha(remoteSha)) return null;
+  const authorization = (registry.policy?.refDeletionAuthorizations ?? []).find(
+    (entry) =>
+      entry.status === "active" &&
+      entry.ref === remoteRef &&
+      entry.expectedOldSha === remoteSha &&
+      entry.exactLeaseRequired === true &&
+      entry.oneShot === true &&
+      typeof entry.githubActor === "string" &&
+      entry.githubActor.length > 0 &&
+      isIsoTimestamp(entry.authorizedAt) &&
+      isIsoTimestamp(entry.expiresAt) &&
+      Date.parse(entry.expiresAt) > Date.now()
+  );
+  if (!authorization) return null;
+
+  if (options.requireGitHubActor === true && authorization.githubActor !== options.githubActor) return null;
+
+  const targetBranchName = remoteRef.slice("refs/heads/".length);
+  const targetBranch = (registry.branches ?? []).find((branch) => branch.name === targetBranchName);
+  if (
+    !targetBranch ||
+    targetBranch.disposition !== "security-quarantine" ||
+    targetBranch.remotePresent !== true ||
+    targetBranch.remoteHeadSha !== remoteSha ||
+    authorization.purpose !== "credential-incident-containment" ||
+    registry.incident?.credentialExposure?.providerContainmentStatus !== "complete" ||
+    !isIsoTimestamp(authorization.providerReadbackAt) ||
+    typeof authorization.providerEvidenceId !== "string" ||
+    authorization.providerEvidenceId.length === 0 ||
+    !/^[0-9a-f]{64}$/.test(authorization.providerEvidenceSha256)
+  ) {
+    return null;
+  }
+
+  if (options.requireOperator !== false) {
+    const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+    const operatorBranch = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
+    const operatorItem = (registry.workItems ?? []).find(
+      (item) => sameExistingPath(item.worktreePath, REPO_ROOT) && item.branch === operatorBranch
+    );
+    if (
+      !operatorItem ||
+      !ACTIVE_WRITE_DISPOSITIONS.has(operatorItem.disposition) ||
+      authorization.operatorBranch !== operatorBranch ||
+      authorization.operatorTaskId !== operatorItem.taskId ||
+      authorization.operatorOwnerKey !== operatorItem.ownerKey
+    ) {
+      return null;
+    }
+  }
+  return authorization;
+}
+
+function liveQuarantineRulesetMatches(authorization, options = {}) {
+  const result = spawnSync(
+    "gh",
+    ["api", `repos/HUDongpin/SENA/rulesets/${authorization.remoteRulesetId}`],
+    { cwd: REPO_ROOT, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, env: process.env }
+  );
+  if (result.status !== 0) return false;
+  let ruleset;
+  try {
+    ruleset = JSON.parse(result.stdout);
+  } catch {
+    return false;
+  }
+  const include = ruleset.conditions?.ref_name?.include;
+  const exclude = ruleset.conditions?.ref_name?.exclude;
+  const ruleTypes = (ruleset.rules ?? []).map((rule) => rule.type);
+  const bypassActorsVisible = Object.hasOwn(ruleset, "bypass_actors");
+  const bypassActors = ruleset.bypass_actors ?? [];
+  const bypassActorsMatch =
+    bypassActorsVisible &&
+    bypassActors.length === 1 &&
+    bypassActors[0].actor_id === authorization.githubActorId &&
+    bypassActors[0].actor_type === "User" &&
+    bypassActors[0].bypass_mode === "always";
+  return Boolean(
+    ruleset.id === authorization.remoteRulesetId &&
+      ruleset.name === authorization.remoteRulesetName &&
+      ruleset.target === "branch" &&
+      ruleset.enforcement === "active" &&
+      sameStringSet(include, [authorization.ref]) &&
+      sameStringSet(exclude, []) &&
+      sameStringSet(ruleTypes, ["creation", "deletion", "non_fast_forward"]) &&
+      (bypassActorsMatch || (options.allowHiddenBypassActors === true && !bypassActorsVisible))
+  );
+}
+
+function runDeletionBoundary(flags) {
+  const updates = parsePrePushUpdates(readFileSync(0, "utf8"));
+  if (updates.length !== 1 || updates[0].localSha !== ZERO_SHA) {
+    throw new Error("deletion-boundary requires exactly one deletion update");
+  }
+  const { parsed: registry } = loadProtectedMainAuthorizationRegistry(flags, { required: true });
+  const update = updates[0];
+  const isPushEvent = flags.has("push-event");
+  const githubActor = flagValues(flags, "event-actor")[0] ?? null;
+  const authorization = activeRefDeletionAuthorization(registry, update.remoteRef, update.remoteSha, {
+    requireOperator: !isPushEvent,
+    requireGitHubActor: isPushEvent,
+    githubActor
+  });
+  if (!authorization) throw new Error("deletion-boundary lacks an active exact protected-main authorization");
+  if (!liveQuarantineRulesetMatches(authorization, { allowHiddenBypassActors: isPushEvent })) {
+    throw new Error("deletion-boundary live GitHub quarantine ruleset does not match the authorization");
+  }
+  process.stdout.write(
+    `SENA_DELETION_BOUNDARY pass ruleset=${authorization.remoteRulesetId} ref=${safePathForLog(update.remoteRef)}\n`
+  );
+}
+
+function addPushEventPolicyFindings(flags, registry, findings, options = {}) {
   const eventRef = flagValues(flags, "event-ref")[0] ?? "";
   const beforeSha = flagValues(flags, "event-before")[0] ?? ZERO_SHA;
   const afterSha = flagValues(flags, "event-after")[0] ?? ZERO_SHA;
   const forced = flagValues(flags, "event-forced")[0] === "true";
   const deleted = flagValues(flags, "event-deleted")[0] === "true";
+  const githubActor = flagValues(flags, "event-actor")[0] ?? null;
+  const deletionAuthorization =
+    options.protectedMainAuthorization === true && (deleted || afterSha === ZERO_SHA)
+      ? activeRefDeletionAuthorization(registry, eventRef, beforeSha, {
+          requireOperator: false,
+          requireGitHubActor: true,
+          githubActor
+        })
+      : null;
 
   if (forced) addFinding(findings, { path: eventRef, rule: "forced-push-event-not-authorized", source: "push-event" });
-  if (deleted || afterSha === ZERO_SHA) {
+  if ((deleted || afterSha === ZERO_SHA) && !deletionAuthorization) {
     addFinding(findings, { path: eventRef, rule: "ref-deletion-event-not-authorized", source: "push-event" });
   }
   if (!eventRef.startsWith("refs/heads/")) {
@@ -685,6 +836,7 @@ function addPushEventPolicyFindings(flags, registry, findings) {
     addFinding(findings, { path: eventRef || "missing-event-ref", rule, source: "push-event" });
     return;
   }
+  if (deletionAuthorization) return;
 
   const branchName = eventRef.slice("refs/heads/".length);
   if (branchName === "main") return;
@@ -716,17 +868,19 @@ function addPushEventPolicyFindings(flags, registry, findings) {
   }
 }
 
-function commitsForPrePush(updates, remoteName, findings) {
+function commitsForPrePush(updates, remoteName, findings, registry = null) {
   const commits = new Set();
   const trees = new Set();
   for (const update of updates) {
     const { localRef, localSha, remoteRef, remoteSha } = update;
     if (localSha === ZERO_SHA) {
-      addFinding(findings, {
-        path: remoteRef,
-        rule: "ref-deletion-not-authorized",
-        source: remoteSha
-      });
+      if (!registry || !activeRefDeletionAuthorization(registry, remoteRef, remoteSha)) {
+        addFinding(findings, {
+          path: remoteRef,
+          rule: "ref-deletion-not-authorized",
+          source: remoteSha
+        });
+      }
       continue;
     }
     if (!gitObjectExists(`${localSha}^{commit}`)) {
@@ -803,19 +957,31 @@ function runSecurity(flags) {
     const input = readFileSync(0, "utf8");
     const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
     const updates = parsePrePushUpdates(input);
-    const prePush = commitsForPrePush(updates, remoteName, findings);
+    let deletionRegistry = null;
+    if (updates.some((update) => update.localSha === ZERO_SHA)) {
+      deletionRegistry = loadProtectedMainAuthorizationRegistry(flags)?.parsed ?? null;
+    }
+    const prePush = commitsForPrePush(updates, remoteName, findings, deletionRegistry);
     for (const commit of prePush.commits) commits.add(commit);
     for (const tree of prePush.trees) trees.add(tree);
   }
 
   if (flags.has("push-event")) {
+    const deleted = flagValues(flags, "event-deleted")[0] === "true";
+    const afterSha = flagValues(flags, "event-after")[0] ?? ZERO_SHA;
+    const authorizationRegistry =
+      deleted || afterSha === ZERO_SHA
+        ? loadProtectedMainAuthorizationRegistry(flags)
+        : null;
     const registryPath = flagValues(flags, "registry")[0] ?? DEFAULT_REGISTRY;
-    const { parsed: registry } = loadRegistry(registryPath);
+    const { parsed: registry } = authorizationRegistry ?? loadRegistry(registryPath);
     const validation = validateRegistry(registry);
     if (validation.errors.length > 0) {
       throw new Error(`push-event registry is invalid: ${validation.errors.join("; ")}`);
     }
-    addPushEventPolicyFindings(flags, registry, findings);
+    addPushEventPolicyFindings(flags, registry, findings, {
+      protectedMainAuthorization: Boolean(authorizationRegistry)
+    });
   }
 
   if (flags.has("paths-from-stdin")) {
@@ -882,16 +1048,53 @@ function runPushPolicy(flags) {
     throw new Error("push-policy requires exactly one current-branch ref update");
   }
   const localSha = updates[0].localSha;
-  if (!isSha(localSha) || localSha === ZERO_SHA || !gitObjectExists(`${localSha}^{commit}`)) {
-    throw new Error("push-policy requires one non-deletion commit update");
+  if (!isSha(localSha)) {
+    throw new Error("push-policy requires one well-formed ref update");
   }
-  const { parsed: registry } = loadRegistryFromCommit(localSha);
+  const isDeletion = localSha === ZERO_SHA;
+  if (flags.has("identity-only")) {
+    const identityCommit = isDeletion ? gitText(["rev-parse", "HEAD"]).trim() : localSha;
+    const { parsed: identityRegistry } = loadRegistryFromCommit(identityCommit);
+    const identityValidation = validateRegistry(identityRegistry);
+    if (identityValidation.errors.length > 0) {
+      throw new Error("push-policy identity registry snapshot is invalid");
+    }
+    addRemoteIdentityFindings(remoteName, remoteLocation, identityRegistry, findings);
+    const identityFindings = findings
+      .map(({ key: _key, ...finding }) => finding)
+      .sort((left, right) => `${left.path}\0${left.rule}`.localeCompare(`${right.path}\0${right.rule}`));
+    if (identityFindings.length === 0) {
+      process.stdout.write("SENA_PUSH_IDENTITY pass\n");
+      return;
+    }
+    for (const finding of identityFindings) {
+      process.stderr.write(
+        `SENA_PUSH_POLICY blocked path=${safePathForLog(finding.path)} rule=${finding.rule} source=${safeSourceForLog(finding.source)}\n`
+      );
+    }
+    process.stderr.write(
+      `SENA_PUSH_POLICY blocked findingCount=${identityFindings.length}; secret values were not printed.\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const authorizationRegistry = isDeletion
+    ? loadProtectedMainAuthorizationRegistry(flags, { required: true })
+    : null;
+  if (!isDeletion && flagValues(flags, "authorization-registry-commit").length > 0) {
+    throw new Error("protected-main deletion authorization cannot be attached to a non-deletion update");
+  }
+  const registryCommit = authorizationRegistry?.commit ?? localSha;
+  if (!gitObjectExists(`${registryCommit}^{commit}`)) {
+    throw new Error("push-policy registry commit is unavailable");
+  }
+  const { parsed: registry } = authorizationRegistry ?? loadRegistryFromCommit(registryCommit);
   const validation = validateRegistry(registry);
   if (validation.errors.length > 0) {
     throw new Error("push-policy outgoing-commit registry snapshot is invalid");
   }
   addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry, findings);
-  commitsForPrePush(updates, remoteName, findings);
+  commitsForPrePush(updates, remoteName, findings, registry);
   const cleaned = findings
     .map(({ key: _key, ...finding }) => finding)
     .sort((left, right) => `${left.path}\0${left.rule}`.localeCompare(`${right.path}\0${right.rule}`));
@@ -1084,6 +1287,183 @@ function validateRegistry(registry) {
     }
     if (freezeBindingKeys.has(key)) errors.push(`duplicate freeze-exception binding: ${key}`);
     freezeBindingKeys.add(key);
+  }
+  const refDeletionAuthorizations = registry.policy?.refDeletionAuthorizations;
+  if (!Array.isArray(refDeletionAuthorizations)) {
+    errors.push("policy.refDeletionAuthorizations must be an array");
+  }
+  const refDeletionAuthorizationIds = new Set();
+  const activeRefDeletionTargets = new Set();
+  const credentialIncident = registry.incident?.credentialExposure;
+  const quarantineRuleset = registry.policy?.githubControlPlane?.credentialQuarantineRuleset;
+  for (const authorization of refDeletionAuthorizations ?? []) {
+    const authorizedAtMs = Date.parse(authorization.authorizedAt);
+    const expiresAtMs = Date.parse(authorization.expiresAt);
+    const providerReadbackAtMs = Date.parse(authorization.providerReadbackAt);
+    const consumedAtMs = Date.parse(authorization.consumedAt);
+    const expectedIncidentRef = credentialIncident?.remoteBranch
+      ? `refs/heads/${credentialIncident.remoteBranch}`
+      : null;
+    const operatorItem = (registry.workItems ?? []).find(
+      (item) =>
+        item.branch === authorization.operatorBranch &&
+        item.taskId === authorization.operatorTaskId &&
+        item.ownerKey === authorization.operatorOwnerKey
+    );
+    if (
+      typeof authorization.id !== "string" ||
+      authorization.id.length === 0 ||
+      !REF_DELETION_AUTHORIZATION_STATUSES.has(authorization.status) ||
+      typeof authorization.ref !== "string" ||
+      !authorization.ref.startsWith("refs/heads/") ||
+      authorization.ref === "refs/heads/main" ||
+      !/^[0-9a-f]{40}$/.test(authorization.expectedOldSha) ||
+      authorization.expectedOldSha === ZERO_SHA ||
+      authorization.purpose !== "credential-incident-containment" ||
+      typeof authorization.operatorBranch !== "string" ||
+      typeof authorization.operatorTaskId !== "string" ||
+      typeof authorization.operatorOwnerKey !== "string" ||
+      typeof authorization.githubActor !== "string" ||
+      authorization.githubActor.length === 0 ||
+      !Number.isInteger(authorization.githubActorId) ||
+      authorization.githubActorId <= 0 ||
+      !Number.isInteger(authorization.remoteRulesetId) ||
+      authorization.remoteRulesetId <= 0 ||
+      typeof authorization.remoteRulesetName !== "string" ||
+      authorization.remoteRulesetName.length === 0 ||
+      authorization.remoteRulesetEnforcement !== "active" ||
+      typeof authorization.authorizedBy !== "string" ||
+      authorization.authorizedBy.length === 0 ||
+      typeof authorization.authorizationBasis !== "string" ||
+      authorization.authorizationBasis.length === 0 ||
+      !isIsoTimestamp(authorization.authorizedAt) ||
+      !isIsoTimestamp(authorization.expiresAt) ||
+      Date.parse(authorization.expiresAt) <= Date.parse(authorization.authorizedAt) ||
+      authorization.exactLeaseRequired !== true ||
+      authorization.oneShot !== true ||
+      !Object.hasOwn(authorization, "providerReadbackAt") ||
+      !isNullableIsoTimestamp(authorization.providerReadbackAt) ||
+      !Object.hasOwn(authorization, "providerEvidenceId") ||
+      ![null, "string"].includes(authorization.providerEvidenceId === null ? null : typeof authorization.providerEvidenceId) ||
+      !Object.hasOwn(authorization, "providerEvidenceSha256") ||
+      ![null, "string"].includes(
+        authorization.providerEvidenceSha256 === null ? null : typeof authorization.providerEvidenceSha256
+      ) ||
+      !Object.hasOwn(authorization, "consumedAt") ||
+      !isNullableIsoTimestamp(authorization.consumedAt) ||
+      !Object.hasOwn(authorization, "deletionEventId") ||
+      ![null, "string"].includes(authorization.deletionEventId === null ? null : typeof authorization.deletionEventId) ||
+      !Object.hasOwn(authorization, "executedBy") ||
+      ![null, "string"].includes(authorization.executedBy === null ? null : typeof authorization.executedBy) ||
+      !Object.hasOwn(authorization, "remoteRefAbsenceReadbackAt") ||
+      !isNullableIsoTimestamp(authorization.remoteRefAbsenceReadbackAt) ||
+      !Object.hasOwn(authorization, "result") ||
+      ![null, "string"].includes(authorization.result === null ? null : typeof authorization.result)
+    ) {
+      errors.push(`invalid ref-deletion authorization: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.ref !== expectedIncidentRef ||
+      authorization.expectedOldSha !== credentialIncident?.commitSha
+    ) {
+      errors.push(`ref-deletion authorization does not bind the credential incident: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (!operatorItem) {
+      errors.push(`ref-deletion authorization operator is not a registered workItem: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      !quarantineRuleset ||
+      quarantineRuleset.id !== authorization.remoteRulesetId ||
+      quarantineRuleset.name !== authorization.remoteRulesetName ||
+      quarantineRuleset.enforcement !== "active" ||
+      quarantineRuleset.targetRef !== authorization.ref ||
+      !sameStringSet(quarantineRuleset.rules, ["creation", "deletion", "non_fast_forward"]) ||
+      quarantineRuleset.soleBypassActor !== authorization.githubActor ||
+      quarantineRuleset.soleBypassActorId !== authorization.githubActorId
+    ) {
+      errors.push(`ref-deletion authorization is not bound to the quarantine ruleset: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      timestampIsInFuture(authorization.authorizedAt) ||
+      timestampIsInFuture(authorization.providerReadbackAt) ||
+      timestampIsInFuture(authorization.consumedAt) ||
+      timestampIsInFuture(authorization.remoteRefAbsenceReadbackAt) ||
+      (Number.isFinite(authorizedAtMs) && Number.isFinite(expiresAtMs) && expiresAtMs - authorizedAtMs > 72 * 60 * 60 * 1000)
+    ) {
+      errors.push(`ref-deletion authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (authorization.status === "active" && !isIsoTimestamp(authorization.providerReadbackAt)) {
+      errors.push(`active ref-deletion authorization lacks provider readback: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (authorization.status === "active" && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) {
+      errors.push(`active ref-deletion authorization is expired: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.status === "pending-provider-readback" &&
+      (authorization.providerReadbackAt !== null ||
+        authorization.providerEvidenceId !== null ||
+        authorization.providerEvidenceSha256 !== null ||
+        authorization.consumedAt !== null ||
+        authorization.deletionEventId !== null ||
+        authorization.executedBy !== null ||
+        authorization.remoteRefAbsenceReadbackAt !== null ||
+        authorization.result !== null)
+    ) {
+      errors.push(`pending ref-deletion authorization contains completion evidence: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      isIsoTimestamp(authorization.providerReadbackAt) &&
+      (!Number.isFinite(authorizedAtMs) || providerReadbackAtMs < authorizedAtMs)
+    ) {
+      errors.push(`ref-deletion provider readback predates authorization: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.status === "active" &&
+      (typeof authorization.providerEvidenceId !== "string" ||
+        authorization.providerEvidenceId.length === 0 ||
+        !/^[0-9a-f]{64}$/.test(authorization.providerEvidenceSha256) ||
+        authorization.consumedAt !== null ||
+        authorization.deletionEventId !== null ||
+        authorization.executedBy !== null ||
+        authorization.remoteRefAbsenceReadbackAt !== null ||
+        authorization.result !== null)
+    ) {
+      errors.push(`active ref-deletion authorization is already consumed: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.status === "consumed" &&
+      (!isIsoTimestamp(authorization.providerReadbackAt) ||
+        typeof authorization.providerEvidenceId !== "string" ||
+        authorization.providerEvidenceId.length === 0 ||
+        !/^[0-9a-f]{64}$/.test(authorization.providerEvidenceSha256) ||
+        !isIsoTimestamp(authorization.consumedAt) ||
+        typeof authorization.deletionEventId !== "string" ||
+        authorization.deletionEventId.length === 0 ||
+        authorization.executedBy !== authorization.githubActor ||
+        !isIsoTimestamp(authorization.remoteRefAbsenceReadbackAt) ||
+        authorization.result !== "deleted")
+    ) {
+      errors.push(`consumed ref-deletion authorization lacks event custody: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.status === "consumed" &&
+      (consumedAtMs < providerReadbackAtMs ||
+        consumedAtMs < authorizedAtMs ||
+        Date.parse(authorization.remoteRefAbsenceReadbackAt) < consumedAtMs)
+    ) {
+      errors.push(`consumed ref-deletion authorization has invalid timestamp order: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (refDeletionAuthorizationIds.has(authorization.id)) {
+      errors.push(`duplicate ref-deletion authorization: ${authorization.id}`);
+    }
+    refDeletionAuthorizationIds.add(authorization.id);
+    if (authorization.status === "active") {
+      const target = `${authorization.ref}\0${authorization.expectedOldSha}`;
+      if (activeRefDeletionTargets.has(target)) {
+        errors.push(`duplicate active ref-deletion target: ${authorization.ref}`);
+      }
+      activeRefDeletionTargets.add(target);
+    }
   }
   if (!Array.isArray(registry.workItems)) errors.push("workItems must be an array");
   if (!Array.isArray(registry.branches)) errors.push("branches must be an array");
@@ -1353,6 +1733,12 @@ function validateRegistry(registry) {
   const liveMainObservationMode = registry.incident?.credentialExposure?.liveMainObservationMode;
   if (liveMainObservationMode && liveMainObservationMode !== "lower-bound") {
     errors.push("credential incident live-main observation mode must be lower-bound when declared");
+  }
+  if (
+    (registry.policy?.refDeletionAuthorizations ?? []).some((entry) => entry.status === "active") &&
+    registry.incident?.credentialExposure?.providerContainmentStatus !== "complete"
+  ) {
+    errors.push("active ref-deletion authorization requires complete provider containment");
   }
   const branchByName = new Map((registry.branches ?? []).map((branch) => [branch.name, branch]));
   for (const item of registry.workItems ?? []) {
@@ -2335,6 +2721,7 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs security --pre-push --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs registry [--registry PATH]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs audit [--live] [--registry-from-index|--registry-from-commit SHA] [--output PATH]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs inventory --output PATH\n`);
@@ -2346,6 +2733,7 @@ function main() {
     if (command === "security") return runSecurity(flags);
     if (command === "write-policy") return runWritePolicy(flags);
     if (command === "push-policy") return runPushPolicy(flags);
+    if (command === "deletion-boundary") return runDeletionBoundary(flags);
     if (command === "registry") return runRegistry(flags);
     if (command === "audit") return runAudit(flags);
     if (command === "inventory") return runInventory(flags);

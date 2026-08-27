@@ -34,10 +34,15 @@ revoke or rotate a provider credential, change a Vercel setting, or deploy.
 - Pre-commit reads the stage-0 registry object from the index, checks all
   staged `ACMRTD` paths against that snapshot, and scans staged blobs including
   Git type changes. A working-only policy overlay cannot authorize the index.
-- Pre-push accepts exactly one non-deletion current-branch update. It first
-  reads the registry from the outgoing commit and applies owner, disposition,
-  forward-only, allowed-path, remote-state, and canonical-remote checks without
-  network contact.
+- Pre-push normally accepts exactly one non-deletion current-branch update and
+  reads its registry from that outgoing commit. A security-quarantine ref
+  deletion is the sole narrow exception: after canonical-remote validation it
+  freshly fetches protected `origin/main` and binds push policy, live audit,
+  security scan, and deletion-boundary verification to that one commit. The
+  protected-main registry must contain an active, unexpired incident receipt
+  for the exact ref and old SHA, bind the current operator task/owner and
+  GitHub actor, and record completed provider containment plus timestamped
+  redacted readback.
 - The remote name, Git-provided remote location, resolved fetch URL, and
   resolved push URL must all identify `github.com/HUDongpin/SENA`. The identity
   exists both as a hard-coded invariant and a registry field. Host lookalikes,
@@ -49,9 +54,27 @@ revoke or rotate a provider credential, change a Vercel setting, or deploy.
   disk-only-source custody audit using the same outgoing-commit registry.
 - The scanner blocks the prohibited DOCX path at any depth, non-example env
   files, private-key files, named credential exports/archives, the known
-  quarantined blob ID, bounded high-confidence secret shapes, deletions,
-  non-fast-forward updates, unregistered refs, direct `main`, rescue refs,
-  tags, notes, and non-branch namespaces.
+  quarantined blob ID, bounded high-confidence secret shapes, unauthorized
+  deletions, non-fast-forward updates, unregistered refs, direct `main`, rescue
+  refs, tags, notes, and non-branch namespaces.
+- The exact-SHA contaminated-ref deletion receipt is currently
+  `pending-provider-readback`; pending receipts cannot authorize a push. After
+  provider containment is proven, the receipt may be activated for one exact
+  lease deletion and must then be marked consumed.
+- GitHub ruleset `21635990` is active on the exact contaminated branch and
+  restricts creation, deletion, and non-fast-forward updates. Its sole bypass
+  actor is the receipt-bound repository owner. The owner-authenticated hook
+  re-reads and verifies the complete live ruleset including that sole bypass;
+  deletion-event CI re-verifies all fields exposed to its read-only token and
+  separately binds `github.actor`. Actions remains post-acceptance evidence,
+  while the ruleset is the server-side pre-acceptance boundary.
+- Deletion-event CI checks out event-time default-main `github.sha`, uses the
+  event payload's exact `before` and zero `after` for the deleted ref, and
+  freezes that `github.sha` as its protected-main authorization registry. It
+  neither fetches a later main
+  nor scans a false `before..github.sha` range. It verifies `github.actor`; a
+  successful deletion must be followed by a
+  protected-main consumed receipt containing timestamp and event custody.
 - The GitHub workflow provides post-acceptance branch/PR audit evidence. The
   live `main-minimum-safety` ruleset now requires both `build` and
   `repository-security`, using strict required checks. This still is not
@@ -85,7 +108,7 @@ names the exact-main release worktree.
 
 | Gate | Result |
 |---|---|
-| Governance + navigation focused tests | 2/2 files, 35/35 tests passed after adding candidate-index isolation and failure-log non-disclosure regressions |
+| Governance + navigation focused tests | 2/2 files, 39/39 tests passed after adding protected-main deletion, full-hook, event-time CI, candidate-index isolation, and failure-log non-disclosure regressions |
 | Sandbox full-suite attempt | 207 files and 2,953 tests passed; the exact-loopback listener test exited before readiness in the restricted sandbox |
 | Controlled-loopback full-suite rerun | 208 files passed, 1 live file skipped; 2,954 tests passed, 2 live tests skipped |
 | Final full suite, serial phase | 5/5 files, 63/63 tests passed |
@@ -111,13 +134,16 @@ release evidence.
 |---|---|---|
 | Evidence review | receipt counts, custody facts, and separation of local/CI/merge/deployment/live claims | APPROVE |
 | Plan-compliance review | preservation-first implementation and owner-gated destructive/external boundaries | APPROVE |
-| Security review | iterative attack reviews covering staged type changes, writer/disposition binding, freeze exceptions, remote spoofing, snapshot authorization, pre-network ordering, candidate-index isolation, and failure-log disclosure | APPROVE after all reproducible findings were fixed; final focused rerun passed 32/32 governance tests |
+| Security review | iterative attack reviews covering staged type changes, writer/disposition binding, freeze exceptions, remote spoofing, protected-main authorization, exact deletion hook wiring, event-time main custody, ruleset readback, actor binding, candidate-index isolation, and failure-log disclosure | APPROVE under the trusted-owner threat model after all reproducible findings were fixed; final focused rerun passed 36/36 governance tests |
 
-The final security approval is limited to the implemented cooperative controls.
-Local hooks can still be bypassed by an authorized local user with
-`--no-verify`, and branch-controlled GitHub Actions run after server acceptance.
-Repository rules, required reviews, secret scanning/push protection, provider
-controls, and owner discipline remain necessary layers.
+The final security approval is limited to the implemented controls and the
+explicit trusted-owner threat model. Local hooks can still be bypassed with
+`--no-verify`, but exact quarantine ruleset `21635990` now provides the remote
+creation/deletion/non-fast-forward boundary and limits bypass to the
+receipt-bound owner. GitHub Actions remain post-acceptance evidence, and GitHub
+does not provide an atomic receipt-consumption primitive; exact ref absence,
+the creation restriction, prompt consumed-receipt closeout, provider controls,
+and owner discipline remain necessary layers.
 
 ## Open owner gates
 

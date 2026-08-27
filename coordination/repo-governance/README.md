@@ -131,9 +131,13 @@ to relative `.githooks` in the restored checkout.
 every staged path to that snapshot's exact writer/freeze allowlist, and scans
 the staged index before a prohibited object enters a commit. An unstaged policy
 overlay therefore cannot authorize a commit. `.githooks/pre-push` requires one
-current-branch update, reads the registry from that outgoing commit, and uses
-the same commit snapshot for the live topology/preservation audit and writer
-policy. Working-tree policy text is not a push authorization source.
+ref update. Ordinary pushes read the registry from the outgoing commit and use
+that same commit snapshot for the live topology/preservation audit and writer
+policy. A deletion has no outgoing commit, so its special path first validates
+the canonical remote, fetches the live protected `origin/main`, and uses that
+single exact main commit for push policy, live audit, security scan, and
+deletion-boundary checks. Working-tree policy text and an operator-only local
+commit are not push authorization sources.
 
 The push policy requires `origin`, the current registered writer's exact local
 branch ref, and the same exact remote branch ref. The hook-provided remote
@@ -142,9 +146,8 @@ registry-bound `github.com/HUDongpin/SENA` identity; a `pushurl`,
 `pushInsteadOf`, lookalike host, credential-bearing URL, alternate path, or
 ambiguous URL set fails without echoing the URL. It rejects direct `main`
 updates, other owners' or unregistered branches, tags, notes, rescue refs,
-deletions, and non-fast-forward updates unless a future separately authorized
-receipt policy is implemented. Empty, multi-ref, or partially captured update
-input fails closed.
+unauthorized deletions, and non-fast-forward updates. Empty, multi-ref, or
+partially captured update input fails closed.
 The scanner examines the final tree and every outgoing commit, including every
 parent comparison of a merge commit, so adding a forbidden file during merge
 resolution and deleting it later still fails. It blocks:
@@ -159,8 +162,20 @@ resolution and deleting it later still fails. It blocks:
 
 Binary document protection is path-based and therefore does not rely on a text
 scanner. Blobs beyond the bounded text scanner are rejected fail-closed rather
-than silently skipped. Ref deletion and non-fast-forward updates are rejected
-without a separately implemented authorization receipt. New branches are
+than silently skipped. Non-fast-forward updates remain rejected. A remote
+security-quarantine branch deletion is accepted only when the freshly fetched
+protected `origin/main` registry contains an active, unexpired incident receipt
+binding the exact ref and old SHA to the current operator task/owner and GitHub
+actor, with provider containment complete and a timestamped redacted provider
+readback. The receipt is also bound to live GitHub ruleset `21635990`, which
+restricts creation, deletion, and non-fast-forward updates for the exact
+quarantine ref and gives only the owner actor a bypass. Pending, expired,
+consumed, wrong-actor, wrong-ruleset, or mismatched receipts fail closed. After
+a successful exact-lease deletion, the absent ref plus the creation restriction
+closes ordinary replay, and the receipt must immediately move to `consumed`
+with event custody on protected `main`. This is an owner-controlled operational
+one-shot, not a claim that GitHub provides an atomic receipt-consumption
+primitive. New branches are
 compared against trusted `origin/main`, so a contaminated ancestor already
 reachable from another remote branch is not excluded. Findings contain only a
 sanitized path (or stable redacted path hash), rule ID, and sanitized source;
@@ -171,9 +186,23 @@ emitted.
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
 branch that lacks the workflow, and it detects a pushed commit after server
-acceptance rather than acting as server-side push protection. When it does run,
-it records forced/deleted/non-branch mutations as failures and binds non-main
-push events to an active registry branch and its forward-only allowed paths.
+acceptance rather than acting as server-side push protection. The exact
+quarantine ruleset is therefore the remote pre-acceptance boundary. For a
+deletion event, Actions checks out deletion-event `github.sha`, which is the
+event-time default-main commit. It uses `github.event.before` and the zero
+`github.event.after` for the deleted ref itself, while using `github.sha` only
+as the immutable protected-main authorization commit. It does not fetch a
+later `main`, so a
+subsequent activation or consumed-receipt commit cannot rewrite the event's
+authorization result. It loads that protected-main receipt, verifies
+`github.actor` and every ruleset
+field visible to its read-only token, and does not invent a commit range for
+the deleted ref. GitHub may omit `bypass_actors` for tokens without ruleset
+write authority; the owner-authenticated pre-push readback must verify the sole
+bypass actor before deletion, while CI never treats an omitted field as new
+authorization. Other push
+events remain bound to an active registry branch and its forward-only allowed
+paths; forced and non-branch mutations remain failures.
 Post-PR updates to `main` remain governed by the GitHub ruleset because CI
 cannot reliably distinguish every server-mediated merge strategy from a direct
 push after acceptance. The live `main-minimum-safety` ruleset now requires both

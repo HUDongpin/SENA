@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T08:04:26Z",
+  "updatedAt": "2026-08-27T08:31:34Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -30,7 +30,21 @@
       ],
       "strictRequiredStatusChecks": true,
       "deleteBranchOnMerge": false,
-      "observedAt": "2026-08-27T08:03:51Z"
+      "observedAt": "2026-08-27T08:31:34Z",
+      "credentialQuarantineRuleset": {
+        "id": 21635990,
+        "name": "credential-quarantine-docs-20260827",
+        "enforcement": "active",
+        "targetRef": "refs/heads/docs/ledger-reconciliation-2026-08-19",
+        "rules": [
+          "creation",
+          "deletion",
+          "non_fast_forward"
+        ],
+        "soleBypassActor": "HUDongpin",
+        "soleBypassActorId": 47708816,
+        "observedAt": "2026-08-27T08:22:38Z"
+      }
     },
     "freezeExceptionBindings": [
       {
@@ -53,6 +67,37 @@
         "authorizationBasis": "User implementation plan dated 2026-08-27, limited to governance, preservation, sanitized salvage review, and verification work."
       }
     ],
+    "refDeletionAuthorizations": [
+      {
+        "id": "SENA-P0-DOCS-REMOTE-DELETE-20260827",
+        "status": "pending-provider-readback",
+        "ref": "refs/heads/docs/ledger-reconciliation-2026-08-19",
+        "expectedOldSha": "18d542f707e56aa9d043dd497e0efe48b540db20",
+        "purpose": "credential-incident-containment",
+        "operatorBranch": "codex/sena-a01-repo-governance-20260827",
+        "operatorTaskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+        "operatorOwnerKey": "Codex-primary-writer",
+        "githubActor": "HUDongpin",
+        "githubActorId": 47708816,
+        "remoteRulesetId": 21635990,
+        "remoteRulesetName": "credential-quarantine-docs-20260827",
+        "remoteRulesetEnforcement": "active",
+        "authorizedBy": "SENA owner",
+        "authorizationBasis": "Owner instruction in the current SENA task to complete the previously owner-gated contaminated-ref cleanup.",
+        "authorizedAt": "2026-08-27T08:03:51Z",
+        "expiresAt": "2026-08-29T08:03:51Z",
+        "providerReadbackAt": null,
+        "providerEvidenceId": null,
+        "providerEvidenceSha256": null,
+        "consumedAt": null,
+        "deletionEventId": null,
+        "executedBy": null,
+        "remoteRefAbsenceReadbackAt": null,
+        "result": null,
+        "exactLeaseRequired": true,
+        "oneShot": true
+      }
+    ],
     "hookCustodyPath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827/.githooks",
     "hookCustodyMode": "temporary-p0-common-clone-custody",
     "automaticDeletionAllowed": false,
@@ -71,12 +116,14 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "mainContainsForbiddenPaths": false,
-      "providerInventory": "unknown-owner-action-required",
-      "rotationReadback": "pending-owner",
-      "remoteRefRemoval": "not-authorized",
+      "providerInventory": "redacted:DeepSeek,OpenRouter,Resend,and-one-Stripe-live-shape-candidate",
+      "providerContainmentStatus": "in-progress",
+      "rotationReadback": "partial:Resend-old-key-invalid-and-replaced;Stripe-candidate-invalid;DeepSeek-and-OpenRouter-still-active",
+      "remoteRefRemoval": "owner-authorized-pending-provider-containment-and-exact-lease",
       "historyRewrite": "not-authorized",
-      "productionPromotion": "not-authorized",
-      "valuesReadOrRecordedByGovernanceTask": false,
+      "productionPromotion": "owner-authorized-but-gate-blocked",
+      "valuesRecordedInRepositoryArtifacts": false,
+      "documentTextEmitted": false,
       "liveAuditAt": "2026-08-27T06:29:44.349Z",
       "liveAuditStatus": "blocked-owner-zero-machine-errors",
       "liveMainSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",

@@ -87,6 +87,7 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
     policy: {
       ...template.policy,
       hookCustodyPath: join(root, ".githooks"),
+      refDeletionAuthorizations: [],
       freezeExceptionBindings: [
         {
           exception: "governance-preservation",
@@ -511,6 +512,432 @@ describe("SENA repository governance", () => {
     });
     expect(rewrite.status).toBe(1);
     expect(rewrite.stderr).toContain("rule=non-fast-forward-update-not-authorized");
+  });
+
+  it("permits one exact quarantine-ref deletion only with active provider-readback authorization", () => {
+    const fixture = createGovernedFixture("authorized-ref-deletion");
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const topic = fixture.registry.branches[0];
+    fixture.registry.incident.credentialExposure.providerContainmentStatus = "complete";
+    fixture.registry.incident.credentialExposure.remoteBranch = "quarantine";
+    fixture.registry.incident.credentialExposure.commitSha = fixture.base;
+    fixture.registry.policy.githubControlPlane.credentialQuarantineRuleset = {
+      id: 9001,
+      name: "test-quarantine-ruleset",
+      enforcement: "active",
+      targetRef: "refs/heads/quarantine",
+      rules: ["creation", "deletion", "non_fast_forward"],
+      soleBypassActor: "HUDongpin",
+      soleBypassActorId: 47708816,
+      observedAt: now
+    };
+    fixture.registry.branches.push({
+      ...topic,
+      name: "quarantine",
+      owner: "security owner",
+      ownerKey: "security-owner",
+      upstream: "origin/quarantine",
+      upstreamState: "live",
+      upstreamCacheState: "present",
+      remotePresent: true,
+      remoteHeadSha: fixture.base,
+      remoteObservedAt: now,
+      pr: null,
+      noPrReason: "test-only security quarantine",
+      lastOwnerHeartbeatAt: null,
+      lastObservedAt: now,
+      lastCommitAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: "owner-gated:test-exact-ref-deletion",
+      disposition: "security-quarantine"
+    });
+    fixture.registry.policy.refDeletionAuthorizations = [
+      {
+        id: "TEST-QUARANTINE-DELETE",
+        status: "active",
+        ref: "refs/heads/quarantine",
+        expectedOldSha: fixture.base,
+        purpose: "credential-incident-containment",
+        operatorBranch: "topic",
+        operatorTaskId: "SENA-GOVERNANCE-TEST-WRITER",
+        operatorOwnerKey: "test-writer",
+        githubActor: "HUDongpin",
+        githubActorId: 47708816,
+        remoteRulesetId: 9001,
+        remoteRulesetName: "test-quarantine-ruleset",
+        remoteRulesetEnforcement: "active",
+        authorizedBy: "test owner",
+        authorizationBasis: "Explicit test fixture authorization with fake content only.",
+        authorizedAt: now,
+        expiresAt,
+        providerReadbackAt: now,
+        providerEvidenceId: "test-provider-readback",
+        providerEvidenceSha256: "a".repeat(64),
+        consumedAt: null,
+        deletionEventId: null,
+        executedBy: null,
+        remoteRefAbsenceReadbackAt: null,
+        result: null,
+        exactLeaseRequired: true,
+        oneShot: true
+      }
+    ];
+    writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "authorize exact quarantine deletion"]);
+    const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+
+    const unanchored = runNode(fixture.script, ["push-policy", "--remote-name", "origin"], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+      env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+    });
+    expect(unanchored.status).toBe(1);
+    expect(unanchored.stderr).toContain("protected-main authorization registry commit is required");
+
+    const forgedFromWriterHead = runNode(
+      fixture.script,
+      [
+        "push-policy",
+        "--remote-name",
+        "origin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+        env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+      }
+    );
+    expect(forgedFromWriterHead.status).toBe(1);
+    expect(forgedFromWriterHead.stderr).toContain(
+      "protected-main authorization registry is not the fetched origin/main commit"
+    );
+
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
+
+    const authorized = runNode(
+      fixture.script,
+      [
+        "push-policy",
+        "--remote-name",
+        "origin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+        env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+      }
+    );
+    expect(authorized.status).toBe(0);
+    expect(authorized.stdout).toContain("SENA_PUSH_POLICY pass updates=1");
+
+    const authorizedSecurity = runNode(
+      fixture.script,
+      [
+        "security",
+        "--pre-push",
+        "--remote-name",
+        "origin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`
+      }
+    );
+    expect(authorizedSecurity.status).toBe(0);
+    expect(authorizedSecurity.stdout).toContain("SENA_SECURITY_GATE pass");
+
+    const authorizedPushEvent = runNode(
+      fixture.script,
+      [
+        "security",
+        "--push-event",
+        "--event-ref",
+        "refs/heads/quarantine",
+        "--event-before",
+        fixture.base,
+        "--event-after",
+        "0".repeat(40),
+        "--event-forced",
+        "false",
+        "--event-deleted",
+        "true",
+        "--event-actor",
+        "HUDongpin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      { cwd: fixture.root }
+    );
+    expect(authorizedPushEvent.status).toBe(0);
+
+    const wrongActor = runNode(
+      fixture.script,
+      [
+        "security",
+        "--push-event",
+        "--event-ref",
+        "refs/heads/quarantine",
+        "--event-before",
+        fixture.base,
+        "--event-after",
+        "0".repeat(40),
+        "--event-forced",
+        "false",
+        "--event-deleted",
+        "true",
+        "--event-actor",
+        "unexpected-actor",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      { cwd: fixture.root }
+    );
+    expect(wrongActor.status).toBe(1);
+    expect(wrongActor.stderr).toContain("rule=ref-deletion-event-not-authorized");
+
+    const readOnlyHelperDirectory = join(fixture.root, "readonly-ruleset-helper");
+    const readOnlyGhPath = join(readOnlyHelperDirectory, "gh");
+    mkdirSync(readOnlyHelperDirectory, { recursive: true });
+    writeFileSync(
+      readOnlyGhPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' '{\"id\":9001,\"name\":\"test-quarantine-ruleset\",\"target\":\"branch\",\"enforcement\":\"active\",\"conditions\":{\"ref_name\":{\"include\":[\"refs/heads/quarantine\"],\"exclude\":[]}},\"rules\":[{\"type\":\"deletion\"},{\"type\":\"non_fast_forward\"},{\"type\":\"creation\"}]}'",
+        ""
+      ].join("\n")
+    );
+    chmodSync(readOnlyGhPath, 0o700);
+    const hiddenBypassForReadOnlyCi = runNode(
+      fixture.script,
+      [
+        "deletion-boundary",
+        "--push-event",
+        "--event-actor",
+        "HUDongpin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+        env: { PATH: `${readOnlyHelperDirectory}:${process.env.PATH ?? ""}` }
+      }
+    );
+    expect(hiddenBypassForReadOnlyCi.status).toBe(0);
+    const hiddenBypassForOwnerHook = runNode(
+      fixture.script,
+      ["deletion-boundary", "--authorization-registry-commit", authorizationCommit],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+        env: { PATH: `${readOnlyHelperDirectory}:${process.env.PATH ?? ""}` }
+      }
+    );
+    expect(hiddenBypassForOwnerHook.status).toBe(1);
+    expect(hiddenBypassForOwnerHook.stderr).toContain("live GitHub quarantine ruleset does not match");
+
+    const wrongLease = runNode(
+      fixture.script,
+      [
+        "push-policy",
+        "--remote-name",
+        "origin",
+        "--authorization-registry-commit",
+        authorizationCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.head}\n`,
+        env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+      }
+    );
+    expect(wrongLease.status).toBe(1);
+    expect(wrongLease.stderr).toContain("rule=ref-deletion-receipt-missing-or-inactive");
+
+    fixture.registry.policy.refDeletionAuthorizations[0].status = "consumed";
+    fixture.registry.policy.refDeletionAuthorizations[0].consumedAt = new Date().toISOString();
+    fixture.registry.policy.refDeletionAuthorizations[0].deletionEventId = "test-delete-event";
+    fixture.registry.policy.refDeletionAuthorizations[0].executedBy = "HUDongpin";
+    fixture.registry.policy.refDeletionAuthorizations[0].remoteRefAbsenceReadbackAt = new Date().toISOString();
+    fixture.registry.policy.refDeletionAuthorizations[0].result = "deleted";
+    writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "consume exact quarantine deletion receipt"]);
+    const consumedCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", consumedCommit]);
+    const replay = runNode(
+      fixture.script,
+      [
+        "push-policy",
+        "--remote-name",
+        "origin",
+        "--authorization-registry-commit",
+        consumedCommit
+      ],
+      {
+        cwd: fixture.root,
+        input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+        env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+      }
+    );
+    expect(replay.status).toBe(1);
+    expect(replay.stderr).toContain("rule=ref-deletion-receipt-missing-or-inactive");
+  });
+
+  it("wires the complete pre-push deletion path to a freshly fetched protected-main registry", () => {
+    const fixture = createGovernedFixture("authorized-ref-deletion-hook");
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const topic = fixture.registry.branches[0];
+    fixture.registry.repo = dirname(fixture.root);
+    fixture.registry.workItems[0].repo = dirname(fixture.root);
+    fixture.registry.incident.credentialExposure.providerContainmentStatus = "complete";
+    fixture.registry.incident.credentialExposure.remoteBranch = "quarantine";
+    fixture.registry.incident.credentialExposure.commitSha = fixture.base;
+    fixture.registry.policy.githubControlPlane.credentialQuarantineRuleset = {
+      id: 9002,
+      name: "test-hook-quarantine-ruleset",
+      enforcement: "active",
+      targetRef: "refs/heads/quarantine",
+      rules: ["creation", "deletion", "non_fast_forward"],
+      soleBypassActor: "HUDongpin",
+      soleBypassActorId: 47708816,
+      observedAt: now
+    };
+    fixture.registry.branches.push({
+      ...topic,
+      name: "quarantine",
+      owner: "security owner",
+      ownerKey: "security-owner",
+      upstream: "origin/quarantine",
+      upstreamState: "live",
+      upstreamCacheState: "present",
+      remotePresent: true,
+      remoteHeadSha: fixture.base,
+      remoteObservedAt: now,
+      pr: null,
+      noPrReason: "test-only security quarantine",
+      lastOwnerHeartbeatAt: null,
+      lastObservedAt: now,
+      lastCommitAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: "owner-gated:test-exact-ref-deletion",
+      disposition: "security-quarantine"
+    });
+    fixture.registry.policy.refDeletionAuthorizations = [
+      {
+        id: "TEST-HOOK-QUARANTINE-DELETE",
+        status: "active",
+        ref: "refs/heads/quarantine",
+        expectedOldSha: fixture.base,
+        purpose: "credential-incident-containment",
+        operatorBranch: "topic",
+        operatorTaskId: "SENA-GOVERNANCE-TEST-WRITER",
+        operatorOwnerKey: "test-writer",
+        githubActor: "HUDongpin",
+        githubActorId: 47708816,
+        remoteRulesetId: 9002,
+        remoteRulesetName: "test-hook-quarantine-ruleset",
+        remoteRulesetEnforcement: "active",
+        authorizedBy: "test owner",
+        authorizationBasis: "Explicit test fixture authorization with fake content only.",
+        authorizedAt: now,
+        expiresAt,
+        providerReadbackAt: now,
+        providerEvidenceId: "test-hook-provider-readback",
+        providerEvidenceSha256: "b".repeat(64),
+        consumedAt: null,
+        deletionEventId: null,
+        executedBy: null,
+        remoteRefAbsenceReadbackAt: null,
+        result: null,
+        exactLeaseRequired: true,
+        oneShot: true
+      }
+    ];
+    writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "authorize hook deletion from protected main"]);
+    const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
+
+    const hookDirectory = join(fixture.root, ".githooks");
+    const hookPath = join(hookDirectory, "pre-push");
+    const helperDirectory = join(fixture.root, "helpers");
+    const helperPath = join(helperDirectory, "git");
+    const ghHelperPath = join(helperDirectory, "gh");
+    mkdirSync(hookDirectory, { recursive: true });
+    mkdirSync(helperDirectory, { recursive: true });
+    copyFileSync(join(projectRoot, ".githooks", "pre-push"), hookPath);
+    chmodSync(hookPath, 0o700);
+    const realGit = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+    expect(realGit).not.toBe("");
+    writeFileSync(
+      helperPath,
+      [
+        "#!/bin/sh",
+        "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"origin\" ]; then",
+        "  printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+        "  exit 0",
+        "fi",
+        "if [ \"$1\" = \"fetch\" ]; then",
+        "  exec \"$SENA_TEST_REAL_GIT\" update-ref refs/remotes/origin/main \"$SENA_TEST_AUTHORIZATION_SHA\"",
+        "fi",
+        "exec \"$SENA_TEST_REAL_GIT\" \"$@\"",
+        ""
+      ].join("\n")
+    );
+    chmodSync(helperPath, 0o700);
+    writeFileSync(
+      ghHelperPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' '{\"id\":9002,\"name\":\"test-hook-quarantine-ruleset\",\"target\":\"branch\",\"enforcement\":\"active\",\"bypass_actors\":[{\"actor_id\":47708816,\"actor_type\":\"User\",\"bypass_mode\":\"always\"}],\"conditions\":{\"ref_name\":{\"include\":[\"refs/heads/quarantine\"],\"exclude\":[]}},\"rules\":[{\"type\":\"deletion\"},{\"type\":\"non_fast_forward\"},{\"type\":\"creation\"}]}'",
+        ""
+      ].join("\n")
+    );
+    chmodSync(ghHelperPath, 0o700);
+
+    const result = spawnSync(hookPath, ["origin", "https://github.com/HUDongpin/SENA.git"], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/quarantine ${fixture.base}\n`,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
+        SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
+        SENA_TEST_REAL_GIT: realGit
+      }
+    });
+    const combined = `${result.stdout}${result.stderr}`;
+    expect(result.status).toBe(0);
+    expect(combined).toContain("SENA_PUSH_IDENTITY pass");
+    expect(combined).toContain("SENA_PUSH_POLICY pass updates=1");
+    expect(combined).toContain("SENA_DELETION_BOUNDARY pass ruleset=9002");
+    expect(combined).toContain("SENA_SECURITY_GATE pass");
+  });
+
+  it("keeps deletion-event CI on protected main with exact event SHA and actor custody", () => {
+    const workflow = readFileSync(join(projectRoot, ".github", "workflows", "repo-security-gate.yml"), "utf8");
+    expect(workflow).toContain("SENA_PUSH_HEAD_SHA: ${{ github.event.after }}");
+    expect(workflow).not.toContain("SENA_PUSH_HEAD_SHA: ${{ github.sha }}");
+    expect(workflow).toContain("ref: ${{ github.sha }}");
+    expect(workflow).not.toContain("ref: main");
+    expect(workflow).toContain("SENA_EVENT_MAIN_SHA: ${{ github.sha }}");
+    expect(workflow).toContain('git update-ref refs/remotes/origin/main "$SENA_EVENT_MAIN_SHA"');
+    expect(workflow.match(/if: github\.event_name != 'push' \|\| github\.event\.deleted != true/g)?.length).toBe(2);
+    expect(workflow).toContain("--event-actor \"$SENA_PUSH_ACTOR\"");
+    expect(workflow).toContain("deletion-boundary");
+    expect(workflow).toContain("--authorization-registry-commit \"$authorization_sha\"");
+    expect(workflow).toContain("cancel-in-progress: false");
   });
 
   it("rejects unknown active lane and disposition values instead of dropping them from writer counts", () => {
