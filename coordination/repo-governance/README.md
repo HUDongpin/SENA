@@ -176,12 +176,16 @@ it records forced/deleted/non-branch mutations as failures and binds non-main
 push events to an active registry branch and its forward-only allowed paths.
 Post-PR updates to `main` remain governed by the GitHub ruleset because CI
 cannot reliably distinguish every server-mediated merge strategy from a direct
-push after acceptance. The existing
-type-check/build gate remains a separate `main`/PR-to-main check. CI also runs a
-portable checkout-topology audit; clone-specific rescue custody stays in the
-full local pre-push audit on the recorded custodian. Other clones cannot claim
-custody of artifacts they do not hold. Repository-wide required workflow/push
-protection and GitHub secret scanning remain owner/platform gates.
+push after acceptance. The live `main-minimum-safety` ruleset now requires both
+the existing `build` check and `repository-security`, with strict required
+checks enabled. Repository-level automatic branch deletion is disabled so a
+merged branch remains available until exact-SHA post-merge verification and
+ordinary closeout. These are live GitHub settings and must be re-read before a
+merge rather than inferred from this ledger. CI also runs a portable
+checkout-topology audit; clone-specific rescue custody stays in the full local
+pre-push audit on the recorded custodian. Other clones cannot claim custody of
+artifacts they do not hold. GitHub secret scanning and push protection remain
+owner/platform-plan availability gates.
 
 ## P0 preservation state
 

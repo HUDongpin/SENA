@@ -52,9 +52,12 @@ revoke or rotate a provider credential, change a Vercel setting, or deploy.
   quarantined blob ID, bounded high-confidence secret shapes, deletions,
   non-fast-forward updates, unregistered refs, direct `main`, rescue refs,
   tags, notes, and non-branch namespaces.
-- The GitHub workflow provides post-acceptance branch/PR audit evidence. It is
-  not represented as server-side push protection; the existing ruleset and
-  owner/platform security settings remain separate.
+- The GitHub workflow provides post-acceptance branch/PR audit evidence. The
+  live `main-minimum-safety` ruleset now requires both `build` and
+  `repository-security`, using strict required checks. This still is not
+  GitHub secret-scanning push protection for arbitrary secret shapes.
+- Repository automatic branch deletion is disabled; exact-SHA post-merge
+  verification precedes ordinary remote/local branch closeout.
 
 ## Preservation evidence
 
@@ -94,7 +97,7 @@ names the exact-main release worktree.
 | Local governance audit | `errors=[]`, `status=blocked-owner`, 26 rescue refs, 0 unreachable commits |
 | Live governance audit at `2026-08-27T06:29:44.349Z` | `errors=[]`, `status=blocked-owner`; 2 live heads, 2 tags, 0 open PRs before this governance draft |
 | First reviewable governance commit | `531f320e7b6fe98b29356c7fb2a51b7b52d334ab`; pushed through the pre-push gate |
-| GitHub review surface | Draft PR #21 opened against `main`; CI pending at this receipt update |
+| GitHub review surface | Draft PR #21 opened against `main`; `build` and `repository-security` are both required by the active ruleset; automatic branch deletion is disabled |
 | Exact-main handoff | separate receipt binds the full pilot gate to commit `5cdea568` / tree `4a0f018` |
 
 The skipped live Postgres tests are reported as skipped, not passed. The exact

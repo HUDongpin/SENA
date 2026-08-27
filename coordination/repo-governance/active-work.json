@@ -20,6 +20,18 @@
       "owner": "HUDongpin",
       "repository": "SENA"
     },
+    "githubControlPlane": {
+      "rulesetId": 21232887,
+      "rulesetName": "main-minimum-safety",
+      "enforcement": "active",
+      "requiredStatusChecks": [
+        "build",
+        "repository-security"
+      ],
+      "strictRequiredStatusChecks": true,
+      "deleteBranchOnMerge": false,
+      "observedAt": "2026-08-27T08:03:51Z"
+    },
     "freezeExceptionBindings": [
       {
         "exception": "governance-preservation",
