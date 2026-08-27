@@ -39,18 +39,18 @@ jobs:
               ;;
           esac
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: github.event_name != 'push' || github.event.deleted != true
         with:
           fetch-depth: 0
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: github.event_name == 'push' && github.event.deleted == true
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
 
