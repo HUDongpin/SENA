@@ -180,6 +180,26 @@ describe("SENA repository governance", () => {
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
   });
 
+  it("declares monotonic control-plane observations without weakening feature branches", () => {
+    const registry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    const main = registry.branches.find((branch: { name: string }) => branch.name === "main");
+    const governance = registry.branches.find(
+      (branch: { name: string }) => branch.name === "codex/sena-a01-repo-governance-20260827"
+    );
+    const featureBranches = registry.branches.filter(
+      (branch: { name: string }) => branch.name !== "main"
+    );
+
+    expect(registry.incident.credentialExposure.liveMainObservationMode).toBe("lower-bound");
+    expect(main.remoteObservationMode).toBe("lower-bound");
+    expect(governance.prStateObservationMode).toBe("monotonic");
+    expect(featureBranches.every((branch: { remoteObservationMode?: string }) => !branch.remoteObservationMode)).toBe(
+      true
+    );
+  });
+
   it("fails closed when an active writer exceeds the 72-hour heartbeat freeze threshold", () => {
     const root = temporaryRoot("stale-heartbeat");
     const registry = JSON.parse(

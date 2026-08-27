@@ -67,6 +67,15 @@ match exactly. The audit also checks the registered worktree/branch pairing,
 upstream, ahead/behind tuple, dirty allowed paths, 24/72-hour heartbeat policy,
 one release plus at most two feature lanes, and preservation custody.
 
+`main` is the deliberate exception to exact-equality observations: its
+recorded remote SHA and the credential incident's `liveMainSha` are monotonic
+lower bounds. A live audit accepts only a descendant of those SHAs and reports
+the advance as a warning. This prevents a governance PR from making its own
+registry recursively stale when it merges, while a rewrite or divergent
+`main` still fails closed. A registered open PR may likewise advance only to
+GitHub's terminal `MERGED` or `CLOSED` state with the same recorded head SHA;
+that transition stays a warning until ordinary closeout refreshes the ledger.
+
 While the P0 incident is open, an active task cannot obtain write permission by
 choosing a `freezeException` label. Each exception is bound in policy to one
 exact task, owner key, owner lane, branch, and complete allowed-path set, with

@@ -1272,6 +1272,12 @@ function validateRegistry(registry) {
     if (typeof branch.remotePresent !== "boolean") {
       errors.push(`branch ${branch.name ?? "<unknown>"} must declare remotePresent`);
     }
+    if (branch.remoteObservationMode && branch.remoteObservationMode !== "lower-bound") {
+      errors.push(`branch ${branch.name ?? "<unknown>"} has invalid remoteObservationMode`);
+    }
+    if (branch.prStateObservationMode && branch.prStateObservationMode !== "monotonic") {
+      errors.push(`branch ${branch.name ?? "<unknown>"} has invalid prStateObservationMode`);
+    }
     if (!isIsoTimestamp(branch.remoteObservedAt)) {
       errors.push(`branch ${branch.name ?? "<unknown>"} must declare remoteObservedAt`);
     }
@@ -1343,6 +1349,10 @@ function validateRegistry(registry) {
     ) {
       errors.push("closed credential incident requires provider readback, live-ref audit, and named authorization evidence");
     }
+  }
+  const liveMainObservationMode = registry.incident?.credentialExposure?.liveMainObservationMode;
+  if (liveMainObservationMode && liveMainObservationMode !== "lower-bound") {
+    errors.push("credential incident live-main observation mode must be lower-bound when declared");
   }
   const branchByName = new Map((registry.branches ?? []).map((branch) => [branch.name, branch]));
   for (const item of registry.workItems ?? []) {
@@ -1908,8 +1918,18 @@ function runAudit(flags) {
     if (!liveMainSha || liveMainSha !== cachedMainSha) {
       errors.push("live main does not match cached origin/main");
     }
-    if (liveMainSha !== registry.incident?.credentialExposure?.liveMainSha) {
-      errors.push("live main does not match the registry live-main observation");
+    const recordedIncidentMainSha = registry.incident?.credentialExposure?.liveMainSha;
+    if (liveMainSha !== recordedIncidentMainSha) {
+      const isPermittedForwardMainObservation = Boolean(
+        registry.incident?.credentialExposure?.liveMainObservationMode === "lower-bound" &&
+        isSha(recordedIncidentMainSha) &&
+        git(["merge-base", "--is-ancestor", recordedIncidentMainSha, liveMainSha], { allowFailure: true }).status === 0
+      );
+      if (isPermittedForwardMainObservation) {
+        warnings.push("live main advanced beyond the incident observation lower bound");
+      } else {
+        errors.push("live main does not match or descend from the registry live-main observation");
+      }
     }
     for (const ref of liveRemote.refs) {
       if (!gitObjectExists(`${ref.headSha}^{commit}`)) {
@@ -1946,8 +1966,14 @@ function runAudit(flags) {
               pathIsAllowed(path, activeItem.allowedPaths)
             )
           );
+          const isPermittedLowerBoundObservation = Boolean(
+            branchRecord.remoteObservationMode === "lower-bound" &&
+            git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0
+          );
           if (isPermittedForwardAdvance) {
             warnings.push(`active remote branch advanced beyond its last observed SHA: ${branchRecord.name}`);
+          } else if (isPermittedLowerBoundObservation) {
+            warnings.push(`remote branch advanced beyond its observation lower bound: ${branchRecord.name}`);
           } else {
             errors.push(`live remote branch SHA differs from registry: ${branchRecord.name}`);
           }
@@ -1992,7 +2018,17 @@ function runAudit(flags) {
           }
         }
         if (branchRecord.prState && pr.state !== branchRecord.prState) {
-          errors.push(`registry PR state mismatch: #${branchRecord.pr}`);
+          const isPermittedMonotonicPrTransition = Boolean(
+            branchRecord.prStateObservationMode === "monotonic" &&
+            branchRecord.prState === "OPEN" &&
+            new Set(["CLOSED", "MERGED"]).has(pr.state) &&
+            (!branchRecord.prHeadSha || pr.headRefOid === branchRecord.prHeadSha)
+          );
+          if (isPermittedMonotonicPrTransition) {
+            warnings.push(`PR lifecycle advanced beyond its registry observation: #${branchRecord.pr}`);
+          } else {
+            errors.push(`registry PR state mismatch: #${branchRecord.pr}`);
+          }
         }
         if (branchRecord.prBase && pr.baseRefName !== branchRecord.prBase) {
           errors.push(`registry PR base mismatch: #${branchRecord.pr}`);
