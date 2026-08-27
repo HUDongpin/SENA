@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T18:54:04Z",
+  "updatedAt": "2026-08-27T19:03:19Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -927,7 +927,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 0,
+      "currentOpenPullRequestCount": 1,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
+      "headSha": "1af877a788f3baf210698d291eaf62ca39b4e7a8",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,27 +1003,30 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T18:54:04Z",
-      "lastObservedAt": "2026-08-27T18:54:04Z",
+      "lastHeartbeatAt": "2026-08-27T19:03:19Z",
+      "lastObservedAt": "2026-08-27T19:03:19Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 26,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 25,
         "headSha": "133663a4bf2446505b3806d1505cbc07f9c7320d",
         "mergeCommitSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
         "mergedAt": "2026-08-27T18:46:43Z"
       },
-      "noPrReason": "Fresh governance-only lane-registration increment; its first reviewable commit will receive an upstream and draft PR within 24 hours.",
-      "dirtyState": "active-governance-lane-registration-pre-pr",
+      "noPrReason": null,
+      "dirtyState": "active-governance-pr26-draft-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "P0 closure, root restoration, relative hook custody, and the final protected-main audit are complete; this lane is clean at exact live main 47612849 before the separately owned Node 24 and EvidenceFlow registration increment",
-        "ci": "PR 25 exact-head checks and post-main build 33105165644 plus repository-security 33105165635 passed on 47612849; the lane-registration increment has not yet entered CI",
-        "merged": "final closure PR 25 head 133663a4 merged as protected main 47612849; the new lane registrations remain pending protected-main integration",
+        "local": "first reviewable registration head 1af877a passed registry/live audit, index write-policy, staged security, pre-commit, and focused governance tests 37/37; draft PR 26 is open and this metadata increment binds its lifecycle without changing lane permissions",
+        "ci": "PR 25 exact-head and post-main checks passed on 47612849; PR 26 checks started on first reviewable head 1af877a and will be superseded by checks on the metadata candidate head",
+        "merged": "final closure PR 25 head 133663a4 merged as protected main 47612849; draft PR 26 carries the new lane registrations and is not merged",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
@@ -1296,10 +1299,16 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "133663a4bf2446505b3806d1505cbc07f9c7320d",
-      "remoteObservedAt": "2026-08-27T18:54:04Z",
-      "pr": null,
-      "noPrReason": "Fresh governance-only lane-registration increment; its first reviewable commit will receive a draft PR within 24 hours.",
+      "remoteHeadSha": "1af877a788f3baf210698d291eaf62ca39b4e7a8",
+      "remoteObservedAt": "2026-08-27T19:03:19Z",
+      "pr": 26,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "1af877a788f3baf210698d291eaf62ca39b4e7a8",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 25,
@@ -1307,13 +1316,13 @@
         "mergeCommitSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
         "mergedAt": "2026-08-27T18:46:43Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T18:54:04Z",
-      "lastObservedAt": "2026-08-27T18:54:04Z",
-      "lastCommitAt": "2026-08-28T02:46:42+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T19:03:19Z",
+      "lastObservedAt": "2026-08-27T19:03:19Z",
+      "lastCommitAt": "2026-08-28T03:01:41+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR 25 exact head 133663a4 merged as 47612849 with post-main build and repository-security checks green; lane remains active only to register and govern separately owned follow-up work through protected main"
+      "closeout": "PR 25 exact head 133663a4 merged as 47612849 with post-main checks green; draft PR 26 now binds first reviewable registration head 1af877a and awaits an exact metadata-candidate gate before any merge authorization"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
