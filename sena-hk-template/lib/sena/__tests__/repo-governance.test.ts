@@ -293,6 +293,97 @@ describe("SENA repository governance", () => {
     );
   });
 
+  it("allows exact integrated cleanup targets to fall farther behind protected main without allowing new lane commits", () => {
+    const fixture = createGovernedFixture("integrated-cleanup-behind-drift");
+    const candidateHead = fixture.head;
+
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", candidateHead]);
+    runGit(fixture.root, ["checkout", "-q", "--detach", candidateHead]);
+    writeFileSync(join(fixture.root, "protected-main-closeout.txt"), "protected main closeout\n");
+    runGit(fixture.root, ["add", "protected-main-closeout.txt"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "protected main closeout"]);
+    const advancedMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", advancedMain]);
+    runGit(fixture.root, ["checkout", "-q", "topic"]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "topic"]);
+
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    const item = registry.workItems[0];
+    const branch = registry.branches[0];
+    item.headSha = candidateHead;
+    item.aheadBehind = { baseRef: "origin/main", ahead: 0, behind: 0 };
+    item.dirtyState = "clean-integrated-awaiting-authorized-cleanup";
+    item.disposition = "integrated";
+    item.lastMergedPullRequest = {
+      number: 9001,
+      headSha: candidateHead,
+      mergeCommitSha: advancedMain,
+      mergedAt: new Date().toISOString(),
+      postMainBuildRunId: 9002,
+      postMainRepositorySecurityRunId: 9003,
+      postMainChecksPassed: true
+    };
+    item.cleanupAuthorization = {
+      effectiveOnlyAfterThisCloseoutReachesProtectedMain: true,
+      requiredCleanHeadSha: candidateHead,
+      ordinaryLocalWorktreeRemoval: true,
+      ordinaryLocalBranchDeletion: true,
+      ordinaryRemoteBranchDeletion: true,
+      forceResetRebaseOrHistoryRewrite: false
+    };
+    branch.headSha = candidateHead;
+    branch.upstream = "origin/main";
+    branch.disposition = "integrated";
+    branch.lastMergedPullRequest = {
+      number: 9001,
+      headSha: candidateHead,
+      mergeCommitSha: advancedMain,
+      mergedAt: item.lastMergedPullRequest.mergedAt
+    };
+
+    const registryRoot = temporaryRoot("integrated-cleanup-registry");
+    const registryPath = join(registryRoot, "active-work.json");
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const integratedAudit = runNode(fixture.script, ["audit", "--registry", registryPath], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const integratedReport = JSON.parse(integratedAudit.stdout);
+    expect(integratedReport.errors).not.toContain(
+      "workItem ahead/behind differs from registry: SENA-GOVERNANCE-TEST-WRITER"
+    );
+    expect(integratedReport.warnings).toContain(
+      "integrated cleanup target fell farther behind protected main without changing head: SENA-GOVERNANCE-TEST-WRITER"
+    );
+
+    const mismatchedCleanup = structuredClone(registry);
+    mismatchedCleanup.workItems[0].cleanupAuthorization.requiredCleanHeadSha = fixture.base;
+    writeFileSync(registryPath, `${JSON.stringify(mismatchedCleanup, null, 2)}\n`);
+    const mismatchedCleanupAudit = runNode(fixture.script, ["audit", "--registry", registryPath], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const mismatchedCleanupReport = JSON.parse(mismatchedCleanupAudit.stdout);
+    expect(mismatchedCleanupReport.errors).toContain(
+      "workItem ahead/behind differs from registry: SENA-GOVERNANCE-TEST-WRITER"
+    );
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    writeFileSync(join(fixture.root, "unauthorized-after-integration.txt"), "must remain blocked\n");
+    runGit(fixture.root, ["add", "unauthorized-after-integration.txt"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "unauthorized post-integration lane commit"]);
+    const mutatedAudit = runNode(fixture.script, ["audit", "--registry", registryPath], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const mutatedReport = JSON.parse(mutatedAudit.stdout);
+    expect(mutatedAudit.status).toBe(1);
+    expect(mutatedReport.errors).toContain(
+      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-GOVERNANCE-TEST-WRITER"
+    );
+  });
+
   it("fails closed when an active writer exceeds the 72-hour heartbeat freeze threshold", () => {
     const root = temporaryRoot("stale-heartbeat");
     const registry = JSON.parse(

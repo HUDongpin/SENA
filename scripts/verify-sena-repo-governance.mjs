@@ -1901,6 +1901,33 @@ function actualAheadBehind(head, baseRef) {
   return { baseRef, ahead, behind };
 }
 
+function integratedCleanupBehindAdvanceAllowed(item, actualHeadSha, observed) {
+  const recorded = item.aheadBehind;
+  const cleanup = item.cleanupAuthorization;
+  const merged = item.lastMergedPullRequest;
+  if (
+    item.disposition !== "integrated" ||
+    recorded?.baseRef !== "origin/main" ||
+    actualHeadSha !== item.headSha ||
+    recorded.ahead !== 0 ||
+    observed?.ahead !== 0 ||
+    observed.behind < recorded.behind ||
+    cleanup?.effectiveOnlyAfterThisCloseoutReachesProtectedMain !== true ||
+    cleanup.requiredCleanHeadSha !== actualHeadSha ||
+    cleanup.forceResetRebaseOrHistoryRewrite !== false ||
+    merged?.headSha !== actualHeadSha ||
+    merged.postMainChecksPassed !== true ||
+    !isSha(merged.mergeCommitSha)
+  ) {
+    return false;
+  }
+  const headIsIntegrated =
+    git(["merge-base", "--is-ancestor", actualHeadSha, recorded.baseRef], { allowFailure: true }).status === 0;
+  const recordedMergeIsOnProtectedMain =
+    git(["merge-base", "--is-ancestor", merged.mergeCommitSha, recorded.baseRef], { allowFailure: true }).status === 0;
+  return headIsIntegrated && recordedMergeIsOnProtectedMain;
+}
+
 function sha256File(path) {
   return sha256Buffer(readFileSync(path));
 }
@@ -2343,7 +2370,13 @@ function runAudit(flags) {
       errors.push(`ahead/behind base is unavailable: ${item.taskId} base=${item.aheadBehind.baseRef}`);
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
       if (isActive) warnings.push(`active workItem ahead/behind advanced since heartbeat: ${item.taskId}`);
-      else errors.push(`workItem ahead/behind differs from registry: ${item.taskId}`);
+      else if (integratedCleanupBehindAdvanceAllowed(item, actual.headSha, observed)) {
+        warnings.push(
+          `integrated cleanup target fell farther behind protected main without changing head: ${item.taskId}`
+        );
+      } else {
+        errors.push(`workItem ahead/behind differs from registry: ${item.taskId}`);
+      }
     }
     if (ageHours(item.createdAt) > 24 && isActive && !actual.upstream) {
       errors.push(`active workItem lacks upstream after 24 hours: ${item.taskId}`);
