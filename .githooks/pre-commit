@@ -1,0 +1,35 @@
+#!/bin/sh
+# Prevent prohibited paths and known/high-confidence credential material from
+# entering a local commit. Findings contain only a path, rule ID, and source.
+
+target_root=$(git rev-parse --show-toplevel) || exit 1
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+source_root=$(dirname -- "$hook_dir")
+
+# `git commit` already owns the worktree index lock while this hook runs.
+# All governance commands are read-only, so prevent nested Git status/object
+# inspection from attempting an optional index refresh and failing on that lock.
+export GIT_OPTIONAL_LOCKS=0
+
+echo "pre-commit: enforcing the registered P0 write boundary" >&2
+if ! env SENA_GOVERNANCE_TARGET_ROOT="$target_root" \
+  node "$source_root/scripts/verify-sena-repo-governance.mjs" audit --pre-commit --registry-from-index >/dev/null 2>&1; then
+  echo "pre-commit: repository governance write gate failed; commit refused." >&2
+  exit 1
+fi
+
+echo "pre-commit: binding staged paths to the stage-0 registry snapshot" >&2
+if ! env SENA_GOVERNANCE_TARGET_ROOT="$target_root" \
+  node "$source_root/scripts/verify-sena-repo-governance.mjs" write-policy --registry-from-index --staged; then
+  echo "pre-commit: staged write policy failed; commit refused." >&2
+  exit 1
+fi
+
+echo "pre-commit: scanning the staged index for prohibited credential material" >&2
+if ! env SENA_GOVERNANCE_TARGET_ROOT="$target_root" \
+  node "$source_root/scripts/verify-sena-repo-governance.mjs" security --staged; then
+  echo "pre-commit: repository security gate failed; commit refused without printing secret values." >&2
+  exit 1
+fi
+
+exit 0

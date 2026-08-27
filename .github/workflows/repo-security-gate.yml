@@ -1,0 +1,136 @@
+# Fast repository-security gate for every pushed branch and every PR.
+#
+# This is intentionally separate from build-gate.yml: path and secret checks
+# must cover feature branches, while type-check/build remain scoped to main and
+# PRs targeting main. The scanner reports rule ids and paths only; it never
+# prints matched values.
+name: repo-security-gate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-security-gate-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repository-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject unauthorized pushed-ref mutation shape
+        if: github.event_name == 'push'
+        env:
+          SENA_PUSH_FORCED: ${{ github.event.forced }}
+          SENA_PUSH_REF: ${{ github.ref }}
+        run: |
+          if [ "$SENA_PUSH_FORCED" = "true" ]; then
+            echo "Unauthorized forced push event; owner receipt is required." >&2
+            exit 1
+          fi
+          case "$SENA_PUSH_REF" in
+            refs/heads/*) ;;
+            *)
+              echo "Unauthorized non-branch ref mutation; owner receipt is required." >&2
+              exit 1
+              ;;
+          esac
+
+      - uses: actions/checkout@v4
+        if: github.event_name != 'push' || github.event.deleted != true
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' && github.event.deleted == true
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch the default-branch comparison ref
+        if: github.event_name != 'push' || github.event.deleted != true
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Bind deletion authorization to the event-time default-main snapshot
+        if: github.event_name == 'push' && github.event.deleted == true
+        env:
+          SENA_EVENT_MAIN_SHA: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SENA_EVENT_MAIN_SHA"
+          git cat-file -e "$SENA_EVENT_MAIN_SHA^{commit}"
+          git update-ref refs/remotes/origin/main "$SENA_EVENT_MAIN_SHA"
+
+      - name: Scan pull-request commits and final tree
+        if: github.event_name == 'pull_request'
+        run: >-
+          node scripts/verify-sena-repo-governance.mjs security
+          --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          --tree "${{ github.event.pull_request.head.sha }}"
+
+      - name: Scan pushed commits and final tree
+        if: github.event_name == 'push'
+        env:
+          SENA_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          SENA_PUSH_DELETED: ${{ github.event.deleted }}
+          SENA_PUSH_FORCED: ${{ github.event.forced }}
+          SENA_PUSH_HEAD_SHA: ${{ github.event.after }}
+          SENA_PUSH_REF: ${{ github.ref }}
+          SENA_PUSH_ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zero_sha=0000000000000000000000000000000000000000
+          if [ "$SENA_PUSH_DELETED" = "true" ]; then
+            authorization_sha=$(git rev-parse --verify refs/remotes/origin/main)
+            printf '(delete) %s %s %s\n' "$zero_sha" "$SENA_PUSH_REF" "$SENA_PUSH_BEFORE_SHA" | \
+              node scripts/verify-sena-repo-governance.mjs deletion-boundary \
+                --push-event \
+                --event-actor "$SENA_PUSH_ACTOR" \
+                --authorization-registry-commit "$authorization_sha"
+            node scripts/verify-sena-repo-governance.mjs security \
+              --push-event \
+              --event-ref "$SENA_PUSH_REF" \
+              --event-before "$SENA_PUSH_BEFORE_SHA" \
+              --event-after "$SENA_PUSH_HEAD_SHA" \
+              --event-forced "$SENA_PUSH_FORCED" \
+              --event-deleted "$SENA_PUSH_DELETED" \
+              --event-actor "$SENA_PUSH_ACTOR" \
+              --authorization-registry-commit "$authorization_sha"
+            exit
+          fi
+          if [ "$SENA_PUSH_BEFORE_SHA" = "$zero_sha" ]; then
+            node scripts/verify-sena-repo-governance.mjs security \
+              --push-event \
+              --event-ref "$SENA_PUSH_REF" \
+              --event-before "$SENA_PUSH_BEFORE_SHA" \
+              --event-after "$SENA_PUSH_HEAD_SHA" \
+              --event-forced "$SENA_PUSH_FORCED" \
+              --event-deleted "$SENA_PUSH_DELETED" \
+              --event-actor "$SENA_PUSH_ACTOR" \
+              --new-branch "$SENA_PUSH_HEAD_SHA" \
+              --baseline origin/main \
+              --tree "$SENA_PUSH_HEAD_SHA"
+          else
+            node scripts/verify-sena-repo-governance.mjs security \
+              --push-event \
+              --event-ref "$SENA_PUSH_REF" \
+              --event-before "$SENA_PUSH_BEFORE_SHA" \
+              --event-after "$SENA_PUSH_HEAD_SHA" \
+              --event-forced "$SENA_PUSH_FORCED" \
+              --event-deleted "$SENA_PUSH_DELETED" \
+              --event-actor "$SENA_PUSH_ACTOR" \
+              --range "$SENA_PUSH_BEFORE_SHA..$SENA_PUSH_HEAD_SHA" \
+              --tree "$SENA_PUSH_HEAD_SHA"
+          fi
+
+      - name: Validate repository work registry
+        run: node scripts/verify-sena-repo-governance.mjs registry
+
+      - name: Validate portable checkout topology
+        run: node scripts/verify-sena-repo-governance.mjs audit --ci
