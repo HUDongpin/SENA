@@ -98,8 +98,8 @@ succeeded. GitHub ruleset suite `3846639027` binds actor, ref, old SHA, zero
 after-SHA, and bypass result; a mode-`0600` Git Trees metadata receipt proves
 the deleted ref is absent and all 27 live head/tag/pull candidates have zero
 forbidden path/blob findings. Feature work remains frozen until this
-consumed/event-custody record reaches protected `main` and the root checkout is
-restored. No deployment or history rewrite occurred.
+consumed/event-custody record reaches protected `main` through PR #24 and the
+root checkout is restored. No deployment or history rewrite occurred.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or

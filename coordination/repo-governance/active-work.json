@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T18:08:59Z",
+  "updatedAt": "2026-08-27T18:16:48Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -158,7 +158,11 @@
           "finalDeletionResult": "deleted",
           "finalDeletionRulesetSuiteId": 3846639027,
           "finalDeletedRefAbsent": true,
-          "postDeleteLiveRefViolationCount": 0
+          "postDeleteLiveRefViolationCount": 0,
+          "consumedCustodyPullRequest": 24,
+          "consumedCustodyBaseSha": "606daa6147e4b197451b629b65cf353d50f87913",
+          "consumedCustodyFirstCommitSha": "fdaa0e066c5d9fcbf29caea1fe5aaa55dba30bd6",
+          "consumedCustodyStatus": "open-final-metadata-head-pending"
         },
         "providerReadbackAt": "2026-08-27T15:13:41Z",
         "providerEvidenceId": "provider-containment-readback-20260827T151341Z",
@@ -873,7 +877,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 0,
+      "currentOpenPullRequestCount": 1,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -934,10 +938,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "606daa6147e4b197451b629b65cf353d50f87913",
+      "headSha": "fdaa0e066c5d9fcbf29caea1fe5aaa55dba30bd6",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -952,11 +956,11 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T18:08:59Z",
-      "lastObservedAt": "2026-08-27T18:08:59Z",
+      "lastHeartbeatAt": "2026-08-27T18:16:48Z",
+      "lastObservedAt": "2026-08-27T18:16:48Z",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
-      "prNumber": 23,
+      "prNumber": 24,
       "prIsDraft": false,
       "prReadyForReview": true,
       "mergeAuthorized": true,
@@ -969,15 +973,15 @@
         "mergeCloseoutReceiptSha256": "d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe"
       },
       "noPrReason": null,
-      "dirtyState": "active-governance-consumed-event-custody-follow-up-pre-pr",
+      "dirtyState": "active-governance-pr24-open-final-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "provider containment is 9-of-9 complete; PR 23 exact head b008cad merged as 606daa6; both post-main checks passed; exact-old-SHA deletion succeeded; official ruleset suite 3846639027 and immutable mode-0600 post-delete receipts prove ref absence and zero known path/blob findings",
-        "ci": "PR 23 exact-head build/repository-security and post-main build run 33101040147 plus repository-security run 33101040148 passed on 606daa6",
-        "merged": "dynamic-observation correction PR 23 merged as 606daa6147e4b197451b629b65cf353d50f87913; consumed/event custody is the current protected-main follow-up",
+        "local": "provider containment is 9-of-9 complete; PR 23 exact head b008cad merged as 606daa6; both post-main checks passed; exact-old-SHA deletion succeeded; official ruleset suite 3846639027 and immutable mode-0600 post-delete receipts prove ref absence and zero known path/blob findings; consumed-custody commit fdaa0e0 passed local registry/live audit/write-policy/security/pre-commit and focused governance tests 36/36 before PR 24 creation",
+        "ci": "PR 23 exact-head and post-main checks are green; PR 24 final exact-head checks are pending and supersede any checks on first consumed-custody commit fdaa0e0 for merge purposes",
+        "merged": "dynamic-observation correction PR 23 merged as 606daa6147e4b197451b629b65cf353d50f87913; PR 24 is open for the consumed/event-custody protected-main follow-up",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
@@ -1150,20 +1154,20 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "606daa6147e4b197451b629b65cf353d50f87913",
+      "headSha": "fdaa0e066c5d9fcbf29caea1fe5aaa55dba30bd6",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "b008cad11d9485734f55a2617080b8a36964b1b7",
-      "remoteObservedAt": "2026-08-27T18:08:59Z",
-      "pr": 23,
-      "prState": "MERGED",
+      "remoteHeadSha": "fdaa0e066c5d9fcbf29caea1fe5aaa55dba30bd6",
+      "remoteObservedAt": "2026-08-27T18:16:48Z",
+      "pr": 24,
+      "prState": "OPEN",
       "prIsDraft": false,
       "prReadyForReview": true,
       "mergeAuthorized": true,
       "prStateObservationMode": "monotonic",
-      "prHeadSha": "b008cad11d9485734f55a2617080b8a36964b1b7",
+      "prHeadSha": null,
       "prBase": "main",
       "noPrReason": null,
       "lastMergedPullRequest": {
@@ -1172,13 +1176,13 @@
         "mergeCommitSha": "606daa6147e4b197451b629b65cf353d50f87913",
         "mergedAt": "2026-08-27T17:57:20Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T18:08:59Z",
-      "lastObservedAt": "2026-08-27T18:08:59Z",
-      "lastCommitAt": "2026-08-28T01:57:19+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T18:16:48Z",
+      "lastObservedAt": "2026-08-27T18:16:48Z",
+      "lastCommitAt": "2026-08-28T02:15:51+08:00",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "disposition": "ready-for-pr",
-      "closeout": "PR 23 exact head b008cad merged as 606daa6 with post-main checks green; exact-lease deletion and live absence are complete; this branch remains the sole governance writer for the consumed/event-custody protected-main follow-up"
+      "closeout": "PR 23 exact head b008cad merged as 606daa6 with post-main checks green; exact-lease deletion and live absence are complete; PR 24 is open for consumed/event custody with a monotonic lifecycle and no self-referential final-head claim"
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",

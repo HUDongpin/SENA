@@ -541,8 +541,8 @@ The mandatory order is:
 5. **Satisfied:** perform a fresh live absence readback across heads, tags, and
    PR candidate refs for both forbidden paths and the known blob; 27 candidates,
    complete recursive tree metadata, zero findings.
-6. **Current follow-up:** commit a protected-main consumed receipt with deletion-event custody and the
-   live absence timestamp.
+6. **Current follow-up:** merge PR #24's protected-main consumed receipt with
+   deletion-event custody and the live absence timestamp.
 
 The post-delete reachability receipt is the regular mode-`0600`, 1,266-byte
 file `/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json`,
