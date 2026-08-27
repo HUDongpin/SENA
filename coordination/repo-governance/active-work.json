@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T22:56:59Z",
+  "updatedAt": "2026-08-27T23:00:16Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
+      "headSha": "53a5e0ed93351385776bfbe686365cc1ccb405e7",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,37 +1003,34 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T22:36:55Z",
-      "lastObservedAt": "2026-08-27T22:36:55Z",
+      "lastHeartbeatAt": "2026-08-27T23:00:16Z",
+      "lastObservedAt": "2026-08-27T23:00:16Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 35,
-      "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
+      "prNumber": null,
       "lastMergedPullRequest": {
-        "number": 34,
-        "headSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
-        "mergeCommitSha": "e9af8a89a3d2736d5f993408e06670a6f30c5e83",
-        "mergedAt": "2026-08-27T22:01:37Z",
-        "postMainBuildRunId": 33120771074,
-        "postMainRepositorySecurityRunId": 33120771065,
+        "number": 35,
+        "headSha": "a1776c693ff77c944f047049cf212e0d2f800f03",
+        "mergeCommitSha": "390f114e607f81486b2bfa1c87bec187260c0e27",
+        "mergedAt": "2026-08-27T22:42:23Z",
+        "postMainBuildRunId": 33123558913,
+        "postMainRepositorySecurityRunId": 33123558925,
         "postMainChecksPassed": true
       },
-      "noPrReason": null,
-      "dirtyState": "staged-pr35-final-authorization-metadata-head-pending",
+      "noPrReason": "Exact cleanup-policy candidate 53a5e0e is committed locally; registry heartbeat must bind the current remote a1776c6 before ordinary push and immediate draft PR 36 creation.",
+      "dirtyState": "staged-registry-heartbeat-for-cleanup-policy-pr36",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "Draft PR 35 exact current head 44bba8e contains the narrow cleanup audit repair and complete lifecycle bindings; full governance tests, type-check, production build, exact live audit, push-policy and security passed",
-        "ci": "PR 35 head 44bba8e build 33122204526 and repository-security 33122204509/33122201459 passed; the forthcoming authorization-metadata head must independently pass before Ready/merge",
-        "merged": "PR 34 is protected-main complete at e9af8a8, but the audit repair is not merged and Node24 cleanup remains frozen",
+        "local": "Exact local cleanup-policy candidate 53a5e0e adds separate integrated-lane one-shot deletion authorization, full native-hook simulation, SHA/actor negative tests, and an exact Node24 lease; 43 governance tests, type-check, build, audit, write-policy and security pass",
+        "ci": "Candidate 53a5e0e has no CI receipt yet; PR 35 post-main build 33123558913 and repository-security 33123558925 passed on 390f114",
+        "merged": "PR 35 is protected-main complete at 390f114; cleanup-policy candidate is not merged and Node24 cleanup remains frozen",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "ready-for-pr",
+      "disposition": "active",
       "freezeException": "governance-preservation"
     },
     {
@@ -1334,35 +1331,28 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
+      "headSha": "53a5e0ed93351385776bfbe686365cc1ccb405e7",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
-      "remoteObservedAt": "2026-08-27T22:36:55Z",
-      "pr": 35,
-      "prState": "OPEN",
-      "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
-      "prHeadSha": "44bba8e3d63fa0ff43cb4eac8e41144a2b282ba3",
-      "prBase": "main",
-      "noPrReason": null,
-      "prStateObservationMode": "monotonic",
+      "remoteHeadSha": "a1776c693ff77c944f047049cf212e0d2f800f03",
+      "remoteObservedAt": "2026-08-27T23:00:16Z",
+      "pr": null,
+      "noPrReason": "Exact cleanup-policy candidate 53a5e0e remains local-only until this heartbeat permits an ordinary hook-verified push and immediate draft PR 36.",
       "lastMergedPullRequest": {
-        "number": 34,
-        "headSha": "982959fd7c3b50862cf025e1342d8ef291386cc6",
-        "mergeCommitSha": "e9af8a89a3d2736d5f993408e06670a6f30c5e83",
-        "mergedAt": "2026-08-27T22:01:37Z"
+        "number": 35,
+        "headSha": "a1776c693ff77c944f047049cf212e0d2f800f03",
+        "mergeCommitSha": "390f114e607f81486b2bfa1c87bec187260c0e27",
+        "mergedAt": "2026-08-27T22:42:23Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T22:36:55Z",
-      "lastObservedAt": "2026-08-27T22:36:55Z",
-      "lastCommitAt": "2026-08-28T06:21:22+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T23:00:16Z",
+      "lastObservedAt": "2026-08-27T23:00:16Z",
+      "lastCommitAt": "2026-08-28T07:00:04+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "ready-for-pr",
-      "closeout": "Draft PR 35 head 44bba8e is exact-check green and metadata-authorized; only the forthcoming metadata head may become Ready/merge after its own exact build/security pass"
+      "disposition": "active",
+      "closeout": "Cleanup-policy candidate 53a5e0e is local-only; current remote remains exact a1776c6 and draft PR 36 is required immediately after native-hook push"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
