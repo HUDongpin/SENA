@@ -370,12 +370,14 @@ artifact or log.
 
 The current provider aggregate is nine of nine rows complete: DeepSeek,
 Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS, and LRS. No
-provider row remains open, and provider containment is true. The deletion
-receipt nevertheless remains inactive until the governance controls are merged
-through protected `main` and a protected-main follow-up activates it. Feature
-work remains frozen, PR #21 remains Draft, and neither merge, ref deletion,
-incident closure, root-checkout movement, nor deployment is claimed or
-authorized by these provider receipts.
+provider row remains open, and provider containment is true. PR #21 subsequently
+became Ready and merged through protected `main` as
+`9ecc72b09d51e2426868eb7569449ed9aea0f774`; its exact-head checks and the two
+post-main checks passed. This follow-up declares the one-shot deletion receipt
+active, but the declaration is executable only after this exact registry
+snapshot itself reaches protected `main`. Feature work remains frozen. Ref
+deletion, live absence, incident closure, root-checkout movement, and deployment
+have not occurred.
 
 ## Complete superseding provider readback
 
@@ -398,14 +400,26 @@ SHA-256. All twelve source receipts were independently rechecked as mode-`0600`
 regular, non-symlink, link-count-one valid JSON with matching expected hashes
 and no high-risk credential-pattern finding.
 
-The receipt establishes only the provider prerequisite:
+The immutable provider receipt establishes only the provider prerequisite:
 `providerContainmentComplete=true` and
 `providerPrerequisiteForProtectedMainActivationSatisfied=true`. At the same
 time it records `remoteDeletionReceiptCurrentlyActive=false`,
 `protectedMainMergeRequiredBeforeActivation=true`, `incidentClosed=false`, and
-`featureWorkFrozen=true`. Its receipt-layer eligibility flag is not the actual
-registry activation state and must not be used to skip protected-main merge,
-activate deletion on this branch, make PR #21 Ready, or claim deployment.
+`featureWorkFrozen=true`. Those remain receipt-time facts and were not rewritten.
+Its receipt-layer eligibility flag was not the actual registry activation state
+and was not used to skip protected-main merge. The later owner authorization and
+merge closeout are separately held as mode-`0600` no-value receipts:
+
+```text
+authorization path   = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-owner-authorization-20260827T165546Z.json
+authorization sha256 = 8a63c9d790fdd305c84e9ca84f36e7409749f46ad6c3440fd47d6059bfd5c71f
+merge closeout path  = /Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-merge-closeout-20260827T170026Z.json
+merge closeout sha256= d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe
+```
+
+Neither receipt authorizes deployment or history rewrite. The merge closeout
+also records that the contaminated ref was still present and no deletion had
+been attempted.
 
 ## File relationship and runtime boundary
 
@@ -491,20 +505,24 @@ For every slice:
 ## Destructive cleanup authorization gate
 
 An owner authorization receipt already exists for the exact contaminated ref
-and old SHA. The timestamped redacted provider prerequisite is now complete,
-but the registry status intentionally remains `pending-provider-readback` to
-keep the existing fail-closed invariant until the governance controls are
-protected on `main`. It is owner-approved but not yet executable.
+and old SHA. The timestamped redacted provider prerequisite is complete, PR #21
+is merged, and this follow-up changes the registry status from
+`pending-provider-readback` to `active`. The activation still remains
+non-executable while it exists only on this branch: the deletion hook requires
+the authorization registry commit to be the freshly fetched protected `main`
+commit, the exact old SHA to match, and the live quarantine ruleset to match.
 
 The mandatory order is:
 
 1. **Satisfied:** complete provider containment for every ledger row and capture
    timestamped, redacted readback for replacement/revocation, usage review,
    secret-store state, and dependent-runtime state as applicable.
-2. Merge Draft PR #21 into protected `main` only through its required review and
-   CI controls.
-3. Commit a protected-main follow-up that activates the one-shot deletion
-   receipt and binds it to the completed provider evidence.
+2. **Satisfied:** merge PR #21 into protected `main` only through its required
+   review and CI controls; exact head `24d24c8...` merged as `9ecc72b...`, and
+   both post-main checks passed.
+3. **Current follow-up:** merge activation PR #22 through protected
+   `main`; it binds the one-shot receipt to the completed provider evidence,
+   exact PR/merge SHAs, owner authorization, and post-main check runs.
 4. Delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
    exact old-SHA lease for
    `18d542f707e56aa9d043dd497e0efe48b540db20`; abort on drift.

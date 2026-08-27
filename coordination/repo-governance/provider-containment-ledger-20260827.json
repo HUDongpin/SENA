@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-provider-containment-ledger/v1",
-  "updatedAt": "2026-08-27T15:28:26Z",
+  "updatedAt": "2026-08-27T17:02:54Z",
   "status": "blocked-owner",
   "severity": "P0",
   "incidentId": "SENA-P0-CREDENTIAL-CONTAINMENT-20260827",
@@ -1747,9 +1747,33 @@
     "providerContainmentComplete": true,
     "completeSupersedingReadbackBound": true,
     "providerPrerequisiteForProtectedMainActivationSatisfied": true,
-    "remoteDeletionReceiptActivationAllowed": false,
-    "remoteDeletionReceiptCurrentlyActive": false,
-    "protectedMainMergeRequiredBeforeActivation": true,
+    "remoteDeletionReceiptActivationAllowed": true,
+    "remoteDeletionReceiptCurrentlyActive": true,
+    "protectedMainMergeRequiredBeforeActivation": false,
+    "protectedMainMerge": {
+      "pullRequest": 21,
+      "exactHeadSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
+      "mergeCommitSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+      "mergedAt": "2026-08-27T16:57:44Z",
+      "postMainBuildRunId": 33095931855,
+      "postMainRepositorySecurityRunId": 33095931649,
+      "postMainChecksPassed": true,
+      "ownerAuthorizationReceiptSha256": "8a63c9d790fdd305c84e9ca84f36e7409749f46ad6c3440fd47d6059bfd5c71f",
+      "mergeCloseoutReceiptSha256": "d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe"
+    },
+    "deletionAuthorization": {
+      "id": "SENA-P0-DOCS-REMOTE-DELETE-20260827",
+      "status": "active",
+      "ref": "refs/heads/docs/ledger-reconciliation-2026-08-19",
+      "expectedOldSha": "18d542f707e56aa9d043dd497e0efe48b540db20",
+      "providerReadbackAt": "2026-08-27T15:13:41Z",
+      "providerEvidenceId": "provider-containment-readback-20260827T151341Z",
+      "providerEvidenceSha256": "49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2",
+      "exactLeaseRequired": true,
+      "oneShot": true,
+      "deletionAttempted": false,
+      "executableOnlyWhenThisRegistrySnapshotIsOnProtectedMain": true
+    },
     "incidentClosed": false,
     "featureWorkFrozen": true
   }
