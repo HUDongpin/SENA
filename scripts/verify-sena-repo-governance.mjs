@@ -705,7 +705,7 @@ function permittedActiveAdvance(fromSha, toSha, item) {
   return advance.isForward && advance.laneChangedPaths.every((path) => pathIsAllowed(path, item.allowedPaths));
 }
 
-function activeRefDeletionAuthorization(registry, remoteRef, remoteSha, options = {}) {
+function activeIncidentRefDeletionAuthorization(registry, remoteRef, remoteSha, options = {}) {
   if (!remoteRef.startsWith("refs/heads/") || remoteRef === "refs/heads/main" || !isSha(remoteSha)) return null;
   const authorization = (registry.policy?.refDeletionAuthorizations ?? []).find(
     (entry) =>
@@ -757,7 +757,89 @@ function activeRefDeletionAuthorization(registry, remoteRef, remoteSha, options 
       return null;
     }
   }
-  return authorization;
+  return { ...authorization, authorizationKind: "credential-incident" };
+}
+
+function activeIntegratedCleanupAuthorization(registry, remoteRef, remoteSha, options = {}) {
+  if (!remoteRef.startsWith("refs/heads/") || remoteRef === "refs/heads/main" || !isSha(remoteSha)) return null;
+  const branchName = remoteRef.slice("refs/heads/".length);
+  const item = (registry.workItems ?? []).find((candidate) => candidate.branch === branchName);
+  const branch = (registry.branches ?? []).find((candidate) => candidate.name === branchName);
+  const cleanup = item?.cleanupAuthorization;
+  if (
+    !item ||
+    !branch ||
+    item.disposition !== "integrated" ||
+    branch.disposition !== "integrated" ||
+    item.headSha !== remoteSha ||
+    branch.headSha !== remoteSha ||
+    branch.remotePresent !== true ||
+    branch.remoteHeadSha !== remoteSha ||
+    branch.prState !== "MERGED" ||
+    branch.prHeadSha !== remoteSha ||
+    cleanup?.status !== "active" ||
+    cleanup.purpose !== "integrated-lane-cleanup" ||
+    cleanup.ref !== remoteRef ||
+    cleanup.expectedOldSha !== remoteSha ||
+    cleanup.requiredCleanHeadSha !== remoteSha ||
+    cleanup.effectiveOnlyAfterThisCloseoutReachesProtectedMain !== true ||
+    cleanup.ordinaryLocalWorktreeRemoval !== true ||
+    cleanup.ordinaryLocalBranchDeletion !== true ||
+    cleanup.ordinaryRemoteBranchDeletion !== true ||
+    cleanup.forceResetRebaseOrHistoryRewrite !== false ||
+    cleanup.exactLeaseRequired !== true ||
+    cleanup.oneShot !== true ||
+    !isIsoTimestamp(cleanup.authorizedAt) ||
+    !isIsoTimestamp(cleanup.expiresAt) ||
+    Date.parse(cleanup.expiresAt) <= Date.now() ||
+    typeof cleanup.githubActor !== "string" ||
+    cleanup.githubActor.length === 0 ||
+    item.lastMergedPullRequest?.headSha !== remoteSha ||
+    item.lastMergedPullRequest?.postMainChecksPassed !== true ||
+    !isSha(item.lastMergedPullRequest?.mergeCommitSha) ||
+    branch.lastMergedPullRequest?.headSha !== remoteSha ||
+    branch.lastMergedPullRequest?.mergeCommitSha !== item.lastMergedPullRequest.mergeCommitSha ||
+    git(["merge-base", "--is-ancestor", remoteSha, "origin/main"], { allowFailure: true }).status !== 0 ||
+    git(["merge-base", "--is-ancestor", item.lastMergedPullRequest.mergeCommitSha, "origin/main"], {
+      allowFailure: true
+    }).status !== 0
+  ) {
+    return null;
+  }
+  if (options.requireGitHubActor === true && cleanup.githubActor !== options.githubActor) return null;
+
+  if (options.requireOperator !== false) {
+    const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+    const operatorBranch = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
+    const operatorItem = (registry.workItems ?? []).find(
+      (candidate) => sameExistingPath(candidate.worktreePath, REPO_ROOT) && candidate.branch === operatorBranch
+    );
+    const targetWorktree = parseWorktreeList().find((candidate) => sameExistingPath(candidate.path, item.worktreePath));
+    if (
+      !operatorItem ||
+      !ACTIVE_WRITE_DISPOSITIONS.has(operatorItem.disposition) ||
+      cleanup.operatorBranch !== operatorBranch ||
+      cleanup.operatorTaskId !== operatorItem.taskId ||
+      cleanup.operatorOwnerKey !== operatorItem.ownerKey ||
+      !targetWorktree ||
+      targetWorktree.branch !== branchName ||
+      targetWorktree.headSha !== remoteSha ||
+      worktreeStatusPaths(item.worktreePath).length !== 0
+    ) {
+      return null;
+    }
+  }
+  return {
+    ...cleanup,
+    authorizationKind: "integrated-cleanup",
+    targetTaskId: item.taskId,
+    targetBranch: branchName
+  };
+}
+
+function activeRefDeletionAuthorization(registry, remoteRef, remoteSha, options = {}) {
+  return activeIncidentRefDeletionAuthorization(registry, remoteRef, remoteSha, options) ??
+    activeIntegratedCleanupAuthorization(registry, remoteRef, remoteSha, options);
 }
 
 function liveQuarantineRulesetMatches(authorization, options = {}) {
@@ -811,11 +893,17 @@ function runDeletionBoundary(flags) {
     githubActor
   });
   if (!authorization) throw new Error("deletion-boundary lacks an active exact protected-main authorization");
-  if (!liveQuarantineRulesetMatches(authorization, { allowHiddenBypassActors: isPushEvent })) {
-    throw new Error("deletion-boundary live GitHub quarantine ruleset does not match the authorization");
+  if (authorization.authorizationKind === "credential-incident") {
+    if (!liveQuarantineRulesetMatches(authorization, { allowHiddenBypassActors: isPushEvent })) {
+      throw new Error("deletion-boundary live GitHub quarantine ruleset does not match the authorization");
+    }
+    process.stdout.write(
+      `SENA_DELETION_BOUNDARY pass ruleset=${authorization.remoteRulesetId} ref=${safePathForLog(update.remoteRef)}\n`
+    );
+    return;
   }
   process.stdout.write(
-    `SENA_DELETION_BOUNDARY pass ruleset=${authorization.remoteRulesetId} ref=${safePathForLog(update.remoteRef)}\n`
+    `SENA_DELETION_BOUNDARY pass cleanup=${safePathForLog(authorization.targetTaskId)} ref=${safePathForLog(update.remoteRef)}\n`
   );
 }
 
@@ -1613,6 +1701,47 @@ function validateRegistry(registry) {
     }
     if (!item.prNumber && !item.noPrReason) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} requires prNumber or noPrReason`);
+    }
+    if (item.cleanupAuthorization !== undefined) {
+      const cleanup = item.cleanupAuthorization;
+      const targetRef = `refs/heads/${item.branch}`;
+      const targetBranch = (registry.branches ?? []).find((branch) => branch.name === item.branch);
+      const operatorItem = (registry.workItems ?? []).find(
+        (candidate) => candidate.taskId === cleanup.operatorTaskId
+      );
+      if (
+        item.disposition !== "integrated" ||
+        targetBranch?.disposition !== "integrated" ||
+        cleanup.status !== "active" ||
+        cleanup.purpose !== "integrated-lane-cleanup" ||
+        cleanup.ref !== targetRef ||
+        cleanup.expectedOldSha !== item.headSha ||
+        cleanup.requiredCleanHeadSha !== item.headSha ||
+        cleanup.effectiveOnlyAfterThisCloseoutReachesProtectedMain !== true ||
+        cleanup.ordinaryLocalWorktreeRemoval !== true ||
+        cleanup.ordinaryLocalBranchDeletion !== true ||
+        cleanup.ordinaryRemoteBranchDeletion !== true ||
+        cleanup.forceResetRebaseOrHistoryRewrite !== false ||
+        cleanup.exactLeaseRequired !== true ||
+        cleanup.oneShot !== true ||
+        !isIsoTimestamp(cleanup.authorizedAt) ||
+        !isIsoTimestamp(cleanup.expiresAt) ||
+        Date.parse(cleanup.expiresAt) <= Date.now() ||
+        Date.parse(cleanup.expiresAt) - Date.parse(cleanup.authorizedAt) > 72 * 60 * 60 * 1000 ||
+        typeof cleanup.githubActor !== "string" ||
+        cleanup.githubActor.length === 0 ||
+        !operatorItem ||
+        cleanup.operatorBranch !== operatorItem.branch ||
+        cleanup.operatorOwnerKey !== operatorItem.ownerKey ||
+        !ACTIVE_WRITE_DISPOSITIONS.has(operatorItem.disposition) ||
+        cleanup.consumedAt !== null ||
+        cleanup.deletionEventId !== null ||
+        cleanup.executedBy !== null ||
+        cleanup.remoteRefAbsenceReadbackAt !== null ||
+        cleanup.result !== null
+      ) {
+        errors.push(`workItem ${item.taskId ?? "<unknown>"} has invalid integrated cleanup authorization`);
+      }
     }
   }
   if (activeWriters.length > MAX_ACTIVE_WRITE_WORKTREES) {

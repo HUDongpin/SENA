@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T22:36:55Z",
+  "updatedAt": "2026-08-27T22:56:59Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1130,12 +1130,29 @@
       },
       "disposition": "integrated",
       "cleanupAuthorization": {
+        "status": "active",
+        "purpose": "integrated-lane-cleanup",
+        "ref": "refs/heads/codex/sena-actions-node24-runtime-20260828",
+        "expectedOldSha": "fce9779082c32b342ccabcdc3cde3f9b3f6a99dd",
         "effectiveOnlyAfterThisCloseoutReachesProtectedMain": true,
         "requiredCleanHeadSha": "fce9779082c32b342ccabcdc3cde3f9b3f6a99dd",
         "ordinaryLocalWorktreeRemoval": true,
         "ordinaryLocalBranchDeletion": true,
         "ordinaryRemoteBranchDeletion": true,
-        "forceResetRebaseOrHistoryRewrite": false
+        "forceResetRebaseOrHistoryRewrite": false,
+        "exactLeaseRequired": true,
+        "oneShot": true,
+        "operatorBranch": "codex/sena-a01-repo-governance-20260827",
+        "operatorTaskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+        "operatorOwnerKey": "Codex-primary-writer",
+        "githubActor": "HUDongpin",
+        "authorizedAt": "2026-08-27T22:56:59Z",
+        "expiresAt": "2026-08-29T22:56:59Z",
+        "consumedAt": null,
+        "deletionEventId": null,
+        "executedBy": null,
+        "remoteRefAbsenceReadbackAt": null,
+        "result": null
       }
     },
     {

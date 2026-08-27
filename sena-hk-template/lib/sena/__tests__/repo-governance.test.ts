@@ -324,12 +324,29 @@ describe("SENA repository governance", () => {
       postMainChecksPassed: true
     };
     item.cleanupAuthorization = {
+      status: "active",
+      purpose: "integrated-lane-cleanup",
+      ref: "refs/heads/topic",
+      expectedOldSha: candidateHead,
       effectiveOnlyAfterThisCloseoutReachesProtectedMain: true,
       requiredCleanHeadSha: candidateHead,
       ordinaryLocalWorktreeRemoval: true,
       ordinaryLocalBranchDeletion: true,
       ordinaryRemoteBranchDeletion: true,
-      forceResetRebaseOrHistoryRewrite: false
+      forceResetRebaseOrHistoryRewrite: false,
+      exactLeaseRequired: true,
+      oneShot: true,
+      operatorBranch: "topic",
+      operatorTaskId: "SENA-GOVERNANCE-TEST-WRITER",
+      operatorOwnerKey: "test-writer",
+      githubActor: "HUDongpin",
+      authorizedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      consumedAt: null,
+      deletionEventId: null,
+      executedBy: null,
+      remoteRefAbsenceReadbackAt: null,
+      result: null
     };
     branch.headSha = candidateHead;
     branch.upstream = "origin/main";
@@ -1106,6 +1123,234 @@ describe("SENA repository governance", () => {
     expect(combined).toContain("SENA_PUSH_POLICY pass updates=1");
     expect(combined).toContain("SENA_DELETION_BOUNDARY pass ruleset=9002");
     expect(combined).toContain("SENA_SECURITY_GATE pass");
+  });
+
+  it("allows one native-hook deletion for an exact merged clean lane cleanup and rejects drift", () => {
+    const fixture = createGovernedFixture("integrated-cleanup-hook", [
+      "README.md",
+      ".gitignore",
+      "coordination/repo-governance/**"
+    ]);
+    writeFileSync(join(fixture.root, ".gitignore"), ".worktrees/\n");
+    runGit(fixture.root, ["add", ".gitignore"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "ignore fixture worktrees"]);
+    const integratedHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const targetPath = join(fixture.root, ".worktrees", "cleanup-target");
+    mkdirSync(dirname(targetPath), { recursive: true });
+    runGit(fixture.root, ["worktree", "add", "-q", "-b", "cleanup-target", targetPath, integratedHead]);
+
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    const operator = registry.workItems[0];
+    const operatorBranch = registry.branches[0];
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    operator.repo = fixture.root;
+    operator.allowedPaths = ["README.md", ".gitignore", "coordination/repo-governance/**"];
+    operatorBranch.headSha = integratedHead;
+    registry.policy.freezeExceptionBindings[0].allowedPaths = operator.allowedPaths;
+    const targetItem = {
+      ...operator,
+      taskId: "SENA-INTEGRATED-CLEANUP-TARGET",
+      threadId: "test-cleanup-target-thread",
+      cwd: targetPath,
+      owner: "test cleanup target",
+      ownerKey: "test-cleanup-target",
+      ownerLane: "test integrated cleanup",
+      branch: "cleanup-target",
+      worktreePath: targetPath,
+      baseSha: integratedHead,
+      headSha: integratedHead,
+      aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 0 },
+      allowedPaths: ["README.md"],
+      lastHeartbeatAt: null,
+      lastObservedAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: expiresAt,
+      prNumber: 9001,
+      prIsDraft: false,
+      prReadyForReview: true,
+      mergeAuthorized: true,
+      noPrReason: null,
+      dirtyState: "clean-integrated-test-target",
+      evidenceState: {
+        local: "clean exact test fixture",
+        ci: "test fixture checks passed",
+        merged: "test fixture merged",
+        deployed: "not authorized",
+        live: "not claimed"
+      },
+      disposition: "integrated",
+      lastMergedPullRequest: {
+        number: 9001,
+        headSha: integratedHead,
+        mergeCommitSha: integratedHead,
+        mergedAt: now,
+        postMainBuildRunId: 9002,
+        postMainRepositorySecurityRunId: 9003,
+        postMainChecksPassed: true
+      },
+      cleanupAuthorization: {
+        status: "active",
+        purpose: "integrated-lane-cleanup",
+        ref: "refs/heads/cleanup-target",
+        expectedOldSha: integratedHead,
+        effectiveOnlyAfterThisCloseoutReachesProtectedMain: true,
+        requiredCleanHeadSha: integratedHead,
+        ordinaryLocalWorktreeRemoval: true,
+        ordinaryLocalBranchDeletion: true,
+        ordinaryRemoteBranchDeletion: true,
+        forceResetRebaseOrHistoryRewrite: false,
+        exactLeaseRequired: true,
+        oneShot: true,
+        operatorBranch: "topic",
+        operatorTaskId: operator.taskId,
+        operatorOwnerKey: operator.ownerKey,
+        githubActor: "HUDongpin",
+        authorizedAt: now,
+        expiresAt,
+        consumedAt: null,
+        deletionEventId: null,
+        executedBy: null,
+        remoteRefAbsenceReadbackAt: null,
+        result: null
+      }
+    };
+    const targetBranch = {
+      ...operatorBranch,
+      name: "cleanup-target",
+      owner: targetItem.owner,
+      ownerKey: targetItem.ownerKey,
+      baseSha: integratedHead,
+      headSha: integratedHead,
+      upstream: "origin/cleanup-target",
+      upstreamState: "live",
+      upstreamCacheState: "present",
+      remotePresent: true,
+      remoteHeadSha: integratedHead,
+      remoteObservedAt: now,
+      pr: 9001,
+      prState: "MERGED",
+      prIsDraft: false,
+      prReadyForReview: true,
+      mergeAuthorized: true,
+      prHeadSha: integratedHead,
+      prBase: "main",
+      noPrReason: null,
+      prStateObservationMode: "monotonic",
+      lastMergedPullRequest: {
+        number: 9001,
+        headSha: integratedHead,
+        mergeCommitSha: integratedHead,
+        mergedAt: now
+      },
+      lastOwnerHeartbeatAt: null,
+      lastObservedAt: now,
+      lastCommitAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: expiresAt,
+      disposition: "integrated",
+      closeout: "test-only exact integrated cleanup target"
+    };
+    registry.workItems.push(targetItem);
+    registry.branches.push(targetBranch);
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "authorize exact integrated cleanup"]);
+    const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/cleanup-target", integratedHead]);
+
+    const hookDirectory = join(fixture.root, ".githooks");
+    const hookPath = join(hookDirectory, "pre-push");
+    const helperDirectory = join(fixture.root, "cleanup-hook-helpers");
+    const gitHelperPath = join(helperDirectory, "git");
+    const ghHelperPath = join(helperDirectory, "gh");
+    mkdirSync(hookDirectory, { recursive: true });
+    mkdirSync(helperDirectory, { recursive: true });
+    copyFileSync(join(projectRoot, ".githooks", "pre-push"), hookPath);
+    chmodSync(hookPath, 0o700);
+    const realGit = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+    writeFileSync(gitHelperPath, [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"origin\" ]; then",
+      "  printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+      "  exit 0",
+      "fi",
+      "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"--tags\" ]; then",
+      "  printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+      "  printf '%s\\trefs/heads/cleanup-target\\n' \"$SENA_TEST_TARGET_SHA\"",
+      "  exit 0",
+      "fi",
+      "if [ \"$1\" = \"fetch\" ]; then",
+      "  exec \"$SENA_TEST_REAL_GIT\" update-ref refs/remotes/origin/main \"$SENA_TEST_AUTHORIZATION_SHA\"",
+      "fi",
+      "exec \"$SENA_TEST_REAL_GIT\" \"$@\"",
+      ""
+    ].join("\n"));
+    chmodSync(gitHelperPath, 0o700);
+    writeFileSync(ghHelperPath, [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+      `  printf '%s\\n' '[{"baseRefName":"main","closedAt":"${now}","headRefName":"cleanup-target","headRefOid":"${integratedHead}","mergedAt":"${now}","number":9001,"state":"MERGED"}]'`,
+      "  exit 0",
+      "fi",
+      "printf '%s\\n' '[]'",
+      ""
+    ].join("\n"));
+    chmodSync(ghHelperPath, 0o700);
+
+    const hookResult = spawnSync(hookPath, ["origin", "https://github.com/HUDongpin/SENA.git"], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/cleanup-target ${integratedHead}\n`,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
+        SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
+        SENA_TEST_TARGET_SHA: integratedHead,
+        SENA_TEST_REAL_GIT: realGit
+      }
+    });
+    const combined = `${hookResult.stdout}${hookResult.stderr}`;
+    expect(hookResult.status, combined).toBe(0);
+    expect(combined).toContain("SENA_PUSH_POLICY pass updates=1");
+    expect(combined).toContain("SENA_DELETION_BOUNDARY pass cleanup=SENA-INTEGRATED-CLEANUP-TARGET");
+    expect(combined).toContain("SENA_SECURITY_GATE pass");
+
+    const drifted = runNode(fixture.script, [
+      "push-policy",
+      "--remote-name",
+      "origin",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/cleanup-target ${fixture.base}\n`,
+      env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+    });
+    expect(drifted.status).toBe(1);
+    expect(drifted.stderr).toContain("rule=ref-deletion-receipt-missing-or-inactive");
+
+    const wrongActor = runNode(fixture.script, [
+      "security",
+      "--push-event",
+      "--event-ref",
+      "refs/heads/cleanup-target",
+      "--event-before",
+      integratedHead,
+      "--event-after",
+      "0".repeat(40),
+      "--event-forced",
+      "false",
+      "--event-deleted",
+      "true",
+      "--event-actor",
+      "unexpected-actor",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ], { cwd: fixture.root });
+    expect(wrongActor.status).toBe(1);
+    expect(wrongActor.stderr).toContain("rule=ref-deletion-event-not-authorized");
   });
 
   it("keeps deletion-event CI on protected main with exact event SHA and actor custody", () => {
