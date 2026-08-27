@@ -2106,6 +2106,29 @@ function changedPathsAcrossCommitRange(baseSha, headSha) {
   return [...paths];
 }
 
+function changedPathsAgainstParent(parentSha, commitSha) {
+  return gitText(["diff", "--name-only", "-z", "--no-renames", parentSha, commitSha])
+    .split("\0")
+    .filter(Boolean);
+}
+
+function changedPathsAcrossProtectedMainCandidateRange(baseSha, headSha, protectedMainSha) {
+  const paths = new Set();
+  for (const commit of revList([`${baseSha}..${headSha}`])) {
+    const protectedMainParents = commitParents(commit).filter(
+      (parent) => git(["merge-base", "--is-ancestor", parent, protectedMainSha], { allowFailure: true }).status === 0
+    );
+    if (protectedMainParents.length > 0) {
+      for (const parent of protectedMainParents) {
+        for (const path of changedPathsAgainstParent(parent, commit)) paths.add(path);
+      }
+      continue;
+    }
+    for (const path of changedPaths(commit)) paths.add(path);
+  }
+  return [...paths];
+}
+
 function scopedActiveAdvance(fromSha, actualHeadSha, item) {
   if (
     !isSha(fromSha) ||
@@ -2147,7 +2170,11 @@ function scopedActiveAdvance(fromSha, actualHeadSha, item) {
   return {
     isForward: true,
     protectedMainBaseline: false,
-    laneChangedPaths: changedPathsAcrossCommitRange(candidateBase || fromSha, actualHeadSha)
+    laneChangedPaths: changedPathsAcrossProtectedMainCandidateRange(
+      candidateBase || fromSha,
+      actualHeadSha,
+      protectedMainSha
+    )
   };
 }
 
@@ -2407,10 +2434,7 @@ function runAudit(flags) {
         else if (liveHeadSha !== branchRecord.remoteHeadSha) {
           const isPermittedForwardAdvance = Boolean(
             activeItem &&
-            git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0 &&
-            changedPathsAcrossCommitRange(branchRecord.remoteHeadSha, liveHeadSha).every((path) =>
-              pathIsAllowed(path, activeItem.allowedPaths)
-            )
+            permittedActiveAdvance(branchRecord.remoteHeadSha, liveHeadSha, activeItem)
           );
           const isPermittedLowerBoundObservation = Boolean(
             branchRecord.remoteObservationMode === "lower-bound" &&
@@ -2456,10 +2480,7 @@ function runAudit(flags) {
           branchRecord.prHeadSha &&
             !recordedHeadMatches &&
             activeItem &&
-            git(["merge-base", "--is-ancestor", branchRecord.prHeadSha, pr.headRefOid], { allowFailure: true }).status === 0 &&
-            changedPathsAcrossCommitRange(branchRecord.prHeadSha, pr.headRefOid).every((path) =>
-              pathIsAllowed(path, activeItem.allowedPaths)
-            )
+            permittedActiveAdvance(branchRecord.prHeadSha, pr.headRefOid, activeItem)
         );
         if (branchRecord.prHeadSha && pr.headRefOid !== branchRecord.prHeadSha) {
           if (isPermittedForwardAdvance) {
