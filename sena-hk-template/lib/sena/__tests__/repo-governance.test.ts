@@ -237,6 +237,23 @@ describe("SENA repository governance", () => {
     ).toBe(false);
   });
 
+  it("routes live remote and PR observations through the merge-aware active-advance helper", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    expect(source).toContain(
+      "permittedActiveAdvance(branchRecord.remoteHeadSha, liveHeadSha, activeItem)"
+    );
+    expect(source).toContain(
+      "permittedActiveAdvance(branchRecord.prHeadSha, pr.headRefOid, activeItem)"
+    );
+    expect(source).toContain("changedPathsAcrossProtectedMainCandidateRange(");
+    expect(source).not.toContain(
+      "changedPathsAcrossCommitRange(branchRecord.remoteHeadSha, liveHeadSha)"
+    );
+    expect(source).not.toContain(
+      "changedPathsAcrossCommitRange(branchRecord.prHeadSha, pr.headRefOid)"
+    );
+  });
+
   it("treats protected-main fast-forwards as baseline intake while still rejecting lane-authored path escapes", () => {
     const fixture = createGovernedFixture("protected-main-baseline-intake");
     const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
@@ -1131,6 +1148,40 @@ describe("SENA repository governance", () => {
       "false"
     ], { cwd: fixture.root });
     expect(allowedEvent.status, `${allowedEvent.stdout}${allowedEvent.stderr}`).toBe(0);
+
+    runGit(fixture.root, ["switch", "-q", "-c", "protected-main-fixture", protectedMainHead]);
+    writeFileSync(
+      join(fixture.root, "coordination", "repo-governance", "heartbeat.txt"),
+      "protected main only\n"
+    );
+    runGit(fixture.root, ["add", "coordination/repo-governance/heartbeat.txt"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "advance protected main control plane"]);
+    const protectedMainAdvance = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", protectedMainAdvance]);
+    runGit(fixture.root, ["switch", "-q", "topic"]);
+    runGit(fixture.root, ["merge", "-q", "--no-edit", "origin/main"]);
+    const mergedAllowedHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const mergedAllowedPush = runNode(fixture.script, ["push-policy", "--remote-name", "origin"], {
+      cwd: fixture.root,
+      input: `${fixture.ref} ${mergedAllowedHead} ${fixture.ref} ${"0".repeat(40)}\n`,
+      env: { SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git" }
+    });
+    expect(mergedAllowedPush.status, `${mergedAllowedPush.stdout}${mergedAllowedPush.stderr}`).toBe(0);
+    const mergedAllowedEvent = runNode(fixture.script, [
+      "security",
+      "--push-event",
+      "--event-ref",
+      fixture.ref,
+      "--event-before",
+      "0".repeat(40),
+      "--event-after",
+      mergedAllowedHead,
+      "--event-forced",
+      "false",
+      "--event-deleted",
+      "false"
+    ], { cwd: fixture.root });
+    expect(mergedAllowedEvent.status, `${mergedAllowedEvent.stdout}${mergedAllowedEvent.stderr}`).toBe(0);
 
     writeFileSync(join(fixture.root, "outside.txt"), "unauthorized lane path\n");
     runGit(fixture.root, ["add", "outside.txt"]);
