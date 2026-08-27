@@ -8,16 +8,18 @@ sensitive documents.
 ## Current operating boundary
 
 Ordinary feature development remains frozen while the credential incident in
-`active-work.json` is `blocked-owner`. The safe work allowed during that freeze
-is limited to preservation, redacted security containment, governance tooling,
-sanitized salvage review, and exact-SHA verification.
+`active-work.json` is `blocked-owner` and the root checkout is still locally
+quarantined. Remote containment is complete, but the safe work allowed during
+this freeze remains limited to preservation, redacted security containment,
+governance tooling, sanitized salvage review, and exact-SHA verification.
 
 `provider-containment-ledger-20260827.json` is the machine-readable no-value
 provider ledger. This governance task performed no provider write. EvidenceFlow
 now reports provider-side/local/Vercel containment operations for all nine rows:
 DeepSeek, Qwen/Ali, SimpleTex, Mathpix, Resend, OpenRouter, Clerk, BUG LRS, and
-LRS. No SENA or MAIS production deployment/redeployment, remote-ref deletion,
-or history rewrite is reported.
+LRS. The exact contaminated SENA remote ref has now been deleted through the
+owner-authorized one-shot lease. No SENA or MAIS production deployment,
+redeployment, or history rewrite is reported.
 
 The earlier partial readback, secret-store correction, follow-up, readiness,
 blocker, owner-attestation, and pre-action receipts remain immutable historical
@@ -90,10 +92,14 @@ and both exact post-main checks passed. The first exact-lease deletion attempt
 was correctly blocked by the local governance audit before any remote mutation:
 two historical work-item ahead/behind observations and the PR #22 lifecycle
 record were stale after the merge. The contaminated ref remains at its exact
-old SHA. PR #23 now carries the immutable-base correction; its final exact-head
-checks and protected merge are pending. Feature work remains frozen; deletion,
-root-checkout movement, incident closure, feature thaw, and deployment remain
-pending.
+old SHA. PR #23 subsequently merged exact head `b008cad...` as protected-main
+`606daa6...`, and both post-main checks passed. The exact-old-SHA deletion then
+succeeded. GitHub ruleset suite `3846639027` binds actor, ref, old SHA, zero
+after-SHA, and bypass result; a mode-`0600` Git Trees metadata receipt proves
+the deleted ref is absent and all 27 live head/tag/pull candidates have zero
+forbidden path/blob findings. Feature work remains frozen until this
+consumed/event-custody record reaches protected `main` through PR #24 and the
+root checkout is restored. No deployment or history rewrite occurred.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -269,13 +275,12 @@ emitted.
 The deletion is strictly ordered: (1) provider containment plus timestamped
 redacted readback, satisfied; (2) protected merge of PR #21, satisfied as
 `9ecc72b...` with post-main checks green; (3) protected-main activation PR #22,
-satisfied as `b002f976...` with post-main checks green; (3a) bind the resulting
-historical read-only comparisons to immutable `b002f976...` and record the
-fail-closed first attempt on protected `main`; (4) exact-old-SHA lease deletion
-of only the quarantined docs ref; (5) fresh live absence readback; and (6)
-protected-main consumed/deletion-event custody receipt. The existing owner
-authorization remains `active`; no deletion may be attempted from an older or
-audit-failing main snapshot.
+satisfied as `b002f976...` with post-main checks green; (3a) immutable-base
+correction PR #23, satisfied as `606daa6...` with post-main checks green; (4)
+exact-old-SHA lease deletion of only the quarantined docs ref, satisfied; (5)
+fresh live absence readback, satisfied across 27 candidates with zero findings;
+and (6) protected-main consumed/deletion-event custody receipt, current step.
+The owner authorization is now consumed; replay must fail closed.
 
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
@@ -372,12 +377,12 @@ inferred from provider or governance implementation evidence:
 - PR #21 Ready/merge authorization was separately bound to exact head
   `24d24c8...`, consumed by the protected merge, and closed out against merge
   commit `9ecc72b...` plus successful post-main checks;
-- PR #22 merged exact head `aaf679d...` as `b002f976...` with post-main checks
-  green; merge PR #23's fail-closed dynamic-observation correction through
-  protected `main`, then use the already owner-authorized one-shot receipt to delete only
-  the contaminated remote branch with an exact old-SHA lease, read back live
-  absence, and record the protected-main consumed/event-custody receipt in that
-  order;
+- PR #22 merged exact head `aaf679d...` as `b002f976...`; PR #23's fail-closed
+  correction then merged exact head `b008cad...` as `606daa6...`; both have
+  exact post-main checks green; the one-shot exact-old-SHA deletion, official
+  ruleset-suite custody, and live absence readback are complete; merge the
+  consumed/event-custody receipt to protected `main`, then restore the root
+  checkout by ordinary checkout and fast-forward only;
 - rewrite history or request GitHub cached-object removal;
 - remove or archive broken worktree directories;
 - switch the root checkout and fast-forward local `main`;
