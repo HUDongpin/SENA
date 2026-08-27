@@ -701,12 +701,8 @@ function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry,
 }
 
 function permittedActiveAdvance(fromSha, toSha, item) {
-  if (!isSha(fromSha) || !isSha(toSha) || !item || !ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
-    return false;
-  }
-  if (!gitObjectExists(`${fromSha}^{commit}`) || !gitObjectExists(`${toSha}^{commit}`)) return false;
-  if (git(["merge-base", "--is-ancestor", fromSha, toSha], { allowFailure: true }).status !== 0) return false;
-  return changedPathsAcrossCommitRange(fromSha, toSha).every((path) => pathIsAllowed(path, item.allowedPaths));
+  const advance = scopedActiveAdvance(fromSha, toSha, item);
+  return advance.isForward && advance.laneChangedPaths.every((path) => pathIsAllowed(path, item.allowedPaths));
 }
 
 function activeRefDeletionAuthorization(registry, remoteRef, remoteSha, options = {}) {
@@ -2110,9 +2106,19 @@ function changedPathsAcrossCommitRange(baseSha, headSha) {
   return [...paths];
 }
 
-function scopedWorkItemAdvance(item, actualHeadSha) {
+function scopedActiveAdvance(fromSha, actualHeadSha, item) {
+  if (
+    !isSha(fromSha) ||
+    !isSha(actualHeadSha) ||
+    !item ||
+    !ACTIVE_WRITE_DISPOSITIONS.has(item.disposition) ||
+    !gitObjectExists(`${fromSha}^{commit}`) ||
+    !gitObjectExists(`${actualHeadSha}^{commit}`)
+  ) {
+    return { isForward: false, protectedMainBaseline: false, laneChangedPaths: [] };
+  }
   const isForward =
-    git(["merge-base", "--is-ancestor", item.headSha, actualHeadSha], { allowFailure: true }).status === 0;
+    git(["merge-base", "--is-ancestor", fromSha, actualHeadSha], { allowFailure: true }).status === 0;
   if (!isForward) {
     return { isForward: false, protectedMainBaseline: false, laneChangedPaths: [] };
   }
@@ -2126,7 +2132,7 @@ function scopedWorkItemAdvance(item, actualHeadSha) {
     return {
       isForward: true,
       protectedMainBaseline: false,
-      laneChangedPaths: changedPathsAcrossCommitRange(item.headSha, actualHeadSha)
+      laneChangedPaths: changedPathsAcrossCommitRange(fromSha, actualHeadSha)
     };
   }
 
@@ -2137,12 +2143,16 @@ function scopedWorkItemAdvance(item, actualHeadSha) {
   }
 
   const mergeBase = git(["merge-base", actualHeadSha, protectedMainSha], { allowFailure: true });
-  const candidateBase = mergeBase.status === 0 ? String(mergeBase.stdout ?? "").trim() : item.headSha;
+  const candidateBase = mergeBase.status === 0 ? String(mergeBase.stdout ?? "").trim() : fromSha;
   return {
     isForward: true,
     protectedMainBaseline: false,
-    laneChangedPaths: changedPathsAcrossCommitRange(candidateBase || item.headSha, actualHeadSha)
+    laneChangedPaths: changedPathsAcrossCommitRange(candidateBase || fromSha, actualHeadSha)
   };
+}
+
+function scopedWorkItemAdvance(item, actualHeadSha) {
+  return scopedActiveAdvance(item.headSha, actualHeadSha, item);
 }
 
 function runPortableAudit(registry, validation) {
