@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T21:23:08Z",
+  "updatedAt": "2026-08-27T21:25:22Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "21a308d4b1fd9e5de61ba2eb99c137a8c6a0186c",
+      "headSha": "3433567068718ba8c258e4e1e0f08c1da08a3c41",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,14 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T21:23:08Z",
-      "lastObservedAt": "2026-08-27T21:23:08Z",
+      "lastHeartbeatAt": "2026-08-27T21:25:22Z",
+      "lastObservedAt": "2026-08-27T21:25:22Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": null,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prNumber": 33,
+      "prIsDraft": true,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 31,
         "headSha": "931bc3e1d062e17acc7d3aa15709ba6e861fbe4a",
@@ -1020,20 +1020,20 @@
         "postMainRepositorySecurityRunId": 33116435432,
         "postMainChecksPassed": true
       },
-      "noPrReason": "Node24 PR 32 lifecycle heartbeat is dirty in the allowed governance path and has not yet been committed or opened as a governance PR.",
-      "dirtyState": "dirty-allowed-a01-remote-lease-correction",
+      "noPrReason": null,
+      "dirtyState": "ready-for-pr33-authorization-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "registry-only Node24 PR 32 lifecycle heartbeat committed as 21a308d; this follow-up records the exact existing A01 remote lease 931bc3e before ordinary push",
-        "ci": "protected main 07c481f passed build 33116435426 and repository-security 33116435432; Node24 PR 32 exact-head CI is independently recorded in its own lane",
-        "merged": "merge-parent governance PR 31 head 931bc3e merged as protected main 07c481f; Node24 PR 32 remains Draft until this registry lifecycle authorization reaches protected main",
+        "local": "Draft governance PR 33 exact first head 3433567 binds Node24 PR 32 exact lifecycle evidence; this authorization metadata will supersede that first head and remains registry-only",
+        "ci": "PR 33 first-head build 33118044987 and repository-security 33118044864/33118030699 are in progress; protected merge requires the final metadata head to pass independently",
+        "merged": "merge-parent governance PR 31 head 931bc3e merged as protected main 07c481f; Draft PR 33 authorizes Node24 PR 32 Ready/protected merge only after PR 33 itself reaches protected main",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1300,34 +1300,35 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "21a308d4b1fd9e5de61ba2eb99c137a8c6a0186c",
+      "headSha": "3433567068718ba8c258e4e1e0f08c1da08a3c41",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "931bc3e1d062e17acc7d3aa15709ba6e861fbe4a",
-      "remoteObservedAt": "2026-08-27T21:23:08Z",
-      "pr": null,
-      "prState": null,
-      "prIsDraft": null,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": null,
-      "prBase": null,
-      "noPrReason": "Node24 PR 32 lifecycle heartbeat is dirty and has not yet been committed or opened as a governance PR.",
+      "remoteHeadSha": "3433567068718ba8c258e4e1e0f08c1da08a3c41",
+      "remoteObservedAt": "2026-08-27T21:25:22Z",
+      "pr": 33,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "3433567068718ba8c258e4e1e0f08c1da08a3c41",
+      "prBase": "main",
+      "noPrReason": null,
+      "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 31,
         "headSha": "931bc3e1d062e17acc7d3aa15709ba6e861fbe4a",
         "mergeCommitSha": "07c481f66230dcbca6f405ce642014307e43e857",
         "mergedAt": "2026-08-27T21:04:49Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-27T21:23:08Z",
-      "lastObservedAt": "2026-08-27T21:23:08Z",
-      "lastCommitAt": "2026-08-28T05:22:34+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T21:25:22Z",
+      "lastObservedAt": "2026-08-27T21:25:22Z",
+      "lastCommitAt": "2026-08-28T05:24:22+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "registry-only Node24 PR 32 lifecycle heartbeat is committed at 21a308d; exact pre-existing A01 remote lease 931bc3e is recorded before ordinary push"
+      "disposition": "ready-for-pr",
+      "closeout": "Draft governance PR 33 exact first head 3433567 is bound and explicitly authorized to become Ready/merge after its final authorization-metadata head passes exact checks; protected-main inclusion releases Node24 PR 32"
     },
     {
       "name": "codex/sena-actions-node24-runtime-20260828",
