@@ -368,7 +368,7 @@ inferred from provider or governance implementation evidence:
 - PR #21 Ready/merge authorization was separately bound to exact head
   `24d24c8...`, consumed by the protected merge, and closed out against merge
   commit `9ecc72b...` plus successful post-main checks;
-- merge this activation follow-up onto protected `main`, then use the already
+- merge activation PR #22 onto protected `main`, then use the already
   owner-authorized one-shot receipt to delete only the contaminated remote
   branch with an exact old-SHA lease, read back live absence, and record the
   protected-main consumed/event-custody receipt in that order;

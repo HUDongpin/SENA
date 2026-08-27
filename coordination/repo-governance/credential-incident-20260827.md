@@ -520,7 +520,7 @@ The mandatory order is:
 2. **Satisfied:** merge PR #21 into protected `main` only through its required
    review and CI controls; exact head `24d24c8...` merged as `9ecc72b...`, and
    both post-main checks passed.
-3. **Current follow-up:** merge this activation snapshot through protected
+3. **Current follow-up:** merge activation PR #22 through protected
    `main`; it binds the one-shot receipt to the completed provider evidence,
    exact PR/merge SHAs, owner authorization, and post-main check runs.
 4. Delete only `refs/heads/docs/ledger-reconciliation-2026-08-19`, using the
