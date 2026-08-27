@@ -1351,6 +1351,12 @@ describe("SENA repository governance", () => {
     );
     registry.incident.credentialExposure.status = "blocked-owner";
     delete registry.incident.credentialExposure.closureEvidence;
+    for (const active of registry.workItems.filter(isActiveWriter)) {
+      if (active.freezeException === "governance-preservation") continue;
+      active.disposition = "integrated";
+      const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
+      branch.disposition = "integrated";
+    }
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
