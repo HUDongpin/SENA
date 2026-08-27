@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-27T15:28:26Z",
+  "updatedAt": "2026-08-27T17:02:54Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -70,7 +70,7 @@
     "refDeletionAuthorizations": [
       {
         "id": "SENA-P0-DOCS-REMOTE-DELETE-20260827",
-        "status": "pending-provider-readback",
+        "status": "active",
         "ref": "refs/heads/docs/ledger-reconciliation-2026-08-19",
         "expectedOldSha": "18d542f707e56aa9d043dd497e0efe48b540db20",
         "purpose": "credential-incident-containment",
@@ -117,9 +117,25 @@
           "remoteDeletionReceiptActivationAllowed": false,
           "supersessionRequired": true
         },
-        "providerReadbackAt": null,
-        "providerEvidenceId": null,
-        "providerEvidenceSha256": null,
+        "protectedMainActivation": {
+          "declaredAt": "2026-08-27T17:02:54Z",
+          "requiresRegistryCommitOnProtectedMain": true,
+          "mergedGovernancePullRequest": 21,
+          "mergedGovernanceHeadSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
+          "mergedGovernanceCommitSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+          "ownerAuthorizationReceiptPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-owner-authorization-20260827T165546Z.json",
+          "ownerAuthorizationReceiptSha256": "8a63c9d790fdd305c84e9ca84f36e7409749f46ad6c3440fd47d6059bfd5c71f",
+          "mergeCloseoutReceiptPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-merge-closeout-20260827T170026Z.json",
+          "mergeCloseoutReceiptSha256": "d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe",
+          "postMainBuildRunId": 33095931855,
+          "postMainRepositorySecurityRunId": 33095931649,
+          "postMainChecksHeadSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+          "postMainChecksPassed": true,
+          "deletionAttempted": false
+        },
+        "providerReadbackAt": "2026-08-27T15:13:41Z",
+        "providerEvidenceId": "provider-containment-readback-20260827T151341Z",
+        "providerEvidenceSha256": "49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2",
         "consumedAt": null,
         "deletionEventId": null,
         "executedBy": null,
@@ -519,10 +535,19 @@
         "completedProviderRowCount": 9,
         "remainingProviderRowCount": 0,
         "providerContainmentComplete": true,
-        "deletionReceiptActivationEligible": false,
+        "deletionReceiptActivationEligible": true,
         "providerPrerequisiteForProtectedMainActivationSatisfied": true,
-        "protectedMainActivationPending": true,
+        "protectedMainActivationPending": false,
         "featureWorkFrozen": true,
+        "protectedMainMerge": {
+          "pullRequest": 21,
+          "headSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
+          "mergeCommitSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+          "mergedAt": "2026-08-27T16:57:44Z",
+          "postMainBuildRunId": 33095931855,
+          "postMainRepositorySecurityRunId": 33095931649,
+          "postMainChecksPassed": true
+        },
         "pendingBrowserLogin": [],
         "pendingVerificationChallenge": [],
         "pendingProviderSignals": {},
@@ -760,15 +785,15 @@
           "LRS"
         ]
       },
-      "remoteRefRemoval": "owner-authorized-policy-status-pending-provider-readback-provider-prerequisite-complete-governance-merge-protected-main-activation-and-exact-lease-pending",
+      "remoteRefRemoval": "owner-authorized-policy-status-active-provider-readback-bound-protected-main-activation-follow-up-pending-merge-exact-lease-delete-not-attempted",
       "historyRewrite": "not-authorized",
       "historyRewritePerformed": false,
       "productionDeploymentOrRedeploymentPerformed": false,
       "productionPromotion": "not-authorized-not-proven",
       "valuesRecordedInRepositoryArtifacts": false,
       "documentTextEmitted": false,
-      "liveAuditAt": "2026-08-27T12:07:09.098Z",
-      "liveAuditStatus": "blocked-owner-pre-delete-ref-unchanged-provider-containment-complete-protected-main-sequence-pending",
+      "liveAuditAt": "2026-08-27T17:00:26Z",
+      "liveAuditStatus": "blocked-owner-pre-delete-ref-unchanged-provider-containment-complete-pr21-merged-post-main-checks-green-activation-follow-up-pending-protected-main",
       "liveRefReachabilityReceipt": {
         "id": "live-ref-reachability-predelete-20260827T120709Z",
         "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-predelete-20260827T120709Z.json",
@@ -783,7 +808,7 @@
         "credentialContentsRead": false,
         "deletionPerformed": false
       },
-      "liveMainSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
+      "liveMainSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
       "liveMainObservationMode": "lower-bound",
       "liveRemoteHeadCount": 3,
       "liveRemoteTagCount": 2,
@@ -794,7 +819,7 @@
       "forbiddenFindingCount": 4,
       "quarantineOnly": true,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 1,
+      "currentOpenPullRequestCount": 0,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -817,14 +842,14 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 2,
-        "behind": 106
+        "behind": 122
       },
       "allowedPaths": [
         "<read-only inventory and owner-authorized security containment only>"
       ],
       "createdAt": "2026-08-25T00:42:00+08:00",
       "lastHeartbeatAt": null,
-      "lastObservedAt": "2026-08-27T05:21:55Z",
+      "lastObservedAt": "2026-08-27T17:00:26Z",
       "nextReviewAt": "2026-08-28T05:00:00Z",
       "expectedCloseAt": "owner-gated:after-protected-main-activation-exact-lease-deletion-live-absence-sanitized-salvage-and-consumed-custody",
       "prNumber": null,
@@ -835,7 +860,7 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "paths, commit, and blob verified without reading values; all nine provider rows now have a complete superseding no-value readback, while ref deletion and incident closure remain pending",
+        "local": "paths, commit, and blob verified without reading values; all nine provider rows are closed, PR 21 is merged with exact-SHA post-main checks green, and the one-shot exact-lease authorization is declared active in the protected-main follow-up while deletion and incident closure remain pending",
         "ci": "none; branch has no qualifying run",
         "merged": "not merged to main",
         "deployed": "not authorized and not claimed",
@@ -845,7 +870,7 @@
     },
     {
       "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
-      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
       "repo": "/Volumes/Starship/SENA",
       "cwd": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
@@ -854,11 +879,11 @@
       "laneType": "feature",
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
-      "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "8c4a75157cac2a368ccc9633c554ae9234072320",
+      "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+      "headSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 14,
+        "ahead": 0,
         "behind": 0
       },
       "allowedPaths": [
@@ -873,24 +898,32 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-27T15:28:26Z",
-      "lastObservedAt": "2026-08-27T15:28:26Z",
+      "lastHeartbeatAt": "2026-08-27T17:02:54Z",
+      "lastObservedAt": "2026-08-27T17:02:54Z",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "prNumber": 21,
-      "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "lastMergedPullRequest": {
+        "number": 21,
+        "headSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
+        "mergeCommitSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+        "mergedAt": "2026-08-27T16:57:44Z",
+        "ownerAuthorizationReceiptSha256": "8a63c9d790fdd305c84e9ca84f36e7409749f46ad6c3440fd47d6059bfd5c71f",
+        "mergeCloseoutReceiptSha256": "d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe"
+      },
       "noPrReason": null,
-      "dirtyState": "active-governance-nine-of-nine-provider-containment-complete-protected-main-activation-pending",
+      "dirtyState": "active-governance-protected-main-activation-follow-up-in-progress",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "final pre-commit verification passed for the exact four-file Mathpix and complete-readback governance update: Mathpix closeout, the complete 9-of-9 superseding provider readback, and all twelve immutable source receipts independently matched exact custody, JSON, and no-value scan expectations; 9-of-9 fail-closed cross-file assertions, JSON validation, git diff --check, registry, audit, staged security, staged write-policy, pre-commit, and the focused governance suite passed 36/36",
-        "ci": "exact pre-update head 8c4a7515 is green: build run 33085994168 success, repository-security PR run 33085994102 success, and repository-security push run 33085988227 success; these prior-head checks do not cover the current Mathpix and complete-readback four-file governance delta until it is committed, pushed, and checked",
-        "merged": "pending",
+        "local": "provider containment is 9-of-9 complete; exact PR head 24d24c8 passed build and repository-security checks, the owner authorization receipt and merge closeout receipt passed no-value custody checks, and the worktree was ordinary fast-forwarded to merge commit 9ecc72b before this activation delta",
+        "ci": "PR 21 exact head 24d24c8: build 33095122428 success, PR repository-security 33095122535 success, push repository-security 33095119041 success; post-main exact merge 9ecc72b: build 33095931855 success and repository-security 33095931649 success",
+        "merged": "PR 21 merged as 9ecc72b09d51e2426868eb7569449ed9aea0f774; this activation follow-up is not yet on protected main",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
@@ -913,14 +946,14 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 16
       },
       "allowedPaths": [
         "<ignored build, browser, performance, and temporary runtime artifacts only; no tracked writes>"
       ],
       "createdAt": "2026-08-27T04:10:00Z",
       "lastHeartbeatAt": "2026-08-27T04:56:29.966Z",
-      "lastObservedAt": "2026-08-27T05:21:55Z",
+      "lastObservedAt": "2026-08-27T17:00:26Z",
       "nextReviewAt": "2026-08-28T04:10:00Z",
       "expectedCloseAt": "2026-08-28T04:10:00Z",
       "prNumber": null,
@@ -933,7 +966,7 @@
       "evidenceState": {
         "local": "exact-main automated ladder passed on 5cdea568/tree 4a0f018 and the later metadata package was independently verified complete; desktop visual passed but 375x900 mobile visual failed with an open P1, so research-pilot/reviewer handoff is conditional and not fully approved",
         "ci": "historical PR #20 head build run 33007461716 and post-main build run 33007704490 passed typecheck/build only",
-        "merged": "exact source is current live main",
+        "merged": "exact source 5cdea568 is an ancestor of current live main 9ecc72b; its historical release receipt remains SHA-bound and is not promoted to the newer main",
         "deployed": "not authorized and not claimed",
         "live": "not tested and not claimed"
       },
@@ -952,16 +985,16 @@
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "18d542f707e56aa9d043dd497e0efe48b540db20",
-      "remoteObservedAt": "2026-08-27T05:03:15.729Z",
+      "remoteObservedAt": "2026-08-27T17:00:26Z",
       "pr": null,
       "noPrReason": "Security quarantine; the branch must never be merged wholesale.",
       "lastOwnerHeartbeatAt": null,
-      "lastObservedAt": "2026-08-27T05:21:55Z",
+      "lastObservedAt": "2026-08-27T17:00:26Z",
       "lastCommitAt": "2026-08-25T00:42:52+08:00",
       "nextReviewAt": "2026-08-28T05:00:00Z",
       "expectedCloseAt": "owner-gated:provider-rotation-sanitized-salvage-and-remote-ref-removal",
       "disposition": "security-quarantine",
-      "closeout": "owner authorization receipt exists but is pending-provider-readback; close only after provider containment, sanitized-salvage disposition, protected merge of PR #21, protected-main one-shot activation, exact-lease deletion, live absence readback, and protected-main consumed/event-custody receipt"
+      "closeout": "owner authorization and complete provider readback are bound; PR 21 is merged and its post-main checks are green; close only after this activation follow-up reaches protected main, exact-lease deletion, live absence readback, sanitized-salvage disposition, and protected-main consumed/event-custody receipt"
     },
     {
       "name": "codex/sena-statistical-integrity-v2",
@@ -1040,52 +1073,52 @@
       "ownerKey": "SENA-A01",
       "baseSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
       "headSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
-      "targetSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
+      "targetSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
+      "remoteHeadSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-08-27T05:03:15.729Z",
+      "remoteObservedAt": "2026-08-27T17:00:26Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
       "lastOwnerHeartbeatAt": null,
-      "lastObservedAt": "2026-08-27T05:21:55Z",
+      "lastObservedAt": "2026-08-27T17:00:26Z",
       "lastCommitAt": "2026-08-23T19:02:19+08:00",
       "nextReviewAt": "2026-08-28T05:00:00Z",
       "expectedCloseAt": "owner-gated:p0-closure-and-fast-forward-root-restoration",
       "disposition": "preservation-review",
-      "closeout": "restore root control plane only after P0 owner gate; fast-forward only"
+      "closeout": "live protected main includes PR 21 at 9ecc72b with post-main checks green; restore root control plane only after exact-lease deletion, live absence, consumed/event custody, and the remaining P0 owner gates; fast-forward only"
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
-      "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "8c4a75157cac2a368ccc9633c554ae9234072320",
+      "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
+      "headSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "8c4a75157cac2a368ccc9633c554ae9234072320",
-      "remoteObservedAt": "2026-08-27T15:20:12Z",
+      "remoteHeadSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
+      "remoteObservedAt": "2026-08-27T17:00:26Z",
       "pr": 21,
-      "prState": "OPEN",
-      "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prState": "MERGED",
+      "prIsDraft": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "prStateObservationMode": "monotonic",
-      "prHeadSha": "8c4a75157cac2a368ccc9633c554ae9234072320",
+      "prHeadSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
       "prBase": "main",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-08-27T15:28:26Z",
-      "lastObservedAt": "2026-08-27T15:28:26Z",
-      "lastCommitAt": "2026-08-27T23:05:35+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-27T17:02:54Z",
+      "lastObservedAt": "2026-08-27T17:02:54Z",
+      "lastCommitAt": "2026-08-28T00:57:43+08:00",
       "nextReviewAt": "2026-08-28T04:00:00Z",
       "expectedCloseAt": "2026-08-28T04:00:00Z",
       "disposition": "ready-for-pr",
-      "closeout": "Draft PR #21 is open; ordinary closeout only after approved merge and clean verification"
+      "closeout": "PR 21 merged as 9ecc72b with exact-head and post-main checks green; branch is locally fast-forwarded to protected main and carries the pending one-shot activation follow-up"
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",
@@ -1097,16 +1130,16 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": false,
-      "remoteObservedAt": "2026-08-27T05:03:15.729Z",
+      "remoteObservedAt": "2026-08-27T17:00:26Z",
       "pr": null,
       "noPrReason": "Ephemeral exact-main verification lane; no tracked code changes.",
       "lastOwnerHeartbeatAt": "2026-08-27T04:56:29.966Z",
-      "lastObservedAt": "2026-08-27T05:21:55Z",
+      "lastObservedAt": "2026-08-27T17:00:26Z",
       "lastCommitAt": "2026-08-27T03:55:10+08:00",
       "nextReviewAt": "2026-08-28T04:10:00Z",
       "expectedCloseAt": "2026-08-28T04:10:00Z",
       "disposition": "integrated",
-      "closeout": "ordinary branch/worktree closeout only after receipt custody and clean-state verification"
+      "closeout": "historical exact-main receipt remains bound to 5cdea568; the retained worktree is 16 commits behind protected main 9ecc72b and stays read-only pending ordinary closeout"
     }
   ],
   "orphanWorktrees": [

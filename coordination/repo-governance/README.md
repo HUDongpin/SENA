@@ -82,11 +82,14 @@ twelve-receipt supersession chain, and zero high-risk credential-pattern or
 sensitive semantic-string findings. The twelve source receipts also passed
 independent exact hash/mode/type/JSON/no-value checks.
 
-Provider containment is therefore true, but deletion activation remains false,
-feature work remains frozen, and PR #21 remains Draft. Protected-main merge and
-activation are still pending; these receipts authorize neither PR Ready, merge,
-contaminated-ref deletion, root-checkout movement, feature thaw, incident
-closure, nor deployment.
+Provider containment is therefore true. Those provider receipts alone did not
+authorize PR Ready or merge. A separate exact-head owner-authorization receipt
+was subsequently consumed when PR #21 became Ready and merged as
+`9ecc72b09d51e2426868eb7569449ed9aea0f774`; exact-head and post-main checks
+passed. This follow-up declares the deletion receipt active but it remains
+non-executable until the activation snapshot is itself on protected `main`.
+Feature work remains frozen, and contaminated-ref deletion, root-checkout
+movement, incident closure, feature thaw, and deployment remain pending.
 
 The root checkout at `/Volumes/Starship/SENA` is a quarantined control-plane
 checkout. It must not be switched, reset, stashed, rebased, merged, cleaned, or
@@ -260,13 +263,15 @@ credentials at runtime and assert that neither content nor filename values are
 emitted.
 
 The deletion is strictly ordered: (1) provider containment plus timestamped
-redacted readback; (2) protected merge of Draft PR #21; (3) protected-main
-follow-up activation of the one-shot receipt bound to provider evidence; (4)
+redacted readback, satisfied; (2) protected merge of PR #21, satisfied as
+`9ecc72b...` with post-main checks green; (3) protected-main follow-up activation
+of the one-shot receipt bound to provider evidence, current step; (4)
 exact-old-SHA lease deletion of only the quarantined docs ref; (5) fresh live
 absence readback; and (6) protected-main consumed/deletion-event custody
-receipt. The existing owner authorization remains
-`pending-provider-readback`; it is neither absent nor executable. No deletion
-may be attempted from pre-governance `main`.
+receipt. The existing owner authorization is declared `active` in this
+follow-up, but it is not executable until this exact registry snapshot is the
+freshly fetched protected `main`. No deletion may be attempted from an older
+main snapshot.
 
 The added GitHub Actions workflow runs the fast gate on pushes/PRs whose
 checked-out ref contains that workflow. It cannot retroactively protect an old
@@ -358,15 +363,15 @@ remain unproved.
 ## Owner-gated actions
 
 The following actions require distinct owner authorization and must not be
-inferred from this governance implementation:
+inferred from provider or governance implementation evidence:
 
-- authorize and merge Draft PR #21 through its protected-main review and CI
-  controls; provider containment is complete, but the current registry still
-  records `prReadyForReview=false` and `mergeAuthorized=false`;
-- after that merge, activate the one-shot receipt on protected `main`, delete
-  the contaminated remote branch with an exact old-SHA lease, read back live
-  absence, and record the protected-main consumed/event-custody receipt in that
-  order;
+- PR #21 Ready/merge authorization was separately bound to exact head
+  `24d24c8...`, consumed by the protected merge, and closed out against merge
+  commit `9ecc72b...` plus successful post-main checks;
+- merge this activation follow-up onto protected `main`, then use the already
+  owner-authorized one-shot receipt to delete only the contaminated remote
+  branch with an exact old-SHA lease, read back live absence, and record the
+  protected-main consumed/event-custody receipt in that order;
 - rewrite history or request GitHub cached-object removal;
 - remove or archive broken worktree directories;
 - switch the root checkout and fast-forward local `main`;
