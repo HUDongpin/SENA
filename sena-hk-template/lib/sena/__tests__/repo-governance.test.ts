@@ -470,11 +470,28 @@ describe("SENA repository governance", () => {
       "integrated read-only root absorbed a protected-main registry-only advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
     );
 
+    runGit(fixture.root, ["checkout", "-q", "--detach", registryOnlyMain]);
+    runGit(fixture.root, ["branch", "-f", "main", fixture.head]);
+    runGit(fixture.root, ["checkout", "-q", "main"]);
+    const remoteOnlyAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const remoteOnlyReport = JSON.parse(remoteOnlyAudit.stdout);
+    expect(remoteOnlyReport.errors).not.toContain(
+      "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    expect(remoteOnlyReport.warnings).toContain(
+      "integrated read-only root observed a protected-main registry-only remote advance without advancing local main: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+
+    runGit(fixture.root, ["checkout", "-q", "--detach", registryOnlyMain]);
     writeFileSync(join(fixture.root, "README.md"), "unauthorized protected-main product change\n");
     runGit(fixture.root, ["add", "README.md"]);
     runGit(fixture.root, ["commit", "-q", "-m", "protected main product change"]);
     const productMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", productMain]);
+    runGit(fixture.root, ["checkout", "-q", "main"]);
 
     const productAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
       cwd: fixture.root,
@@ -483,7 +500,7 @@ describe("SENA repository governance", () => {
     const productReport = JSON.parse(productAudit.stdout);
     expect(productAudit.status).toBe(1);
     expect(productReport.errors).toContain(
-      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+      "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828"
     );
   });
 

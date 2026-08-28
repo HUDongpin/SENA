@@ -2170,6 +2170,45 @@ function integratedReadOnlyRootRegistryAdvanceAllowed(item, actualHeadSha) {
   return changedPaths.length > 0 && changedPaths.every((path) => path === REGISTRY_REPO_PATH);
 }
 
+function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(item, actualHeadSha, observed, branchRecord) {
+  const recorded = item?.aheadBehind;
+  if (
+    item?.taskId !== "SENA-A01-ROOT-CONTROL-PLANE-20260828" ||
+    item.disposition !== "integrated" ||
+    item.laneType !== "read-only" ||
+    item.branch !== "main" ||
+    recorded?.baseRef !== "origin/main" ||
+    recorded.ahead !== 0 ||
+    observed?.ahead !== 0 ||
+    observed.behind <= recorded.behind ||
+    !String(item.dirtyState ?? "").startsWith("clean") ||
+    canonicalExistingPath(item.repo) !== canonicalExistingPath(CONTROL_ROOT) ||
+    canonicalExistingPath(item.cwd) !== canonicalExistingPath(CONTROL_ROOT) ||
+    canonicalExistingPath(item.worktreePath) !== canonicalExistingPath(CONTROL_ROOT) ||
+    actualHeadSha !== item.headSha ||
+    branchRecord?.name !== "main" ||
+    branchRecord.headSha !== actualHeadSha ||
+    branchRecord.remoteObservationMode !== "lower-bound" ||
+    !isSha(branchRecord.remoteHeadSha) ||
+    !gitObjectExists(`${actualHeadSha}^{commit}`) ||
+    !gitObjectExists(`${branchRecord.remoteHeadSha}^{commit}`) ||
+    !gitObjectExists("origin/main^{commit}")
+  ) {
+    return false;
+  }
+  const remoteMainSha = gitText(["rev-parse", "origin/main"]).trim();
+  if (
+    !isSha(remoteMainSha) ||
+    remoteMainSha === branchRecord.remoteHeadSha ||
+    git(["merge-base", "--is-ancestor", actualHeadSha, branchRecord.remoteHeadSha], { allowFailure: true }).status !== 0 ||
+    git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, remoteMainSha], { allowFailure: true }).status !== 0
+  ) {
+    return false;
+  }
+  const changedPaths = changedPathsAcrossCommitRange(branchRecord.remoteHeadSha, remoteMainSha);
+  return changedPaths.length > 0 && changedPaths.every((path) => path === REGISTRY_REPO_PATH);
+}
+
 function sha256File(path) {
   return sha256Buffer(readFileSync(path));
 }
@@ -2677,12 +2716,22 @@ function runAudit(flags) {
       }
     }
     const observed = actualAheadBehind(actual.headSha, item.aheadBehind.baseRef);
+    const integratedRootRemoteRegistryAdvance = integratedReadOnlyRootRemoteRegistryAdvanceAllowed(
+      item,
+      actual.headSha,
+      observed,
+      registryBranches.get(item.branch)
+    );
     if (!observed) {
       errors.push(`ahead/behind base is unavailable: ${item.taskId} base=${item.aheadBehind.baseRef}`);
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
       if (isActive) warnings.push(`active workItem ahead/behind advanced since heartbeat: ${item.taskId}`);
       else if (integratedRootRegistryAdvance) {
         // The exact protected-main registry-only advance above is the sole permitted root currentness drift.
+      } else if (integratedRootRemoteRegistryAdvance) {
+        warnings.push(
+          `integrated read-only root observed a protected-main registry-only remote advance without advancing local main: ${item.taskId}`
+        );
       } else if (integratedCleanupBehindAdvanceAllowed(item, actual.headSha, observed)) {
         warnings.push(
           `integrated cleanup target fell farther behind protected main without changing head: ${item.taskId}`
