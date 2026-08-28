@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "162dba45841e9ebbc0f03d45ab6631272063c58a",
+      "headSha": "4cc37fff84c17b0a81fcaae4fecbffe287a2ac47",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,11 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T04:32:21Z",
-      "lastObservedAt": "2026-08-28T04:32:21Z",
+      "lastHeartbeatAt": "2026-08-28T04:57:53Z",
+      "lastObservedAt": "2026-08-28T04:57:53Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 39,
+      "prIsDraft": true,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 37,
         "headSha": "204862da3602d30f656784a4e97a3ea75a6afac2",
@@ -1017,20 +1020,20 @@
         "postMainRepositorySecurityRunId": 33128087560,
         "postMainChecksPassed": true
       },
-      "noPrReason": "PR 37 is merged; the next A01 governance heartbeat has not yet been pushed or opened as a PR.",
-      "dirtyState": "staged-a01-remote-lease-heartbeat-head-pending",
+      "noPrReason": null,
+      "dirtyState": "staged-pr39-final-authorization-metadata-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "clean A01 commit 162dba4 binds EvidenceFlow Draft PR 38 exact head 0523fde, live remote ownership, and current exact-check state; registry/live audit and 43 governance tests pass",
-        "ci": "PR 37 and protected main 2a283fa are green via build 33128087578 and repository-security 33128087560; A01 commit 162dba4 has not yet been pushed or checked",
-        "merged": "PR 37 is protected-main complete at 2a283fa; EvidenceFlow PR 38 remains Draft and unmerged",
+        "local": "Draft PR 39 exact head 4cc37ff binds EvidenceFlow PR 38 and its changes-required independent review; registry/live audit and 43 governance tests pass",
+        "ci": "PR 39 exact head 4cc37ff passed build 33142362902 and repository-security 33142362832/33142335459; the forthcoming authorization-metadata head must independently pass before Ready/merge",
+        "merged": "PR 37 is protected-main complete at 2a283fa; PR 39 remains Draft and unmerged",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1126,10 +1129,21 @@
       "sensitivePaths": [],
       "evidenceState": {
         "local": "clean exact candidate 0523fde contains the fixed research-evidence/v1 and engineering-release/v1 shadow graphs, authoritative receipts/outbox, independent worker, API/docs/contracts, Control Room, and ADR-0012; full pilot verify and fresh PostgreSQL shadow pilots passed on this exact tree",
-        "ci": "PR 38 exact head 0523fde: repository-security runs 33141742207 and 33141708981 passed; build run 33141742211 is in progress and is not yet accepted as evidence",
-        "merged": "not merged; Draft PR 38 remains fail-closed pending exact-head build, independent review, and separate protected-main authorization",
+        "ci": "PR 38 exact head 0523fde passed build 33141742211 and repository-security 33141742207/33141708981; build and security annotations are empty",
+        "merged": "not merged; Draft PR 38 remains fail-closed because independent review requires changes and mergeAuthorized remains false",
         "deployed": "not authorized and not performed",
         "live": "local production-server desktop/mobile browser flow passed; no deployed endpoint or institution-production claim; engineering graph remains shadow-only"
+      },
+      "independentReview": {
+        "reviewerType": "codex-subagent",
+        "reviewerId": "01a046aa-0353-7df2-b844-49010d129612",
+        "reviewedHeadSha": "0523fde705837784b0cc897147183fdc2114a1e3",
+        "completedAt": "2026-08-28T04:57:53Z",
+        "status": "changes-required",
+        "criticalFindingCount": 2,
+        "importantFindingCount": 8,
+        "minorFindingCount": 1,
+        "mergeApproved": false
       },
       "disposition": "ready-for-pr"
     }
@@ -1257,15 +1271,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "162dba45841e9ebbc0f03d45ab6631272063c58a",
+      "headSha": "4cc37fff84c17b0a81fcaae4fecbffe287a2ac47",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "204862da3602d30f656784a4e97a3ea75a6afac2",
-      "remoteObservedAt": "2026-08-28T04:32:21Z",
-      "pr": null,
-      "noPrReason": "PR 37 is merged; the next A01 governance heartbeat has not yet been pushed or opened as a PR.",
+      "remoteHeadSha": "4cc37fff84c17b0a81fcaae4fecbffe287a2ac47",
+      "remoteObservedAt": "2026-08-28T04:57:53Z",
+      "pr": 39,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "4cc37fff84c17b0a81fcaae4fecbffe287a2ac47",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 37,
@@ -1273,13 +1293,13 @@
         "mergeCommitSha": "2a283faaf1d377f8f274fe689d38894b88b4fc0e",
         "mergedAt": "2026-08-27T23:57:27Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T04:32:21Z",
-      "lastObservedAt": "2026-08-28T04:32:21Z",
-      "lastCommitAt": "2026-08-28T12:29:11+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-28T04:57:53Z",
+      "lastObservedAt": "2026-08-28T04:57:53Z",
+      "lastCommitAt": "2026-08-28T12:36:18+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "PR 37 merged as protected main 2a283fa with post-main checks green; remote A01 branch remains at exact 204862d while the new EvidenceFlow lifecycle heartbeat awaits ordinary push"
+      "disposition": "ready-for-pr",
+      "closeout": "Draft PR 39 head 4cc37ff is exact-check green and metadata-authorized; only the forthcoming metadata head may become Ready/merge after its own exact build/security pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
