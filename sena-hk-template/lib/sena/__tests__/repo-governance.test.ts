@@ -399,6 +399,94 @@ describe("SENA repository governance", () => {
     );
   });
 
+  it("lets the integrated read-only root absorb only protected-main registry-only commits", () => {
+    const fixture = createGovernedFixture("integrated-root-registry-only-advance");
+    runGit(fixture.root, ["branch", "-M", "main"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", fixture.head]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "main"]);
+
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    const item = registry.workItems[0];
+    const branch = registry.branches[0];
+    item.taskId = "SENA-A01-ROOT-CONTROL-PLANE-20260828";
+    item.owner = "SENA-A01 root control plane";
+    item.ownerKey = "SENA-A01";
+    item.ownerLane = "A01 read-only coordination";
+    item.laneType = "read-only";
+    item.branch = "main";
+    item.headSha = fixture.head;
+    item.aheadBehind = { baseRef: "origin/main", ahead: 0, behind: 0 };
+    item.allowedPaths = ["<read-only coordination and synchronization only>"];
+    item.prNumber = null;
+    item.noPrReason = "Root is the read-only protected-main control plane.";
+    item.dirtyState = "clean-main-exact-origin-main";
+    item.disposition = "integrated";
+    delete item.prIsDraft;
+    delete item.prReadyForReview;
+    delete item.mergeAuthorized;
+    delete item.freezeException;
+    delete item.cleanupAuthorization;
+
+    branch.name = "main";
+    branch.owner = "SENA-A01";
+    branch.ownerKey = "SENA-A01";
+    branch.headSha = fixture.head;
+    branch.upstream = "origin/main";
+    branch.upstreamState = "live";
+    branch.upstreamCacheState = "present";
+    branch.remotePresent = true;
+    branch.remoteHeadSha = fixture.head;
+    branch.remoteObservationMode = "lower-bound";
+    branch.pr = null;
+    branch.noPrReason = "Control-plane main branch.";
+    branch.disposition = "integrated";
+    delete branch.prState;
+    delete branch.prIsDraft;
+    delete branch.prReadyForReview;
+    delete branch.mergeAuthorized;
+    delete branch.prHeadSha;
+    delete branch.prBase;
+    delete branch.prStateObservationMode;
+
+    const registryRoot = temporaryRoot("integrated-root-registry-snapshot");
+    const registrySnapshot = join(registryRoot, "active-work.json");
+    writeFileSync(registrySnapshot, `${JSON.stringify(registry, null, 2)}\n`);
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "protected main registry-only heartbeat"]);
+    const registryOnlyMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", registryOnlyMain]);
+
+    const registryOnlyAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const registryOnlyReport = JSON.parse(registryOnlyAudit.stdout);
+    expect(registryOnlyReport.errors).not.toContain("branch head differs from registry: main");
+    expect(registryOnlyReport.errors).not.toContain(
+      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    expect(registryOnlyReport.warnings).toContain(
+      "integrated read-only root absorbed a protected-main registry-only advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+
+    writeFileSync(join(fixture.root, "README.md"), "unauthorized protected-main product change\n");
+    runGit(fixture.root, ["add", "README.md"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "protected main product change"]);
+    const productMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", productMain]);
+
+    const productAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
+      cwd: fixture.root,
+      env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+    });
+    const productReport = JSON.parse(productAudit.stdout);
+    expect(productAudit.status).toBe(1);
+    expect(productReport.errors).toContain(
+      "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+  });
+
   it("allows exact integrated cleanup targets to fall farther behind protected main without allowing new lane commits", () => {
     const fixture = createGovernedFixture("integrated-cleanup-behind-drift");
     const candidateHead = fixture.head;
