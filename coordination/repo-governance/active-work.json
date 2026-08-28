@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "4010947d02b41a82eb03baeb45e80aa97a1fd7b4",
+      "headSha": "204815bee7719171ea722bb920b70d996320d473",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T20:56:10Z",
-      "lastObservedAt": "2026-08-28T20:56:10Z",
-      "nextReviewAt": "2026-08-29T02:56:10Z",
+      "lastHeartbeatAt": "2026-08-28T21:01:16Z",
+      "lastObservedAt": "2026-08-28T21:01:16Z",
+      "nextReviewAt": "2026-08-29T03:01:16Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 49,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 48,
         "headSha": "4598d450e084eb87586827cbd0ea54c1f22ef108",
@@ -1051,17 +1051,17 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr49-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr49-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 committed the three-path root-currentness fix as 4010947d after RED/GREEN, 48/48 governance tests, registry, repaired live audit, write-policy, security, syntax, typecheck, native pre-commit, and native pre-push passed; this staged follow-up binds only its remote and Draft PR49 lifecycle",
-        "ci": "Draft PR49 exact head 4010947d has build 33210348819 and PR repository-security 33210348848 in progress; push repository-security 33210331021 is also running, so no Ready or merge claim is made",
-        "merged": "PR48 remains the last protected-main merge at 2977f772; Draft PR49 is OPEN at exact head 4010947d and remains merge-unauthorized",
+        "local": "A01 root-currentness and PR lifecycle commits through 204815be passed RED/GREEN, 48/48 governance tests, registry, repaired live audit, write-policy, security, syntax, typecheck, native pre-commit, and native pre-push; this staged final metadata authorizes PR49 Ready/protected merge only after its own exact-head checks pass",
+        "ci": "Draft PR49 exact head 204815be passed build 33210562888 and repository-security 33210558672/33210563043; all three check-run annotation endpoints returned zero",
+        "merged": "PR48 remains the last protected-main merge at 2977f772; Draft PR49 is OPEN/CLEAN/MERGEABLE at exact head 204815be and is conditionally Ready/merge-authorized only after this final metadata commit's exact checks pass",
         "deployed": "not authorized",
-        "live": "remote A01 branch and Draft PR49 were independently re-read at exact 4010947d; protected main remains 2977f772; both intake releases remain inactive until PR49 protected-main post-main gates and commit-bound audit pass"
+        "live": "remote A01 branch and Draft PR49 were independently re-read at exact 204815be; protected main remains 2977f772; both intake releases remain inactive until PR49 protected-main post-main gates and repaired commit-bound audit pass"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1443,19 +1443,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "4010947d02b41a82eb03baeb45e80aa97a1fd7b4",
+      "headSha": "204815bee7719171ea722bb920b70d996320d473",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "4010947d02b41a82eb03baeb45e80aa97a1fd7b4",
-      "remoteObservedAt": "2026-08-28T20:56:10Z",
+      "remoteHeadSha": "204815bee7719171ea722bb920b70d996320d473",
+      "remoteObservedAt": "2026-08-28T21:01:16Z",
       "pr": 49,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "4010947d02b41a82eb03baeb45e80aa97a1fd7b4",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "204815bee7719171ea722bb920b70d996320d473",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1465,13 +1465,13 @@
         "mergeCommitSha": "2977f772a88c1e47b48ab275b5b858f7f5b76e6b",
         "mergedAt": "2026-08-28T20:40:03Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T20:56:10Z",
-      "lastObservedAt": "2026-08-28T20:56:10Z",
-      "lastCommitAt": "2026-08-29T04:54:22+08:00",
-      "nextReviewAt": "2026-08-29T02:56:10Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T21:01:16Z",
+      "lastObservedAt": "2026-08-28T21:01:16Z",
+      "lastCommitAt": "2026-08-29T04:58:01+08:00",
+      "nextReviewAt": "2026-08-29T03:01:16Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR49 is OPEN at exact remote/local head 4010947d and this staged registry-only follow-up binds that lifecycle; PR49 remains Draft and merge-unauthorized, and both downstream intake releases remain inactive"
+      "closeout": "Draft PR49 exact head 204815be is CI-green with zero annotations; this staged registry-only final metadata authorizes PR49 Ready/protected merge only after its own exact checks pass, while both downstream intake releases remain inactive"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
