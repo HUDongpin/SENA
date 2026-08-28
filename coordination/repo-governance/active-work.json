@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5a30a0dd2a790a8158bab110338103c74df1f6dc",
+      "headSha": "12f24cb9007d265c64aaf0c6d9dd9c2d351df72c",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,9 +1016,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T18:29:09Z",
-      "lastObservedAt": "2026-08-28T18:29:09Z",
-      "nextReviewAt": "2026-08-29T00:29:09Z",
+      "lastHeartbeatAt": "2026-08-28T18:38:28Z",
+      "lastObservedAt": "2026-08-28T18:38:28Z",
+      "nextReviewAt": "2026-08-29T00:38:28Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 44,
       "prIsDraft": false,
@@ -1057,7 +1057,7 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded its clean governance worktree to exact protected main 5a30a0dd and is preparing one registry-only heartbeat for the actual EvidenceFlow and branch-retirement worktree states",
+        "local": "A01 committed registry-only active-lane heartbeat 12f24cb after 47/47 governance tests and all machine gates passed; the first ordinary push was correctly refused before remote mutation because the commit snapshot retained a lower-bound remote SHA, and this staged correction binds exact live remote f44e902",
         "ci": "PR44 exact head f44e902 and post-main 5a30a0dd build/repository-security checks passed with zero annotations",
         "merged": "PR 44 merged exact head f44e902 as protected main 5a30a0dd; this new registry-only heartbeat has not yet been committed, pushed, reviewed, or merged",
         "deployed": "not authorized",
@@ -1442,13 +1442,13 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5a30a0dd2a790a8158bab110338103c74df1f6dc",
+      "headSha": "12f24cb9007d265c64aaf0c6d9dd9c2d351df72c",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f2b899b27baa7e8debc5388fec578a745a7869ca",
-      "remoteObservedAt": "2026-08-28T17:07:43Z",
+      "remoteHeadSha": "f44e902831e74c9071a4d0c7ec9ce137b3b5ed89",
+      "remoteObservedAt": "2026-08-28T18:38:28Z",
       "pr": 44,
       "prState": "MERGED",
       "prIsDraft": false,
@@ -1464,10 +1464,10 @@
         "mergeCommitSha": "5a30a0dd2a790a8158bab110338103c74df1f6dc",
         "mergedAt": "2026-08-28T17:31:32Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T18:29:09Z",
-      "lastObservedAt": "2026-08-28T18:29:09Z",
-      "lastCommitAt": "2026-08-29T01:31:32+08:00",
-      "nextReviewAt": "2026-08-29T00:29:09Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T18:38:28Z",
+      "lastObservedAt": "2026-08-28T18:38:28Z",
+      "lastCommitAt": "2026-08-29T02:37:32+08:00",
+      "nextReviewAt": "2026-08-29T00:38:28Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
       "closeout": "PR44 exact head f44e902 merged as protected main 5a30a0dd with green post-main checks; local A01 is preparing a registry-only live-topology heartbeat and has not yet pushed or opened the next PR"
