@@ -1090,11 +1090,11 @@
       "branch": "codex/sena-evidenceflow-v1-20260828",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-evidenceflow-v1-20260828",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "07c481f66230dcbca6f405ce642014307e43e857",
+      "headSha": "0523fde705837784b0cc897147183fdc2114a1e3",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
-        "behind": 9
+        "ahead": 1,
+        "behind": 0
       },
       "allowedPaths": [
         "sena-hk-template/app/api/sena/workflows/**",
@@ -1116,22 +1116,25 @@
         "docs/adr/**"
       ],
       "createdAt": "2026-08-27T18:54:04Z",
-      "lastHeartbeatAt": "2026-08-27T21:45:24Z",
-      "lastObservedAt": "2026-08-27T21:45:24Z",
+      "lastHeartbeatAt": "2026-08-28T04:26:47Z",
+      "lastObservedAt": "2026-08-28T04:26:47Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "noPrReason": "EvidenceFlow shared kernel, encrypted job custody, executable validation/publication work, closeout, registry/catalog, Postgres, ADR, and tests remain allowed dirty local-shadow work; no implementation commit, push, or PR exists yet.",
-      "dirtyState": "dirty-allowed-evidenceflow-kernel-job-executors-closeout-tests",
+      "prNumber": 38,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "noPrReason": null,
+      "dirtyState": "clean-pr38-draft-exact-head",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "preserved dirty worktree remains at 07c481f; allowed work now includes LangGraph pins, ADR-0012, manifests, checkpoint policy, recovery, authoritative Postgres store, fork/supersession, schema/catalog/closeout, encrypted job command custody, validation/publication worker implementation, and tests",
-        "ci": "latest protected main fbdfcbe passed build 33119271874 and repository-security 33119271903; EvidenceFlow candidate has no commit or CI receipt yet",
-        "merged": "lane baseline remains 07c481f and is nine commits behind protected main fbdfcbe because dirty work was preserved; no EvidenceFlow implementation is merged",
+        "local": "clean exact candidate 0523fde contains the fixed research-evidence/v1 and engineering-release/v1 shadow graphs, authoritative receipts/outbox, independent worker, API/docs/contracts, Control Room, and ADR-0012; full pilot verify and fresh PostgreSQL shadow pilots passed on this exact tree",
+        "ci": "PR 38 exact head 0523fde: repository-security runs 33141742207 and 33141708981 passed; build run 33141742211 is in progress and is not yet accepted as evidence",
+        "merged": "not merged; Draft PR 38 remains fail-closed pending exact-head build, independent review, and separate protected-main authorization",
         "deployed": "not authorized and not performed",
-        "live": "not tested and not claimed; engineering graph remains shadow-only by design"
+        "live": "local production-server desktop/mobile browser flow passed; no deployed endpoint or institution-production claim; engineering graph remains shadow-only"
       },
-      "disposition": "active"
+      "disposition": "ready-for-pr"
     }
   ],
   "branches": [
@@ -1292,22 +1295,29 @@
       "owner": "Codex SENA EvidenceFlow implementation writer",
       "ownerKey": "Codex-evidenceflow-01a04273",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "07c481f66230dcbca6f405ce642014307e43e857",
-      "upstream": "origin/main",
+      "headSha": "0523fde705837784b0cc897147183fdc2114a1e3",
+      "upstream": "origin/codex/sena-evidenceflow-v1-20260828",
       "upstreamState": "live",
       "upstreamCacheState": "present",
-      "remotePresent": false,
-      "remoteHeadSha": null,
-      "remoteObservedAt": "2026-08-27T18:54:04Z",
-      "pr": null,
-      "noPrReason": "Newly registered clean EvidenceFlow branch; no tracked implementation commit exists yet.",
-      "lastOwnerHeartbeatAt": "2026-08-27T21:45:24Z",
-      "lastObservedAt": "2026-08-27T21:45:24Z",
-      "lastCommitAt": "2026-08-28T05:04:49+08:00",
+      "remotePresent": true,
+      "remoteHeadSha": "0523fde705837784b0cc897147183fdc2114a1e3",
+      "remoteObservedAt": "2026-08-28T04:26:47Z",
+      "pr": 38,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "0523fde705837784b0cc897147183fdc2114a1e3",
+      "prBase": "main",
+      "noPrReason": null,
+      "prStateObservationMode": "monotonic",
+      "lastOwnerHeartbeatAt": "2026-08-28T04:26:47Z",
+      "lastObservedAt": "2026-08-28T04:26:47Z",
+      "lastCommitAt": "2026-08-28T12:20:46+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "preserved dirty baseline 07c481f is nine commits behind fbdfcbe; allowed work includes shared kernel, Postgres, fork/supersession, schemas/catalog/closeout, encrypted job custody, validation/publication executors, and tests; no EvidenceFlow commit or external side effect"
+      "disposition": "ready-for-pr",
+      "closeout": "Draft PR 38 exact head 0523fde is bound to the live remote branch; repository-security is green, build remains in progress, and Ready/merge are not authorized"
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",
