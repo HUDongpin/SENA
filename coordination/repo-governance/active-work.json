@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T16:58:12Z",
+  "updatedAt": "2026-08-28T17:07:43Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f58ebff1a657e317d01135c301d615a4ba73d709",
+      "headSha": "f2b899b27baa7e8debc5388fec578a745a7869ca",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 4,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T16:58:12Z",
-      "lastObservedAt": "2026-08-28T16:58:12Z",
-      "nextReviewAt": "2026-08-28T22:58:12Z",
+      "lastHeartbeatAt": "2026-08-28T17:07:43Z",
+      "lastObservedAt": "2026-08-28T17:07:43Z",
+      "nextReviewAt": "2026-08-28T23:07:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 44,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 43,
         "headSha": "15d39fbb0109f4d7ad4f7fc1958a666ccc4a1147",
@@ -1051,15 +1051,15 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "unstaged-registry-only-review-binding-and-retirement-registration",
+      "dirtyState": "unstaged-registry-only-pr44-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 is clean at local unpushed head f58ebff before this registry-only review binding and retirement-lane registration; the f58ebff push was fail-closed before remote mutation because the newly created branch-retirement worktree was not yet registered",
-        "ci": "Draft PR44 exact head 6a37f98 passed build 33191825449 and repository-security 33191798952/33191825357; all three check jobs 98918951884/98918858899/98918951779 have zero annotations",
-        "merged": "PR 43 remains merged as protected main 1edeb329; Draft PR 44 is OPEN at exact head 6a37f98 and remains unauthorized for Ready/merge",
+        "local": "A01 is clean at pushed head f2b899b before this registry-only final authorization; 47/47 governance tests, index-bound audit/write-policy/security, native pre-commit, and native pre-push passed after the exact branch-retirement freeze binding was added",
+        "ci": "Draft PR44 exact head f2b899b passed build 33193006418 and repository-security 33193002974/33193006460; all three check jobs 98922979596/98922967507/98922979815 have zero annotations",
+        "merged": "PR 43 remains merged as protected main 1edeb329; Draft PR 44 is OPEN at exact head f2b899b and this final registry metadata authorizes Ready/protected merge only after its own exact checks pass",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
@@ -1442,19 +1442,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f58ebff1a657e317d01135c301d615a4ba73d709",
+      "headSha": "f2b899b27baa7e8debc5388fec578a745a7869ca",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "6a37f98afee361d26e9e0118629c0592f9902a6d",
-      "remoteObservedAt": "2026-08-28T16:54:05Z",
+      "remoteHeadSha": "f2b899b27baa7e8debc5388fec578a745a7869ca",
+      "remoteObservedAt": "2026-08-28T17:07:43Z",
       "pr": 44,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "6a37f98afee361d26e9e0118629c0592f9902a6d",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "f2b899b27baa7e8debc5388fec578a745a7869ca",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1464,13 +1464,13 @@
         "mergeCommitSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
         "mergedAt": "2026-08-28T15:30:48Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T16:58:12Z",
-      "lastObservedAt": "2026-08-28T16:58:12Z",
-      "lastCommitAt": "2026-08-29T00:54:53+08:00",
-      "nextReviewAt": "2026-08-28T22:58:12Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T17:07:43Z",
+      "lastObservedAt": "2026-08-28T17:07:43Z",
+      "lastCommitAt": "2026-08-29T01:04:46+08:00",
+      "nextReviewAt": "2026-08-28T23:07:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR 43 exact head 15d39fbb is merged as protected main 1edeb329; Draft PR 44 exact head 6a37f98 is CI-green with zero annotations; local f58ebff additionally binds the final EvidenceFlow changes-required review and branch-retirement registration, so Ready/merge remain unauthorized"
+      "closeout": "PR 43 exact head 15d39fbb is merged as protected main 1edeb329; Draft PR 44 exact head f2b899b is CI-green with zero annotations, binds the final EvidenceFlow changes-required review and branch-retirement registration, and this registry-only final metadata authorizes Ready/protected merge only after its own exact checks pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
