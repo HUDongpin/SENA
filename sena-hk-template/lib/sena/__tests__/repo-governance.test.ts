@@ -190,6 +190,44 @@ describe("SENA repository governance", () => {
     ).toBe(false);
   });
 
+  it("fails closed when an unresolvable registry-repo symlink would otherwise select portable audit", async () => {
+    const controlRoot = temporaryRoot("audit-loop-control-root");
+    const aliasParent = temporaryRoot("audit-loop-alias-parent");
+    const registryRepoAlias = join(aliasParent, "repo-loop");
+    symlinkSync(registryRepoAlias, registryRepoAlias, "dir");
+    const governance = await import(pathToFileURL(governanceScript).href);
+
+    expect(() =>
+      governance.shouldRunPortableAudit(
+        new Map([["pre-push", []]]),
+        controlRoot,
+        registryRepoAlias
+      )
+    ).toThrow(/registry repo path cannot be resolved.*ELOOP/);
+  });
+
+  it("rejects an active worktree whose inside-looking symlink escapes the physical repository", () => {
+    const fixture = createGovernedFixture("physical-custody-escape");
+    const externalWorktree = temporaryRoot("physical-custody-external");
+    const escapedAlias = join(fixture.root, "inside-looking-writer");
+    symlinkSync(externalWorktree, escapedAlias, "dir");
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    registry.workItems[0].worktreePath = escapedAlias;
+    registry.workItems[0].cwd = escapedAlias;
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+
+    const result = runNode(fixture.script, ["audit", "--registry", fixture.registryPath], {
+      cwd: fixture.root
+    });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.errors.some((error: string) =>
+        error.startsWith("active workItem physical repo/worktreePath/cwd custody escapes the control root")
+      )
+    ).toBe(true);
+  });
+
   it("accepts the machine-readable active-work registry", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
@@ -1018,11 +1056,62 @@ describe("SENA repository governance", () => {
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const topic = fixture.registry.branches[0];
-    fixture.registry.repo = dirname(fixture.root);
-    fixture.registry.workItems[0].repo = dirname(fixture.root);
-    fixture.registry.incident.credentialExposure.providerContainmentStatus = "complete";
-    fixture.registry.incident.credentialExposure.remoteBranch = "quarantine";
-    fixture.registry.incident.credentialExposure.commitSha = fixture.base;
+    runGit(fixture.root, ["branch", "main", fixture.base]);
+    runGit(fixture.root, ["branch", "quarantine", fixture.base]);
+    const evidenceRoot = temporaryRoot("authorized-ref-deletion-evidence");
+    const bundlePath = join(evidenceRoot, "rescue.bundle");
+    const inventoryPath = join(evidenceRoot, "orphan-inventory.json");
+    runGit(fixture.root, ["bundle", "create", bundlePath, "topic"]);
+    chmodSync(bundlePath, 0o600);
+    writeFileSync(inventoryPath, `${JSON.stringify({ roots: [] }, null, 2)}\n`, { mode: 0o600 });
+    fixture.registry.workItems[0].allowedPaths = [
+      "README.md",
+      ".githooks/**",
+      "coordination/repo-governance/**",
+      "helpers/**",
+      "scripts/verify-sena-repo-governance.mjs"
+    ];
+    fixture.registry.policy.freezeExceptionBindings[0].allowedPaths =
+      fixture.registry.workItems[0].allowedPaths;
+    fixture.registry.rescue = {
+      namespace: "refs/rescue/sena-test",
+      expectedRefCount: 0,
+      refListSha256: createHash("sha256").update("").digest("hex"),
+      includes: [],
+      fsckUnreachableCommitsAfter: 0,
+      bundlePath,
+      bundleSha256: sha256File(bundlePath),
+      bundleVerify: "pass-complete-history",
+      orphanInventory: {
+        path: inventoryPath,
+        sha256: sha256File(inventoryPath),
+        fileCount: 0,
+        originMainRepresentedCount: 0,
+        diskOnlyCount: 0,
+        diskOnlyReviewableSourceCount: 0,
+        sensitiveRuntimeMetadataCount: 0,
+        skippedGeneratedDirectoryCount: 0
+      },
+      diskOnlySourceCopies: [],
+      remotePushAllowed: false
+    };
+    fixture.registry.incident = {
+      credentialExposure: {
+        status: "closed",
+        closureEvidence: {
+          providerReadbackAt: now,
+          liveRefAuditAt: now,
+          authorizedBy: "SENA governance test"
+        },
+        providerContainmentStatus: "complete",
+        remoteBranch: "quarantine",
+        commitSha: fixture.base,
+        blobSha: "f".repeat(40),
+        forbiddenPaths: ["All API Keys.docx", "sena-hk-template/All API Keys.docx"],
+        liveMainSha: fixture.base,
+        liveMainObservationMode: "lower-bound"
+      }
+    };
     fixture.registry.policy.githubControlPlane.credentialQuarantineRuleset = {
       id: 9002,
       name: "test-hook-quarantine-ruleset",
@@ -1033,7 +1122,7 @@ describe("SENA repository governance", () => {
       soleBypassActorId: 47708816,
       observedAt: now
     };
-    fixture.registry.branches.push({
+    const quarantineBranch = {
       ...topic,
       name: "quarantine",
       owner: "security owner",
@@ -1052,7 +1141,41 @@ describe("SENA repository governance", () => {
       nextReviewAt: expiresAt,
       expectedCloseAt: "owner-gated:test-exact-ref-deletion",
       disposition: "security-quarantine"
-    });
+    };
+    const mainBranch = {
+      ...topic,
+      name: "main",
+      owner: "test protected main",
+      ownerKey: "test-protected-main",
+      baseSha: fixture.base,
+      headSha: fixture.base,
+      targetSha: fixture.base,
+      upstream: "origin/main",
+      upstreamState: "live",
+      upstreamCacheState: "present",
+      remotePresent: true,
+      remoteHeadSha: fixture.base,
+      remoteObservationMode: "lower-bound",
+      remoteObservedAt: now,
+      pr: null,
+      prState: null,
+      prIsDraft: false,
+      prReadyForReview: false,
+      mergeAuthorized: false,
+      prHeadSha: null,
+      prBase: null,
+      noPrReason: "synthetic protected-main branch",
+      prStateObservationMode: null,
+      lastMergedPullRequest: null,
+      lastOwnerHeartbeatAt: null,
+      lastObservedAt: now,
+      lastCommitAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: expiresAt,
+      disposition: "integrated",
+      closeout: "synthetic protected-main lower-bound"
+    };
+    fixture.registry.branches.push(quarantineBranch, mainBranch);
     fixture.registry.policy.refDeletionAuthorizations = [
       {
         id: "TEST-HOOK-QUARANTINE-DELETE",
@@ -1089,16 +1212,24 @@ describe("SENA repository governance", () => {
     runGit(fixture.root, ["commit", "-q", "-m", "authorize hook deletion from protected main"]);
     const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/quarantine", fixture.base]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "topic"]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "main"]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/quarantine", "quarantine"]);
 
     const hookDirectory = join(fixture.root, ".githooks");
     const hookPath = join(hookDirectory, "pre-push");
+    const preCommitHookPath = join(hookDirectory, "pre-commit");
     const helperDirectory = join(fixture.root, "helpers");
     const helperPath = join(helperDirectory, "git");
     const ghHelperPath = join(helperDirectory, "gh");
     mkdirSync(hookDirectory, { recursive: true });
     mkdirSync(helperDirectory, { recursive: true });
     copyFileSync(join(projectRoot, ".githooks", "pre-push"), hookPath);
+    copyFileSync(join(projectRoot, ".githooks", "pre-commit"), preCommitHookPath);
     chmodSync(hookPath, 0o700);
+    chmodSync(preCommitHookPath, 0o700);
+    runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
     const realGit = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
     expect(realGit).not.toBe("");
     writeFileSync(
@@ -1107,6 +1238,11 @@ describe("SENA repository governance", () => {
         "#!/bin/sh",
         "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"origin\" ]; then",
         "  printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+        "  exit 0",
+        "fi",
+        "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"--tags\" ]; then",
+        "  printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+        "  printf '%s\\trefs/heads/quarantine\\n' \"$SENA_TEST_TARGET_SHA\"",
         "  exit 0",
         "fi",
         "if [ \"$1\" = \"fetch\" ]; then",
@@ -1121,6 +1257,10 @@ describe("SENA repository governance", () => {
       ghHelperPath,
       [
         "#!/bin/sh",
+        "if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then",
+        "  printf '%s\\n' '[]'",
+        "  exit 0",
+        "fi",
         "printf '%s\\n' '{\"id\":9002,\"name\":\"test-hook-quarantine-ruleset\",\"target\":\"branch\",\"enforcement\":\"active\",\"bypass_actors\":[{\"actor_id\":47708816,\"actor_type\":\"User\",\"bypass_mode\":\"always\"}],\"conditions\":{\"ref_name\":{\"include\":[\"refs/heads/quarantine\"],\"exclude\":[]}},\"rules\":[{\"type\":\"deletion\"},{\"type\":\"non_fast_forward\"},{\"type\":\"creation\"}]}'",
         ""
       ].join("\n")
@@ -1135,6 +1275,7 @@ describe("SENA repository governance", () => {
         ...process.env,
         PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
         SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
+        SENA_TEST_TARGET_SHA: fixture.base,
         SENA_TEST_REAL_GIT: realGit
       }
     });
@@ -1412,23 +1553,44 @@ describe("SENA repository governance", () => {
     ].join("\n"));
     chmodSync(ghHelperPath, 0o700);
 
+    const hookEnvironment = {
+      ...process.env,
+      PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
+      SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
+      SENA_TEST_TARGET_SHA: integratedHead,
+      SENA_TEST_REAL_GIT: realGit
+    };
     const hookResult = spawnSync(hookPath, ["origin", "https://github.com/HUDongpin/SENA.git"], {
       cwd: fixture.root,
       input: `(delete) ${"0".repeat(40)} refs/heads/cleanup-target ${integratedHead}\n`,
       encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
-        SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
-        SENA_TEST_TARGET_SHA: integratedHead,
-        SENA_TEST_REAL_GIT: realGit
-      }
+      env: hookEnvironment
     });
     const combined = `${hookResult.stdout}${hookResult.stderr}`;
     expect(hookResult.status, combined).toBe(0);
     expect(combined).toContain("SENA_PUSH_POLICY pass updates=1");
     expect(combined).toContain("SENA_DELETION_BOUNDARY pass cleanup=SENA-INTEGRATED-CLEANUP-TARGET");
     expect(combined).toContain("SENA_SECURITY_GATE pass");
+
+    const directAudit = runNode(fixture.script, [
+      "audit",
+      "--pre-push",
+      "--live",
+      "--registry-from-commit",
+      authorizationCommit
+    ], {
+      cwd: fixture.root,
+      env: hookEnvironment
+    });
+    expect(directAudit.status, directAudit.stdout).toBe(0);
+    const directAuditReport = JSON.parse(directAudit.stdout);
+    expect(directAuditReport.schemaVersion).toBe("sena-repo-governance-audit/v1");
+    expect(directAuditReport.schemaVersion).not.toBe("sena-repo-governance-portable-audit/v1");
+    expect(directAuditReport.liveRemoteRefs.available).toBe(true);
+    expect(directAuditReport.livePullRequests.available).toBe(true);
+    expect(directAuditReport.rescueRefCount).toBe(0);
+    expect(directAuditReport.registeredWorktreeCount).toBe(2);
+    expect(directAuditReport.errors).toEqual([]);
 
     const drifted = runNode(fixture.script, [
       "push-policy",

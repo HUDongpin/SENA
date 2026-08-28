@@ -434,16 +434,33 @@ function parsePrePushUpdates(input) {
   });
 }
 
-function canonicalExistingPath(path) {
+function existingPathResolution(path) {
   try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
+    return { ok: true, path: realpathSync(path), errorCode: null };
+  } catch (error) {
+    const errorCode =
+      error && typeof error === "object" && typeof error.code === "string"
+        ? error.code
+        : "UNKNOWN";
+    return { ok: false, path: null, errorCode };
   }
 }
 
+function canonicalExistingPath(path) {
+  const resolution = existingPathResolution(path);
+  return resolution.ok
+    ? resolution.path
+    : `unresolved:${resolution.errorCode}:${resolve(path)}`;
+}
+
 function sameExistingPath(left, right) {
-  return canonicalExistingPath(left) === canonicalExistingPath(right);
+  const leftResolution = existingPathResolution(left);
+  const rightResolution = existingPathResolution(right);
+  return Boolean(
+    leftResolution.ok &&
+    rightResolution.ok &&
+    leftResolution.path === rightResolution.path
+  );
 }
 
 function normalizeRemoteIdentity(value) {
@@ -890,6 +907,13 @@ function runDeletionBoundary(flags) {
   const { parsed: registry } = loadProtectedMainAuthorizationRegistry(flags, { required: true });
   const update = updates[0];
   const isPushEvent = flags.has("push-event");
+  if (!isPushEvent) {
+    const physicalCustodyErrors = [];
+    appendHostPhysicalCustodyErrors(registry, physicalCustodyErrors);
+    if (physicalCustodyErrors.length > 0) {
+      throw new Error("deletion-boundary host physical custody is invalid");
+    }
+  }
   const githubActor = flagValues(flags, "event-actor")[0] ?? null;
   const authorization = activeRefDeletionAuthorization(registry, update.remoteRef, update.remoteSha, {
     requireOperator: !isPushEvent,
@@ -1160,6 +1184,7 @@ function runPushPolicy(flags) {
     const identityCommit = isDeletion ? gitText(["rev-parse", "HEAD"]).trim() : localSha;
     const { parsed: identityRegistry } = loadRegistryFromCommit(identityCommit);
     const identityValidation = validateRegistry(identityRegistry);
+    appendHostPhysicalCustodyErrors(identityRegistry, identityValidation.errors);
     if (identityValidation.errors.length > 0) {
       throw new Error("push-policy identity registry snapshot is invalid");
     }
@@ -1194,6 +1219,7 @@ function runPushPolicy(flags) {
   }
   const { parsed: registry } = authorizationRegistry ?? loadRegistryFromCommit(registryCommit);
   const validation = validateRegistry(registry);
+  appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) {
     throw new Error("push-policy outgoing-commit registry snapshot is invalid");
   }
@@ -1270,6 +1296,7 @@ function runWritePolicy(flags) {
   }
   const { parsed: registry } = loadRegistryForFlags(flags);
   const validation = validateRegistry(registry);
+  appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
 
   const findings = [];
@@ -1339,6 +1366,39 @@ function pathIsWithin(parent, child) {
   const parentPath = resolve(parent);
   const childPath = resolve(child);
   return childPath === parentPath || childPath.startsWith(`${parentPath}${sep}`);
+}
+
+function appendHostPhysicalCustodyErrors(registry, errors) {
+  const controlRootResolution = existingPathResolution(CONTROL_ROOT);
+  const registryRepoResolution = existingPathResolution(registry.repo);
+  if (!controlRootResolution.ok || !registryRepoResolution.ok) {
+    errors.push("host authorization control-root/repository custody cannot be physically resolved");
+  } else if (controlRootResolution.path !== registryRepoResolution.path) {
+    errors.push("host authorization registry repository differs from the physical Git control root");
+  }
+
+  for (const item of registry.workItems ?? []) {
+    if (!ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) continue;
+    const itemRepoResolution = existingPathResolution(item.repo);
+    const worktreeResolution = existingPathResolution(item.worktreePath);
+    const cwdResolution = existingPathResolution(item.cwd);
+    if (!itemRepoResolution.ok || !worktreeResolution.ok || !cwdResolution.ok) {
+      errors.push(
+        `active workItem physical repo/worktreePath/cwd custody cannot be resolved: ${item.taskId ?? "<unknown>"}`
+      );
+      continue;
+    }
+    if (
+      !registryRepoResolution.ok ||
+      itemRepoResolution.path !== registryRepoResolution.path ||
+      !pathIsWithin(registryRepoResolution.path, worktreeResolution.path) ||
+      !pathIsWithin(worktreeResolution.path, cwdResolution.path)
+    ) {
+      errors.push(
+        `active workItem physical repo/worktreePath/cwd custody escapes the control root: ${item.taskId ?? "<unknown>"}`
+      );
+    }
+  }
 }
 
 function ageHours(value, now = Date.now()) {
@@ -2243,8 +2303,14 @@ function verifyHookCustody(registry, errors) {
     errors.push("local hook custody path is not configured");
     return;
   }
-  const resolvedConfigured = canonicalExistingPath(resolve(REPO_ROOT, configured));
-  if (resolvedConfigured !== canonicalExistingPath(expectedPath)) {
+  const configuredResolution = existingPathResolution(resolve(REPO_ROOT, configured));
+  const expectedResolution = existingPathResolution(expectedPath);
+  if (!configuredResolution.ok || !expectedResolution.ok) {
+    errors.push("hook custody path cannot be physically resolved");
+    return;
+  }
+  const resolvedConfigured = configuredResolution.path;
+  if (resolvedConfigured !== expectedResolution.path) {
     errors.push("configured core.hooksPath does not match the owner-controlled governance hook custody path");
     return;
   }
@@ -2382,9 +2448,23 @@ function runPortableAudit(registry, validation) {
 
 export function shouldRunPortableAudit(flags, controlRoot, registryRepo) {
   if (flags.has("ci")) return true;
-  return (
-    flags.has("pre-push") &&
-    (typeof registryRepo !== "string" || !sameExistingPath(controlRoot, registryRepo))
+  if (!flags.has("pre-push")) return false;
+  if (typeof registryRepo !== "string") {
+    throw new Error("registry repo path is missing; portable audit selection failed closed");
+  }
+  const controlRootResolution = existingPathResolution(controlRoot);
+  if (!controlRootResolution.ok) {
+    throw new Error(
+      `control root path cannot be resolved; portable audit selection failed closed code=${controlRootResolution.errorCode}`
+    );
+  }
+  const registryRepoResolution = existingPathResolution(registryRepo);
+  if (registryRepoResolution.ok) {
+    return controlRootResolution.path !== registryRepoResolution.path;
+  }
+  if (registryRepoResolution.errorCode === "ENOENT") return true;
+  throw new Error(
+    `registry repo path cannot be resolved; portable audit selection failed closed code=${registryRepoResolution.errorCode}`
   );
 }
 
@@ -2395,6 +2475,7 @@ function runAudit(flags) {
     runPortableAudit(registry, validation);
     return;
   }
+  appendHostPhysicalCustodyErrors(registry, validation.errors);
   const registered = parseWorktreeList();
   const markers = immediateWorktreeMarkers();
   const branches = localBranches();
