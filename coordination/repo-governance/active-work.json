@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T22:52:30Z",
+  "updatedAt": "2026-08-28T22:57:29Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "3f12d4f9d96d9940808427bb43229f09feb0c912",
+      "headSha": "f162bbe56b750fd450dafa66160420e49c37466d",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T22:52:30Z",
-      "lastObservedAt": "2026-08-28T22:52:30Z",
-      "nextReviewAt": "2026-08-29T04:52:30Z",
+      "lastHeartbeatAt": "2026-08-28T22:57:29Z",
+      "lastObservedAt": "2026-08-28T22:57:29Z",
+      "nextReviewAt": "2026-08-29T04:57:29Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 51,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 50,
         "headSha": "14d95e19df5d970bd00c64eb010d8e37d4eeb29c",
@@ -1051,17 +1051,17 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr51-binding",
+      "dirtyState": "staged-registry-only-pr51-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 registry-only authorization commit 3f12d4f9 passed native pre-commit and pre-push, then ordinary-pushed from protected-main parent f067a224; this staged follow-up binds Draft PR51 without editing EvidenceFlow product bytes",
-        "ci": "Draft PR51 exact initial head 3f12d4f9 has build 33218425281 and repository-security 33218406893/33218425320 in progress; none is accepted as green yet",
-        "merged": "PR50 remains the last protected-main merge at f067a224; Draft PR51 is OPEN/MERGEABLE at exact head 3f12d4f9 and is not Ready or merge-authorized",
+        "local": "A01 registry-only commits through f162bbe5 passed 48/48 governance tests, registry, live audit, write-policy, security, native pre-commit, and native pre-push; this staged metadata is a conditional final authorization only after its own exact-head checks pass",
+        "ci": "Draft PR51 exact pre-authorization head f162bbe5 passed build 33218584041 and repository-security 33218578003/33218584050; jobs 99007610511/99007590560/99007610752 each returned zero annotations",
+        "merged": "PR50 remains the last protected-main merge at f067a224; Draft PR51 is CLEAN/MERGEABLE at exact pre-authorization head f162bbe5 and may become Ready/merge only after this final metadata commit's own exact-head checks pass",
         "deployed": "not authorized",
-        "live": "live main/root/origin-main remain f067a224; remote A01 branch and Draft PR51 are exact 3f12d4f9; EvidenceFlow and branch-retirement remain frozen, and no downstream release is active"
+        "live": "live main/root/origin-main remain f067a224; remote A01 branch and Draft PR51 are exact f162bbe5 before this staged final metadata; EvidenceFlow and branch-retirement remain frozen until protected-main activation completes"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1275,7 +1275,7 @@
         "mergeApproved": false
       },
       "expandedRemediationAuthorization": {
-        "status": "pending-pr51-exact-head-checks",
+        "status": "conditional-pr51-final-head-checks",
         "governancePullRequest": 51,
         "reviewedHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
         "candidateTrackedDiffSha256": "ffdd68016cea9180b3417e6e1666e903449b2efb15b2812d8ed357a5a5d4f80a",
@@ -1283,7 +1283,16 @@
           "01a04a78-e567-7cf0-abbd-012f9329765f",
           "01a04a78-e5e8-7870-b213-f31dd79ea48d"
         ],
-        "activationCondition": "This registry-only authorization must be bound to a new Draft governance PR, pass exact-head and post-main build/repository-security checks, and pass a commit-bound live audit before EvidenceFlow tracked remediation resumes.",
+        "preAuthorizationHeadSha": "f162bbe56b750fd450dafa66160420e49c37466d",
+        "preAuthorizationChecks": {
+          "buildRunId": 33218584041,
+          "repositorySecurityRunIds": [
+            33218578003,
+            33218584050
+          ],
+          "annotationsEmpty": true
+        },
+        "activationCondition": "This staged final authorization must produce a new exact PR51 head whose build and both repository-security checks pass with zero annotations, then PR51 must merge through protected main, its post-main checks must pass, and that exact main must pass the commit-bound live audit before EvidenceFlow tracked remediation resumes.",
         "allowedPathsUnchanged": true,
         "authorizedFindingClasses": [
           "engineering-candidate-post-handoff-intake",
@@ -1531,19 +1540,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "3f12d4f9d96d9940808427bb43229f09feb0c912",
+      "headSha": "f162bbe56b750fd450dafa66160420e49c37466d",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "3f12d4f9d96d9940808427bb43229f09feb0c912",
-      "remoteObservedAt": "2026-08-28T22:52:30Z",
+      "remoteHeadSha": "f162bbe56b750fd450dafa66160420e49c37466d",
+      "remoteObservedAt": "2026-08-28T22:57:29Z",
       "pr": 51,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "3f12d4f9d96d9940808427bb43229f09feb0c912",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "f162bbe56b750fd450dafa66160420e49c37466d",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1553,13 +1562,13 @@
         "mergeCommitSha": "f067a224e42b385f215fe1a7919e6d2cec2381e5",
         "mergedAt": "2026-08-28T21:26:44Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T22:52:30Z",
-      "lastObservedAt": "2026-08-28T22:52:30Z",
-      "lastCommitAt": "2026-08-29T06:51:30+08:00",
-      "nextReviewAt": "2026-08-29T04:52:30Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T22:57:29Z",
+      "lastObservedAt": "2026-08-28T22:57:29Z",
+      "lastCommitAt": "2026-08-29T06:54:29+08:00",
+      "nextReviewAt": "2026-08-29T04:57:29Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR51 is OPEN/MERGEABLE at exact registry-only head 3f12d4f9 with all initial checks still in progress; expanded EvidenceFlow remediation and branch-retirement intake remain inactive"
+      "closeout": "Draft PR51 is CLEAN/MERGEABLE at exact pre-authorization head f162bbe5 with build and both security checks green and zero annotations; this staged final metadata conditionally authorizes Ready/protected merge only after its own new exact-head checks pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
