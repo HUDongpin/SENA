@@ -321,6 +321,25 @@ describe("SENA EvidenceFlow closeout", () => {
     expect(() => buildSenaWorkflowCloseout({ ...events, generatedAt })).toThrow(SenaWorkflowCloseoutError);
   });
 
+  it("marks retryable failure exports provisional and rejects nonterminal snapshots", () => {
+    const failed = fixture();
+    failed.run.status = "failed";
+    failed.run.version = 8;
+    const snapshot = buildSenaWorkflowCloseout({ ...failed, generatedAt });
+
+    expect(snapshot).toMatchObject({
+      snapshotKind: "provisional",
+      boundRunVersion: 8,
+      workflowStatus: "failed"
+    });
+    expect(snapshot.closeoutCommitment).toBeUndefined();
+
+    failed.run.status = "running";
+    expect(() => buildSenaWorkflowCloseout({ ...failed, generatedAt })).toThrowError(
+      expect.objectContaining({ issueCodes: expect.arrayContaining(["closeout-run-status-not-exportable"]) })
+    );
+  });
+
   it("rejects unknown predecessors, reference drift, and real external evidence claims in shadow engineering mode", () => {
     const events = fixture();
     events.receipts[1] = {

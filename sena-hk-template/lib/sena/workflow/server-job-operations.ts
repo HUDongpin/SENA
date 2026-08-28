@@ -57,9 +57,13 @@ import {
   runSenaEngineeringVerificationNode,
   type SenaEngineeringCommandExecutor,
   type SenaEngineeringEvidenceParameters,
+  type SenaEngineeringRepositoryPreflightReceipt,
   type SenaEngineeringRunBinding
 } from "./engineering-evidence";
-import { createSenaEngineeringCommandExecutor } from "./engineering-runner";
+import {
+  createSenaEngineeringCommandExecutor,
+  observeSenaEngineeringRepositoryPreflight
+} from "./engineering-runner";
 import type {
   SenaWorkflowNodeOperationAdapter,
   SenaWorkflowNodeOperationInput,
@@ -802,6 +806,10 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
     evidence: SenaEngineeringEvidenceParameters;
     binding: SenaEngineeringRunBinding;
   }) => Promise<SenaEngineeringCommandExecutor>;
+  engineeringRepositoryPreflightFactory?: (input: {
+    evidence: SenaEngineeringEvidenceParameters;
+    binding: SenaEngineeringRunBinding;
+  }) => Promise<SenaEngineeringRepositoryPreflightReceipt>;
 }): SenaWorkflowNodeOperationAdapter {
   return {
     async ensureServerJob(operation) {
@@ -958,6 +966,12 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
         const parsed = engineeringEvidence(operation.run, carrier.parameters, carrier.sourceEvidence);
         const executesGates = ["focused-gates", "full-local-gate", "shadow-release-model"]
           .includes(operation.node.id);
+        const trustedRepositoryPreflight = operation.node.id === "repository-preflight"
+          ? await (input.engineeringRepositoryPreflightFactory ?? observeSenaEngineeringRepositoryPreflight)({
+              evidence: parsed.evidence,
+              binding: parsed.binding
+            })
+          : undefined;
         const trustedGateReceipts = executesGates
           ? (await runSenaEngineeringVerificationNode({
               nodeId: operation.node.id,
@@ -974,7 +988,8 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
           operation.node.id,
           parsed.evidence,
           parsed.binding,
-          trustedGateReceipts
+          trustedGateReceipts,
+          trustedRepositoryPreflight
         );
         const artifacts: SenaWorkflowArtifact[] = [];
         if (evaluated.document && evaluated.filename && evaluated.schemaVersion) {
@@ -990,7 +1005,9 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
             filename: evaluated.filename,
             schemaVersion: evaluated.schemaVersion,
             sha256,
-            storageReference: `workflow-command:${carrier.sourceCommand.id}#parameters.engineeringEvidence`,
+            storageReference: operation.node.id === "repository-preflight"
+              ? `workflow-worker:${operation.run.id}#repository-preflight`
+              : `workflow-command:${carrier.sourceCommand.id}#parameters.engineeringEvidence`,
             evidenceLayer: operation.node.evidenceLayer,
             createdAt: operation.run.createdAt
           });

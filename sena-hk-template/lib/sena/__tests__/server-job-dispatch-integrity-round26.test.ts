@@ -497,6 +497,35 @@ describe("SENA server-job dispatch integrity round 26", () => {
     expect(sourceWrites).toBe(1);
   });
 
+  it("refuses deterministic redispatch when the queue provider endpoint binding drifted", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-provider-drift-"));
+    cleanupDirs.push(dbDir);
+    configureManagedQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const jobId = `server_job_${"e".repeat(24)}`;
+    let dispatches = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      dispatches += 1;
+      return new Response("unavailable", { status: 503 });
+    }));
+    const input = { ...queueInput(), jobId };
+
+    await expect(queue.enqueueEnterpriseServerJob(input)).rejects.toMatchObject({
+      code: "server_job_queue_dispatch_failed"
+    });
+    process.env.SENA_JOB_QUEUE_URL = "https://replacement-jobs.example.test/sena";
+
+    await expect(queue.enqueueEnterpriseServerJob(input)).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_provider_binding_conflict"
+    });
+    expect(dispatches).toBe(1);
+    await expect(queue.getEnterpriseServerJob(jobId)).resolves.toMatchObject({
+      provider: expect.objectContaining({ endpointHash: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+      delivery: expect.objectContaining({ webhookStatus: "failed", failureStage: "queue-dispatch" })
+    });
+  });
+
   it("keeps a first managed worker failure non-retryable without falsely dead-lettering it", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-managed-first-failure-"));
     cleanupDirs.push(dbDir);

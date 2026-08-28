@@ -471,7 +471,18 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
           exitCode: 0,
           startedAt: "2026-08-28T03:00:00.000Z",
           finishedAt: "2026-08-28T03:00:01.000Z",
-          logSummaryDigest: canonical.senaWorkflowDigest({ command, output: "fixture-pass" })
+          logSummaryDigest: canonical.senaWorkflowDigest({ command, output: "fixture-pass" }),
+          isolation: {
+            provider: "fixed-fixture-simulation",
+            snapshotKind: "fixed-fixture",
+            candidateTreeSha: candidateSha,
+            dependencyLockDigest: "1".repeat(64),
+            sandboxPolicyDigest: "2".repeat(64),
+            filesystemPolicy: "fixed-fixture",
+            readPolicy: "fixed-fixture",
+            networkPolicy: "none",
+            temporarySnapshot: true
+          }
         })
       });
       const nodeExecutor = workflowNodeExecutor.createSenaWorkflowGraphNodeExecutor({ store, operations });

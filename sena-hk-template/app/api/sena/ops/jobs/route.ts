@@ -31,6 +31,7 @@ const jobStatuses = new Set<SenaEnterpriseServerJobStatus>([
 const jobKinds = new Set<SenaEnterpriseServerJobKind>(senaEnterpriseServerJobKinds);
 const statusActions = new Set<SenaEnterpriseServerJobStatusAction>([
   "mark-running",
+  "renew-lease",
   "mark-succeeded",
   "mark-failed",
   "retry",
@@ -38,6 +39,7 @@ const statusActions = new Set<SenaEnterpriseServerJobStatusAction>([
 ]);
 const workerLifecycleActions = new Set<SenaEnterpriseServerJobStatusAction>([
   "mark-running",
+  "renew-lease",
   "mark-succeeded",
   "mark-failed"
 ]);

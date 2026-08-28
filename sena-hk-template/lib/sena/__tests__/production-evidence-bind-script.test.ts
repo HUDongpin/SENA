@@ -420,7 +420,7 @@ function serverJobQueueContractFixture() {
     status: "pass",
     summary: {
       jobKindCount: 5,
-      statusActionCount: 5,
+      statusActionCount: 6,
       acceptedProviderModeCount: 3,
       durableJobStoreRequired: true,
       signedDispatchRequired: true,

@@ -619,7 +619,7 @@ describe("SENA API documentation contract", () => {
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-publication-export")?.request)
       .not.toContain("x-sena-job-queue-delivery");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
-      .toContain("mark-running|mark-succeeded|mark-failed|retry|dead-letter");
+      .toContain("mark-running|renew-lease|mark-succeeded|mark-failed|retry|dead-letter");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)
       .toContain("analysis|import|publication-export|reliability|validation");
     expect(documentation.endpoints.find((endpoint) => endpoint.id === "sena-ops-jobs")?.request)

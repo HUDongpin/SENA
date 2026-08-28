@@ -266,7 +266,20 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
         kind: "validation" as const,
         updatedAt: "2026-08-26T00:03:00.000Z"
       } satisfies SenaEnterpriseServerJob;
-      const allJobs = [valid, ...malformed, exactHeartbeat, wrongKindHeartbeat];
+      const legacyLeaseMissing = {
+        ...makeAnalysisJob("legacy-lease-missing", validSummary, "2026-08-26T00:03:00.000Z"),
+        status: "running" as const,
+        lifecycle: {
+          attempts: 1,
+          maxAttempts: 3,
+          retryable: false,
+          lastTransition: "mark-running" as const,
+          workerRunId: "worker_live_legacy",
+          startedAt: "2026-08-26T00:03:00.000Z",
+          lastHeartbeatAt: "2026-08-26T00:03:00.000Z"
+        }
+      } satisfies SenaEnterpriseServerJob;
+      const allJobs = [valid, ...malformed, exactHeartbeat, wrongKindHeartbeat, legacyLeaseMissing];
       createdIds.push(...allJobs.map((job) => job.id));
 
       const { adapter, pool } = createEnterprisePostgresServerJobAdapterFromEnv({ tableName });
@@ -372,11 +385,32 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
           requireSourceReady: false
         })).resolves.toBeNull();
 
+        const staleTerminal = {
+          ...renewedValid,
+          status: "succeeded" as const,
+          lifecycle: {
+            ...renewedValid.lifecycle,
+            retryable: false,
+            lastTransition: "mark-succeeded" as const,
+            finishedAt: "2026-08-26T00:06:01.000Z"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: staleTerminal,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_valid",
+          expectedLeaseExpiresAt: "2026-08-26T00:06:00.000Z",
+          requireUnexpiredLease: true,
+          requireSourceReady: false
+        })).resolves.toBeNull();
+
         await expect(adapter.findExpiredRunningJobs({
           kinds: ["analysis"],
-          observedAt: "2026-08-26T00:06:00.000Z"
+          observedAt: "2026-08-26T00:06:00.000Z",
+          legacyGraceMs: 60_000
         })).resolves.toEqual(expect.arrayContaining([
-          expect.objectContaining({ id: valid.id, status: "running" })
+          expect.objectContaining({ id: valid.id, status: "running" }),
+          expect.objectContaining({ id: legacyLeaseMissing.id, status: "running" })
         ]));
         const recoveredValid = {
           ...renewedValid,
@@ -407,6 +441,37 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
           lifecycle: expect.objectContaining({
             leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
             statusReason: "server-job-worker-lease-expired-requeued"
+          })
+        }));
+        const recoveredLegacy = {
+          ...legacyLeaseMissing,
+          status: "queued" as const,
+          updatedAt: "2026-08-26T00:06:00.000Z",
+          lifecycle: {
+            ...legacyLeaseMissing.lifecycle,
+            retryable: false,
+            lastTransition: "retry" as const,
+            startedAt: undefined,
+            retryRequestedAt: "2026-08-26T00:06:00.000Z",
+            workerRunId: undefined,
+            lastHeartbeatAt: undefined,
+            leaseExpiresAt: undefined,
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-legacy-lease-missing-requeued"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: recoveredLegacy,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_legacy",
+          expectedLeaseMissing: true,
+          requireSourceReady: false
+        })).resolves.toEqual(expect.objectContaining({
+          id: legacyLeaseMissing.id,
+          status: "queued",
+          lifecycle: expect.objectContaining({
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-legacy-lease-missing-requeued"
           })
         }));
       } finally {

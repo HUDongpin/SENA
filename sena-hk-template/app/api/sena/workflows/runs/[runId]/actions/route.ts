@@ -12,8 +12,7 @@ import {
 import { senaWorkflowCheckpointBinding } from "@/lib/sena/workflow/postgres-runtime";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import {
-  projectSenaWorkflowCommandReadModel,
-  projectSenaWorkflowRunReadModel
+  projectSenaWorkflowActionReadModel
 } from "@/lib/sena/workflow/read-model";
 
 export const runtime = "nodejs";
@@ -33,14 +32,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       store,
       validateCheckpoint: senaWorkflowCheckpointBinding
     }));
-    const safeResult = {
-      ...result,
-      run: projectSenaWorkflowRunReadModel(result.run),
-      command: projectSenaWorkflowCommandReadModel(result.command),
-      ...("sourceRun" in result
-        ? { sourceRun: projectSenaWorkflowRunReadModel(result.sourceRun) }
-        : {})
-    };
+    const safeResult = projectSenaWorkflowActionReadModel(result);
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.workflowActionCommand,
       ...safeResult

@@ -16,6 +16,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   return observeSenaApiRoute(request, { routeId: "sena-workflow-run-closeout" }, async () => {
     const context = await requireApiSession();
     const { runId } = await params;
+    const requestUrl = new URL(request.url);
     const run = await withSenaWorkflowStore((store) => store.getRun(runId));
     if (!run) throw new SenaEnterpriseError("SENA workflow run was not found.", 404, "workflow_run_not_found");
     requireEnterprisePermission(context, run.teamId, "export:create");
@@ -26,7 +27,23 @@ export async function GET(request: Request, { params }: RouteContext) {
         "workflow_closeout_not_ready"
       );
     }
+    const provisional = run.status === "failed" || run.status === "dead_lettered";
+    const requestedVersion = Number(requestUrl.searchParams.get("version"));
+    if (provisional && (!Number.isSafeInteger(requestedVersion) || requestedVersion !== run.version)) {
+      throw new SenaEnterpriseError(
+        "A provisional SENA workflow closeout must bind the exact current run version.",
+        409,
+        "workflow_closeout_version_binding_required"
+      );
+    }
     const events = await withSenaWorkflowStore((store) => store.runEvents(run.id, run.teamId));
+    if (events.run.version !== run.version || events.run.status !== run.status) {
+      throw new SenaEnterpriseError(
+        "SENA workflow state changed while the closeout snapshot was being bound.",
+        409,
+        "workflow_closeout_version_conflict"
+      );
+    }
     let closeout;
     try {
       closeout = buildSenaWorkflowCloseout({
@@ -49,6 +66,8 @@ export async function GET(request: Request, { params }: RouteContext) {
         "content-disposition": `attachment; filename="sena-workflow-${run.id}-closeout.json"`,
         "x-sena-workflow-run-id": run.id,
         "x-sena-workflow-closeout-sha256": closeout.closeoutDigest,
+        "x-sena-workflow-closeout-snapshot-kind": closeout.snapshotKind,
+        "x-sena-workflow-closeout-run-version": String(closeout.boundRunVersion),
         "x-sena-workflow-status": closeout.workflowStatus,
         ...(closeout.claimBoundary ? { "x-sena-workflow-claim-boundary": closeout.claimBoundary } : {})
       }

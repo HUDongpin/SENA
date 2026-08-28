@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { assessSenaWorkflowBinding } from "../workflow/binding";
 import { engineeringReleaseGraphV1, researchEvidenceGraphV1 } from "../workflow/definitions";
+import { senaWorkflowCheckpointStateDigest } from "../workflow/postgres-runtime";
 import type { SenaWorkflowRun } from "../workflow/types";
 
 function run(overrides: Partial<SenaWorkflowRun> = {}): SenaWorkflowRun {
@@ -101,5 +102,45 @@ describe("SENA EvidenceFlow immutable source binding", () => {
       driftFields: ["candidateSha"],
       invalidatesExistingReceipts: true
     });
+  });
+
+  it("content-binds every checkpoint-safe graph-state field used for fork lineage", () => {
+    const state = {
+      runId: "workflow_run_checkpoint_binding",
+      kind: "research-evidence",
+      teamId: "team-checkpoint-binding",
+      definitionHash: researchEvidenceGraphV1.definitionHash,
+      sourceBindingDigest: "1".repeat(64),
+      codeSha: "2".repeat(40),
+      configDigest: "3".repeat(64),
+      workflowStatus: "waiting_human",
+      claimBoundary: "exploratory-only",
+      evidenceLayers: { source: "passed", local: "running" },
+      completedNodeIds: ["bind-source"],
+      nodeReceiptHashes: { "bind-source": "4".repeat(64) },
+      nodeOutputDigests: { "bind-source": "5".repeat(64) },
+      artifactReferences: ["workflow_artifact_checkpoint"],
+      jobReferences: ["server_job_checkpoint"],
+      approvalReferences: ["workflow_approval_checkpoint"],
+      blockers: [{ code: "review-required", message: "Review required.", nodeId: "data-governance-preflight", retryable: false }]
+    };
+    const baseline = senaWorkflowCheckpointStateDigest(state);
+    const mutations: Array<[keyof typeof state, unknown]> = [
+      ["workflowStatus", "blocked"],
+      ["claimBoundary", "inference-ready"],
+      ["evidenceLayers", { source: "failed", local: "blocked" }],
+      ["completedNodeIds", ["bind-source", "data-governance-preflight"]],
+      ["nodeReceiptHashes", { "bind-source": "6".repeat(64) }],
+      ["nodeOutputDigests", { "bind-source": "7".repeat(64) }],
+      ["artifactReferences", ["workflow_artifact_drift"]],
+      ["jobReferences", ["server_job_drift"]],
+      ["approvalReferences", ["workflow_approval_drift"]],
+      ["blockers", [{ code: "source-drift", message: "Source drift.", nodeId: "bind-source", retryable: true }]]
+    ];
+
+    expect(baseline).toMatch(/^[a-f0-9]{64}$/);
+    for (const [key, value] of mutations) {
+      expect(senaWorkflowCheckpointStateDigest({ ...state, [key]: value }), key).not.toBe(baseline);
+    }
   });
 });

@@ -114,6 +114,37 @@ describe("SENA server job ops route", () => {
       attempts: 1,
       workerRunId: "worker_run_1"
     }));
+    const originalLease = (runningBody.job?.lifecycle as { leaseExpiresAt?: string } | undefined)?.leaseExpiresAt;
+    const renewedResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        action: "renew-lease",
+        jobId: job.id,
+        workerRunId: "worker_run_1"
+      })
+    }));
+    const renewedBody = await renewedResponse.json() as {
+      action?: string;
+      job?: { status?: string; lifecycle?: { leaseExpiresAt?: string; lastHeartbeatAt?: string } };
+    };
+    expect(renewedResponse.status).toBe(200);
+    expect(renewedBody).toMatchObject({
+      action: "renew-lease",
+      job: {
+        status: "running",
+        lifecycle: {
+          leaseExpiresAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+          lastHeartbeatAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/)
+        }
+      }
+    });
+    expect(Date.parse(renewedBody.job?.lifecycle?.leaseExpiresAt ?? "")).toBeGreaterThanOrEqual(
+      Date.parse(originalLease ?? "")
+    );
 
     const errorMessage = "worker failed with sensitive upstream detail";
     const expectedErrorHash = createHash("sha256").update(errorMessage).digest("hex");
@@ -198,6 +229,7 @@ describe("SENA server job ops route", () => {
     });
     expect(audit.events.map((entry) => entry.detail.action)).toEqual(expect.arrayContaining([
       "mark-running",
+      "renew-lease",
       "mark-failed",
       "retry"
     ]));

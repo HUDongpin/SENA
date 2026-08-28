@@ -1110,9 +1110,18 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     summary: "Verify and export the redacted audit-chain closeout for one EvidenceFlow run.",
     evidenceNoteId: "sena-workflow-run-closeout",
     responses: ["sena-workflow-closeout/v1", "sena-workflow-step-receipt/v1", "sena-workflow-approval/v1"],
+    queryParameters: [{
+      name: "version",
+      methods: ["GET"],
+      required: false,
+      description: "Exact current run version. Required for mutable failed/dead-lettered provisional snapshots; omitted for immutable final closeouts."
+    }],
     errorResponses: [
       { status: 404, code: "workflow_run_not_found", description: "The run does not exist or is not visible to this tenant." },
-      { status: 409, code: "workflow_closeout_invalid", description: "Receipt chain, artifact bindings, or closeout completeness could not be verified." }
+      { status: 409, code: "workflow_closeout_not_ready", description: "The run is not in an exportable terminal state." },
+      { status: 409, code: "workflow_closeout_version_binding_required", description: "A provisional failed/dead-lettered snapshot did not bind the exact current version." },
+      { status: 409, code: "workflow_closeout_version_conflict", description: "The run version or status drifted while the snapshot was read." },
+      { status: 409, code: "workflow_closeout_evidence_invalid", description: "Receipt chain, artifact bindings, or closeout completeness could not be verified." }
     ]
   },
   {

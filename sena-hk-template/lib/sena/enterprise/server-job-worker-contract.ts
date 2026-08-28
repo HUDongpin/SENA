@@ -59,7 +59,7 @@ export type SenaEnterpriseServerJobWorkerContract = {
     statusUpdateSchema: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate;
     statusListSchema: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJobList;
     statusCallback: "/api/sena/ops/jobs";
-    acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"];
+    acceptedActions: ["mark-running", "renew-lease", "mark-succeeded", "mark-failed", "retry", "dead-letter"];
     acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"];
     payloadPolicy: "project-or-upload-pointer-default";
     inlinePayloadAllowed: false;
@@ -253,7 +253,7 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       statusUpdateSchema: SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate,
       statusListSchema: SENA_SCHEMA_VERSIONS.enterpriseServerJobList,
       statusCallback: "/api/sena/ops/jobs",
-      acceptedActions: ["mark-running", "mark-succeeded", "mark-failed", "retry", "dead-letter"],
+      acceptedActions: ["mark-running", "renew-lease", "mark-succeeded", "mark-failed", "retry", "dead-letter"],
       acceptedWorkerActions: ["run-import", "run-analysis", "run-publication-export", "run-reliability", "run-validation"],
       payloadPolicy: "project-or-upload-pointer-default",
       inlinePayloadAllowed: false,
@@ -294,7 +294,7 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       `externalWorkerCallbackReceiptConfirmed=${EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED}`,
       `externalWorkerProofPolicy=${EXTERNAL_WORKER_PROOF_POLICY}`,
       "statusCallback=/api/sena/ops/jobs",
-      "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
+      "workerActions=mark-running|renew-lease|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation",
       "workerInlinePayloadCustody=durable-pointers-only",
       "workerInlinePayloadAllowed=false",

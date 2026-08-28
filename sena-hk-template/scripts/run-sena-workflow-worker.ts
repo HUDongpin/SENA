@@ -11,6 +11,7 @@ import { recoverSenaWorkflowJobTerminalCommands } from "../lib/sena/workflow/job
 import { getEnterpriseServerJob } from "../lib/sena/enterprise/server-job-queue";
 import { enforceSenaWorkflowTelemetryPolicy } from "../lib/sena/workflow/telemetry-policy";
 import { resolveSenaWorkflowWorkerBuildAttestation } from "../lib/sena/workflow/worker-code-attestation";
+import { sweepSenaWorkflowServerJobLeases } from "../lib/sena/workflow/server-job-lease-sweeper";
 
 function positiveInteger(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number(value);
@@ -90,6 +91,17 @@ async function main() {
     })}\n`);
 
     do {
+      const leaseRecovery = await sweepSenaWorkflowServerJobLeases({ limit: 100 });
+      if (leaseRecovery.requeued > 0 || leaseRecovery.deadLettered > 0) {
+        process.stdout.write(`${JSON.stringify({
+          event: "sena-workflow-worker-server-job-lease-recovery",
+          inspected: leaseRecovery.inspected,
+          requeued: leaseRecovery.requeued,
+          deadLettered: leaseRecovery.deadLettered,
+          payloadValuesExcluded: true,
+          secretValuesExcluded: true
+        })}\n`);
+      }
       const recovery = await recoverSenaWorkflowJobTerminalCommands({
         store,
         readServerJob: getEnterpriseServerJob,

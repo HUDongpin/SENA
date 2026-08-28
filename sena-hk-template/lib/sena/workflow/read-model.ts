@@ -19,3 +19,19 @@ export function projectSenaWorkflowCommandReadModel(command: SenaWorkflowCommand
     ...(claimedBy ? { workerIdHash: senaWorkflowDigest(claimedBy) } : {})
   };
 }
+
+export function projectSenaWorkflowActionReadModel<T extends {
+  run: SenaWorkflowRun;
+  command: SenaWorkflowCommand;
+  sourceRun?: SenaWorkflowRun;
+  forkedRun?: SenaWorkflowRun;
+}>(result: T) {
+  const { run, command, sourceRun, forkedRun, ...metadata } = result;
+  return {
+    ...metadata,
+    run: projectSenaWorkflowRunReadModel(run),
+    command: projectSenaWorkflowCommandReadModel(command),
+    ...(sourceRun ? { sourceRun: projectSenaWorkflowRunReadModel(sourceRun) } : {}),
+    ...(forkedRun ? { forkedRun: projectSenaWorkflowRunReadModel(forkedRun) } : {})
+  };
+}

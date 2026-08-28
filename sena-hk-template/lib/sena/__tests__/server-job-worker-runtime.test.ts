@@ -2596,4 +2596,104 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(recovered.lifecycle.workerRunId).toBeUndefined();
     expect(recovered.lifecycle.leaseExpiresAt).toBeUndefined();
   });
+
+  it("reclaims a pre-lease running record after the bounded legacy grace window", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: {
+        action: "run-analysis",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const claimed = await fixture.queue.claimEnterpriseServerJob({
+      jobId: job.id,
+      workerRunId: "worker_run_legacy_without_lease"
+    });
+    if (!claimed.claimed) throw new Error("expected running legacy claim");
+    const db = state.readEnterpriseDb();
+    const raw = db.serverJobs.find((candidate) => candidate.id === job.id)!;
+    delete raw.lifecycle.leaseExpiresAt;
+    delete raw.lifecycle.lastHeartbeatAt;
+    raw.updatedAt = "2026-08-28T00:00:00.000Z";
+    raw.lifecycle.startedAt = "2026-08-28T00:00:00.000Z";
+    state.saveDb(db);
+
+    const recovery = await fixture.queue.recoverExpiredEnterpriseServerJobs({
+      kinds: ["analysis"],
+      observedAt: "2026-08-28T00:10:00.000Z"
+    });
+
+    expect(recovery).toMatchObject({ inspected: 1, requeued: 1, deadLettered: 0 });
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toMatchObject({
+      status: "queued",
+      lifecycle: expect.objectContaining({
+        statusReason: "server-job-worker-legacy-lease-missing-requeued",
+        leaseReclaimedAt: "2026-08-28T00:10:00.000Z"
+      })
+    });
+  });
+
+  it("rejects terminal callbacks after the owning worker lease expired even before a sweeper wins", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: {
+        action: "run-analysis",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const workerRunId = "worker_run_expired_terminal_fence";
+    const claimed = await fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId });
+    if (!claimed.claimed) throw new Error("expected running job claim");
+    const db = state.readEnterpriseDb();
+    const raw = db.serverJobs.find((candidate) => candidate.id === job.id)!;
+    raw.lifecycle.leaseExpiresAt = "2000-01-01T00:00:00.000Z";
+    state.saveDb(db);
+
+    await expect(fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-succeeded",
+      workerRunId
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_lease_conflict"
+    });
+    await expect(fixture.queue.renewEnterpriseServerJobLease({
+      jobId: job.id,
+      workerRunId
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_lease_conflict"
+    });
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toMatchObject({ status: "running" });
+  });
 });

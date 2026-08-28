@@ -241,6 +241,8 @@ export type SenaWorkflowCloseout = {
   schemaVersion: (typeof SENA_SCHEMA_VERSIONS)["workflowCloseout"];
   generatedAt: string;
   runId: string;
+  snapshotKind: "final" | "provisional";
+  boundRunVersion: number;
   kind: SenaWorkflowKind;
   definitionVersion: "v1";
   definitionHash: string;

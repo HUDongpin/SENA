@@ -213,18 +213,20 @@ function startServerJobLeaseHeartbeat(jobId: string, workerRunId: string) {
   const leaseMs = senaEnterpriseServerJobExecutionLeaseMs();
   const intervalMs = Math.max(1_000, Math.floor(leaseMs / 3));
   let stopped = false;
-  let renewing = false;
+  let renewal: Promise<void> | undefined;
   let leaseError: unknown;
-  const renew = async () => {
-    if (stopped || renewing || leaseError) return;
-    renewing = true;
-    try {
-      await renewEnterpriseServerJobLease({ jobId, workerRunId, leaseMs });
-    } catch (error) {
-      leaseError = error;
-    } finally {
-      renewing = false;
-    }
+  const renew = () => {
+    if (stopped || leaseError) return Promise.resolve();
+    if (renewal) return renewal;
+    renewal = renewEnterpriseServerJobLease({ jobId, workerRunId, leaseMs })
+      .then(() => undefined)
+      .catch((error) => {
+        leaseError = error;
+      })
+      .finally(() => {
+        renewal = undefined;
+      });
+    return renewal;
   };
   const timer = setInterval(() => { void renew(); }, intervalMs);
   timer.unref?.();

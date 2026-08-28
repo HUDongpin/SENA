@@ -45,9 +45,10 @@ export type SenaEnterpriseServerJobKind = "analysis" | "import" | "publication-e
 export type SenaEnterpriseServerJobQueueMode = "managed" | "webhook" | "qstash" | "local" | "not-configured";
 export type SenaEnterpriseServerJobSource = "project" | "snapshot" | "dataset" | "upload" | "mixed" | "unknown";
 export type SenaEnterpriseServerJobStatus = "queued" | "running" | "succeeded" | "failed" | "dead-lettered";
-export type SenaEnterpriseServerJobStatusAction = "mark-running" | "mark-succeeded" | "mark-failed" | "retry" | "dead-letter";
+export type SenaEnterpriseServerJobStatusAction = "mark-running" | "renew-lease" | "mark-succeeded" | "mark-failed" | "retry" | "dead-letter";
 
 const DEFAULT_SERVER_JOB_EXECUTION_LEASE_MS = 120_000;
+const DEFAULT_SERVER_JOB_LEGACY_LEASE_GRACE_MS = 300_000;
 
 export function senaEnterpriseServerJobExecutionLeaseMs(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
@@ -56,6 +57,15 @@ export function senaEnterpriseServerJobExecutionLeaseMs(
   return Number.isFinite(parsed)
     ? Math.max(5_000, Math.min(Math.trunc(parsed), 60 * 60_000))
     : DEFAULT_SERVER_JOB_EXECUTION_LEASE_MS;
+}
+
+export function senaEnterpriseServerJobLegacyLeaseGraceMs(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+) {
+  const parsed = Number(env.SENA_SERVER_JOB_LEGACY_LEASE_GRACE_MS);
+  return Number.isFinite(parsed)
+    ? Math.max(60_000, Math.min(Math.trunc(parsed), 24 * 60 * 60_000))
+    : DEFAULT_SERVER_JOB_LEGACY_LEASE_GRACE_MS;
 }
 
 function leaseExpiry(timestamp: string, leaseMs = senaEnterpriseServerJobExecutionLeaseMs()) {
@@ -987,12 +997,13 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
   const acceptedProviderModes: SenaEnterpriseServerJobQueueMode[] = ["managed", "webhook", "qstash"];
   const acceptedActions: SenaEnterpriseServerJobStatusAction[] = [
     "mark-running",
+    "renew-lease",
     "mark-succeeded",
     "mark-failed",
     "retry",
     "dead-letter"
   ];
-  const status = senaEnterpriseServerJobKinds.length === 5 && acceptedActions.length === 5 ? "pass" : "review";
+  const status = senaEnterpriseServerJobKinds.length === 5 && acceptedActions.length === 6 ? "pass" : "review";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueContract,
@@ -1821,6 +1832,16 @@ function assertDeterministicServerJobBinding(
   candidate: SenaEnterpriseServerJob
 ) {
   if (
+    existing.provider.mode !== candidate.provider.mode ||
+    existing.provider.endpointHash !== candidate.provider.endpointHash
+  ) {
+    throw new SenaEnterpriseError(
+      "Deterministic SENA server job replay crossed its durable queue provider binding.",
+      409,
+      "server_job_provider_binding_conflict"
+    );
+  }
+  if (
     existing.id !== candidate.id ||
     existing.kind !== candidate.kind ||
     existing.teamId !== candidate.teamId ||
@@ -2103,6 +2124,7 @@ type SenaEnterpriseServerJobTransitionDecision = {
   idempotent: boolean;
   expectedStatus: SenaEnterpriseServerJobStatus;
   expectedWorkerRunId?: string;
+  expectedLeaseExpiresAt?: string;
   requireSourceReady: boolean;
   workerRunId?: string;
 };
@@ -2167,10 +2189,24 @@ function assertEnterpriseServerJobTransition(input: {
         "server_job_worker_run_mismatch"
       );
     }
+    if (job.status === "running") {
+      const leaseExpiresAt = job.lifecycle.leaseExpiresAt;
+      const leaseExpiresMillis = leaseExpiresAt ? Date.parse(leaseExpiresAt) : Number.NaN;
+      if (!Number.isFinite(leaseExpiresMillis) || leaseExpiresMillis <= Date.now()) {
+        throw new SenaEnterpriseError(
+          "The SENA server job execution lease is no longer owned by this worker.",
+          409,
+          "server_job_worker_lease_conflict"
+        );
+      }
+    }
     return {
       idempotent: terminalMatches,
       expectedStatus: job.status,
       expectedWorkerRunId: owner,
+      ...(job.status === "running" && job.lifecycle.leaseExpiresAt
+        ? { expectedLeaseExpiresAt: job.lifecycle.leaseExpiresAt }
+        : {}),
       requireSourceReady: false,
       workerRunId
     };
@@ -2299,7 +2335,11 @@ export async function claimEnterpriseServerJob(input: {
   });
 }
 
-function recoverExpiredServerJob(job: SenaEnterpriseServerJob, observedAt: string) {
+function recoverExpiredServerJob(
+  job: SenaEnterpriseServerJob,
+  observedAt: string,
+  legacyLeaseMissing = false
+) {
   const deadLettered = job.lifecycle.attempts >= job.lifecycle.maxAttempts;
   return {
     ...job,
@@ -2318,8 +2358,12 @@ function recoverExpiredServerJob(job: SenaEnterpriseServerJob, observedAt: strin
       leaseExpiresAt: undefined,
       leaseReclaimedAt: observedAt,
       statusReason: deadLettered
-        ? "server-job-worker-lease-expired-dead-lettered"
-        : "server-job-worker-lease-expired-requeued"
+        ? legacyLeaseMissing
+          ? "server-job-worker-legacy-lease-missing-dead-lettered"
+          : "server-job-worker-lease-expired-dead-lettered"
+        : legacyLeaseMissing
+          ? "server-job-worker-legacy-lease-missing-requeued"
+          : "server-job-worker-lease-expired-requeued"
     }
   } satisfies SenaEnterpriseServerJob;
 }
@@ -2342,9 +2386,14 @@ export async function recoverExpiredEnterpriseServerJobs(input: {
     throw new SenaEnterpriseError("SENA server job lease observation time is invalid.", 422, "server_job_lease_time_invalid");
   }
   const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+  const legacyGraceMs = senaEnterpriseServerJobLegacyLeaseGraceMs();
   const matches = (job: SenaEnterpriseServerJob) => {
     const leaseMillis = job.lifecycle.leaseExpiresAt ? Date.parse(job.lifecycle.leaseExpiresAt) : Number.NaN;
-    return job.status === "running" && Number.isFinite(leaseMillis) && leaseMillis <= observedMillis &&
+    const lastObservedMillis = Date.parse(job.lifecycle.lastHeartbeatAt ?? job.lifecycle.startedAt ?? job.updatedAt);
+    const expired = Number.isFinite(leaseMillis)
+      ? leaseMillis <= observedMillis
+      : Number.isFinite(lastObservedMillis) && lastObservedMillis + legacyGraceMs <= observedMillis;
+    return job.status === "running" && expired &&
       input.kinds.includes(job.kind) && (!input.teamId || job.teamId === input.teamId);
   };
 
@@ -2354,17 +2403,20 @@ export async function recoverExpiredEnterpriseServerJobs(input: {
       kinds: input.kinds,
       teamId: input.teamId,
       observedAt,
+      legacyGraceMs,
       limit
     });
     const recovered: SenaEnterpriseServerJob[] = [];
     for (const candidate of candidates) {
-      if (!matches(candidate) || !candidate.lifecycle.leaseExpiresAt) continue;
-      const next = recoverExpiredServerJob(candidate, observedAt);
+      if (!matches(candidate)) continue;
+      const legacyLeaseMissing = !candidate.lifecycle.leaseExpiresAt;
+      const next = recoverExpiredServerJob(candidate, observedAt, legacyLeaseMissing);
       const committed = await adapter.transitionJobStatus({
         job: next,
         expectedStatus: "running",
         expectedWorkerRunId: candidate.lifecycle.workerRunId,
         expectedLeaseExpiresAt: candidate.lifecycle.leaseExpiresAt,
+        expectedLeaseMissing: legacyLeaseMissing,
         requireSourceReady: false
       });
       if (committed) recovered.push(committed);
@@ -2386,7 +2438,10 @@ export async function recoverExpiredEnterpriseServerJobs(input: {
         left.id.localeCompare(right.id)
       ))
       .slice(0, limit);
-    const recoveredById = new Map(candidates.map((job) => [job.id, recoverExpiredServerJob(job, observedAt)]));
+    const recoveredById = new Map(candidates.map((job) => [
+      job.id,
+      recoverExpiredServerJob(job, observedAt, !job.lifecycle.leaseExpiresAt)
+    ]));
     db.serverJobs = (db.serverJobs ?? []).map((stored) => recoveredById.get(stored.id) ?? stored);
     const jobs = [...recoveredById.values()];
     return {
@@ -2402,11 +2457,10 @@ export async function recoverExpiredEnterpriseServerJobs(input: {
 export async function renewEnterpriseServerJobLease(input: {
   jobId: string;
   workerRunId: string;
-  observedAt?: string;
   leaseMs?: number;
 }) {
   const workerRunId = requiredWorkerRunId(input.workerRunId);
-  const observedAt = input.observedAt ?? now();
+  const observedAt = now();
   const observedMillis = Date.parse(observedAt);
   if (!Number.isFinite(observedMillis)) {
     throw new SenaEnterpriseError("SENA server job lease observation time is invalid.", 422, "server_job_lease_time_invalid");
@@ -2442,6 +2496,7 @@ export async function renewEnterpriseServerJobLease(input: {
       expectedStatus: "running",
       expectedWorkerRunId: workerRunId,
       expectedLeaseExpiresAt: current.lifecycle.leaseExpiresAt,
+      requireUnexpiredLease: true,
       requireSourceReady: false
     });
     if (!committed) {
@@ -2594,12 +2649,28 @@ export async function updateEnterpriseServerJobStatus(input: {
   // Ownership is checked before any lifecycle validation or write, so a scoped
   // caller cannot mark another tenant's job running, succeeded, or failed.
   assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
-  if (input.callerScope && ["mark-running", "mark-succeeded", "mark-failed"].includes(input.action)) {
+  if (input.callerScope && ["mark-running", "renew-lease", "mark-succeeded", "mark-failed"].includes(input.action)) {
     throw new SenaEnterpriseError(
       "SENA server job worker lifecycle callbacks require the service identity.",
       403,
       "server_job_worker_identity_required"
     );
+  }
+  if (input.action === "renew-lease") {
+    const job = await renewEnterpriseServerJobLease({
+      jobId: input.jobId,
+      workerRunId: requiredWorkerRunId(input.workerRunId)
+    });
+    return {
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate,
+      generatedAt: now(),
+      action: input.action,
+      job,
+      redaction: {
+        payloadValuesExcluded: true,
+        secretValuesExcluded: true
+      }
+    };
   }
   if (input.result !== undefined && input.action !== "mark-succeeded") {
     throw new SenaEnterpriseError(
@@ -2706,6 +2777,8 @@ export async function updateEnterpriseServerJobStatus(input: {
       job: nextJob,
       expectedStatus: initialDecision.expectedStatus,
       expectedWorkerRunId: initialDecision.expectedWorkerRunId,
+      expectedLeaseExpiresAt: initialDecision.expectedLeaseExpiresAt,
+      requireUnexpiredLease: Boolean(initialDecision.expectedLeaseExpiresAt),
       requireSourceReady: initialDecision.requireSourceReady
     });
     if (!transitioned) {

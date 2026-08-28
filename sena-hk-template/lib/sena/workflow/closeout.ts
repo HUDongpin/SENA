@@ -43,6 +43,8 @@ function addIf(condition: boolean, issues: Set<string>, code: string) {
 
 const closeoutNodeId = "evidence-closeout";
 const closeoutCommitmentFilename = "sena-workflow-closeout-commitment.json";
+const finalCloseoutStatuses = new Set(["succeeded", "cancelled", "superseded"]);
+const provisionalCloseoutStatuses = new Set(["failed", "dead_lettered"]);
 
 function matchingCloseoutCommitmentArtifact(
   artifacts: SenaWorkflowRunEvents["artifacts"],
@@ -114,6 +116,11 @@ export function auditSenaWorkflowCloseoutInput(input: SenaWorkflowRunEvents): Se
   const { run, commands, receipts, approvals, artifacts } = input;
   let definitionHash: string | undefined;
   let definition: ReturnType<typeof senaWorkflowDefinition> | undefined;
+  addIf(
+    !finalCloseoutStatuses.has(run.status) && !provisionalCloseoutStatuses.has(run.status),
+    issues,
+    "closeout-run-status-not-exportable"
+  );
   try {
     definition = senaWorkflowDefinition(run.kind);
     definitionHash = definition.definitionHash;
@@ -319,6 +326,8 @@ export function buildSenaWorkflowCloseout(
     schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
     generatedAt: input.generatedAt,
     runId: input.run.id,
+    snapshotKind: provisionalCloseoutStatuses.has(input.run.status) ? "provisional" as const : "final" as const,
+    boundRunVersion: input.run.version,
     kind: input.run.kind,
     definitionVersion: input.run.definitionVersion,
     definitionHash: input.run.definitionHash,

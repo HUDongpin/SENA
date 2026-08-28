@@ -3774,6 +3774,8 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     expectedStatus: SenaEnterpriseServerJobStatus;
     expectedWorkerRunId?: string;
     expectedLeaseExpiresAt?: string;
+    expectedLeaseMissing?: boolean;
+    requireUnexpiredLease?: boolean;
     requireSourceReady: boolean;
   }) {
     await ensureSchema();
@@ -3793,6 +3795,10 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     if (inputTransition.expectedLeaseExpiresAt) {
       values.push(inputTransition.expectedLeaseExpiresAt);
       clauses.push(`lifecycle->>'leaseExpiresAt' = $${values.length}`);
+    }
+    if (inputTransition.expectedLeaseMissing) clauses.push(`lifecycle->>'leaseExpiresAt' IS NULL`);
+    if (inputTransition.requireUnexpiredLease) {
+      clauses.push(`(lifecycle->>'leaseExpiresAt')::timestamptz > now()`);
     }
     if (inputTransition.requireSourceReady) clauses.push(claimableSourceSql);
     const result = await input.query<Record<string, unknown>>(`
@@ -3995,11 +4001,16 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     kinds: readonly SenaEnterpriseServerJobKind[];
     teamId?: string;
     observedAt: string;
+    legacyGraceMs?: number;
     limit?: number;
   }) {
     await ensureSchema();
     const limit = Math.max(1, Math.min(inputFilters.limit ?? 100, 500));
-    const values: unknown[] = [inputFilters.kinds, inputFilters.observedAt];
+    const values: unknown[] = [
+      inputFilters.kinds,
+      inputFilters.observedAt,
+      Math.max(60_000, Math.min(inputFilters.legacyGraceMs ?? 300_000, 24 * 60 * 60_000))
+    ];
     const teamClause = inputFilters.teamId
       ? ` AND team_id = $${values.push(inputFilters.teamId)}`
       : "";
@@ -4009,10 +4020,26 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       FROM ${tableRef}
       WHERE status = 'running'
         AND kind = ANY($1::text[])
-        AND lifecycle->>'leaseExpiresAt' IS NOT NULL
-        AND (lifecycle->>'leaseExpiresAt')::timestamptz <= $2::timestamptz
+        AND (
+          (
+            lifecycle->>'leaseExpiresAt' IS NOT NULL
+            AND (lifecycle->>'leaseExpiresAt')::timestamptz <= $2::timestamptz
+          ) OR (
+            lifecycle->>'leaseExpiresAt' IS NULL
+            AND COALESCE(
+              NULLIF(lifecycle->>'lastHeartbeatAt', '')::timestamptz,
+              NULLIF(lifecycle->>'startedAt', '')::timestamptz,
+              updated_at
+            ) <= $2::timestamptz - ($3::double precision * interval '1 millisecond')
+          )
+        )
         ${teamClause}
-      ORDER BY (lifecycle->>'leaseExpiresAt')::timestamptz ASC, id ASC
+      ORDER BY COALESCE(
+        NULLIF(lifecycle->>'leaseExpiresAt', '')::timestamptz,
+        NULLIF(lifecycle->>'lastHeartbeatAt', '')::timestamptz,
+        NULLIF(lifecycle->>'startedAt', '')::timestamptz,
+        updated_at
+      ) ASC, id ASC
       LIMIT $${values.length}
     `, values);
     return result.rows.map((row) => normalizeStoredServerJob(row));

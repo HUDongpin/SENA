@@ -17,6 +17,41 @@ export type SenaWorkflowCheckpointBinding = {
   stateDigest: string;
 };
 
+function checkpointRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function checkpointStrings(value: unknown) {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : [];
+}
+
+/** Canonical, checkpoint-safe projection shared by API fork validation. */
+export function senaWorkflowCheckpointStateDigest(state: Record<string, unknown>) {
+  return senaWorkflowDigest({
+    runId: typeof state.runId === "string" ? state.runId : "",
+    kind: typeof state.kind === "string" ? state.kind : "",
+    teamId: typeof state.teamId === "string" ? state.teamId : "",
+    definitionHash: typeof state.definitionHash === "string" ? state.definitionHash : "",
+    sourceBindingDigest: typeof state.sourceBindingDigest === "string" ? state.sourceBindingDigest : "",
+    codeSha: typeof state.codeSha === "string" ? state.codeSha : "",
+    configDigest: typeof state.configDigest === "string" ? state.configDigest : "",
+    workflowStatus: typeof state.workflowStatus === "string" ? state.workflowStatus : "",
+    claimBoundary: typeof state.claimBoundary === "string" ? state.claimBoundary : null,
+    evidenceLayers: checkpointRecord(state.evidenceLayers),
+    completedNodeIds: checkpointStrings(state.completedNodeIds),
+    nodeReceiptHashes: checkpointRecord(state.nodeReceiptHashes),
+    nodeOutputDigests: checkpointRecord(state.nodeOutputDigests),
+    artifactReferences: checkpointStrings(state.artifactReferences),
+    jobReferences: checkpointStrings(state.jobReferences),
+    approvalReferences: checkpointStrings(state.approvalReferences),
+    blockers: Array.isArray(state.blockers) ? state.blockers : []
+  });
+}
+
 export function senaWorkflowPostgresRuntimeStatus(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
 ) {
@@ -99,20 +134,7 @@ export async function senaWorkflowCheckpointBinding(input: {
     const codeSha = typeof state.codeSha === "string" ? state.codeSha : "";
     const configDigest = typeof state.configDigest === "string" ? state.configDigest : "";
     if (!runId || !definitionHash || !sourceBindingDigest || !codeSha || !configDigest) return null;
-    const stateDigest = senaWorkflowDigest({
-      runId,
-      definitionHash,
-      sourceBindingDigest,
-      codeSha,
-      configDigest,
-      currentNodeId: state.currentNodeId ?? null,
-      workflowStatus: state.workflowStatus ?? null,
-      receiptHashes: state.receiptHashes ?? [],
-      jobReferences: state.jobReferences ?? [],
-      approvalReferences: state.approvalReferences ?? [],
-      evidenceLayers: state.evidenceLayers ?? null,
-      claimBoundary: state.claimBoundary ?? null
-    });
+    const stateDigest = senaWorkflowCheckpointStateDigest(state);
     return {
       checkpointId: input.checkpointId,
       runId,

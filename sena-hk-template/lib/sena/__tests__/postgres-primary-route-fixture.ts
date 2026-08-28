@@ -404,10 +404,20 @@ export class RouteMemoryPostgres {
       const expectedStatus = statusPredicate ? values[Number(statusPredicate[1]) - 1] : undefined;
       const workerPredicate = /lifecycle->>'workerRunId' = \$(\d+)/i.exec(normalizedSql);
       const expectedWorkerRunId = workerPredicate ? values[Number(workerPredicate[1]) - 1] : undefined;
+      const leasePredicate = /lifecycle->>'leaseExpiresAt' = \$(\d+)/i.exec(normalizedSql);
+      const expectedLeaseExpiresAt = leasePredicate ? values[Number(leasePredicate[1]) - 1] : undefined;
+      const requiresMissingLease = /lifecycle->>'leaseExpiresAt' IS NULL/i.test(normalizedSql);
+      const requiresUnexpiredLease = /lifecycle->>'leaseExpiresAt'\)::timestamptz > now\(\)/i.test(normalizedSql);
       const requiresReady = /delivery->'?sourceReady'?/i.test(normalizedSql) || /delivery \? 'sourceReady'/i.test(normalizedSql);
-      const lifecycle = current?.lifecycle as { workerRunId?: unknown } | undefined;
+      const lifecycle = current?.lifecycle as { workerRunId?: unknown; leaseExpiresAt?: unknown } | undefined;
+      const leaseExpiresAt = typeof lifecycle?.leaseExpiresAt === "string"
+        ? Date.parse(lifecycle.leaseExpiresAt)
+        : Number.NaN;
       if (!current || current.status !== expectedStatus ||
         (workerPredicate && lifecycle?.workerRunId !== expectedWorkerRunId) ||
+        (leasePredicate && lifecycle?.leaseExpiresAt !== expectedLeaseExpiresAt) ||
+        (requiresMissingLease && lifecycle?.leaseExpiresAt !== undefined) ||
+        (requiresUnexpiredLease && (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now())) ||
         (requiresReady && !this.serverJobSourceReady(current))) {
         return { rows: [], rowCount: 0 };
       }

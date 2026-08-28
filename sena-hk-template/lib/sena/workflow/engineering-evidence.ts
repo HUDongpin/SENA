@@ -32,11 +32,61 @@ export type SenaEngineeringGateReceipt = {
   fixture: boolean;
   externalSideEffects: false;
   artifactReferences: string[];
+  isolation: SenaEngineeringIsolationProof;
   provenance: {
     issuer: "sena-workflow-worker";
     workflowRunId: string;
-    executionMode: "local-command" | "fixture-simulation";
+    executionMode: "exact-sha-sandbox" | "fixture-simulation";
     worktreeBindingDigest: string;
+  };
+};
+
+export type SenaEngineeringIsolationProof = {
+  provider: "macos-sandbox-exec" | "fixed-fixture-simulation";
+  snapshotKind: "git-archive-exact-sha" | "fixed-fixture";
+  candidateTreeSha: string;
+  dependencyLockDigest: string;
+  sandboxPolicyDigest: string;
+  filesystemPolicy: "snapshot-write-only" | "fixed-fixture";
+  readPolicy: "host-data-denied" | "fixed-fixture";
+  networkPolicy: "loopback-only" | "none";
+  temporarySnapshot: true;
+};
+
+export type SenaEngineeringRepositoryPreflightReceipt = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.workflowEngineeringRepositoryPreflight;
+  repo: string;
+  baseSha: string;
+  liveMainSha: string;
+  candidateSha: string;
+  branch: string;
+  ownerLane: string;
+  worktreePathHash: string;
+  governanceRegistryDigest: string;
+  changedPathDigest: string;
+  checkedAt: string;
+  featureWorkFrozen: false;
+  protectedMainGreen: true;
+  ownerConflict: false;
+  dirtyTarget: false;
+  headDrift: false;
+  allowedPathConflict: false;
+  externalSideEffects: false;
+  fixture: boolean;
+  provenance: {
+    issuer: "sena-workflow-worker";
+    observationMode: "live-read-only" | "fixture-simulation";
+    liveMainObservation: "git-ls-remote" | "fixed-fixture";
+    registryObservation: "git-show-protected-main" | "fixed-fixture";
+    requiredChecksObservation: "github-check-runs" | "fixed-fixture";
+    governanceAuditStatus: "passed" | "fixture-simulated";
+    governanceAuditDigest: string;
+    requiredChecksDigest: string;
+    requiredCheckNames: string[];
+    canonicalRemoteDigest: string;
+    activeWorkItemTaskId: string;
+    candidateTreeSha: string;
+    baseAncestorOfCandidate: true;
   };
 };
 
@@ -83,6 +133,7 @@ export type SenaEngineeringRunBinding = {
 
 const SHA = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const GITHUB_REPOSITORY = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const OWNER_LANE = /^A(?:0[1-9]|1[0-5])$/;
 const SAFE_BRANCH = /^codex\/[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/;
 const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
@@ -133,6 +184,13 @@ function canonicalUniquePaths(value: unknown, label: string) {
   return [...paths].sort();
 }
 
+export function senaEngineeringPathAllowed(changedPath: string, allowedPath: string) {
+  if (changedPath === allowedPath) return true;
+  if (!allowedPath.endsWith("/**")) return false;
+  const prefix = allowedPath.slice(0, -3).replace(/\/$/, "");
+  return Boolean(prefix) && changedPath.startsWith(`${prefix}/`);
+}
+
 function parseGateReceipt(
   value: unknown,
   binding: SenaEngineeringRunBinding,
@@ -143,13 +201,30 @@ function parseGateReceipt(
   exact(receipt, [
     "schemaVersion", "gate", "evidenceLayer", "status", "candidateSha", "commandDigest",
     "environmentDigest", "logSummaryDigest", "exitCode", "startedAt", "finishedAt", "fixture",
-    "externalSideEffects", "artifactReferences", "provenance"
+    "externalSideEffects", "artifactReferences", "isolation", "provenance"
   ], "gate receipt");
   const gate = receipt.gate as SenaEngineeringGateName;
   const startedAt = typeof receipt.startedAt === "string" ? Date.parse(receipt.startedAt) : Number.NaN;
   const finishedAt = typeof receipt.finishedAt === "string" ? Date.parse(receipt.finishedAt) : Number.NaN;
   const provenance = record(receipt.provenance, "gate receipt provenance");
   exact(provenance, ["issuer", "workflowRunId", "executionMode", "worktreeBindingDigest"], "gate receipt provenance");
+  const isolation = record(receipt.isolation, "gate receipt isolation");
+  exact(isolation, [
+    "provider", "snapshotKind", "candidateTreeSha", "dependencyLockDigest", "sandboxPolicyDigest",
+    "filesystemPolicy", "readPolicy", "networkPolicy", "temporarySnapshot"
+  ], "gate receipt isolation");
+  const realIsolation = targetKind === "real-sena-read-only" &&
+    isolation.provider === "macos-sandbox-exec" &&
+    isolation.snapshotKind === "git-archive-exact-sha" &&
+    isolation.filesystemPolicy === "snapshot-write-only" &&
+    isolation.readPolicy === "host-data-denied" &&
+    isolation.networkPolicy === "loopback-only";
+  const fixtureIsolation = targetKind === "fixture-repository" &&
+    isolation.provider === "fixed-fixture-simulation" &&
+    isolation.snapshotKind === "fixed-fixture" &&
+    isolation.filesystemPolicy === "fixed-fixture" &&
+    isolation.readPolicy === "fixed-fixture" &&
+    isolation.networkPolicy === "none";
   if (
     receipt.schemaVersion !== SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt ||
     !GATE_NAMES.has(gate) || receipt.evidenceLayer !== EXPECTED_LAYER[gate] ||
@@ -164,9 +239,14 @@ function parseGateReceipt(
     provenance.issuer !== "sena-workflow-worker" ||
     typeof provenance.workflowRunId !== "string" || !provenance.workflowRunId ||
     (workflowRunId !== undefined && provenance.workflowRunId !== workflowRunId) ||
-    !["local-command", "fixture-simulation"].includes(String(provenance.executionMode)) ||
-    provenance.executionMode !== (targetKind === "fixture-repository" ? "fixture-simulation" : "local-command") ||
+    !["exact-sha-sandbox", "fixture-simulation"].includes(String(provenance.executionMode)) ||
+    provenance.executionMode !== (targetKind === "fixture-repository" ? "fixture-simulation" : "exact-sha-sandbox") ||
     typeof provenance.worktreeBindingDigest !== "string" || !SHA256.test(provenance.worktreeBindingDigest) ||
+    (!realIsolation && !fixtureIsolation) ||
+    typeof isolation.candidateTreeSha !== "string" || !SHA.test(isolation.candidateTreeSha) ||
+    typeof isolation.dependencyLockDigest !== "string" || !SHA256.test(isolation.dependencyLockDigest) ||
+    typeof isolation.sandboxPolicyDigest !== "string" || !SHA256.test(isolation.sandboxPolicyDigest) ||
+    isolation.temporarySnapshot !== true ||
     !Array.isArray(receipt.artifactReferences) ||
     !receipt.artifactReferences.every((entry) => typeof entry === "string" && SAFE_REFERENCE.test(entry)) ||
     (receipt.status === "passed" && receipt.exitCode !== 0) ||
@@ -177,11 +257,72 @@ function parseGateReceipt(
   return structuredClone(receipt) as SenaEngineeringGateReceipt;
 }
 
+export function parseSenaEngineeringRepositoryPreflightReceipt(
+  value: unknown,
+  evidence: SenaEngineeringEvidenceParameters,
+  binding: SenaEngineeringRunBinding
+) {
+  const receipt = record(value, "repository preflight receipt");
+  exact(receipt, [
+    "schemaVersion", "repo", "baseSha", "liveMainSha", "candidateSha", "branch", "ownerLane",
+    "worktreePathHash", "governanceRegistryDigest", "changedPathDigest", "checkedAt",
+    "featureWorkFrozen", "protectedMainGreen", "ownerConflict", "dirtyTarget", "headDrift",
+    "allowedPathConflict", "externalSideEffects", "fixture", "provenance"
+  ], "repository preflight receipt");
+  const provenance = record(receipt.provenance, "repository preflight provenance");
+  exact(provenance, [
+    "issuer", "observationMode", "liveMainObservation", "registryObservation", "requiredChecksObservation",
+    "governanceAuditStatus", "governanceAuditDigest", "requiredChecksDigest", "requiredCheckNames",
+    "canonicalRemoteDigest", "activeWorkItemTaskId",
+    "candidateTreeSha", "baseAncestorOfCandidate"
+  ], "repository preflight provenance");
+  const realObservation = evidence.targetKind === "real-sena-read-only" &&
+    receipt.fixture === false && provenance.observationMode === "live-read-only" &&
+    provenance.liveMainObservation === "git-ls-remote" &&
+    provenance.registryObservation === "git-show-protected-main" &&
+    provenance.requiredChecksObservation === "github-check-runs" &&
+    provenance.governanceAuditStatus === "passed";
+  const fixtureObservation = evidence.targetKind === "fixture-repository" &&
+    receipt.fixture === true && provenance.observationMode === "fixture-simulation" &&
+    provenance.liveMainObservation === "fixed-fixture" &&
+    provenance.registryObservation === "fixed-fixture" &&
+    provenance.requiredChecksObservation === "fixed-fixture" &&
+    provenance.governanceAuditStatus === "fixture-simulated";
+  if (
+    receipt.schemaVersion !== SENA_SCHEMA_VERSIONS.workflowEngineeringRepositoryPreflight ||
+    receipt.repo !== binding.repo || receipt.baseSha !== binding.baseSha ||
+    receipt.liveMainSha !== binding.baseSha || receipt.candidateSha !== binding.candidateSha ||
+    receipt.branch !== evidence.branch || receipt.ownerLane !== evidence.ownerLane ||
+    receipt.worktreePathHash !== evidence.worktreePathHash ||
+    receipt.governanceRegistryDigest !== evidence.repositoryPreflight.governanceRegistryDigest ||
+    receipt.changedPathDigest !== evidence.candidateReceipt.changedPathDigest ||
+    typeof receipt.checkedAt !== "string" || !Number.isFinite(Date.parse(receipt.checkedAt)) ||
+    receipt.featureWorkFrozen !== false || receipt.protectedMainGreen !== true ||
+    receipt.ownerConflict !== false || receipt.dirtyTarget !== false ||
+    receipt.headDrift !== false || receipt.allowedPathConflict !== false ||
+    receipt.externalSideEffects !== false ||
+    provenance.issuer !== "sena-workflow-worker" || (!realObservation && !fixtureObservation) ||
+    typeof provenance.governanceAuditDigest !== "string" || !SHA256.test(provenance.governanceAuditDigest) ||
+    typeof provenance.requiredChecksDigest !== "string" || !SHA256.test(provenance.requiredChecksDigest) ||
+    !Array.isArray(provenance.requiredCheckNames) || provenance.requiredCheckNames.length < 1 ||
+    provenance.requiredCheckNames.length > 20 ||
+    provenance.requiredCheckNames.some((entry) => typeof entry !== "string" || !SAFE_REFERENCE.test(entry)) ||
+    new Set(provenance.requiredCheckNames).size !== provenance.requiredCheckNames.length ||
+    typeof provenance.canonicalRemoteDigest !== "string" || !SHA256.test(provenance.canonicalRemoteDigest) ||
+    typeof provenance.activeWorkItemTaskId !== "string" || !SAFE_REFERENCE.test(provenance.activeWorkItemTaskId) ||
+    typeof provenance.candidateTreeSha !== "string" || !SHA.test(provenance.candidateTreeSha) ||
+    provenance.baseAncestorOfCandidate !== true
+  ) {
+    throw new Error("SENA engineering worker repository preflight receipt is invalid.");
+  }
+  return structuredClone(receipt) as SenaEngineeringRepositoryPreflightReceipt;
+}
+
 export function parseSenaEngineeringEvidenceParameters(
   parameters: Record<string, unknown>,
   binding: SenaEngineeringRunBinding
 ): SenaEngineeringEvidenceParameters {
-  if (!binding.repo || !SHA.test(binding.baseSha) || !SHA.test(binding.candidateSha) ||
+  if (!GITHUB_REPOSITORY.test(binding.repo) || !SHA.test(binding.baseSha) || !SHA.test(binding.candidateSha) ||
     !SHA256.test(binding.workRequestDigest)) {
     throw new Error("SENA engineering run binding is invalid.");
   }
@@ -237,7 +378,8 @@ export function parseSenaEngineeringEvidenceParameters(
   ) {
     throw new Error("SENA engineering candidate receipt does not match the exact run binding.");
   }
-  if (changedPaths.some((path) => !allowedPaths.includes(path))) {
+  if (changedPaths.some((changedPath) =>
+    !allowedPaths.some((allowedPath) => senaEngineeringPathAllowed(changedPath, allowedPath)))) {
     throw new Error("SENA engineering candidate changed a path outside its allowed path scope.");
   }
   return {
@@ -296,13 +438,14 @@ export type SenaEngineeringCommandResult = {
   startedAt: string;
   finishedAt: string;
   logSummaryDigest: string;
+  isolation: SenaEngineeringIsolationProof;
 };
 
 export type SenaEngineeringCommandExecutor = (
   command: SenaEngineeringCommandSpec
 ) => Promise<SenaEngineeringCommandResult>;
 
-const realCommandPlan: Record<Extract<SenaEngineeringGateName,
+export const SENA_ENGINEERING_REAL_COMMAND_PLAN: Record<Extract<SenaEngineeringGateName,
   "focused-tests" | "typecheck" | "lint" | "build" | "pilot-verify">, Omit<SenaEngineeringCommandSpec, "gate" | "fixture">> = {
   "focused-tests": { commandId: "sena-focused-tests-v1", executable: "npm", args: ["test"] },
   typecheck: { commandId: "sena-typecheck-v1", executable: "npx", args: ["tsc", "--noEmit"] },
@@ -321,8 +464,8 @@ function verificationGates(nodeId: string, targetKind: SenaEngineeringTargetKind
 }
 
 function commandForGate(gate: SenaEngineeringGateName, fixture: boolean): SenaEngineeringCommandSpec {
-  if (!fixture && gate in realCommandPlan) {
-    const command = realCommandPlan[gate as keyof typeof realCommandPlan];
+  if (!fixture && gate in SENA_ENGINEERING_REAL_COMMAND_PLAN) {
+    const command = SENA_ENGINEERING_REAL_COMMAND_PLAN[gate as keyof typeof SENA_ENGINEERING_REAL_COMMAND_PLAN];
     return { gate, ...command, fixture: false };
   }
   return {
@@ -370,7 +513,28 @@ export async function runSenaEngineeringVerificationNode(input: {
         logSummaryDigest: senaWorkflowDigest({
           commandId: command.commandId,
           errorClass: error instanceof Error ? error.name : "unknown"
-        })
+        }),
+        isolation: fixture ? {
+          provider: "fixed-fixture-simulation",
+          snapshotKind: "fixed-fixture",
+          candidateTreeSha: input.binding.candidateSha,
+          dependencyLockDigest: senaWorkflowDigest({ fixture: true, gate }),
+          sandboxPolicyDigest: senaWorkflowDigest({ policy: "fixed-fixture-v1" }),
+          filesystemPolicy: "fixed-fixture",
+          readPolicy: "fixed-fixture",
+          networkPolicy: "none",
+          temporarySnapshot: true
+        } : {
+          provider: "macos-sandbox-exec",
+          snapshotKind: "git-archive-exact-sha",
+          candidateTreeSha: input.binding.candidateSha,
+          dependencyLockDigest: senaWorkflowDigest({ missing: "dependency-lock" }),
+          sandboxPolicyDigest: senaWorkflowDigest({ missing: "sandbox-policy" }),
+          filesystemPolicy: "snapshot-write-only",
+          readPolicy: "host-data-denied",
+          networkPolicy: "loopback-only",
+          temporarySnapshot: true
+        }
       };
     }
     const receipt: SenaEngineeringGateReceipt = {
@@ -388,10 +552,11 @@ export async function runSenaEngineeringVerificationNode(input: {
       fixture,
       externalSideEffects: false,
       artifactReferences: [],
+      isolation: result.isolation,
       provenance: {
         issuer: "sena-workflow-worker",
         workflowRunId: input.runId,
-        executionMode: fixture ? "fixture-simulation" : "local-command",
+        executionMode: fixture ? "fixture-simulation" : "exact-sha-sandbox",
         worktreeBindingDigest
       }
     };
@@ -404,7 +569,8 @@ export function evaluateSenaEngineeringEvidenceNode(
   nodeId: string,
   evidence: SenaEngineeringEvidenceParameters,
   binding: SenaEngineeringRunBinding,
-  trustedGateReceipts: SenaEngineeringGateReceipt[] = []
+  trustedGateReceipts: SenaEngineeringGateReceipt[] = [],
+  trustedRepositoryPreflight?: SenaEngineeringRepositoryPreflightReceipt
 ) {
   const workOrder = {
     schemaVersion: SENA_SCHEMA_VERSIONS.workflowEngineeringWorkOrder,
@@ -418,7 +584,7 @@ export function evaluateSenaEngineeringEvidenceNode(
     baseSha: binding.baseSha,
     workRequestDigest: binding.workRequestDigest,
     allowedPaths: evidence.allowedPaths,
-    repositoryPreflightDigest: senaWorkflowDigest(evidence.repositoryPreflight),
+    repositoryPreflightProposalDigest: senaWorkflowDigest(evidence.repositoryPreflight),
     externalSideEffectsAuthorized: false as const
   };
   let document: unknown;
@@ -428,7 +594,11 @@ export function evaluateSenaEngineeringEvidenceNode(
   let receipts: SenaEngineeringGateReceipt[] = [];
   let evidenceLayers: Partial<SenaWorkflowRun["evidenceLayers"]> | undefined;
   if (nodeId === "repository-preflight") {
-    document = evidence.repositoryPreflight;
+    document = parseSenaEngineeringRepositoryPreflightReceipt(
+      trustedRepositoryPreflight,
+      evidence,
+      binding
+    );
     filename = "sena-engineering-repository-preflight.json";
     schemaVersion = SENA_SCHEMA_VERSIONS.workflowEngineeringRepositoryPreflight;
   } else if (nodeId === "immutable-work-order") {
@@ -468,6 +638,9 @@ export function evaluateSenaEngineeringEvidenceNode(
     binding,
     workOrderDigest: senaWorkflowDigest(workOrder),
     candidateReceiptDigest: senaWorkflowDigest(evidence.candidateReceipt),
+    repositoryPreflightReceiptDigest: nodeId === "repository-preflight" && document
+      ? senaWorkflowDigest(document)
+      : null,
     receiptDigests,
     evidenceLayers: evidenceLayers ?? null,
     externalSideEffects: false
