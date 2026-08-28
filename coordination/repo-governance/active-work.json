@@ -1090,10 +1090,10 @@
       "branch": "codex/sena-evidenceflow-v1-20260828",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-evidenceflow-v1-20260828",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
+      "headSha": "820e00af00eacc98782bb52cbd1cca921e259053",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 5,
         "behind": 0
       },
       "allowedPaths": [
@@ -1116,8 +1116,8 @@
         "docs/adr/**"
       ],
       "createdAt": "2026-08-27T18:54:04Z",
-      "lastHeartbeatAt": "2026-08-28T08:15:58Z",
-      "lastObservedAt": "2026-08-28T08:15:58Z",
+      "lastHeartbeatAt": "2026-08-28T11:08:20Z",
+      "lastObservedAt": "2026-08-28T11:08:20Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 38,
@@ -1125,27 +1125,16 @@
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "dirty-allowed-second-review-remediation-after-pr40-main",
+      "dirtyState": "clean-awaiting-third-review-remediation-authorization",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "worktree remains clean at d532cc8; further tracked writes inside the unchanged EvidenceFlow allowlist are authorized only after PR 40 reaches protected main with exact-head and post-main checks green, and only to remediate the bound second-review findings",
-        "ci": "PR 38 exact head d532cc8 passed build 33153485075 and repository-security 33153485077/33153481951; all three check-run annotation sets are empty",
-        "merged": "not merged; Draft PR 38 remains fail-closed because the exact d532cc8 independent review requires changes and mergeAuthorized remains false",
+        "local": "exact clean head 820e00af passed 3105 local tests, 16 fresh-Postgres integration tests, typecheck, lint, production build, full sena:pilot:verify, and a clean Git-object worker attestation; the exact-head independent review still requires changes",
+        "ci": "PR 38 exact head 820e00af passed build 33164939919 and repository-security 33164939926/33164936672; all three check-run annotation sets are empty",
+        "merged": "not merged; Draft PR 38 remains fail-closed because the exact 820e00af independent review requires changes and mergeAuthorized remains false",
         "deployed": "not authorized and not performed",
         "live": "local production-server desktop/mobile browser flow passed; no deployed endpoint or institution-production claim; engineering graph remains shadow-only"
       },
       "priorIndependentReview": {
-        "reviewerType": "codex-subagent",
-        "reviewerId": "01a046aa-0353-7df2-b844-49010d129612",
-        "reviewedHeadSha": "0523fde705837784b0cc897147183fdc2114a1e3",
-        "completedAt": "2026-08-28T04:57:53Z",
-        "status": "changes-required",
-        "criticalFindingCount": 2,
-        "importantFindingCount": 8,
-        "minorFindingCount": 1,
-        "mergeApproved": false
-      },
-      "independentReview": {
         "reviewerType": "codex-subagent",
         "reviewerId": "01a04762-1f03-7272-8a07-e135d0a7d8f6",
         "reviewedHeadSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
@@ -1154,33 +1143,30 @@
         "criticalFindingCount": 3,
         "importantFindingCount": 6,
         "minorFindingCount": 1,
+        "mergeApproved": false
+      },
+      "independentReview": {
+        "reviewerType": "codex-subagent",
+        "reviewerId": "01a047ff-7cea-73e0-b15d-132fe5a5f42a",
+        "reviewedHeadSha": "820e00af00eacc98782bb52cbd1cca921e259053",
+        "completedAt": "2026-08-28T11:08:20Z",
+        "status": "changes-required",
+        "criticalFindingCount": 2,
+        "importantFindingCount": 5,
+        "minorFindingCount": 0,
         "readyForGovernanceHeartbeat": true,
         "findingClasses": [
-          "orphaned-running-server-job-recovery",
-          "terminal-run-and-closeout-immutability",
-          "independently-executed-engineering-gates",
-          "workflow-command-lease-renewal",
-          "worker-build-provenance-attestation",
-          "failed-dispatch-idempotent-replay",
-          "authoritative-fork-checkpoint-binding",
-          "service-only-worker-lifecycle-callbacks",
-          "full-closeout-commitment",
-          "redacted-workflow-run-api-projection"
+          "exact-sha-sandboxed-engineering-gates",
+          "authoritative-worker-repository-preflight",
+          "server-job-legacy-recovery-and-fencing",
+          "complete-fork-checkpoint-state-binding",
+          "fork-action-response-redaction",
+          "failed-dispatch-provider-binding",
+          "provisional-version-bound-failure-closeout"
         ],
         "mergeApproved": false
       },
-      "remediationAuthorization": {
-        "reviewedHeadSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
-        "reviewerId": "01a04762-1f03-7272-8a07-e135d0a7d8f6",
-        "governancePullRequest": 40,
-        "activationCondition": "PR 40 merged to protected main with exact-head and post-main build/repository-security checks green",
-        "allowedPathsUnchanged": true,
-        "authorizedAction": "remediate only the bound second-review findings and their tests",
-        "mergeAuthorizationGranted": false,
-        "deploymentAuthorized": false,
-        "providerMutationAuthorized": false
-      },
-      "disposition": "ready-for-pr"
+      "disposition": "active"
     }
   ],
   "branches": [
@@ -1341,29 +1327,29 @@
       "owner": "Codex SENA EvidenceFlow implementation writer",
       "ownerKey": "Codex-evidenceflow-01a04273",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
+      "headSha": "820e00af00eacc98782bb52cbd1cca921e259053",
       "upstream": "origin/codex/sena-evidenceflow-v1-20260828",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
-      "remoteObservedAt": "2026-08-28T08:15:58Z",
+      "remoteHeadSha": "820e00af00eacc98782bb52cbd1cca921e259053",
+      "remoteObservedAt": "2026-08-28T11:08:20Z",
       "pr": 38,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
+      "prHeadSha": "820e00af00eacc98782bb52cbd1cca921e259053",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-08-28T08:15:58Z",
-      "lastObservedAt": "2026-08-28T08:15:58Z",
-      "lastCommitAt": "2026-08-28T15:53:43+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-28T11:08:20Z",
+      "lastObservedAt": "2026-08-28T11:08:20Z",
+      "lastCommitAt": "2026-08-28T18:49:23+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "ready-for-pr",
-      "closeout": "Draft PR 38 exact head d532cc8 has all exact-head checks green and empty annotations, but the second independent review requires changes; Ready/merge remain unauthorized"
+      "disposition": "active",
+      "closeout": "Draft PR 38 exact head 820e00af has all exact-head checks green and empty annotations, but the third independent review requires changes; Ready/merge remain unauthorized and further tracked writes await a new protected-main remediation authorization"
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",
