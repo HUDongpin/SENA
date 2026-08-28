@@ -36,7 +36,7 @@ const MAX_ACTIVE_INTEGRATION_RELEASE_LANES = 1;
 const MAX_ACTIVE_FEATURE_LANES = 2;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
 const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
-const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set(["active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set(["pending-release", "active", "consumed"]);
 const LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,127}$/;
 const EXPECTED_REMOTE_IDENTITY = Object.freeze({
   name: "origin",
@@ -659,6 +659,9 @@ function loadProtectedMainAuthorizationRegistry(
     if (!requestedAuthorization) {
       throw new Error("rule=local-ref-retirement-authorization-missing");
     }
+    if (requestedAuthorization.status === "pending-release") {
+      throw new Error("rule=local-ref-retirement-release-pending");
+    }
     if (requestedAuthorization.status === "consumed") {
       throw new Error("rule=local-ref-retirement-authorization-consumed");
     }
@@ -1037,12 +1040,108 @@ function parseBundleHeads(bundlePath) {
     });
 }
 
+function localRefRetirementDeletionReleaseIsStructurallyValid(authorization) {
+  const release = authorization.deletionRelease;
+  if (!release || typeof release !== "object" || Array.isArray(release)) return false;
+  const releasedAtMs = Date.parse(release.releasedAt);
+  const releaseExpiresAtMs = Date.parse(release.expiresAt);
+  const authorizedAtMs = Date.parse(authorization.authorizedAt);
+  const authorizationExpiresAtMs = Date.parse(authorization.expiresAt);
+  return Boolean(
+    LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(release.id ?? "") &&
+      typeof release.releasedBy === "string" &&
+      release.releasedBy.length > 0 &&
+      typeof release.releaseBasis === "string" &&
+      release.releaseBasis.length > 0 &&
+      isIsoTimestamp(release.releasedAt) &&
+      isIsoTimestamp(release.expiresAt) &&
+      Number.isFinite(releasedAtMs) &&
+      Number.isFinite(releaseExpiresAtMs) &&
+      releaseExpiresAtMs > releasedAtMs &&
+      releaseExpiresAtMs - releasedAtMs <= 72 * 60 * 60 * 1000 &&
+      releasedAtMs >= authorizedAtMs &&
+      releaseExpiresAtMs <= authorizationExpiresAtMs &&
+      isSha(release.pendingAuthorizationCommit) &&
+      release.exactTargetRef === authorization.ref &&
+      release.exactExpectedOldSha === authorization.expectedOldSha &&
+      release.operatorTaskId === authorization.operatorTaskId &&
+      release.operatorOwnerKey === authorization.operatorOwnerKey &&
+      release.effectiveOnlyAfterReleaseReachesProtectedMain === true
+  );
+}
+
+function assertLocalRefRetirementDeletionReleaseWindow(
+  authorization,
+  validationNow = Date.now()
+) {
+  const release = authorization.deletionRelease;
+  if (Date.parse(release.releasedAt) > validationNow) {
+    throw new Error("rule=local-ref-retirement-release-not-effective");
+  }
+  if (Date.parse(release.expiresAt) <= validationNow) {
+    throw new Error("rule=local-ref-retirement-release-expired");
+  }
+}
+
+function assertLocalRefRetirementDeletionRelease(
+  authorization,
+  authorizationCommit,
+  validationNow = Date.now()
+) {
+  if (!localRefRetirementDeletionReleaseIsStructurallyValid(authorization)) {
+    throw new Error("rule=local-ref-retirement-release-invalid");
+  }
+  assertLocalRefRetirementDeletionReleaseWindow(authorization, validationNow);
+  const release = authorization.deletionRelease;
+  const firstParentHistory = git(["rev-list", "--first-parent", authorizationCommit], {
+    allowFailure: true
+  });
+  const firstParentCommits = new Set(
+    String(firstParentHistory.stdout ?? "")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+  );
+  if (
+    firstParentHistory.status !== 0 ||
+    release.pendingAuthorizationCommit === authorizationCommit ||
+    !firstParentCommits.has(release.pendingAuthorizationCommit)
+  ) {
+    throw new Error("rule=local-ref-retirement-release-not-protected-main");
+  }
+  let pendingAuthorization;
+  try {
+    const pendingRegistry = loadRegistryFromCommit(release.pendingAuthorizationCommit).parsed;
+    const pendingValidation = validateRegistry(pendingRegistry, { now: validationNow });
+    if (pendingValidation.errors.length > 0) {
+      throw new Error("pending registry invalid");
+    }
+    pendingAuthorization = (pendingRegistry.policy?.localRefRetirementAuthorizations ?? []).find(
+      (entry) => entry.id === authorization.id
+    );
+  } catch {
+    throw new Error("rule=local-ref-retirement-release-pending-custody-mismatch");
+  }
+  if (
+    !pendingAuthorization ||
+    pendingAuthorization.status !== "pending-release" ||
+    pendingAuthorization.deletionRelease !== null ||
+    JSON.stringify(localRetirementAuthorizationCoreContract(pendingAuthorization)) !==
+      JSON.stringify(localRetirementAuthorizationCoreContract(authorization))
+  ) {
+    throw new Error("rule=local-ref-retirement-release-pending-custody-mismatch");
+  }
+}
+
 function localRefRetirementAuthorization(registry, authorizationId, authorizationCommit) {
   const authorization = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
     (entry) => entry.id === authorizationId
   );
   if (!authorization) {
     throw new Error("rule=local-ref-retirement-authorization-missing");
+  }
+  if (authorization.status === "pending-release") {
+    throw new Error("rule=local-ref-retirement-release-pending");
   }
   if (authorization.status === "consumed") {
     throw new Error("rule=local-ref-retirement-authorization-consumed");
@@ -1071,6 +1170,7 @@ function localRefRetirementAuthorization(registry, authorizationId, authorizatio
   ) {
     throw new Error("local archive-ref retirement authorization is absent or inactive");
   }
+  assertLocalRefRetirementDeletionRelease(authorization, authorizationCommit);
 
   const branchName = authorization.ref.slice("refs/heads/".length);
   const branchRecord = (registry.branches ?? []).find((entry) => entry.name === branchName);
@@ -1516,6 +1616,11 @@ function runLocalRefRetirement(flags) {
   if (exactLiveRemoteHead("refs/heads/main") !== loaded.commit) {
     throw new Error("rule=local-ref-retirement-live-main-mismatch");
   }
+  const mutationNow = Date.now();
+  if (Date.parse(authorization.expiresAt) <= mutationNow) {
+    throw new Error("rule=local-ref-retirement-authorization-expired");
+  }
+  assertLocalRefRetirementDeletionReleaseWindow(authorization, mutationNow);
   const mutation = git(["update-ref", "--no-deref", "-d", authorization.ref, authorization.expectedOldSha], {
     unsetEnv: [
       "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -2063,7 +2168,7 @@ function sameStringSet(left, right) {
   return leftSet.size === left.length && right.every((value) => leftSet.has(value));
 }
 
-function validateRegistry(registry) {
+function validateRegistry(registry, { now = Date.now() } = {}) {
   const errors = [];
   const warnings = [];
   if (registry.schemaVersion !== "sena-repo-governance/v1") errors.push("unsupported schemaVersion");
@@ -2200,10 +2305,10 @@ function validateRegistry(registry) {
       errors.push(`ref-deletion authorization is not bound to the quarantine ruleset: ${authorization.id ?? "<unknown>"}`);
     }
     if (
-      timestampIsInFuture(authorization.authorizedAt) ||
-      timestampIsInFuture(authorization.providerReadbackAt) ||
-      timestampIsInFuture(authorization.consumedAt) ||
-      timestampIsInFuture(authorization.remoteRefAbsenceReadbackAt) ||
+      timestampIsInFuture(authorization.authorizedAt, now) ||
+      timestampIsInFuture(authorization.providerReadbackAt, now) ||
+      timestampIsInFuture(authorization.consumedAt, now) ||
+      timestampIsInFuture(authorization.remoteRefAbsenceReadbackAt, now) ||
       (Number.isFinite(authorizedAtMs) && Number.isFinite(expiresAtMs) && expiresAtMs - authorizedAtMs > 72 * 60 * 60 * 1000)
     ) {
       errors.push(`ref-deletion authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
@@ -2211,7 +2316,7 @@ function validateRegistry(registry) {
     if (authorization.status === "active" && !isIsoTimestamp(authorization.providerReadbackAt)) {
       errors.push(`active ref-deletion authorization lacks provider readback: ${authorization.id ?? "<unknown>"}`);
     }
-    if (authorization.status === "active" && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) {
+    if (authorization.status === "active" && (!Number.isFinite(expiresAtMs) || expiresAtMs <= now)) {
       errors.push(`active ref-deletion authorization is expired: ${authorization.id ?? "<unknown>"}`);
     }
     if (
@@ -2295,6 +2400,7 @@ function validateRegistry(registry) {
       errors.push("rule=local-ref-retirement-authorization-id-invalid");
     }
     const custody = authorization.custody;
+    const deletionRelease = authorization.deletionRelease;
     const operatorItem = (registry.workItems ?? []).find(
       (item) =>
         item.branch === authorization.operatorBranch &&
@@ -2354,6 +2460,11 @@ function validateRegistry(registry) {
       typeof custody.bundleRef !== "string" ||
       typeof authorization.receiptDirectory !== "string" ||
       authorization.receiptDirectory.length === 0 ||
+      !Object.hasOwn(authorization, "deletionRelease") ||
+      !(
+        deletionRelease === null ||
+        (typeof deletionRelease === "object" && !Array.isArray(deletionRelease))
+      ) ||
       !Object.hasOwn(authorization, "authorizationRegistryCommit") ||
       !(
         authorization.authorizationRegistryCommit === null ||
@@ -2397,8 +2508,17 @@ function validateRegistry(registry) {
         custody.bundleRef !== custody.tagRef ||
         !isSha(custody.tagObjectSha) ||
         custody.peeledCommitSha !== authorization.expectedOldSha);
+    const deletionReleaseInvalid =
+      (authorization.status === "pending-release" && deletionRelease !== null) ||
+      (new Set(["active", "consumed"]).has(authorization.status) &&
+        !localRefRetirementDeletionReleaseIsStructurallyValid(authorization));
     if (commonInvalid || ordinaryCustodyInvalid) {
       errors.push(`invalid local-ref retirement authorization: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (deletionReleaseInvalid) {
+      errors.push(
+        `${authorization.status === "pending-release" ? "pending" : "active"} local-ref retirement authorization lacks deletion release: ${authorization.id ?? "<unknown>"}`
+      );
     }
     if (!operatorItem) {
       errors.push(
@@ -2409,7 +2529,7 @@ function validateRegistry(registry) {
       !targetBranchRecord ||
       targetBranchRecord.headSha !== authorization.expectedOldSha ||
       targetBranchRecord.retirementAuthorizationId !== authorization.id ||
-      (authorization.status === "active" &&
+      (new Set(["pending-release", "active"]).has(authorization.status) &&
         (targetBranchRecord.localRefState !== "present" ||
           targetBranchRecord.disposition !== authorization.targetDispositionBeforeRetirement)) ||
       (authorization.status === "consumed" &&
@@ -2419,16 +2539,24 @@ function validateRegistry(registry) {
       errors.push(`local-ref retirement authorization target state is invalid: ${authorization.id ?? "<unknown>"}`);
     }
     if (
-      timestampIsInFuture(authorization.authorizedAt) ||
-      timestampIsInFuture(authorization.consumedAt) ||
-      timestampIsInFuture(authorization.localRefAbsenceReadbackAt) ||
+      timestampIsInFuture(authorization.authorizedAt, now) ||
+      timestampIsInFuture(authorization.consumedAt, now) ||
+      timestampIsInFuture(authorization.localRefAbsenceReadbackAt, now) ||
+      timestampIsInFuture(deletionRelease?.releasedAt, now) ||
       Date.parse(authorization.expiresAt) - Date.parse(authorization.authorizedAt) > 72 * 60 * 60 * 1000
     ) {
       errors.push(`local-ref retirement authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
     }
     if (
       authorization.status === "active" &&
-      (Date.parse(authorization.expiresAt) <= Date.now() ||
+      localRefRetirementDeletionReleaseIsStructurallyValid(authorization) &&
+      Date.parse(deletionRelease.expiresAt) <= now
+    ) {
+      errors.push(`active local-ref retirement deletion release expired: ${authorization.id}`);
+    }
+    if (
+      new Set(["pending-release", "active"]).has(authorization.status) &&
+      (Date.parse(authorization.expiresAt) <= now ||
         authorization.authorizationRegistryCommit !== null ||
         authorization.eventId !== null ||
         authorization.consumedAt !== null ||
@@ -2542,7 +2670,7 @@ function validateRegistry(registry) {
       ["lastObservedAt", item.lastObservedAt],
       ["lastHeartbeatAt", item.lastHeartbeatAt]
     ]) {
-      if (timestampIsInFuture(value)) errors.push(`workItem ${item.taskId ?? "<unknown>"} has future ${field}`);
+      if (timestampIsInFuture(value, now)) errors.push(`workItem ${item.taskId ?? "<unknown>"} has future ${field}`);
     }
     if (!isExpectedClose(item.expectedCloseAt)) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} must declare ISO or owner-gated expectedCloseAt`);
@@ -2611,14 +2739,16 @@ function validateRegistry(registry) {
         errors.push(`branch ${item.branch} has multiple active writers`);
       }
       branchOwners.set(item.branch, item.owner);
-      const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt) ? ageHours(item.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
+      const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt)
+        ? ageHours(item.lastHeartbeatAt, now)
+        : Number.POSITIVE_INFINITY;
       if (heartbeatAge > 72) {
         errors.push(`active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`);
       } else if (heartbeatAge > 24) {
         warnings.push(`active workItem ${item.taskId} has no heartbeat for more than 24 hours`);
       }
     }
-    if (Date.parse(item.nextReviewAt) < Date.now()) {
+    if (Date.parse(item.nextReviewAt) < now) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
         errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
       } else {
@@ -2652,7 +2782,7 @@ function validateRegistry(registry) {
         cleanup.oneShot !== true ||
         !isIsoTimestamp(cleanup.authorizedAt) ||
         !isIsoTimestamp(cleanup.expiresAt) ||
-        Date.parse(cleanup.expiresAt) <= Date.now() ||
+        Date.parse(cleanup.expiresAt) <= now ||
         Date.parse(cleanup.expiresAt) - Date.parse(cleanup.authorizedAt) > 72 * 60 * 60 * 1000 ||
         typeof cleanup.githubActor !== "string" ||
         cleanup.githubActor.length === 0 ||
@@ -2707,7 +2837,10 @@ function validateRegistry(registry) {
         `branch ${branch.name ?? "<unknown>"} requires observed/commit/review timestamps, nullable owner heartbeat, and expectedCloseAt`
       );
     }
-    if (timestampIsInFuture(branch.lastObservedAt) || timestampIsInFuture(branch.lastOwnerHeartbeatAt)) {
+    if (
+      timestampIsInFuture(branch.lastObservedAt, now) ||
+      timestampIsInFuture(branch.lastOwnerHeartbeatAt, now)
+    ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} has a future observation or owner heartbeat`);
     }
     if (!new Set(["live", "gone", "base-only", "not-applicable"]).has(branch.upstreamState)) {
@@ -2736,12 +2869,12 @@ function validateRegistry(registry) {
     }
     if (
       !branch.pr &&
-      ageHours(branch.lastCommitAt) > 7 * 24 &&
+      ageHours(branch.lastCommitAt, now) > 7 * 24 &&
       !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition)
     ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} is older than seven days without a PR and must enter manual preservation review`);
     }
-    if (Date.parse(branch.nextReviewAt) < Date.now()) {
+    if (Date.parse(branch.nextReviewAt) < now) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(branch.disposition)) {
         errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
       } else {
@@ -2774,7 +2907,7 @@ function validateRegistry(registry) {
     if (!ORPHAN_DISPOSITIONS.has(orphan.disposition)) {
       errors.push(`orphan worktree has unsupported disposition: ${orphan.path ?? "<unknown>"}`);
     }
-    if (Date.parse(orphan.nextReviewAt) < Date.now()) {
+    if (Date.parse(orphan.nextReviewAt) < now) {
       warnings.push(`orphan worktree requires scheduled preservation review: ${orphan.path ?? "<unknown>"}`);
     }
     if (orphanPaths.has(orphan.path)) errors.push(`duplicate orphan path: ${orphan.path}`);
@@ -3144,7 +3277,7 @@ function remotePullRequests() {
   }
 }
 
-function localRetirementExecutionContract(authorization) {
+function localRetirementAuthorizationCoreContract(authorization) {
   return {
     id: authorization.id,
     purpose: authorization.purpose,
@@ -3174,11 +3307,18 @@ function localRetirementExecutionContract(authorization) {
   };
 }
 
-function completedLocalRetirementReceipt(registry, branchRecord) {
+function localRetirementExecutionContract(authorization) {
+  return {
+    ...localRetirementAuthorizationCoreContract(authorization),
+    deletionRelease: authorization.deletionRelease
+  };
+}
+
+function completedLocalRetirementReceipt(registry, branchRecord, currentRegistryCommit) {
   const ref = `refs/heads/${branchRecord.name}`;
   const authorization = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
     (entry) =>
-      LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES.has(entry.status) &&
+      new Set(["active", "consumed"]).has(entry.status) &&
       entry.ref === ref &&
       entry.expectedOldSha === branchRecord.headSha
   );
@@ -3214,13 +3354,37 @@ function completedLocalRetirementReceipt(registry, branchRecord) {
   } catch {
     return null;
   }
+  const executedAtMs = Date.parse(completed.executedAt);
+  if (!Number.isFinite(executedAtMs)) return null;
+  if (!isSha(currentRegistryCommit)) return null;
+  const closeoutFirstParentHistory = git(
+    ["rev-list", "--first-parent", currentRegistryCommit],
+    { allowFailure: true }
+  );
+  const closeoutFirstParentCommits = new Set(
+    String(closeoutFirstParentHistory.stdout ?? "")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+  );
+  if (
+    closeoutFirstParentHistory.status !== 0 ||
+    !closeoutFirstParentCommits.has(prepared.authorizationRegistryCommit)
+  ) {
+    return null;
+  }
   let protectedAuthorization;
   try {
     const protectedRegistry = loadRegistryFromCommit(prepared.authorizationRegistryCommit).parsed;
-    const protectedValidation = validateRegistry(protectedRegistry);
+    const protectedValidation = validateRegistry(protectedRegistry, { now: executedAtMs });
     if (protectedValidation.errors.length > 0) return null;
     protectedAuthorization = (protectedRegistry.policy?.localRefRetirementAuthorizations ?? []).find(
       (entry) => entry.id === authorization.id
+    );
+    assertLocalRefRetirementDeletionRelease(
+      protectedAuthorization,
+      prepared.authorizationRegistryCommit,
+      executedAtMs
     );
   } catch {
     return null;
@@ -3232,8 +3396,10 @@ function completedLocalRetirementReceipt(registry, branchRecord) {
     )
   );
   const authorizedAtMs = Date.parse(authorization.authorizedAt);
+  const authorizationExpiresAtMs = Date.parse(authorization.expiresAt);
+  const releaseAtMs = Date.parse(authorization.deletionRelease?.releasedAt);
+  const releaseExpiresAtMs = Date.parse(authorization.deletionRelease?.expiresAt);
   const preparedAtMs = Date.parse(prepared.preparedAt);
-  const executedAtMs = Date.parse(completed.executedAt);
   const absenceAtMs = Date.parse(completed.localRefAbsenceReadbackAt);
   const liveMainAtMs = Date.parse(completed.liveMainReadbackAt);
   const liveTargetAtMs = Date.parse(completed.liveTargetAbsenceReadbackAt);
@@ -3251,6 +3417,8 @@ function completedLocalRetirementReceipt(registry, branchRecord) {
       authorization.completedReceiptSha256 !== sha256File(receiptPaths.completed) ||
       !isIsoTimestamp(authorization.consumedAt) ||
       consumedAtMs < absenceAtMs ||
+      consumedAtMs < liveMainAtMs ||
+      consumedAtMs < liveTargetAtMs ||
       branchRecord.localRefState !== "retired" ||
       branchRecord.disposition !== authorization.targetDispositionAfterRetirement);
   if (
@@ -3297,16 +3465,29 @@ function completedLocalRetirementReceipt(registry, branchRecord) {
     completed.historyRewriteUsed !== false ||
     completed.credentialContentsRead !== false ||
     !Number.isFinite(authorizedAtMs) ||
+    !Number.isFinite(authorizationExpiresAtMs) ||
+    !Number.isFinite(releaseAtMs) ||
+    !Number.isFinite(releaseExpiresAtMs) ||
     !Number.isFinite(preparedAtMs) ||
     !Number.isFinite(executedAtMs) ||
     !Number.isFinite(absenceAtMs) ||
     !Number.isFinite(liveMainAtMs) ||
     !Number.isFinite(liveTargetAtMs) ||
+    timestampIsInFuture(prepared.preparedAt) ||
+    timestampIsInFuture(completed.executedAt) ||
+    timestampIsInFuture(completed.localRefAbsenceReadbackAt) ||
+    timestampIsInFuture(completed.liveMainReadbackAt) ||
+    timestampIsInFuture(completed.liveTargetAbsenceReadbackAt) ||
     authorizedAtMs > preparedAtMs ||
+    releaseAtMs > preparedAtMs ||
     preparedAtMs > executedAtMs ||
     executedAtMs > absenceAtMs ||
     absenceAtMs > liveMainAtMs ||
-    absenceAtMs > liveTargetAtMs
+    absenceAtMs > liveTargetAtMs ||
+    preparedAtMs >= releaseExpiresAtMs ||
+    executedAtMs >= releaseExpiresAtMs ||
+    absenceAtMs >= releaseExpiresAtMs ||
+    executedAtMs > authorizationExpiresAtMs
   ) {
     return null;
   }
@@ -3528,7 +3709,19 @@ export function shouldRunPortableAudit(flags, controlRoot, registryRepo) {
 }
 
 function runAudit(flags) {
-  const { parsed: registry } = loadRegistryForFlags(flags);
+  const loadedRegistry = loadRegistryForFlags(flags);
+  const registry = loadedRegistry.parsed;
+  let currentRegistryCommit = null;
+  if (loadedRegistry.registryPath.startsWith("commit:")) {
+    currentRegistryCommit = loadedRegistry.registryPath.slice("commit:".length);
+  } else if (
+    loadedRegistry.registryPath === "index" ||
+    flagValues(flags, "registry").length === 0
+  ) {
+    const head = git(["rev-parse", "--verify", "HEAD"], { allowFailure: true });
+    const headSha = head.status === 0 ? String(head.stdout).trim() : null;
+    if (isSha(headSha)) currentRegistryCommit = headSha;
+  }
   const validation = validateRegistry(registry);
   if (shouldRunPortableAudit(flags, CONTROL_ROOT, registry.repo)) {
     runPortableAudit(registry, validation);
@@ -3596,7 +3789,11 @@ function runAudit(flags) {
   for (const branchRecord of registry.branches ?? []) {
     const actual = actualBranches.get(branchRecord.name);
     if (!actual) {
-      const retirementReceipt = completedLocalRetirementReceipt(registry, branchRecord);
+      const retirementReceipt = completedLocalRetirementReceipt(
+        registry,
+        branchRecord,
+        currentRegistryCommit
+      );
       if (retirementReceipt) {
         if (retirementReceipt.authorization.status === "active") {
           warnings.push(`local ref retirement executed pending protected closeout: refs/heads/${branchRecord.name}`);

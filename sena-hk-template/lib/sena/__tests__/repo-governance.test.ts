@@ -264,7 +264,7 @@ function createLocalArchiveRetirementFixture(label: string) {
   const templateBranch = fixture.registry.branches[0];
   const authorization: Record<string, any> = {
     id: `TEST-LOCAL-ARCHIVE-RETIREMENT-${label.toUpperCase().replaceAll(/[^A-Z0-9]+/g, "-")}`,
-    status: "active",
+    status: "pending-release",
     purpose: "archive-ref-retirement",
     predecessorAuthorizationId: null,
     ref: targetRef,
@@ -300,6 +300,7 @@ function createLocalArchiveRetirementFixture(label: string) {
       peeledCommitSha
     },
     receiptDirectory,
+    deletionRelease: null,
     authorizationRegistryCommit: null,
     eventId: null,
     consumedAt: null,
@@ -339,7 +340,25 @@ function createLocalArchiveRetirementFixture(label: string) {
   });
   writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
   runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
-  runGit(fixture.root, ["commit", "-q", "-m", "authorize local archive retirement"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "register pending local archive retirement"]);
+  const pendingAuthorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+  authorization.status = "active";
+  authorization.deletionRelease = {
+    id: `TEST-LOCAL-REF-RELEASE-${createHash("sha256").update(label).digest("hex").slice(0, 16).toUpperCase()}`,
+    releasedBy: "SENA test owner",
+    releaseBasis: "Explicit test-only protected deletion release.",
+    releasedAt: now,
+    expiresAt,
+    pendingAuthorizationCommit,
+    exactTargetRef: targetRef,
+    exactExpectedOldSha: fixture.base,
+    operatorTaskId: operator.taskId,
+    operatorOwnerKey: operator.ownerKey,
+    effectiveOnlyAfterReleaseReachesProtectedMain: true
+  };
+  writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+  runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "release local archive retirement"]);
   const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
   runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
   runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
@@ -382,6 +401,7 @@ function createLocalArchiveRetirementFixture(label: string) {
   return {
     fixture,
     authorization,
+    pendingAuthorizationCommit,
     authorizationCommit,
     targetRef,
     tagRef,
@@ -428,6 +448,139 @@ function recommitLocalRefRetirementRegistry(
   ]);
   runGit(context.fixture.root, ["config", "core.hooksPath", ".githooks"]);
   context.env.SENA_TEST_AUTHORIZATION_SHA = context.authorizationCommit;
+}
+
+function rebindLocalRefRetirementAuthorization(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  message: string
+) {
+  const deletionRelease = { ...context.authorization.deletionRelease };
+  context.authorization.status = "pending-release";
+  context.authorization.deletionRelease = null;
+  recommitLocalRefRetirementRegistry(context, `register pending authorization: ${message}`);
+  context.pendingAuthorizationCommit = context.authorizationCommit;
+  context.authorization.status = "active";
+  context.authorization.deletionRelease = {
+    ...deletionRelease,
+    pendingAuthorizationCommit: context.pendingAuthorizationCommit
+  };
+  recommitLocalRefRetirementRegistry(context, message);
+}
+
+function applyConsumedLocalRefRetirementCloseout(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>
+) {
+  const preparedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.prepared.json`
+  );
+  const completedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.completed.json`
+  );
+  const prepared = JSON.parse(readFileSync(preparedPath, "utf8"));
+  const completed = JSON.parse(readFileSync(completedPath, "utf8"));
+  const consumedAt = new Date(
+    Math.max(
+      Date.parse(completed.executedAt),
+      Date.parse(completed.localRefAbsenceReadbackAt),
+      Date.parse(completed.liveMainReadbackAt),
+      Date.parse(completed.liveTargetAbsenceReadbackAt)
+    )
+  ).toISOString();
+  context.authorization.status = "consumed";
+  context.authorization.authorizationRegistryCommit = prepared.authorizationRegistryCommit;
+  context.authorization.eventId = completed.eventId;
+  context.authorization.consumedAt = consumedAt;
+  context.authorization.executedBy = completed.executedBy;
+  context.authorization.localRefAbsenceReadbackAt = completed.localRefAbsenceReadbackAt;
+  context.authorization.result = "deleted";
+  context.authorization.preparedReceiptPath = realpathSync(preparedPath);
+  context.authorization.preparedReceiptSha256 = sha256File(preparedPath);
+  context.authorization.completedReceiptPath = realpathSync(completedPath);
+  context.authorization.completedReceiptSha256 = sha256File(completedPath);
+  const targetBranch = context.fixture.registry.branches.find(
+    (entry: { name: string }) => `refs/heads/${entry.name}` === context.targetRef
+  );
+  targetBranch.disposition = "archived";
+  targetBranch.localRefState = "retired";
+  return { preparedPath, completedPath, prepared, completed };
+}
+
+function closeOutLocalRefRetirementRegistry(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  message: string
+) {
+  const receipt = applyConsumedLocalRefRetirementCloseout(context);
+  recommitLocalRefRetirementRegistry(context, message);
+  return receipt;
+}
+
+function writeSyntheticLocalRefRetirementReceipts(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  times: { preparedAt: string; executedAt: string; liveReadbackAt: string }
+) {
+  const eventId = createHash("sha256")
+    .update(
+      `${context.authorizationCommit}\0${context.authorization.id}\0${context.authorization.ref}`
+    )
+    .digest("hex");
+  const preparedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.prepared.json`
+  );
+  const completedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.completed.json`
+  );
+  const prepared = {
+    schemaVersion: "sena-local-ref-retirement-prepared/v1",
+    eventId,
+    authorizationId: context.authorization.id,
+    authorizationRegistryCommit: context.authorizationCommit,
+    ref: context.authorization.ref,
+    expectedOldSha: context.authorization.expectedOldSha,
+    operatorTaskId: context.authorization.operatorTaskId,
+    operatorOwnerKey: context.authorization.operatorOwnerKey,
+    preparedAt: times.preparedAt,
+    result: "prepared",
+    credentialContentsRead: false
+  };
+  writeFileSync(preparedPath, `${JSON.stringify(prepared, null, 2)}\n`, { mode: 0o600 });
+  const completed = {
+    schemaVersion: "sena-local-ref-retirement-receipt/v1",
+    eventId,
+    authorizationId: context.authorization.id,
+    authorizationRegistryCommit: context.authorizationCommit,
+    ref: context.authorization.ref,
+    expectedOldSha: context.authorization.expectedOldSha,
+    afterSha: "0".repeat(40),
+    preparedReceiptSha256: sha256File(preparedPath),
+    executedBy: context.authorization.operatorOwnerKey,
+    executedAt: times.executedAt,
+    localRefAbsenceReadbackAt: times.executedAt,
+    liveMainSha: context.authorizationCommit,
+    liveMainReadbackAt: times.liveReadbackAt,
+    liveTargetHeadSha: null,
+    liveTargetAbsenceReadbackAt: times.liveReadbackAt,
+    result: "deleted",
+    exactCasUsed: true,
+    branchDUsed: false,
+    forceUsed: false,
+    resetUsed: false,
+    rebaseUsed: false,
+    historyRewriteUsed: false,
+    credentialContentsRead: false
+  };
+  writeFileSync(completedPath, `${JSON.stringify(completed, null, 2)}\n`, { mode: 0o600 });
+  runGit(context.fixture.root, [
+    "update-ref",
+    "--no-deref",
+    "-d",
+    context.targetRef,
+    context.authorization.expectedOldSha
+  ]);
+  return { preparedPath, completedPath, prepared, completed };
 }
 
 afterEach(() => {
@@ -2678,6 +2831,96 @@ describe("SENA repository governance", () => {
     expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
   });
 
+  it("keeps a pending-release local-ref retirement authorization non-executable", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-pending");
+    context.authorization.status = "pending-release";
+    context.authorization.deletionRelease = null;
+    recommitLocalRefRetirementRegistry(context, "hold local retirement pending release");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status, `${registry.stdout}${registry.stderr}`).toBe(0);
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain("rule=local-ref-retirement-release-pending");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an active local-ref retirement authorization without machine-readable release custody", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-missing");
+    context.authorization.deletionRelease = null;
+    recommitLocalRefRetirementRegistry(context, "remove local retirement release custody");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status).toBe(1);
+    expect(registry.stderr).toContain(
+      `active local-ref retirement authorization lacks deletion release: ${context.authorization.id}`
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an expired machine-readable local-ref deletion release", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-expired");
+    context.authorization.authorizedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(
+      Date.now() - 2 * 60 * 60 * 1000
+    ).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(
+      Date.now() - 60 * 60 * 1000
+    ).toISOString();
+    recommitLocalRefRetirementRegistry(context, "expire local retirement deletion release");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status).toBe(1);
+    expect(registry.stderr).toContain(
+      `active local-ref retirement deletion release expired: ${context.authorization.id}`
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects a deletion release whose pending authorization was never protected main", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-not-main");
+    const unrelatedCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.fixture.base}^{tree}`,
+      "-m",
+      "unrelated pending authorization"
+    ]);
+    context.authorization.deletionRelease.pendingAuthorizationCommit = unrelatedCommit;
+    recommitLocalRefRetirementRegistry(context, "bind unrelated pending authorization");
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain("rule=local-ref-retirement-release-not-protected-main");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an active release that rewrites the protected pending authorization core", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-core-drift");
+    context.authorization.authorizationBasis =
+      "Test-only active release attempted to rewrite its protected pending core.";
+    recommitLocalRefRetirementRegistry(context, "rewrite pending authorization core at release");
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain(
+      "rule=local-ref-retirement-release-pending-custody-mismatch"
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
   it("rejects an expired protected-main local-ref retirement authorization", () => {
     const context = createLocalArchiveRetirementFixture("local-retirement-authorization-expired");
     context.authorization.authorizedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
@@ -2748,7 +2991,7 @@ describe("SENA repository governance", () => {
     const context = createLocalArchiveRetirementFixture("local-retirement-bundle-ref-mismatch");
     context.authorization.custody.bundleRef = "refs/tags/archive/missing-retirement-tag";
     context.authorization.custody.tagRef = context.authorization.custody.bundleRef;
-    recommitLocalRefRetirementRegistry(context, "bind missing retirement bundle ref");
+    rebindLocalRefRetirementAuthorization(context, "bind missing retirement bundle ref");
 
     const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
     expect(result.status).toBe(1);
@@ -2762,7 +3005,7 @@ describe("SENA repository governance", () => {
     manifest.archiveRefs[1] = { ...manifest.archiveRefs[0] };
     writeFileSync(context.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
     context.authorization.custody.manifestSha256 = sha256File(context.manifestPath);
-    recommitLocalRefRetirementRegistry(context, "bind duplicate retirement manifest ref");
+    rebindLocalRefRetirementAuthorization(context, "bind duplicate retirement manifest ref");
 
     const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
     expect(result.status).toBe(1);
@@ -2804,7 +3047,7 @@ describe("SENA repository governance", () => {
     manifest.knownQuarantinedBlobReachableCommitCount = 1;
     writeFileSync(context.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
     context.authorization.custody.manifestSha256 = sha256File(context.manifestPath);
-    recommitLocalRefRetirementRegistry(context, "bind unsafe ordinary archive manifest");
+    rebindLocalRefRetirementAuthorization(context, "bind unsafe ordinary archive manifest");
 
     const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
     expect(result.status).toBe(1);
@@ -2967,38 +3210,41 @@ describe("SENA repository governance", () => {
     );
   });
 
-  it("audits a consumed local retirement with immutable receipts as retired", () => {
-    const context = createLocalArchiveRetirementFixture("local-retirement-consumed-closeout");
-    const executionAuthorizationCommit = context.authorizationCommit;
+  it("rejects a pending-closeout receipt with future execution timestamps", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-future-receipt");
     const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
     expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
-
-    const preparedPath = join(
-      context.receiptDirectory,
-      `${context.authorization.id}.prepared.json`
-    );
     const completedPath = join(
       context.receiptDirectory,
       `${context.authorization.id}.completed.json`
     );
     const completed = JSON.parse(readFileSync(completedPath, "utf8"));
-    context.authorization.status = "consumed";
-    context.authorization.authorizationRegistryCommit = executionAuthorizationCommit;
-    context.authorization.eventId = completed.eventId;
-    context.authorization.consumedAt = completed.executedAt;
-    context.authorization.executedBy = completed.executedBy;
-    context.authorization.localRefAbsenceReadbackAt = completed.localRefAbsenceReadbackAt;
-    context.authorization.result = "deleted";
-    context.authorization.preparedReceiptPath = realpathSync(preparedPath);
-    context.authorization.preparedReceiptSha256 = sha256File(preparedPath);
-    context.authorization.completedReceiptPath = realpathSync(completedPath);
-    context.authorization.completedReceiptSha256 = sha256File(completedPath);
-    const targetBranch = context.fixture.registry.branches.find(
-      (entry: { name: string }) => `refs/heads/${entry.name}` === context.targetRef
+    const future = new Date(Date.now() + 30 * 60_000).toISOString();
+    completed.executedAt = future;
+    completed.localRefAbsenceReadbackAt = future;
+    completed.liveMainReadbackAt = future;
+    completed.liveTargetAbsenceReadbackAt = future;
+    writeFileSync(completedPath, `${JSON.stringify(completed, null, 2)}\n`, { mode: 0o600 });
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
     );
-    targetBranch.disposition = "archived";
-    targetBranch.localRefState = "retired";
-    recommitLocalRefRetirementRegistry(context, "close out consumed local retirement");
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("audits a consumed local retirement with immutable receipts as retired", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-consumed-closeout");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    closeOutLocalRefRetirementRegistry(context, "close out consumed local retirement");
 
     const audit = runNode(
       context.fixture.script,
@@ -3007,6 +3253,208 @@ describe("SENA repository governance", () => {
     );
     const report = JSON.parse(audit.stdout);
     expect(report.errors, JSON.stringify(report, null, 2)).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("accepts a staged consumed closeout anchored to the exact execution HEAD", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-staged-closeout");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    applyConsumedLocalRefRetirementCloseout(context);
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+    runGit(context.fixture.root, [
+      "add",
+      "coordination/repo-governance/active-work.json"
+    ]);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout that rewrites the protected deletion release", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-closeout-tamper");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    context.authorization.deletionRelease.releaseBasis = "Tampered after exact-CAS execution.";
+    closeOutLocalRefRetirementRegistry(
+      context,
+      "tamper protected deletion release at closeout"
+    );
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout that rewrites the protected authorization core", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-core-closeout-tamper");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    context.authorization.authorizationBasis =
+      "Tampered authorization core after exact-CAS execution.";
+    closeOutLocalRefRetirementRegistry(
+      context,
+      "tamper protected authorization core at closeout"
+    );
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("keeps an execution-time-valid consumed receipt durable after its release expires", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-historical-release");
+    const now = Date.now();
+    context.authorization.authorizedAt = new Date(now - 60_000).toISOString();
+    context.authorization.expiresAt = new Date(now + 60 * 60_000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(now - 40_000).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(now - 20_000).toISOString();
+    rebindLocalRefRetirementAuthorization(context, "bind historical deletion release");
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now - 35_000).toISOString(),
+      executedAt: new Date(now - 30_000).toISOString(),
+      liveReadbackAt: new Date(now - 25_000).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close historical consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors, JSON.stringify(report, null, 2)).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects a consumed receipt executed outside its protected deletion release window", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-window");
+    const now = Date.now();
+    context.authorization.authorizedAt = new Date(now - 60_000).toISOString();
+    context.authorization.expiresAt = new Date(now + 60 * 60_000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(now - 40_000).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(now - 20_000).toISOString();
+    rebindLocalRefRetirementAuthorization(context, "bind expired deletion release window");
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now - 15_000).toISOString(),
+      executedAt: new Date(now - 10_000).toISOString(),
+      liveReadbackAt: new Date(now - 5_000).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close out-of-window consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rechecks pending-release ancestry when auditing a consumed receipt", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-receipt-release-ancestry");
+    const unrelatedCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.fixture.base}^{tree}`,
+      "-m",
+      "unrelated pending authorization for receipt audit"
+    ]);
+    context.authorization.deletionRelease.pendingAuthorizationCommit = unrelatedCommit;
+    recommitLocalRefRetirementRegistry(context, "bind unrelated release ancestry for receipt audit");
+    const now = Date.now();
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now).toISOString(),
+      executedAt: new Date(now + 1).toISOString(),
+      liveReadbackAt: new Date(now + 2).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close invalid-ancestry consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout whose protected execution commit is not first-parent history", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-closeout-ancestry");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    closeOutLocalRefRetirementRegistry(context, "prepare consumed closeout ancestry test");
+    const forgedCloseoutCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.authorizationCommit}^{tree}`,
+      "-p",
+      context.pendingAuthorizationCommit,
+      "-m",
+      "consumed closeout without protected execution ancestry"
+    ]);
+    context.authorizationCommit = forgedCloseoutCommit;
+    context.env.SENA_TEST_AUTHORIZATION_SHA = forgedCloseoutCommit;
+    runGit(context.fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      forgedCloseoutCommit
+    ]);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
       `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
     );
     expect(report.warnings).not.toContain(
@@ -3063,17 +3511,49 @@ describe("SENA repository governance", () => {
   it("does not leak a pre-commit candidate index into other registered worktrees", () => {
     const root = temporaryRoot("candidate-index-isolation");
     const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const sourceObjectDirectory = runGit(projectRoot, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "objects"
+    ]);
+    const sourceIndexSha256 = sha256File(sourceIndex);
     const candidateIndex = join(root, "candidate-index");
+    const candidateObjectDirectory = join(root, "objects");
     copyFileSync(sourceIndex, candidateIndex);
+    mkdirSync(candidateObjectDirectory, { recursive: true });
+    const candidateEnvironment = {
+      GIT_INDEX_FILE: candidateIndex,
+      GIT_OBJECT_DIRECTORY: candidateObjectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectDirectory,
+      GIT_OPTIONAL_LOCKS: "0"
+    };
+    const candidateAdd = spawnSync(
+      "git",
+      [
+        "add",
+        "--",
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...candidateEnvironment }
+      }
+    );
+    expect(candidateAdd.status, candidateAdd.stderr).toBe(0);
 
     const result = runNode(governanceScript, ["audit", "--pre-commit", "--registry-from-index"], {
-      env: { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" }
+      env: candidateEnvironment
     });
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.errors).toEqual([]);
     expect(report.status).toBe("pass");
     expect(report.ownerBlockers).toEqual([]);
+    expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
   });
 
   it("enforces rescue bundle custody instead of trusting the ledger text", () => {

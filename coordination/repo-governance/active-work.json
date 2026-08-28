@@ -238,7 +238,7 @@
     "localRefRetirementAuthorizations": [
       {
         "id": "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
-        "status": "active",
+        "status": "pending-release",
         "purpose": "archive-ref-retirement",
         "predecessorAuthorizationId": null,
         "ref": "refs/heads/codex/sena-human-ai-research-docs",
@@ -274,6 +274,7 @@
           "peeledCommitSha": "5537582fbf820951777f88ef5bc5c63e23feada3"
         },
         "receiptDirectory": "/Volumes/Starship/SENA-backups/20260829-branch-retirement/ordinary/receipts",
+        "deletionRelease": null,
         "authorizationRegistryCommit": null,
         "eventId": null,
         "consumedAt": null,
@@ -1312,10 +1313,10 @@
       "branch": "codex/sena-branch-retirement-20260829",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-branch-retirement-20260829",
       "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
-      "headSha": "f5122a695350f0aceb245ab26f9b9b13cb39945a",
+      "headSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1324,21 +1325,21 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-08-28T16:51:55Z",
-      "lastHeartbeatAt": "2026-08-28T19:10:29Z",
-      "lastObservedAt": "2026-08-28T19:10:29Z",
-      "nextReviewAt": "2026-08-29T01:10:29Z",
+      "lastHeartbeatAt": "2026-08-28T19:21:17Z",
+      "lastObservedAt": "2026-08-28T19:21:17Z",
+      "nextReviewAt": "2026-08-29T01:21:17Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "dirty-allowed-pr46-lifecycle-binding",
+      "dirtyState": "dirty-allowed-pr46-release-state-remediation",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
-      "activationCondition": "Draft PR46 exists at initial exact head f5122a695350f0aceb245ab26f9b9b13cb39945a; Human-AI local ref retirement remains prohibited until a final authorized PR46 head passes its own exact checks, protected merge, post-main checks, and a separate explicit deletion release",
+      "activationCondition": "PR46 may merge only with Human-AI status=pending-release; later deletion requires a separate protected-main commit that changes it to active and binds machine-readable deletionRelease custody, followed by exact checks, post-main checks, and a separate explicit execution release",
       "externalCustodyBoundary": {
         "mixedBundleRoot": "/Volumes/Starship/SENA-backups/round31-pre-clean-uja7LF/",
         "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA-backups/",
@@ -1376,8 +1377,8 @@
       },
       "evidenceState": {
         "local": "Retirement lane was preserve-first fast-forwarded to exact protected main 366cb5f2 after separately hashing and reverse/forward checking three owner-only full-index patches; only verifier/test were replayed, this branch-retirement-owned registry authorization was reconstructed against the protected heartbeat, and no target ref was mutated.",
-        "ci": "PR45 post-main checks passed with zero annotations; Draft PR46 initial head f5122a695350f0aceb245ab26f9b9b13cb39945a is awaiting exact-head build and repository-security results and has no green CI claim yet.",
-        "merged": "PR45 exact head 63f75b29d15e07141189db3aba2f54a4eba8e7fa merged as protected main 366cb5f2bf58b1128692ba65c3b05e58baa3b8b6; Draft PR46 is open and no tag push, branch ref deletion, or authorization merge has occurred.",
+        "ci": "PR46 prior head 2e3136b8b79655accceb5cf18f829ba79476e81e passed build and both repository-security checks with zero annotations but independent review rejected its immediately-active release semantics; the pending-release remediation head has no CI claim yet.",
+        "merged": "PR45 exact head 63f75b29d15e07141189db3aba2f54a4eba8e7fa merged as protected main 366cb5f2bf58b1128692ba65c3b05e58baa3b8b6; Draft PR46 remains unmerged and no tag push or branch ref deletion has occurred.",
         "deployed": "not in scope and not authorized",
         "live": "All four target local branch refs remain present; Human-AI has no registered worktree occupancy. Live GitHub main and target-ref absence must be freshly read before any later CAS, and no credential-bearing DOCX content may be opened."
       },
@@ -1491,7 +1492,7 @@
       },
       "patchEquivalence": "Two topology-unique commits remain, while both authored document blobs are byte-identical to protected main 366cb5f2; archive custody preserves the original commit topology.",
       "disposition": "preservation-review",
-      "closeout": "Human-AI is the first local retirement candidate. Its two authored document blobs exactly match protected main 366cb5f2, its annotated archive tag peels to the exact branch tip, and its complete-history ordinary bundle is owner-only. The local ref remains present until the exact active authorization reaches protected main, post-main checks pass, and a separate explicit deletion release is received."
+      "closeout": "Human-AI is the first local retirement candidate. PR46 records it only as pending-release; its local ref must remain present. A later protected-main commit must bind machine-readable deletionRelease custody and change status to active before any read-only boundary or CAS can pass."
     },
     {
       "name": "main",
@@ -1586,29 +1587,29 @@
       "owner": "Codex branch-retirement primary writer",
       "ownerKey": "Codex-branch-retirement-01a04916",
       "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
-      "headSha": "f5122a695350f0aceb245ab26f9b9b13cb39945a",
+      "headSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f5122a695350f0aceb245ab26f9b9b13cb39945a",
-      "remoteObservedAt": "2026-08-28T19:10:29Z",
+      "remoteHeadSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
+      "remoteObservedAt": "2026-08-28T19:21:17Z",
       "pr": 46,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "f5122a695350f0aceb245ab26f9b9b13cb39945a",
+      "prHeadSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-08-28T19:10:29Z",
-      "lastObservedAt": "2026-08-28T19:10:29Z",
-      "lastCommitAt": "2026-08-29T03:08:49+08:00",
-      "nextReviewAt": "2026-08-29T01:10:29Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T19:21:17Z",
+      "lastObservedAt": "2026-08-28T19:21:17Z",
+      "lastCommitAt": "2026-08-29T03:11:35+08:00",
+      "nextReviewAt": "2026-08-29T01:21:17Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "active",
-      "closeout": "Draft PR46 is open at initial exact head f5122a695350f0aceb245ab26f9b9b13cb39945a after 76/76 local governance tests and native push gates. No target ref has been deleted, and the authorization is ineffective until PR46 protected-main/post-main gates plus a separate explicit deletion release."
+      "closeout": "Draft PR46 remains open; independent review rejected head 2e3136b8 because status=active could bypass the promised later release. The current remediation makes PR46 pending-release only; no target ref has been deleted."
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",
