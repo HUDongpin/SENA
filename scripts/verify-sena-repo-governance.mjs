@@ -830,6 +830,16 @@ function activeIntegratedCleanupAuthorization(registry, remoteRef, remoteSha, op
   if (options.requireGitHubActor === true && cleanup.githubActor !== options.githubActor) return null;
 
   if (options.requireOperator !== false) {
+    const registryRepoResolution = existingPathResolution(registry.repo);
+    const controlRootResolution = existingPathResolution(CONTROL_ROOT);
+    if (
+      !registryRepoResolution.ok ||
+      !controlRootResolution.ok ||
+      registryRepoResolution.path !== controlRootResolution.path ||
+      physicalWorkItemCustodyError(registryRepoResolution, item)
+    ) {
+      return null;
+    }
     const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
     const operatorBranch = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
     const operatorItem = (registry.workItems ?? []).find(
@@ -1368,6 +1378,36 @@ function pathIsWithin(parent, child) {
   return childPath === parentPath || childPath.startsWith(`${parentPath}${sep}`);
 }
 
+function workItemRequiresPhysicalCustody(item, registry) {
+  const branch = (registry.branches ?? []).find((candidate) => candidate.name === item.branch);
+  return Boolean(
+    ACTIVE_WRITE_DISPOSITIONS.has(item.disposition) ||
+    item.cleanupAuthorization?.status === "active" ||
+    branch?.disposition === "security-quarantine"
+  );
+}
+
+function physicalWorkItemCustodyError(registryRepoResolution, item) {
+  const custodyLabel = ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
+    ? "active workItem physical repo/worktreePath/cwd custody"
+    : "authorization-bearing workItem physical custody";
+  const itemRepoResolution = existingPathResolution(item.repo);
+  const worktreeResolution = existingPathResolution(item.worktreePath);
+  const cwdResolution = existingPathResolution(item.cwd);
+  if (!itemRepoResolution.ok || !worktreeResolution.ok || !cwdResolution.ok) {
+    return `${custodyLabel} cannot be resolved: ${item.taskId ?? "<unknown>"}`;
+  }
+  if (
+    !registryRepoResolution.ok ||
+    itemRepoResolution.path !== registryRepoResolution.path ||
+    !pathIsWithin(registryRepoResolution.path, worktreeResolution.path) ||
+    !pathIsWithin(worktreeResolution.path, cwdResolution.path)
+  ) {
+    return `${custodyLabel} escapes the control root: ${item.taskId ?? "<unknown>"}`;
+  }
+  return null;
+}
+
 function appendHostPhysicalCustodyErrors(registry, errors) {
   const controlRootResolution = existingPathResolution(CONTROL_ROOT);
   const registryRepoResolution = existingPathResolution(registry.repo);
@@ -1378,26 +1418,9 @@ function appendHostPhysicalCustodyErrors(registry, errors) {
   }
 
   for (const item of registry.workItems ?? []) {
-    if (!ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) continue;
-    const itemRepoResolution = existingPathResolution(item.repo);
-    const worktreeResolution = existingPathResolution(item.worktreePath);
-    const cwdResolution = existingPathResolution(item.cwd);
-    if (!itemRepoResolution.ok || !worktreeResolution.ok || !cwdResolution.ok) {
-      errors.push(
-        `active workItem physical repo/worktreePath/cwd custody cannot be resolved: ${item.taskId ?? "<unknown>"}`
-      );
-      continue;
-    }
-    if (
-      !registryRepoResolution.ok ||
-      itemRepoResolution.path !== registryRepoResolution.path ||
-      !pathIsWithin(registryRepoResolution.path, worktreeResolution.path) ||
-      !pathIsWithin(worktreeResolution.path, cwdResolution.path)
-    ) {
-      errors.push(
-        `active workItem physical repo/worktreePath/cwd custody escapes the control root: ${item.taskId ?? "<unknown>"}`
-      );
-    }
+    if (!workItemRequiresPhysicalCustody(item, registry)) continue;
+    const custodyError = physicalWorkItemCustodyError(registryRepoResolution, item);
+    if (custodyError) errors.push(custodyError);
   }
 }
 
@@ -2296,24 +2319,52 @@ function runRegistry(flags) {
   );
 }
 
+export function resolveHookCustodyDirectory(controlRoot, repoRoot, expectedPath, configuredPath) {
+  if (
+    typeof expectedPath !== "string" ||
+    expectedPath.length === 0 ||
+    typeof configuredPath !== "string" ||
+    configuredPath.length === 0
+  ) {
+    return { path: null, error: "hook custody path is not configured" };
+  }
+  const controlRootResolution = existingPathResolution(controlRoot);
+  const repoRootResolution = existingPathResolution(repoRoot);
+  if (!controlRootResolution.ok || !repoRootResolution.ok) {
+    return { path: null, error: "hook custody control/repository root cannot be physically resolved" };
+  }
+  if (!pathIsWithin(controlRootResolution.path, repoRootResolution.path)) {
+    return { path: null, error: "hook custody repository root is outside the physical control root" };
+  }
+
+  const canonicalHooksResolution = existingPathResolution(join(repoRootResolution.path, ".githooks"));
+  const expectedResolution = existingPathResolution(resolve(repoRootResolution.path, expectedPath));
+  const configuredResolution = existingPathResolution(resolve(repoRootResolution.path, configuredPath));
+  if (!canonicalHooksResolution.ok || !expectedResolution.ok || !configuredResolution.ok) {
+    return { path: null, error: "hook custody path cannot be physically resolved" };
+  }
+  if (
+    !pathIsWithin(controlRootResolution.path, canonicalHooksResolution.path) ||
+    expectedResolution.path !== canonicalHooksResolution.path ||
+    configuredResolution.path !== canonicalHooksResolution.path
+  ) {
+    return {
+      path: null,
+      error: "hook custody path is outside the canonical control-root hooks directory"
+    };
+  }
+  return { path: canonicalHooksResolution.path, error: null };
+}
+
 function verifyHookCustody(registry, errors) {
   const expectedPath = registry.policy?.hookCustodyPath;
   const configured = gitText(["config", "--get", "core.hooksPath"], { allowFailure: true }).trim();
-  if (!expectedPath || !configured) {
-    errors.push("local hook custody path is not configured");
+  const custody = resolveHookCustodyDirectory(CONTROL_ROOT, REPO_ROOT, expectedPath, configured);
+  if (custody.error) {
+    errors.push(custody.error);
     return;
   }
-  const configuredResolution = existingPathResolution(resolve(REPO_ROOT, configured));
-  const expectedResolution = existingPathResolution(expectedPath);
-  if (!configuredResolution.ok || !expectedResolution.ok) {
-    errors.push("hook custody path cannot be physically resolved");
-    return;
-  }
-  const resolvedConfigured = configuredResolution.path;
-  if (resolvedConfigured !== expectedResolution.path) {
-    errors.push("configured core.hooksPath does not match the owner-controlled governance hook custody path");
-    return;
-  }
+  const resolvedConfigured = custody.path;
   for (const hookName of ["pre-commit", "pre-push"]) {
     const hookPath = join(resolvedConfigured, hookName);
     if (!existsSync(hookPath) || !lstatSync(hookPath).isFile()) {

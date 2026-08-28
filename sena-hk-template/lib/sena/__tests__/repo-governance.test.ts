@@ -8,7 +8,8 @@ import {
   readFileSync,
   symlinkSync,
   chmodSync,
-  existsSync
+  existsSync,
+  realpathSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -226,6 +227,52 @@ describe("SENA repository governance", () => {
         error.startsWith("active workItem physical repo/worktreePath/cwd custody escapes the control root")
       )
     ).toBe(true);
+  });
+
+  it("binds hook custody to the canonical control-root hooks directory", async () => {
+    const controlRoot = temporaryRoot("hook-custody-control-root");
+    const hooksPath = join(controlRoot, ".githooks");
+    const benignAlias = join(controlRoot, "hooks-alias");
+    const externalHooks = temporaryRoot("hook-custody-external");
+    const externalAlias = join(controlRoot, "external-hooks-alias");
+    mkdirSync(hooksPath, { recursive: true });
+    symlinkSync(hooksPath, benignAlias, "dir");
+    symlinkSync(externalHooks, externalAlias, "dir");
+    const governance = await import(pathToFileURL(governanceScript).href);
+
+    const relativeInternal = governance.resolveHookCustodyDirectory(
+      controlRoot,
+      controlRoot,
+      ".githooks",
+      ".githooks"
+    );
+    expect(relativeInternal).toEqual({ path: realpathSync(hooksPath), error: null });
+
+    const benignAliasResult = governance.resolveHookCustodyDirectory(
+      controlRoot,
+      controlRoot,
+      benignAlias,
+      benignAlias
+    );
+    expect(benignAliasResult).toEqual({ path: realpathSync(hooksPath), error: null });
+
+    const absoluteExternal = governance.resolveHookCustodyDirectory(
+      controlRoot,
+      controlRoot,
+      externalHooks,
+      externalHooks
+    );
+    expect(absoluteExternal.path).toBe(null);
+    expect(absoluteExternal.error).toMatch(/outside the canonical control-root hooks directory/);
+
+    const insideLookingExternal = governance.resolveHookCustodyDirectory(
+      controlRoot,
+      controlRoot,
+      externalAlias,
+      externalAlias
+    );
+    expect(insideLookingExternal.path).toBe(null);
+    expect(insideLookingExternal.error).toMatch(/outside the canonical control-root hooks directory/);
   });
 
   it("accepts the machine-readable active-work registry", () => {
@@ -1626,6 +1673,58 @@ describe("SENA repository governance", () => {
     ], { cwd: fixture.root });
     expect(wrongActor.status).toBe(1);
     expect(wrongActor.stderr).toContain("rule=ref-deletion-event-not-authorized");
+
+    runGit(fixture.root, ["worktree", "remove", targetPath]);
+    const externalWorktreeParent = temporaryRoot("integrated-cleanup-external-parent");
+    const externalTargetPath = join(externalWorktreeParent, "cleanup-target");
+    runGit(fixture.root, ["worktree", "add", "-q", externalTargetPath, "cleanup-target"]);
+    symlinkSync(externalTargetPath, targetPath, "dir");
+
+    const escapedPush = runNode(fixture.script, [
+      "push-policy",
+      "--remote-name",
+      "origin",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/cleanup-target ${integratedHead}\n`,
+      env: {
+        ...hookEnvironment,
+        SENA_GOVERNANCE_REMOTE_LOCATION: "https://github.com/HUDongpin/SENA.git"
+      }
+    });
+    expect(escapedPush.status).toBe(1);
+
+    const escapedBoundary = runNode(fixture.script, [
+      "deletion-boundary",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ], {
+      cwd: fixture.root,
+      input: `(delete) ${"0".repeat(40)} refs/heads/cleanup-target ${integratedHead}\n`,
+      env: hookEnvironment
+    });
+    expect(escapedBoundary.status).toBe(1);
+    expect(escapedBoundary.stderr).toContain("deletion-boundary host physical custody is invalid");
+
+    const escapedAudit = runNode(fixture.script, [
+      "audit",
+      "--pre-push",
+      "--live",
+      "--registry-from-commit",
+      authorizationCommit
+    ], {
+      cwd: fixture.root,
+      env: hookEnvironment
+    });
+    expect(escapedAudit.status).toBe(1);
+    const escapedAuditReport = JSON.parse(escapedAudit.stdout);
+    expect(
+      escapedAuditReport.errors.some((error: string) =>
+        error.startsWith("authorization-bearing workItem physical custody escapes the control root")
+      )
+    ).toBe(true);
   });
 
   it("keeps deletion-event CI on protected main with exact event SHA and actor custody", () => {
