@@ -4,7 +4,10 @@ import {
   createEvidenceFlowPostgresSaver,
   runEvidenceFlowPostgresCompatibilityProbe
 } from "../workflow/langgraph-compatibility";
-import { senaWorkflowCheckpointExists } from "../workflow/postgres-runtime";
+import {
+  senaWorkflowCheckpointBinding,
+  senaWorkflowCheckpointExists
+} from "../workflow/postgres-runtime";
 
 const postgresUrl = process.env.SENA_WORKFLOW_TEST_POSTGRES_URL;
 const describeWithPostgres = postgresUrl ? describe : describe.skip;
@@ -31,7 +34,14 @@ describeWithPostgres("SENA EvidenceFlow PostgresSaver integration", () => {
   });
 
   it("validates an exact fork checkpoint against the persisted source thread", async () => {
-    const checkpointState = Annotation.Root({ marker: Annotation<string> });
+    const checkpointState = Annotation.Root({
+      marker: Annotation<string>,
+      runId: Annotation<string>,
+      definitionHash: Annotation<string>,
+      sourceBindingDigest: Annotation<string>,
+      codeSha: Annotation<string>,
+      configDigest: Annotation<string>
+    });
     const threadId = `workflow-checkpoint-existence-${process.pid}-${Date.now()}`;
     const saver = createEvidenceFlowPostgresSaver(postgresUrl!);
     await saver.setup();
@@ -42,7 +52,14 @@ describeWithPostgres("SENA EvidenceFlow PostgresSaver integration", () => {
         .addEdge("finish", END)
         .compile({ checkpointer: saver });
       const config = { configurable: { thread_id: threadId } };
-      await graph.invoke({ marker: "initial" }, config);
+      await graph.invoke({
+        marker: "initial",
+        runId: threadId,
+        definitionHash: "a".repeat(64),
+        sourceBindingDigest: "b".repeat(64),
+        codeSha: "c".repeat(40),
+        configDigest: "d".repeat(64)
+      }, config);
       const snapshot = await graph.getState(config);
       const checkpointId = snapshot.config.configurable?.checkpoint_id;
       expect(typeof checkpointId).toBe("string");
@@ -58,6 +75,19 @@ describeWithPostgres("SENA EvidenceFlow PostgresSaver integration", () => {
         checkpointId: checkpointId as string,
         env: { SENA_ENTERPRISE_POSTGRES_URL: postgresUrl }
       })).toBe(false);
+      await expect(senaWorkflowCheckpointBinding({
+        runId: threadId,
+        checkpointId: checkpointId as string,
+        env: { SENA_ENTERPRISE_POSTGRES_URL: postgresUrl }
+      })).resolves.toEqual(expect.objectContaining({
+        checkpointId,
+        runId: threadId,
+        definitionHash: "a".repeat(64),
+        sourceBindingDigest: "b".repeat(64),
+        codeSha: "c".repeat(40),
+        configDigest: "d".repeat(64),
+        stateDigest: expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
 
       const cleanupSaver = createEvidenceFlowPostgresSaver(postgresUrl!);
       await cleanupSaver.setup();

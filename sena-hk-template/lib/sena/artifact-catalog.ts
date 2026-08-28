@@ -19,7 +19,7 @@ export type SenaCrossArtifactCatalogEntry = SenaReviewPacketArtifact & {
 };
 
 export type SenaWorkflowArtifactCatalogEntry = SenaReviewPacketArtifact & {
-  closeoutContentKey: "run" | "stepReceipts" | "approvals" | "self";
+  closeoutContentKey: "run" | "stepReceipts" | "approvals" | "closeoutCommitment" | "self";
   surfaces: {
     workflowCloseout: boolean;
     researchReviewPacket: boolean;
@@ -62,6 +62,18 @@ const workflowArtifacts: SenaWorkflowArtifactCatalogEntry[] = [
       workflowCloseout: true,
       researchReviewPacket: false,
       engineeringEvidenceIndex: false
+    },
+    checkOwner: "lib/sena/workflow/closeout.ts"
+  },
+  {
+    filename: "sena-workflow-closeout-commitment.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment,
+    description: "On-graph commitment sealing command attempts/errors, pre-closeout receipts, approvals, artifacts, and the explicit self-reference boundary.",
+    closeoutContentKey: "closeoutCommitment",
+    surfaces: {
+      workflowCloseout: true,
+      researchReviewPacket: true,
+      engineeringEvidenceIndex: true
     },
     checkOwner: "lib/sena/workflow/closeout.ts"
   },

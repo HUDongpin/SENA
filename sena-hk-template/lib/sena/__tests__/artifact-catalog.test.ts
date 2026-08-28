@@ -87,14 +87,15 @@ describe("SENA handoff artifact catalog", () => {
     });
   });
 
-  it("registers the four EvidenceFlow closeout artifacts without pretending every artifact is embedded in the research packet", () => {
+  it("registers the five EvidenceFlow closeout artifacts without pretending every artifact is embedded in the research packet", () => {
     const artifacts = listSenaWorkflowArtifacts();
 
-    expect(artifacts).toHaveLength(4);
+    expect(artifacts).toHaveLength(5);
     expect(artifacts.map((artifact) => artifact.filename)).toEqual([
       "sena-workflow-run.json",
       "sena-workflow-step-receipts.json",
       "sena-workflow-approvals.json",
+      "sena-workflow-closeout-commitment.json",
       "sena-workflow-closeout.json"
     ]);
     expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-run.json")).toMatchObject({
@@ -109,6 +110,15 @@ describe("SENA handoff artifact catalog", () => {
     expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-closeout.json")).toMatchObject({
       schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
       closeoutContentKey: "self",
+      surfaces: {
+        workflowCloseout: true,
+        researchReviewPacket: true,
+        engineeringEvidenceIndex: true
+      }
+    });
+    expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-closeout-commitment.json")).toMatchObject({
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment,
+      closeoutContentKey: "closeoutCommitment",
       surfaces: {
         workflowCloseout: true,
         researchReviewPacket: true,

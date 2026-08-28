@@ -36,6 +36,7 @@ export type SenaWorkflowNodeMaterialization = {
   approvalReferences?: string[];
   evidenceLayers?: Partial<EvidenceLayerState>;
   claimBoundary?: SenaClaimBoundary;
+  actorType?: SenaWorkflowStepReceipt["actorType"];
 };
 
 export type SenaWorkflowNodeOperationInput = {
@@ -137,7 +138,7 @@ function assertBoundRun(run: SenaWorkflowRun, state: SenaWorkflowGraphState) {
   ) {
     throw new Error("SENA workflow node execution does not match the authoritative immutable run binding.");
   }
-  if (["cancelled", "superseded", "dead_lettered"].includes(run.status)) {
+  if (["succeeded", "cancelled", "superseded", "dead_lettered"].includes(run.status)) {
     throw new Error(`SENA workflow node execution is forbidden for terminal run status ${run.status}.`);
   }
 }
@@ -281,6 +282,9 @@ export function createSenaWorkflowGraphNodeExecutor(input: {
       }
 
       if (execution.node.effect === "server-job") {
+        const activeBeforeJob = await input.store.getRun(run.id, run.teamId);
+        if (!activeBeforeJob) throw new Error("SENA workflow run disappeared before server-job binding.");
+        assertBoundRun(activeBeforeJob, execution.state);
         const ensured = await input.operations.ensureServerJob(operationInput);
         if (execution.resume) {
           const resumedInterruptId = stringField(execution.resume, "interruptId");
@@ -349,6 +353,9 @@ export function createSenaWorkflowGraphNodeExecutor(input: {
       if (!/^[a-f0-9]{64}$/.test(materialized.outputDigest)) {
         throw new Error("SENA workflow node materialization must return a SHA-256 output digest.");
       }
+      const activeBeforeEvidence = await input.store.getRun(run.id, run.teamId);
+      if (!activeBeforeEvidence) throw new Error("SENA workflow run disappeared before evidence persistence.");
+      assertBoundRun(activeBeforeEvidence, execution.state);
       const appendedArtifacts: string[] = [];
       for (const artifact of materialized.artifacts ?? []) {
         if (artifact.runId !== run.id || artifact.nodeId !== execution.node.id) {
@@ -387,7 +394,9 @@ export function createSenaWorkflowGraphNodeExecutor(input: {
         outputDigest: materialized.outputDigest,
         ...(job ? { jobId: job.id } : {}),
         artifactReferences,
-        actorType: approval ? "human" : execution.node.effect === "server-job" ? "worker" : "system",
+        actorType: approval
+          ? "human"
+          : materialized.actorType ?? (execution.node.effect === "server-job" ? "worker" : "system"),
         ...(approval ? { actorIdHash: approval.actorUserIdHash } : {}),
         codeSha: run.codeSha,
         evidenceLayer: execution.node.evidenceLayer,

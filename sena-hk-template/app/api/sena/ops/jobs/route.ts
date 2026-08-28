@@ -36,6 +36,11 @@ const statusActions = new Set<SenaEnterpriseServerJobStatusAction>([
   "retry",
   "dead-letter"
 ]);
+const workerLifecycleActions = new Set<SenaEnterpriseServerJobStatusAction>([
+  "mark-running",
+  "mark-succeeded",
+  "mark-failed"
+]);
 
 function maybeStatus(value: string | null) {
   return value && jobStatuses.has(value as SenaEnterpriseServerJobStatus)
@@ -144,6 +149,13 @@ export async function POST(request: Request) {
     const jobId = typeof body.jobId === "string" && body.jobId.trim() ? body.jobId.trim() : undefined;
     if (!action) {
       throw new SenaEnterpriseError("Unsupported SENA server job status action.", 400, "unsupported_server_job_status_action");
+    }
+    if (access.mode !== "bearer" && workerLifecycleActions.has(action)) {
+      throw new SenaEnterpriseError(
+        "SENA server job worker lifecycle callbacks require the service bearer identity.",
+        403,
+        "server_job_worker_identity_required"
+      );
     }
     if (!jobId) {
       throw new SenaEnterpriseError("SENA server job status updates require jobId.", 400, "server_job_id_required");

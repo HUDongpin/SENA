@@ -14,6 +14,10 @@ import {
   withSenaWorkflowStore
 } from "@/lib/sena/workflow/api-runtime";
 import type { SenaWorkflowRunStatus } from "@/lib/sena/workflow/types";
+import {
+  projectSenaWorkflowCommandReadModel,
+  projectSenaWorkflowRunReadModel
+} from "@/lib/sena/workflow/read-model";
 
 export const runtime = "nodejs";
 const workflowRunStatuses = new Set<SenaWorkflowRunStatus>([
@@ -46,7 +50,10 @@ export async function GET(request: Request) {
       teamId,
       ...(status ? { status: status as SenaWorkflowRunStatus } : {})
     }));
-    return NextResponse.json({ schemaVersion: SENA_SCHEMA_VERSIONS.workflowRunList, runs }, {
+    return NextResponse.json({
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowRunList,
+      runs: runs.map(projectSenaWorkflowRunReadModel)
+    }, {
       headers: { "cache-control": "private, no-store" }
     });
   });
@@ -66,8 +73,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.workflowRunCommand,
       created: result.created,
-      run: result.run,
-      command: result.command
+      run: projectSenaWorkflowRunReadModel(result.run),
+      command: projectSenaWorkflowCommandReadModel(result.command)
     }, {
       status: 202,
       headers: {

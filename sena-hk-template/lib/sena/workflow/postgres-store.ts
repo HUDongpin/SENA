@@ -88,6 +88,16 @@ function assertTerminalRunPatchIsNoop(
   }
 }
 
+function assertRunAcceptsNewEvidence(run: SenaWorkflowRun) {
+  if (IMMUTABLE_TERMINAL_RUN_STATUSES.has(run.status)) {
+    throw new SenaWorkflowStoreError(
+      "An immutable terminal SENA workflow run cannot accept late evidence.",
+      409,
+      "workflow_terminal_evidence_conflict"
+    );
+  }
+}
+
 export const SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS: readonly WorkflowSchemaDefinition[] = [
   {
     id: "workflow-runs",
@@ -729,6 +739,14 @@ export function createSenaWorkflowPostgresStore(input: {
         if (duplicate.payloadDigest !== inputEnqueue.command.payloadDigest) throw idempotencyConflict();
         return { created: false, run: normalizeRun(runRow), command: duplicate };
       }
+      const lockedRun = normalizeRun(runRow);
+      if (IMMUTABLE_TERMINAL_RUN_STATUSES.has(lockedRun.status)) {
+        throw new SenaWorkflowStoreError(
+          "An immutable terminal SENA workflow run cannot accept another command.",
+          409,
+          "workflow_terminal_command_conflict"
+        );
+      }
       if (numberValue(runRow.version) !== inputEnqueue.expectedVersion) throw optimisticConflict();
 
       await insertCommand(client.query.bind(client), commandsTable, inputEnqueue.command);
@@ -860,12 +878,33 @@ export function createSenaWorkflowPostgresStore(input: {
     });
   }
 
+  async function renewCommandLease(inputRenewal: {
+    commandId: string;
+    workerId: string;
+    leaseMs?: number;
+  }) {
+    await ensureSchema();
+    const leaseMs = Math.max(1_000, Math.min(inputRenewal.leaseMs ?? 30_000, 15 * 60_000));
+    const result = await pool.query<Record<string, unknown>>(`
+      UPDATE ${commandsTable}
+      SET claim_expires_at = now() + ($3::bigint * interval '1 millisecond'),
+        updated_at = now()
+      WHERE id = $1
+        AND status = 'claimed'
+        AND claimed_by = $2
+        AND claim_expires_at > now()
+      RETURNING *
+    `, [inputRenewal.commandId, inputRenewal.workerId, leaseMs]);
+    return result.rows[0] ? normalizeCommand(result.rows[0]) : null;
+  }
+
   async function completeCommand(inputComplete: { commandId: string; workerId: string; completedAt: string }) {
     await ensureSchema();
     const result = await pool.query<Record<string, unknown>>(`
       UPDATE ${commandsTable}
       SET status = 'completed', completed_at = $3, updated_at = $3, claim_expires_at = NULL
       WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+        AND claim_expires_at > now()
       RETURNING *
     `, [inputComplete.commandId, inputComplete.workerId, inputComplete.completedAt]);
     if (!result.rows[0]) {
@@ -906,6 +945,7 @@ export function createSenaWorkflowPostgresStore(input: {
           error_hash = $8,
           updated_at = $3
         WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+          AND claim_expires_at > now()
         RETURNING *
       `, [
         inputFailure.commandId,
@@ -974,6 +1014,7 @@ export function createSenaWorkflowPostgresStore(input: {
       const current = normalizeRun(currentResult.rows[0]);
       if (current.version !== inputTransition.expectedVersion) throw optimisticConflict();
       assertTerminalRunPatchIsNoop(current, inputTransition.patch);
+      if (IMMUTABLE_TERMINAL_RUN_STATUSES.has(current.status)) return current;
       const next = { ...current, ...inputTransition.patch, version: current.version + 1, updatedAt: inputTransition.updatedAt };
       const result = await client.query<Record<string, unknown>>(`
         UPDATE ${runsTable}
@@ -1043,18 +1084,44 @@ export function createSenaWorkflowPostgresStore(input: {
       if (!runResult.rows[0]) throw missingRun();
       const current = normalizeRun(runResult.rows[0]);
       if (current.version !== inputSettlement.expectedRunVersion) throw optimisticConflict();
-      assertTerminalRunPatchIsNoop(current, inputSettlement.patch);
 
       const commandResult = await client.query<Record<string, unknown>>(`
-        SELECT * FROM ${commandsTable} WHERE id = $1 AND run_id = $2 FOR UPDATE
-      `, [inputSettlement.commandId, inputSettlement.runId]);
+        SELECT * FROM ${commandsTable}
+        WHERE id = $1 AND run_id = $2
+          AND status = 'claimed'
+          AND claimed_by = $3
+          AND claim_expires_at > now()
+        FOR UPDATE
+      `, [inputSettlement.commandId, inputSettlement.runId, inputSettlement.workerId]);
       const command = commandResult.rows[0] ? normalizeCommand(commandResult.rows[0]) : undefined;
-      if (command?.status !== "claimed" || command.claimedBy !== inputSettlement.workerId) {
+      if (!command) {
         throw new SenaWorkflowStoreError(
           "The SENA workflow command lease is no longer owned by this worker.",
           409,
           "workflow_command_lease_conflict"
         );
+      }
+      assertTerminalRunPatchIsNoop(current, inputSettlement.patch);
+
+      if (IMMUTABLE_TERMINAL_RUN_STATUSES.has(current.status)) {
+        const completedCommand = await client.query<Record<string, unknown>>(`
+          UPDATE ${commandsTable}
+          SET status = 'completed',
+            completed_at = $3,
+            updated_at = $3,
+            claim_expires_at = NULL
+          WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+            AND claim_expires_at > now()
+          RETURNING *
+        `, [inputSettlement.commandId, inputSettlement.workerId, inputSettlement.completedAt]);
+        if (!completedCommand.rows[0]) {
+          throw new SenaWorkflowStoreError(
+            "The SENA workflow command lease is no longer owned by this worker.",
+            409,
+            "workflow_command_lease_conflict"
+          );
+        }
+        return { run: current, command: normalizeCommand(completedCommand.rows[0]) };
       }
 
       const next = {
@@ -1063,6 +1130,24 @@ export function createSenaWorkflowPostgresStore(input: {
         version: current.version + 1,
         updatedAt: inputSettlement.completedAt
       };
+      if (next.status === "succeeded") {
+        const pendingCommand = await client.query<{ id: string }>(`
+          SELECT id FROM ${commandsTable}
+          WHERE run_id = $1
+            AND id <> $2
+            AND status IN ('pending', 'claimed')
+          ORDER BY created_at, id
+          LIMIT 1
+          FOR UPDATE
+        `, [inputSettlement.runId, inputSettlement.commandId]);
+        if (pendingCommand.rows[0]) {
+          throw new SenaWorkflowStoreError(
+            "SENA workflow success cannot overtake a later pending command.",
+            409,
+            "workflow_terminalization_pending_command_conflict"
+          );
+        }
+      }
       const updatedRun = await client.query<Record<string, unknown>>(`
         UPDATE ${runsTable}
         SET version = $3,
@@ -1105,6 +1190,7 @@ export function createSenaWorkflowPostgresStore(input: {
           updated_at = $3,
           claim_expires_at = NULL
         WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+          AND claim_expires_at > now()
         RETURNING *
       `, [inputSettlement.commandId, inputSettlement.workerId, inputSettlement.completedAt]);
       if (!completedCommand.rows[0]) {
@@ -1161,6 +1247,7 @@ export function createSenaWorkflowPostgresStore(input: {
       }
 
       const run = normalizeRun(runResult.rows[0]);
+      assertRunAcceptsNewEvidence(run);
       const sequence = run.receiptSequence + 1;
       const previousAuditChainHead = run.auditChainHead;
       const receiptWithoutHead = { ...draft, sequence, previousAuditChainHead };
@@ -1232,6 +1319,7 @@ export function createSenaWorkflowPostgresStore(input: {
         if (!sameCanonicalValue(duplicate, inputApproval.approval)) throw idempotencyConflict();
         return { created: false, approval: duplicate, run: current };
       }
+      assertRunAcceptsNewEvidence(current);
       if (current.version !== inputApproval.approval.expectedVersion) throw optimisticConflict();
 
       const approval = inputApproval.approval;
@@ -1359,6 +1447,7 @@ export function createSenaWorkflowPostgresStore(input: {
           run: current
         };
       }
+      assertRunAcceptsNewEvidence(current);
       if (current.version !== approval.expectedVersion) throw optimisticConflict();
 
       await client.query(`
@@ -1421,6 +1510,7 @@ export function createSenaWorkflowPostgresStore(input: {
         if (!sameCanonicalValue(duplicate, artifact)) throw idempotencyConflict();
         return { created: false, artifact: duplicate, run: current };
       }
+      assertRunAcceptsNewEvidence(current);
       await client.query(`
         INSERT INTO ${artifactsTable} (
           id, run_id, node_id, filename, schema_version, sha256,
@@ -1476,6 +1566,7 @@ export function createSenaWorkflowPostgresStore(input: {
     listWaitingJobRuns,
     enqueueCommand,
     claimNextCommand,
+    renewCommandLease,
     completeCommand,
     failCommand,
     transitionRun,

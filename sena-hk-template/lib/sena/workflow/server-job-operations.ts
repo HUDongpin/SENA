@@ -53,8 +53,13 @@ import {
 } from "./exploratory-publication";
 import {
   evaluateSenaEngineeringEvidenceNode,
-  parseSenaEngineeringEvidenceParameters
+  parseSenaEngineeringEvidenceParameters,
+  runSenaEngineeringVerificationNode,
+  type SenaEngineeringCommandExecutor,
+  type SenaEngineeringEvidenceParameters,
+  type SenaEngineeringRunBinding
 } from "./engineering-evidence";
+import { createSenaEngineeringCommandExecutor } from "./engineering-runner";
 import type {
   SenaWorkflowNodeOperationAdapter,
   SenaWorkflowNodeOperationInput,
@@ -793,6 +798,10 @@ async function runSpecificClaimEvidence(input: {
 
 export function createSenaWorkflowServerJobOperationAdapter(input: {
   store: SenaWorkflowNodeStore;
+  engineeringCommandExecutorFactory?: (input: {
+    evidence: SenaEngineeringEvidenceParameters;
+    binding: SenaEngineeringRunBinding;
+  }) => Promise<SenaEngineeringCommandExecutor>;
 }): SenaWorkflowNodeOperationAdapter {
   return {
     async ensureServerJob(operation) {
@@ -931,8 +940,8 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
           }).slice(0, 24)}`,
           runId: operation.run.id,
           nodeId: operation.node.id,
-          filename: "sena-workflow-closeout.json",
-          schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+          filename: "sena-workflow-closeout-commitment.json",
+          schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment,
           sha256: commitment,
           storageReference: `workflow-closeout:${operation.run.id}#commitment-v1`,
           evidenceLayer: operation.node.evidenceLayer,
@@ -947,10 +956,25 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
       if (operation.run.kind === "engineering-release") {
         const carrier = await workflowSourceCarrier(input.store, operation.run);
         const parsed = engineeringEvidence(operation.run, carrier.parameters, carrier.sourceEvidence);
+        const executesGates = ["focused-gates", "full-local-gate", "shadow-release-model"]
+          .includes(operation.node.id);
+        const trustedGateReceipts = executesGates
+          ? (await runSenaEngineeringVerificationNode({
+              nodeId: operation.node.id,
+              runId: operation.run.id,
+              evidence: parsed.evidence,
+              binding: parsed.binding,
+              executeCommand: await (input.engineeringCommandExecutorFactory ?? createSenaEngineeringCommandExecutor)({
+                evidence: parsed.evidence,
+                binding: parsed.binding
+              })
+            })).receipts
+          : [];
         const evaluated = evaluateSenaEngineeringEvidenceNode(
           operation.node.id,
           parsed.evidence,
-          parsed.binding
+          parsed.binding,
+          trustedGateReceipts
         );
         const artifacts: SenaWorkflowArtifact[] = [];
         if (evaluated.document && evaluated.filename && evaluated.schemaVersion) {
@@ -985,7 +1009,7 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
             filename: `sena-engineering-${receipt.gate}-receipt.json`,
             schemaVersion: receipt.schemaVersion,
             sha256,
-            storageReference: `workflow-command:${carrier.sourceCommand.id}#parameters.engineeringEvidence.gateReceipts/${receipt.gate}`,
+            storageReference: `workflow-worker:${operation.run.id}#engineering-gate/${receipt.gate}`,
             evidenceLayer: receipt.evidenceLayer,
             createdAt: receipt.finishedAt
           });
@@ -1003,6 +1027,7 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
             externalSideEffects: false
           }),
           artifacts,
+          ...(executesGates ? { actorType: "worker" as const } : {}),
           ...(evaluated.evidenceLayers ? { evidenceLayers: evaluated.evidenceLayers } : {})
         };
       }

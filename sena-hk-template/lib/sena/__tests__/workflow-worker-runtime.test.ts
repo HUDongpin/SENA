@@ -4,6 +4,7 @@ import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { senaWorkflowDigest } from "../workflow/canonical";
 import { researchEvidenceGraphV1 } from "../workflow/definitions";
 import { createSenaWorkflowGraphNodeExecutor, type SenaWorkflowNodeOperationAdapter } from "../workflow/node-executor";
+import { SenaWorkflowStoreError } from "../workflow/postgres-store";
 import {
   createSenaWorkflowWorkerRuntime,
   senaWorkflowSettledPatch,
@@ -16,6 +17,16 @@ import type {
   SenaWorkflowRunEvents,
   SenaWorkflowStepReceipt
 } from "../workflow/types";
+
+function workerBuildAttestation(codeSha: string) {
+  const core = {
+    codeSha,
+    treeSha: "e".repeat(40),
+    source: "git-object-measurement" as const,
+    clean: true as const
+  };
+  return { ...core, attestationDigest: senaWorkflowDigest(core) };
+}
 
 function runtimeFixture() {
   let run: SenaWorkflowRun = {
@@ -60,6 +71,7 @@ function runtimeFixture() {
   const approvals: SenaWorkflowApproval[] = [];
   let auditHead: string | undefined;
   let sequence = 0;
+  let leaseRenewals = 0;
 
   function enqueue(kind: SenaWorkflowCommand["kind"], payload: Record<string, unknown>, id: string) {
     const createdAt = `2026-08-28T00:00:${String(commands.length + 1).padStart(2, "0")}.000Z`;
@@ -119,6 +131,13 @@ function runtimeFixture() {
       command.attempts += 1;
       return { ...command };
     },
+    async renewCommandLease(input) {
+      const command = commands.find((candidate) => candidate.id === input.commandId);
+      if (!command || command.status !== "claimed" || command.claimedBy !== input.workerId) return null;
+      leaseRenewals += 1;
+      command.claimExpiresAt = new Date(Date.now() + (input.leaseMs ?? 60_000)).toISOString();
+      return { ...command };
+    },
     async transitionRun(input) {
       if (input.expectedVersion !== run.version) throw new Error("version conflict");
       run = {
@@ -170,6 +189,9 @@ function runtimeFixture() {
     get run() {
       return run;
     },
+    get leaseRenewals() {
+      return leaseRenewals;
+    },
     setRun(patch: Partial<SenaWorkflowRun>) {
       run = { ...run, ...patch };
     }
@@ -219,7 +241,7 @@ describe("SENA durable workflow worker runtime", () => {
       checkpointer,
       nodeExecutor,
       workerId: "workflow-worker-a",
-      workerCodeSha: fixture.run.codeSha,
+      workerBuildAttestation: workerBuildAttestation(fixture.run.codeSha),
       now: () => "2026-08-28T00:01:30.000Z",
       onError: (error) => {
         capturedError = error;
@@ -280,7 +302,7 @@ describe("SENA durable workflow worker runtime", () => {
       checkpointer,
       nodeExecutor,
       workerId: "workflow-worker-b",
-      workerCodeSha: fixture.run.codeSha,
+      workerBuildAttestation: workerBuildAttestation(fixture.run.codeSha),
       now: () => "2026-08-28T00:03:00.000Z"
     });
     const afterRestart = await restartedWorker.runOnce();
@@ -340,7 +362,7 @@ describe("SENA durable workflow worker runtime", () => {
         }
       }),
       workerId: "workflow-worker-terminal-fence",
-      workerCodeSha: fixture.run.codeSha
+      workerBuildAttestation: workerBuildAttestation(fixture.run.codeSha)
     });
 
     const result = await worker.runOnce();
@@ -364,7 +386,7 @@ describe("SENA durable workflow worker runtime", () => {
         }
       }),
       workerId: "workflow-worker-sha-drift",
-      workerCodeSha: "f".repeat(40),
+      workerBuildAttestation: workerBuildAttestation("f".repeat(40)),
       maxAttempts: 1,
       onError(error) { captured = error; }
     });
@@ -372,5 +394,68 @@ describe("SENA durable workflow worker runtime", () => {
     const result = await worker.runOnce();
     expect(result).toMatchObject({ status: "failed", command: { status: "dead_lettered" } });
     expect(String(captured)).toContain("worker build SHA");
+  });
+
+  it("renews the claimed command lease while a long graph node is still executing", async () => {
+    const fixture = runtimeFixture();
+    fixture.enqueue("start", { action: "start" }, "workflow-command-long-running");
+    const operations: SenaWorkflowNodeOperationAdapter = {
+      async materialize(input) {
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        return { outputDigest: senaWorkflowDigest({ nodeId: input.node.id }) };
+      },
+      async ensureServerJob() { throw new Error("unexpected server job"); },
+      async readServerJob() { throw new Error("unexpected server job read"); }
+    };
+    const worker = createSenaWorkflowWorkerRuntime({
+      store: fixture.store,
+      checkpointer: new MemorySaver(),
+      nodeExecutor: createSenaWorkflowGraphNodeExecutor({ store: fixture.store, operations }),
+      workerId: "workflow-worker-command-heartbeat",
+      workerBuildAttestation: workerBuildAttestation(fixture.run.codeSha),
+      leaseMs: 50,
+      leaseHeartbeatMs: 5
+    });
+
+    const result = await worker.runOnce();
+
+    expect(result.status).toBe("processed");
+    expect(fixture.leaseRenewals).toBeGreaterThan(0);
+  });
+
+  it("does not overwrite or crash on a lease lost during failure persistence", async () => {
+    const fixture = runtimeFixture();
+    fixture.enqueue("start", { action: "start" }, "workflow-command-failure-lease-race");
+    const store: SenaWorkflowWorkerStore = {
+      ...fixture.store,
+      async failCommand() {
+        throw new SenaWorkflowStoreError(
+          "lease moved to another worker",
+          409,
+          "workflow_command_lease_conflict"
+        );
+      }
+    };
+    const worker = createSenaWorkflowWorkerRuntime({
+      store,
+      checkpointer: new MemorySaver(),
+      nodeExecutor: createSenaWorkflowGraphNodeExecutor({
+        store,
+        operations: {
+          async materialize() { throw new Error("must not execute with a drifted SHA"); },
+          async ensureServerJob() { throw new Error("must not enqueue with a drifted SHA"); },
+          async readServerJob() { throw new Error("must not read with a drifted SHA"); }
+        }
+      }),
+      workerId: "workflow-worker-failure-lease-race",
+      workerBuildAttestation: workerBuildAttestation("f".repeat(40)),
+      maxAttempts: 1
+    });
+
+    await expect(worker.runOnce()).resolves.toMatchObject({
+      status: "failed",
+      command: { id: "workflow-command-failure-lease-race", status: "claimed" },
+      retryScheduled: false
+    });
   });
 });

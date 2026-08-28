@@ -10,6 +10,7 @@ import { createSenaWorkflowWorkerRuntime } from "../lib/sena/workflow/worker-run
 import { recoverSenaWorkflowJobTerminalCommands } from "../lib/sena/workflow/job-terminal-bridge";
 import { getEnterpriseServerJob } from "../lib/sena/enterprise/server-job-queue";
 import { enforceSenaWorkflowTelemetryPolicy } from "../lib/sena/workflow/telemetry-policy";
+import { resolveSenaWorkflowWorkerBuildAttestation } from "../lib/sena/workflow/worker-code-attestation";
 
 function positiveInteger(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number(value);
@@ -23,16 +24,6 @@ function workerIdentity() {
     throw new Error("SENA_WORKFLOW_WORKER_ID is required for a production workflow worker.");
   }
   return `sena-workflow-worker-local-${process.pid}`;
-}
-
-function workerCodeSha() {
-  const configured = (
-    process.env.SENA_WORKFLOW_WORKER_CODE_SHA ?? process.env.SENA_WORKFLOW_CODE_SHA
-  )?.trim().toLowerCase();
-  if (!configured || !/^[a-f0-9]{40}$/.test(configured)) {
-    throw new Error("SENA_WORKFLOW_WORKER_CODE_SHA (or SENA_WORKFLOW_CODE_SHA) must bind the worker to one exact Git SHA.");
-  }
-  return configured;
 }
 
 function postgresConnectionString() {
@@ -50,7 +41,10 @@ async function main() {
     throw new Error("SENA EvidenceFlow authoritative Postgres is not configured.");
   }
   const workerId = workerIdentity();
-  const codeSha = workerCodeSha();
+  const workerBuildAttestation = resolveSenaWorkflowWorkerBuildAttestation({
+    cwd: process.cwd(),
+    assertedCodeSha: process.env.SENA_WORKFLOW_WORKER_CODE_SHA ?? process.env.SENA_WORKFLOW_CODE_SHA
+  });
   const once = process.env.SENA_WORKFLOW_WORKER_ONCE === "1";
   const idlePollMs = positiveInteger(process.env.SENA_WORKFLOW_WORKER_POLL_MS, 500, 30_000);
   const maxAttempts = positiveInteger(process.env.SENA_WORKFLOW_WORKER_MAX_ATTEMPTS, 5, 20);
@@ -72,7 +66,7 @@ async function main() {
       checkpointer,
       nodeExecutor,
       workerId,
-      workerCodeSha: codeSha,
+      workerBuildAttestation,
       leaseMs,
       maxAttempts,
       onError(error) {

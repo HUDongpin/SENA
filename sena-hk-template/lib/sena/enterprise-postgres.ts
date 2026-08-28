@@ -3773,6 +3773,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     job: SenaEnterpriseServerJob;
     expectedStatus: SenaEnterpriseServerJobStatus;
     expectedWorkerRunId?: string;
+    expectedLeaseExpiresAt?: string;
     requireSourceReady: boolean;
   }) {
     await ensureSchema();
@@ -3788,6 +3789,10 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     if (inputTransition.expectedWorkerRunId) {
       values.push(inputTransition.expectedWorkerRunId);
       clauses.push(`lifecycle->>'workerRunId' = $${values.length}`);
+    }
+    if (inputTransition.expectedLeaseExpiresAt) {
+      values.push(inputTransition.expectedLeaseExpiresAt);
+      clauses.push(`lifecycle->>'leaseExpiresAt' = $${values.length}`);
     }
     if (inputTransition.requireSourceReady) clauses.push(claimableSourceSql);
     const result = await input.query<Record<string, unknown>>(`
@@ -3825,6 +3830,37 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       roundTripJson(inputDelivery.failedLifecycle),
       inputDelivery.updatedAt
     ]);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
+  async function reopenFailedDispatchJob(inputReopen: {
+    job: SenaEnterpriseServerJob;
+    expectedErrorHash?: string;
+  }) {
+    await ensureSchema();
+    const values: unknown[] = [
+      inputReopen.job.id,
+      roundTripJson(inputReopen.job.lifecycle),
+      roundTripJson(inputReopen.job.delivery),
+      inputReopen.job.updatedAt
+    ];
+    const errorHashClause = inputReopen.expectedErrorHash
+      ? ` AND delivery->>'errorHash' = $${values.push(inputReopen.expectedErrorHash)}`
+      : " AND delivery->>'errorHash' IS NULL";
+    const result = await input.query<Record<string, unknown>>(`
+      UPDATE ${tableRef}
+      SET status = 'queued',
+        lifecycle = $2::jsonb,
+        delivery = $3::jsonb,
+        updated_at = $4
+      WHERE id = $1
+        AND status = 'failed'
+        AND delivery->>'webhookStatus' = 'failed'
+        AND delivery->>'failureStage' = 'queue-dispatch'
+        AND COALESCE((lifecycle->>'attempts')::integer, 0) = 0
+        ${errorHashClause}
+      RETURNING *
+    `, values);
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
@@ -3955,6 +3991,33 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
+  async function findExpiredRunningJobs(inputFilters: {
+    kinds: readonly SenaEnterpriseServerJobKind[];
+    teamId?: string;
+    observedAt: string;
+    limit?: number;
+  }) {
+    await ensureSchema();
+    const limit = Math.max(1, Math.min(inputFilters.limit ?? 100, 500));
+    const values: unknown[] = [inputFilters.kinds, inputFilters.observedAt];
+    const teamClause = inputFilters.teamId
+      ? ` AND team_id = $${values.push(inputFilters.teamId)}`
+      : "";
+    values.push(limit);
+    const result = await input.query<Record<string, unknown>>(`
+      SELECT *
+      FROM ${tableRef}
+      WHERE status = 'running'
+        AND kind = ANY($1::text[])
+        AND lifecycle->>'leaseExpiresAt' IS NOT NULL
+        AND (lifecycle->>'leaseExpiresAt')::timestamptz <= $2::timestamptz
+        ${teamClause}
+      ORDER BY (lifecycle->>'leaseExpiresAt')::timestamptz ASC, id ASC
+      LIMIT $${values.length}
+    `, values);
+    return result.rows.map((row) => normalizeStoredServerJob(row));
+  }
+
   async function getJob(jobId: string) {
     await ensureSchema();
     const result = await input.query<Record<string, unknown>>(`
@@ -3973,8 +4036,10 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     claimQueuedJob,
     transitionJobStatus,
     finalizeDelivery,
+    reopenFailedDispatchJob,
     listJobs,
     findOldestClaimableJob,
+    findExpiredRunningJobs,
     getJob
   };
 }

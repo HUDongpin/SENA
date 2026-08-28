@@ -63,16 +63,17 @@ function runFixture(): SenaWorkflowRun {
 }
 
 function inMemoryStore(run: SenaWorkflowRun) {
+  let currentRun = run;
   const receipts: SenaWorkflowStepReceipt[] = [];
   const approvals: SenaWorkflowApproval[] = [];
   const artifacts: SenaWorkflowArtifact[] = [];
   const store: SenaWorkflowNodeStore = {
     async getRun(runId, teamId) {
-      return runId === run.id && (!teamId || teamId === run.teamId) ? run : null;
+      return runId === currentRun.id && (!teamId || teamId === currentRun.teamId) ? currentRun : null;
     },
     async runEvents(runId, teamId): Promise<SenaWorkflowRunEvents> {
-      if (runId !== run.id || teamId !== run.teamId) throw new Error("missing run");
-      return { run, commands: [], receipts: [...receipts], approvals: [...approvals], artifacts: [...artifacts] };
+      if (runId !== currentRun.id || teamId !== currentRun.teamId) throw new Error("missing run");
+      return { run: currentRun, commands: [], receipts: [...receipts], approvals: [...approvals], artifacts: [...artifacts] };
     },
     async appendStepReceipt(draft) {
       const duplicate = receipts.find((receipt) => receipt.effectKey === draft.effectKey);
@@ -89,10 +90,18 @@ function inMemoryStore(run: SenaWorkflowRun) {
     async appendArtifact(artifact) {
       const duplicate = artifacts.find((candidate) => candidate.id === artifact.id);
       if (!duplicate) artifacts.push(artifact);
-      return { created: !duplicate, artifact: duplicate ?? artifact, run };
+      return { created: !duplicate, artifact: duplicate ?? artifact, run: currentRun };
     }
   };
-  return { store, receipts, approvals, artifacts };
+  return {
+    store,
+    receipts,
+    approvals,
+    artifacts,
+    setRun(patch: Partial<SenaWorkflowRun>) {
+      currentRun = { ...currentRun, ...patch };
+    }
+  };
 }
 
 function graphState(run: SenaWorkflowRun) {
@@ -371,6 +380,42 @@ describe("SENA authoritative workflow node executor", () => {
     });
     expect(retried).toMatchObject({ kind: "waiting-job", jobId: "server_job_retryable" });
     expect(retryCalls).toBe(1);
+    expect(memory.receipts).toHaveLength(0);
+  });
+
+  it("rejects late artifacts and receipts when a concurrent fork supersedes the run during materialization", async () => {
+    const run = runFixture();
+    const memory = inMemoryStore(run);
+    const operations: SenaWorkflowNodeOperationAdapter = {
+      async materialize() {
+        memory.setRun({ status: "superseded", supersededByRunId: "workflow-run-forked" });
+        return {
+          outputDigest: "d".repeat(64),
+          artifacts: [{
+            id: "workflow-artifact-late",
+            runId: run.id,
+            nodeId: "bind-source",
+            filename: "late.json",
+            schemaVersion: "sena-workflow-run/v1",
+            sha256: "e".repeat(64),
+            storageReference: "artifact://late",
+            evidenceLayer: "source",
+            createdAt: "2026-08-28T00:00:10.000Z"
+          }]
+        };
+      },
+      async ensureServerJob() { throw new Error("unexpected server job"); },
+      async readServerJob() { throw new Error("unexpected server job read"); }
+    };
+    const executor = createSenaWorkflowGraphNodeExecutor({ store: memory.store, operations });
+
+    await expect(executor.execute({
+      state: graphState(run),
+      node: node("bind-source"),
+      inputDigest: "f".repeat(64),
+      predecessorReceiptHashes: []
+    })).rejects.toThrow("terminal run status superseded");
+    expect(memory.artifacts).toHaveLength(0);
     expect(memory.receipts).toHaveLength(0);
   });
 });

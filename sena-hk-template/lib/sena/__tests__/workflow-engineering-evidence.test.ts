@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { senaWorkflowDigest } from "../workflow/canonical";
 import { engineeringReleaseGraphV1 } from "../workflow/definitions";
 import { createSenaWorkflowServerJobOperationAdapter } from "../workflow/server-job-operations";
@@ -7,9 +7,12 @@ import type { SenaWorkflowRun, SenaWorkflowRunEvents } from "../workflow/types";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import {
   evaluateSenaEngineeringEvidenceNode,
+  runSenaEngineeringVerificationNode,
   parseSenaEngineeringEvidenceParameters,
+  type SenaEngineeringGateReceipt,
   type SenaEngineeringGateName
 } from "../workflow/engineering-evidence";
+import { createSenaEngineeringCommandExecutor } from "../workflow/engineering-runner";
 
 const binding = {
   teamId: "workflow-team-1",
@@ -19,7 +22,10 @@ const binding = {
   workRequestDigest: "3".repeat(64)
 };
 
-function gate(gateName: SenaEngineeringGateName, options: { fixture?: boolean } = {}) {
+function gate(
+  gateName: SenaEngineeringGateName,
+  options: { fixture?: boolean } = {}
+): SenaEngineeringGateReceipt {
   const layer = gateName === "pr-head-ci" || gateName === "post-merge-main-ci"
     ? "ci"
     : gateName === "deployment"
@@ -43,18 +49,18 @@ function gate(gateName: SenaEngineeringGateName, options: { fixture?: boolean } 
     finishedAt: "2026-08-28T00:00:01.000Z",
     fixture: Boolean(options.fixture),
     externalSideEffects: false,
-    artifactReferences: []
+    artifactReferences: [],
+    provenance: {
+      issuer: "sena-workflow-worker",
+      workflowRunId: "workflow_run_engineering_trusted_runner",
+      executionMode: options.fixture ? "fixture-simulation" : "local-command",
+      worktreeBindingDigest: "7".repeat(64)
+    }
   };
 }
 
 function parameters(targetKind: "real-sena-read-only" | "fixture-repository" = "real-sena-read-only") {
   const changedPaths = [".github/workflows/build-gate.yml"];
-  const gateNames: SenaEngineeringGateName[] = [
-    "focused-tests", "typecheck", "lint", "build", "pilot-verify",
-    ...(targetKind === "fixture-repository"
-      ? ["pr-head-ci", "post-merge-main-ci", "deployment", "live-proof", "rollback"] as SenaEngineeringGateName[]
-      : [])
-  ];
   return {
     engineeringEvidence: {
       ownerLane: "A11",
@@ -89,20 +95,82 @@ function parameters(targetKind: "real-sena-read-only" | "fixture-repository" = "
         ownerLane: "A11",
         changedPaths,
         changedPathDigest: senaWorkflowDigest({ changedPaths })
-      },
-      gateReceipts: gateNames.map((name) => gate(name, { fixture: targetKind === "fixture-repository" }))
+      }
     }
   };
 }
 
 describe("SENA engineering shadow evidence", () => {
+  it("does not expose worker provider secrets to candidate verification commands", async () => {
+    vi.stubEnv("SENA_ENGINEERING_FORBIDDEN_SECRET", "must-not-reach-candidate");
+    try {
+      const evidence = parseSenaEngineeringEvidenceParameters(parameters("fixture-repository"), binding);
+      const execute = await createSenaEngineeringCommandExecutor({ evidence, binding });
+      const result = await execute({
+        gate: "focused-tests",
+        commandId: "sena-secret-redaction-probe-v1",
+        executable: "node",
+        args: [
+          "--eval",
+          "process.exit(process.env.SENA_ENGINEERING_FORBIDDEN_SECRET ? 91 : 0)"
+        ],
+        fixture: true
+      });
+      expect(result.exitCode).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("rejects caller-authored gate claims and mints gate receipts only from the workflow worker runner", async () => {
+    const untrusted = parameters();
+    (untrusted.engineeringEvidence as Record<string, unknown>).gateReceipts = [gate("focused-tests")];
+    expect(() => parseSenaEngineeringEvidenceParameters(untrusted, binding)).toThrow(/unsupported fields/i);
+
+    delete (untrusted.engineeringEvidence as { gateReceipts?: unknown }).gateReceipts;
+    const parsed = parseSenaEngineeringEvidenceParameters(untrusted, binding);
+    const executed = await runSenaEngineeringVerificationNode({
+      nodeId: "focused-gates",
+      runId: "workflow_run_engineering_trusted_runner",
+      evidence: parsed,
+      binding,
+      executeCommand: async (command) => ({
+        exitCode: 0,
+        startedAt: "2026-08-28T00:00:00.000Z",
+        finishedAt: "2026-08-28T00:00:01.000Z",
+        logSummaryDigest: senaWorkflowDigest({ command, output: "redacted-pass" })
+      })
+    });
+
+    expect(executed.receipts).toEqual([
+      expect.objectContaining({
+        gate: "focused-tests",
+        status: "passed",
+        candidateSha: binding.candidateSha,
+        provenance: expect.objectContaining({
+          issuer: "sena-workflow-worker",
+          workflowRunId: "workflow_run_engineering_trusted_runner"
+        })
+      })
+    ]);
+    expect(evaluateSenaEngineeringEvidenceNode(
+      "focused-gates",
+      parsed,
+      binding,
+      executed.receipts
+    ).receiptDigests).toHaveLength(1);
+  });
+
   it("binds the immutable work order, candidate, and exact-SHA local gates", () => {
     const parsed = parseSenaEngineeringEvidenceParameters(parameters(), binding);
+    const trusted = [
+      gate("focused-tests"), gate("typecheck"), gate("lint"), gate("build"), gate("pilot-verify")
+    ];
     const workOrder = evaluateSenaEngineeringEvidenceNode("immutable-work-order", parsed, binding);
     const preflight = evaluateSenaEngineeringEvidenceNode("repository-preflight", parsed, binding);
     const candidate = evaluateSenaEngineeringEvidenceNode("candidate-sha-intake", parsed, binding);
-    const focused = evaluateSenaEngineeringEvidenceNode("focused-gates", parsed, binding);
-    const local = evaluateSenaEngineeringEvidenceNode("full-local-gate", parsed, binding);
+    const focused = evaluateSenaEngineeringEvidenceNode("focused-gates", parsed, binding, trusted);
+    const local = evaluateSenaEngineeringEvidenceNode("full-local-gate", parsed, binding, trusted);
     const shadow = evaluateSenaEngineeringEvidenceNode("shadow-release-model", parsed, binding);
 
     expect(workOrder.document).toMatchObject({
@@ -145,18 +213,27 @@ describe("SENA engineering shadow evidence", () => {
     expect(() => parseSenaEngineeringEvidenceParameters(frozen, binding)).toThrow(/preflight/i);
 
     const fixture = parseSenaEngineeringEvidenceParameters(parameters("fixture-repository"), binding);
-    expect(evaluateSenaEngineeringEvidenceNode("shadow-release-model", fixture, binding).evidenceLayers).toEqual({
+    const fixtureReleaseReceipts = ([
+      "pr-head-ci", "post-merge-main-ci", "deployment", "live-proof", "rollback"
+    ] as SenaEngineeringGateName[]).map((name) => gate(name, { fixture: true }));
+    expect(evaluateSenaEngineeringEvidenceNode(
+      "shadow-release-model",
+      fixture,
+      binding,
+      fixtureReleaseReceipts
+    ).evidenceLayers).toEqual({
       ci: "passed",
       merged: "not-run",
       deployed: "not-run",
       live: "not-run"
     });
 
-    const missingLive = parameters("fixture-repository");
-    missingLive.engineeringEvidence.gateReceipts = missingLive.engineeringEvidence.gateReceipts.filter(
-      (receipt) => receipt.gate !== "live-proof"
-    );
-    expect(() => parseSenaEngineeringEvidenceParameters(missingLive, binding)).toThrow(/live-proof/);
+    expect(() => evaluateSenaEngineeringEvidenceNode(
+      "shadow-release-model",
+      fixture,
+      binding,
+      fixtureReleaseReceipts.filter((receipt) => receipt.gate !== "live-proof")
+    )).toThrow(/live-proof/);
   });
 
   it("materializes content-addressed work-order and gate receipt references without side effects", async () => {
@@ -224,7 +301,15 @@ describe("SENA engineering shadow evidence", () => {
       async appendStepReceipt() { throw new Error("not used"); },
       async appendArtifact() { throw new Error("not used"); }
     } as unknown as SenaWorkflowNodeStore;
-    const adapter = createSenaWorkflowServerJobOperationAdapter({ store });
+    const adapter = createSenaWorkflowServerJobOperationAdapter({
+      store,
+      engineeringCommandExecutorFactory: async () => async (command) => ({
+        exitCode: 0,
+        startedAt: "2026-08-28T00:00:00.000Z",
+        finishedAt: "2026-08-28T00:00:01.000Z",
+        logSummaryDigest: senaWorkflowDigest({ command, output: "redacted-pass" })
+      })
+    });
     const node = engineeringReleaseGraphV1.nodes.find((candidate) => candidate.id === "immutable-work-order")!;
     const workOrder = await adapter.materialize({
       run,

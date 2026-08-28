@@ -14,7 +14,7 @@ export type SenaEngineeringGateName =
   | "live-proof"
   | "rollback";
 
-type SenaEngineeringTargetKind = "real-sena-read-only" | "fixture-repository";
+export type SenaEngineeringTargetKind = "real-sena-read-only" | "fixture-repository";
 type SenaEngineeringEvidenceLayer = "local" | "ci" | "merged" | "deployed" | "live";
 
 export type SenaEngineeringGateReceipt = {
@@ -32,6 +32,12 @@ export type SenaEngineeringGateReceipt = {
   fixture: boolean;
   externalSideEffects: false;
   artifactReferences: string[];
+  provenance: {
+    issuer: "sena-workflow-worker";
+    workflowRunId: string;
+    executionMode: "local-command" | "fixture-simulation";
+    worktreeBindingDigest: string;
+  };
 };
 
 export type SenaEngineeringEvidenceParameters = {
@@ -65,7 +71,6 @@ export type SenaEngineeringEvidenceParameters = {
     changedPaths: string[];
     changedPathDigest: string;
   };
-  gateReceipts: SenaEngineeringGateReceipt[];
 };
 
 export type SenaEngineeringRunBinding = {
@@ -128,16 +133,23 @@ function canonicalUniquePaths(value: unknown, label: string) {
   return [...paths].sort();
 }
 
-function parseGateReceipt(value: unknown, binding: SenaEngineeringRunBinding, targetKind: SenaEngineeringTargetKind) {
+function parseGateReceipt(
+  value: unknown,
+  binding: SenaEngineeringRunBinding,
+  targetKind: SenaEngineeringTargetKind,
+  workflowRunId?: string
+) {
   const receipt = record(value, "gate receipt");
   exact(receipt, [
     "schemaVersion", "gate", "evidenceLayer", "status", "candidateSha", "commandDigest",
     "environmentDigest", "logSummaryDigest", "exitCode", "startedAt", "finishedAt", "fixture",
-    "externalSideEffects", "artifactReferences"
+    "externalSideEffects", "artifactReferences", "provenance"
   ], "gate receipt");
   const gate = receipt.gate as SenaEngineeringGateName;
   const startedAt = typeof receipt.startedAt === "string" ? Date.parse(receipt.startedAt) : Number.NaN;
   const finishedAt = typeof receipt.finishedAt === "string" ? Date.parse(receipt.finishedAt) : Number.NaN;
+  const provenance = record(receipt.provenance, "gate receipt provenance");
+  exact(provenance, ["issuer", "workflowRunId", "executionMode", "worktreeBindingDigest"], "gate receipt provenance");
   if (
     receipt.schemaVersion !== SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt ||
     !GATE_NAMES.has(gate) || receipt.evidenceLayer !== EXPECTED_LAYER[gate] ||
@@ -149,6 +161,12 @@ function parseGateReceipt(value: unknown, binding: SenaEngineeringRunBinding, ta
     !Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt ||
     receipt.fixture !== (targetKind === "fixture-repository") ||
     receipt.externalSideEffects !== false ||
+    provenance.issuer !== "sena-workflow-worker" ||
+    typeof provenance.workflowRunId !== "string" || !provenance.workflowRunId ||
+    (workflowRunId !== undefined && provenance.workflowRunId !== workflowRunId) ||
+    !["local-command", "fixture-simulation"].includes(String(provenance.executionMode)) ||
+    provenance.executionMode !== (targetKind === "fixture-repository" ? "fixture-simulation" : "local-command") ||
+    typeof provenance.worktreeBindingDigest !== "string" || !SHA256.test(provenance.worktreeBindingDigest) ||
     !Array.isArray(receipt.artifactReferences) ||
     !receipt.artifactReferences.every((entry) => typeof entry === "string" && SAFE_REFERENCE.test(entry)) ||
     (receipt.status === "passed" && receipt.exitCode !== 0) ||
@@ -170,7 +188,7 @@ export function parseSenaEngineeringEvidenceParameters(
   const evidence = record(parameters.engineeringEvidence, "evidence parameters");
   exact(evidence, [
     "ownerLane", "branch", "worktreePathHash", "allowedPaths", "targetKind",
-    "repositoryPreflight", "candidateReceipt", "gateReceipts"
+    "repositoryPreflight", "candidateReceipt"
   ], "evidence parameters");
   const ownerLane = evidence.ownerLane;
   const branch = evidence.branch;
@@ -222,21 +240,6 @@ export function parseSenaEngineeringEvidenceParameters(
   if (changedPaths.some((path) => !allowedPaths.includes(path))) {
     throw new Error("SENA engineering candidate changed a path outside its allowed path scope.");
   }
-  if (!Array.isArray(evidence.gateReceipts) || evidence.gateReceipts.length > GATE_NAMES.size) {
-    throw new Error("SENA engineering gate receipts are invalid.");
-  }
-  const gateReceipts = evidence.gateReceipts.map((receipt) => parseGateReceipt(receipt, binding, targetKind));
-  if (new Set(gateReceipts.map((receipt) => receipt.gate)).size !== gateReceipts.length) {
-    throw new Error("SENA engineering gate receipts contain duplicate gates.");
-  }
-  const requiredGates: SenaEngineeringGateName[] = [
-    "focused-tests", "typecheck", "lint", "build", "pilot-verify",
-    ...(targetKind === "fixture-repository"
-      ? ["pr-head-ci", "post-merge-main-ci", "deployment", "live-proof", "rollback"] as SenaEngineeringGateName[]
-      : [])
-  ];
-  const missingGate = requiredGates.find((gate) => !gateReceipts.some((receipt) => receipt.gate === gate));
-  if (missingGate) throw new Error(`SENA engineering ${missingGate} receipt is missing.`);
   return {
     ownerLane,
     branch,
@@ -253,24 +256,155 @@ export function parseSenaEngineeringEvidenceParameters(
       ownerLane,
       changedPaths,
       changedPathDigest: candidate.changedPathDigest
-    },
-    gateReceipts
+    }
   };
 }
 
-function requirePassedReceipts(evidence: SenaEngineeringEvidenceParameters, names: SenaEngineeringGateName[]) {
+function requirePassedReceipts(
+  receipts: SenaEngineeringGateReceipt[],
+  evidence: SenaEngineeringEvidenceParameters,
+  binding: SenaEngineeringRunBinding,
+  names: SenaEngineeringGateName[]
+) {
+  const parsed = receipts.map((receipt) => parseGateReceipt(
+    receipt,
+    binding,
+    evidence.targetKind,
+    receipt.provenance.workflowRunId
+  ));
+  if (new Set(parsed.map((receipt) => receipt.gate)).size !== parsed.length) {
+    throw new Error("SENA engineering worker gate receipts contain duplicates.");
+  }
   return names.map((gate) => {
-    const receipt = evidence.gateReceipts.find((candidate) => candidate.gate === gate);
+    const receipt = parsed.find((candidate) => candidate.gate === gate);
     if (!receipt) throw new Error(`SENA engineering ${gate} receipt is missing.`);
     if (receipt.status !== "passed") throw new Error(`SENA engineering ${gate} gate did not pass.`);
     return receipt;
   });
 }
 
+export type SenaEngineeringCommandSpec = {
+  gate: SenaEngineeringGateName;
+  commandId: string;
+  executable: string;
+  args: string[];
+  fixture: boolean;
+};
+
+export type SenaEngineeringCommandResult = {
+  exitCode: number;
+  startedAt: string;
+  finishedAt: string;
+  logSummaryDigest: string;
+};
+
+export type SenaEngineeringCommandExecutor = (
+  command: SenaEngineeringCommandSpec
+) => Promise<SenaEngineeringCommandResult>;
+
+const realCommandPlan: Record<Extract<SenaEngineeringGateName,
+  "focused-tests" | "typecheck" | "lint" | "build" | "pilot-verify">, Omit<SenaEngineeringCommandSpec, "gate" | "fixture">> = {
+  "focused-tests": { commandId: "sena-focused-tests-v1", executable: "npm", args: ["test"] },
+  typecheck: { commandId: "sena-typecheck-v1", executable: "npx", args: ["tsc", "--noEmit"] },
+  lint: { commandId: "sena-lint-v1", executable: "npm", args: ["run", "lint"] },
+  build: { commandId: "sena-build-v1", executable: "npm", args: ["run", "build"] },
+  "pilot-verify": { commandId: "sena-pilot-verify-v1", executable: "npm", args: ["run", "sena:pilot:verify"] }
+};
+
+function verificationGates(nodeId: string, targetKind: SenaEngineeringTargetKind): SenaEngineeringGateName[] {
+  if (nodeId === "focused-gates") return ["focused-tests"];
+  if (nodeId === "full-local-gate") return ["typecheck", "lint", "build", "pilot-verify"];
+  if (nodeId === "shadow-release-model" && targetKind === "fixture-repository") {
+    return ["pr-head-ci", "post-merge-main-ci", "deployment", "live-proof", "rollback"];
+  }
+  return [];
+}
+
+function commandForGate(gate: SenaEngineeringGateName, fixture: boolean): SenaEngineeringCommandSpec {
+  if (!fixture && gate in realCommandPlan) {
+    const command = realCommandPlan[gate as keyof typeof realCommandPlan];
+    return { gate, ...command, fixture: false };
+  }
+  return {
+    gate,
+    commandId: `sena-shadow-fixture-${gate}-v1`,
+    executable: "node",
+    args: ["--eval", `if (${JSON.stringify(gate)}.length < 1) process.exit(1)`],
+    fixture: true
+  };
+}
+
+export async function runSenaEngineeringVerificationNode(input: {
+  nodeId: string;
+  runId: string;
+  evidence: SenaEngineeringEvidenceParameters;
+  binding: SenaEngineeringRunBinding;
+  executeCommand: SenaEngineeringCommandExecutor;
+}) {
+  const fixture = input.evidence.targetKind === "fixture-repository";
+  const worktreeBindingDigest = senaWorkflowDigest({
+    repo: input.binding.repo,
+    baseSha: input.binding.baseSha,
+    candidateSha: input.binding.candidateSha,
+    worktreePathHash: input.evidence.worktreePathHash,
+    targetKind: input.evidence.targetKind
+  });
+  const environmentDigest = senaWorkflowDigest({
+    runtime: globalThis.process.version,
+    platform: globalThis.process.platform,
+    architecture: globalThis.process.arch,
+    worktreeBindingDigest
+  });
+  const receipts: SenaEngineeringGateReceipt[] = [];
+  for (const gate of verificationGates(input.nodeId, input.evidence.targetKind)) {
+    const command = commandForGate(gate, fixture);
+    let result: SenaEngineeringCommandResult;
+    try {
+      result = await input.executeCommand(command);
+    } catch (error) {
+      const timestamp = new Date().toISOString();
+      result = {
+        exitCode: 1,
+        startedAt: timestamp,
+        finishedAt: timestamp,
+        logSummaryDigest: senaWorkflowDigest({
+          commandId: command.commandId,
+          errorClass: error instanceof Error ? error.name : "unknown"
+        })
+      };
+    }
+    const receipt: SenaEngineeringGateReceipt = {
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt,
+      gate,
+      evidenceLayer: EXPECTED_LAYER[gate],
+      status: result.exitCode === 0 ? "passed" : "failed",
+      candidateSha: input.binding.candidateSha,
+      commandDigest: senaWorkflowDigest(command),
+      environmentDigest,
+      logSummaryDigest: result.logSummaryDigest,
+      exitCode: result.exitCode,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      fixture,
+      externalSideEffects: false,
+      artifactReferences: [],
+      provenance: {
+        issuer: "sena-workflow-worker",
+        workflowRunId: input.runId,
+        executionMode: fixture ? "fixture-simulation" : "local-command",
+        worktreeBindingDigest
+      }
+    };
+    receipts.push(parseGateReceipt(receipt, input.binding, input.evidence.targetKind, input.runId));
+  }
+  return { receipts, worktreeBindingDigest, environmentDigest };
+}
+
 export function evaluateSenaEngineeringEvidenceNode(
   nodeId: string,
   evidence: SenaEngineeringEvidenceParameters,
-  binding: SenaEngineeringRunBinding
+  binding: SenaEngineeringRunBinding,
+  trustedGateReceipts: SenaEngineeringGateReceipt[] = []
 ) {
   const workOrder = {
     schemaVersion: SENA_SCHEMA_VERSIONS.workflowEngineeringWorkOrder,
@@ -306,14 +440,19 @@ export function evaluateSenaEngineeringEvidenceNode(
     filename = "sena-engineering-candidate-receipt.json";
     schemaVersion = SENA_SCHEMA_VERSIONS.workflowEngineeringCandidateReceipt;
   } else if (nodeId === "focused-gates") {
-    receipts = requirePassedReceipts(evidence, ["focused-tests"]);
+    receipts = requirePassedReceipts(trustedGateReceipts, evidence, binding, ["focused-tests"]);
     receiptDigests = receipts.map(senaWorkflowDigest);
   } else if (nodeId === "full-local-gate") {
-    receipts = requirePassedReceipts(evidence, ["typecheck", "lint", "build", "pilot-verify"]);
+    receipts = requirePassedReceipts(
+      trustedGateReceipts,
+      evidence,
+      binding,
+      ["typecheck", "lint", "build", "pilot-verify"]
+    );
     receiptDigests = receipts.map(senaWorkflowDigest);
   } else if (nodeId === "shadow-release-model") {
     if (evidence.targetKind === "fixture-repository") {
-      receipts = requirePassedReceipts(evidence, [
+      receipts = requirePassedReceipts(trustedGateReceipts, evidence, binding, [
         "pr-head-ci", "post-merge-main-ci", "deployment", "live-proof", "rollback"
       ]);
       receiptDigests = receipts.map(senaWorkflowDigest);

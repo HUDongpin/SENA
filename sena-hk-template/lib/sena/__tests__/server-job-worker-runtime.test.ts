@@ -2539,4 +2539,61 @@ describe("SENA in-repo server job worker runtime", () => {
       vi.doUnmock("@/lib/sena/analysis-run");
     }
   }, 30_000);
+
+  it("reclaims an expired running-job lease so a crash cannot strand EvidenceFlow forever", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const claimed = await fixture.queue.claimEnterpriseServerJob({
+      jobId: job.id,
+      workerRunId: "worker_run_crashed_before_terminal_callback"
+    });
+    expect(claimed.claimed).toBe(true);
+    if (!claimed.claimed) throw new Error("expected running job claim");
+    expect(claimed.job.lifecycle.leaseExpiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    const recovery = await fixture.queue.recoverExpiredEnterpriseServerJobs({
+      kinds: ["analysis"],
+      observedAt: new Date(Date.parse(claimed.job.lifecycle.leaseExpiresAt!) + 1).toISOString(),
+      limit: 10
+    });
+
+    expect(recovery).toMatchObject({ inspected: 1, requeued: 1, deadLettered: 0 });
+    const recovered = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(recovered).toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({
+        attempts: 1,
+        statusReason: "server-job-worker-lease-expired-requeued"
+      })
+    }));
+    expect(recovered.lifecycle.workerRunId).toBeUndefined();
+    expect(recovered.lifecycle.leaseExpiresAt).toBeUndefined();
+  });
 });

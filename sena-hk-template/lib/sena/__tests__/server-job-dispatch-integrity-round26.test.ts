@@ -463,6 +463,40 @@ describe("SENA server-job dispatch integrity round 26", () => {
     });
   });
 
+  it("redispatches the same deterministic job after a queue-dispatch failure instead of returning a false 202 replay", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-dispatch-replay-"));
+    cleanupDirs.push(dbDir);
+    configureManagedQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const jobId = `server_job_${"f".repeat(24)}`;
+    let sourceWrites = 0;
+    let dispatches = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      dispatches += 1;
+      return new Response(dispatches === 1 ? "unavailable" : "accepted", {
+        status: dispatches === 1 ? 503 : 202
+      });
+    }));
+    const input = {
+      ...queueInput(),
+      jobId,
+      beforeDispatch: async () => { sourceWrites += 1; }
+    };
+
+    await expect(queue.enqueueEnterpriseServerJob(input)).rejects.toMatchObject({
+      code: "server_job_queue_dispatch_failed"
+    });
+    const replayed = await queue.enqueueEnterpriseServerJob(input);
+
+    expect(replayed).toEqual(expect.objectContaining({
+      id: jobId,
+      status: "queued",
+      delivery: expect.objectContaining({ webhookStatus: "delivered", httpStatus: 202 })
+    }));
+    expect(dispatches).toBe(2);
+    expect(sourceWrites).toBe(1);
+  });
+
   it("keeps a first managed worker failure non-retryable without falsely dead-lettering it", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-managed-first-failure-"));
     cleanupDirs.push(dbDir);

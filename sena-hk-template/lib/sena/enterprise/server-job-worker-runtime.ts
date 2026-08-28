@@ -76,8 +76,11 @@ import {
   findOldestClaimableEnterpriseServerJob,
   getEnterpriseServerJob,
   listEnterpriseServerJobs,
+  recoverExpiredEnterpriseServerJobs,
+  renewEnterpriseServerJobLease,
   rejectEnterpriseServerJobBeforeClaim,
   requiredWorkerRunId,
+  senaEnterpriseServerJobExecutionLeaseMs,
   stableServerJobPayloadSha256,
   updateEnterpriseServerJobStatus,
   type SenaEnterpriseServerJob,
@@ -188,6 +191,11 @@ export type SenaServerJobWorkerDrainReport = {
   succeeded: number;
   failed: number;
   skipped: number;
+  leaseRecovery: {
+    inspected: number;
+    requeued: number;
+    deadLettered: number;
+  };
   outcomes: SenaServerJobWorkerOutcome[];
 };
 
@@ -200,6 +208,40 @@ export type SenaServerJobWorkerDrainReport = {
  * add atomic. Across processes the claim below adds a store-level check.
  */
 const inFlightServerJobIds = new Set<string>();
+
+function startServerJobLeaseHeartbeat(jobId: string, workerRunId: string) {
+  const leaseMs = senaEnterpriseServerJobExecutionLeaseMs();
+  const intervalMs = Math.max(1_000, Math.floor(leaseMs / 3));
+  let stopped = false;
+  let renewing = false;
+  let leaseError: unknown;
+  const renew = async () => {
+    if (stopped || renewing || leaseError) return;
+    renewing = true;
+    try {
+      await renewEnterpriseServerJobLease({ jobId, workerRunId, leaseMs });
+    } catch (error) {
+      leaseError = error;
+    } finally {
+      renewing = false;
+    }
+  };
+  const timer = setInterval(() => { void renew(); }, intervalMs);
+  timer.unref?.();
+  return {
+    async assertOwned() {
+      await renew();
+      if (leaseError) throw leaseError;
+    },
+    get lost() {
+      return Boolean(leaseError);
+    },
+    stop() {
+      stopped = true;
+      clearInterval(timer);
+    }
+  };
+}
 
 function workerRunId() {
   return `worker_run_${randomBytes(12).toString("hex")}`;
@@ -1494,6 +1536,7 @@ export async function runEnterpriseServerJob(input: {
 
     const claim = await claimServerJob(candidate.id, runId);
     if (!claim.claimed) return skipped(claim.job, claim.reason);
+    const leaseHeartbeat = startServerJobLeaseHeartbeat(claim.job.id, runId);
 
     try {
       const result = await executeByKind(claim.job, payload, {
@@ -1502,6 +1545,7 @@ export async function runEnterpriseServerJob(input: {
         validationAdmission,
         publicationAdmission
       });
+      await leaseHeartbeat.assertOwned();
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-succeeded",
@@ -1520,6 +1564,12 @@ export async function runEnterpriseServerJob(input: {
         result
       };
     } catch (error) {
+      if (leaseHeartbeat.lost) {
+        return skipped(
+          await getEnterpriseServerJob(job.id),
+          "server_job_worker_execution_lease_lost"
+        );
+      }
       // A worker that silently drops a job is worse than no worker: every
       // execution failure is written back as a failure with its code and a
       // hash of the message (the message itself may quote user data).
@@ -1547,6 +1597,8 @@ export async function runEnterpriseServerJob(input: {
         errorHash,
         issues
       };
+    } finally {
+      leaseHeartbeat.stop();
     }
   } finally {
     inFlightServerJobIds.delete(job.id);
@@ -1689,6 +1741,13 @@ export async function drainEnterpriseServerJobQueue(input: {
       : isExecutableKind(input.kind)
         ? [input.kind]
         : [];
+    const leaseRecovery = executableKinds.length > 0
+      ? await recoverExpiredEnterpriseServerJobs({
+          kinds: executableKinds,
+          teamId: input.teamId,
+          limit
+        })
+      : { inspected: 0, requeued: 0, deadLettered: 0, jobs: [] };
     const [queued, executable] = await Promise.all([
       listEnterpriseServerJobs({
         status: "queued",
@@ -1760,6 +1819,11 @@ export async function drainEnterpriseServerJobQueue(input: {
       succeeded: outcomes.filter((outcome) => outcome.status === "succeeded").length,
       failed: outcomes.filter((outcome) => outcome.status === "failed").length,
       skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
+      leaseRecovery: {
+        inspected: leaseRecovery.inspected,
+        requeued: leaseRecovery.requeued,
+        deadLettered: leaseRecovery.deadLettered
+      },
       outcomes
     };
   });

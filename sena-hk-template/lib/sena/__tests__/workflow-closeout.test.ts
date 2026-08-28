@@ -5,6 +5,7 @@ import {
   auditSenaWorkflowCloseoutInput,
   buildSenaWorkflowCloseout,
   senaWorkflowCloseoutCommitment,
+  senaWorkflowCloseoutGeneratedAt,
   SenaWorkflowCloseoutError
 } from "../workflow/closeout";
 import { researchEvidenceGraphV1 } from "../workflow/definitions";
@@ -137,13 +138,30 @@ function fixture() {
     receiptHeads.set(manifest.id, receipt.auditChainHead);
   }
 
-  const commitment = senaWorkflowCloseoutCommitment({ run, commands: [], receipts, approvals, artifacts });
+  const command: SenaWorkflowCommand = {
+    id: "command_start_1",
+    runId: run.id,
+    kind: "start",
+    expectedVersion: 1,
+    idempotencyKey: "closeout-start-key",
+    payloadDigest: run.startPayloadDigest,
+    payload: { sourceBindingDigest: run.sourceBindingDigest },
+    status: "completed",
+    attempts: 1,
+    availableAt: run.createdAt,
+    claimedBy: "workflow-worker-private-id",
+    claimedAt: "2026-08-28T00:00:00.500Z",
+    completedAt: "2026-08-28T00:00:00.900Z",
+    createdAt: run.createdAt,
+    updatedAt: "2026-08-28T00:00:00.900Z"
+  };
+  const commitment = senaWorkflowCloseoutCommitment({ run, commands: [command], receipts, approvals, artifacts });
   const commitmentArtifact: SenaWorkflowArtifact = {
     id: "artifact_closeout_commitment",
     runId: run.id,
     nodeId: "evidence-closeout",
-    filename: "sena-workflow-closeout.json",
-    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+    filename: "sena-workflow-closeout-commitment.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment,
     sha256: commitment,
     storageReference: `workflow-closeout:${run.id}#commitment-v1`,
     evidenceLayer: "local",
@@ -185,23 +203,6 @@ function fixture() {
   run.auditChainHead = finalReceipt.auditChainHead;
   run.receiptSequence = receipts.length;
 
-  const command: SenaWorkflowCommand = {
-    id: "command_start_1",
-    runId: run.id,
-    kind: "start",
-    expectedVersion: 1,
-    idempotencyKey: "closeout-start-key",
-    payloadDigest: run.startPayloadDigest,
-    payload: { sourceBindingDigest: run.sourceBindingDigest },
-    status: "completed",
-    attempts: 1,
-    availableAt: run.createdAt,
-    claimedBy: "workflow-worker-private-id",
-    claimedAt: "2026-08-28T00:00:00.500Z",
-    completedAt: "2026-08-28T00:00:00.900Z",
-    createdAt: run.createdAt,
-    updatedAt: "2026-08-28T00:00:00.900Z"
-  };
   return { run, commands: [command], receipts, approvals, artifacts };
 }
 
@@ -221,6 +222,8 @@ describe("SENA EvidenceFlow closeout", () => {
     });
     expect(closeout.run.createdByUserIdHash).toBe(senaWorkflowDigest(events.run.createdByUserId));
     expect(closeout.run).not.toHaveProperty("createdByUserId");
+    expect(closeout.run).not.toHaveProperty("startIdempotencyKey");
+    expect(closeout.run.startIdempotencyKeyHash).toBe(senaWorkflowDigest(events.run.startIdempotencyKey));
     expect(closeout.commandHistory[0]).not.toHaveProperty("payload");
     expect(closeout.commandHistory[0]).not.toHaveProperty("claimedBy");
     expect(closeout.commandHistory[0].workerIdHash).toBe(senaWorkflowDigest("workflow-worker-private-id"));
@@ -243,6 +246,47 @@ describe("SENA EvidenceFlow closeout", () => {
     });
     expect(closeout.closeoutCommitment?.receiptOutputDigest).toBe(closeout.closeoutCommitment?.artifactSha256);
     expect(buildSenaWorkflowCloseout({ ...events, generatedAt })).toEqual(closeout);
+  });
+
+  it("invalidates the on-graph commitment when retry, error, actor, or evidence metadata changes", () => {
+    const events = fixture();
+    const originalCommitment = events.receipts.at(-1)!.outputDigest;
+    expect(senaWorkflowCloseoutCommitment(events)).toBe(originalCommitment);
+    events.commands[0] = {
+      ...events.commands[0],
+      attempts: 2,
+      errorClass: "workflow-worker-timeout",
+      errorHash: "9".repeat(64)
+    };
+
+    expect(senaWorkflowCloseoutCommitment(events)).not.toBe(originalCommitment);
+    expect(auditSenaWorkflowCloseoutInput(events).issueCodes).toContain(
+      "succeeded-closeout-commitment-mismatch"
+    );
+  });
+
+  it("anchors generatedAt to the final closeout receipt instead of mutable run metadata", () => {
+    const events = fixture();
+    const finalFinishedAt = events.receipts.at(-1)!.finishedAt;
+    events.run.updatedAt = "2026-08-29T23:59:59.000Z";
+    expect(senaWorkflowCloseoutGeneratedAt(events)).toBe(finalFinishedAt);
+  });
+
+  it("preserves a crashed attempt commitment while selecting the final matching closeout seal", () => {
+    const events = fixture();
+    const staleCommitment: SenaWorkflowArtifact = {
+      ...events.artifacts.at(-1)!,
+      id: "artifact_closeout_commitment_stale_attempt",
+      sha256: "9".repeat(64),
+      createdAt: "2026-08-28T01:02:02.000Z"
+    };
+    events.artifacts.unshift(staleCommitment);
+    events.run.artifactReferences.push(staleCommitment.id);
+
+    expect(auditSenaWorkflowCloseoutInput(events)).toMatchObject({ status: "verified", issueCodes: [] });
+    expect(buildSenaWorkflowCloseout({ ...events, generatedAt }).closeoutCommitment).toMatchObject({
+      artifactSha256: events.receipts.at(-1)!.outputDigest
+    });
   });
 
   it("rejects an incomplete succeeded graph even when its remaining receipt chain is internally valid", () => {

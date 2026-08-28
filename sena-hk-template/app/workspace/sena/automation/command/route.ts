@@ -11,7 +11,7 @@ import {
   performSenaWorkflowAction,
   withSenaWorkflowStore
 } from "@/lib/sena/workflow/api-runtime";
-import { senaWorkflowCheckpointExists } from "@/lib/sena/workflow/postgres-runtime";
+import { senaWorkflowCheckpointBinding } from "@/lib/sena/workflow/postgres-runtime";
 
 export const runtime = "nodejs";
 const maxFormBytes = 64 * 1024;
@@ -206,7 +206,7 @@ export async function POST(request: Request) {
       body,
       idempotencyKey,
       store,
-      validateCheckpoint: senaWorkflowCheckpointExists
+      validateCheckpoint: senaWorkflowCheckpointBinding
     }));
     return redirect({ teamId, runId: result.run.id, notice: "action" });
   } catch (error) {

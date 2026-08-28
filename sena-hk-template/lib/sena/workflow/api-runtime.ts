@@ -20,7 +20,8 @@ import { senaWorkflowDefinition } from "./definitions";
 import { parseSenaEngineeringEvidenceParameters } from "./engineering-evidence";
 import {
   createSenaWorkflowPostgresStoreFromEnv,
-  senaWorkflowPostgresRuntimeStatus
+  senaWorkflowPostgresRuntimeStatus,
+  type SenaWorkflowCheckpointBinding
 } from "./postgres-runtime";
 import {
   SenaWorkflowStoreError,
@@ -643,7 +644,10 @@ export async function performSenaWorkflowAction(input: {
   now?: string;
   codeSha?: string;
   resolveCurrentResearchRevision?: typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync;
-  validateCheckpoint?: (input: { runId: string; checkpointId: string }) => Promise<boolean>;
+  validateCheckpoint?: (input: {
+    runId: string;
+    checkpointId: string;
+  }) => Promise<SenaWorkflowCheckpointBinding | null>;
 }) {
   if (!SAFE_ID.test(input.runId) || !SAFE_ID.test(input.idempotencyKey)) {
     throw new SenaEnterpriseError("SENA workflow action identity is invalid.", 422, "workflow_action_invalid");
@@ -883,6 +887,13 @@ export async function performSenaWorkflowAction(input: {
     );
   }
   requireActionPermission(input.context, run);
+  if (!run.pendingInterrupt?.checkpointId || run.pendingInterrupt.checkpointId !== checkpointId) {
+    throw new SenaEnterpriseError(
+      "SENA workflow fork must bind the current authoritative interrupt checkpoint.",
+      409,
+      "workflow_checkpoint_not_current"
+    );
+  }
   if (!input.validateCheckpoint) {
     throw new SenaEnterpriseError(
       "SENA workflow fork checkpoint verification is unavailable.",
@@ -890,9 +901,9 @@ export async function performSenaWorkflowAction(input: {
       "workflow_checkpoint_verification_unavailable"
     );
   }
-  let checkpointExists = false;
+  let checkpointBinding: SenaWorkflowCheckpointBinding | null = null;
   try {
-    checkpointExists = await input.validateCheckpoint({ runId: run.id, checkpointId });
+    checkpointBinding = await input.validateCheckpoint({ runId: run.id, checkpointId });
   } catch {
     throw new SenaEnterpriseError(
       "SENA workflow fork checkpoint verification is unavailable.",
@@ -900,11 +911,26 @@ export async function performSenaWorkflowAction(input: {
       "workflow_checkpoint_verification_unavailable"
     );
   }
-  if (!checkpointExists) {
+  if (!checkpointBinding) {
     throw new SenaEnterpriseError(
       "SENA workflow fork checkpoint does not exist in the source run thread.",
       409,
       "workflow_checkpoint_not_found"
+    );
+  }
+  if (
+    checkpointBinding.checkpointId !== checkpointId ||
+    checkpointBinding.runId !== run.id ||
+    checkpointBinding.definitionHash !== run.definitionHash ||
+    checkpointBinding.sourceBindingDigest !== run.sourceBindingDigest ||
+    checkpointBinding.codeSha !== run.codeSha ||
+    checkpointBinding.configDigest !== run.configDigest ||
+    !SHA256.test(checkpointBinding.stateDigest)
+  ) {
+    throw new SenaEnterpriseError(
+      "SENA workflow fork checkpoint contents do not match the authoritative run binding.",
+      409,
+      "workflow_checkpoint_binding_conflict"
     );
   }
   const definition = senaWorkflowDefinition(run.kind);
@@ -1024,12 +1050,16 @@ export async function performSenaWorkflowAction(input: {
     action: "fork",
     forkMode: "validated-lineage-full-restart",
     sourceRunId: run.id,
+    sourceRunBindingDigest: run.sourceBindingDigest,
     checkpointId,
     checkpointBindingDigest: senaWorkflowDigest({
       sourceRunId: run.id,
       checkpointId,
-      sourceDefinitionHash: run.definitionHash
+      sourceDefinitionHash: run.definitionHash,
+      sourceBindingDigest: run.sourceBindingDigest,
+      checkpointStateDigest: checkpointBinding.stateDigest
     }),
+    checkpointStateDigest: checkpointBinding.stateDigest,
     newSourceBindingDigest: sourceBindingDigest,
     sourceEvidence,
     definitionVersion: definition.definitionVersion,

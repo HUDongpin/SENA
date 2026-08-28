@@ -3,7 +3,11 @@ import { observeSenaApiRoute, requireApiSession } from "@/lib/sena/api-helpers";
 import { requireEnterprisePermission } from "@/lib/sena/enterprise/access-control";
 import { SenaEnterpriseError } from "@/lib/sena/enterprise/errors";
 import { withSenaWorkflowStore } from "@/lib/sena/workflow/api-runtime";
-import { buildSenaWorkflowCloseout, SenaWorkflowCloseoutError } from "@/lib/sena/workflow/closeout";
+import {
+  buildSenaWorkflowCloseout,
+  senaWorkflowCloseoutGeneratedAt,
+  SenaWorkflowCloseoutError
+} from "@/lib/sena/workflow/closeout";
 
 export const runtime = "nodejs";
 type RouteContext = { params: Promise<{ runId: string }> };
@@ -25,7 +29,10 @@ export async function GET(request: Request, { params }: RouteContext) {
     const events = await withSenaWorkflowStore((store) => store.runEvents(run.id, run.teamId));
     let closeout;
     try {
-      closeout = buildSenaWorkflowCloseout({ ...events, generatedAt: events.run.updatedAt });
+      closeout = buildSenaWorkflowCloseout({
+        ...events,
+        generatedAt: senaWorkflowCloseoutGeneratedAt(events)
+      });
     } catch (error) {
       if (error instanceof SenaWorkflowCloseoutError) {
         throw new SenaEnterpriseError(

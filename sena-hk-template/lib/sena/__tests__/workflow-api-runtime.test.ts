@@ -84,7 +84,6 @@ function researchRevision() {
 function engineeringParameters(baseSha: string, candidateSha: string) {
   const branch = "codex/sena-evidenceflow-engineering-test";
   const changedPaths = ["sena-hk-template/lib/sena/workflow/engineering-evidence.ts"];
-  const gateNames = ["focused-tests", "typecheck", "lint", "build", "pilot-verify"] as const;
   return {
     engineeringEvidence: {
       ownerLane: "A15",
@@ -116,23 +115,7 @@ function engineeringParameters(baseSha: string, candidateSha: string) {
         ownerLane: "A15",
         changedPaths,
         changedPathDigest: senaWorkflowDigest({ changedPaths })
-      },
-      gateReceipts: gateNames.map((gate, index) => ({
-        schemaVersion: SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt,
-        gate,
-        evidenceLayer: "local",
-        status: "passed",
-        candidateSha,
-        commandDigest: senaWorkflowDigest({ gate }),
-        environmentDigest: "7".repeat(64),
-        logSummaryDigest: String(index + 1).repeat(64),
-        exitCode: 0,
-        startedAt: "2026-08-28T00:00:00.000Z",
-        finishedAt: "2026-08-28T00:00:01.000Z",
-        fixture: false,
-        externalSideEffects: false,
-        artifactReferences: []
-      }))
+      }
     }
   };
 }
@@ -371,6 +354,18 @@ function actionRun(overrides: Partial<SenaWorkflowRun> = {}): SenaWorkflowRun {
   };
 }
 
+function checkpointBinding(run: SenaWorkflowRun, checkpointId: string) {
+  return {
+    checkpointId,
+    runId: run.id,
+    definitionHash: run.definitionHash,
+    sourceBindingDigest: run.sourceBindingDigest,
+    codeSha: run.codeSha,
+    configDigest: run.configDigest,
+    stateDigest: senaWorkflowDigest({ runId: run.id, checkpointId, state: "test-checkpoint" })
+  };
+}
+
 function actionStore(run: SenaWorkflowRun) {
   const startPayload = {
     action: "start",
@@ -566,7 +561,18 @@ describe("SENA workflow API action contract", () => {
   });
 
   it("creates a deterministic superseding research fork from the current immutable revision", async () => {
-    const run = actionRun({ status: "blocked", pendingInterrupt: undefined, blockers: [{ code: "source-drift", message: "source drift", retryable: false }] });
+    const run = actionRun({
+      status: "blocked",
+      pendingInterrupt: {
+        kind: "blocked",
+        nodeId: "data-governance-preflight",
+        interruptId: "workflow_interrupt_fork_1",
+        checkpointId: "checkpoint-action-1",
+        inputDigest: "8".repeat(64),
+        blocker: { code: "source-drift", message: "source drift", retryable: false }
+      },
+      blockers: [{ code: "source-drift", message: "source drift", retryable: false }]
+    });
     const memory = actionStore(run);
     const projectId = run.projectId!;
     const resolved = {
@@ -596,18 +602,35 @@ describe("SENA workflow API action contract", () => {
       body: {
         action: "fork",
         expectedVersion: run.version,
-        checkpointId: "checkpoint-missing",
+        checkpointId: "checkpoint-action-1",
         newSourceBindingDigest
       },
       idempotencyKey: "workflow-fork-missing-checkpoint",
       store: memory.store,
       codeSha: "9".repeat(40),
-      validateCheckpoint: async () => false,
+      validateCheckpoint: async () => null,
       resolveCurrentResearchRevision: async () => resolved as unknown as Awaited<
         ReturnType<typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync>
       >
     })).rejects.toMatchObject({ status: 409, code: "workflow_checkpoint_not_found" });
     expect(memory.commandWrites).toBe(0);
+    await expect(performSenaWorkflowAction({
+      context: context(),
+      runId: run.id,
+      body: {
+        action: "fork",
+        expectedVersion: run.version,
+        checkpointId: "checkpoint-historical",
+        newSourceBindingDigest
+      },
+      idempotencyKey: "workflow-fork-historical-checkpoint",
+      store: memory.store,
+      codeSha: "9".repeat(40),
+      validateCheckpoint: async () => checkpointBinding(run, "checkpoint-historical"),
+      resolveCurrentResearchRevision: async () => resolved as unknown as Awaited<
+        ReturnType<typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync>
+      >
+    })).rejects.toMatchObject({ status: 409, code: "workflow_checkpoint_not_current" });
     const result = await performSenaWorkflowAction({
       context: context(),
       runId: run.id,
@@ -623,6 +646,8 @@ describe("SENA workflow API action contract", () => {
       now: "2026-08-28T00:00:04.000Z",
       validateCheckpoint: async ({ runId, checkpointId }) => (
         runId === run.id && checkpointId === "checkpoint-action-1"
+          ? checkpointBinding(run, checkpointId)
+          : null
       ),
       resolveCurrentResearchRevision: async () => resolved as unknown as Awaited<
         ReturnType<typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync>
@@ -644,6 +669,7 @@ describe("SENA workflow API action contract", () => {
     expect(result.command.payload).toMatchObject({
       forkMode: "validated-lineage-full-restart",
       checkpointBindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      checkpointStateDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       sourceEvidence: { uploadBindings: WORKFLOW_UPLOAD_BINDINGS },
       parameters: {
         researchSourceClass: "fixture",
@@ -676,7 +702,14 @@ describe("SENA workflow API action contract", () => {
       candidateSha,
       sourceBindingDigest,
       status: "blocked",
-      pendingInterrupt: undefined,
+      pendingInterrupt: {
+        kind: "blocked",
+        nodeId: "shadow-release-model",
+        interruptId: "workflow_interrupt_engineering_fork",
+        checkpointId: "checkpoint-engineering-1",
+        inputDigest: "6".repeat(64),
+        blocker: { code: "candidate-drift", message: "candidate drift", retryable: false }
+      },
       blockers: [{ code: "candidate-drift", message: "candidate drift", retryable: false }],
       claimBoundary: undefined
     });
@@ -701,7 +734,7 @@ describe("SENA workflow API action contract", () => {
       idempotencyKey: "workflow-engineering-fork",
       store: memory.store,
       codeSha: run.codeSha,
-      validateCheckpoint: async () => true
+      validateCheckpoint: async () => checkpointBinding(run, "checkpoint-engineering-1")
     });
 
     expect(result.run).toMatchObject({

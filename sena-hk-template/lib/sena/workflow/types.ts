@@ -201,8 +201,12 @@ export type SenaWorkflowArtifact = {
   createdAt: string;
 };
 
-export type SenaWorkflowCloseoutRun = Omit<SenaWorkflowRun, "createdByUserId"> & {
+export type SenaWorkflowCloseoutRun = Omit<
+  SenaWorkflowRun,
+  "createdByUserId" | "startIdempotencyKey"
+> & {
   createdByUserIdHash: string;
+  startIdempotencyKeyHash: string;
 };
 
 export type SenaWorkflowCloseoutCommand = Pick<

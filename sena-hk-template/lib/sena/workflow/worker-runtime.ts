@@ -15,6 +15,10 @@ import type {
   SenaWorkflowRunStatus
 } from "./types";
 import { enforceSenaWorkflowTelemetryPolicy } from "./telemetry-policy";
+import {
+  assertSenaWorkflowWorkerBuildAttestation,
+  type SenaWorkflowWorkerBuildAttestation
+} from "./worker-code-attestation";
 
 type RunTransitionPatch = Partial<Pick<
   SenaWorkflowRun,
@@ -36,6 +40,11 @@ export type SenaWorkflowWorkerStore = SenaWorkflowNodeStore & {
     leaseMs?: number;
     maxAttempts?: number;
     kinds?: SenaWorkflowCommand["kind"][];
+  }): Promise<SenaWorkflowCommand | null>;
+  renewCommandLease(input: {
+    commandId: string;
+    workerId: string;
+    leaseMs?: number;
   }): Promise<SenaWorkflowCommand | null>;
   transitionRun(input: {
     runId: string;
@@ -268,6 +277,13 @@ function errorClass(error: unknown) {
   return "workflow-worker-error";
 }
 
+function commandLeaseConflict(error: unknown) {
+  return Boolean(
+    error && typeof error === "object" &&
+    "code" in error && error.code === "workflow_command_lease_conflict"
+  );
+}
+
 function immutableTerminalStatus(status: SenaWorkflowRunStatus) {
   return ["succeeded", "cancelled", "superseded"].includes(status);
 }
@@ -277,19 +293,57 @@ export function createSenaWorkflowWorkerRuntime(input: {
   checkpointer: BaseCheckpointSaver;
   nodeExecutor: SenaWorkflowGraphNodeExecutor;
   workerId: string;
-  workerCodeSha: string;
+  workerBuildAttestation: SenaWorkflowWorkerBuildAttestation;
   now?: () => string;
   leaseMs?: number;
+  leaseHeartbeatMs?: number;
   maxAttempts?: number;
   telemetryEnv?: Record<string, string | undefined>;
   onError?: (error: unknown) => void;
 }) {
   enforceSenaWorkflowTelemetryPolicy(input.telemetryEnv ?? globalThis.process.env);
-  if (!/^[a-f0-9]{40}$/.test(input.workerCodeSha)) {
-    throw new Error("SENA workflow worker code SHA must be an exact lowercase Git SHA.");
-  }
+  const workerBuildAttestation = assertSenaWorkflowWorkerBuildAttestation(input.workerBuildAttestation);
   const now = input.now ?? (() => new Date().toISOString());
   const graphs = new Map<SenaWorkflowRun["kind"], CompiledWorkflowGraph>();
+
+  function startCommandLeaseHeartbeat(command: SenaWorkflowCommand) {
+    const leaseMs = Math.max(1_000, Math.min(input.leaseMs ?? 30_000, 15 * 60_000));
+    const intervalMs = input.leaseHeartbeatMs ?? Math.max(1_000, Math.floor(leaseMs / 3));
+    let stopped = false;
+    let leaseError: unknown;
+    let renewal: Promise<void> | undefined;
+    const renew = () => {
+      if (stopped || leaseError) return Promise.resolve();
+      if (renewal) return renewal;
+      renewal = input.store.renewCommandLease({
+        commandId: command.id,
+        workerId: input.workerId,
+        leaseMs
+      }).then((renewed) => {
+        if (!renewed) throw new Error("SENA workflow command execution lease is no longer owned by this worker.");
+      }).catch((error) => {
+        leaseError = error;
+      }).finally(() => {
+        renewal = undefined;
+      });
+      return renewal;
+    };
+    const timer = setInterval(() => { void renew(); }, Math.max(5, intervalMs));
+    timer.unref?.();
+    return {
+      async assertOwned() {
+        await renew();
+        if (leaseError) throw leaseError;
+      },
+      get lost() {
+        return Boolean(leaseError);
+      },
+      stop() {
+        stopped = true;
+        clearInterval(timer);
+      }
+    };
+  }
 
   function graphFor(run: SenaWorkflowRun) {
     const definition = senaWorkflowDefinition(run.kind);
@@ -299,7 +353,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
     ) {
       throw new Error("SENA workflow run definition does not match the executing fixed graph manifest.");
     }
-    if (run.codeSha !== input.workerCodeSha) {
+    if (run.codeSha !== workerBuildAttestation.codeSha) {
       throw new Error("SENA workflow run code SHA does not match the executing worker build SHA.");
     }
     let graph = graphs.get(run.kind);
@@ -326,19 +380,25 @@ export function createSenaWorkflowWorkerRuntime(input: {
 
     if (command.kind === "fork") {
       const sourceRunId = textField(command.payload, "sourceRunId");
+      const sourceRunBindingDigest = textField(command.payload, "sourceRunBindingDigest");
       const checkpointId = textField(command.payload, "checkpointId");
       const checkpointBindingDigest = textField(command.payload, "checkpointBindingDigest");
-      const expectedCheckpointBindingDigest = sourceRunId && checkpointId
+      const checkpointStateDigest = textField(command.payload, "checkpointStateDigest");
+      const expectedCheckpointBindingDigest = sourceRunId && sourceRunBindingDigest && checkpointId && checkpointStateDigest
         ? senaWorkflowDigest({
             sourceRunId,
             checkpointId,
-            sourceDefinitionHash: run.definitionHash
+            sourceDefinitionHash: run.definitionHash,
+            sourceBindingDigest: sourceRunBindingDigest,
+            checkpointStateDigest
           })
         : undefined;
       if (
         command.payload.forkMode !== "validated-lineage-full-restart" ||
         sourceRunId !== run.parentRunId ||
+        !sourceRunBindingDigest ||
         checkpointId !== run.parentCheckpointId ||
+        !checkpointStateDigest ||
         checkpointBindingDigest !== expectedCheckpointBindingDigest
       ) {
         throw new Error("SENA workflow fork command lacks a validated checkpoint-lineage binding.");
@@ -379,6 +439,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
   }
 
   async function process(command: SenaWorkflowCommand): Promise<SenaWorkflowWorkerRunOnceResult> {
+    const leaseHeartbeat = startCommandLeaseHeartbeat(command);
     try {
       if (command.payloadDigest !== senaWorkflowDigest(command.payload)) {
         throw new Error("SENA workflow command payload digest does not match its durable envelope.");
@@ -386,6 +447,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
       let run = await input.store.getRun(command.runId);
       if (!run) throw new Error("SENA workflow run is absent from the authoritative store.");
       if (immutableTerminalStatus(run.status)) {
+        await leaseHeartbeat.assertOwned();
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
           workerId: input.workerId,
@@ -398,6 +460,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
         return { status: "processed", command: settled.command, run: settled.run };
       }
       if (command.kind === "cancel") {
+        await leaseHeartbeat.assertOwned();
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
           workerId: input.workerId,
@@ -410,6 +473,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
         return { status: "processed", command: settled.command, run: settled.run };
       }
       if (run.status === "dead_lettered" && command.kind !== "retry") {
+        await leaseHeartbeat.assertOwned();
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
           workerId: input.workerId,
@@ -438,6 +502,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
 
       const graph = graphFor(run);
       const output = await invokeForCommand(graph, run, command);
+      await leaseHeartbeat.assertOwned();
       const checkpoint = await graph.getState({ configurable: { thread_id: run.id } });
       const checkpointId = textField(record(checkpoint.config?.configurable), "checkpoint_id");
       const interrupt = normalizeInterrupt(output, checkpointId);
@@ -447,6 +512,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
       const freshRun = await input.store.getRun(run.id, run.teamId);
       if (!freshRun) throw new Error("SENA workflow run disappeared before command settlement.");
       if (immutableTerminalStatus(freshRun.status)) {
+        await leaseHeartbeat.assertOwned();
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
           workerId: input.workerId,
@@ -458,6 +524,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
         });
         return { status: "processed", command: settled.command, run: settled.run };
       }
+      await leaseHeartbeat.assertOwned();
       const settled = await input.store.settleClaimedCommand({
         commandId: command.id,
         workerId: input.workerId,
@@ -477,16 +544,38 @@ export function createSenaWorkflowWorkerRuntime(input: {
         message: error instanceof Error ? error.message : String(error)
       });
       const retryable = retryableWorkerError(error);
-      const failed = await input.store.failCommand({
-        commandId: command.id,
-        workerId: input.workerId,
-        failedAt,
-        retryable,
-        retryAt: retryable ? new Date(Date.parse(failedAt) + 1_000).toISOString() : undefined,
-        maxAttempts: input.maxAttempts,
-        errorClass: classification,
-        errorHash: hash
-      });
+      if (leaseHeartbeat.lost) {
+        return {
+          status: "failed",
+          command,
+          errorClass: classification,
+          errorHash: hash,
+          retryScheduled: false
+        };
+      }
+      let failed: SenaWorkflowCommand;
+      try {
+        failed = await input.store.failCommand({
+          commandId: command.id,
+          workerId: input.workerId,
+          failedAt,
+          retryable,
+          retryAt: retryable ? new Date(Date.parse(failedAt) + 1_000).toISOString() : undefined,
+          maxAttempts: input.maxAttempts,
+          errorClass: classification,
+          errorHash: hash
+        });
+      } catch (failureError) {
+        if (!commandLeaseConflict(failureError)) throw failureError;
+        input.onError?.(failureError);
+        return {
+          status: "failed",
+          command,
+          errorClass: classification,
+          errorHash: hash,
+          retryScheduled: false
+        };
+      }
       return {
         status: "failed",
         command: failed,
@@ -494,6 +583,8 @@ export function createSenaWorkflowWorkerRuntime(input: {
         errorHash: hash,
         retryScheduled: failed.status === "pending"
       };
+    } finally {
+      leaseHeartbeat.stop();
     }
   }
 

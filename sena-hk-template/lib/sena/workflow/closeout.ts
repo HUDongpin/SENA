@@ -42,7 +42,39 @@ function addIf(condition: boolean, issues: Set<string>, code: string) {
 }
 
 const closeoutNodeId = "evidence-closeout";
-const closeoutFilename = "sena-workflow-closeout.json";
+const closeoutCommitmentFilename = "sena-workflow-closeout-commitment.json";
+
+function matchingCloseoutCommitmentArtifact(
+  artifacts: SenaWorkflowRunEvents["artifacts"],
+  commitment: string
+) {
+  return artifacts.find((artifact) => (
+    artifact.nodeId === closeoutNodeId &&
+    artifact.filename === closeoutCommitmentFilename &&
+    artifact.sha256 === commitment
+  ));
+}
+
+function committedCommandHistory(commands: SenaWorkflowRunEvents["commands"]) {
+  const finalCommand = [...commands]
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    .at(-1);
+  return commands.map((command) => ({
+    id: command.id,
+    kind: command.kind,
+    expectedVersion: command.expectedVersion,
+    payloadDigest: command.payloadDigest,
+    status: command.id === finalCommand?.id ? "settlement-normalized" : command.status,
+    attempts: command.attempts,
+    availableAt: command.availableAt,
+    claimedAt: command.claimedAt ?? null,
+    errorClass: command.errorClass ?? null,
+    errorHash: command.errorHash ?? null,
+    createdAt: command.createdAt,
+    idempotencyKeyHash: senaWorkflowDigest(command.idempotencyKey),
+    workerIdHash: command.claimedBy ? senaWorkflowDigest(command.claimedBy) : null
+  }));
+}
 
 export function senaWorkflowCloseoutCommitment(input: SenaWorkflowRunEvents) {
   return senaWorkflowDigest({
@@ -58,34 +90,22 @@ export function senaWorkflowCloseoutCommitment(input: SenaWorkflowRunEvents) {
       claimBoundary: input.run.claimBoundary ?? null,
       evidenceLayers: input.run.evidenceLayers
     },
+    commands: committedCommandHistory(input.commands),
     receipts: input.receipts
       .filter((receipt) => receipt.nodeId !== closeoutNodeId)
-      .map((receipt) => ({
-        nodeId: receipt.nodeId,
-        inputDigest: receipt.inputDigest,
-        outputDigest: receipt.outputDigest,
-        auditChainHead: receipt.auditChainHead,
-        predecessorReceiptHashes: receipt.predecessorReceiptHashes,
-        jobId: receipt.jobId ?? null,
-        artifactReferences: receipt.artifactReferences
-      })),
-    approvals: input.approvals.map((approval) => ({
-      nodeId: approval.nodeId,
-      interruptId: approval.interruptId,
-      inputDigest: approval.inputDigest,
-      candidateOutputDigest: approval.candidateOutputDigest,
-      decision: approval.decision,
-      decisionDigest: approval.decisionDigest
-    })),
+      .map((receipt) => ({ ...receipt })),
+    approvals: input.approvals.map((approval) => ({ ...approval })),
     artifacts: input.artifacts
-      .filter((artifact) => !(artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename))
-      .map((artifact) => ({
-        nodeId: artifact.nodeId,
-        filename: artifact.filename,
-        schemaVersion: artifact.schemaVersion,
-        sha256: artifact.sha256,
-        evidenceLayer: artifact.evidenceLayer
-      }))
+      .filter((artifact) => !(
+        artifact.nodeId === closeoutNodeId && artifact.filename === closeoutCommitmentFilename
+      ))
+      .map((artifact) => ({ ...artifact })),
+    sealBoundary: {
+      finalReceiptExcludedToAvoidSelfReference: true,
+      commitmentArtifactExcludedToAvoidSelfReference: true,
+      finalCommandTransportStatusNormalized: true,
+      rawPayloadsExcluded: true
+    }
   });
 }
 
@@ -188,10 +208,8 @@ export function auditSenaWorkflowCloseoutInput(input: SenaWorkflowRunEvents): Se
       }
     }
     const finalReceipt = receiptsByNode.get(closeoutNodeId)?.[0];
-    const commitmentArtifact = artifacts.find((artifact) => (
-      artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename
-    ));
     const commitment = senaWorkflowCloseoutCommitment(input);
+    const commitmentArtifact = matchingCloseoutCommitmentArtifact(artifacts, commitment);
     addIf(!finalReceipt || finalReceipt.sequence !== receipts.length, issues, "succeeded-closeout-receipt-not-final");
     addIf(finalReceipt?.outputDigest !== commitment, issues, "succeeded-closeout-commitment-mismatch");
     addIf(
@@ -232,10 +250,11 @@ export function auditSenaWorkflowCloseoutInput(input: SenaWorkflowRunEvents): Se
 }
 
 function redactedRun(run: SenaWorkflowRunEvents["run"]): SenaWorkflowCloseoutRun {
-  const { createdByUserId, ...safeRun } = run;
+  const { createdByUserId, startIdempotencyKey, ...safeRun } = run;
   return {
     ...safeRun,
-    createdByUserIdHash: senaWorkflowDigest(createdByUserId)
+    createdByUserIdHash: senaWorkflowDigest(createdByUserId),
+    startIdempotencyKeyHash: senaWorkflowDigest(startIdempotencyKey)
   };
 }
 
@@ -353,11 +372,16 @@ export function buildSenaWorkflowCloseout(
           closeoutCommitment: {
             nodeId: closeoutNodeId as "evidence-closeout",
             receiptOutputDigest: input.receipts.find((receipt) => receipt.nodeId === closeoutNodeId)!.outputDigest,
-            artifactSha256: input.artifacts.find((artifact) => (
-              artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename
-            ))!.sha256
+            artifactSha256: matchingCloseoutCommitmentArtifact(
+              input.artifacts,
+              input.receipts.find((receipt) => receipt.nodeId === closeoutNodeId)!.outputDigest
+            )!.sha256
           }
         }
       : {})
   };
+}
+
+export function senaWorkflowCloseoutGeneratedAt(events: SenaWorkflowRunEvents) {
+  return events.receipts.find((receipt) => receipt.nodeId === closeoutNodeId)?.finishedAt ?? events.run.updatedAt;
 }

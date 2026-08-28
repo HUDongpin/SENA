@@ -192,6 +192,12 @@ describeWithPostgres("SENA EvidenceFlow authoritative Postgres store", () => {
 
     const claimed = await store.claimNextCommand({ workerId: "worker-expiring", maxAttempts: 2 });
     expect(claimed?.id).toBe(resume.id);
+    const renewed = await store.renewCommandLease({
+      commandId: resume.id,
+      workerId: "worker-expiring",
+      leaseMs: 120_000
+    });
+    expect(Date.parse(renewed!.claimExpiresAt!)).toBeGreaterThan(Date.parse(claimed!.claimExpiresAt!));
     await pool.query(`
       UPDATE sena_workflow_commands SET claim_expires_at = now() - interval '1 second'
       WHERE id = $1
@@ -385,6 +391,61 @@ describeWithPostgres("SENA EvidenceFlow authoritative Postgres store", () => {
       patch: { status: "succeeded" }
     })).rejects.toMatchObject({ status: 409, code: "workflow_command_lease_conflict" });
     expect((await store.getRun(run.id, run.teamId))?.status).toBe("waiting_human");
+  });
+
+  it("refuses successful terminalization while a later authorized command is pending", async () => {
+    const run = workflowRun({
+      id: "workflow_run_postgres_terminal_race",
+      startIdempotencyKey: "terminal-race-start",
+      startPayloadDigest: senaWorkflowDigest({ terminalRace: true })
+    });
+    const start = workflowCommand(run, {
+      id: "workflow_command_postgres_terminal_race_start",
+      idempotencyKey: run.startIdempotencyKey,
+      payloadDigest: run.startPayloadDigest,
+      payload: { terminalRace: true }
+    });
+    await store.createRunWithStartCommand({ run, command: start });
+    const claimed = await store.claimNextCommand({ workerId: "worker-terminal-race", kinds: ["start"] });
+    expect(claimed?.id).toBe(start.id);
+    const running = await store.transitionRun({
+      runId: run.id,
+      teamId: run.teamId,
+      expectedVersion: run.version,
+      updatedAt: "2026-08-28T00:00:09.210Z",
+      patch: { status: "running" }
+    });
+    const cancelPayload = { action: "cancel", reasonCode: "operator-request" };
+    const cancellation = workflowCommand(running, {
+      id: "workflow_command_postgres_terminal_race_cancel",
+      kind: "cancel",
+      expectedVersion: running.version,
+      idempotencyKey: "terminal-race-cancel",
+      payload: cancelPayload,
+      payloadDigest: senaWorkflowDigest(cancelPayload),
+      createdAt: "2026-08-28T00:00:09.220Z",
+      updatedAt: "2026-08-28T00:00:09.220Z",
+      availableAt: "2026-08-28T00:00:09.220Z"
+    });
+    const queued = await store.enqueueCommand({
+      teamId: run.teamId,
+      expectedVersion: running.version,
+      command: cancellation
+    });
+
+    await expect(store.settleClaimedCommand({
+      commandId: start.id,
+      workerId: "worker-terminal-race",
+      runId: run.id,
+      teamId: run.teamId,
+      expectedRunVersion: queued.run.version,
+      completedAt: "2026-08-28T00:00:09.230Z",
+      patch: { status: "succeeded", currentNodeId: "evidence-closeout" }
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "workflow_terminalization_pending_command_conflict"
+    });
+    await expect(store.getRun(run.id, run.teamId)).resolves.toMatchObject({ status: "running" });
   });
 
   it("atomically records one digest-bound approval and its resume outbox command", async () => {
@@ -619,11 +680,30 @@ describeWithPostgres("SENA EvidenceFlow authoritative Postgres store", () => {
         status: "superseded",
         supersededByRunId: terminal.supersededByRunId
       });
-      await isolatedStore.completeCommand({
+      const terminalBeforeNoop = (await isolatedStore.getRun(terminal.id, terminal.teamId))!;
+      const terminalNoop = await isolatedStore.settleClaimedCommand({
         commandId: terminalCommand.id,
         workerId: "terminal-fence-worker",
-        completedAt: "2026-08-28T00:00:15.000Z"
+        runId: terminal.id,
+        teamId: terminal.teamId,
+        expectedRunVersion: terminalBeforeNoop.version,
+        completedAt: "2026-08-28T00:00:15.000Z",
+        patch: {}
       });
+      expect(terminalNoop.command.status).toBe("completed");
+      expect(terminalNoop.run.version).toBe(terminalBeforeNoop.version);
+      expect(terminalNoop.run.updatedAt).toBe(terminalBeforeNoop.updatedAt);
+      await expect(isolatedStore.appendArtifact({
+        id: "workflow_artifact_terminal_late",
+        runId: terminal.id,
+        nodeId: "bind-source",
+        filename: "late.json",
+        schemaVersion: "sena-workflow-run/v1",
+        sha256: "9".repeat(64),
+        storageReference: "artifact://late-terminal",
+        evidenceLayer: "source",
+        createdAt: "2026-08-28T00:00:16.000Z"
+      })).rejects.toMatchObject({ status: 409, code: "workflow_terminal_evidence_conflict" });
     } finally {
       await pool.query(`DROP SCHEMA "${schemaName}" CASCADE`);
     }

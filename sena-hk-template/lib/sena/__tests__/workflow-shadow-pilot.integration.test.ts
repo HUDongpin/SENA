@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { senaWorkflowDigest } from "../workflow/canonical";
 
 const postgresUrl = process.env.SENA_WORKFLOW_TEST_POSTGRES_URL;
 const describeWithPostgres = postgresUrl ? describe : describe.skip;
@@ -220,7 +222,15 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
         checkpointer,
         nodeExecutor,
         workerId,
-        workerCodeSha: "a".repeat(40),
+        workerBuildAttestation: (() => {
+          const core = {
+            codeSha: "a".repeat(40),
+            treeSha: "b".repeat(40),
+            source: "git-object-measurement" as const,
+            clean: true as const
+          };
+          return { ...core, attestationDigest: senaWorkflowDigest(core) };
+        })(),
         maxAttempts: 3,
         onError(error) {
           workerError = error;
@@ -395,34 +405,6 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
     const workRequestDigest = "d".repeat(64);
     const branch = "codex/sena-evidenceflow-fixture-pilot";
     const changedPaths = ["fixture/workflow-proof.ts"];
-    const gateLayers = {
-      "focused-tests": "local",
-      typecheck: "local",
-      lint: "local",
-      build: "local",
-      "pilot-verify": "local",
-      "pr-head-ci": "ci",
-      "post-merge-main-ci": "ci",
-      deployment: "deployed",
-      "live-proof": "live",
-      rollback: "merged"
-    } as const;
-    const gateReceipts = Object.entries(gateLayers).map(([gate, evidenceLayer], index) => ({
-      schemaVersion: schema.SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt,
-      gate,
-      evidenceLayer,
-      status: "passed",
-      candidateSha,
-      commandDigest: canonical.senaWorkflowDigest({ gate, kind: "command" }),
-      environmentDigest: canonical.senaWorkflowDigest({ gate, kind: "environment" }),
-      logSummaryDigest: canonical.senaWorkflowDigest({ gate, kind: "log" }),
-      exitCode: 0,
-      startedAt: `2026-08-28T03:00:${String(index * 2).padStart(2, "0")}.000Z`,
-      finishedAt: `2026-08-28T03:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`,
-      fixture: true,
-      externalSideEffects: false,
-      artifactReferences: [`fixture-receipt:${gate}`]
-    }));
     const parameters = {
       engineeringEvidence: {
         ownerLane: "A11",
@@ -454,8 +436,7 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
           ownerLane: "A11",
           changedPaths,
           changedPathDigest: canonical.senaWorkflowDigest({ changedPaths })
-        },
-        gateReceipts
+        }
       }
     };
 
@@ -484,14 +465,30 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
         idFactory: randomUUID,
         store
       });
-      const operations = workflowOperations.createSenaWorkflowServerJobOperationAdapter({ store });
+      const operations = workflowOperations.createSenaWorkflowServerJobOperationAdapter({
+        store,
+        engineeringCommandExecutorFactory: async () => async (command) => ({
+          exitCode: 0,
+          startedAt: "2026-08-28T03:00:00.000Z",
+          finishedAt: "2026-08-28T03:00:01.000Z",
+          logSummaryDigest: canonical.senaWorkflowDigest({ command, output: "fixture-pass" })
+        })
+      });
       const nodeExecutor = workflowNodeExecutor.createSenaWorkflowGraphNodeExecutor({ store, operations });
       const worker = workflowWorker.createSenaWorkflowWorkerRuntime({
         store,
         checkpointer,
         nodeExecutor,
         workerId: "engineering-pilot-worker",
-        workerCodeSha: "a".repeat(40),
+        workerBuildAttestation: (() => {
+          const core = {
+            codeSha: "a".repeat(40),
+            treeSha: "b".repeat(40),
+            source: "git-object-measurement" as const,
+            clean: true as const
+          };
+          return { ...core, attestationDigest: canonical.senaWorkflowDigest(core) };
+        })(),
         maxAttempts: 3
       });
       const approvePending = async (sequence: number, expectedNodeId: string) => {
@@ -565,7 +562,8 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
       expect(events.artifacts).toHaveLength(15);
       expect(events.artifacts).toContainEqual(expect.objectContaining({
         nodeId: "evidence-closeout",
-        filename: "sena-workflow-closeout.json"
+        filename: "sena-workflow-closeout-commitment.json",
+        schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment
       }));
       expect(events.artifacts.every((artifact) => artifact.sha256.length === 64)).toBe(true);
       const closeout = workflowCloseout.buildSenaWorkflowCloseout({
