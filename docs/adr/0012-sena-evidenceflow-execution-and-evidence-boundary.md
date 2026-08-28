@@ -53,8 +53,21 @@ long-running Node worker. SENA remains the sole evidence authority.
 - API mutation acceptance is expressed as `202 queued`; success is only a
   terminal run/receipt state. Missing executable capability returns `503` before
   a server job or success receipt is created.
-- LangSmith is not required. The first release exports redacted operational
-  metrics through SENA's existing observability boundary.
+- No LangSmith service, control plane, tracing, or telemetry path is used.
+  `@langchain/core` currently carries dormant `langsmith` client code as a
+  transitive OSS package; the independent worker fails startup if any
+  LangSmith/LangChain tracing switch is truthy and then forces all known
+  tracing switches to `false`. The first release exports only redacted
+  operational metrics through SENA's existing observability boundary.
+- A source-changing fork validates that the named checkpoint exists in the
+  source thread, records its digest-bound lineage, and deliberately restarts
+  the fixed graph. Replaying downstream state from the old source would make
+  stale receipts appear current. Engineering forks preserve the immutable
+  work-request digest.
+- The worker independently binds its executable Git SHA to every run and
+  refuses definition or code drift before graph execution. Succeeded closeout
+  documents require the complete fixed DAG, exact predecessors, approvals,
+  server-job bindings, and a final receipt/artifact commitment.
 
 ## Options considered
 

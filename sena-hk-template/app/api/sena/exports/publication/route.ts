@@ -15,14 +15,15 @@ import {
   enqueueEnterpriseServerJob,
   serverJobHeaders,
   serverJobQueueStatus,
+  senaEnterpriseServerJobWasCreated,
   stableServerJobPayloadSha256,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
 import {
-  createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync,
-  reserveEnterpriseUploadIds
+  createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync
 } from "@/lib/sena/enterprise/import-analysis";
 import {
+  bindSenaServerJobIdempotency,
   planSenaServerJobCommandCustody,
   SENA_SERVER_JOB_COMMAND_CUSTODY
 } from "@/lib/sena/server-job-command-envelope";
@@ -284,10 +285,16 @@ export async function POST(request: Request) {
           payloadValuesExcluded: true as const
         }
       };
-      const [commandEnvelopeUploadId] = reserveEnterpriseUploadIds(1);
+      const idempotency = bindSenaServerJobIdempotency({
+        request,
+        kind: "publication-export",
+        teamId: publicationState.project.teamId,
+        actorUserId: context.user.id,
+        projectId: publicationState.project.id
+      });
       const commandCustody = planSenaServerJobCommandCustody(
-        queueInput,
-        commandEnvelopeUploadId,
+        { ...queueInput, jobId: idempotency.jobId },
+        idempotency.commandEnvelopeUploadId,
         stableServerJobPayloadSha256(workerPayload)
       );
       const job = await enqueueEnterpriseServerJob({
@@ -301,7 +308,7 @@ export async function POST(request: Request) {
           });
         }
       });
-      await recordEnterpriseAuditAsync({
+      if (senaEnterpriseServerJobWasCreated(job)) await recordEnterpriseAuditAsync({
         event: "export.queue",
         userId: context.user.id,
         teamId: publicationState.project.teamId,

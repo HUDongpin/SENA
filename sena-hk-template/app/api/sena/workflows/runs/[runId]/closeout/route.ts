@@ -25,7 +25,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     const events = await withSenaWorkflowStore((store) => store.runEvents(run.id, run.teamId));
     let closeout;
     try {
-      closeout = buildSenaWorkflowCloseout({ ...events, generatedAt: new Date().toISOString() });
+      closeout = buildSenaWorkflowCloseout({ ...events, generatedAt: events.run.updatedAt });
     } catch (error) {
       if (error instanceof SenaWorkflowCloseoutError) {
         throw new SenaEnterpriseError(

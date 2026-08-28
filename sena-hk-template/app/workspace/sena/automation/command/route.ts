@@ -11,9 +11,11 @@ import {
   performSenaWorkflowAction,
   withSenaWorkflowStore
 } from "@/lib/sena/workflow/api-runtime";
+import { senaWorkflowCheckpointExists } from "@/lib/sena/workflow/postgres-runtime";
 
 export const runtime = "nodejs";
 const maxFormBytes = 64 * 1024;
+const maxFormChunks = 1_024;
 
 function field(form: FormData, name: string, maximum = 512) {
   const value = form.get(name);
@@ -60,16 +62,50 @@ function redirect(input: {
   });
 }
 
-export async function POST(request: Request) {
-  const declaredLength = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > maxFormBytes) {
-    return redirect({ error: "workflow_form_too_large" });
+async function readBoundedForm(request: Request) {
+  const declared = request.headers.get("content-length")?.trim();
+  if (declared) {
+    if (!/^\d+$/.test(declared)) {
+      throw new SenaEnterpriseError("EvidenceFlow form Content-Length is invalid.", 400, "workflow_form_length_invalid");
+    }
+    const parsed = Number(declared);
+    if (!Number.isSafeInteger(parsed) || parsed > maxFormBytes) {
+      throw new SenaEnterpriseError("EvidenceFlow form is too large.", 413, "workflow_form_too_large");
+    }
   }
+  const contentType = request.headers.get("content-type")?.trim();
+  if (!contentType || !request.body) {
+    throw new SenaEnterpriseError("EvidenceFlow form body is missing.", 400, "workflow_form_body_invalid");
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let chunkCount = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    chunkCount += 1;
+    bytes += next.value.byteLength;
+    if (bytes > maxFormBytes || chunkCount > maxFormChunks) {
+      await reader.cancel().catch(() => undefined);
+      throw new SenaEnterpriseError("EvidenceFlow form is too large.", 413, "workflow_form_too_large");
+    }
+    chunks.push(next.value);
+  }
+  const body = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Response(body, { headers: { "content-type": contentType } }).formData();
+}
 
+export async function POST(request: Request) {
   let teamId = "";
   let runId = "";
   try {
-    const form = await request.formData();
+    const form = await readBoundedForm(request);
     teamId = field(form, "teamId", 200);
     runId = typeof form.get("runId") === "string" ? String(form.get("runId")).trim() : "";
     const context = await requireApiSession();
@@ -169,7 +205,8 @@ export async function POST(request: Request) {
       runId,
       body,
       idempotencyKey,
-      store
+      store,
+      validateCheckpoint: senaWorkflowCheckpointExists
     }));
     return redirect({ teamId, runId: result.run.id, notice: "action" });
   } catch (error) {

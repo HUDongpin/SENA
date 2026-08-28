@@ -65,6 +65,28 @@ const COMMANDS_TABLE = "sena_workflow_commands";
 const RECEIPTS_TABLE = "sena_workflow_step_receipts";
 const APPROVALS_TABLE = "sena_workflow_approvals";
 const ARTIFACTS_TABLE = "sena_workflow_artifacts";
+const IMMUTABLE_TERMINAL_RUN_STATUSES = new Set<SenaWorkflowRunStatus>([
+  "succeeded",
+  "cancelled",
+  "superseded"
+]);
+
+function assertTerminalRunPatchIsNoop(
+  current: SenaWorkflowRun,
+  patch: Partial<SenaWorkflowRun>
+) {
+  if (!IMMUTABLE_TERMINAL_RUN_STATUSES.has(current.status)) return;
+  const changesTerminalRun = Object.entries(patch).some(([key, value]) => (
+    senaWorkflowCanonicalJson(current[key as keyof SenaWorkflowRun]) !== senaWorkflowCanonicalJson(value)
+  ));
+  if (changesTerminalRun) {
+    throw new SenaWorkflowStoreError(
+      "An immutable terminal SENA workflow run cannot transition again.",
+      409,
+      "workflow_terminal_transition_conflict"
+    );
+  }
+}
 
 export const SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS: readonly WorkflowSchemaDefinition[] = [
   {
@@ -152,6 +174,7 @@ export const SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS: readonly WorkflowSchemaD
           updated_at timestamptz NOT NULL
         )`,
         `CREATE UNIQUE INDEX IF NOT EXISTS ${indexIdentifier(`${COMMANDS_TABLE}_run_idempotency_uidx`)} ON ${table} (run_id, idempotency_key)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${indexIdentifier(`${COMMANDS_TABLE}_run_claimed_uidx`)} ON ${table} (run_id) WHERE status = 'claimed'`,
         `CREATE INDEX IF NOT EXISTS ${indexIdentifier(`${COMMANDS_TABLE}_claim_idx`)} ON ${table} (status, available_at, created_at)`,
         `CREATE INDEX IF NOT EXISTS ${indexIdentifier(`${COMMANDS_TABLE}_run_created_idx`)} ON ${table} (run_id, created_at)`
       ];
@@ -734,25 +757,90 @@ export function createSenaWorkflowPostgresStore(input: {
     const maxAttempts = Math.max(1, Math.min(inputClaim.maxAttempts ?? 5, 20));
     return inTransaction(pool, async (client) => {
       await client.query(`
-        UPDATE ${commandsTable}
-        SET status = 'dead_lettered', updated_at = now(), error_class = 'command-lease-exhausted'
-        WHERE status = 'claimed' AND claim_expires_at <= now() AND attempts >= $1
+        WITH expired AS (
+          UPDATE ${commandsTable}
+          SET status = 'dead_lettered',
+            claimed_by = NULL,
+            claimed_at = NULL,
+            claim_expires_at = NULL,
+            updated_at = now(),
+            error_class = 'command-lease-exhausted'
+          WHERE status = 'claimed' AND claim_expires_at <= now() AND attempts >= $1
+          RETURNING run_id
+        ), affected AS (
+          SELECT DISTINCT run_id FROM expired
+        )
+        UPDATE ${runsTable} AS run
+        SET version = run.version + 1,
+          status = 'dead_lettered',
+          pending_interrupt = NULL,
+          blockers = jsonb_build_array(jsonb_build_object(
+            'code', 'workflow_command_lease_exhausted',
+            'message', 'The workflow command exhausted its durable worker lease attempts.',
+            'nodeId', run.current_node_id,
+            'retryable', true
+          )),
+          updated_at = now()
+        FROM affected
+        WHERE run.id = affected.run_id
+          AND run.status NOT IN ('succeeded', 'cancelled', 'superseded')
       `, [maxAttempts]);
-      const values: unknown[] = [inputClaim.workerId, leaseMs, maxAttempts];
-      const kindsClause = inputClaim.kinds?.length
-        ? ` AND kind = ANY($${values.push(inputClaim.kinds)}::text[])`
+      const runValues: unknown[] = [maxAttempts];
+      const runKindsClause = inputClaim.kinds?.length
+        ? ` AND candidate_command.kind = ANY($${runValues.push(inputClaim.kinds)}::text[])`
+        : "";
+      const candidateRun = await client.query<Record<string, unknown>>(`
+        SELECT candidate_run.id
+        FROM ${runsTable} AS candidate_run
+        JOIN LATERAL (
+          SELECT candidate_command.id, candidate_command.available_at, candidate_command.created_at
+          FROM ${commandsTable} AS candidate_command
+          WHERE candidate_command.run_id = candidate_run.id
+            AND candidate_command.attempts < $1
+            AND (
+              (candidate_command.status = 'pending' AND candidate_command.available_at <= now())
+              OR (candidate_command.status = 'claimed' AND candidate_command.claim_expires_at <= now())
+            )
+            ${runKindsClause}
+          ORDER BY candidate_command.available_at ASC, candidate_command.created_at ASC, candidate_command.id ASC
+          LIMIT 1
+        ) AS candidate_command ON true
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${commandsTable} AS active_command
+          WHERE active_command.run_id = candidate_run.id
+            AND active_command.status = 'claimed'
+            AND active_command.claim_expires_at > now()
+        )
+        ORDER BY candidate_command.available_at ASC, candidate_command.created_at ASC, candidate_command.id ASC
+        FOR UPDATE OF candidate_run SKIP LOCKED
+        LIMIT 1
+      `, runValues);
+      const runId = candidateRun.rows[0]?.id;
+      if (typeof runId !== "string") return null;
+
+      const values: unknown[] = [inputClaim.workerId, leaseMs, maxAttempts, runId];
+      const commandKindsClause = inputClaim.kinds?.length
+        ? ` AND candidate_command.kind = ANY($${values.push(inputClaim.kinds)}::text[])`
         : "";
       const result = await client.query<Record<string, unknown>>(`
         WITH candidate AS (
-          SELECT id FROM ${commandsTable}
-          WHERE attempts < $3
+          SELECT candidate_command.id
+          FROM ${commandsTable} AS candidate_command
+          WHERE candidate_command.run_id = $4
+            AND candidate_command.attempts < $3
             AND (
-              (status = 'pending' AND available_at <= now())
-              OR (status = 'claimed' AND claim_expires_at <= now())
+              (candidate_command.status = 'pending' AND candidate_command.available_at <= now())
+              OR (candidate_command.status = 'claimed' AND candidate_command.claim_expires_at <= now())
             )
-            ${kindsClause}
-          ORDER BY available_at ASC, created_at ASC, id ASC
-          FOR UPDATE SKIP LOCKED
+            ${commandKindsClause}
+            AND NOT EXISTS (
+              SELECT 1 FROM ${commandsTable} AS active_command
+              WHERE active_command.run_id = $4
+                AND active_command.status = 'claimed'
+                AND active_command.claim_expires_at > now()
+            )
+          ORDER BY candidate_command.available_at ASC, candidate_command.created_at ASC, candidate_command.id ASC
+          FOR UPDATE OF candidate_command SKIP LOCKED
           LIMIT 1
         )
         UPDATE ${commandsTable} AS command
@@ -802,40 +890,59 @@ export function createSenaWorkflowPostgresStore(input: {
   }) {
     await ensureSchema();
     const maxAttempts = Math.max(1, Math.min(inputFailure.maxAttempts ?? 5, 20));
-    const result = await pool.query<Record<string, unknown>>(`
-      UPDATE ${commandsTable}
-      SET status = CASE
-          WHEN $4::boolean AND attempts < $5 THEN 'pending'
-          WHEN attempts >= $5 THEN 'dead_lettered'
-          ELSE 'failed'
-        END,
-        available_at = CASE WHEN $4::boolean AND attempts < $5 THEN COALESCE($6::timestamptz, now()) ELSE available_at END,
-        claimed_by = NULL,
-        claimed_at = NULL,
-        claim_expires_at = NULL,
-        error_class = $7,
-        error_hash = $8,
-        updated_at = $3
-      WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
-      RETURNING *
-    `, [
-      inputFailure.commandId,
-      inputFailure.workerId,
-      inputFailure.failedAt,
-      inputFailure.retryable,
-      maxAttempts,
-      inputFailure.retryAt ?? null,
-      inputFailure.errorClass,
-      inputFailure.errorHash
-    ]);
-    if (!result.rows[0]) {
-      throw new SenaWorkflowStoreError(
-        "The SENA workflow command lease is no longer owned by this worker.",
-        409,
-        "workflow_command_lease_conflict"
-      );
-    }
-    return normalizeCommand(result.rows[0]);
+    return inTransaction(pool, async (client) => {
+      const result = await client.query<Record<string, unknown>>(`
+        UPDATE ${commandsTable}
+        SET status = CASE
+            WHEN $4::boolean AND attempts < $5 THEN 'pending'
+            WHEN attempts >= $5 THEN 'dead_lettered'
+            ELSE 'failed'
+          END,
+          available_at = CASE WHEN $4::boolean AND attempts < $5 THEN COALESCE($6::timestamptz, now()) ELSE available_at END,
+          claimed_by = NULL,
+          claimed_at = NULL,
+          claim_expires_at = NULL,
+          error_class = $7,
+          error_hash = $8,
+          updated_at = $3
+        WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+        RETURNING *
+      `, [
+        inputFailure.commandId,
+        inputFailure.workerId,
+        inputFailure.failedAt,
+        inputFailure.retryable,
+        maxAttempts,
+        inputFailure.retryAt ?? null,
+        inputFailure.errorClass,
+        inputFailure.errorHash
+      ]);
+      if (!result.rows[0]) {
+        throw new SenaWorkflowStoreError(
+          "The SENA workflow command lease is no longer owned by this worker.",
+          409,
+          "workflow_command_lease_conflict"
+        );
+      }
+      const command = normalizeCommand(result.rows[0]);
+      if (command.status === "failed" || command.status === "dead_lettered") {
+        await client.query(`
+          UPDATE ${runsTable}
+          SET version = version + 1,
+            status = $2,
+            pending_interrupt = NULL,
+            blockers = jsonb_build_array(jsonb_build_object(
+              'code', $3::text,
+              'message', 'The workflow command failed; inspect its redacted error receipt before retrying.',
+              'nodeId', current_node_id,
+              'retryable', true
+            )),
+            updated_at = $4
+          WHERE id = $1 AND status NOT IN ('succeeded', 'cancelled', 'superseded')
+        `, [command.runId, command.status, inputFailure.errorClass, inputFailure.failedAt]);
+      }
+      return command;
+    });
   }
 
   async function transitionRun(inputTransition: {
@@ -866,6 +973,7 @@ export function createSenaWorkflowPostgresStore(input: {
       if (!currentResult.rows[0]) throw missingRun();
       const current = normalizeRun(currentResult.rows[0]);
       if (current.version !== inputTransition.expectedVersion) throw optimisticConflict();
+      assertTerminalRunPatchIsNoop(current, inputTransition.patch);
       const next = { ...current, ...inputTransition.patch, version: current.version + 1, updatedAt: inputTransition.updatedAt };
       const result = await client.query<Record<string, unknown>>(`
         UPDATE ${runsTable}
@@ -935,6 +1043,7 @@ export function createSenaWorkflowPostgresStore(input: {
       if (!runResult.rows[0]) throw missingRun();
       const current = normalizeRun(runResult.rows[0]);
       if (current.version !== inputSettlement.expectedRunVersion) throw optimisticConflict();
+      assertTerminalRunPatchIsNoop(current, inputSettlement.patch);
 
       const commandResult = await client.query<Record<string, unknown>>(`
         SELECT * FROM ${commandsTable} WHERE id = $1 AND run_id = $2 FOR UPDATE

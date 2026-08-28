@@ -220,6 +220,7 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
         checkpointer,
         nodeExecutor,
         workerId,
+        workerCodeSha: "a".repeat(40),
         maxAttempts: 3,
         onError(error) {
           workerError = error;
@@ -338,6 +339,7 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
       ]);
       expect(events.artifacts.map((artifact) => artifact.nodeId).sort()).toEqual([
         "coding-reliability",
+        "evidence-closeout",
         "fusion-analysis",
         "import-cleaning",
         "publication-export",
@@ -489,6 +491,7 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
         checkpointer,
         nodeExecutor,
         workerId: "engineering-pilot-worker",
+        workerCodeSha: "a".repeat(40),
         maxAttempts: 3
       });
       const approvePending = async (sequence: number, expectedNodeId: string) => {
@@ -559,7 +562,11 @@ describeWithPostgres("SENA EvidenceFlow local shadow pilots", () => {
       ]);
       expect(events.commands.every((command) => command.status === "completed")).toBe(true);
       expect(events.run.jobReferences).toEqual([]);
-      expect(events.artifacts).toHaveLength(14);
+      expect(events.artifacts).toHaveLength(15);
+      expect(events.artifacts).toContainEqual(expect.objectContaining({
+        nodeId: "evidence-closeout",
+        filename: "sena-workflow-closeout.json"
+      }));
       expect(events.artifacts.every((artifact) => artifact.sha256.length === 64)).toBe(true);
       const closeout = workflowCloseout.buildSenaWorkflowCloseout({
         ...events,

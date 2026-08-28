@@ -253,6 +253,7 @@ export function compileSenaWorkflowGraph(input: {
     getState(config: { configurable: { thread_id: string } }): Promise<{
       values: Partial<SenaWorkflowGraphState>;
       next: string[];
+      config?: { configurable?: { thread_id?: string; checkpoint_id?: string } };
       tasks: Array<{
         interrupts?: Array<{ id: string; value: Record<string, unknown> }>;
       }>;

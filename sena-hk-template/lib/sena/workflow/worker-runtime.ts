@@ -14,6 +14,7 @@ import type {
   SenaWorkflowRun,
   SenaWorkflowRunStatus
 } from "./types";
+import { enforceSenaWorkflowTelemetryPolicy } from "./telemetry-policy";
 
 type RunTransitionPatch = Partial<Pick<
   SenaWorkflowRun,
@@ -69,6 +70,7 @@ export type SenaWorkflowWorkerInterrupt =
       kind: "waiting-human";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       candidateOutputDigest: string;
       requiredPermission: string;
@@ -77,6 +79,7 @@ export type SenaWorkflowWorkerInterrupt =
       kind: "waiting-job";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       jobId: string;
     }
@@ -84,6 +87,7 @@ export type SenaWorkflowWorkerInterrupt =
       kind: "blocked";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       blocker: SenaWorkflowBlocker;
     };
@@ -138,7 +142,10 @@ function outputFromSnapshot(snapshot: GraphSnapshot, interrupt?: { id: string; v
   } as GraphOutput;
 }
 
-function normalizeInterrupt(output: GraphOutput): SenaWorkflowWorkerInterrupt | undefined {
+function normalizeInterrupt(
+  output: GraphOutput,
+  checkpointId?: string
+): SenaWorkflowWorkerInterrupt | undefined {
   const value = record(output.__interrupt__?.[0]?.value);
   const kind = textField(value, "kind");
   const nodeId = textField(value, "nodeId");
@@ -149,12 +156,27 @@ function normalizeInterrupt(output: GraphOutput): SenaWorkflowWorkerInterrupt | 
     const candidateOutputDigest = textField(value, "candidateOutputDigest");
     const requiredPermission = textField(value, "requiredPermission");
     if (!candidateOutputDigest || !requiredPermission) return undefined;
-    return { kind, nodeId, interruptId, inputDigest, candidateOutputDigest, requiredPermission };
+    return {
+      kind,
+      nodeId,
+      interruptId,
+      ...(checkpointId ? { checkpointId } : {}),
+      inputDigest,
+      candidateOutputDigest,
+      requiredPermission
+    };
   }
   if (kind === "waiting-job" || kind === "sena-workflow-job-wait") {
     const jobId = textField(value, "jobId");
     if (!jobId) return undefined;
-    return { kind: "waiting-job", nodeId, interruptId, inputDigest, jobId };
+    return {
+      kind: "waiting-job",
+      nodeId,
+      interruptId,
+      ...(checkpointId ? { checkpointId } : {}),
+      inputDigest,
+      jobId
+    };
   }
   if (kind === "blocked" || kind === "sena-workflow-blocked") {
     const blocker = record(value?.blocker);
@@ -173,20 +195,31 @@ function normalizeInterrupt(output: GraphOutput): SenaWorkflowWorkerInterrupt | 
         code: blocker.code,
         message: blocker.message,
         nodeId: typeof blocker.nodeId === "string" ? blocker.nodeId : nodeId,
+        ...(typeof blocker.jobId === "string" ? { jobId: blocker.jobId } : {}),
         retryable: blocker.retryable
-      }
+      },
+      ...(checkpointId ? { checkpointId } : {})
     };
   }
   return undefined;
 }
 
-function settledPatch(input: {
+export function senaWorkflowSettledPatch(input: {
   run: SenaWorkflowRun;
   output: GraphOutput;
   interrupt?: SenaWorkflowWorkerInterrupt;
 }): RunTransitionPatch {
+  const graphStatePatch: RunTransitionPatch = {
+    jobReferences: unique([
+      ...input.run.jobReferences,
+      ...(Array.isArray(input.output.jobReferences) ? input.output.jobReferences : [])
+    ]),
+    ...(input.output.claimBoundary ? { claimBoundary: input.output.claimBoundary } : {}),
+    ...(input.output.evidenceLayers ? { evidenceLayers: input.output.evidenceLayers } : {})
+  };
   if (input.interrupt?.kind === "waiting-human") {
     return {
+      ...graphStatePatch,
       status: "waiting_human",
       currentNodeId: input.interrupt.nodeId,
       pendingInterrupt: input.interrupt,
@@ -195,15 +228,17 @@ function settledPatch(input: {
   }
   if (input.interrupt?.kind === "waiting-job") {
     return {
+      ...graphStatePatch,
       status: "waiting_job",
       currentNodeId: input.interrupt.nodeId,
       pendingInterrupt: input.interrupt,
       blockers: [],
-      jobReferences: unique([...input.run.jobReferences, input.interrupt.jobId])
+      jobReferences: unique([...(graphStatePatch.jobReferences ?? []), input.interrupt.jobId])
     };
   }
   if (input.interrupt?.kind === "blocked") {
     return {
+      ...graphStatePatch,
       status: "blocked",
       currentNodeId: input.interrupt.nodeId,
       pendingInterrupt: input.interrupt,
@@ -214,22 +249,18 @@ function settledPatch(input: {
     throw new Error("SENA workflow graph returned without a terminal status or a recognized interrupt.");
   }
   return {
+    ...graphStatePatch,
     status: "succeeded",
     currentNodeId: "evidence-closeout",
     pendingInterrupt: undefined,
     blockers: [],
-    jobReferences: unique([
-      ...input.run.jobReferences,
-      ...(Array.isArray(input.output.jobReferences) ? input.output.jobReferences : [])
-    ]),
-    ...(input.output.claimBoundary ? { claimBoundary: input.output.claimBoundary } : {}),
-    ...(input.output.evidenceLayers ? { evidenceLayers: input.output.evidenceLayers } : {})
+    jobReferences: graphStatePatch.jobReferences
   };
 }
 
 function retryableWorkerError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return !/(binding|forbidden|definition|payload digest|recognized interrupt|absent)/i.test(message);
+  return !/(binding|forbidden|definition|code SHA|worker build SHA|payload digest|recognized interrupt|absent)/i.test(message);
 }
 
 function errorClass(error: unknown) {
@@ -237,8 +268,8 @@ function errorClass(error: unknown) {
   return "workflow-worker-error";
 }
 
-function terminalStatus(status: SenaWorkflowRunStatus) {
-  return ["succeeded", "cancelled", "superseded", "dead_lettered"].includes(status);
+function immutableTerminalStatus(status: SenaWorkflowRunStatus) {
+  return ["succeeded", "cancelled", "superseded"].includes(status);
 }
 
 export function createSenaWorkflowWorkerRuntime(input: {
@@ -246,19 +277,35 @@ export function createSenaWorkflowWorkerRuntime(input: {
   checkpointer: BaseCheckpointSaver;
   nodeExecutor: SenaWorkflowGraphNodeExecutor;
   workerId: string;
+  workerCodeSha: string;
   now?: () => string;
   leaseMs?: number;
   maxAttempts?: number;
+  telemetryEnv?: Record<string, string | undefined>;
   onError?: (error: unknown) => void;
 }) {
+  enforceSenaWorkflowTelemetryPolicy(input.telemetryEnv ?? globalThis.process.env);
+  if (!/^[a-f0-9]{40}$/.test(input.workerCodeSha)) {
+    throw new Error("SENA workflow worker code SHA must be an exact lowercase Git SHA.");
+  }
   const now = input.now ?? (() => new Date().toISOString());
   const graphs = new Map<SenaWorkflowRun["kind"], CompiledWorkflowGraph>();
 
   function graphFor(run: SenaWorkflowRun) {
+    const definition = senaWorkflowDefinition(run.kind);
+    if (
+      run.definitionVersion !== definition.definitionVersion ||
+      run.definitionHash !== definition.definitionHash
+    ) {
+      throw new Error("SENA workflow run definition does not match the executing fixed graph manifest.");
+    }
+    if (run.codeSha !== input.workerCodeSha) {
+      throw new Error("SENA workflow run code SHA does not match the executing worker build SHA.");
+    }
     let graph = graphs.get(run.kind);
     if (!graph) {
       graph = compileSenaWorkflowGraph({
-        definition: senaWorkflowDefinition(run.kind),
+        definition,
         checkpointer: input.checkpointer,
         executor: input.nodeExecutor
       });
@@ -276,6 +323,27 @@ export function createSenaWorkflowWorkerRuntime(input: {
     const snapshot = await graph.getState(config);
     const pending = pendingInterrupt(snapshot);
     const hasCheckpoint = typeof snapshot.values.runId === "string";
+
+    if (command.kind === "fork") {
+      const sourceRunId = textField(command.payload, "sourceRunId");
+      const checkpointId = textField(command.payload, "checkpointId");
+      const checkpointBindingDigest = textField(command.payload, "checkpointBindingDigest");
+      const expectedCheckpointBindingDigest = sourceRunId && checkpointId
+        ? senaWorkflowDigest({
+            sourceRunId,
+            checkpointId,
+            sourceDefinitionHash: run.definitionHash
+          })
+        : undefined;
+      if (
+        command.payload.forkMode !== "validated-lineage-full-restart" ||
+        sourceRunId !== run.parentRunId ||
+        checkpointId !== run.parentCheckpointId ||
+        checkpointBindingDigest !== expectedCheckpointBindingDigest
+      ) {
+        throw new Error("SENA workflow fork command lacks a validated checkpoint-lineage binding.");
+      }
+    }
 
     if (command.kind === "start" || command.kind === "fork") {
       if (hasCheckpoint && (pending || snapshot.values.workflowStatus === "succeeded")) {
@@ -317,6 +385,18 @@ export function createSenaWorkflowWorkerRuntime(input: {
       }
       let run = await input.store.getRun(command.runId);
       if (!run) throw new Error("SENA workflow run is absent from the authoritative store.");
+      if (immutableTerminalStatus(run.status)) {
+        const settled = await input.store.settleClaimedCommand({
+          commandId: command.id,
+          workerId: input.workerId,
+          runId: run.id,
+          teamId: run.teamId,
+          expectedRunVersion: run.version,
+          completedAt: now(),
+          patch: {}
+        });
+        return { status: "processed", command: settled.command, run: settled.run };
+      }
       if (command.kind === "cancel") {
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
@@ -329,7 +409,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
         });
         return { status: "processed", command: settled.command, run: settled.run };
       }
-      if (terminalStatus(run.status)) {
+      if (run.status === "dead_lettered" && command.kind !== "retry") {
         const settled = await input.store.settleClaimedCommand({
           commandId: command.id,
           workerId: input.workerId,
@@ -356,13 +436,28 @@ export function createSenaWorkflowWorkerRuntime(input: {
         });
       }
 
-      const output = await invokeForCommand(graphFor(run), run, command);
-      const interrupt = normalizeInterrupt(output);
+      const graph = graphFor(run);
+      const output = await invokeForCommand(graph, run, command);
+      const checkpoint = await graph.getState({ configurable: { thread_id: run.id } });
+      const checkpointId = textField(record(checkpoint.config?.configurable), "checkpoint_id");
+      const interrupt = normalizeInterrupt(output, checkpointId);
       if (output.__interrupt__?.length && !interrupt) {
         throw new Error("SENA workflow graph returned an unrecognized interrupt payload.");
       }
       const freshRun = await input.store.getRun(run.id, run.teamId);
       if (!freshRun) throw new Error("SENA workflow run disappeared before command settlement.");
+      if (immutableTerminalStatus(freshRun.status)) {
+        const settled = await input.store.settleClaimedCommand({
+          commandId: command.id,
+          workerId: input.workerId,
+          runId: freshRun.id,
+          teamId: freshRun.teamId,
+          expectedRunVersion: freshRun.version,
+          completedAt: now(),
+          patch: {}
+        });
+        return { status: "processed", command: settled.command, run: settled.run };
+      }
       const settled = await input.store.settleClaimedCommand({
         commandId: command.id,
         workerId: input.workerId,
@@ -370,7 +465,7 @@ export function createSenaWorkflowWorkerRuntime(input: {
         teamId: freshRun.teamId,
         expectedRunVersion: freshRun.version,
         completedAt: now(),
-        patch: settledPatch({ run: freshRun, output, interrupt })
+        patch: senaWorkflowSettledPatch({ run: freshRun, output, interrupt })
       });
       return { status: "processed", command: settled.command, run: settled.run, ...(interrupt ? { interrupt } : {}) };
     } catch (error) {

@@ -9,6 +9,7 @@ import {
   requireSenaWorkflowIdempotencyKey,
   withSenaWorkflowStore
 } from "@/lib/sena/workflow/api-runtime";
+import { senaWorkflowCheckpointExists } from "@/lib/sena/workflow/postgres-runtime";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 
 export const runtime = "nodejs";
@@ -25,7 +26,8 @@ export async function POST(request: Request, { params }: RouteContext) {
       runId,
       body,
       idempotencyKey,
-      store
+      store,
+      validateCheckpoint: senaWorkflowCheckpointExists
     }));
     return NextResponse.json({
       schemaVersion: SENA_SCHEMA_VERSIONS.workflowActionCommand,

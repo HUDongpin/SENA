@@ -531,6 +531,104 @@ describeWithPostgres("SENA EvidenceFlow authoritative Postgres store", () => {
     });
   });
 
+  it("serializes command claims per run and forbids terminal-state resurrection", async () => {
+    const schemaName = `sena_workflow_claim_${process.pid}_${Date.now()}`;
+    await pool.query(`CREATE SCHEMA "${schemaName}"`);
+    const isolatedStore = createSenaWorkflowPostgresStore({ pool, schemaName });
+    try {
+      await isolatedStore.ensureSchema();
+      const serialized = workflowRun({
+        id: "workflow_run_postgres_serialized_commands",
+        startIdempotencyKey: "serialized-command-start",
+        startPayloadDigest: senaWorkflowDigest({ serializedCommands: true })
+      });
+      const start = workflowCommand(serialized, {
+        id: "workflow_command_serialized_start",
+        idempotencyKey: serialized.startIdempotencyKey,
+        payloadDigest: serialized.startPayloadDigest,
+        payload: { serializedCommands: true },
+        createdAt: "2025-12-31T00:00:00.000Z",
+        updatedAt: "2025-12-31T00:00:00.000Z",
+        availableAt: "2025-12-31T00:00:00.000Z"
+      });
+      await isolatedStore.createRunWithStartCommand({ run: serialized, command: start });
+      const cancelPayload = { action: "cancel", reasonCode: "concurrency-test" };
+      await isolatedStore.enqueueCommand({
+        teamId: serialized.teamId,
+        expectedVersion: serialized.version,
+        command: workflowCommand(serialized, {
+          id: "workflow_command_serialized_cancel",
+          kind: "cancel",
+          idempotencyKey: "serialized-command-cancel",
+          payloadDigest: senaWorkflowDigest(cancelPayload),
+          payload: cancelPayload,
+          createdAt: "2025-12-31T00:00:01.000Z",
+          updatedAt: "2025-12-31T00:00:01.000Z",
+          availableAt: "2025-12-31T00:00:01.000Z"
+        })
+      });
+      const simultaneous = await Promise.all([
+        isolatedStore.claimNextCommand({ workerId: "serialized-worker-left" }),
+        isolatedStore.claimNextCommand({ workerId: "serialized-worker-right" })
+      ]);
+      expect(simultaneous.filter(Boolean)).toHaveLength(1);
+      const first = simultaneous.find(Boolean)!;
+      expect(await isolatedStore.claimNextCommand({ workerId: "serialized-worker-third" })).toBeNull();
+      await isolatedStore.completeCommand({
+        commandId: first.id,
+        workerId: first.claimedBy!,
+        completedAt: "2026-08-28T00:00:12.000Z"
+      });
+      const second = await isolatedStore.claimNextCommand({ workerId: "serialized-worker-second" });
+      expect(second).not.toBeNull();
+      await isolatedStore.completeCommand({
+        commandId: second!.id,
+        workerId: second!.claimedBy!,
+        completedAt: "2026-08-28T00:00:13.000Z"
+      });
+
+      const terminal = workflowRun({
+        id: "workflow_run_postgres_terminal_fence",
+        startIdempotencyKey: "terminal-fence-start",
+        startPayloadDigest: senaWorkflowDigest({ terminalFence: true }),
+        status: "superseded",
+        supersededByRunId: "workflow_run_postgres_terminal_successor"
+      });
+      const terminalCommand = workflowCommand(terminal, {
+        id: "workflow_command_terminal_fence",
+        idempotencyKey: terminal.startIdempotencyKey,
+        payloadDigest: terminal.startPayloadDigest,
+        payload: { terminalFence: true },
+        createdAt: "2025-12-30T00:00:00.000Z",
+        updatedAt: "2025-12-30T00:00:00.000Z",
+        availableAt: "2025-12-30T00:00:00.000Z"
+      });
+      await isolatedStore.createRunWithStartCommand({ run: terminal, command: terminalCommand });
+      const terminalClaim = await isolatedStore.claimNextCommand({ workerId: "terminal-fence-worker", kinds: ["start"] });
+      expect(terminalClaim?.id).toBe(terminalCommand.id);
+      await expect(isolatedStore.settleClaimedCommand({
+        commandId: terminalCommand.id,
+        workerId: "terminal-fence-worker",
+        runId: terminal.id,
+        teamId: terminal.teamId,
+        expectedRunVersion: terminal.version,
+        completedAt: "2026-08-28T00:00:14.000Z",
+        patch: { status: "waiting_job", currentNodeId: "import-cleaning" }
+      })).rejects.toMatchObject({ status: 409, code: "workflow_terminal_transition_conflict" });
+      expect(await isolatedStore.getRun(terminal.id, terminal.teamId)).toMatchObject({
+        status: "superseded",
+        supersededByRunId: terminal.supersededByRunId
+      });
+      await isolatedStore.completeCommand({
+        commandId: terminalCommand.id,
+        workerId: "terminal-fence-worker",
+        completedAt: "2026-08-28T00:00:15.000Z"
+      });
+    } finally {
+      await pool.query(`DROP SCHEMA "${schemaName}" CASCADE`);
+    }
+  });
+
   it("atomically supersedes a source run and creates an idempotent checkpoint-bound fork", async () => {
     const source = (await store.getRun("workflow_run_postgres_1"))!;
     const forkPayload = {

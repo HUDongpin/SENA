@@ -49,6 +49,7 @@ export type SenaWorkflowBlocker = {
   code: string;
   message: string;
   nodeId?: string;
+  jobId?: string;
   retryable: boolean;
 };
 
@@ -57,6 +58,7 @@ export type SenaWorkflowPendingInterrupt =
       kind: "waiting-human";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       candidateOutputDigest: string;
       requiredPermission: string;
@@ -65,6 +67,7 @@ export type SenaWorkflowPendingInterrupt =
       kind: "waiting-job";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       jobId: string;
     }
@@ -72,6 +75,7 @@ export type SenaWorkflowPendingInterrupt =
       kind: "blocked";
       nodeId: string;
       interruptId: string;
+      checkpointId?: string;
       inputDigest: string;
       blocker: SenaWorkflowBlocker;
     };
@@ -268,6 +272,11 @@ export type SenaWorkflowCloseout = {
     externalGitOrDeploymentSideEffects: "none";
   };
   closeoutDigest: string;
+  closeoutCommitment?: {
+    nodeId: "evidence-closeout";
+    receiptOutputDigest: string;
+    artifactSha256: string;
+  };
 };
 
 export type SenaWorkflowRunEvents = {

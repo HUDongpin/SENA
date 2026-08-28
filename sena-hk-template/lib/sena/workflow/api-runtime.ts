@@ -643,6 +643,7 @@ export async function performSenaWorkflowAction(input: {
   now?: string;
   codeSha?: string;
   resolveCurrentResearchRevision?: typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync;
+  validateCheckpoint?: (input: { runId: string; checkpointId: string }) => Promise<boolean>;
 }) {
   if (!SAFE_ID.test(input.runId) || !SAFE_ID.test(input.idempotencyKey)) {
     throw new SenaEnterpriseError("SENA workflow action identity is invalid.", 422, "workflow_action_invalid");
@@ -849,7 +850,12 @@ export async function performSenaWorkflowAction(input: {
     const payload = {
       action,
       nodeId,
-      ...(run.pendingInterrupt ? { interruptId: run.pendingInterrupt.interruptId } : {})
+      ...(run.pendingInterrupt ? { interruptId: run.pendingInterrupt.interruptId } : {}),
+      ...(run.pendingInterrupt?.kind === "waiting-job"
+        ? { jobId: run.pendingInterrupt.jobId }
+        : run.pendingInterrupt?.kind === "blocked" && run.pendingInterrupt.blocker.jobId
+          ? { jobId: run.pendingInterrupt.blocker.jobId }
+          : {})
     };
     const command = pendingCommand({
       id: `workflow_command_${token.slice(0, 24)}`,
@@ -877,6 +883,30 @@ export async function performSenaWorkflowAction(input: {
     );
   }
   requireActionPermission(input.context, run);
+  if (!input.validateCheckpoint) {
+    throw new SenaEnterpriseError(
+      "SENA workflow fork checkpoint verification is unavailable.",
+      503,
+      "workflow_checkpoint_verification_unavailable"
+    );
+  }
+  let checkpointExists = false;
+  try {
+    checkpointExists = await input.validateCheckpoint({ runId: run.id, checkpointId });
+  } catch {
+    throw new SenaEnterpriseError(
+      "SENA workflow fork checkpoint verification is unavailable.",
+      503,
+      "workflow_checkpoint_verification_unavailable"
+    );
+  }
+  if (!checkpointExists) {
+    throw new SenaEnterpriseError(
+      "SENA workflow fork checkpoint does not exist in the source run thread.",
+      409,
+      "workflow_checkpoint_not_found"
+    );
+  }
   const definition = senaWorkflowDefinition(run.kind);
   const sourceEvents = await input.store.runEvents(run.id, run.teamId);
   const sourceCommand = sourceEvents.commands.find((command) => (
@@ -958,12 +988,20 @@ export async function performSenaWorkflowAction(input: {
     });
     binding = { projectId: run.projectId, projectRevisionId: resolved.revision.id };
   } else {
-    sourceBindingDigest = run.sourceBindingDigest;
+    const workRequestDigest = (originalSourceEvidence as Record<string, unknown>).workRequestDigest;
+    if (typeof workRequestDigest !== "string" || !SHA256.test(workRequestDigest)) {
+      throw new SenaEnterpriseError(
+        "SENA engineering workflow fork cannot recover its immutable work-request binding.",
+        409,
+        "workflow_fork_work_request_binding_missing"
+      );
+    }
     sourceEvidence = {
       repo: run.repo,
       baseSha: run.baseSha,
-      candidateSha: run.candidateSha ?? null
+      workRequestDigest
     };
+    sourceBindingDigest = senaWorkflowDigest({ kind: run.kind, teamId: run.teamId, ...sourceEvidence });
     binding = {
       ...(run.repo ? { repo: run.repo } : {}),
       ...(run.baseSha ? { baseSha: run.baseSha } : {}),
@@ -984,8 +1022,14 @@ export async function performSenaWorkflowAction(input: {
   const forkRunId = `workflow_run_${token.slice(0, 32)}`;
   const forkPayload = {
     action: "fork",
+    forkMode: "validated-lineage-full-restart",
     sourceRunId: run.id,
     checkpointId,
+    checkpointBindingDigest: senaWorkflowDigest({
+      sourceRunId: run.id,
+      checkpointId,
+      sourceDefinitionHash: run.definitionHash
+    }),
     newSourceBindingDigest: sourceBindingDigest,
     sourceEvidence,
     definitionVersion: definition.definitionVersion,

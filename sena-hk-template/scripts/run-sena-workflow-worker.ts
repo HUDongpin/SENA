@@ -9,6 +9,7 @@ import { createSenaWorkflowServerJobOperationAdapter } from "../lib/sena/workflo
 import { createSenaWorkflowWorkerRuntime } from "../lib/sena/workflow/worker-runtime";
 import { recoverSenaWorkflowJobTerminalCommands } from "../lib/sena/workflow/job-terminal-bridge";
 import { getEnterpriseServerJob } from "../lib/sena/enterprise/server-job-queue";
+import { enforceSenaWorkflowTelemetryPolicy } from "../lib/sena/workflow/telemetry-policy";
 
 function positiveInteger(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number(value);
@@ -24,6 +25,16 @@ function workerIdentity() {
   return `sena-workflow-worker-local-${process.pid}`;
 }
 
+function workerCodeSha() {
+  const configured = (
+    process.env.SENA_WORKFLOW_WORKER_CODE_SHA ?? process.env.SENA_WORKFLOW_CODE_SHA
+  )?.trim().toLowerCase();
+  if (!configured || !/^[a-f0-9]{40}$/.test(configured)) {
+    throw new Error("SENA_WORKFLOW_WORKER_CODE_SHA (or SENA_WORKFLOW_CODE_SHA) must bind the worker to one exact Git SHA.");
+  }
+  return configured;
+}
+
 function postgresConnectionString() {
   const options = enterprisePostgresPoolOptions();
   if (typeof options.connectionString !== "string" || !options.connectionString.trim()) {
@@ -33,11 +44,13 @@ function postgresConnectionString() {
 }
 
 async function main() {
+  const telemetry = enforceSenaWorkflowTelemetryPolicy(process.env);
   const runtimeStatus = senaWorkflowPostgresRuntimeStatus();
   if (!runtimeStatus.configured) {
     throw new Error("SENA EvidenceFlow authoritative Postgres is not configured.");
   }
   const workerId = workerIdentity();
+  const codeSha = workerCodeSha();
   const once = process.env.SENA_WORKFLOW_WORKER_ONCE === "1";
   const idlePollMs = positiveInteger(process.env.SENA_WORKFLOW_WORKER_POLL_MS, 500, 30_000);
   const maxAttempts = positiveInteger(process.env.SENA_WORKFLOW_WORKER_MAX_ATTEMPTS, 5, 20);
@@ -59,6 +72,7 @@ async function main() {
       checkpointer,
       nodeExecutor,
       workerId,
+      workerCodeSha: codeSha,
       leaseMs,
       maxAttempts,
       onError(error) {
@@ -76,6 +90,7 @@ async function main() {
       workerId,
       mode: "postgres-authoritative",
       checkpointSchema: "sena_langgraph",
+      telemetry,
       payloadValuesExcluded: true,
       secretValuesExcluded: true
     })}\n`);

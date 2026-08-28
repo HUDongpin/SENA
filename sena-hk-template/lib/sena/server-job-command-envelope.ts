@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { SenaEnterpriseError } from "./enterprise/errors";
 
 export const SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE = "server-job-command-envelope";
 export const SENA_SERVER_JOB_COMMAND_CUSTODY = "encrypted-upload-v1";
@@ -7,6 +8,7 @@ export type SenaServerJobCommandEnvelopeKind = "publication-export" | "validatio
 
 const serverJobCommandEnvelopeFormat = "sena-server-job-command";
 const serverJobCommandEnvelopeVersion = 1;
+const idempotencyKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 type SenaServerJobCommandEnvelope = {
   format: typeof serverJobCommandEnvelopeFormat;
@@ -18,6 +20,43 @@ type SenaServerJobCommandEnvelope = {
 
 function sha256(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+export function bindSenaServerJobIdempotency(input: {
+  request: Request;
+  kind: SenaServerJobCommandEnvelopeKind;
+  teamId: string;
+  actorUserId: string;
+  projectId?: string;
+}) {
+  const idempotencyKey = input.request.headers.get("idempotency-key")?.trim();
+  if (!idempotencyKey) {
+    throw new SenaEnterpriseError(
+      "Queued SENA server-job mutations require Idempotency-Key.",
+      422,
+      "server_job_idempotency_key_required"
+    );
+  }
+  if (!idempotencyKeyPattern.test(idempotencyKey)) {
+    throw new SenaEnterpriseError(
+      "Queued SENA server-job Idempotency-Key is invalid.",
+      422,
+      "server_job_idempotency_key_invalid"
+    );
+  }
+  const scopeDigest = sha256(Buffer.from([
+    "sena-server-job-idempotency-v1",
+    input.kind,
+    input.teamId,
+    input.actorUserId,
+    input.projectId ?? "",
+    idempotencyKey
+  ].join("\u0000"), "utf8"));
+  return {
+    idempotencyKey,
+    jobId: `server_job_${scopeDigest.slice(0, 24)}`,
+    commandEnvelopeUploadId: `upload_${sha256(Buffer.from(`command-envelope\u0000${scopeDigest}`, "utf8")).slice(0, 24)}`
+  };
 }
 
 export function buildSenaServerJobCommandEnvelope(

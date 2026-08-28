@@ -3,6 +3,7 @@ import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY, planSenaAnalysisQueueCommandCustody } from "../analysis-queue-command";
 import type { SenaEnterpriseSession, SenaEnterpriseSessionContext } from "../enterprise/auth-session";
 import { contextFromDb } from "../enterprise/auth-session";
+import { getEnterpriseClaimEvidencePackageWithPostgresEvidence } from "../enterprise/claim-evidence-package";
 import {
   createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorAsync,
   createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync,
@@ -17,6 +18,7 @@ import {
   getEnterpriseServerJob,
   serverJobQueueStatus,
   stableServerJobPayloadSha256,
+  updateEnterpriseServerJobStatus,
   type SenaEnterpriseServerJob,
   type SenaEnterpriseServerJobKind
 } from "../enterprise/server-job-queue";
@@ -44,6 +46,7 @@ import {
   SENA_SERVER_JOB_COMMAND_CUSTODY
 } from "../server-job-command-envelope";
 import { senaWorkflowDigest } from "./canonical";
+import { senaWorkflowCloseoutCommitment } from "./closeout";
 import {
   senaWorkflowExploratoryPublicationAuthorizationDigest,
   type SenaWorkflowExploratoryPublicationCommandCore
@@ -58,7 +61,7 @@ import type {
   SenaWorkflowNodeStore,
   SenaWorkflowServerJobState
 } from "./node-executor";
-import type { SenaWorkflowArtifact, SenaWorkflowRun } from "./types";
+import type { SenaWorkflowArtifact, SenaWorkflowRun, SenaWorkflowRunEvents } from "./types";
 
 const uploadIdPattern = /^upload_[a-f0-9]{24}$/;
 const publicationFormats = new Set<SenaPublicationFormat>(["html", "svg", "png", "xlsx", "docx", "pdf", "package"]);
@@ -677,6 +680,117 @@ function assertResearchAudit(nodeId: string, report: Awaited<ReturnType<typeof s
   }
 }
 
+const requiredResearchJobNodes = [
+  "import-cleaning",
+  "fusion-analysis",
+  "coding-reliability",
+  "statistical-validation"
+] as const;
+
+async function boundResearchJobEvidence(
+  events: SenaWorkflowRunEvents,
+  nodeIds: readonly string[] = requiredResearchJobNodes
+) {
+  return Promise.all(nodeIds.map(async (nodeId) => {
+    const receipt = events.receipts.find((candidate) => candidate.nodeId === nodeId);
+    const job = receipt?.jobId ? await getEnterpriseServerJob(receipt.jobId) : undefined;
+    const resultReceipt = job?.resultReceipt;
+    const evidence = resultReceipt?.evidence ?? {};
+    return {
+      nodeId,
+      jobId: job?.id,
+      status: job?.status,
+      outputDigest: resultReceipt?.outputDigest,
+      receiptMatches: Boolean(
+        receipt && job?.status === "succeeded" && resultReceipt &&
+        resultReceipt.outputDigest === receipt.outputDigest
+      ),
+      ...(typeof evidence.reliabilityRunId === "string"
+        ? { reliabilityRunId: evidence.reliabilityRunId }
+        : {}),
+      ...(typeof evidence.validationRunId === "string"
+        ? { validationRunId: evidence.validationRunId }
+        : {}),
+      ...(typeof evidence.validationRunEvidenceHash === "string"
+        ? { validationRunEvidenceHash: evidence.validationRunEvidenceHash }
+        : {})
+    };
+  }));
+}
+
+async function runSpecificClaimEvidence(input: {
+  context: SenaEnterpriseSessionContext;
+  run: SenaWorkflowRun;
+  source: Awaited<ReturnType<typeof sourceRevision>>;
+  events: SenaWorkflowRunEvents;
+}) {
+  const terminalJobEvidence = await boundResearchJobEvidence(input.events);
+  const reliability = terminalJobEvidence.find((item) => item.nodeId === "coding-reliability");
+  const validation = terminalJobEvidence.find((item) => item.nodeId === "statistical-validation");
+  const reliabilityRunId = reliability?.reliabilityRunId;
+  const validationRunId = validation?.validationRunId;
+  const validationRunEvidenceHash = validation?.validationRunEvidenceHash;
+  let claimPackage: Awaited<ReturnType<typeof getEnterpriseClaimEvidencePackageWithPostgresEvidence>> | undefined;
+  let packageLoadFailed = false;
+  if (input.run.projectId && reliabilityRunId && validationRunId) {
+    try {
+      claimPackage = await getEnterpriseClaimEvidencePackageWithPostgresEvidence(
+        input.context,
+        { projectId: input.run.projectId },
+        {
+          approvedReliabilityRunId: reliabilityRunId,
+          approvedValidationRunId: validationRunId,
+          claimReadinessSnapshot: input.source.sourceProject.snapshot,
+          claimReadinessReliabilityRunId: reliabilityRunId
+        }
+      );
+    } catch {
+      packageLoadFailed = true;
+    }
+  }
+  const packageReliability = claimPackage?.evidence.reliability;
+  const packageValidation = claimPackage?.evidence.validation;
+  const exactPackageBinding = Boolean(
+    claimPackage &&
+    claimPackage.status === "claim-ready-with-limits" &&
+    claimPackage.project.id === input.run.projectId &&
+    claimPackage.project.teamId === input.run.teamId &&
+    claimPackage.project.currentVersion === input.source.revision.version &&
+    claimPackage.sourceSnapshotEvidence.revisionId === input.run.projectRevisionId &&
+    packageReliability?.runId === reliabilityRunId &&
+    packageValidation?.runId === validationRunId &&
+    packageValidation?.validationRunEvidenceHash === validationRunEvidenceHash
+  );
+  const blockers = [
+    ...(terminalJobEvidence.every((item) => item.receiptMatches)
+      ? []
+      : ["workflow-terminal-job-evidence-required"]),
+    ...(reliabilityRunId ? [] : ["workflow-reliability-run-id-required"]),
+    ...(validationRunId && validationRunEvidenceHash
+      ? []
+      : ["workflow-validation-run-evidence-required"]),
+    ...(packageLoadFailed ? ["workflow-claim-evidence-package-invalid"] : []),
+    ...(claimPackage?.blockers ?? []),
+    ...(exactPackageBinding ? [] : ["workflow-run-specific-claim-package-required"])
+  ];
+  const projection = {
+    terminalJobEvidence,
+    reliabilityRunId: reliabilityRunId ?? null,
+    validationRunId: validationRunId ?? null,
+    validationRunEvidenceHash: validationRunEvidenceHash ?? null,
+    claimPackageStatus: claimPackage?.status ?? "not-available",
+    claimPackageSnapshotSha256: claimPackage?.sourceSnapshotEvidence.snapshotSha256 ?? null,
+    claimPackageReliabilityRunId: claimPackage?.evidence.reliability?.runId ?? null,
+    claimPackageValidationRunId: claimPackage?.evidence.validation?.runId ?? null,
+    blockers: [...new Set(blockers)].sort()
+  };
+  return {
+    ...projection,
+    evidenceDigest: senaWorkflowDigest(projection),
+    ready: exactPackageBinding && projection.blockers.length === 0
+  };
+}
+
 export function createSenaWorkflowServerJobOperationAdapter(input: {
   store: SenaWorkflowNodeStore;
 }): SenaWorkflowNodeOperationAdapter {
@@ -691,6 +805,22 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
         throw new Error("SENA workflow server-job id does not match its deterministic effect key.");
       }
       return workflowJobState(await getEnterpriseServerJob(operation.jobId));
+    },
+
+    async retryServerJob(operation) {
+      const expectedJobId = deterministicJobId(operation.effectKey);
+      if (operation.jobId !== expectedJobId) {
+        throw new Error("SENA workflow retry does not match its deterministic server-job binding.");
+      }
+      const current = await getEnterpriseServerJob(operation.jobId);
+      if (current.status !== "failed" || current.lifecycle.retryable !== true) {
+        throw new Error("SENA workflow retry requires one failed, retryable, source-ready local server job.");
+      }
+      const retried = await updateEnterpriseServerJobStatus({
+        jobId: current.id,
+        action: "retry"
+      });
+      return workflowJobState(retried.job);
     },
 
     async prepareHumanGate(operation) {
@@ -724,6 +854,14 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
             sourceProject: resolved.sourceProject
           })
         : undefined;
+      const events = resolved && ["adjudication-gate", "expert-review-gate"].includes(operation.node.id)
+        ? await input.store.runEvents(operation.run.id, operation.run.teamId)
+        : undefined;
+      const runSpecificGateEvidence = resolved && events
+        ? operation.node.id === "adjudication-gate"
+          ? await boundResearchJobEvidence(events, ["coding-reliability"])
+          : await runSpecificClaimEvidence({ context, run: operation.run, source: resolved, events })
+        : undefined;
       return {
         candidateOutputDigest: senaWorkflowDigest({
           runId: operation.run.id,
@@ -732,6 +870,7 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
           predecessorReceiptHashes: operation.predecessorReceiptHashes,
           sourceBindingDigest: operation.run.sourceBindingDigest,
           ...(governancePreflight ? { governancePreflight: governancePreflight.evidence } : {}),
+          ...(runSpecificGateEvidence ? { runSpecificGateEvidence } : {}),
           sourceReviewEvidence: resolved ? {
             dataGovernance: resolved.sourceProject.snapshot.report.dataGovernance,
             codingReliabilityGate: resolved.sourceProject.snapshot.report.codingReliabilityGate,
@@ -768,6 +907,41 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
           artifacts: [resultReceiptArtifact],
           artifactReferences: operation.job.artifactReferences ?? [],
           jobReferences: [operation.job.id]
+        };
+      }
+      if (operation.node.id === "evidence-closeout") {
+        const events = await input.store.runEvents(operation.run.id, operation.run.teamId);
+        const projectedRun: SenaWorkflowRun = {
+          ...operation.run,
+          status: "succeeded",
+          currentNodeId: "evidence-closeout",
+          pendingInterrupt: undefined,
+          ...(operation.state.claimBoundary ? { claimBoundary: operation.state.claimBoundary } : {}),
+          evidenceLayers: {
+            ...operation.state.evidenceLayers,
+            [operation.node.evidenceLayer]: "passed"
+          }
+        };
+        const commitment = senaWorkflowCloseoutCommitment({ ...events, run: projectedRun });
+        const artifact: SenaWorkflowArtifact = {
+          id: `workflow_artifact_${senaWorkflowDigest({
+            runId: operation.run.id,
+            nodeId: operation.node.id,
+            commitment
+          }).slice(0, 24)}`,
+          runId: operation.run.id,
+          nodeId: operation.node.id,
+          filename: "sena-workflow-closeout.json",
+          schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+          sha256: commitment,
+          storageReference: `workflow-closeout:${operation.run.id}#commitment-v1`,
+          evidenceLayer: operation.node.evidenceLayer,
+          createdAt: operation.run.updatedAt
+        };
+        return {
+          outputDigest: commitment,
+          artifacts: [artifact],
+          artifactReferences: [artifact.id]
         };
       }
       if (operation.run.kind === "engineering-release") {
@@ -904,31 +1078,12 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
           resultReceiptDigest: resultReceipt.outputDigest
         };
       }
-      const requiredResearchJobNodes = [
-        "import-cleaning",
-        "fusion-analysis",
-        "coding-reliability",
-        "statistical-validation"
-      ];
-      const terminalJobEvidence = operation.node.id === "claim-readiness"
-        ? await Promise.all(requiredResearchJobNodes.map(async (nodeId) => {
-            const receipt = events.receipts.find((candidate) => candidate.nodeId === nodeId);
-            const job = receipt?.jobId ? await getEnterpriseServerJob(receipt.jobId) : undefined;
-            return {
-              nodeId,
-              jobId: job?.id,
-              status: job?.status,
-              receiptMatches: Boolean(
-                receipt && job?.status === "succeeded" && job.resultReceipt &&
-                job.resultReceipt.outputDigest === receipt.outputDigest
-              )
-            };
-          }))
-        : [];
+      const claimEvidence = operation.node.id === "claim-readiness"
+        ? await runSpecificClaimEvidence({ context, run: operation.run, source: resolved, events })
+        : undefined;
       const claimBoundary = operation.node.id === "claim-readiness"
         ? operation.run.researchSourceClass === "approved-pseudonymized" &&
-          report.claimReadinessGate.status === "ready" &&
-          terminalJobEvidence.every((item) => item.receiptMatches) &&
+          claimEvidence?.ready === true &&
           ["adjudication-gate", "expert-review-gate"].every((nodeId) => events.approvals.some(
             (approval) => approval.nodeId === nodeId && approval.decision === "approve"
           ))
@@ -962,7 +1117,7 @@ export function createSenaWorkflowServerJobOperationAdapter(input: {
                               researchSourceClass: operation.run.researchSourceClass,
                               fixtureEvidenceExcludedFromInferenceReadiness:
                                 operation.run.researchSourceClass === "fixture",
-                              terminalJobEvidence
+                              runSpecificClaimEvidence: claimEvidence
                             }
                           : operation.node.id === "package-verification"
                             ? packageVerificationEvidence

@@ -325,4 +325,52 @@ describe("SENA authoritative workflow node executor", () => {
     expect(materializations).toBe(0);
     expect(memory.receipts).toHaveLength(0);
   });
+
+  it("requeues the exact failed server job before resuming a retryable node", async () => {
+    const run = runFixture();
+    const memory = inMemoryStore(run);
+    let status: "failed" | "queued" = "failed";
+    let retryCalls = 0;
+    const operations: SenaWorkflowNodeOperationAdapter = {
+      async materialize() {
+        throw new Error("a retried queued job must interrupt before materialization");
+      },
+      async ensureServerJob() {
+        return { id: "server_job_retryable", status };
+      },
+      async readServerJob(input) {
+        return { id: input.jobId, status };
+      },
+      async retryServerJob(input) {
+        retryCalls += 1;
+        status = "queued";
+        return { id: input.jobId, status };
+      }
+    };
+    const executor = createSenaWorkflowGraphNodeExecutor({ store: memory.store, operations });
+    const base = {
+      state: graphState(run),
+      node: node("import-cleaning"),
+      inputDigest: "a".repeat(64),
+      predecessorReceiptHashes: ["b".repeat(64)]
+    };
+    const failed = await executor.execute(base);
+    expect(failed).toMatchObject({
+      kind: "blocked",
+      blocker: { code: "workflow_job_failed", jobId: "server_job_retryable", retryable: true }
+    });
+    if (failed.kind !== "blocked") throw new Error("expected failed-job blocker");
+
+    const retried = await executor.execute({
+      ...base,
+      resume: {
+        action: "retry",
+        interruptId: failed.interruptId,
+        jobId: "server_job_retryable"
+      }
+    });
+    expect(retried).toMatchObject({ kind: "waiting-job", jobId: "server_job_retryable" });
+    expect(retryCalls).toBe(1);
+    expect(memory.receipts).toHaveLength(0);
+  });
 });

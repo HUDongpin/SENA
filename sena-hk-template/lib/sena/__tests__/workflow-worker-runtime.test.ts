@@ -6,6 +6,7 @@ import { researchEvidenceGraphV1 } from "../workflow/definitions";
 import { createSenaWorkflowGraphNodeExecutor, type SenaWorkflowNodeOperationAdapter } from "../workflow/node-executor";
 import {
   createSenaWorkflowWorkerRuntime,
+  senaWorkflowSettledPatch,
   type SenaWorkflowWorkerStore
 } from "../workflow/worker-runtime";
 import type {
@@ -148,7 +149,12 @@ function runtimeFixture() {
     async failCommand(input) {
       const command = commands.find((candidate) => candidate.id === input.commandId);
       if (!command) throw new Error("missing command");
-      command.status = input.retryable ? "pending" : "failed";
+      const maxAttempts = input.maxAttempts ?? 5;
+      command.status = input.retryable && command.attempts < maxAttempts
+        ? "pending"
+        : command.attempts >= maxAttempts
+          ? "dead_lettered"
+          : "failed";
       command.errorClass = input.errorClass;
       command.errorHash = input.errorHash;
       command.updatedAt = input.failedAt;
@@ -163,6 +169,9 @@ function runtimeFixture() {
     commands,
     get run() {
       return run;
+    },
+    setRun(patch: Partial<SenaWorkflowRun>) {
+      run = { ...run, ...patch };
     }
   };
 }
@@ -210,6 +219,7 @@ describe("SENA durable workflow worker runtime", () => {
       checkpointer,
       nodeExecutor,
       workerId: "workflow-worker-a",
+      workerCodeSha: fixture.run.codeSha,
       now: () => "2026-08-28T00:01:30.000Z",
       onError: (error) => {
         capturedError = error;
@@ -270,6 +280,7 @@ describe("SENA durable workflow worker runtime", () => {
       checkpointer,
       nodeExecutor,
       workerId: "workflow-worker-b",
+      workerCodeSha: fixture.run.codeSha,
       now: () => "2026-08-28T00:03:00.000Z"
     });
     const afterRestart = await restartedWorker.runOnce();
@@ -278,5 +289,88 @@ describe("SENA durable workflow worker runtime", () => {
     expect(createdJobs).toBe(2);
     expect(fixture.receipts.filter((receipt) => receipt.nodeId === "import-cleaning")).toHaveLength(1);
     expect(fixture.commands.every((command) => command.status === "completed")).toBe(true);
+  });
+
+  it("persists graph-derived claim and evidence state at every durable interrupt", () => {
+    const fixture = runtimeFixture();
+    const patch = senaWorkflowSettledPatch({
+      run: fixture.run,
+      output: {
+        workflowStatus: "running",
+        claimBoundary: "inference-ready",
+        evidenceLayers: {
+          ...fixture.run.evidenceLayers,
+          source: "passed",
+          local: "passed"
+        },
+        jobReferences: ["server_job_claim_ready"]
+      } as never,
+      interrupt: {
+        kind: "waiting-job",
+        nodeId: "publication-export",
+        interruptId: "interrupt-publication",
+        checkpointId: "checkpoint-publication",
+        inputDigest: "1".repeat(64),
+        jobId: "server_job_publication"
+      }
+    });
+
+    expect(patch).toMatchObject({
+      status: "waiting_job",
+      claimBoundary: "inference-ready",
+      evidenceLayers: { source: "passed", local: "passed" },
+      jobReferences: ["server_job_claim_ready", "server_job_publication"],
+      pendingInterrupt: { checkpointId: "checkpoint-publication" }
+    });
+  });
+
+  it("treats a delayed cancel as a no-op after a run is superseded", async () => {
+    const fixture = runtimeFixture();
+    fixture.setRun({ status: "superseded", supersededByRunId: "workflow-run-newer" });
+    fixture.enqueue("cancel", { action: "cancel", reasonCode: "source-drift" }, "workflow-command-cancel-late");
+    const worker = createSenaWorkflowWorkerRuntime({
+      store: fixture.store,
+      checkpointer: new MemorySaver(),
+      nodeExecutor: createSenaWorkflowGraphNodeExecutor({
+        store: fixture.store,
+        operations: {
+          async materialize() { throw new Error("terminal run must not execute"); },
+          async ensureServerJob() { throw new Error("terminal run must not enqueue"); },
+          async readServerJob() { throw new Error("terminal run must not read jobs"); }
+        }
+      }),
+      workerId: "workflow-worker-terminal-fence",
+      workerCodeSha: fixture.run.codeSha
+    });
+
+    const result = await worker.runOnce();
+    expect(result).toMatchObject({ status: "processed", run: { status: "superseded" } });
+    expect(fixture.run.supersededByRunId).toBe("workflow-run-newer");
+  });
+
+  it("fails closed when the executing worker SHA differs from the run binding", async () => {
+    const fixture = runtimeFixture();
+    fixture.enqueue("start", { action: "start" }, "workflow-command-sha-drift");
+    let captured: unknown;
+    const worker = createSenaWorkflowWorkerRuntime({
+      store: fixture.store,
+      checkpointer: new MemorySaver(),
+      nodeExecutor: createSenaWorkflowGraphNodeExecutor({
+        store: fixture.store,
+        operations: {
+          async materialize() { throw new Error("drifted worker must not execute"); },
+          async ensureServerJob() { throw new Error("drifted worker must not enqueue"); },
+          async readServerJob() { throw new Error("drifted worker must not read jobs"); }
+        }
+      }),
+      workerId: "workflow-worker-sha-drift",
+      workerCodeSha: "f".repeat(40),
+      maxAttempts: 1,
+      onError(error) { captured = error; }
+    });
+
+    const result = await worker.runOnce();
+    expect(result).toMatchObject({ status: "failed", command: { status: "dead_lettered" } });
+    expect(String(captured)).toContain("worker build SHA");
   });
 });

@@ -41,12 +41,62 @@ function addIf(condition: boolean, issues: Set<string>, code: string) {
   if (condition) issues.add(code);
 }
 
+const closeoutNodeId = "evidence-closeout";
+const closeoutFilename = "sena-workflow-closeout.json";
+
+export function senaWorkflowCloseoutCommitment(input: SenaWorkflowRunEvents) {
+  return senaWorkflowDigest({
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment,
+    run: {
+      id: input.run.id,
+      kind: input.run.kind,
+      teamId: input.run.teamId,
+      definitionHash: input.run.definitionHash,
+      sourceBindingDigest: input.run.sourceBindingDigest,
+      codeSha: input.run.codeSha,
+      configDigest: input.run.configDigest,
+      claimBoundary: input.run.claimBoundary ?? null,
+      evidenceLayers: input.run.evidenceLayers
+    },
+    receipts: input.receipts
+      .filter((receipt) => receipt.nodeId !== closeoutNodeId)
+      .map((receipt) => ({
+        nodeId: receipt.nodeId,
+        inputDigest: receipt.inputDigest,
+        outputDigest: receipt.outputDigest,
+        auditChainHead: receipt.auditChainHead,
+        predecessorReceiptHashes: receipt.predecessorReceiptHashes,
+        jobId: receipt.jobId ?? null,
+        artifactReferences: receipt.artifactReferences
+      })),
+    approvals: input.approvals.map((approval) => ({
+      nodeId: approval.nodeId,
+      interruptId: approval.interruptId,
+      inputDigest: approval.inputDigest,
+      candidateOutputDigest: approval.candidateOutputDigest,
+      decision: approval.decision,
+      decisionDigest: approval.decisionDigest
+    })),
+    artifacts: input.artifacts
+      .filter((artifact) => !(artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename))
+      .map((artifact) => ({
+        nodeId: artifact.nodeId,
+        filename: artifact.filename,
+        schemaVersion: artifact.schemaVersion,
+        sha256: artifact.sha256,
+        evidenceLayer: artifact.evidenceLayer
+      }))
+  });
+}
+
 export function auditSenaWorkflowCloseoutInput(input: SenaWorkflowRunEvents): SenaWorkflowCloseoutAudit {
   const issues = new Set<string>();
   const { run, commands, receipts, approvals, artifacts } = input;
   let definitionHash: string | undefined;
+  let definition: ReturnType<typeof senaWorkflowDefinition> | undefined;
   try {
-    definitionHash = senaWorkflowDefinition(run.kind).definitionHash;
+    definition = senaWorkflowDefinition(run.kind);
+    definitionHash = definition.definitionHash;
   } catch {
     issues.add("run-definition-unsupported");
   }
@@ -89,6 +139,67 @@ export function auditSenaWorkflowCloseoutInput(input: SenaWorkflowRunEvents): Se
   addIf(run.auditChainHead !== previousHead, issues, "run-audit-head-mismatch");
   addIf(!sameStringSet(run.approvalReferences, approvals.map((approval) => approval.id)), issues, "run-approval-reference-mismatch");
   addIf(!sameStringSet(run.artifactReferences, artifacts.map((artifact) => artifact.id)), issues, "run-artifact-reference-mismatch");
+
+  if (run.status === "succeeded" && definition) {
+    const receiptsByNode = new Map<string, SenaWorkflowStepReceipt[]>();
+    for (const receipt of receipts) {
+      receiptsByNode.set(receipt.nodeId, [...(receiptsByNode.get(receipt.nodeId) ?? []), receipt]);
+    }
+    const definitionNodeIds = new Set(definition.nodes.map((node) => node.id));
+    addIf(
+      receipts.some((receipt) => !definitionNodeIds.has(receipt.nodeId)),
+      issues,
+      "succeeded-graph-unknown-node-receipt"
+    );
+    for (const node of definition.nodes) {
+      const matches = receiptsByNode.get(node.id) ?? [];
+      addIf(matches.length === 0, issues, "succeeded-graph-node-receipt-missing");
+      addIf(matches.length > 1, issues, "succeeded-graph-node-receipt-duplicate");
+      const receipt = matches[0];
+      if (!receipt) continue;
+      addIf(receipt.evidenceLayer !== node.evidenceLayer, issues, "succeeded-graph-evidence-layer-mismatch");
+      const expectedPredecessors = definition.edges
+        .filter((edge) => edge.to === node.id)
+        .map((edge) => receiptsByNode.get(edge.from)?.[0]?.auditChainHead)
+        .filter((value): value is string => Boolean(value));
+      addIf(
+        !sameStringSet(receipt.predecessorReceiptHashes, expectedPredecessors),
+        issues,
+        "succeeded-graph-predecessor-mismatch"
+      );
+      if (node.effect === "human-interrupt") {
+        addIf(
+          !approvals.some((approval) => (
+            approval.nodeId === node.id &&
+            approval.inputDigest === receipt.inputDigest &&
+            approval.decision === "approve"
+          )),
+          issues,
+          "succeeded-graph-approval-missing"
+        );
+      }
+      if (node.effect === "server-job") {
+        addIf(!receipt.jobId, issues, "succeeded-graph-job-binding-missing");
+        addIf(
+          Boolean(receipt.jobId) && !run.jobReferences.includes(receipt.jobId!),
+          issues,
+          "succeeded-graph-job-reference-missing"
+        );
+      }
+    }
+    const finalReceipt = receiptsByNode.get(closeoutNodeId)?.[0];
+    const commitmentArtifact = artifacts.find((artifact) => (
+      artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename
+    ));
+    const commitment = senaWorkflowCloseoutCommitment(input);
+    addIf(!finalReceipt || finalReceipt.sequence !== receipts.length, issues, "succeeded-closeout-receipt-not-final");
+    addIf(finalReceipt?.outputDigest !== commitment, issues, "succeeded-closeout-commitment-mismatch");
+    addIf(
+      !commitmentArtifact || commitmentArtifact.sha256 !== commitment,
+      issues,
+      "succeeded-closeout-artifact-missing"
+    );
+  }
 
   if (run.kind === "research-evidence") {
     addIf(run.claimBoundary !== "exploratory-only" && run.claimBoundary !== "inference-ready", issues, "research-claim-boundary-missing");
@@ -236,6 +347,17 @@ export function buildSenaWorkflowCloseout(
   return {
     ...core,
     closeoutArtifact,
-    closeoutDigest
+    closeoutDigest,
+    ...(input.run.status === "succeeded"
+      ? {
+          closeoutCommitment: {
+            nodeId: closeoutNodeId as "evidence-closeout",
+            receiptOutputDigest: input.receipts.find((receipt) => receipt.nodeId === closeoutNodeId)!.outputDigest,
+            artifactSha256: input.artifacts.find((artifact) => (
+              artifact.nodeId === closeoutNodeId && artifact.filename === closeoutFilename
+            ))!.sha256
+          }
+        }
+      : {})
   };
 }

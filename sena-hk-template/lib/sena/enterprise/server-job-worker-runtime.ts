@@ -396,7 +396,7 @@ async function executeImportJob(
   const contents = await readEnterpriseUploadContentsAsync(context, { teamId, uploadIds });
   const result = await importSenaEnterpriseFiles(contents.map(importAdapterFile));
   const dataGovernance = payload.dataGovernance as SenaAnalysisRunInput["dataGovernance"] | undefined;
-  const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, now());
+  const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, job.queuedAt);
   const importDatasetContentHash = buildSenaDatasetContentHash(dataset);
   const importCleaningManifestSha256 = sha256Json(result.cleaningManifest);
 
@@ -406,7 +406,8 @@ async function executeImportJob(
     sources: result.sources,
     warnings: result.warnings,
     dataset,
-    cleaningManifest: result.cleaningManifest
+    cleaningManifest: result.cleaningManifest,
+    executionIdempotency: { key: job.id, createdAt: job.queuedAt }
   });
   const warningCountByName = new Map(result.sources.map((source) => [source.name, source.warnings.length]));
   await reportUploadParseWarnings(teamId, contents.flatMap((content) => {
@@ -422,7 +423,7 @@ async function executeImportJob(
     };
   }
 
-  const title = optionalString(payload.title) ?? `Imported SENA Project ${new Date().toISOString().slice(0, 10)}`;
+  const title = optionalString(payload.title) ?? `Imported SENA Project ${job.queuedAt.slice(0, 10)}`;
   const run = buildSenaAnalysisRun({
     sourceKind: "dataset",
     dataset,
@@ -431,18 +432,21 @@ async function executeImportJob(
     activeTemporalWindowId: optionalString(payload.activeTemporalWindowId),
     includeRuntimeBundle: payload.includeRuntimeBundle === true,
     codingReliability: sanitizeSenaClientCodingReliability(payload.codingReliability),
-    dataGovernance
+    dataGovernance,
+    generatedAt: job.queuedAt
   });
   const persistedProject = await createEnterpriseProjectAsync(context, {
     teamId,
     title,
     description: optionalString(payload.description) ?? `Created from import run ${importRun.id}.`,
-    snapshot: run.projectSnapshot
+    snapshot: run.projectSnapshot,
+    executionIdempotency: { key: `${job.id}:project`, createdAt: job.queuedAt }
   });
   const analysisRun = await createEnterpriseAnalysisRunWithPostgresMirrorAsync(context, {
     teamId,
     persistedProjectId: persistedProject.id,
-    run
+    run,
+    executionIdempotency: { key: `${job.id}:analysis`, createdAt: job.queuedAt }
   });
 
   return {
@@ -549,7 +553,8 @@ async function executeReliabilityUploadsJob(
       sha256: content.upload.sha256
     })),
     dashboard,
-    reviewPatch: reliabilityDashboardToReview(dashboard, reviewer)
+    reviewPatch: reliabilityDashboardToReview(dashboard, reviewer),
+    executionIdempotency: { key: job.id, createdAt: job.queuedAt }
   });
   await reportUploadParseWarnings(teamId, contents.map((content, index) => ({
     uploadId: content.upload.id,
@@ -578,7 +583,8 @@ async function executeReliabilityJsonUploadJob(
     skippedCells: admission.skippedCells,
     inputFiles: admission.inputFiles,
     dashboard: admission.dashboard,
-    reviewPatch: reliabilityDashboardToReview(admission.dashboard, reviewer)
+    reviewPatch: reliabilityDashboardToReview(admission.dashboard, reviewer),
+    executionIdempotency: { key: job.id, createdAt: job.queuedAt }
   });
   const reliabilityRun = (response.body as { reliabilityRun?: { id?: string } }).reliabilityRun;
   return { reliabilityRunId: reliabilityRun?.id };
@@ -823,7 +829,10 @@ async function executeAnalysisJob(
     codingReliability: payload.codingReliability,
     dataGovernance: payload.dataGovernance
   };
-  const run = buildSenaAnalysisRun(buildSenaAnalysisRunRequestInput({ body, sourceProject }));
+  const run = buildSenaAnalysisRun({
+    ...buildSenaAnalysisRunRequestInput({ body, sourceProject }),
+    generatedAt: job.queuedAt
+  });
 
   const persist = payload.persist === true;
   const updateExistingProject = persist && payload.updateProject !== false;
@@ -833,7 +842,8 @@ async function executeAnalysisJob(
         title: optionalString(payload.title),
         description: typeof payload.description === "string" ? payload.description : undefined,
         expectedVersion,
-        snapshot: run.projectSnapshot
+        snapshot: run.projectSnapshot,
+        executionIdempotency: { key: `${job.id}:project-update`, createdAt: job.queuedAt }
       })
       : await createEnterpriseProjectAsync(context, {
         teamId: job.teamId,
@@ -841,7 +851,8 @@ async function executeAnalysisJob(
         description: typeof payload.description === "string"
           ? payload.description
           : "Created by /api/sena/analyze.",
-        snapshot: run.projectSnapshot
+        snapshot: run.projectSnapshot,
+        executionIdempotency: { key: `${job.id}:project-create`, createdAt: job.queuedAt }
       })
     : null;
 
@@ -849,7 +860,8 @@ async function executeAnalysisJob(
     teamId: job.teamId,
     projectId: sourceProject.id,
     persistedProjectId: persistedProject?.id,
-    run
+    run,
+    executionIdempotency: { key: `${job.id}:analysis`, createdAt: job.queuedAt }
   });
 
   return {

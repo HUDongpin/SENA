@@ -18,6 +18,12 @@ import {
   rolePermissions
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
+import {
+  assertSenaEnterpriseExecutionIdempotency,
+  assertSenaEnterpriseIdempotentResult,
+  senaEnterpriseExecutionId,
+  type SenaEnterpriseExecutionIdempotency
+} from "./execution-idempotency";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import {
   enterpriseProjectBindingSnapshotSha256,
@@ -1586,6 +1592,7 @@ type CreateEnterpriseImportRunInput = {
   warnings: string[];
   dataset: SenaDataset;
   cleaningManifest?: SenaEnterpriseImportCleaningManifest;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 };
 
 function createEnterpriseImportRunInDb(
@@ -1596,9 +1603,10 @@ function createEnterpriseImportRunInDb(
   requireEnterprisePermission(context, input.teamId, "upload:create");
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Import");
   const sourceProfiles = Array.from(new Set(input.sources.map((source) => source.profile)));
   const run: SenaEnterpriseImportRun = {
-    id: id("import"),
+    id: execution ? senaEnterpriseExecutionId("import", execution.key) : id("import"),
     teamId: input.teamId,
     userId: context.user.id,
     status: input.warnings.length > 0 ? "completed-with-warnings" : "completed",
@@ -1614,8 +1622,15 @@ function createEnterpriseImportRunInDb(
     warningsPreview: input.warnings.slice(0, 10),
     cleaningManifest: input.cleaningManifest,
     datasetCounts: datasetCountsFromDataset(input.dataset),
-    createdAt: now()
+    createdAt: execution?.createdAt ?? now()
   };
+  const existing = assertSenaEnterpriseIdempotentResult({
+    existing: db.importRuns.find((candidate) => candidate.id === run.id),
+    candidate: run,
+    context: "Import",
+    code: "import_execution_idempotency_conflict"
+  });
+  if (existing) return existing;
   db.importRuns.unshift(run);
   db.importRuns = db.importRuns.slice(0, 1000);
   appendAudit(db, {
@@ -1693,6 +1708,7 @@ type CreateEnterpriseAnalysisRunInput = {
   projectId?: string;
   persistedProjectId?: string;
   run: SenaAnalysisRunArtifact;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 };
 
 const SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT = 1000;
@@ -1732,8 +1748,9 @@ function createEnterpriseAnalysisRunInDb(
     }
     requireEnterprisePermission(context, project.teamId, "analysis:run");
   }
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Analysis");
   const run: SenaEnterpriseAnalysisRun = {
-    id: id("analysis"),
+    id: execution ? senaEnterpriseExecutionId("analysis", execution.key) : id("analysis"),
     teamId: input.teamId,
     projectId: input.projectId,
     persistedProjectId: input.persistedProjectId,
@@ -1751,8 +1768,15 @@ function createEnterpriseAnalysisRunInDb(
       projectSnapshotBindingSha256: enterpriseProjectBindingSnapshotSha256(input.run.projectSnapshot),
       runtimeBundleSha256: input.run.runtimeBundle ? artifactSha256(input.run.runtimeBundle) : undefined
     },
-    createdAt: input.run.generatedAt
+    createdAt: execution?.createdAt ?? input.run.generatedAt
   };
+  const existing = assertSenaEnterpriseIdempotentResult({
+    existing: db.analysisRuns.find((candidate) => candidate.id === run.id),
+    candidate: run,
+    context: "Analysis",
+    code: "analysis_execution_idempotency_conflict"
+  });
+  if (existing) return existing;
   db.analysisRuns.unshift(run);
   db.analysisRuns = retainRecentAndValidationReferencedAnalysisRuns(db);
   appendAudit(db, {

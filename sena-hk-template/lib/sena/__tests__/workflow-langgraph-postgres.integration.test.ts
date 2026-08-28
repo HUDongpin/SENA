@@ -1,5 +1,10 @@
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import { describe, expect, it } from "vitest";
-import { runEvidenceFlowPostgresCompatibilityProbe } from "../workflow/langgraph-compatibility";
+import {
+  createEvidenceFlowPostgresSaver,
+  runEvidenceFlowPostgresCompatibilityProbe
+} from "../workflow/langgraph-compatibility";
+import { senaWorkflowCheckpointExists } from "../workflow/postgres-runtime";
 
 const postgresUrl = process.env.SENA_WORKFLOW_TEST_POSTGRES_URL;
 const describeWithPostgres = postgresUrl ? describe : describe.skip;
@@ -23,5 +28,43 @@ describeWithPostgres("SENA EvidenceFlow PostgresSaver integration", () => {
     expect(serializedSnapshots).not.toContain("rawRows");
     expect(serializedSnapshots).not.toContain("providerSecret");
     expect(serializedSnapshots).not.toContain("person@example.com");
+  });
+
+  it("validates an exact fork checkpoint against the persisted source thread", async () => {
+    const checkpointState = Annotation.Root({ marker: Annotation<string> });
+    const threadId = `workflow-checkpoint-existence-${process.pid}-${Date.now()}`;
+    const saver = createEvidenceFlowPostgresSaver(postgresUrl!);
+    await saver.setup();
+    try {
+      const graph = new StateGraph(checkpointState)
+        .addNode("finish", () => ({ marker: "checkpoint-safe" }))
+        .addEdge(START, "finish")
+        .addEdge("finish", END)
+        .compile({ checkpointer: saver });
+      const config = { configurable: { thread_id: threadId } };
+      await graph.invoke({ marker: "initial" }, config);
+      const snapshot = await graph.getState(config);
+      const checkpointId = snapshot.config.configurable?.checkpoint_id;
+      expect(typeof checkpointId).toBe("string");
+
+      await saver.end();
+      expect(await senaWorkflowCheckpointExists({
+        runId: threadId,
+        checkpointId: checkpointId as string,
+        env: { SENA_ENTERPRISE_POSTGRES_URL: postgresUrl }
+      })).toBe(true);
+      expect(await senaWorkflowCheckpointExists({
+        runId: `${threadId}-other-run`,
+        checkpointId: checkpointId as string,
+        env: { SENA_ENTERPRISE_POSTGRES_URL: postgresUrl }
+      })).toBe(false);
+
+      const cleanupSaver = createEvidenceFlowPostgresSaver(postgresUrl!);
+      await cleanupSaver.setup();
+      await cleanupSaver.deleteThread(threadId);
+      await cleanupSaver.end();
+    } finally {
+      await saver.end().catch(() => undefined);
+    }
   });
 });

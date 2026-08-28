@@ -120,9 +120,9 @@ describe("SENA enterprise Postgres live probe", () => {
         tableCount: 20,
         productionTableCount: 19,
         verifierTableCount: 1,
-        indexCount: 70,
-        uniqueIndexCount: 9,
-        ddlStatementCount: 97,
+        indexCount: 71,
+        uniqueIndexCount: 10,
+        ddlStatementCount: 98,
         destructiveDdlStatementCount: 0,
         migrationMode: "create-if-not-exists"
       }),
@@ -150,6 +150,7 @@ describe("SENA enterprise Postgres live probe", () => {
       "sena_enterprise_server_jobs_status_updated_idx",
       "sena_enterprise_observed_requests_error_idx",
       "sena_workflow_runs_team_start_idempotency_uidx",
+      "sena_workflow_commands_run_claimed_uidx",
       "sena_workflow_commands_claim_idx",
       "sena_workflow_step_receipts_effect_uidx"
     ]));
@@ -178,9 +179,9 @@ describe("SENA enterprise Postgres live probe", () => {
       tableCount: 20,
       productionTableCount: 19,
       verifierTableCount: 1,
-      indexCount: 70,
-      uniqueIndexCount: 9,
-      ddlStatementCount: 97,
+      indexCount: 71,
+      uniqueIndexCount: 10,
+      ddlStatementCount: 98,
       destructiveDdlStatementCount: 0
     }));
     expect(contract.evidence).toEqual(expect.arrayContaining([

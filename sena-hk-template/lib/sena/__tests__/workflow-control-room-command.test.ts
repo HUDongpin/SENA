@@ -115,4 +115,19 @@ describe("EvidenceFlow progressive form command adapter", () => {
     expect(verifyCsrf).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
   });
+
+  it("bounds a chunked form even when Content-Length is absent", async () => {
+    const { POST } = await import("../../../app/workspace/sena/automation/command/route");
+    const request = new Request("https://sena.example.test/workspace/sena/automation/command", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `payload=${"x".repeat(64 * 1024 + 1)}`
+    });
+    expect(request.headers.get("content-length")).toBeNull();
+    const response = await POST(request);
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain("error=workflow_form_too_large");
+    expect(requireApiSession).not.toHaveBeenCalled();
+  });
 });

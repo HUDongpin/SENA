@@ -492,7 +492,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
         { status: 202, contentTypes: ["application/json"] }
       ]
     },
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: false,
+      description: "Required when POST is admitted to the asynchronous queue; binds one logical validation request to one command envelope and job."
+    }],
     errorResponses: [
+      { status: 409, code: "server_job_idempotency_conflict", description: "The queued Idempotency-Key is already bound to different validation evidence.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_required", description: "An asynchronously queued validation mutation omitted Idempotency-Key.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_invalid", description: "The queued validation Idempotency-Key is malformed or exceeds its bounded length.", methods: ["POST"] },
       { status: 400, code: "validation_request_content_type_invalid", description: "The validation mutation media type is not application/json.", methods: ["POST", "PATCH"] },
       { status: 400, code: "validation_request_invalid", description: "The admitted validation request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST", "PATCH"] },
       { status: 400, code: "validation_request_fields_invalid", description: "The validation control envelope has unsupported fields, exceeds the 40-comparison fan-out limit, or exceeds its text/structure budgets.", methods: ["POST", "PATCH"] },
@@ -566,7 +575,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     requestBodyContentTypesByMethod: {
       POST: ["application/json"]
     },
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: false,
+      description: "Required when publication is queued; binds one logical export request to one command envelope, job, and artifact."
+    }],
     errorResponses: [
+      { status: 409, code: "server_job_idempotency_conflict", description: "The queued Idempotency-Key is already bound to different publication evidence.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_required", description: "An asynchronously queued publication mutation omitted Idempotency-Key.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_invalid", description: "The queued publication Idempotency-Key is malformed or exceeds its bounded length.", methods: ["POST"] },
       {
         status: 400,
         code: "publication_export_content_type_invalid",

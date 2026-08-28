@@ -590,6 +590,24 @@ describe("SENA workflow API action contract", () => {
       researchSourceClass: "fixture",
       uploadBindings: WORKFLOW_UPLOAD_BINDINGS
     });
+    await expect(performSenaWorkflowAction({
+      context: context(),
+      runId: run.id,
+      body: {
+        action: "fork",
+        expectedVersion: run.version,
+        checkpointId: "checkpoint-missing",
+        newSourceBindingDigest
+      },
+      idempotencyKey: "workflow-fork-missing-checkpoint",
+      store: memory.store,
+      codeSha: "9".repeat(40),
+      validateCheckpoint: async () => false,
+      resolveCurrentResearchRevision: async () => resolved as unknown as Awaited<
+        ReturnType<typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync>
+      >
+    })).rejects.toMatchObject({ status: 409, code: "workflow_checkpoint_not_found" });
+    expect(memory.commandWrites).toBe(0);
     const result = await performSenaWorkflowAction({
       context: context(),
       runId: run.id,
@@ -603,6 +621,9 @@ describe("SENA workflow API action contract", () => {
       store: memory.store,
       codeSha: "9".repeat(40),
       now: "2026-08-28T00:00:04.000Z",
+      validateCheckpoint: async ({ runId, checkpointId }) => (
+        runId === run.id && checkpointId === "checkpoint-action-1"
+      ),
       resolveCurrentResearchRevision: async () => resolved as unknown as Awaited<
         ReturnType<typeof getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync>
       >
@@ -621,12 +642,80 @@ describe("SENA workflow API action contract", () => {
       sourceRun: { status: "superseded" }
     });
     expect(result.command.payload).toMatchObject({
+      forkMode: "validated-lineage-full-restart",
+      checkpointBindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       sourceEvidence: { uploadBindings: WORKFLOW_UPLOAD_BINDINGS },
       parameters: {
         researchSourceClass: "fixture",
         importUploadIds: [IMPORT_UPLOAD_ID],
         reliabilityUploadIds: [RELIABILITY_UPLOAD_ID]
       }
+    });
+  });
+
+  it("preserves the immutable engineering work-request binding in a validated full-restart fork", async () => {
+    const workRequestDigest = "7".repeat(64);
+    const repo = "HUDongpin/SENA";
+    const baseSha = "8".repeat(40);
+    const candidateSha = "9".repeat(40);
+    const sourceBindingDigest = senaWorkflowDigest({
+      kind: "engineering-release",
+      teamId: "workflow-team-1",
+      repo,
+      baseSha,
+      workRequestDigest
+    });
+    const run = actionRun({
+      kind: "engineering-release",
+      definitionHash: engineeringReleaseGraphV1.definitionHash,
+      projectId: undefined,
+      projectRevisionId: undefined,
+      researchSourceClass: undefined,
+      repo,
+      baseSha,
+      candidateSha,
+      sourceBindingDigest,
+      status: "blocked",
+      pendingInterrupt: undefined,
+      blockers: [{ code: "candidate-drift", message: "candidate drift", retryable: false }],
+      claimBoundary: undefined
+    });
+    const memory = actionStore(run);
+    const sourcePayload = {
+      action: "start",
+      parameters: { engineeringEvidence: { mode: "shadow" } },
+      sourceEvidence: { repo, baseSha, workRequestDigest }
+    };
+    memory.commands[0].payload = sourcePayload;
+    memory.commands[0].payloadDigest = senaWorkflowDigest(sourcePayload);
+
+    const result = await performSenaWorkflowAction({
+      context: context(),
+      runId: run.id,
+      body: {
+        action: "fork",
+        expectedVersion: run.version,
+        checkpointId: "checkpoint-engineering-1",
+        newSourceBindingDigest: sourceBindingDigest
+      },
+      idempotencyKey: "workflow-engineering-fork",
+      store: memory.store,
+      codeSha: run.codeSha,
+      validateCheckpoint: async () => true
+    });
+
+    expect(result.run).toMatchObject({
+      kind: "engineering-release",
+      repo,
+      baseSha,
+      candidateSha,
+      sourceBindingDigest,
+      parentRunId: run.id,
+      parentCheckpointId: "checkpoint-engineering-1"
+    });
+    expect(result.command.payload).toMatchObject({
+      forkMode: "validated-lineage-full-restart",
+      sourceEvidence: { repo, baseSha, workRequestDigest }
     });
   });
 });

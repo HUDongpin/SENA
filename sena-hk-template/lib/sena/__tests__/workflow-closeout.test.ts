@@ -4,6 +4,7 @@ import { senaWorkflowAuditChainHead, senaWorkflowDigest } from "../workflow/cano
 import {
   auditSenaWorkflowCloseoutInput,
   buildSenaWorkflowCloseout,
+  senaWorkflowCloseoutCommitment,
   SenaWorkflowCloseoutError
 } from "../workflow/closeout";
 import { researchEvidenceGraphV1 } from "../workflow/definitions";
@@ -37,9 +38,9 @@ function fixture() {
     currentNodeId: "evidence-closeout",
     attempt: 1,
     blockers: [],
-    jobReferences: ["job_validation_1"],
-    artifactReferences: ["artifact_publication_1"],
-    approvalReferences: ["approval_expert_1"],
+    jobReferences: [],
+    artifactReferences: [],
+    approvalReferences: [],
     claimBoundary: "exploratory-only",
     evidenceLayers: {
       source: "passed",
@@ -56,88 +57,134 @@ function fixture() {
     createdAt: "2026-08-28T00:00:00.000Z",
     updatedAt: generatedAt
   };
+  const receipts: SenaWorkflowStepReceipt[] = [];
+  const approvals: SenaWorkflowApproval[] = [];
+  const artifacts: SenaWorkflowArtifact[] = [];
+  const receiptHeads = new Map<string, string>();
 
-  const firstWithoutHead = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.workflowStepReceipt,
-    id: "receipt_bind_1",
+  for (const manifest of researchEvidenceGraphV1.nodes.filter((node) => node.id !== "evidence-closeout")) {
+    const sequence = receipts.length + 1;
+    const inputDigest = senaWorkflowDigest({ nodeId: manifest.id, kind: "input" });
+    const predecessorReceiptHashes = researchEvidenceGraphV1.edges
+      .filter((edge) => edge.to === manifest.id)
+      .map((edge) => receiptHeads.get(edge.from)!)
+      .filter(Boolean);
+    const jobId = manifest.effect === "server-job" ? `server_job_${senaWorkflowDigest(manifest.id).slice(0, 24)}` : undefined;
+    const artifactId = jobId ? `artifact_${senaWorkflowDigest(manifest.id).slice(0, 24)}` : undefined;
+    if (jobId && artifactId) {
+      run.jobReferences.push(jobId);
+      run.artifactReferences.push(artifactId);
+      artifacts.push({
+        id: artifactId,
+        runId: run.id,
+        nodeId: manifest.id,
+        filename: `${manifest.id}.json`,
+        schemaVersion: "sena-test-job-result/v1",
+        sha256: senaWorkflowDigest({ manifest: manifest.id, kind: "artifact" }),
+        storageReference: `server-job:${jobId}#resultReceipt`,
+        evidenceLayer: manifest.evidenceLayer,
+        createdAt: generatedAt
+      });
+    }
+    if (manifest.effect === "human-interrupt") {
+      const approval: SenaWorkflowApproval = {
+        schemaVersion: SENA_SCHEMA_VERSIONS.workflowApproval,
+        id: `approval_${senaWorkflowDigest(manifest.id).slice(0, 24)}`,
+        runId: run.id,
+        nodeId: manifest.id,
+        interruptId: `interrupt_${manifest.id}`,
+        expectedVersion: run.version,
+        actorUserIdHash: senaWorkflowDigest({ nodeId: manifest.id, actor: "pi" }),
+        actorRole: "pi",
+        decision: "approve",
+        inputDigest,
+        candidateOutputDigest: senaWorkflowDigest({ nodeId: manifest.id, kind: "candidate" }),
+        decisionDigest: senaWorkflowDigest({ nodeId: manifest.id, kind: "decision" }),
+        createdAt: generatedAt
+      };
+      approvals.push(approval);
+      run.approvalReferences.push(approval.id);
+    }
+    const withoutHead = {
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowStepReceipt,
+      id: `receipt_${senaWorkflowDigest(manifest.id).slice(0, 24)}`,
+      runId: run.id,
+      nodeId: manifest.id,
+      attempt: 1,
+      sequence,
+      effectKey: senaWorkflowDigest({ nodeId: manifest.id, kind: "effect" }),
+      predecessorReceiptHashes,
+      inputDigest,
+      outputDigest: senaWorkflowDigest({ nodeId: manifest.id, kind: "output" }),
+      ...(jobId ? { jobId } : {}),
+      artifactReferences: artifactId ? [artifactId] : [],
+      actorType: manifest.effect === "human-interrupt" ? "human" as const : "worker" as const,
+      codeSha: run.codeSha,
+      evidenceLayer: manifest.evidenceLayer,
+      startedAt: generatedAt,
+      finishedAt: generatedAt,
+      retryDisposition: "none" as const,
+      previousAuditChainHead: receipts.at(-1)?.auditChainHead
+    };
+    const receipt: SenaWorkflowStepReceipt = {
+      ...withoutHead,
+      auditChainHead: senaWorkflowAuditChainHead({
+        previousAuditChainHead: withoutHead.previousAuditChainHead,
+        receiptWithoutAuditChainHead: withoutHead
+      })
+    };
+    receipts.push(receipt);
+    receiptHeads.set(manifest.id, receipt.auditChainHead);
+  }
+
+  const commitment = senaWorkflowCloseoutCommitment({ run, commands: [], receipts, approvals, artifacts });
+  const commitmentArtifact: SenaWorkflowArtifact = {
+    id: "artifact_closeout_commitment",
     runId: run.id,
-    nodeId: "bind-source",
+    nodeId: "evidence-closeout",
+    filename: "sena-workflow-closeout.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+    sha256: commitment,
+    storageReference: `workflow-closeout:${run.id}#commitment-v1`,
+    evidenceLayer: "local",
+    createdAt: generatedAt
+  };
+  artifacts.push(commitmentArtifact);
+  run.artifactReferences.push(commitmentArtifact.id);
+  const finalManifest = researchEvidenceGraphV1.nodes.find((node) => node.id === "evidence-closeout")!;
+  const finalWithoutHead = {
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowStepReceipt,
+    id: "receipt_evidence_closeout",
+    runId: run.id,
+    nodeId: finalManifest.id,
     attempt: 1,
-    sequence: 1,
-    effectKey: "bind-source:input-a",
-    predecessorReceiptHashes: [],
-    inputDigest: "e".repeat(64),
-    outputDigest: "f".repeat(64),
-    artifactReferences: [],
+    sequence: receipts.length + 1,
+    effectKey: senaWorkflowDigest({ nodeId: finalManifest.id, kind: "effect" }),
+    predecessorReceiptHashes: researchEvidenceGraphV1.edges
+      .filter((edge) => edge.to === finalManifest.id)
+      .map((edge) => receiptHeads.get(edge.from)!),
+    inputDigest: senaWorkflowDigest({ nodeId: finalManifest.id, kind: "input" }),
+    outputDigest: commitment,
+    artifactReferences: [commitmentArtifact.id],
     actorType: "worker" as const,
     codeSha: run.codeSha,
-    evidenceLayer: "source" as const,
-    startedAt: "2026-08-28T00:00:01.000Z",
-    finishedAt: "2026-08-28T00:00:02.000Z",
+    evidenceLayer: finalManifest.evidenceLayer,
+    startedAt: generatedAt,
+    finishedAt: generatedAt,
     retryDisposition: "none" as const,
-    previousAuditChainHead: undefined
+    previousAuditChainHead: receipts.at(-1)?.auditChainHead
   };
-  const first: SenaWorkflowStepReceipt = {
-    ...firstWithoutHead,
-    auditChainHead: senaWorkflowAuditChainHead({ receiptWithoutAuditChainHead: firstWithoutHead })
-  };
-  const secondWithoutHead = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.workflowStepReceipt,
-    id: "receipt_validation_1",
-    runId: run.id,
-    nodeId: "statistical-validation",
-    attempt: 2,
-    sequence: 2,
-    predecessorReceiptHashes: [first.auditChainHead],
-    inputDigest: "1".repeat(64),
-    outputDigest: "2".repeat(64),
-    jobId: "job_validation_1",
-    artifactReferences: ["artifact_publication_1"],
-    actorType: "worker" as const,
-    codeSha: run.codeSha,
-    evidenceLayer: "local" as const,
-    startedAt: "2026-08-28T00:00:03.000Z",
-    finishedAt: "2026-08-28T00:00:04.000Z",
-    errorClass: "transient-worker-exit",
-    retryDisposition: "retryable" as const,
-    previousAuditChainHead: first.auditChainHead
-  };
-  const second: SenaWorkflowStepReceipt = {
-    ...secondWithoutHead,
+  const finalReceipt: SenaWorkflowStepReceipt = {
+    ...finalWithoutHead,
     auditChainHead: senaWorkflowAuditChainHead({
-      previousAuditChainHead: first.auditChainHead,
-      receiptWithoutAuditChainHead: secondWithoutHead
+      previousAuditChainHead: finalWithoutHead.previousAuditChainHead,
+      receiptWithoutAuditChainHead: finalWithoutHead
     })
   };
-  run.auditChainHead = second.auditChainHead;
-  run.receiptSequence = 2;
+  receipts.push(finalReceipt);
+  run.auditChainHead = finalReceipt.auditChainHead;
+  run.receiptSequence = receipts.length;
 
-  const approval: SenaWorkflowApproval = {
-    schemaVersion: SENA_SCHEMA_VERSIONS.workflowApproval,
-    id: "approval_expert_1",
-    runId: run.id,
-    nodeId: "expert-review-gate",
-    interruptId: "interrupt_expert_1",
-    expectedVersion: 3,
-    actorUserIdHash: "3".repeat(64),
-    actorRole: "pi",
-    decision: "approve",
-    inputDigest: "4".repeat(64),
-    candidateOutputDigest: "5".repeat(64),
-    decisionDigest: "6".repeat(64),
-    createdAt: "2026-08-28T00:00:05.000Z"
-  };
-  const artifact: SenaWorkflowArtifact = {
-    id: "artifact_publication_1",
-    runId: run.id,
-    nodeId: "publication-export",
-    filename: "publication-package.zip",
-    schemaVersion: "sena-publication-package/v1",
-    sha256: "7".repeat(64),
-    storageReference: "artifact://publication-package-1",
-    evidenceLayer: "local",
-    createdAt: "2026-08-28T00:00:06.000Z"
-  };
   const command: SenaWorkflowCommand = {
     id: "command_start_1",
     runId: run.id,
@@ -145,7 +192,7 @@ function fixture() {
     expectedVersion: 1,
     idempotencyKey: "closeout-start-key",
     payloadDigest: run.startPayloadDigest,
-    payload: { sourceBindingDigest: run.sourceBindingDigest, providerSecret: undefined },
+    payload: { sourceBindingDigest: run.sourceBindingDigest },
     status: "completed",
     attempts: 1,
     availableAt: run.createdAt,
@@ -155,7 +202,7 @@ function fixture() {
     createdAt: run.createdAt,
     updatedAt: "2026-08-28T00:00:00.900Z"
   };
-  return { run, commands: [command], receipts: [first, second], approvals: [approval], artifacts: [artifact] };
+  return { run, commands: [command], receipts, approvals, artifacts };
 }
 
 describe("SENA EvidenceFlow closeout", () => {
@@ -169,7 +216,7 @@ describe("SENA EvidenceFlow closeout", () => {
     expect(closeout.auditChain).toMatchObject({
       algorithm: "sha256",
       status: "verified",
-      receiptCount: 2,
+      receiptCount: researchEvidenceGraphV1.nodes.length,
       headHash: events.run.auditChainHead
     });
     expect(closeout.run.createdByUserIdHash).toBe(senaWorkflowDigest(events.run.createdByUserId));
@@ -179,7 +226,7 @@ describe("SENA EvidenceFlow closeout", () => {
     expect(closeout.commandHistory[0].workerIdHash).toBe(senaWorkflowDigest("workflow-worker-private-id"));
     expect(closeout.retrySummary).toMatchObject({
       commandAttemptCount: 1,
-      receiptRetryableCount: 1,
+      receiptRetryableCount: 0,
       deadLetteredCommandCount: 0
     });
     expect(closeout.componentArtifacts.map((artifact) => artifact.filename)).toEqual([
@@ -189,7 +236,20 @@ describe("SENA EvidenceFlow closeout", () => {
     ]);
     expect(closeout.componentArtifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256))).toBe(true);
     expect(closeout.closeoutDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(closeout.closeoutCommitment).toMatchObject({
+      nodeId: "evidence-closeout",
+      receiptOutputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      artifactSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+    expect(closeout.closeoutCommitment?.receiptOutputDigest).toBe(closeout.closeoutCommitment?.artifactSha256);
     expect(buildSenaWorkflowCloseout({ ...events, generatedAt })).toEqual(closeout);
+  });
+
+  it("rejects an incomplete succeeded graph even when its remaining receipt chain is internally valid", () => {
+    const events = fixture();
+    const removed = events.receipts.find((receipt) => receipt.nodeId === "audit-fusion-math")!;
+    events.receipts = events.receipts.filter((receipt) => receipt !== removed);
+    expect(auditSenaWorkflowCloseoutInput(events).issueCodes).toContain("succeeded-graph-node-receipt-missing");
   });
 
   it("fails closed on receipt tampering and reports only stable issue codes", () => {

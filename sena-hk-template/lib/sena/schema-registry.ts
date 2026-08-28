@@ -236,6 +236,7 @@ export const SENA_SCHEMA_VERSIONS = {
   workflowApprovalRequest: "sena-workflow-approval-request/v1",
   workflowActionCommand: "sena-workflow-action-command/v1",
   workflowCloseout: "sena-workflow-closeout/v1",
+  workflowCloseoutCommitment: "sena-workflow-closeout-commitment/v1",
   workflowDecision: "sena-workflow-decision/v1",
   workflowDefinition: "sena-workflow-definition/v1",
   workflowDefinitionList: "sena-workflow-definition-list/v1",

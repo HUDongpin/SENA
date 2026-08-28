@@ -884,6 +884,21 @@ function id(prefix: string) {
 }
 
 const deterministicServerJobId = /^server_job_[a-f0-9]{24}$/;
+const serverJobCreatedMarker = Symbol("sena-server-job-created");
+
+function markServerJobCreation(job: SenaEnterpriseServerJob, created: boolean) {
+  Object.defineProperty(job, serverJobCreatedMarker, {
+    value: created,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return job;
+}
+
+export function senaEnterpriseServerJobWasCreated(job: SenaEnterpriseServerJob) {
+  return (job as SenaEnterpriseServerJob & { [serverJobCreatedMarker]?: boolean })[serverJobCreatedMarker] === true;
+}
 
 function serverJobMaxAttempts() {
   return positiveIntegerEnv("SENA_JOB_QUEUE_MAX_ATTEMPTS", 3, 25);
@@ -2874,13 +2889,15 @@ export async function enqueueEnterpriseServerJob(input: {
   // otherwise a local poller could execute a pointer whose artifacts do not
   // exist yet.
   let durableJob = pendingJob;
+  let created = true;
   if (input.jobId) {
     const inserted = await insertServerJobIfAbsent(pendingJob);
     durableJob = inserted.job;
+    created = inserted.created;
     if (!inserted.created) {
-      if (durableJob.status !== "queued") return durableJob;
+      if (durableJob.status !== "queued") return markServerJobCreation(durableJob, false);
       if (durableJob.delivery.sourceReady === true && durableJob.delivery.webhookStatus !== "pending") {
-        return durableJob;
+        return markServerJobCreation(durableJob, false);
       }
     }
   } else {
@@ -2957,7 +2974,7 @@ export async function enqueueEnterpriseServerJob(input: {
       "server_job_queue_dispatch_failed"
     );
   }
-  return queuedJob;
+  return markServerJobCreation(queuedJob, created);
 }
 
 export function serverJobHeaders(job: SenaEnterpriseServerJob): HeadersInit {

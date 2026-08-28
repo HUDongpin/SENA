@@ -265,7 +265,8 @@ describe("SENA publication export route", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-sena-csrf-token": csrf.token
+          "x-sena-csrf-token": csrf.token,
+          "idempotency-key": "publication-required-queue-1"
         },
         body: JSON.stringify({
           projectId: project.id,
@@ -651,7 +652,8 @@ describe("SENA publication export route", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-sena-csrf-token": csrf.token
+          "x-sena-csrf-token": csrf.token,
+          "idempotency-key": "publication-required-queue-success"
         },
         body: JSON.stringify({
           projectId: project.id,
@@ -845,17 +847,19 @@ describe("SENA publication export route", () => {
       expect(invalidFormatResponse.headers.get("x-sena-export-source")).toBeNull();
       expect(queueRequests).toHaveLength(0);
 
-      const response = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-sena-csrf-token": csrf.token
-        },
-        body: JSON.stringify({
-          projectId: project.id,
-          format: "package"
-        })
-      }));
+      const queuedPublicationRequest = (format: "package" | "html") => new Request(
+        "https://sena.example.test/api/sena/exports/publication",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token,
+            "idempotency-key": "publication-required-queue-success"
+          },
+          body: JSON.stringify({ projectId: project.id, format })
+        }
+      );
+      const response = await route.POST(queuedPublicationRequest("package"));
 
       expect(response.status).toBe(202);
       const body = await response.json() as {
@@ -882,6 +886,14 @@ describe("SENA publication export route", () => {
         commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
         format: "package",
         projectVersion: project.currentVersion
+      }));
+      const replay = await route.POST(queuedPublicationRequest("package"));
+      expect(replay.status).toBe(202);
+      await expect(replay.json()).resolves.toEqual(expect.objectContaining({ id: body.id }));
+      const conflict = await route.POST(queuedPublicationRequest("html"));
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toEqual(expect.objectContaining({
+        code: "server_job_idempotency_conflict"
       }));
       expect(queueRequests).toHaveLength(1);
       const delivered = JSON.parse(queueRequests[0].body) as {

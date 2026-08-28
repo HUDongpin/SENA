@@ -57,6 +57,7 @@ export type SenaWorkflowNodeOperationAdapter = {
   }>;
   ensureServerJob(input: SenaWorkflowNodeOperationInput): Promise<SenaWorkflowServerJobState>;
   readServerJob(input: SenaWorkflowNodeOperationInput & { jobId: string }): Promise<SenaWorkflowServerJobState>;
+  retryServerJob?(input: SenaWorkflowNodeOperationInput & { jobId: string }): Promise<SenaWorkflowServerJobState>;
 };
 
 export type SenaWorkflowNodeStore = {
@@ -103,6 +104,7 @@ function blocked(input: {
   code: string;
   message: string;
   retryable: boolean;
+  jobId?: string;
 }): Extract<SenaWorkflowGraphNodeResult, { kind: "blocked" }> {
   return {
     kind: "blocked",
@@ -112,6 +114,7 @@ function blocked(input: {
       code: input.code,
       message: input.message,
       nodeId: input.nodeId,
+      ...(input.jobId ? { jobId: input.jobId } : {}),
       retryable: input.retryable
     }
   };
@@ -292,7 +295,22 @@ export function createSenaWorkflowGraphNodeExecutor(input: {
               retryable: false
             });
           }
-          job = await input.operations.readServerJob({ ...operationInput, jobId: ensured.id });
+          if (stringField(execution.resume, "action") === "retry") {
+            if (!input.operations.retryServerJob) {
+              return blocked({
+                interruptId: jobInterruptId,
+                inputDigest: execution.inputDigest,
+                nodeId: execution.node.id,
+                code: "workflow_job_retry_unsupported",
+                message: "The bound server job does not expose an authorized retry transition.",
+                retryable: false,
+                jobId: ensured.id
+              });
+            }
+            job = await input.operations.retryServerJob({ ...operationInput, jobId: ensured.id });
+          } else {
+            job = await input.operations.readServerJob({ ...operationInput, jobId: ensured.id });
+          }
         } else {
           job = ensured;
         }
@@ -321,7 +339,8 @@ export function createSenaWorkflowGraphNodeExecutor(input: {
             nodeId: execution.node.id,
             code: job.status === "dead-lettered" ? "workflow_job_dead_lettered" : "workflow_job_failed",
             message: "The bound server job did not produce a successful terminal receipt.",
-            retryable: job.status === "failed"
+            retryable: job.status === "failed",
+            jobId: job.id
           });
         }
       }

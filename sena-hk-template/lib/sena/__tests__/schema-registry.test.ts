@@ -114,6 +114,7 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.workflowStepReceipt).toBe("sena-workflow-step-receipt/v1");
     expect(SENA_SCHEMA_VERSIONS.workflowApproval).toBe("sena-workflow-approval/v1");
     expect(SENA_SCHEMA_VERSIONS.workflowCloseout).toBe("sena-workflow-closeout/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment).toBe("sena-workflow-closeout-commitment/v1");
 
     expect(getSenaSchemaVersion("productionPageContract")).toBe(buildSenaProductionPageContract().schemaVersion);
 
