@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T23:31:47Z",
+  "updatedAt": "2026-08-28T23:36:53Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
+      "headSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T23:31:47Z",
-      "lastObservedAt": "2026-08-28T23:31:47Z",
-      "nextReviewAt": "2026-08-29T05:31:47Z",
+      "lastHeartbeatAt": "2026-08-28T23:36:53Z",
+      "lastObservedAt": "2026-08-28T23:36:53Z",
+      "nextReviewAt": "2026-08-29T05:36:53Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 53,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 52,
         "headSha": "9ca53f325ec7ee33cd066cee986f80643d8f7527",
@@ -1051,17 +1051,17 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr53-binding",
+      "dirtyState": "staged-registry-only-pr53-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 root-currentness algorithm commit 0195fc6d passed RED/GREEN, 48/48 governance tests, real-topology audit, native pre-commit/pre-push, and ordinary push; this staged follow-up binds Draft PR53",
-        "ci": "Draft PR53 exact initial head 0195fc6d has build 33220719379 and repository-security 33220717604/33220719384 in progress; none is accepted as green yet",
-        "merged": "PR52 remains the last protected-main merge at 32bf7872; Draft PR53 is OPEN/MERGEABLE at exact head 0195fc6d and is not Ready or merge-authorized",
+        "local": "A01 root-currentness repair commits through 11993aba passed RED/GREEN, 48/48 governance tests, real-topology audit, registry, write-policy, security, and native hooks; this staged metadata is conditional on its own exact-head checks",
+        "ci": "Draft PR53 exact pre-authorization head 11993aba passed build 33220894189 and repository-security 33220891055/33220894175; jobs 99014493355/99014485059/99014493222 each returned zero annotations",
+        "merged": "PR52 remains the last protected-main merge at 32bf7872; Draft PR53 is CLEAN/MERGEABLE at exact pre-authorization head 11993aba and may become Ready/merge only after this final metadata commit's own exact-head checks pass",
         "deployed": "not authorized",
-        "live": "live main/origin-main remain 32bf7872; remote A01 branch and Draft PR53 are exact 0195fc6d; clean root remains f067a224 and downstream lanes remain frozen"
+        "live": "live main/origin-main remain 32bf7872; remote A01 branch and Draft PR53 are exact 11993aba before this staged final metadata; clean root remains f067a224 and downstream lanes remain frozen"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1275,10 +1275,19 @@
         "mergeApproved": false
       },
       "expandedRemediationAuthorization": {
-        "status": "pending-pr53-exact-head-checks",
+        "status": "conditional-pr53-final-head-checks",
         "governancePullRequest": 51,
         "rootCurrentnessPullRequest": 52,
         "rootRemoteCurrentnessRepairPullRequest": 53,
+        "rootRemoteCurrentnessPreAuthorizationHeadSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
+        "rootRemoteCurrentnessPreAuthorizationChecks": {
+          "buildRunId": 33220894189,
+          "repositorySecurityRunIds": [
+            33220891055,
+            33220894175
+          ],
+          "annotationsEmpty": true
+        },
         "rootCurrentnessPreAuthorizationHeadSha": "13f535dd9ae24cdda4c971ae87fdeb9e9f54901e",
         "rootCurrentnessPreAuthorizationChecks": {
           "buildRunId": 33219711377,
@@ -1318,7 +1327,7 @@
           "annotationsEmpty": true
         },
         "rootRemoteCurrentnessRepair": {
-          "status": "draft-pr53-pending-checks",
+          "status": "conditional-final-head-checks",
           "failingTopology": "clean local root f067a224, recorded remote lower bound d7c4a972, live origin/main 32bf7872, registry-only intervening commits",
           "positiveBoundary": "allow ahead/behind drift only when every commit from recorded remoteHeadSha to origin/main changes only coordination/repo-governance/active-work.json",
           "negativeBoundary": "reject any product, script, test, workflow, or other path in the remote range",
@@ -1326,7 +1335,7 @@
           "fullGovernanceTestPassed": true,
           "realTopologyAuditPassed": true
         },
-        "activationCondition": "The narrow root remote-currentness algorithm repair must pass its own protected-main PR and post-main gates; a later registry-only closeout must then record that repair main as the remote lower bound, merge, and make the exact resulting main pass the commit-bound live audit before EvidenceFlow tracked remediation resumes.",
+        "activationCondition": "This staged final PR53 authorization must produce a new exact head whose build and both repository-security checks pass with zero annotations, then PR53 must merge through protected main and pass post-main checks. A later registry-only closeout must record that repair main as the remote lower bound, merge, and make the exact resulting main pass the commit-bound live audit before EvidenceFlow tracked remediation resumes.",
         "allowedPathsUnchanged": true,
         "authorizedFindingClasses": [
           "engineering-candidate-post-handoff-intake",
@@ -1574,19 +1583,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
+      "headSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
-      "remoteObservedAt": "2026-08-28T23:31:47Z",
+      "remoteHeadSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
+      "remoteObservedAt": "2026-08-28T23:36:53Z",
       "pr": 53,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1596,13 +1605,13 @@
         "mergeCommitSha": "32bf78726d1116770d92d552e41462598736b402",
         "mergedAt": "2026-08-28T23:21:10Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T23:31:47Z",
-      "lastObservedAt": "2026-08-28T23:31:47Z",
-      "lastCommitAt": "2026-08-29T07:31:04+08:00",
-      "nextReviewAt": "2026-08-29T05:31:47Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T23:36:53Z",
+      "lastObservedAt": "2026-08-28T23:36:53Z",
+      "lastCommitAt": "2026-08-29T07:33:58+08:00",
+      "nextReviewAt": "2026-08-29T05:36:53Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR53 is OPEN/MERGEABLE at exact algorithm-repair head 0195fc6d with initial checks in progress; downstream lanes remain frozen"
+      "closeout": "Draft PR53 is CLEAN/MERGEABLE at exact pre-authorization head 11993aba with build and both security checks green and zero annotations; this staged final metadata conditionally authorizes Ready/protected merge only after its own new exact-head checks pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
