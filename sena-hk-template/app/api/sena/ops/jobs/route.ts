@@ -10,7 +10,7 @@ import {
   type SenaEnterpriseServerJobStatusAction
 } from "@/lib/sena/enterprise/server-job-queue";
 import {
-  admitEnterpriseExternalAnalysisClaim
+  admitEnterpriseExternalServerJobClaim
 } from "@/lib/sena/enterprise/server-job-worker-runtime";
 import {
   recordEnterpriseAuditAsync
@@ -128,6 +128,7 @@ export async function POST(request: Request) {
       errorMessage?: unknown;
       reason?: unknown;
       force?: unknown;
+      result?: unknown;
       uploadWarnings?: unknown;
       teamId?: unknown;
     };
@@ -155,6 +156,7 @@ export async function POST(request: Request) {
       errorHash: redactedErrorHash(body),
       reason: typeof body.reason === "string" ? body.reason : undefined,
       force: body.force === true,
+      result: body.result,
       // Worker-reported parse-repair warning counts (H10 disclosure channel);
       // validated in the job layer, which 400s on non-array or invalid entries
       // — a malformed report must fail loud, not be silently ignored.
@@ -163,7 +165,7 @@ export async function POST(request: Request) {
         : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>,
       callerScope,
       preclaimAdmission: action === "mark-running"
-        ? admitEnterpriseExternalAnalysisClaim
+        ? admitEnterpriseExternalServerJobClaim
         : undefined
     });
     await recordEnterpriseAuditAsync({

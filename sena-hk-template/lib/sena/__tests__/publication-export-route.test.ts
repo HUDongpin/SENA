@@ -20,6 +20,7 @@ import {
 } from "./publication-authorization-fixture";
 
 const publicationExportRouteTestTimeoutMs = 30_000;
+const publicationWorkerRouteTestTimeoutMs = 60_000;
 const originalExpertSigningSecret = process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
 const originalExpertSigningKeyId = process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
 
@@ -400,9 +401,9 @@ describe("SENA publication export route", () => {
     let sessionToken = "";
     vi.resetModules();
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
-    const queueRequests: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      queueRequests.push(String(input));
+    const queueRequests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      queueRequests.push({ url: String(input), body: String(init?.body ?? "") });
       return new Response("", { status: 202 });
     }));
     vi.doMock("next/headers", () => ({
@@ -774,7 +775,7 @@ describe("SENA publication export route", () => {
     }
   }, publicationExportRouteTestTimeoutMs);
 
-  it("fails closed without queue side effects when production requires the unavailable publication worker", async () => {
+  it("queues only a project-bound publication command when the evidence-bound worker is executable", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-required-queue-route-"));
     let sessionToken = "";
     vi.resetModules();
@@ -783,9 +784,9 @@ describe("SENA publication export route", () => {
     process.env.SENA_JOB_QUEUE_ADAPTER = "managed";
     process.env.SENA_JOB_QUEUE_URL = "https://jobs.example.test/sena";
     process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-secret";
-    const queueRequests: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      queueRequests.push(String(input));
+    const queueRequests: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      queueRequests.push({ url: String(input), body: String(init?.body ?? "") });
       return new Response("", { status: 202 });
     }));
     vi.doMock("next/headers", () => ({
@@ -856,11 +857,52 @@ describe("SENA publication export route", () => {
         })
       }));
 
-      expect(response.status).toBe(503);
-      const body = await response.json() as { code?: string; error?: string };
-      expect(body.code).toBe("publication_export_async_worker_unavailable");
-      expect(body.error).toContain("evidence-bound publication worker");
-      expect(queueRequests).toHaveLength(0);
+      expect(response.status).toBe(202);
+      const body = await response.json() as {
+        id?: string;
+        kind?: string;
+        status?: string;
+        projectId?: string;
+        payloadSummary?: {
+          commandCustody?: string;
+          commandEnvelopeUploadId?: string;
+          commandEnvelopeSha256?: string;
+          format?: string;
+          projectVersion?: number;
+        };
+      };
+      expect(body).toEqual(expect.objectContaining({
+        kind: "publication-export",
+        status: "queued",
+        projectId: project.id
+      }));
+      expect(body.payloadSummary).toEqual(expect.objectContaining({
+        commandCustody: "encrypted-upload-v1",
+        commandEnvelopeUploadId: expect.stringMatching(/^upload_[a-f0-9]{24}$/),
+        commandEnvelopeSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        format: "package",
+        projectVersion: project.currentVersion
+      }));
+      expect(queueRequests).toHaveLength(1);
+      const delivered = JSON.parse(queueRequests[0].body) as {
+        workerPayload?: Record<string, unknown>;
+      };
+      const worker = await import("../enterprise/server-job-worker-runtime");
+      const workerOutcome = await worker.runEnterpriseServerJobFromQueueWebhook({
+        jobId: body.id!,
+        workerPayload: delivered.workerPayload
+      });
+      expect(workerOutcome).toEqual(expect.objectContaining({
+        status: "succeeded",
+        jobStatus: "succeeded",
+        result: expect.objectContaining({
+          publicationArtifactId: expect.stringMatching(/^upload_[a-f0-9]{24}$/),
+          publicationFilename: expect.stringMatching(/\.sena-publication-package\.json$/),
+          publicationSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+          publicationBytes: expect.any(Number),
+          publicationDerivationManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+        })
+      }));
       const inlineResponse = await route.POST(new Request("https://sena.example.test/api/sena/exports/publication", {
         method: "POST",
         headers: {
@@ -910,7 +952,7 @@ describe("SENA publication export route", () => {
       await expect(mixedSourceResponse.json()).resolves.toEqual(expect.objectContaining({
         code: "publication_export_inline_snapshot_forbidden"
       }));
-      expect(queueRequests).toHaveLength(0);
+      expect(queueRequests).toHaveLength(1);
       const incompleteProject = enterprise.createEnterpriseProject(registered.context, {
         teamId: registered.context.teams[0].id,
         title: "Incomplete Queued Publication Project",
@@ -950,18 +992,18 @@ describe("SENA publication export route", () => {
       await expect(incompleteResponse.json()).resolves.toEqual(expect.objectContaining({
         code: "publication_claim_evidence_not_ready"
       }));
-      expect(queueRequests).toHaveLength(0);
+      expect(queueRequests).toHaveLength(1);
       const jobs = await enterprise.listEnterpriseServerJobs({});
-      expect(jobs.summary.total).toBe(0);
+      expect(jobs.summary.total).toBe(1);
       const audit = enterprise.listEnterpriseAuditLog(registered.context, {
         event: "export.queue",
         limit: 5
       });
-      expect(audit.events).toHaveLength(0);
+      expect(audit.events).toHaveLength(1);
       expect(enterprise.listEnterpriseAuditLog(registered.context, {
         event: "export.run",
         limit: 5
-      }).events).toHaveLength(0);
+      }).events).toHaveLength(1);
     } finally {
       delete process.env.SENA_ENTERPRISE_DB_DIR;
       delete process.env.SENA_REQUIRE_ASYNC_HEAVY_JOBS;
@@ -972,7 +1014,7 @@ describe("SENA publication export route", () => {
       vi.unstubAllGlobals();
       vi.resetModules();
     }
-  }, publicationExportRouteTestTimeoutMs);
+  }, publicationWorkerRouteTestTimeoutMs);
 
   it("exports project publications from Postgres primary state when SENA_ENTERPRISE_STATE_STORE=postgres", async () => {
     const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-publication-postgres-route-"));

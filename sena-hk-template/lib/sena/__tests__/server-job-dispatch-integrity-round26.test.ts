@@ -75,6 +75,36 @@ describe("SENA server-job dispatch integrity round 26", () => {
     }
   });
 
+  it("reuses one deterministic server job across node replay and rejects evidence drift", async () => {
+    const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-deterministic-job-"));
+    cleanupDirs.push(dbDir);
+    configureLocalQueue(dbDir);
+    const queue = await import("../enterprise/server-job-queue");
+    const jobId = `server_job_${"a".repeat(24)}`;
+    let sourceWrites = 0;
+    const input = {
+      ...queueInput(),
+      jobId,
+      beforeDispatch: async () => {
+        sourceWrites += 1;
+      }
+    };
+
+    const first = await queue.enqueueEnterpriseServerJob(input);
+    const replayed = await queue.enqueueEnterpriseServerJob(input);
+    const listed = await queue.listEnterpriseServerJobs({ limit: 10 });
+    expect(first.id).toBe(jobId);
+    expect(replayed).toEqual(first);
+    expect(sourceWrites).toBe(1);
+    expect(listed.summary.total).toBe(1);
+
+    await expect(queue.enqueueEnterpriseServerJob({
+      ...input,
+      payload: { ...input.payload, projectVersion: 8 },
+      payloadSummary: { ...input.payloadSummary, projectVersion: 8 }
+    })).rejects.toMatchObject({ status: 409, code: "server_job_idempotency_conflict" });
+  });
+
   it("persists the job before dispatch and distinguishes transport from worker-payload hashes", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-dispatch-"));
     cleanupDirs.push(dbDir);
@@ -112,7 +142,7 @@ describe("SENA server-job dispatch integrity round 26", () => {
     expect(job.delivery.webhookStatus).toBe("delivered");
   });
 
-  it("keeps a durable source-preparation receipt invisible to the polling worker until the source is ready", async () => {
+  it("keeps a legacy validation receipt nonclaimable when encrypted command custody is absent", async () => {
     const dbDir = mkdtempSync(path.join(tmpdir(), "sena-round26-source-claimability-"));
     cleanupDirs.push(dbDir);
     configureLocalQueue(dbDir);
@@ -162,16 +192,10 @@ describe("SENA server-job dispatch integrity round 26", () => {
       sourceReady: true
     }));
     const readyDrain = await worker.drainEnterpriseServerJobQueue({ limit: 10 });
-    expect(readyDrain.scanned).toBe(1);
+    expect(readyDrain.scanned).toBe(0);
     expect(readyDrain.failed).toBe(0);
-    expect(readyDrain.skipped).toBe(1);
-    expect(readyDrain.outcomes[0]).toEqual(expect.objectContaining({
-      jobId: job.id,
-      status: "skipped",
-      jobStatus: "queued",
-      attempts: 0,
-      skipReason: "server_job_worker_executor_unavailable"
-    }));
+    expect(readyDrain.skipped).toBe(0);
+    expect(readyDrain.outcomes).toEqual([]);
     await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
       status: "queued",
       lifecycle: expect.objectContaining({ attempts: 0 })
@@ -230,7 +254,10 @@ describe("SENA server-job dispatch integrity round 26", () => {
       },
       payloadSummary: {
         ...queueInput().payloadSummary,
-        projectTeamId
+        projectTeamId,
+        commandCustody: "encrypted-upload-v1" as const,
+        commandEnvelopeUploadId: `upload_${(suffix === "matching" ? "a" : suffix === "missing" ? "b" : "c").repeat(24)}`,
+        commandEnvelopeSha256: "a".repeat(64)
       }
     });
     const matching = await queue.enqueueEnterpriseServerJob(
@@ -767,7 +794,7 @@ describe("SENA server-job dispatch integrity round 26", () => {
   });
 
   it.each([1, 2])(
-    "reserves an oldest executable slot before a mixed-kind page is limited to %i newer unsupported jobs",
+    "does not let %i newer nonclaimable legacy validation receipts consume executable capacity",
     async (limit) => {
       const dbDir = mkdtempSync(path.join(tmpdir(), `sena-round26-mixed-kind-fairness-${limit}-`));
       cleanupDirs.push(dbDir);
@@ -824,15 +851,14 @@ describe("SENA server-job dispatch integrity round 26", () => {
         errorCode: "server_job_worker_payload_not_reproducible",
         attempts: 0
       }));
-      expect(second.outcomes).toHaveLength(limit);
-      expect(second.outcomes).toEqual(expect.arrayContaining(unsupported.map((job) => (
-        expect.objectContaining({
-          jobId: job.id,
-          status: "skipped",
-          jobStatus: "queued",
-          skipReason: "server_job_worker_executor_unavailable"
-        })
-      ))));
+      expect(second.outcomes).toEqual([]);
+      for (const job of unsupported) {
+        await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+          status: "queued",
+          delivery: expect.objectContaining({ sourceReady: false }),
+          lifecycle: expect.objectContaining({ attempts: 0 })
+        }));
+      }
       await expect(queue.getEnterpriseServerJob(executable.id)).resolves.toEqual(
         expect.objectContaining({ status: "failed" })
       );

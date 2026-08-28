@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   getSenaCrossArtifactCatalogEntry,
   getSenaReviewPacketContentKey,
+  getSenaWorkflowArtifactCatalogEntry,
   listSenaCrossArtifactCatalog,
-  listSenaReviewPacketArtifacts
+  listSenaReviewPacketArtifacts,
+  listSenaWorkflowArtifacts
 } from "../artifact-catalog";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 
@@ -82,6 +84,44 @@ describe("SENA handoff artifact catalog", () => {
       checkOwners: {
         runtimeBundleArtifactEvidence: "lib/sena/runtime-bundle.ts"
       }
+    });
+  });
+
+  it("registers the four EvidenceFlow closeout artifacts without pretending every artifact is embedded in the research packet", () => {
+    const artifacts = listSenaWorkflowArtifacts();
+
+    expect(artifacts).toHaveLength(4);
+    expect(artifacts.map((artifact) => artifact.filename)).toEqual([
+      "sena-workflow-run.json",
+      "sena-workflow-step-receipts.json",
+      "sena-workflow-approvals.json",
+      "sena-workflow-closeout.json"
+    ]);
+    expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-run.json")).toMatchObject({
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowRun,
+      closeoutContentKey: "run",
+      surfaces: {
+        workflowCloseout: true,
+        researchReviewPacket: false,
+        engineeringEvidenceIndex: false
+      }
+    });
+    expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-closeout.json")).toMatchObject({
+      schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+      closeoutContentKey: "self",
+      surfaces: {
+        workflowCloseout: true,
+        researchReviewPacket: true,
+        engineeringEvidenceIndex: true
+      }
+    });
+    expect(getSenaWorkflowArtifactCatalogEntry("unknown.json")).toBeUndefined();
+
+    artifacts[0].description = "mutated by test";
+    artifacts[0].surfaces.workflowCloseout = false;
+    expect(getSenaWorkflowArtifactCatalogEntry("sena-workflow-run.json")).toMatchObject({
+      description: expect.not.stringContaining("mutated by test"),
+      surfaces: { workflowCloseout: true }
     });
   });
 });

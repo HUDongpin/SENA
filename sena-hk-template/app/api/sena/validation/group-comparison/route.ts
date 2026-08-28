@@ -21,10 +21,20 @@ import {
   enqueueEnterpriseServerJob,
   serverJobHeaders,
   serverJobQueueStatus,
+  stableServerJobPayloadSha256,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
+import {
+  createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync,
+  reserveEnterpriseUploadIds
+} from "@/lib/sena/enterprise/import-analysis";
+import {
+  planSenaServerJobCommandCustody,
+  SENA_SERVER_JOB_COMMAND_CUSTODY
+} from "@/lib/sena/server-job-command-envelope";
 import { observeSenaApiRoute, requireApiSession, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 import { admitSenaValidationMutationRequest } from "@/lib/sena/enterprise/heavy-request-admission";
+import { assertSenaServerJobWorkerExecutable } from "@/lib/sena/enterprise/server-job-worker-capabilities";
 
 export const runtime = "nodejs";
 
@@ -68,46 +78,65 @@ export async function POST(request: Request) {
       );
     }
     if (queued && queue) {
+      assertSenaServerJobWorkerExecutable("validation");
       const teamId = queuedTeamId ?? "";
       requireEnterprisePermission(context, teamId, "analysis:run");
       const comparisonCount = resolved.comparisons.length;
-      const job = await enqueueEnterpriseServerJob({
-        kind: "validation",
+      const workerPayload = {
+        action: "run-validation",
+        commandCustody: SENA_SERVER_JOB_COMMAND_CUSTODY,
+        teamId,
+        projectId,
+        projectVersion: project?.currentVersion,
+        groupField: resolved.defaultGroupField,
+        groupA: body.comparisons === undefined ? resolved.comparisons[0].groupA : undefined,
+        groupB: body.comparisons === undefined ? resolved.comparisons[0].groupB : undefined,
+        metric: resolved.defaultMetric,
+        metrics: body.metrics,
+        comparisons: body.comparisons === undefined ? undefined : resolved.comparisons,
+        suite: resolved.suite,
+        iterations: resolved.iterations,
+        bootstrapIterations: resolved.bootstrapIterations,
+        alpha: resolved.alpha,
+        seed: resolved.seed,
+        preregistrationNote: body.preregistrationNote,
+        methodNote: body.methodNote,
+        parityEvidence: body.parityEvidence,
+        buildOptions: body.buildOptions
+      };
+      const queueInput = {
+        kind: "validation" as const,
         teamId,
         projectId,
         actorUserId: context.user.id,
-        payload: {
-          action: "run-validation",
-          teamId,
-          projectId,
-          projectVersion: project?.currentVersion,
-          groupField: resolved.defaultGroupField,
-          groupA: body.comparisons === undefined ? resolved.comparisons[0].groupA : undefined,
-          groupB: body.comparisons === undefined ? resolved.comparisons[0].groupB : undefined,
-          metric: resolved.defaultMetric,
-          metrics: body.metrics,
-          comparisons: body.comparisons === undefined ? undefined : resolved.comparisons,
-          suite: resolved.suite,
-          iterations: resolved.iterations,
-          bootstrapIterations: resolved.bootstrapIterations,
-          alpha: resolved.alpha,
-          seed: resolved.seed,
-          preregistrationNote: body.preregistrationNote,
-          methodNote: body.methodNote,
-          parityEvidence: body.parityEvidence,
-          buildOptions: body.buildOptions
-        },
+        payload: workerPayload,
         payloadSummary: {
-          source: project ? "project" : body.snapshot && body.dataset ? "mixed" : body.snapshot ? "snapshot" : body.dataset ? "dataset" : "unknown",
+          source: "project" as const,
           projectVersion: project?.currentVersion,
           projectTeamId: project?.teamId,
           comparisonCount,
-          validationMethod: "group-comparison",
+          validationMethod: "group-comparison" as const,
           hasInlineSnapshot: Boolean(body.snapshot),
           hasInlineDataset: Boolean(body.dataset),
-          payloadValuesExcluded: true
-        },
-        queue
+          payloadValuesExcluded: true as const
+        }
+      };
+      const [commandEnvelopeUploadId] = reserveEnterpriseUploadIds(1);
+      const commandCustody = planSenaServerJobCommandCustody(
+        queueInput,
+        commandEnvelopeUploadId,
+        stableServerJobPayloadSha256(workerPayload)
+      );
+      const job = await enqueueEnterpriseServerJob({
+        ...commandCustody.jobInput,
+        queue,
+        beforeDispatch: async () => {
+          await createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(context, {
+            teamId,
+            files: [commandCustody.file],
+            requiredPermission: "analysis:run"
+          });
+        }
       });
       await recordEnterpriseAuditAsync({
         event: "validation.queue",

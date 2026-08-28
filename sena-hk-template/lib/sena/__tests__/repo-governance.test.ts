@@ -1886,6 +1886,8 @@ describe("SENA repository governance", () => {
     for (const active of registry.workItems.filter(isActiveWriter)) {
       if (active.freezeException === "governance-preservation") continue;
       active.disposition = "integrated";
+      const actualHead = runGit(projectRoot, ["rev-parse", active.branch]);
+      active.headSha = actualHead;
       const [ahead, behind] = runGit(projectRoot, [
         "rev-list",
         "--left-right",
@@ -1895,6 +1897,7 @@ describe("SENA repository governance", () => {
       active.aheadBehind = { ...active.aheadBehind, ahead, behind };
       const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
       branch.disposition = "integrated";
+      branch.headSha = actualHead;
     }
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);

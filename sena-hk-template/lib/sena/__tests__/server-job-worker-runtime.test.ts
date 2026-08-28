@@ -313,11 +313,122 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(stored.status).toBe("succeeded");
     expect(stored.lifecycle.attempts).toBe(1);
     expect(stored.lifecycle.workerRunId).toBe(outcome.workerRunId);
+    expect(stored.resultReceipt).toMatchObject({
+      schemaVersion: "sena-enterprise-server-job-result/v1",
+      outputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      artifactReferences: [outcome.result?.analysisRunId],
+      evidence: {
+        analysisRunId: outcome.result?.analysisRunId,
+        reportSha256: outcome.result?.reportSha256,
+        projectSnapshotSha256: outcome.result?.projectSnapshotSha256
+      },
+      redaction: {
+        payloadValuesExcluded: true,
+        rawRowsExcluded: true,
+        secretValuesExcluded: true
+      }
+    });
 
     const runs = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
       teamId: fixture.teamId
     });
     expect(runs.map((run) => run.id)).toContain(outcome.result?.analysisRunId);
+  });
+
+  it("executes an encrypted project-bound validation job and reuses its deterministic run on replay", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const commandEnvelope = await import("../server-job-command-envelope");
+    const validationRuns = await import("../enterprise/validation-runs");
+    const validationDataset = structuredClone(fixture.snapshot.dataset);
+    validationDataset.people = validationDataset.people.map((person, index) => ({
+      ...person,
+      group: index % 2 === 0 ? "Validation A" : "Validation B"
+    }));
+    const validationModel = fixture.index.buildSenaModel(validationDataset);
+    const snapshot = fixture.index.buildSenaProjectSnapshot(validationModel, {
+      title: "Validation Worker Source",
+      generatedAt: "2026-08-28T00:00:00.000Z",
+      sourceDataset: validationDataset
+    });
+    const project = await fixture.enterprise.createEnterpriseProjectAsync(fixture.context, {
+      teamId: fixture.teamId,
+      title: "Validation Worker Project",
+      snapshot
+    });
+    const payload = {
+      action: "run-validation",
+      commandCustody: commandEnvelope.SENA_SERVER_JOB_COMMAND_CUSTODY,
+      teamId: fixture.teamId,
+      projectId: project.id,
+      projectVersion: project.currentVersion,
+      groupField: "group",
+      groupA: "Validation A",
+      groupB: "Validation B",
+      metric: "socialStrength",
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05,
+      seed: 20260828,
+      suite: false
+    };
+    const queueInput = {
+      kind: "validation" as const,
+      teamId: fixture.teamId,
+      projectId: project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project" as const,
+        projectVersion: project.currentVersion,
+        projectTeamId: project.teamId,
+        comparisonCount: 1,
+        validationMethod: "group-comparison" as const,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true as const
+      }
+    };
+    const [commandEnvelopeUploadId] = fixture.importAnalysis.reserveEnterpriseUploadIds(1);
+    const custody = commandEnvelope.planSenaServerJobCommandCustody(
+      queueInput,
+      commandEnvelopeUploadId,
+      fixture.queue.stableServerJobPayloadSha256(payload)
+    );
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      ...custody.jobInput,
+      beforeDispatch: async () => {
+        await fixture.importAnalysis.createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(
+          fixture.context,
+          {
+            teamId: fixture.teamId,
+            files: [custody.file],
+            requiredPermission: "analysis:run"
+          }
+        );
+      }
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "succeeded",
+      jobStatus: "succeeded",
+      result: expect.objectContaining({
+        validationRunId: expect.stringMatching(/^val_job_[a-f0-9]{24}$/),
+        validationRunEvidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+      })
+    }));
+
+    const replay = await validationRuns.buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync(
+      fixture.context,
+      payload,
+      { executionIdempotency: { key: job.id, createdAt: job.queuedAt } }
+    );
+    expect(replay.body.validationRun.id).toBe(outcome.result?.validationRunId);
+    expect(validationRuns.listEnterpriseValidationRuns(fixture.context, {
+      teamId: fixture.teamId,
+      projectId: project.id
+    }).filter((run) => run.id === outcome.result?.validationRunId)).toHaveLength(1);
   });
 
   it.each([
@@ -1396,6 +1507,8 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(outcome.errorCode).toBeUndefined();
     expect(outcome.status).toBe("succeeded");
     expect(outcome.result?.importRunId).toMatch(/^import_/);
+    expect(outcome.result?.importDatasetContentHash).toMatch(/^0x[a-f0-9]{8}$/);
+    expect(outcome.result?.importCleaningManifestSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(outcome.result?.persistedProjectId).toMatch(/^project_/);
     expect(outcome.result?.analysisRunId).toMatch(/^analysis_/);
 

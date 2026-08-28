@@ -343,7 +343,8 @@ export function getEnterpriseGovernanceStatus(input: {
         "header=cross-origin-resource-policy:same-origin",
         "header=content-security-policy-report-only",
         "cspMode=report-only",
-        "cspDirectives=default-src 'self'|frame-ancestors 'none'|object-src 'none'|upgrade-insecure-requests",
+        "cspDirectives=default-src 'self'|frame-ancestors 'none'|object-src 'none'",
+        "upgradeInsecureRequestsOmittedFromReportOnly=true",
         "apiCacheControl=no-store"
       ],
       nextAction: "Review CSP violation reports, then move to enforcing Content-Security-Policy when all institution integrations are allow-listed."

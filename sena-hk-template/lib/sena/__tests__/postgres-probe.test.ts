@@ -117,12 +117,12 @@ describe("SENA enterprise Postgres live probe", () => {
       status: "pass",
       schemaName: "public",
       summary: expect.objectContaining({
-        tableCount: 15,
-        productionTableCount: 14,
+        tableCount: 20,
+        productionTableCount: 19,
         verifierTableCount: 1,
-        indexCount: 55,
-        uniqueIndexCount: 2,
-        ddlStatementCount: 72,
+        indexCount: 70,
+        uniqueIndexCount: 9,
+        ddlStatementCount: 97,
         destructiveDdlStatementCount: 0,
         migrationMode: "create-if-not-exists"
       }),
@@ -138,12 +138,20 @@ describe("SENA enterprise Postgres live probe", () => {
       "sena_enterprise_server_jobs",
       "sena_enterprise_audit_log",
       "sena_enterprise_observed_requests",
+      "sena_workflow_runs",
+      "sena_workflow_commands",
+      "sena_workflow_step_receipts",
+      "sena_workflow_approvals",
+      "sena_workflow_artifacts",
       "sena_enterprise_postgres_live_probes"
     ]));
     expect(probe.schemaContract.indexes.map((index) => index.name)).toEqual(expect.arrayContaining([
       "sena_enterprise_uploads_team_created_idx",
       "sena_enterprise_server_jobs_status_updated_idx",
-      "sena_enterprise_observed_requests_error_idx"
+      "sena_enterprise_observed_requests_error_idx",
+      "sena_workflow_runs_team_start_idempotency_uidx",
+      "sena_workflow_commands_claim_idx",
+      "sena_workflow_step_receipts_effect_uidx"
     ]));
     expect(probe.schemaContract.ddl.statementFingerprints.every((statement) => /^[a-f0-9]{64}$/.test(statement.sqlSha256))).toBe(true);
     expect(queries.map((query) => query.sql.split(" ")[0])).toEqual(["CREATE", "INSERT", "SELECT", "DELETE"]);
@@ -167,18 +175,18 @@ describe("SENA enterprise Postgres live probe", () => {
     expect(contract.schemaVersion).toBe("sena-enterprise-postgres-schema-contract/v1");
     expect(contract.status).toBe("pass");
     expect(contract.summary).toEqual(expect.objectContaining({
-      tableCount: 15,
-      productionTableCount: 14,
+      tableCount: 20,
+      productionTableCount: 19,
       verifierTableCount: 1,
-      indexCount: 55,
-      uniqueIndexCount: 2,
-      ddlStatementCount: 72,
+      indexCount: 70,
+      uniqueIndexCount: 9,
+      ddlStatementCount: 97,
       destructiveDdlStatementCount: 0
     }));
     expect(contract.evidence).toEqual(expect.arrayContaining([
       "schemaContractSource=enterprisePostgresAdapterEnsureSchema",
       "schemaContractSqlValues=hashed",
-      "migrationMode=create-table-if-not-exists|alter-column-nullability|create-index-if-not-exists",
+      "migrationMode=create-table-if-not-exists|add-column-if-not-exists|alter-column-nullability|create-index-if-not-exists",
       "connectionValues=excluded",
       "secretValues=excluded"
     ]));

@@ -358,6 +358,102 @@ export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
   return { currentProject: project, revision, sourceProject };
 }
 
+/**
+ * Resolves the current project and its retained immutable revision from one
+ * primary-state read. EvidenceFlow fork admission uses this projection so a
+ * concurrent project update cannot mix one current version with another
+ * revision snapshot.
+ */
+export async function getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.version === project.currentVersion
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The current project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The current project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
+/**
+ * Resolves the immutable revision identifier recorded by EvidenceFlow. The
+ * project, revision, and read projection come from one primary-state read so a
+ * mutable current project can never be mixed with a historical revision.
+ */
+export async function getEnterpriseProjectRevisionByIdReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  revisionId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.id === revisionId
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
 export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, projectId: string, input: {
   title?: string;
   description?: string;

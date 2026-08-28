@@ -15,6 +15,7 @@ import {
   importSenaEnterpriseFiles,
   withSenaImportDatasetMetadata
 } from "../import-adapters";
+import { buildSenaDatasetContentHash } from "../data-contract-audit";
 import {
   buildSenaReliabilityDashboard,
   normalizeSenaReliabilityUploadIds,
@@ -29,19 +30,39 @@ import {
 } from "../reliability";
 import { type SenaPreparedReliabilityRunInput } from "../reliability-api";
 import {
+  assertSenaPublicationModelCardReady,
+  buildSenaPublicationExport,
+  type SenaPublicationEnterpriseProjectEvidence,
+  type SenaPublicationFormat
+} from "../publication-export";
+import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import {
+  parseSenaServerJobCommandEnvelope,
+  SENA_SERVER_JOB_COMMAND_CUSTODY,
+  SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE
+} from "../server-job-command-envelope";
+import {
+  buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync
+} from "./validation-runs";
+import {
   parseSenaReliabilityReviewerEnvelope,
   SENA_RELIABILITY_REVIEWER_ENVELOPE_PROFILE
 } from "../reliability-queue-reviewer";
 import { contextFromDb, type SenaEnterpriseSession, type SenaEnterpriseSessionContext } from "./auth-session";
+import { requireEnterprisePermission } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import {
   createEnterpriseAnalysisRunWithPostgresMirrorAsync,
   createEnterpriseImportRunWithPostgresMirrorAsync,
+  createEnterpriseServerJobArtifactWithPostgresMirrorAsync,
   readEnterpriseUploadContentsAsync,
   recordEnterpriseUploadWarningCountsAsync,
   type SenaEnterpriseUploadContent
 } from "./import-analysis";
 import { now } from "./ops-runtime";
+import { recordEnterpriseAuditAsync } from "./ops-audit";
+import { senaPublicationCommandAuthorizationDigest } from "./publication-command-binding";
+import { resolveEnterprisePublicationStateBundle } from "./publication-state-binding";
 import {
   parseEnterpriseReliabilityUploadContents,
   prepareEnterpriseReliabilityQueuedJsonUploads,
@@ -66,16 +87,30 @@ import {
 import {
   enterpriseServerJobHasDurableSourcePointer,
   enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
+  enterpriseServerJobHasValidWorkerCommandCustodyProfile,
   enterpriseServerJobIsSyntheticWorkerHeartbeat
 } from "./server-job-contract";
 import { readEnterpriseState } from "./state";
 import {
+  buildEnterpriseProjectEvidenceBinding,
   createEnterpriseProjectAsync,
   getEnterpriseProjectReadOnlyAsync,
+  getEnterpriseProjectRevisionByIdReadOnlyAsync,
   getEnterpriseProjectRevisionSourceReadOnlyAsync,
   updateEnterpriseProjectAsync
 } from "./team-project";
 import { runWithSenaValidationRequestScope } from "./validation-request-scope";
+import { senaServerJobWorkerExecutableKinds } from "./server-job-worker-capabilities";
+import {
+  assertSenaEnterprisePublicationRequestDerivationWorkBudget,
+  SenaProjectSnapshotResourceLimitError
+} from "../snapshot";
+import {
+  buildSenaWorkflowExploratoryPublication,
+  parseSenaWorkflowExploratoryPublicationCommand,
+  type SenaWorkflowExploratoryPublicationCommand
+} from "../workflow/exploratory-publication";
+import { senaWorkflowDigest } from "../workflow/canonical";
 
 /**
  * The in-repo executor for queued SENA server jobs.
@@ -97,25 +132,29 @@ import { runWithSenaValidationRequestScope } from "./validation-request-scope";
 export type SenaServerJobWorkerAction = SenaEnterpriseServerJob["worker"]["expectedAction"];
 
 /**
- * Kinds this repository can actually run today.
- *
- * `import` and the upload-pointer half of `reliability` joined this list once
- * import-analysis.ts exported readEnterpriseUploadContentsAsync: both need the
- * bytes of a registered upload, and the only acceptable way to get them is
- * through the module that owns the upload envelope, not a second decryptor
- * here. `publication-export` and `validation` are still absent — nothing in
- * this module executes them, so they are reported as having no executor rather
- * than being claimed and failed.
+ * Kinds this repository can actually run today. Import/reliability source bytes
+ * and validation/publication command values remain in encrypted upload custody;
+ * the public job record carries only project/upload pointers and SHA-256 hashes.
  */
-export const senaServerJobWorkerExecutableKinds = ["analysis", "import", "reliability"] as const;
+export { senaServerJobWorkerExecutableKinds } from "./server-job-worker-capabilities";
 
 export type SenaServerJobWorkerExecutableKind = typeof senaServerJobWorkerExecutableKinds[number];
 
 export type SenaServerJobWorkerResult = {
   analysisRunId?: string;
   importRunId?: string;
+  importDatasetContentHash?: string;
+  importCleaningManifestSha256?: string;
   persistedProjectId?: string;
   reliabilityRunId?: string;
+  validationRunId?: string;
+  validationRunEvidenceHash?: string;
+  publicationArtifactId?: string;
+  publicationFilename?: string;
+  publicationSha256?: string;
+  publicationBytes?: number;
+  publicationDerivationManifestSha256?: string;
+  publicationBoundaryManifestSha256?: string;
   reportSha256?: string;
   projectSnapshotSha256?: string;
 };
@@ -221,6 +260,64 @@ async function workerSessionContext(job: SenaEnterpriseServerJob): Promise<SenaE
   return contextFromDb(state.db, session);
 }
 
+function serverJobCommandCustodyError(): SenaEnterpriseError {
+  return new SenaEnterpriseError(
+    "The queued SENA server-job command does not match its encrypted custody envelope.",
+    409,
+    "server_job_worker_command_custody_invalid"
+  );
+}
+
+async function readCurrentServerJobCommandEnvelope(
+  job: SenaEnterpriseServerJob,
+  context: SenaEnterpriseSessionContext
+) {
+  if (!enterpriseServerJobHasValidWorkerCommandCustodyProfile(job)) throw serverJobCommandCustodyError();
+  const uploadId = job.payloadSummary.commandEnvelopeUploadId!;
+  const envelopeSha256 = job.payloadSummary.commandEnvelopeSha256!;
+  let content: SenaEnterpriseUploadContent;
+  try {
+    [content] = await readEnterpriseUploadContentsAsync(context, {
+      teamId: job.teamId,
+      uploadIds: [uploadId]
+    });
+  } catch {
+    throw serverJobCommandCustodyError();
+  }
+  if (!content || content.upload.teamId !== job.teamId ||
+    content.upload.importProfile !== SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE ||
+    content.upload.sha256 !== envelopeSha256) {
+    throw serverJobCommandCustodyError();
+  }
+  try {
+    const envelope = parseSenaServerJobCommandEnvelope(content.bytes);
+    if (envelope.kind !== job.kind || envelope.payloadSha256 !== job.payloadSha256 ||
+      stableServerJobPayloadSha256(envelope.payload) !== job.payloadSha256) {
+      throw serverJobCommandCustodyError();
+    }
+    return envelope.payload;
+  } catch (error) {
+    if (error instanceof SenaEnterpriseError) throw error;
+    throw serverJobCommandCustodyError();
+  }
+}
+
+async function admitServerJobCommandCustody(
+  job: SenaEnterpriseServerJob,
+  deliveredPayload: Record<string, unknown>
+) {
+  if (deliveredPayload.commandCustody !== SENA_SERVER_JOB_COMMAND_CUSTODY ||
+    stableServerJobPayloadSha256(deliveredPayload) !== job.payloadSha256) {
+    throw serverJobCommandCustodyError();
+  }
+  const context = await workerSessionContext(job);
+  const retainedPayload = await readCurrentServerJobCommandEnvelope(job, context);
+  if (stableServerJobPayloadSha256(retainedPayload) !== stableServerJobPayloadSha256(deliveredPayload)) {
+    throw serverJobCommandCustodyError();
+  }
+  return { context, payload: retainedPayload };
+}
+
 function optionalString(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -300,6 +397,8 @@ async function executeImportJob(
   const result = await importSenaEnterpriseFiles(contents.map(importAdapterFile));
   const dataGovernance = payload.dataGovernance as SenaAnalysisRunInput["dataGovernance"] | undefined;
   const dataset = withSenaImportDatasetMetadata(result.dataset, dataGovernance, now());
+  const importDatasetContentHash = buildSenaDatasetContentHash(dataset);
+  const importCleaningManifestSha256 = sha256Json(result.cleaningManifest);
 
   const importRun = await createEnterpriseImportRunWithPostgresMirrorAsync(context, {
     teamId,
@@ -316,7 +415,11 @@ async function executeImportJob(
   }));
 
   if (payload.persistProject !== true) {
-    return { importRunId: importRun.id };
+    return {
+      importRunId: importRun.id,
+      importDatasetContentHash,
+      importCleaningManifestSha256
+    };
   }
 
   const title = optionalString(payload.title) ?? `Imported SENA Project ${new Date().toISOString().slice(0, 10)}`;
@@ -344,6 +447,8 @@ async function executeImportJob(
 
   return {
     importRunId: importRun.id,
+    importDatasetContentHash,
+    importCleaningManifestSha256,
     persistedProjectId: persistedProject.id,
     analysisRunId: analysisRun.id,
     reportSha256: analysisRun.artifactFingerprints.reportSha256,
@@ -783,12 +888,422 @@ async function executeReliabilityJob(
   return executeReliabilityJsonUploadJob(job, payload, context, admission.input, reviewer);
 }
 
+type SenaValidationJobAdmission = {
+  context: SenaEnterpriseSessionContext;
+};
+
+async function admitValidationJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
+): Promise<SenaValidationJobAdmission> {
+  const projectId = optionalString(payload.projectId);
+  const teamId = optionalString(payload.teamId);
+  const projectVersion = payload.projectVersion;
+  if (payload.action !== "run-validation" || !job.projectId || projectId !== job.projectId ||
+    teamId !== job.teamId || !isPositiveSafeInteger(projectVersion) ||
+    projectVersion !== job.payloadSummary.projectVersion ||
+    job.payloadSummary.projectTeamId !== job.teamId ||
+    payload.snapshot !== undefined || payload.dataset !== undefined) {
+    throw new SenaEnterpriseError(
+      "The queued SENA validation project binding is incomplete or inconsistent.",
+      409,
+      "server_job_worker_validation_binding_invalid"
+    );
+  }
+  const context = admittedContext ?? await workerSessionContext(job);
+  const project = await getEnterpriseProjectReadOnlyAsync(context, projectId);
+  if (project.teamId !== job.teamId || project.currentVersion !== projectVersion) {
+    throw new SenaEnterpriseError(
+      "The SENA validation source changed after this job was queued.",
+      409,
+      "server_job_worker_validation_project_changed"
+    );
+  }
+  return { context };
+}
+
+async function executeValidationJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admission: SenaValidationJobAdmission
+): Promise<SenaServerJobWorkerResult> {
+  const response = await buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync(
+    admission.context,
+    payload,
+    {
+      executionIdempotency: {
+        key: job.id,
+        createdAt: job.queuedAt
+      }
+    }
+  );
+  return {
+    validationRunId: response.body.validationRun.id,
+    validationRunEvidenceHash: response.body.validationRun.validationRunEvidenceHash
+  };
+}
+
+const publicationFormats = new Set<SenaPublicationFormat>([
+  "html",
+  "svg",
+  "png",
+  "xlsx",
+  "docx",
+  "pdf",
+  "package"
+]);
+const publicationArtifactProfile = "server-job-artifact/publication-export-v1";
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function bodyBuffer(body: string | Buffer) {
+  return typeof body === "string" ? Buffer.from(body, "utf8") : body;
+}
+
+function publicationDerivationBudgetError(error: unknown): never {
+  if (error instanceof SenaProjectSnapshotResourceLimitError) {
+    throw new SenaEnterpriseError(
+      "Publication export exceeds the supported canonical derivation budget.",
+      413,
+      "publication_export_derivation_too_complex"
+    );
+  }
+  throw error;
+}
+
+type SenaClaimReadyPublicationJobAdmission = {
+  scope: "claim-ready-with-limits";
+  context: SenaEnterpriseSessionContext;
+  publicationState: Awaited<ReturnType<typeof resolveEnterprisePublicationStateBundle>>;
+  format: SenaPublicationFormat;
+  sourceSnapshotSha256: string;
+};
+
+type SenaExploratoryPublicationJobAdmission = {
+  scope: "exploratory-only";
+  context: SenaEnterpriseSessionContext;
+  revisionSource: Awaited<ReturnType<typeof getEnterpriseProjectRevisionByIdReadOnlyAsync>>;
+  format: "package";
+  sourceSnapshotSha256: string;
+  command: SenaWorkflowExploratoryPublicationCommand;
+};
+
+type SenaPublicationJobAdmission =
+  | SenaClaimReadyPublicationJobAdmission
+  | SenaExploratoryPublicationJobAdmission;
+
+async function admitClaimReadyPublicationJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
+): Promise<SenaClaimReadyPublicationJobAdmission> {
+  const projectId = optionalString(payload.projectId);
+  const teamId = optionalString(payload.teamId);
+  const projectVersion = payload.projectVersion;
+  const format = optionalString(payload.format) as SenaPublicationFormat | undefined;
+  if (payload.action !== "run-publication-export" ||
+    (payload.publicationScope !== undefined && payload.publicationScope !== "claim-ready-with-limits") ||
+    (job.payloadSummary.publicationScope !== undefined &&
+      job.payloadSummary.publicationScope !== "claim-ready-with-limits") ||
+    !job.projectId || projectId !== job.projectId ||
+    teamId !== job.teamId || !isPositiveSafeInteger(projectVersion) ||
+    projectVersion !== job.payloadSummary.projectVersion ||
+    job.payloadSummary.projectTeamId !== job.teamId ||
+    !format || !publicationFormats.has(format) || job.payloadSummary.format !== format) {
+    throw new SenaEnterpriseError(
+      "The queued SENA publication project binding is incomplete or inconsistent.",
+      409,
+      "server_job_worker_publication_binding_invalid"
+    );
+  }
+  const context = admittedContext ?? await workerSessionContext(job);
+  const publicationState = await resolveEnterprisePublicationStateBundle(context, projectId, {
+    beforeNormalize: ({ targetSnapshot }) => {
+      try {
+        assertSenaEnterprisePublicationRequestDerivationWorkBudget(targetSnapshot);
+      } catch (error) {
+        publicationDerivationBudgetError(error);
+      }
+    }
+  });
+  assertSenaPublicationModelCardReady(publicationState.publicationSnapshot.report);
+  const sourceSnapshotSha256 = sha256Json(publicationState.publicationSnapshot);
+  if (publicationState.project.teamId !== job.teamId ||
+    publicationState.project.currentVersion !== projectVersion ||
+    payload.sourceSnapshotSha256 !== sourceSnapshotSha256 ||
+    payload.authorizationEvidenceSha256 !== senaPublicationCommandAuthorizationDigest(publicationState.stateBinding)) {
+    throw new SenaEnterpriseError(
+      "The SENA publication evidence binding changed after this job was queued.",
+      409,
+      "server_job_worker_publication_binding_changed"
+    );
+  }
+  return { scope: "claim-ready-with-limits", context, publicationState, format, sourceSnapshotSha256 };
+}
+
+async function admitExploratoryPublicationJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
+): Promise<SenaExploratoryPublicationJobAdmission> {
+  let command: SenaWorkflowExploratoryPublicationCommand;
+  try {
+    command = parseSenaWorkflowExploratoryPublicationCommand(payload);
+  } catch {
+    throw new SenaEnterpriseError(
+      "The queued SENA exploratory publication binding is invalid.",
+      409,
+      "server_job_worker_exploratory_publication_binding_invalid"
+    );
+  }
+  if (
+    !job.projectId ||
+    command.projectId !== job.projectId ||
+    command.teamId !== job.teamId ||
+    job.payloadSummary.projectVersion !== command.projectVersion ||
+    job.payloadSummary.projectTeamId !== job.teamId ||
+    job.payloadSummary.format !== "package" ||
+    job.payloadSummary.publicationScope !== "exploratory-only"
+  ) {
+    throw new SenaEnterpriseError(
+      "The queued SENA exploratory publication job summary is inconsistent.",
+      409,
+      "server_job_worker_exploratory_publication_binding_invalid"
+    );
+  }
+  const context = admittedContext ?? await workerSessionContext(job);
+  requireEnterprisePermission(context, job.teamId, "export:create");
+  const revisionSource = await getEnterpriseProjectRevisionByIdReadOnlyAsync(
+    context,
+    command.projectId,
+    command.projectRevisionId
+  );
+  const sourceBinding = buildEnterpriseProjectEvidenceBinding(revisionSource.sourceProject);
+  if (
+    revisionSource.currentProject.teamId !== job.teamId ||
+    revisionSource.revision.teamId !== job.teamId ||
+    revisionSource.currentProject.currentVersion !== command.projectVersion ||
+    revisionSource.revision.version !== command.projectVersion ||
+    sourceBinding.snapshotSha256 !== command.sourceSnapshotSha256 ||
+    senaWorkflowDigest(revisionSource.sourceProject.snapshot.report) !== command.reportSha256
+  ) {
+    throw new SenaEnterpriseError(
+      "The SENA exploratory publication source changed after this job was queued.",
+      409,
+      "server_job_worker_exploratory_publication_binding_changed"
+    );
+  }
+  return {
+    scope: "exploratory-only",
+    context,
+    revisionSource,
+    format: "package",
+    sourceSnapshotSha256: sourceBinding.snapshotSha256,
+    command
+  };
+}
+
+async function admitPublicationJob(
+  job: SenaEnterpriseServerJob,
+  payload: Record<string, unknown>,
+  admittedContext?: SenaEnterpriseSessionContext
+): Promise<SenaPublicationJobAdmission> {
+  return payload.publicationScope === "exploratory-only"
+    ? admitExploratoryPublicationJob(job, payload, admittedContext)
+    : admitClaimReadyPublicationJob(job, payload, admittedContext);
+}
+
+function publicationProjectEvidence(
+  admission: SenaClaimReadyPublicationJobAdmission
+): SenaPublicationEnterpriseProjectEvidence {
+  const { publicationState, sourceSnapshotSha256 } = admission;
+  const { project, claimPackage, stateBinding } = publicationState;
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.publicationEnterpriseProjectEvidence,
+    projectId: project.id,
+    teamId: project.teamId,
+    currentVersion: project.currentVersion,
+    title: project.title,
+    activeWindowLabel: project.activeWindowLabel,
+    claimUse: project.claimUse,
+    sourceSnapshotSha256,
+    reportSha256: sha256Json(publicationState.publicationSnapshot.report),
+    stateBinding,
+    ...(publicationState.reliabilityRun ? {
+      publicationDerivation: {
+        kind: "current-project-reliability-run" as const,
+        reliabilityRunId: publicationState.reliabilityRun.id,
+        reliabilityRunSha256: sha256Json(publicationState.reliabilityRun),
+        reliabilityDashboardSchemaVersion: publicationState.reliabilityRun.dashboard.schemaVersion,
+        projectVersion: publicationState.reliabilityRun.projectBinding?.projectVersion ?? project.currentVersion,
+        persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+        readProjectionSourceSnapshotSha256: stateBinding.project.readProjectionSnapshotSha256,
+        derivedPublicationSnapshotSha256: sourceSnapshotSha256
+      }
+    } : {}),
+    claimPackage: {
+      schemaVersion: claimPackage.schemaVersion,
+      status: claimPackage.status,
+      blockers: claimPackage.summary.blockers,
+      warnings: claimPackage.summary.warnings,
+      sourceSnapshotSha256: claimPackage.sourceSnapshotEvidence.snapshotSha256,
+      persistedSourceSnapshotSha256: stateBinding.project.persistedSnapshotSha256,
+      claimReadinessKind: claimPackage.claimReadinessEvidence.kind,
+      claimReadinessSnapshotSha256: claimPackage.claimReadinessEvidence.snapshotSha256,
+      sha256: stateBinding.claimPackage.sha256,
+      payload: structuredClone(claimPackage)
+    }
+  };
+}
+
+async function persistPublicationArtifact(
+  job: SenaEnterpriseServerJob,
+  admission: SenaPublicationJobAdmission,
+  artifact: { filename: string; contentType: string; bytes: Buffer }
+) {
+  const artifactId = `upload_${createHash("sha256").update(`publication:${job.id}`).digest("hex").slice(0, 24)}`;
+  const sha256 = createHash("sha256").update(artifact.bytes).digest("hex");
+  let existing: SenaEnterpriseUploadContent | undefined;
+  try {
+    [existing] = await readEnterpriseUploadContentsAsync(admission.context, {
+      teamId: job.teamId,
+      uploadIds: [artifactId]
+    });
+  } catch (error) {
+    if (!(error instanceof SenaEnterpriseError) || error.code !== "upload_not_found") throw error;
+  }
+  if (existing) {
+    if (existing.upload.sha256 !== sha256 || existing.upload.originalName !== artifact.filename ||
+      existing.upload.contentType !== artifact.contentType ||
+      existing.upload.importProfile !== publicationArtifactProfile) {
+      throw new SenaEnterpriseError(
+        "Publication job artifact idempotency key is bound to different output.",
+        409,
+        "publication_export_artifact_idempotency_conflict"
+      );
+    }
+    return { upload: existing.upload, created: false };
+  }
+  const upload = await createEnterpriseServerJobArtifactWithPostgresMirrorAsync(admission.context, {
+    teamId: job.teamId,
+    files: [{
+      name: artifact.filename,
+      contentType: artifact.contentType,
+      bytes: artifact.bytes,
+      importProfile: publicationArtifactProfile,
+      reservedId: artifactId
+    }]
+  });
+  return { upload, created: true };
+}
+
+async function executePublicationJob(
+  job: SenaEnterpriseServerJob,
+  admission: SenaPublicationJobAdmission
+): Promise<SenaServerJobWorkerResult> {
+  const built = admission.scope === "claim-ready-with-limits"
+    ? await (async () => {
+        const result = await buildSenaPublicationExport(
+          admission.publicationState.publicationSnapshot,
+          admission.format,
+          publicationProjectEvidence(admission)
+        );
+        return {
+          artifact: result,
+          title: admission.publicationState.publicationSnapshot.title,
+          projectVersion: admission.publicationState.project.currentVersion,
+          manifestEvidence: {
+            publicationStateBindingSha256: admission.publicationState.stateBinding.bindingSha256,
+            publicationDerivationManifestSha256: result.derivationManifest.manifestSha256
+          },
+          resultManifest: {
+            publicationDerivationManifestSha256: result.derivationManifest.manifestSha256
+          }
+        };
+      })()
+    : (() => {
+        const result = buildSenaWorkflowExploratoryPublication(
+          admission.revisionSource.sourceProject.snapshot,
+          admission.command
+        );
+        return {
+          artifact: result,
+          title: admission.revisionSource.sourceProject.title,
+          projectVersion: admission.revisionSource.revision.version,
+          manifestEvidence: {
+            workflowRunId: admission.command.workflowRunId,
+            workflowNodeId: admission.command.workflowNodeId,
+            claimBoundary: "exploratory-only" as const,
+            publicationBoundaryManifestSha256: result.manifestSha256
+          },
+          resultManifest: {
+            publicationBoundaryManifestSha256: result.manifestSha256
+          }
+        };
+      })();
+  const bytes = bodyBuffer(built.artifact.body);
+  const persisted = await persistPublicationArtifact(job, admission, {
+    filename: built.artifact.filename,
+    contentType: built.artifact.contentType,
+    bytes
+  });
+  if (persisted.created) {
+    await recordEnterpriseAuditAsync({
+      event: "export.run",
+      userId: admission.context.user.id,
+      teamId: job.teamId,
+      projectId: job.projectId,
+      detail: {
+        source: "project",
+        format: admission.format,
+        publicationScope: admission.scope,
+        title: built.title,
+        projectVersion: built.projectVersion,
+        sourceSnapshotSha256: admission.sourceSnapshotSha256,
+        ...built.manifestEvidence,
+        serverJobId: job.id,
+        artifactId: persisted.upload.id,
+        artifactSha256: persisted.upload.sha256
+      }
+    });
+  }
+  return {
+    publicationArtifactId: persisted.upload.id,
+    publicationFilename: built.artifact.filename,
+    publicationSha256: persisted.upload.sha256,
+    publicationBytes: persisted.upload.size,
+    ...built.resultManifest
+  };
+}
+
+export async function admitEnterpriseExternalServerJobClaim(
+  job: SenaEnterpriseServerJob
+): Promise<void> {
+  if (job.kind === "analysis") {
+    await admitEnterpriseExternalAnalysisClaim(job);
+    return;
+  }
+  if (job.kind !== "validation" && job.kind !== "publication-export") return;
+  const context = await workerSessionContext(job);
+  const payload = await readCurrentServerJobCommandEnvelope(job, context);
+  if (job.kind === "validation") {
+    await admitValidationJob(job, payload, context);
+    return;
+  }
+  await admitPublicationJob(job, payload, context);
+}
+
 async function executeByKind(
   job: SenaEnterpriseServerJob,
   payload: Record<string, unknown>,
   options: {
     analysisAdmission?: SenaAnalysisJobAdmission;
     reliabilityAdmission?: SenaReliabilityJobAdmission;
+    validationAdmission?: SenaValidationJobAdmission;
+    publicationAdmission?: SenaPublicationJobAdmission;
   } = {}
 ): Promise<SenaServerJobWorkerResult> {
   if (job.kind === "analysis") {
@@ -800,6 +1315,14 @@ async function executeByKind(
   if (job.kind === "reliability") {
     const admission = options.reliabilityAdmission ?? await admitReliabilityJob(job, payload, context);
     return executeReliabilityJob(job, payload, context, admission);
+  }
+  if (job.kind === "validation") {
+    const admission = options.validationAdmission ?? await admitValidationJob(job, payload, context);
+    return executeValidationJob(job, payload, admission);
+  }
+  if (job.kind === "publication-export") {
+    const admission = options.publicationAdmission ?? await admitPublicationJob(job, payload, context);
+    return executePublicationJob(job, admission);
   }
   throw new SenaEnterpriseError(
     `No in-repo executor is registered for SENA server job kind ${job.kind}.`,
@@ -887,6 +1410,10 @@ export async function runEnterpriseServerJob(input: {
   if (job.kind === "analysis" && !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(job)) {
     return rejectBeforeClaim(job, analysisCommandCustodyError());
   }
+  if ((job.kind === "validation" || job.kind === "publication-export") &&
+    !enterpriseServerJobHasValidWorkerCommandCustodyProfile(job)) {
+    return rejectBeforeClaim(job, serverJobCommandCustodyError());
+  }
   if (job.delivery.sourceReady !== true || !enterpriseServerJobHasDurableSourcePointer(job)) {
     return skipped(job, "server_job_worker_source_not_ready");
   }
@@ -899,6 +1426,8 @@ export async function runEnterpriseServerJob(input: {
     let payload = (input.workerPayload ?? {}) as Record<string, unknown>;
     let analysisAdmission: SenaAnalysisJobAdmission | undefined;
     let reliabilityAdmission: SenaReliabilityJobAdmission | undefined;
+    let validationAdmission: SenaValidationJobAdmission | undefined;
+    let publicationAdmission: SenaPublicationJobAdmission | undefined;
     let candidate = job;
     if (job.kind === "analysis") {
       try {
@@ -924,6 +1453,32 @@ export async function runEnterpriseServerJob(input: {
         return failedBeforeClaim(candidate, error);
       }
     }
+    if (job.kind === "validation") {
+      candidate = await getEnterpriseServerJob(job.id);
+      if (candidate.status !== "queued") {
+        return skipped(candidate, "server_job_worker_job_not_queued");
+      }
+      try {
+        const commandCustody = await admitServerJobCommandCustody(candidate, payload);
+        payload = commandCustody.payload;
+        validationAdmission = await admitValidationJob(candidate, payload, commandCustody.context);
+      } catch (error) {
+        return rejectBeforeClaim(candidate, error);
+      }
+    }
+    if (job.kind === "publication-export") {
+      candidate = await getEnterpriseServerJob(job.id);
+      if (candidate.status !== "queued") {
+        return skipped(candidate, "server_job_worker_job_not_queued");
+      }
+      try {
+        const commandCustody = await admitServerJobCommandCustody(candidate, payload);
+        payload = commandCustody.payload;
+        publicationAdmission = await admitPublicationJob(candidate, payload, commandCustody.context);
+      } catch (error) {
+        return rejectBeforeClaim(candidate, error);
+      }
+    }
 
     const claim = await claimServerJob(candidate.id, runId);
     if (!claim.claimed) return skipped(claim.job, claim.reason);
@@ -931,12 +1486,15 @@ export async function runEnterpriseServerJob(input: {
     try {
       const result = await executeByKind(claim.job, payload, {
         analysisAdmission,
-        reliabilityAdmission
+        reliabilityAdmission,
+        validationAdmission,
+        publicationAdmission
       });
       const update = await updateEnterpriseServerJobStatus({
         jobId: job.id,
         action: "mark-succeeded",
-        workerRunId: runId
+        workerRunId: runId,
+        result
       });
       return {
         jobId: job.id,
@@ -1085,7 +1643,9 @@ async function reproducedWorkerPayload(job: SenaEnterpriseServerJob) {
       ? reproduceImportPayload(job)
       : job.kind === "reliability"
         ? reproduceReliabilityPayload(job)
-        : undefined;
+        : job.kind === "validation" || job.kind === "publication-export"
+          ? await readCurrentServerJobCommandEnvelope(job, context).catch(() => undefined)
+          : undefined;
   if (!candidate) return undefined;
   return stableServerJobPayloadSha256(candidate) === job.payloadSha256 ? candidate : undefined;
 }

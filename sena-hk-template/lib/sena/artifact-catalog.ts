@@ -18,6 +18,67 @@ export type SenaCrossArtifactCatalogEntry = SenaReviewPacketArtifact & {
   };
 };
 
+export type SenaWorkflowArtifactCatalogEntry = SenaReviewPacketArtifact & {
+  closeoutContentKey: "run" | "stepReceipts" | "approvals" | "self";
+  surfaces: {
+    workflowCloseout: boolean;
+    researchReviewPacket: boolean;
+    engineeringEvidenceIndex: boolean;
+  };
+  checkOwner: "lib/sena/workflow/closeout.ts";
+};
+
+const workflowArtifacts: SenaWorkflowArtifactCatalogEntry[] = [
+  {
+    filename: "sena-workflow-run.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowRun,
+    description: "Authoritative EvidenceFlow run binding, state, evidence boundary, and supersession record.",
+    closeoutContentKey: "run",
+    surfaces: {
+      workflowCloseout: true,
+      researchReviewPacket: false,
+      engineeringEvidenceIndex: false
+    },
+    checkOwner: "lib/sena/workflow/closeout.ts"
+  },
+  {
+    filename: "sena-workflow-step-receipts.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowStepReceipt,
+    description: "Ordered immutable step receipts with predecessor bindings and SHA-256 audit-chain heads.",
+    closeoutContentKey: "stepReceipts",
+    surfaces: {
+      workflowCloseout: true,
+      researchReviewPacket: false,
+      engineeringEvidenceIndex: false
+    },
+    checkOwner: "lib/sena/workflow/closeout.ts"
+  },
+  {
+    filename: "sena-workflow-approvals.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowApproval,
+    description: "Digest-bound human approval and rejection receipts for EvidenceFlow interrupts.",
+    closeoutContentKey: "approvals",
+    surfaces: {
+      workflowCloseout: true,
+      researchReviewPacket: false,
+      engineeringEvidenceIndex: false
+    },
+    checkOwner: "lib/sena/workflow/closeout.ts"
+  },
+  {
+    filename: "sena-workflow-closeout.json",
+    schemaVersion: SENA_SCHEMA_VERSIONS.workflowCloseout,
+    description: "Verified EvidenceFlow closeout binding the run, receipts, approvals, artifacts, retries, failures, and evidence boundary.",
+    closeoutContentKey: "self",
+    surfaces: {
+      workflowCloseout: true,
+      researchReviewPacket: true,
+      engineeringEvidenceIndex: true
+    },
+    checkOwner: "lib/sena/workflow/closeout.ts"
+  }
+];
+
 const reviewPacketArtifacts: SenaReviewPacketArtifact[] = [
   {
     filename: "sena-review-packet.json",
@@ -278,4 +339,24 @@ export function projectSenaPilotPackageArtifactCatalog(): Pick<SenaPilotPackageM
 
 export function getSenaReviewPacketContentKey(filename: string) {
   return reviewPacketContentKeyByFilename[filename];
+}
+
+function cloneWorkflowArtifactCatalogEntry(
+  entry: SenaWorkflowArtifactCatalogEntry
+): SenaWorkflowArtifactCatalogEntry {
+  return {
+    ...entry,
+    surfaces: {
+      ...entry.surfaces
+    }
+  };
+}
+
+export function listSenaWorkflowArtifacts(): SenaWorkflowArtifactCatalogEntry[] {
+  return workflowArtifacts.map(cloneWorkflowArtifactCatalogEntry);
+}
+
+export function getSenaWorkflowArtifactCatalogEntry(filename: string) {
+  const entry = workflowArtifacts.find((artifact) => artifact.filename === filename);
+  return entry ? cloneWorkflowArtifactCatalogEntry(entry) : undefined;
 }

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "../analysis-run";
 import { SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE } from "../analysis-queue-command";
+import { SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE } from "../server-job-command-envelope";
 import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } from "../import-adapters";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
@@ -597,7 +598,7 @@ function createEnterpriseUploadsInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseUploadsInput,
   db: ReturnType<typeof readEnterpriseDb>,
-  requiredPermission: "upload:create" | "analysis:run" = "upload:create"
+  requiredPermission: "upload:create" | "analysis:run" | "export:create" = "upload:create"
 ) {
   requireEnterprisePermission(context, input.teamId, requiredPermission);
   if (input.files.length === 0) return {
@@ -730,6 +731,56 @@ export async function createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorA
     input,
     state.db,
     "analysis:run"
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
+}
+
+export async function createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput & { requiredPermission: "analysis:run" | "export:create" }
+) {
+  if (input.files.length !== 1 ||
+    input.files[0]?.importProfile !== SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE) {
+    throw new SenaEnterpriseError(
+      "Queued server-job command custody requires one canonical encrypted envelope.",
+      400,
+      "server_job_command_envelope_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    input.requiredPermission
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
+}
+
+export async function createEnterpriseServerJobArtifactWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  if (input.files.length !== 1 ||
+    !input.files[0]?.importProfile?.startsWith("server-job-artifact/")) {
+    throw new SenaEnterpriseError(
+      "Server-job artifact persistence requires one canonical artifact profile.",
+      400,
+      "server_job_artifact_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    "export:create"
   );
   appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
   await writeEnterpriseState(state, state.db);
