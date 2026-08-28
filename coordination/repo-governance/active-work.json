@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T23:27:44Z",
+  "updatedAt": "2026-08-28T23:31:47Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "32bf78726d1116770d92d552e41462598736b402",
+      "headSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T23:27:44Z",
-      "lastObservedAt": "2026-08-28T23:27:44Z",
-      "nextReviewAt": "2026-08-29T05:27:44Z",
+      "lastHeartbeatAt": "2026-08-28T23:31:47Z",
+      "lastObservedAt": "2026-08-28T23:31:47Z",
+      "nextReviewAt": "2026-08-29T05:31:47Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 53,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1050,18 +1050,18 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "The root remote-currentness algorithm repair is being prepared as a three-path A01 commit; its first push must receive Draft PR53 before activation.",
-      "dirtyState": "staged-root-remote-currentness-repair-3-paths",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr53-binding",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded cleanly to protected main 32bf7872, then added one RED/GREEN remote-only root-currentness test and one narrow verifier helper; exact real-topology audit passes with errors/ownerBlockers empty and unreachable commits 0",
-        "ci": "PR52 exact final head 9ca53f32 and protected-main 32bf7872 passed their exact build/repository-security gates with zero annotations; post-main runs are 33220146636 and 33220145343",
-        "merged": "PR52 merged exact head 9ca53f32 as protected main 32bf7872 at 2026-08-28T23:21:10Z; downstream remediation remains inactive pending the algorithm repair and later registry-only closeout",
+        "local": "A01 root-currentness algorithm commit 0195fc6d passed RED/GREEN, 48/48 governance tests, real-topology audit, native pre-commit/pre-push, and ordinary push; this staged follow-up binds Draft PR53",
+        "ci": "Draft PR53 exact initial head 0195fc6d has build 33220719379 and repository-security 33220717604/33220719384 in progress; none is accepted as green yet",
+        "merged": "PR52 remains the last protected-main merge at 32bf7872; Draft PR53 is OPEN/MERGEABLE at exact head 0195fc6d and is not Ready or merge-authorized",
         "deployed": "not authorized",
-        "live": "live main/origin-main and A01 are 32bf7872; clean root remains f067a224; protected audit fails only on recursive behind drift, while the staged helper validates registry-only remote ranges and rejects product-path ranges"
+        "live": "live main/origin-main remain 32bf7872; remote A01 branch and Draft PR53 are exact 0195fc6d; clean root remains f067a224 and downstream lanes remain frozen"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1275,9 +1275,10 @@
         "mergeApproved": false
       },
       "expandedRemediationAuthorization": {
-        "status": "pending-root-remote-currentness-algorithm-repair",
+        "status": "pending-pr53-exact-head-checks",
         "governancePullRequest": 51,
         "rootCurrentnessPullRequest": 52,
+        "rootRemoteCurrentnessRepairPullRequest": 53,
         "rootCurrentnessPreAuthorizationHeadSha": "13f535dd9ae24cdda4c971ae87fdeb9e9f54901e",
         "rootCurrentnessPreAuthorizationChecks": {
           "buildRunId": 33219711377,
@@ -1317,7 +1318,7 @@
           "annotationsEmpty": true
         },
         "rootRemoteCurrentnessRepair": {
-          "status": "staged-red-green",
+          "status": "draft-pr53-pending-checks",
           "failingTopology": "clean local root f067a224, recorded remote lower bound d7c4a972, live origin/main 32bf7872, registry-only intervening commits",
           "positiveBoundary": "allow ahead/behind drift only when every commit from recorded remoteHeadSha to origin/main changes only coordination/repo-governance/active-work.json",
           "negativeBoundary": "reject any product, script, test, workflow, or other path in the remote range",
@@ -1573,19 +1574,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "32bf78726d1116770d92d552e41462598736b402",
+      "headSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "9ca53f325ec7ee33cd066cee986f80643d8f7527",
-      "remoteObservedAt": "2026-08-28T23:27:44Z",
-      "pr": 52,
-      "prState": "MERGED",
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "remoteHeadSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
+      "remoteObservedAt": "2026-08-28T23:31:47Z",
+      "pr": 53,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "9ca53f325ec7ee33cd066cee986f80643d8f7527",
+      "prHeadSha": "0195fc6d32f4dc47732fea9772b5c11f51211b8a",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1595,13 +1596,13 @@
         "mergeCommitSha": "32bf78726d1116770d92d552e41462598736b402",
         "mergedAt": "2026-08-28T23:21:10Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T23:27:44Z",
-      "lastObservedAt": "2026-08-28T23:27:44Z",
-      "lastCommitAt": "2026-08-29T07:21:09+08:00",
-      "nextReviewAt": "2026-08-29T05:27:44Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T23:31:47Z",
+      "lastObservedAt": "2026-08-28T23:31:47Z",
+      "lastCommitAt": "2026-08-29T07:31:04+08:00",
+      "nextReviewAt": "2026-08-29T05:31:47Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR52 merged exact head 9ca53f32 as protected main 32bf7872 with post-main checks green; A01 is preparing the narrow root remote-currentness algorithm repair while downstream lanes remain frozen"
+      "closeout": "Draft PR53 is OPEN/MERGEABLE at exact algorithm-repair head 0195fc6d with initial checks in progress; downstream lanes remain frozen"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
