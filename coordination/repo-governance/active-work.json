@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T08:15:58Z",
+  "updatedAt": "2026-08-28T08:24:25Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "e89c0ed7940cf7cdfd0cc51ff7dbc76872ba1d95",
+      "headSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,14 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T08:15:58Z",
-      "lastObservedAt": "2026-08-28T08:15:58Z",
+      "lastHeartbeatAt": "2026-08-28T08:24:25Z",
+      "lastObservedAt": "2026-08-28T08:24:25Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 39,
-      "prIsDraft": false,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
+      "prNumber": 40,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 39,
         "headSha": "7bf81c57cf0003cb587ed1aafb86a65362683f61",
@@ -1021,19 +1021,19 @@
         "postMainChecksPassed": true
       },
       "noPrReason": null,
-      "dirtyState": "staged-pr40-evidenceflow-review-heartbeat-head-pending",
+      "dirtyState": "staged-pr40-lifecycle-remediation-authorization-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded to protected main e89c0ed after PR 39; this staged heartbeat binds EvidenceFlow remediation head d532cc8 and its second changes-required independent review",
-        "ci": "PR 39 is protected-main complete; exact main e89c0ed passed build 33143880064 and repository-security 33143880066",
-        "merged": "PR 39 exact head 7bf81c5 merged as protected main e89c0ed; a new governance PR is still pending creation",
+        "local": "Draft PR 40 exact first head 63adcf0 binds EvidenceFlow remediation head d532cc8 and its second changes-required independent review; this staged update binds the PR lifecycle and fail-closed remediation scope",
+        "ci": "PR 40 head 63adcf0 push repository-security 33155146098 passed while build 33155189588 and PR repository-security 33155189552 are in progress; no in-progress check is accepted as green evidence",
+        "merged": "PR 39 exact head 7bf81c5 is protected-main complete at e89c0ed; PR 40 remains Draft and unmerged",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
       },
-      "disposition": "active",
+      "disposition": "ready-for-pr",
       "freezeException": "governance-preservation"
     },
     {
@@ -1125,10 +1125,10 @@
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "clean-pr38-second-review-changes-required",
+      "dirtyState": "dirty-allowed-second-review-remediation-after-pr40-main",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "clean exact remediation candidate d532cc8 passed the full local pilot verification ladder and fresh PostgreSQL shadow pilots; the second independent static review still found release-blocking defects",
+        "local": "worktree remains clean at d532cc8; further tracked writes inside the unchanged EvidenceFlow allowlist are authorized only after PR 40 reaches protected main with exact-head and post-main checks green, and only to remediate the bound second-review findings",
         "ci": "PR 38 exact head d532cc8 passed build 33153485075 and repository-security 33153485077/33153481951; all three check-run annotation sets are empty",
         "merged": "not merged; Draft PR 38 remains fail-closed because the exact d532cc8 independent review requires changes and mergeAuthorized remains false",
         "deployed": "not authorized and not performed",
@@ -1155,7 +1155,30 @@
         "importantFindingCount": 6,
         "minorFindingCount": 1,
         "readyForGovernanceHeartbeat": true,
+        "findingClasses": [
+          "orphaned-running-server-job-recovery",
+          "terminal-run-and-closeout-immutability",
+          "independently-executed-engineering-gates",
+          "workflow-command-lease-renewal",
+          "worker-build-provenance-attestation",
+          "failed-dispatch-idempotent-replay",
+          "authoritative-fork-checkpoint-binding",
+          "service-only-worker-lifecycle-callbacks",
+          "full-closeout-commitment",
+          "redacted-workflow-run-api-projection"
+        ],
         "mergeApproved": false
+      },
+      "remediationAuthorization": {
+        "reviewedHeadSha": "d532cc8ea21992c36047fbef9b9e079360b15bbd",
+        "reviewerId": "01a04762-1f03-7272-8a07-e135d0a7d8f6",
+        "governancePullRequest": 40,
+        "activationCondition": "PR 40 merged to protected main with exact-head and post-main build/repository-security checks green",
+        "allowedPathsUnchanged": true,
+        "authorizedAction": "remediate only the bound second-review findings and their tests",
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false
       },
       "disposition": "ready-for-pr"
     }
@@ -1283,19 +1306,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "e89c0ed7940cf7cdfd0cc51ff7dbc76872ba1d95",
+      "headSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "7bf81c57cf0003cb587ed1aafb86a65362683f61",
-      "remoteObservedAt": "2026-08-28T08:15:58Z",
-      "pr": 39,
-      "prState": "MERGED",
-      "prIsDraft": false,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
-      "prHeadSha": "7bf81c57cf0003cb587ed1aafb86a65362683f61",
+      "remoteHeadSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
+      "remoteObservedAt": "2026-08-28T08:24:25Z",
+      "pr": 40,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1305,13 +1328,13 @@
         "mergeCommitSha": "e89c0ed7940cf7cdfd0cc51ff7dbc76872ba1d95",
         "mergedAt": "2026-08-28T05:08:49Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T08:15:58Z",
-      "lastObservedAt": "2026-08-28T08:15:58Z",
-      "lastCommitAt": "2026-08-28T13:08:49+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-28T08:24:25Z",
+      "lastObservedAt": "2026-08-28T08:24:25Z",
+      "lastCommitAt": "2026-08-28T16:21:29+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "disposition": "active",
-      "closeout": "PR 39 exact head 7bf81c5 merged as e89c0ed with post-main checks green; the next governance heartbeat PR has not yet been created"
+      "disposition": "ready-for-pr",
+      "closeout": "Draft PR 40 exact first head 63adcf0 is bound to the live remote; exact-head checks are still running and Ready/merge are not authorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
