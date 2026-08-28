@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T23:05:57Z",
+  "updatedAt": "2026-08-28T23:11:35Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "d7c4a9727990bb7fe455842871eb4902e4cdddbf",
+      "headSha": "fef6b2083b5b90e877870ac6d8ebfa7c1be7922e",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T23:05:57Z",
-      "lastObservedAt": "2026-08-28T23:05:57Z",
-      "nextReviewAt": "2026-08-29T05:05:57Z",
+      "lastHeartbeatAt": "2026-08-28T23:11:35Z",
+      "lastObservedAt": "2026-08-28T23:11:35Z",
+      "nextReviewAt": "2026-08-29T05:11:35Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 52,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1050,18 +1050,18 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "Root-currentness closeout is being prepared as a registry-only commit; its first push must receive Draft PR52 before downstream activation.",
-      "dirtyState": "staged-registry-only-root-currentness-closeout",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr52-binding",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 worktree ordinary-fast-forwarded cleanly from merged PR51 head de89c294 to exact protected main d7c4a972; this staged registry-only closeout records root f067a224 and remote-main d7c4a972 without advancing the root checkout",
-        "ci": "PR51 exact final head de89c294 and protected-main d7c4a972 passed their exact build/repository-security gates with zero annotations; post-main runs are 33219057872 and 33219057846",
-        "merged": "PR51 merged exact head de89c294 as protected main d7c4a972 at 2026-08-28T23:03:03Z; downstream remediation remains inactive pending the root-currentness closeout PR",
+        "local": "A01 registry-only root-currentness commit fef6b208 passed native pre-commit/pre-push and ordinary-pushed from protected-main parent d7c4a972; this staged follow-up binds Draft PR52",
+        "ci": "Draft PR52 exact initial head fef6b208 has build 33219562749 and repository-security 33219547247/33219562747 in progress; none is accepted as green yet",
+        "merged": "PR51 remains the last protected-main merge at d7c4a972; Draft PR52 is OPEN/MERGEABLE at exact head fef6b208 and is not Ready or merge-authorized",
         "deployed": "not authorized",
-        "live": "live main/origin-main and A01 are d7c4a972; clean root remains f067a224; EvidenceFlow and branch-retirement remain frozen until the registry-only root-currentness closeout reaches protected main and passes its audit"
+        "live": "live main/origin-main remain d7c4a972; remote A01 branch and Draft PR52 are exact fef6b208; clean root remains f067a224 and downstream lanes remain frozen"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1275,8 +1275,9 @@
         "mergeApproved": false
       },
       "expandedRemediationAuthorization": {
-        "status": "pending-root-currentness-closeout",
+        "status": "pending-pr52-exact-head-checks",
         "governancePullRequest": 51,
+        "rootCurrentnessPullRequest": 52,
         "reviewedHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
         "candidateTrackedDiffSha256": "ffdd68016cea9180b3417e6e1666e903449b2efb15b2812d8ed357a5a5d4f80a",
         "reviewerIds": [
@@ -1547,19 +1548,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "d7c4a9727990bb7fe455842871eb4902e4cdddbf",
+      "headSha": "fef6b2083b5b90e877870ac6d8ebfa7c1be7922e",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "de89c294acf95fd0d1a63f42c2f94e492467be00",
-      "remoteObservedAt": "2026-08-28T23:05:57Z",
-      "pr": 51,
-      "prState": "MERGED",
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "remoteHeadSha": "fef6b2083b5b90e877870ac6d8ebfa7c1be7922e",
+      "remoteObservedAt": "2026-08-28T23:11:35Z",
+      "pr": 52,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "de89c294acf95fd0d1a63f42c2f94e492467be00",
+      "prHeadSha": "fef6b2083b5b90e877870ac6d8ebfa7c1be7922e",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1569,13 +1570,13 @@
         "mergeCommitSha": "d7c4a9727990bb7fe455842871eb4902e4cdddbf",
         "mergedAt": "2026-08-28T23:03:03Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T23:05:57Z",
-      "lastObservedAt": "2026-08-28T23:05:57Z",
-      "lastCommitAt": "2026-08-29T07:03:03+08:00",
-      "nextReviewAt": "2026-08-29T05:05:57Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T23:11:35Z",
+      "lastObservedAt": "2026-08-28T23:11:35Z",
+      "lastCommitAt": "2026-08-29T07:10:45+08:00",
+      "nextReviewAt": "2026-08-29T05:11:35Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR51 merged exact head de89c294 as protected main d7c4a972 with exact post-main checks green; A01 is preparing a registry-only root-currentness closeout while downstream lanes remain frozen"
+      "closeout": "Draft PR52 is OPEN/MERGEABLE at exact registry-only head fef6b208 with all initial checks in progress; root-currentness activation and downstream lanes remain frozen"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
