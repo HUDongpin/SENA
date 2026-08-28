@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T08:24:25Z",
+  "updatedAt": "2026-08-28T08:33:27Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -985,10 +985,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
+      "headSha": "010f7f3450f955b81423516a94cc2fc168177b9e",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,14 +1003,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T08:24:25Z",
-      "lastObservedAt": "2026-08-28T08:24:25Z",
+      "lastHeartbeatAt": "2026-08-28T08:33:27Z",
+      "lastObservedAt": "2026-08-28T08:33:27Z",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 40,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 39,
         "headSha": "7bf81c57cf0003cb587ed1aafb86a65362683f61",
@@ -1021,14 +1021,14 @@
         "postMainChecksPassed": true
       },
       "noPrReason": null,
-      "dirtyState": "staged-pr40-lifecycle-remediation-authorization-head-pending",
+      "dirtyState": "staged-pr40-final-authorization-head-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "Draft PR 40 exact first head 63adcf0 binds EvidenceFlow remediation head d532cc8 and its second changes-required independent review; this staged update binds the PR lifecycle and fail-closed remediation scope",
-        "ci": "PR 40 head 63adcf0 push repository-security 33155146098 passed while build 33155189588 and PR repository-security 33155189552 are in progress; no in-progress check is accepted as green evidence",
+        "local": "Draft PR 40 exact head 010f7f3 binds EvidenceFlow remediation head d532cc8, the second changes-required independent review, and the fail-closed remediation scope; registry, live audit, write-policy, security, and 43 governance tests pass",
+        "ci": "PR 40 exact head 010f7f3 passed build 33155592959 and repository-security 33155592920/33155588908; all three annotation sets are empty; the forthcoming final-authorization metadata head must independently pass",
         "merged": "PR 39 exact head 7bf81c5 is protected-main complete at e89c0ed; PR 40 remains Draft and unmerged",
         "deployed": "not authorized",
         "live": "not tested and not claimed"
@@ -1306,19 +1306,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
+      "headSha": "010f7f3450f955b81423516a94cc2fc168177b9e",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
-      "remoteObservedAt": "2026-08-28T08:24:25Z",
+      "remoteHeadSha": "010f7f3450f955b81423516a94cc2fc168177b9e",
+      "remoteObservedAt": "2026-08-28T08:33:27Z",
       "pr": 40,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "63adcf05eeb2c719594690b1989664dd273df6e2",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "010f7f3450f955b81423516a94cc2fc168177b9e",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1328,13 +1328,13 @@
         "mergeCommitSha": "e89c0ed7940cf7cdfd0cc51ff7dbc76872ba1d95",
         "mergedAt": "2026-08-28T05:08:49Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T08:24:25Z",
-      "lastObservedAt": "2026-08-28T08:24:25Z",
-      "lastCommitAt": "2026-08-28T16:21:29+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-28T08:33:27Z",
+      "lastObservedAt": "2026-08-28T08:33:27Z",
+      "lastCommitAt": "2026-08-28T16:28:14+08:00",
       "nextReviewAt": "2026-08-28T18:54:04Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "ready-for-pr",
-      "closeout": "Draft PR 40 exact first head 63adcf0 is bound to the live remote; exact-head checks are still running and Ready/merge are not authorized"
+      "closeout": "Draft PR 40 exact head 010f7f3 is exact-check green with empty annotations; the forthcoming final-authorization metadata head may become Ready/merge only after its own exact build/security pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
