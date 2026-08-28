@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T16:54:05Z",
+  "updatedAt": "2026-08-28T16:58:12Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -65,6 +65,19 @@
           "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
         ],
         "authorizationBasis": "User implementation plan dated 2026-08-27, limited to governance, preservation, sanitized salvage review, and verification work."
+      },
+      {
+        "exception": "governance-preservation",
+        "taskId": "SENA-BRANCH-RETIREMENT-20260829",
+        "ownerKey": "Codex-branch-retirement-01a04916",
+        "ownerLane": "SENA-A01/A10/A11/A12 branch archival, quarantine custody, and exact-ref retirement governance",
+        "branch": "codex/sena-branch-retirement-20260829",
+        "allowedPaths": [
+          "coordination/repo-governance/**",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "authorizationBasis": "Explicit SENA owner authorization in task 01a04916-4ba7-7c11-8fee-7760f7bb3659, limited to archive custody, quarantine preservation, exact-ref retirement governance, and verification; no deletion before protected-main authorization."
       }
     ],
     "refDeletionAuthorizations": [
@@ -985,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "6a37f98afee361d26e9e0118629c0592f9902a6d",
+      "headSha": "f58ebff1a657e317d01135c301d615a4ba73d709",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1003,9 +1016,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T16:54:05Z",
-      "lastObservedAt": "2026-08-28T16:54:05Z",
-      "nextReviewAt": "2026-08-28T22:54:05Z",
+      "lastHeartbeatAt": "2026-08-28T16:58:12Z",
+      "lastObservedAt": "2026-08-28T16:58:12Z",
+      "nextReviewAt": "2026-08-28T22:58:12Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 44,
       "prIsDraft": true,
@@ -1038,13 +1051,13 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "unstaged-registry-only-pr44-lifecycle-binding",
+      "dirtyState": "unstaged-registry-only-review-binding-and-retirement-registration",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 is clean at pushed head 6a37f98 before this registry-only PR44 lifecycle binding; both prior commits passed native pre-commit/pre-push, and the first ordinary push was fail-closed before remote mutation until the prior remote SHA was corrected by a forward-only commit",
+        "local": "A01 is clean at local unpushed head f58ebff before this registry-only review binding and retirement-lane registration; the f58ebff push was fail-closed before remote mutation because the newly created branch-retirement worktree was not yet registered",
         "ci": "Draft PR44 exact head 6a37f98 passed build 33191825449 and repository-security 33191798952/33191825357; all three check jobs 98918951884/98918858899/98918951779 have zero annotations",
         "merged": "PR 43 remains merged as protected main 1edeb329; Draft PR 44 is OPEN at exact head 6a37f98 and remains unauthorized for Ready/merge",
         "deployed": "not authorized",
@@ -1142,12 +1155,12 @@
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "clean-exact-candidate-independent-review-in-progress",
+      "dirtyState": "clean-exact-candidate-review-changes-required",
       "sensitivePaths": [],
       "evidenceState": {
         "local": "exact clean candidate 40438885 completed sena:pilot:verify: 230 files passed and 4 skipped, 2983 tests passed and 16 skipped, serial 6 files/138 tests, production build, desktop/mobile browser smokes, and 5/5 local performance checks; a fresh split Postgres run passed 4 files/16 tests and ports 3101/55441/55442 are closed",
         "ci": "PR 38 exact head 40438885 passed build 33190293487 and repository-security 33190289095/33190293484; check jobs 98913757103/98913741715/98913757130 each have zero annotations",
-        "merged": "not merged; Draft PR 38 is CLEAN/MERGEABLE at exact head 40438885, but Ready/merge remain unauthorized until the current independent exact-SHA review and a protected-main registry authorization complete",
+        "merged": "not merged; Draft PR 38 is CLEAN/MERGEABLE at exact head 40438885, but the final independent review found 5 P1, 5 P2, and 2 P3 findings and set mergeApproved=false; Ready/merge remain unauthorized pending bounded remediation, full rerun, and fresh re-review",
         "deployed": "not authorized and not performed",
         "live": "local production-server desktop/mobile browser flow passed; no deployed endpoint or institution-production claim; engineering graph remains shadow-only"
       },
@@ -1188,8 +1201,40 @@
         "reviewerId": "01a0493a-090d-7ed0-835e-d0a68b3557e4",
         "reviewedHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
         "startedAt": "2026-08-28T16:33:42Z",
-        "status": "in-progress",
+        "completedAt": "2026-08-28T16:57:41Z",
+        "status": "changes-required",
+        "p0FindingCount": 0,
+        "p1FindingCount": 5,
+        "p2FindingCount": 5,
+        "p3FindingCount": 2,
+        "findingClasses": [
+          "effective-claim-boundary-publication-binding",
+          "fusion-analysis-output-scientific-audit-binding",
+          "exact-sha-dependency-content-attestation",
+          "transactional-closeout-evidence-revision-snapshot",
+          "postgres-database-time-lease-recovery-cas",
+          "provisional-closeout-ui-version-binding",
+          "research-parameters-exact-pointer-only-schema",
+          "team-ownership-before-event-inspection",
+          "fixture-release-failure-state-machine",
+          "automation-control-room-browser-accessibility-refresh-matrix",
+          "conditional-adjudication-interrupt",
+          "worker-minted-receipt-help-copy"
+        ],
+        "fullRerunRequired": true,
+        "freshReReviewRequired": true,
         "mergeApproved": false
+      },
+      "finalRemediationAuthorization": {
+        "reviewedHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+        "reviewerId": "01a0493a-090d-7ed0-835e-d0a68b3557e4",
+        "governancePullRequest": 44,
+        "activationCondition": "PR 44 must merge to protected main with exact-head and post-main build/repository-security checks green before tracked remediation resumes",
+        "allowedPathsUnchanged": true,
+        "authorizedAction": "remediate only the 12 final-review finding classes and their negative, concurrency, Postgres, fixture-state-machine, browser, accessibility, and evidence-boundary tests",
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false
       },
       "remediationAuthorization": {
         "reviewedHeadSha": "820e00af00eacc98782bb52cbd1cca921e259053",
@@ -1203,6 +1248,75 @@
         "providerMutationAuthorized": false
       },
       "disposition": "active"
+    },
+    {
+      "taskId": "SENA-BRANCH-RETIREMENT-20260829",
+      "threadId": "01a04916-4ba7-7c11-8fee-7760f7bb3659",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-branch-retirement-20260829",
+      "owner": "Codex branch-retirement primary writer",
+      "ownerKey": "Codex-branch-retirement-01a04916",
+      "ownerLane": "SENA-A01/A10/A11/A12 branch archival, quarantine custody, and exact-ref retirement governance",
+      "laneType": "integration-release",
+      "branch": "codex/sena-branch-retirement-20260829",
+      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-branch-retirement-20260829",
+      "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
+      "headSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 0,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "coordination/repo-governance/**",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "createdAt": "2026-08-28T16:51:55Z",
+      "lastHeartbeatAt": "2026-08-28T16:58:12Z",
+      "lastObservedAt": "2026-08-28T16:58:12Z",
+      "nextReviewAt": "2026-08-28T22:58:12Z",
+      "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
+      "prNumber": null,
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "noPrReason": "Zero-write registration is pending protected-main activation; the first reviewable tracked commit must create a Draft PR within policy.",
+      "dirtyState": "clean-zero-write-registration-pending-protected-main",
+      "sensitivePaths": [
+        "All API Keys.docx",
+        "sena-hk-template/All API Keys.docx"
+      ],
+      "activationCondition": "PR 44 must merge to protected main with exact-head and post-main build/repository-security checks green before any tracked write, tag, bundle mutation, push, PR, merge, or ref deletion",
+      "externalCustodyBoundary": {
+        "mixedBundleRoot": "/Volumes/Starship/SENA-backups/round31-pre-clean-uja7LF/",
+        "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA-backups/",
+        "ledgerQuarantineRoot": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/",
+        "exactLedgerTip": "18d542f707e56aa9d043dd497e0efe48b540db20",
+        "scope": "all existing or newly produced bundles whose headers contain the exact quarantined ledger tip, not only the round31 directory",
+        "readOnlyCustodyAudit": {
+          "knownExactLedgerBundleCount": 7,
+          "mode0644Count": 6,
+          "otherLocalUserReadableCount": 2,
+          "temporaryOwnerOnlyRecoveryBundleCount": 1,
+          "mutationPerformed": false
+        },
+        "requiredPostChangeReceipts": [
+          "owner-only-file-and-parent-directory-mode-readback",
+          "sha256-readback",
+          "git-bundle-verify-complete-history"
+        ],
+        "docxOrCredentialContentsMayBeOpened": false
+      },
+      "evidenceState": {
+        "local": "clean exact protected-main bootstrap 1edeb329 with staged=0, unstaged=0, untracked=0 and no remaining process/cwd/open handle; read-only custody audit found seven exact-ledger bundles, six mode 0644 and two readable by other local users, while one owner-only complete-history bundle provides temporary recovery custody; no chmod or bundle write occurred",
+        "ci": "not run for this zero-write lane; protected-main registration PR 44 must pass exact checks first",
+        "merged": "no branch-retirement change, tag, bundle mutation, push, PR, merge, or ref deletion has occurred",
+        "deployed": "not in scope and not authorized",
+        "live": "read-only branch/ref inventory only; docs ledger remains security-quarantined and no credential-bearing DOCX content may be opened"
+      },
+      "disposition": "active",
+      "freezeException": "governance-preservation"
     }
   ],
   "branches": [
@@ -1328,7 +1442,7 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "6a37f98afee361d26e9e0118629c0592f9902a6d",
+      "headSha": "f58ebff1a657e317d01135c301d615a4ba73d709",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
@@ -1350,13 +1464,13 @@
         "mergeCommitSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
         "mergedAt": "2026-08-28T15:30:48Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T16:54:05Z",
-      "lastObservedAt": "2026-08-28T16:54:05Z",
-      "lastCommitAt": "2026-08-29T00:48:39+08:00",
-      "nextReviewAt": "2026-08-28T22:54:05Z",
+      "lastOwnerHeartbeatAt": "2026-08-28T16:58:12Z",
+      "lastObservedAt": "2026-08-28T16:58:12Z",
+      "lastCommitAt": "2026-08-29T00:54:53+08:00",
+      "nextReviewAt": "2026-08-28T22:58:12Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR 43 exact head 15d39fbb is merged as protected main 1edeb329; Draft PR 44 exact head 6a37f98 is CI-green with zero annotations, but independent EvidenceFlow review is still in progress and Ready/merge remain unauthorized"
+      "closeout": "PR 43 exact head 15d39fbb is merged as protected main 1edeb329; Draft PR 44 exact head 6a37f98 is CI-green with zero annotations; local f58ebff additionally binds the final EvidenceFlow changes-required review and branch-retirement registration, so Ready/merge remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -1385,7 +1499,34 @@
       "nextReviewAt": "2026-08-28T22:43:56Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR 38 is exact clean head 40438885 with full local shadow verification, split Postgres integration, three green exact-head CI checks, and zero annotations; independent exact-SHA review is still in progress, so Ready/merge remain unauthorized"
+      "closeout": "Draft PR 38 is exact clean head 40438885 with full local shadow verification, split Postgres integration, three green exact-head CI checks, and zero annotations; final review found 5 P1, 5 P2, and 2 P3 findings and set mergeApproved=false, so bounded remediation, a full rerun, and fresh re-review are required"
+    },
+    {
+      "name": "codex/sena-branch-retirement-20260829",
+      "owner": "Codex branch-retirement primary writer",
+      "ownerKey": "Codex-branch-retirement-01a04916",
+      "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
+      "headSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
+      "upstream": "origin/main",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": false,
+      "remoteObservedAt": "2026-08-28T16:58:12Z",
+      "pr": null,
+      "prState": null,
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": null,
+      "prBase": "main",
+      "noPrReason": "Zero-write registration is pending protected-main activation; the first reviewable tracked commit must create a Draft PR within policy.",
+      "lastOwnerHeartbeatAt": "2026-08-28T16:58:12Z",
+      "lastObservedAt": "2026-08-28T16:58:12Z",
+      "lastCommitAt": "2026-08-28T23:30:48+08:00",
+      "nextReviewAt": "2026-08-28T22:58:12Z",
+      "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
+      "disposition": "active",
+      "closeout": "Clean zero-write bootstrap at exact protected main 1edeb329; protected-main PR 44 registration is required before tracked writes, external bundle custody changes, tag creation, push/PR/merge, or any exact-ref deletion"
     },
     {
       "name": "codex/sena-a11-main-receipt-20260827",
