@@ -434,12 +434,16 @@ function parsePrePushUpdates(input) {
   });
 }
 
-function sameExistingPath(left, right) {
+function canonicalExistingPath(path) {
   try {
-    return realpathSync(left) === realpathSync(right);
+    return realpathSync(path);
   } catch {
-    return resolve(left) === resolve(right);
+    return resolve(path);
   }
+}
+
+function sameExistingPath(left, right) {
+  return canonicalExistingPath(left) === canonicalExistingPath(right);
 }
 
 function normalizeRemoteIdentity(value) {
@@ -2239,8 +2243,8 @@ function verifyHookCustody(registry, errors) {
     errors.push("local hook custody path is not configured");
     return;
   }
-  const resolvedConfigured = resolve(REPO_ROOT, configured);
-  if (resolvedConfigured !== resolve(expectedPath)) {
+  const resolvedConfigured = canonicalExistingPath(resolve(REPO_ROOT, configured));
+  if (resolvedConfigured !== canonicalExistingPath(expectedPath)) {
     errors.push("configured core.hooksPath does not match the owner-controlled governance hook custody path");
     return;
   }
@@ -2376,10 +2380,18 @@ function runPortableAudit(registry, validation) {
   if (errors.length > 0) process.exitCode = 1;
 }
 
+export function shouldRunPortableAudit(flags, controlRoot, registryRepo) {
+  if (flags.has("ci")) return true;
+  return (
+    flags.has("pre-push") &&
+    (typeof registryRepo !== "string" || !sameExistingPath(controlRoot, registryRepo))
+  );
+}
+
 function runAudit(flags) {
   const { parsed: registry } = loadRegistryForFlags(flags);
   const validation = validateRegistry(registry);
-  if (flags.has("ci") || (flags.has("pre-push") && resolve(CONTROL_ROOT) !== resolve(registry.repo))) {
+  if (shouldRunPortableAudit(flags, CONTROL_ROOT, registry.repo)) {
     runPortableAudit(registry, validation);
     return;
   }
@@ -2393,16 +2405,20 @@ function runAudit(flags) {
   const ownerBlockers = [];
   const rescueVerification = verifyRescueArtifacts(registry, errors, warnings);
   const rescueRefs = rescueVerification.refLines;
-  const registryOrphans = new Set((registry.orphanWorktrees ?? []).map((entry) => resolve(entry.path)));
-  const registeredPaths = new Set(registered.map((entry) => resolve(entry.path)));
-  const registeredByPath = new Map(registered.map((entry) => [resolve(entry.path), entry]));
+  const registryOrphans = new Set(
+    (registry.orphanWorktrees ?? []).map((entry) => canonicalExistingPath(entry.path))
+  );
+  const registeredPaths = new Set(registered.map((entry) => canonicalExistingPath(entry.path)));
+  const registeredByPath = new Map(
+    registered.map((entry) => [canonicalExistingPath(entry.path), entry])
+  );
   const actualBranches = new Map(branches.map((entry) => [entry.name, entry]));
   const registryBranches = new Map((registry.branches ?? []).map((entry) => [entry.name, entry]));
   verifyHookCustody(registry, errors);
   if (fsck.status !== 0) errors.push("git fsck failed closed because object integrity is not clean");
 
   for (const marker of markers) {
-    const path = resolve(marker.path);
+    const path = canonicalExistingPath(marker.path);
     if (!marker.valid && !registryOrphans.has(path)) errors.push(`unregistered invalid .git pointer: ${path}`);
     if (!marker.valid && registryOrphans.has(path)) warnings.push(`preserved invalid .git pointer: ${path}`);
     if (marker.valid && !registeredPaths.has(path) && !registryOrphans.has(path)) {
@@ -2425,9 +2441,11 @@ function runAudit(flags) {
     }
   }
 
-  const workItemsByPath = new Map((registry.workItems ?? []).map((item) => [resolve(item.worktreePath), item]));
+  const workItemsByPath = new Map(
+    (registry.workItems ?? []).map((item) => [canonicalExistingPath(item.worktreePath), item])
+  );
   for (const worktree of registered) {
-    if (!workItemsByPath.has(resolve(worktree.path))) {
+    if (!workItemsByPath.has(canonicalExistingPath(worktree.path))) {
       errors.push(`registered worktree lacks an explicit write/read-only workItem: ${worktree.path}`);
     }
   }
@@ -2463,7 +2481,7 @@ function runAudit(flags) {
       errors.push(`workItem branch is absent: ${item.taskId} branch=${item.branch}`);
       continue;
     }
-    const registeredWorktree = registeredByPath.get(resolve(item.worktreePath));
+    const registeredWorktree = registeredByPath.get(canonicalExistingPath(item.worktreePath));
     if (!registeredWorktree) {
       if (isActive) errors.push(`active workItem worktree is not Git-registered: ${item.taskId}`);
     } else {
@@ -2516,8 +2534,8 @@ function runAudit(flags) {
   }
 
   if (flags.has("pre-commit") || flags.has("pre-push")) {
-    const currentWorktree = registeredByPath.get(resolve(REPO_ROOT));
-    const currentItem = workItemsByPath.get(resolve(REPO_ROOT));
+    const currentWorktree = registeredByPath.get(canonicalExistingPath(REPO_ROOT));
+    const currentItem = workItemsByPath.get(canonicalExistingPath(REPO_ROOT));
     const currentBranchRecord = currentWorktree?.branch ? registryBranches.get(currentWorktree.branch) : null;
     if (!currentWorktree || !currentItem) {
       errors.push("write gate cannot bind the current checkout to a registered workItem");
@@ -2537,7 +2555,9 @@ function runAudit(flags) {
   if (registry.incident?.credentialExposure?.status === "blocked-owner") {
     ownerBlockers.push("credential inventory, provider rotation/revocation, and remote contaminated-ref cleanup require owner action");
   }
-  const rootWorktree = registered.find((entry) => resolve(entry.path) === CONTROL_ROOT);
+  const rootWorktree = registered.find(
+    (entry) => canonicalExistingPath(entry.path) === canonicalExistingPath(CONTROL_ROOT)
+  );
   if (rootWorktree?.branch !== "main") {
     ownerBlockers.push(`root checkout remains quarantined on ${rootWorktree?.branch ?? "unknown"}`);
   }

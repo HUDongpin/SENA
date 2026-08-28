@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 const projectRoot = resolve(process.cwd(), "..");
@@ -49,6 +50,10 @@ function runGit(root: string, args: string[]) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
   }
   return result.stdout.trim();
+}
+
+function sha256File(path: string) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 function isActiveWriter(entry: { disposition: string }) {
@@ -169,6 +174,22 @@ afterEach(() => {
 });
 
 describe("SENA repository governance", () => {
+  it("does not downgrade a pre-push audit when the registry repo is a symlink alias of the control root", async () => {
+    const controlRoot = temporaryRoot("audit-control-root");
+    const aliasParent = temporaryRoot("audit-control-alias-parent");
+    const registryRepoAlias = join(aliasParent, "repo-alias");
+    symlinkSync(controlRoot, registryRepoAlias, "dir");
+    const governance = await import(pathToFileURL(governanceScript).href);
+
+    expect(
+      governance.shouldRunPortableAudit(
+        new Map([["pre-push", []]]),
+        controlRoot,
+        registryRepoAlias
+      )
+    ).toBe(false);
+  });
+
   it("accepts the machine-readable active-work registry", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
@@ -1135,9 +1156,17 @@ describe("SENA repository governance", () => {
     runGit(fixture.root, ["add", ".gitignore"]);
     runGit(fixture.root, ["commit", "-q", "-m", "ignore fixture worktrees"]);
     const integratedHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["branch", "main", integratedHead]);
     const targetPath = join(fixture.root, ".worktrees", "cleanup-target");
     mkdirSync(dirname(targetPath), { recursive: true });
     runGit(fixture.root, ["worktree", "add", "-q", "-b", "cleanup-target", targetPath, integratedHead]);
+
+    const evidenceRoot = temporaryRoot("integrated-cleanup-evidence");
+    const bundlePath = join(evidenceRoot, "rescue.bundle");
+    const inventoryPath = join(evidenceRoot, "orphan-inventory.json");
+    runGit(fixture.root, ["bundle", "create", bundlePath, "topic"]);
+    chmodSync(bundlePath, 0o600);
+    writeFileSync(inventoryPath, `${JSON.stringify({ roots: [] }, null, 2)}\n`, { mode: 0o600 });
 
     const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
     const operator = registry.workItems[0];
@@ -1145,9 +1174,86 @@ describe("SENA repository governance", () => {
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     operator.repo = fixture.root;
-    operator.allowedPaths = ["README.md", ".gitignore", "coordination/repo-governance/**"];
+    operator.allowedPaths = [
+      "README.md",
+      ".gitignore",
+      ".githooks/**",
+      "cleanup-hook-helpers/**",
+      "coordination/repo-governance/**",
+      "scripts/verify-sena-repo-governance.mjs"
+    ];
     operatorBranch.headSha = integratedHead;
     registry.policy.freezeExceptionBindings[0].allowedPaths = operator.allowedPaths;
+    registry.rescue = {
+      namespace: "refs/rescue/sena-test",
+      expectedRefCount: 0,
+      refListSha256: createHash("sha256").update("").digest("hex"),
+      includes: [],
+      fsckUnreachableCommitsAfter: 0,
+      bundlePath,
+      bundleSha256: sha256File(bundlePath),
+      bundleVerify: "pass-complete-history",
+      orphanInventory: {
+        path: inventoryPath,
+        sha256: sha256File(inventoryPath),
+        fileCount: 0,
+        originMainRepresentedCount: 0,
+        diskOnlyCount: 0,
+        diskOnlyReviewableSourceCount: 0,
+        sensitiveRuntimeMetadataCount: 0,
+        skippedGeneratedDirectoryCount: 0
+      },
+      diskOnlySourceCopies: [],
+      remotePushAllowed: false
+    };
+    registry.incident = {
+      credentialExposure: {
+        status: "closed",
+        closureEvidence: {
+          providerReadbackAt: now,
+          liveRefAuditAt: now,
+          authorizedBy: "SENA governance test"
+        },
+        providerContainmentStatus: "complete",
+        blobSha: "f".repeat(40),
+        forbiddenPaths: ["All API Keys.docx", "sena-hk-template/All API Keys.docx"],
+        liveMainSha: integratedHead,
+        liveMainObservationMode: "lower-bound"
+      }
+    };
+    const mainBranch = {
+      ...operatorBranch,
+      name: "main",
+      owner: "test protected main",
+      ownerKey: "test-protected-main",
+      baseSha: integratedHead,
+      headSha: integratedHead,
+      targetSha: integratedHead,
+      upstream: "origin/main",
+      upstreamState: "live",
+      upstreamCacheState: "present",
+      remotePresent: true,
+      remoteHeadSha: integratedHead,
+      remoteObservationMode: "lower-bound",
+      remoteObservedAt: now,
+      pr: null,
+      prState: null,
+      prIsDraft: false,
+      prReadyForReview: false,
+      mergeAuthorized: false,
+      prHeadSha: null,
+      prBase: null,
+      noPrReason: "synthetic protected-main branch",
+      prStateObservationMode: null,
+      lastMergedPullRequest: null,
+      lastOwnerHeartbeatAt: null,
+      lastObservedAt: now,
+      lastCommitAt: now,
+      nextReviewAt: expiresAt,
+      expectedCloseAt: expiresAt,
+      disposition: "integrated",
+      closeout: "synthetic protected-main lower-bound"
+    };
     const targetItem = {
       ...operator,
       taskId: "SENA-INTEGRATED-CLEANUP-TARGET",
@@ -1252,23 +1358,30 @@ describe("SENA repository governance", () => {
       closeout: "test-only exact integrated cleanup target"
     };
     registry.workItems.push(targetItem);
-    registry.branches.push(targetBranch);
+    registry.branches.push(targetBranch, mainBranch);
     writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
     runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
     runGit(fixture.root, ["commit", "-q", "-m", "authorize exact integrated cleanup"]);
     const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/cleanup-target", integratedHead]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "topic"]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "main"]);
+    runGit(targetPath, ["branch", "--set-upstream-to=origin/cleanup-target", "cleanup-target"]);
 
     const hookDirectory = join(fixture.root, ".githooks");
     const hookPath = join(hookDirectory, "pre-push");
+    const preCommitHookPath = join(hookDirectory, "pre-commit");
     const helperDirectory = join(fixture.root, "cleanup-hook-helpers");
     const gitHelperPath = join(helperDirectory, "git");
     const ghHelperPath = join(helperDirectory, "gh");
     mkdirSync(hookDirectory, { recursive: true });
     mkdirSync(helperDirectory, { recursive: true });
     copyFileSync(join(projectRoot, ".githooks", "pre-push"), hookPath);
+    copyFileSync(join(projectRoot, ".githooks", "pre-commit"), preCommitHookPath);
     chmodSync(hookPath, 0o700);
+    chmodSync(preCommitHookPath, 0o700);
+    runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
     const realGit = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
     writeFileSync(gitHelperPath, [
       "#!/bin/sh",
