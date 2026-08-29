@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-29T01:05:44Z",
+  "updatedAt": "2026-08-29T01:09:28Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5ea8cde587491c8d1fbe3d815c851d07a32ea069",
+      "headSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-29T01:05:44Z",
-      "lastObservedAt": "2026-08-29T01:05:44Z",
-      "nextReviewAt": "2026-08-29T07:05:44Z",
+      "lastHeartbeatAt": "2026-08-29T01:09:28Z",
+      "lastObservedAt": "2026-08-29T01:09:28Z",
+      "nextReviewAt": "2026-08-29T07:09:28Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 55,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1050,18 +1050,18 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "A new Draft governance PR will be created after this first registry-only EvidenceFlow baseline-intake heartbeat commit.",
-      "dirtyState": "staged-registry-only-a01-remote-currentness-correction",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr55-lifecycle-binding",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 bootstrap heartbeat committed locally as 5ea8cde5 after 48/48 governance tests and native pre-commit; the first push dry-run was refused before remote mutation because the branch registry retained remoteHeadSha 447025fc instead of live c4c802b6, so this staged registry-only correction records the exact remote and preserves the same EvidenceFlow baseline-intake boundary",
+        "local": "A01 bootstrap and remote-currentness commits are exact c4b549b8, clean before this staged PR55 lifecycle binding; registry, 48/48 governance tests, live audits, native write-policy, push-policy, and security passed",
         "ci": "PR54 exact final head c4c802b6 passed build 33221984029 and repository-security 33221981813/33221984136; post-main 018146e0 passed build 33222099929 and repository-security 33222099910; all annotation endpoints were empty",
-        "merged": "PR54 merged as protected main 018146e0; local bootstrap 5ea8cde5 is unpushed and no new governance PR exists yet, so baseline intake remains inactive",
+        "merged": "PR54 remains the latest protected-main merge at 018146e0; Draft PR55 is OPEN at exact c4b549b8 and remains unauthorized for Ready or merge until a later exact-check-bound metadata commit",
         "deployed": "not authorized",
-        "live": "live main and origin/main are exact 018146e0; remote A01 branch is exact c4c802b6 and was not changed by the refused dry-run; EvidenceFlow and branch-retirement lanes remain fail-closed"
+        "live": "live main and origin/main are exact 018146e0; remote A01 branch and Draft PR55 are exact c4b549b8; EvidenceFlow baseline intake and branch-retirement PR46 intake remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1399,8 +1399,10 @@
         "branchRetirementIntakeAuthorized": false
       },
       "baselineIntakeAuthorization": {
-        "status": "pending-protected-main",
+        "status": "draft-pr55-lifecycle-binding",
         "requestedAt": "2026-08-29T01:00:00Z",
+        "governancePullRequest": 55,
+        "preAuthorizationHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
         "protectedMainSha": "018146e0417128bd7c49a29b638308821c6a37a5",
         "candidateHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
         "candidateTrackedDiffSha256": "0361236e341a7d8d02421886d901ca05dd72a8dab4c22fdfdcde406b01b47057",
@@ -1451,6 +1453,7 @@
           "scripts/verify-sena-repo-governance.mjs",
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
+        "activationCondition": "Draft PR55 must bind its exact final head and exact-head build plus both repository-security checks with zero annotations, then become Ready only through a separate registry metadata commit, merge through protected main, pass post-main build/repository-security checks, and make the exact merge commit pass a commit-bound live audit before baseline intake activates.",
         "preserveMethod": "After this authorization reaches protected main and passes its own commit-bound live audit, ordinary-merge exact protected main 018146e0 into the dirty EvidenceFlow worktree without rebase, reset, stash, force, checkout overwrite, or history rewrite; all 52 tracked and 7 untracked candidate paths must remain byte-identical, and both candidate digests plus every untracked artifact hash must be reverified before any new test or write.",
         "candidateCommitAuthorized": false,
         "candidatePushAuthorized": false,
@@ -1677,21 +1680,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5ea8cde587491c8d1fbe3d815c851d07a32ea069",
+      "headSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
-      "remoteObservedAt": "2026-08-29T01:05:44Z",
-      "pr": null,
-      "prState": null,
-      "prIsDraft": false,
+      "remoteHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+      "remoteObservedAt": "2026-08-29T01:09:28Z",
+      "pr": 55,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
-      "prBase": null,
-      "noPrReason": "A new Draft governance PR will be created after the first registry-only EvidenceFlow baseline-intake heartbeat commit.",
+      "prHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 54,
@@ -1699,13 +1702,13 @@
         "mergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
         "mergedAt": "2026-08-28T23:58:19Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-29T01:05:44Z",
-      "lastObservedAt": "2026-08-29T01:05:44Z",
-      "lastCommitAt": "2026-08-29T09:05:01+08:00",
-      "nextReviewAt": "2026-08-29T07:05:44Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:09:28Z",
+      "lastObservedAt": "2026-08-29T01:09:28Z",
+      "lastCommitAt": "2026-08-29T09:07:19+08:00",
+      "nextReviewAt": "2026-08-29T07:09:28Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR54 merged exact c4c802b6 as protected main 018146e0 with post-main checks green; bootstrap 5ea8cde5 is local-only, and this staged correction binds the actual remote c4c802b6 after a fail-closed dry-run without authorizing downstream action"
+      "closeout": "Draft PR55 is OPEN at exact c4b549b8 and this staged lifecycle binding records that live state; Ready, protected merge, EvidenceFlow intake, and all downstream release actions remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
