@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-29T03:16:45Z",
+  "updatedAt": "2026-08-29T03:25:53Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "b6e3e95c94bb0427eeea34bd44b7697221b63139",
+      "headSha": "2137e5f72e25c45ab40622f585e428701fb46858",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-29T03:16:45Z",
-      "lastObservedAt": "2026-08-29T03:16:45Z",
-      "nextReviewAt": "2026-08-29T09:16:45Z",
+      "lastHeartbeatAt": "2026-08-29T03:25:53Z",
+      "lastObservedAt": "2026-08-29T03:25:53Z",
+      "nextReviewAt": "2026-08-29T09:25:53Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 56,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1050,18 +1050,18 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "A new draft registry-heartbeat PR will be opened immediately after the first reviewable commit.",
-      "dirtyState": "unstaged-registry-only-post-pr55-currentness-heartbeat",
+      "noPrReason": null,
+      "dirtyState": "unstaged-registry-only-pr56-lifecycle-binding",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded cleanly to exact protected main b6e3e95c; this candidate changes only active-work.json and records current lane custody without authorizing downstream execution",
-        "ci": "protected main b6e3e95c passed post-main build 33226145220/job 99030182459 and repository-security 33226145281/job 99030182835, with zero annotations",
-        "merged": "PR55 exact head 22e4cc21 is merged as protected main b6e3e95c; the next registry-only heartbeat has no PR or merge authorization yet",
+        "local": "A01 first registry-only heartbeat commit is exact 2137e5f7 and the worktree was clean before this PR56 lifecycle binding; no downstream execution permission changed",
+        "ci": "Draft PR56 exact initial head 2137e5f7 has checks pending; protected main b6e3e95c post-main build/security remain green with zero annotations",
+        "merged": "PR55 remains merged as protected main b6e3e95c; Draft PR56 is OPEN/MERGEABLE at exact 2137e5f7 and is not Ready or merge-authorized",
         "deployed": "not authorized",
-        "live": "live main and origin/main are exact b6e3e95c; remote A01 branch remains exact merged head 22e4cc21 until the next ordinary push; EvidenceFlow commit/push and branch-retirement PR46 intake remain fail-closed"
+        "live": "live main and origin/main are exact b6e3e95c; remote A01 branch and Draft PR56 are exact 2137e5f7; EvidenceFlow commit/push and branch-retirement PR46 intake remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1749,15 +1749,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "b6e3e95c94bb0427eeea34bd44b7697221b63139",
+      "headSha": "2137e5f72e25c45ab40622f585e428701fb46858",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "22e4cc21ea85e6220c06556c55a938edb12e487c",
-      "remoteObservedAt": "2026-08-29T03:16:45Z",
-      "pr": null,
-      "noPrReason": "A new draft registry-heartbeat PR will be opened immediately after the first reviewable commit.",
+      "remoteHeadSha": "2137e5f72e25c45ab40622f585e428701fb46858",
+      "remoteObservedAt": "2026-08-29T03:25:53Z",
+      "pr": 56,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "2137e5f72e25c45ab40622f585e428701fb46858",
+      "prBase": "main",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 55,
@@ -1765,13 +1771,13 @@
         "mergeCommitSha": "b6e3e95c94bb0427eeea34bd44b7697221b63139",
         "mergedAt": "2026-08-29T01:20:25Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-29T03:16:45Z",
-      "lastObservedAt": "2026-08-29T03:16:45Z",
-      "lastCommitAt": "2026-08-29T09:20:24+08:00",
-      "nextReviewAt": "2026-08-29T09:16:45Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T03:25:53Z",
+      "lastObservedAt": "2026-08-29T03:25:53Z",
+      "lastCommitAt": "2026-08-29T11:24:45+08:00",
+      "nextReviewAt": "2026-08-29T09:25:53Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR55 exact head 22e4cc21 is merged as protected main b6e3e95c with post-main checks green; this new registry-only currentness heartbeat has no PR, Ready, or merge authorization yet"
+      "closeout": "PR55 remains merged as protected main b6e3e95c; Draft PR56 is OPEN/MERGEABLE at exact initial head 2137e5f7 with checks pending and no Ready or merge authorization"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
