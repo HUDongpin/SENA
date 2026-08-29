@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T23:52:53Z",
+  "updatedAt": "2026-08-29T01:00:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -963,26 +963,26 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 12
+        "behind": 16
       },
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
-      "lastHeartbeatAt": "2026-08-28T23:44:34Z",
-      "lastObservedAt": "2026-08-28T23:44:34Z",
-      "nextReviewAt": "2026-08-29T05:44:34Z",
+      "lastHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-main-behind-protected-main-registry-only",
+      "dirtyState": "clean-main-behind-protected-main-16-registry-only",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "root control checkout remains clean and intentionally unadvanced at exact f067a224 while cached origin/main is 2620c29a; observed behind count is 12",
-        "ci": "PR53 exact final head 02477eb9 passed build 33221151904 and repository-security 33221151945/33221151966; post-main 2620c29a passed build 33221286966 and repository-security 33221286994, with zero annotations",
-        "merged": "protected main is 2620c29a1465a86aaeae2ddedc3e9b324ef567c4 with the narrow remote-only registry-currentness rule integrated; local read-only root remains f067a224 pending one registry-only lower-bound closeout",
+        "local": "root control checkout remains clean and intentionally unadvanced at exact f067a224 while cached origin/main is 018146e0; observed ahead 0 and behind 16",
+        "ci": "PR54 exact final head c4c802b6 passed build 33221984029 and repository-security 33221981813/33221984136; post-main 018146e0 passed build 33222099929 and repository-security 33222099910, with zero annotations",
+        "merged": "protected main is 018146e0417128bd7c49a29b638308821c6a37a5 with the registry-only root lower-bound closeout integrated; local read-only root remains intentionally frozen at f067a224",
         "deployed": "not authorized and not claimed",
-        "live": "live GitHub main and origin/main are 2620c29a while the clean root is f067a224; protected audit correctly rejects the 32bf7872..2620c29a range because it contains verifier/test changes, so downstream intake remains frozen pending the registry-only PR54 lower-bound closeout"
+        "live": "live GitHub main and origin/main are exact 018146e0 while the clean root remains f067a224; remote-only lower-bound currentness is active, and downstream intake remains separately gated by an EvidenceFlow-specific registry authorization"
       },
       "disposition": "integrated"
     },
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "447025fc7a24785e9f858978b513e38230229f38",
+      "headSha": "018146e0417128bd7c49a29b638308821c6a37a5",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 0,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,21 +1016,21 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T23:52:53Z",
-      "lastObservedAt": "2026-08-28T23:52:53Z",
-      "nextReviewAt": "2026-08-29T05:52:53Z",
+      "lastHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 54,
-      "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
+      "prNumber": null,
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
-        "number": 53,
-        "headSha": "02477eb97261feb05ad8d761e85600315eb01a3b",
-        "mergeCommitSha": "2620c29a1465a86aaeae2ddedc3e9b324ef567c4",
-        "mergedAt": "2026-08-28T23:42:08Z",
-        "postMainBuildRunId": 33221286966,
-        "postMainRepositorySecurityRunId": 33221286994,
+        "number": 54,
+        "headSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
+        "mergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "mergedAt": "2026-08-28T23:58:19Z",
+        "postMainBuildRunId": 33222099929,
+        "postMainRepositorySecurityRunId": 33222099910,
         "postMainChecksPassed": true
       },
       "latestIndependentReview": {
@@ -1050,18 +1050,18 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr54-final-authorization",
+      "noPrReason": "A new Draft governance PR will be created after this first registry-only EvidenceFlow baseline-intake heartbeat commit.",
+      "dirtyState": "staged-registry-only-evidenceflow-baseline-intake-bootstrap",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 final lower-bound commits through 447025fc passed 48/48 governance tests, registry, live audit, write-policy, security, and native hooks; this staged metadata is conditional on its own exact-head checks",
-        "ci": "Draft PR54 exact pre-authorization head 447025fc passed build 33221736576 and repository-security 33221734556/33221736558; jobs 99017012073/99017006194/99017012134 each returned zero annotations",
-        "merged": "PR53 remains the last protected-main merge at 2620c29a; Draft PR54 is CLEAN/MERGEABLE at exact pre-authorization head 447025fc and may become Ready/merge only after this final metadata commit's own exact-head checks pass",
+        "local": "A01 ordinary-fast-forwarded cleanly from c4c802b6 to protected main 018146e0; this staged registry-only heartbeat records the frozen EvidenceFlow 52 tracked plus 7 untracked candidate and requests only a preserve-first protected-main baseline intake",
+        "ci": "PR54 exact final head c4c802b6 passed build 33221984029 and repository-security 33221981813/33221984136; post-main 018146e0 passed build 33222099929 and repository-security 33222099910; all annotation endpoints were empty",
+        "merged": "PR54 merged as protected main 018146e0; no new governance PR exists yet, and this first heartbeat is not itself authorized for merge until a Draft PR is created and its exact-head gates are bound",
         "deployed": "not authorized",
-        "live": "live main/origin-main remain 2620c29a; remote A01 branch and Draft PR54 are exact 447025fc before this staged final metadata; clean root remains f067a224 and downstream lanes remain frozen"
+        "live": "live main and origin/main are exact 018146e0; remote A01 branch remains c4c802b6 before this local staged heartbeat; EvidenceFlow and branch-retirement lanes remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1123,8 +1123,8 @@
       "headSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 29,
-        "behind": 0
+        "ahead": 11,
+        "behind": 16
       },
       "allowedPaths": [
         "sena-hk-template/app/api/sena/workflows/**",
@@ -1146,24 +1146,24 @@
         "docs/adr/**"
       ],
       "createdAt": "2026-08-27T18:54:04Z",
-      "lastHeartbeatAt": "2026-08-28T22:46:57Z",
-      "lastObservedAt": "2026-08-28T22:46:57Z",
-      "nextReviewAt": "2026-08-29T04:46:57Z",
+      "lastHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 38,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "unstaged-bounded-remediation-42-tracked-4-untracked",
+      "dirtyState": "unstaged-bounded-remediation-52-tracked-7-untracked-baseline-intake-pending",
       "sensitivePaths": [],
-      "activationCondition": "A new registry-only governance PR must bind these two exact fresh reviews and the expanded remediation allowlist, pass exact-head and post-main build/repository-security checks, and pass a commit-bound live audit before any further EvidenceFlow tracked edit. Activation authorizes only TDD remediation of the 17 accepted unique findings plus the reproducible Control Room analytics-request settlement failure. EvidenceFlow commit, push, PR38 Ready/merge, deployment, provider mutation, and branch-retirement PR46 intake remain separately prohibited.",
+      "activationCondition": "A new registry-only governance PR must bind the exact 52 tracked plus 7 untracked EvidenceFlow candidate, pass its own exact-head and post-main build/repository-security checks with zero annotations, and pass a commit-bound live audit. Only then may the owner ordinary-merge exact protected main 018146e0 into the dirty EvidenceFlow worktree while preserving all candidate bytes and without rebase, reset, stash, force, or history rewrite. Candidate commit, push, PR38 Ready/merge, deployment, provider mutation, and branch-retirement PR46 intake remain separately prohibited.",
       "evidenceState": {
-        "local": "local head is the ordinary protected-main baseline merge 09ae3586 with parents 78d03e72 and f067a224; staged 0, unstaged tracked 42, untracked 4; tracked binary diff SHA-256 ffdd68016cea9180b3417e6e1666e903449b2efb15b2812d8ed357a5a5d4f80a and status SHA-256 8da30037926c5c1385d28f7ab367f97495d84e6a453b4b6f29911c8f643edfbd; unreachable commit count 0 and the two prior WIP/index objects remain bound by task-owned local rescue refs",
+        "local": "local head remains the ordinary protected-main baseline merge 09ae3586 with parents 78d03e72 and f067a224; staged 0, unstaged tracked 52, untracked 7, additions 7383, deletions 804; tracked binary diff SHA-256 0361236e341a7d8d02421886d901ca05dd72a8dab4c22fdfdcde406b01b47057 and status SHA-256 d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c; full fsck has zero unreachable commits and zero missing/broken objects, while 857 blobs plus 235 trees are pre-existing shared object-database residue and remain untouched; the two prior WIP/index objects remain bound by task-owned local rescue refs",
         "ci": "PR 38 exact head 40438885 passed build 33190293487 and repository-security 33190289095/33190293484; check jobs 98913757103/98913741715/98913757130 each have zero annotations",
-        "merged": "EvidenceFlow remains unmerged; Draft PR38 remote head remains 40438885 while local remediation is uncommitted at 09ae3586 plus 42 tracked and 4 untracked bounded paths; two fresh reviews require changes and no candidate commit/push/Ready/merge is authorized",
+        "merged": "EvidenceFlow remains unmerged; Draft PR38 remote head remains 40438885 while local remediation is uncommitted at 09ae3586 plus 52 tracked and 7 untracked bounded paths; no candidate commit/push/Ready/merge is authorized",
         "deployed": "not authorized and not performed",
-        "live": "third diagnostic full verifier passed before the final DB-clock precheck fix; fourth exact ffdd6801 diagnostic rerun passed 2993 broad tests, 138 serial tests, TypeScript, production build, artifacts, and performance, then failed Control Room browser smoke only because a stubbed local /_vercel/insights/script.js request was aborted during navigation; SENA, jENA, and auth browser smokes passed; no deployed endpoint or institution-production claim"
+        "live": "all 17 accepted review classes and the Control Room analytics settlement failure are remediated with focused tests green; temporary-Postgres migration/store/dual-shadow tests passed 19/19, no-Postgres workflow tests passed 97 with 21 skipped, server-job focused sets passed through 91/91 and the later 48/48 stale-lease regression set, closeout tests passed 17/17, TypeScript/lint/build passed; one full npm test run passed 3013 with 23 skipped and 7 failures, of which four product/mock failures are fixed and focused green while three governance-currentness failures require this protected-main baseline intake; full verifier and fresh reviews remain required, and no deployed endpoint or institution-production claim exists"
       },
       "priorIndependentReview": {
         "reviewerType": "codex-subagent",
@@ -1275,7 +1275,7 @@
         "mergeApproved": false
       },
       "expandedRemediationAuthorization": {
-        "status": "conditional-pr54-final-head-checks",
+        "status": "protected-main-green",
         "governancePullRequest": 51,
         "rootCurrentnessPullRequest": 52,
         "rootRemoteCurrentnessRepairPullRequest": 53,
@@ -1352,7 +1352,22 @@
           "repositorySecurityRunId": 33221286994,
           "annotationsEmpty": true
         },
-        "activationCondition": "This staged final PR54 authorization must produce a new exact head whose build and both repository-security checks pass with zero annotations, then PR54 must merge through protected main, pass post-main checks, and make that exact main pass the repaired commit-bound live audit before EvidenceFlow tracked remediation resumes.",
+        "pr54FinalHeadSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
+        "pr54FinalChecks": {
+          "buildRunId": 33221984029,
+          "repositorySecurityRunIds": [
+            33221981813,
+            33221984136
+          ],
+          "annotationsEmpty": true
+        },
+        "pr54MergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "pr54PostMainChecks": {
+          "buildRunId": 33222099929,
+          "repositorySecurityRunId": 33222099910,
+          "annotationsEmpty": true
+        },
+        "activationCondition": "PR54 merged through protected main as 018146e0 with exact-head and post-main build/repository-security checks green and zero annotations; the authorized 17-class remediation plus analytics settlement work is complete locally, but candidate commit/push/Ready/merge remains separately gated.",
         "allowedPathsUnchanged": true,
         "authorizedFindingClasses": [
           "engineering-candidate-post-handoff-intake",
@@ -1375,6 +1390,68 @@
           "automation-analytics-request-settlement"
         ],
         "authorizedAction": "Add deterministic RED tests, remediate only the bound finding classes, and rerun focused, Postgres, concurrency, migration, browser, accessibility, full verifier, and fresh independent review gates.",
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false
+      },
+      "baselineIntakeAuthorization": {
+        "status": "pending-protected-main",
+        "requestedAt": "2026-08-29T01:00:00Z",
+        "protectedMainSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "candidateHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
+        "candidateTrackedDiffSha256": "0361236e341a7d8d02421886d901ca05dd72a8dab4c22fdfdcde406b01b47057",
+        "candidateStatusSha256": "d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c",
+        "trackedPathCount": 52,
+        "untrackedPathCount": 7,
+        "trackedLineAdditions": 7383,
+        "trackedLineDeletions": 804,
+        "untrackedArtifacts": [
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-delivery.test.ts",
+            "sha256": "06439155dc69417dc2426c089eae93925ea0535c21d33247082f954bcf611848",
+            "bytes": 13213
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-route.test.ts",
+            "sha256": "c89c16d3c090b3aa6f52c826c0478a8596f78399b5d56f27d506f17a9f482263",
+            "bytes": 3947
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-postgres-migration.test.ts",
+            "sha256": "cbd40132ba5ba7999edc397d08869a5f48163eb40e59442fd2b216f021fcf119",
+            "bytes": 5679
+          },
+          {
+            "path": "sena-hk-template/lib/sena/workflow/analysis-evidence.ts",
+            "sha256": "ccb4ca6ef0d41fe29f95578fcc5f92f646d5bd0ac34115bd111193c4d026234e",
+            "bytes": 1743
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.d.mts",
+            "sha256": "01c1485da0f922407f214dbe9e15ae4beeeae04d3c7a6177bdec9b1c4c970e8b",
+            "bytes": 761
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.mjs",
+            "sha256": "cf19bb62d86be796bf286047c2f7d362ba3c85155a3d2a69f21d0e000925dddd",
+            "bytes": 8150
+          },
+          {
+            "path": "sena-hk-template/scripts/verify-sena-automation-browser-smoke.mjs",
+            "sha256": "00d215de7be463e92729832e0114b0711f7b943b3090f85381d87aacf12040a3",
+            "bytes": 14471
+          }
+        ],
+        "protectedMainOnlyChangedPaths": [
+          "coordination/repo-governance/active-work.json",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "preserveMethod": "After this authorization reaches protected main and passes its own commit-bound live audit, ordinary-merge exact protected main 018146e0 into the dirty EvidenceFlow worktree without rebase, reset, stash, force, checkout overwrite, or history rewrite; all 52 tracked and 7 untracked candidate paths must remain byte-identical, and both candidate digests plus every untracked artifact hash must be reverified before any new test or write.",
         "candidateCommitAuthorized": false,
         "candidatePushAuthorized": false,
         "pr38ReadyAuthorized": false,
@@ -1577,58 +1654,58 @@
       "ownerKey": "SENA-A01",
       "baseSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
       "headSha": "f067a224e42b385f215fe1a7919e6d2cec2381e5",
-      "targetSha": "2620c29a1465a86aaeae2ddedc3e9b324ef567c4",
+      "targetSha": "018146e0417128bd7c49a29b638308821c6a37a5",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "2620c29a1465a86aaeae2ddedc3e9b324ef567c4",
+      "remoteHeadSha": "018146e0417128bd7c49a29b638308821c6a37a5",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-08-28T23:44:34Z",
+      "remoteObservedAt": "2026-08-29T01:00:00Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
-      "lastOwnerHeartbeatAt": "2026-08-28T23:44:34Z",
-      "lastObservedAt": "2026-08-28T23:44:34Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
       "lastCommitAt": "2026-08-29T05:26:43+08:00",
-      "nextReviewAt": "2026-08-29T05:44:34Z",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "disposition": "integrated",
-      "closeout": "root control checkout is clean/read-only at f067a224; protected and cached remote main are 2620c29a after PR53; PR54 will be registry-only and establishes the lower bound consumed by the repaired rule"
+      "closeout": "root control checkout is clean/read-only at f067a224; protected and cached remote main are 018146e0 after PR54, with exact-head and post-main checks green; EvidenceFlow baseline intake remains separately gated"
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "447025fc7a24785e9f858978b513e38230229f38",
+      "headSha": "018146e0417128bd7c49a29b638308821c6a37a5",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "447025fc7a24785e9f858978b513e38230229f38",
-      "remoteObservedAt": "2026-08-28T23:52:53Z",
-      "pr": 54,
-      "prState": "OPEN",
-      "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
-      "prHeadSha": "447025fc7a24785e9f858978b513e38230229f38",
-      "prBase": "main",
-      "noPrReason": null,
+      "remoteObservedAt": "2026-08-29T01:00:00Z",
+      "pr": null,
+      "prState": null,
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": null,
+      "prBase": null,
+      "noPrReason": "A new Draft governance PR will be created after the first registry-only EvidenceFlow baseline-intake heartbeat commit.",
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
-        "number": 53,
-        "headSha": "02477eb97261feb05ad8d761e85600315eb01a3b",
-        "mergeCommitSha": "2620c29a1465a86aaeae2ddedc3e9b324ef567c4",
-        "mergedAt": "2026-08-28T23:42:08Z"
+        "number": 54,
+        "headSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
+        "mergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "mergedAt": "2026-08-28T23:58:19Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T23:52:53Z",
-      "lastObservedAt": "2026-08-28T23:52:53Z",
-      "lastCommitAt": "2026-08-29T07:50:26+08:00",
-      "nextReviewAt": "2026-08-29T05:52:53Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
+      "lastCommitAt": "2026-08-29T07:58:18+08:00",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR54 is CLEAN/MERGEABLE at exact pre-authorization head 447025fc with build and both security checks green and zero annotations; this staged final metadata conditionally authorizes Ready/protected merge only after its own new exact-head checks pass"
+      "closeout": "PR54 merged exact c4c802b6 as protected main 018146e0 with post-main checks green; this staged registry-only heartbeat starts a new EvidenceFlow baseline-intake governance lifecycle and authorizes no downstream action by itself"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -1641,7 +1718,7 @@
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
-      "remoteObservedAt": "2026-08-28T22:46:57Z",
+      "remoteObservedAt": "2026-08-29T01:00:00Z",
       "pr": 38,
       "prState": "OPEN",
       "prIsDraft": true,
@@ -1651,13 +1728,13 @@
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-08-28T22:46:57Z",
-      "lastObservedAt": "2026-08-28T22:46:57Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:00:00Z",
+      "lastObservedAt": "2026-08-29T01:00:00Z",
       "lastCommitAt": "2026-08-29T01:35:16+08:00",
-      "nextReviewAt": "2026-08-29T04:46:57Z",
+      "nextReviewAt": "2026-08-29T07:00:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR38 remote head remains 40438885; local owner head is baseline merge 09ae3586 plus 42 tracked and 4 untracked bounded paths; two fresh reviews require 17 unique remediations and the fourth diagnostic verifier exposed one analytics-request abort; all EvidenceFlow writes beyond the existing DB-clock fix remain frozen until a new protected-main authorization activates"
+      "closeout": "Draft PR38 remote head remains 40438885; local owner head is baseline merge 09ae3586 plus 52 tracked and 7 untracked bounded paths with tracked digest 0361236e and status digest d3ff735a; all accepted remediations are locally implemented, but protected-main baseline intake, full verifier, fresh reviews, commit, push, Ready, and merge remain separate gates"
     },
     {
       "name": "codex/sena-branch-retirement-20260829",
