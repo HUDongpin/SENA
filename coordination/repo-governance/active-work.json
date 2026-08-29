@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-29T01:09:28Z",
+  "updatedAt": "2026-08-29T01:15:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+      "headSha": "1417944363b1739efce16bc21264fd80e4d52a37",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-29T01:09:28Z",
-      "lastObservedAt": "2026-08-29T01:09:28Z",
-      "nextReviewAt": "2026-08-29T07:09:28Z",
+      "lastHeartbeatAt": "2026-08-29T01:15:00Z",
+      "lastObservedAt": "2026-08-29T01:15:00Z",
+      "nextReviewAt": "2026-08-29T07:15:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 55,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 54,
         "headSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
@@ -1051,17 +1051,17 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr55-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr55-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 bootstrap and remote-currentness commits are exact c4b549b8, clean before this staged PR55 lifecycle binding; registry, 48/48 governance tests, live audits, native write-policy, push-policy, and security passed",
-        "ci": "PR54 exact final head c4c802b6 passed build 33221984029 and repository-security 33221981813/33221984136; post-main 018146e0 passed build 33222099929 and repository-security 33222099910; all annotation endpoints were empty",
-        "merged": "PR54 remains the latest protected-main merge at 018146e0; Draft PR55 is OPEN at exact c4b549b8 and remains unauthorized for Ready or merge until a later exact-check-bound metadata commit",
+        "local": "A01 PR55 lifecycle head is exact 14179443, clean before this staged final authorization; registry, 48/48 governance tests, live audits, native write-policy, push-policy, and security passed",
+        "ci": "Draft PR55 exact lifecycle head 14179443 passed build 33225778346 and repository-security 33225778326/33225776870; jobs 99029141630/99029141459/99029139744 each returned zero annotations",
+        "merged": "PR54 remains the latest protected-main merge at 018146e0; Draft PR55 is CLEAN/MERGEABLE at exact lifecycle head 14179443 and may become Ready/merge only after this final metadata commit's own new exact-head checks pass",
         "deployed": "not authorized",
-        "live": "live main and origin/main are exact 018146e0; remote A01 branch and Draft PR55 are exact c4b549b8; EvidenceFlow baseline intake and branch-retirement PR46 intake remain fail-closed"
+        "live": "live main and origin/main are exact 018146e0; remote A01 branch and Draft PR55 are exact 14179443 before this staged final metadata; EvidenceFlow baseline intake and branch-retirement PR46 intake remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1399,10 +1399,24 @@
         "branchRetirementIntakeAuthorized": false
       },
       "baselineIntakeAuthorization": {
-        "status": "draft-pr55-lifecycle-binding",
+        "status": "conditional-pr55-final-head-checks",
         "requestedAt": "2026-08-29T01:00:00Z",
         "governancePullRequest": 55,
         "preAuthorizationHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+        "lifecycleHeadSha": "1417944363b1739efce16bc21264fd80e4d52a37",
+        "lifecycleChecks": {
+          "buildRunId": 33225778346,
+          "repositorySecurityRunIds": [
+            33225778326,
+            33225776870
+          ],
+          "checkJobIds": [
+            99029141630,
+            99029141459,
+            99029139744
+          ],
+          "annotationsEmpty": true
+        },
         "protectedMainSha": "018146e0417128bd7c49a29b638308821c6a37a5",
         "candidateHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
         "candidateTrackedDiffSha256": "0361236e341a7d8d02421886d901ca05dd72a8dab4c22fdfdcde406b01b47057",
@@ -1453,7 +1467,7 @@
           "scripts/verify-sena-repo-governance.mjs",
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
-        "activationCondition": "Draft PR55 must bind its exact final head and exact-head build plus both repository-security checks with zero annotations, then become Ready only through a separate registry metadata commit, merge through protected main, pass post-main build/repository-security checks, and make the exact merge commit pass a commit-bound live audit before baseline intake activates.",
+        "activationCondition": "This staged final PR55 authorization must produce a new exact head whose build and both repository-security checks pass with zero annotations; only then may PR55 become Ready and protected-merge. The resulting exact protected main must pass post-main build/repository-security checks and a commit-bound live audit before baseline intake activates.",
         "preserveMethod": "After this authorization reaches protected main and passes its own commit-bound live audit, ordinary-merge exact protected main 018146e0 into the dirty EvidenceFlow worktree without rebase, reset, stash, force, checkout overwrite, or history rewrite; all 52 tracked and 7 untracked candidate paths must remain byte-identical, and both candidate digests plus every untracked artifact hash must be reverified before any new test or write.",
         "candidateCommitAuthorized": false,
         "candidatePushAuthorized": false,
@@ -1680,19 +1694,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+      "headSha": "1417944363b1739efce16bc21264fd80e4d52a37",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
-      "remoteObservedAt": "2026-08-29T01:09:28Z",
+      "remoteHeadSha": "1417944363b1739efce16bc21264fd80e4d52a37",
+      "remoteObservedAt": "2026-08-29T01:15:00Z",
       "pr": 55,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "1417944363b1739efce16bc21264fd80e4d52a37",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -1702,13 +1716,13 @@
         "mergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
         "mergedAt": "2026-08-28T23:58:19Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-29T01:09:28Z",
-      "lastObservedAt": "2026-08-29T01:09:28Z",
-      "lastCommitAt": "2026-08-29T09:07:19+08:00",
-      "nextReviewAt": "2026-08-29T07:09:28Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:15:00Z",
+      "lastObservedAt": "2026-08-29T01:15:00Z",
+      "lastCommitAt": "2026-08-29T09:11:19+08:00",
+      "nextReviewAt": "2026-08-29T07:15:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR55 is OPEN at exact c4b549b8 and this staged lifecycle binding records that live state; Ready, protected merge, EvidenceFlow intake, and all downstream release actions remain unauthorized"
+      "closeout": "Draft PR55 exact lifecycle head 14179443 is CLEAN/MERGEABLE with build and both security checks green and zero annotations; this staged final metadata conditionally authorizes Ready/protected merge only after its own new exact-head checks pass"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
