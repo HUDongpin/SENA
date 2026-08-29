@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-29T01:00:00Z",
+  "updatedAt": "2026-08-29T01:05:44Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+      "headSha": "5ea8cde587491c8d1fbe3d815c851d07a32ea069",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,9 +1016,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-29T01:00:00Z",
-      "lastObservedAt": "2026-08-29T01:00:00Z",
-      "nextReviewAt": "2026-08-29T07:00:00Z",
+      "lastHeartbeatAt": "2026-08-29T01:05:44Z",
+      "lastObservedAt": "2026-08-29T01:05:44Z",
+      "nextReviewAt": "2026-08-29T07:05:44Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": null,
       "prIsDraft": false,
@@ -1051,17 +1051,17 @@
         ]
       },
       "noPrReason": "A new Draft governance PR will be created after this first registry-only EvidenceFlow baseline-intake heartbeat commit.",
-      "dirtyState": "staged-registry-only-evidenceflow-baseline-intake-bootstrap",
+      "dirtyState": "staged-registry-only-a01-remote-currentness-correction",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded cleanly from c4c802b6 to protected main 018146e0; this staged registry-only heartbeat records the frozen EvidenceFlow 52 tracked plus 7 untracked candidate and requests only a preserve-first protected-main baseline intake",
+        "local": "A01 bootstrap heartbeat committed locally as 5ea8cde5 after 48/48 governance tests and native pre-commit; the first push dry-run was refused before remote mutation because the branch registry retained remoteHeadSha 447025fc instead of live c4c802b6, so this staged registry-only correction records the exact remote and preserves the same EvidenceFlow baseline-intake boundary",
         "ci": "PR54 exact final head c4c802b6 passed build 33221984029 and repository-security 33221981813/33221984136; post-main 018146e0 passed build 33222099929 and repository-security 33222099910; all annotation endpoints were empty",
-        "merged": "PR54 merged as protected main 018146e0; no new governance PR exists yet, and this first heartbeat is not itself authorized for merge until a Draft PR is created and its exact-head gates are bound",
+        "merged": "PR54 merged as protected main 018146e0; local bootstrap 5ea8cde5 is unpushed and no new governance PR exists yet, so baseline intake remains inactive",
         "deployed": "not authorized",
-        "live": "live main and origin/main are exact 018146e0; remote A01 branch remains c4c802b6 before this local staged heartbeat; EvidenceFlow and branch-retirement lanes remain fail-closed"
+        "live": "live main and origin/main are exact 018146e0; remote A01 branch is exact c4c802b6 and was not changed by the refused dry-run; EvidenceFlow and branch-retirement lanes remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1677,13 +1677,13 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+      "headSha": "5ea8cde587491c8d1fbe3d815c851d07a32ea069",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "447025fc7a24785e9f858978b513e38230229f38",
-      "remoteObservedAt": "2026-08-29T01:00:00Z",
+      "remoteHeadSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
+      "remoteObservedAt": "2026-08-29T01:05:44Z",
       "pr": null,
       "prState": null,
       "prIsDraft": false,
@@ -1699,13 +1699,13 @@
         "mergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
         "mergedAt": "2026-08-28T23:58:19Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-29T01:00:00Z",
-      "lastObservedAt": "2026-08-29T01:00:00Z",
-      "lastCommitAt": "2026-08-29T07:58:18+08:00",
-      "nextReviewAt": "2026-08-29T07:00:00Z",
+      "lastOwnerHeartbeatAt": "2026-08-29T01:05:44Z",
+      "lastObservedAt": "2026-08-29T01:05:44Z",
+      "lastCommitAt": "2026-08-29T09:05:01+08:00",
+      "nextReviewAt": "2026-08-29T07:05:44Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR54 merged exact c4c802b6 as protected main 018146e0 with post-main checks green; this staged registry-only heartbeat starts a new EvidenceFlow baseline-intake governance lifecycle and authorizes no downstream action by itself"
+      "closeout": "PR54 merged exact c4c802b6 as protected main 018146e0 with post-main checks green; bootstrap 5ea8cde5 is local-only, and this staged correction binds the actual remote c4c802b6 after a fail-closed dry-run without authorizing downstream action"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
