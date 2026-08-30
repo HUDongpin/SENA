@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-30T12:31:25Z",
+  "updatedAt": "2026-08-30T12:41:43Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
+      "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-30T12:31:25Z",
-      "lastObservedAt": "2026-08-30T12:31:25Z",
-      "nextReviewAt": "2026-08-31T12:31:25Z",
+      "lastHeartbeatAt": "2026-08-30T12:41:43Z",
+      "lastObservedAt": "2026-08-30T12:41:43Z",
+      "nextReviewAt": "2026-08-31T12:41:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 65,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1411,18 +1411,36 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "PR64 is merged; the next Draft registry-only PR will be opened immediately after the first reviewable branch-retirement intake authorization commit is pushed.",
-      "dirtyState": "unstaged-registry-only-branch-retirement-intake-authorization-pending",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr65-lifecycle-binding",
+      "pr65InitialChecks": {
+        "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
+        "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
+        "buildRunId": 33311988059,
+        "repositorySecurityRunIds": [
+          33311988058,
+          33311969079
+        ],
+        "checkJobIds": [
+          99258591295,
+          99258591267,
+          99258541031
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded its clean branch to exact protected main 3d28d141; this candidate changes only active-work.json and records the owner-authorized branch-retirement intake boundary",
-        "ci": "protected main 3d28d141 passed post-main build 33296538499 and repository-security 33296538523 with zero annotations; the new registry-only candidate has no CI claim until its own exact head runs",
-        "merged": "PR64 exact head a2d850b1 is merged as protected main 3d28d141; the next registry-only branch-retirement intake authorization has no PR, Ready, or merge claim yet",
+        "local": "A01 lifecycle candidate is clean at exact 31c6dad after a single registry-only change from protected main 3d28d141; the candidate records the owner-authorized branch-retirement intake boundary",
+        "ci": "PR65 exact head 31c6dad passed build 33311988059 and repository-security 33311988058/33311969079 with zero annotations; it remains Draft pending final protected authorization",
+        "merged": "PR64 exact head a2d850b1 is merged as protected main 3d28d141; Draft PR65 now binds the branch-retirement intake metadata and has no Ready/protected-merge claim yet",
         "deployed": "not authorized",
-        "live": "live main and origin/main are exact 3d28d141; PR46 remains frozen at clean a9b3abc with all four target refs retained. CAS, receipt minting, target-ref mutation, PR46 Ready/merge, deployment, provider mutation, and history rewrite remain fail-closed"
+        "live": "live main and origin/main are exact 3d28d141; PR65 is open Draft at exact 31c6dad and PR46 remains frozen at clean a9b3abc with all four target refs retained. CAS, receipt minting, target-ref mutation, PR46 Ready/merge, deployment, provider mutation, and history rewrite remain fail-closed"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3027,13 +3045,16 @@
           ],
           "verifierConflict": "PR46 consumedRetirement plus activeItem semantics overlap protected-main branchItem plus integratedRootRegistryAdvance semantics",
           "futureIntakeRequirement": "A separately protected preserve-first release must authorize reconstructing the verifier hunk with both consumed-retirement and integrated-read-only-root semantics plus corresponding RED/GREEN proof; ordinary patch replay is not authorized.",
-          "intakeAuthorized": true,
+          "intakeAuthorized": false,
+          "authorizationRecorded": true,
+          "authorizationEffective": false,
+          "effectiveAfterProtectedMainAudit": true,
           "authorizationMode": "preserve-first-only",
           "composeBothVerifierSemanticsRequired": true,
           "redGreenProofRequired": true
         },
-        "branchRetirementIntakeAuthorized": true,
-        "pr46IntakeAuthorized": true,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
         "pr46ReadyAuthorized": false,
         "pr46MergeAuthorized": false,
         "casAuthorized": false,
@@ -3044,11 +3065,13 @@
         "historyRewriteAuthorized": false
       },
       "preserveFirstIntakeAuthorization": {
-        "status": "authorized-after-protected-main-activation-required",
+        "status": "recorded-not-active-protected-main-activation-required",
         "authorizationBasis": "Explicit owner request to advance branch-retirement governance; this permission covers only preserve-first candidate intake and governance reconstruction, never target-ref deletion or CAS.",
         "candidateHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
         "protectedMainSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
         "protectedMainLifecycleRequired": true,
+        "effective": false,
+        "authorizationRecorded": true,
         "separateExecutionReleaseRequired": true,
         "verifierMethod": "compose consumedRetirement with integratedRootRegistryAdvance; take protected main active-work registry as full base; reconstruct only branch-retirement-owned fields; add RED/GREEN tests for registry-only advance and mixed registry-plus-code rejection",
         "retirementOrder": [
@@ -3194,21 +3217,21 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
+      "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "a2d850b1b2f58fed0d28dda4982d59c06bf9afb6",
-      "remoteObservedAt": "2026-08-30T12:31:25Z",
-      "pr": null,
-      "prState": null,
-      "prIsDraft": false,
+      "remoteHeadSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
+      "remoteObservedAt": "2026-08-30T12:41:43Z",
+      "pr": 65,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
+      "prHeadSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
       "prBase": "main",
-      "noPrReason": "PR64 is merged; a new Draft registry-only PR will be bound after this candidate's first reviewable commit is created.",
+      "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 63,
@@ -3216,13 +3239,13 @@
         "mergeCommitSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
         "mergedAt": "2026-08-30T05:16:51Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-30T12:31:25Z",
-      "lastObservedAt": "2026-08-30T12:31:25Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T12:41:43Z",
+      "lastObservedAt": "2026-08-30T12:41:43Z",
       "lastCommitAt": "2026-08-30T14:05:53+08:00",
-      "nextReviewAt": "2026-08-31T12:31:25Z",
+      "nextReviewAt": "2026-08-31T12:41:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR64 exact head a2d850b1 merged as protected main 3d28d141; A01 branch is locally fast-forwarded to that clean main, remote branch still points to merged a2d850b1, and this new registry-only candidate has no PR/Ready/merge claim until its own exact lifecycle is established"
+      "closeout": "PR65 is OPEN Draft at exact head 31c6dad9 with build 33311988059 and repository-security 33311988058/33311969079 successful and zero annotations; Ready/protected merge remains unclaimed pending final authorization metadata"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
