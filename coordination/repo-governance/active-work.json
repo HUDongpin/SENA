@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-28T17:07:43Z",
+  "updatedAt": "2026-08-30T16:12:23Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -981,9 +981,9 @@
         "result": "deleted",
         "credentialValuesRecorded": false
       },
-      "liveMainSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
+      "liveMainSha": "4959f9635350504a9e436957a5556e05e4e952e4",
       "liveMainObservationMode": "lower-bound",
-      "liveRemoteHeadCount": 2,
+      "liveRemoteHeadCount": 4,
       "liveRemoteTagCount": 2,
       "pullCandidateRefCount": 23,
       "totalCandidateRefCount": 27,
@@ -992,7 +992,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 1,
+      "currentOpenPullRequestCount": 3,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -1011,30 +1011,30 @@
       "branch": "main",
       "worktreePath": "/Volumes/Starship/SENA",
       "baseSha": "91f832d183efcf8c5cc8307c922c5677b63dab44",
-      "headSha": "91f832d183efcf8c5cc8307c922c5677b63dab44",
+      "headSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
       "aheadBehind": {
-        "baseRef": "91f832d183efcf8c5cc8307c922c5677b63dab44",
+        "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 4
       },
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
-      "lastHeartbeatAt": null,
-      "lastObservedAt": "2026-08-27T18:29:01Z",
-      "nextReviewAt": "2026-09-04T18:29:01Z",
+      "lastHeartbeatAt": "2026-08-30T13:00:40Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-main-exact-origin-main",
+      "dirtyState": "clean-main-behind-live-main-registry-only",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "root changed from the local quarantined branch to main by ordinary checkout, then fast-forwarded only to exact origin/main 91f832d; status is clean; both forbidden working-copy paths and index entries are absent; local quarantine branch and rescue custody remain",
-        "ci": "PR 24 exact-head checks and post-main build run 33103149600 plus repository-security run 33103149704 passed on 91f832d",
-        "merged": "root is exact protected main 91f832d183efcf8c5cc8307c922c5677b63dab44",
+        "local": "root control checkout remains clean/read-only at exact local main 05498b1a while live protected main is 4959f963; local root is four commits behind the fetched live origin/main and no root files were changed",
+        "ci": "PR65 exact final head 69f532d1 passed its required checks and protected main 05498b1a passed post-main build 33312704179 and repository-security 33312704175 with zero annotations",
+        "merged": "PR65 exact head 69f532d1 merged as protected main 05498b1a10b726400b8bafbbae3bb3bcf5cff108; the local read-only root is exact and clean at that merge commit",
         "deployed": "not authorized and not claimed",
-        "live": "remote contaminated ref absent; 27 live candidate refs have zero known path/blob findings"
+        "live": "live GitHub main and fetched origin/main are exact 4959f963; clean local root remains 05498b1a (behind 4), A01 candidate is 06db01d bound to Draft PR #67, live branch count is 4, registered worktree count is 4, open PR count is 3, and A11 closeout is recorded separately without authorizing A01 cleanup"
       },
       "disposition": "integrated"
     },
@@ -1050,11 +1050,11 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "4dc99ed77742a3bd7fac26f269107e41165eed4b",
+      "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 3,
-        "behind": 0
+        "behind": 1
       },
       "allowedPaths": [
         ".github/workflows/repo-security-gate.yml",
@@ -1068,22 +1068,388 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-28T18:46:40Z",
-      "lastObservedAt": "2026-08-28T18:46:40Z",
-      "nextReviewAt": "2026-08-29T00:46:40Z",
+      "lastHeartbeatAt": "2026-08-30T16:12:23Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 45,
+      "prNumber": 67,
       "prIsDraft": true,
       "prReadyForReview": true,
       "mergeAuthorized": true,
       "lastMergedPullRequest": {
-        "number": 44,
-        "headSha": "f44e902831e74c9071a4d0c7ec9ce137b3b5ed89",
-        "mergeCommitSha": "5a30a0dd2a790a8158bab110338103c74df1f6dc",
-        "mergedAt": "2026-08-28T17:31:32Z",
-        "postMainBuildRunId": 33195082883,
-        "postMainRepositorySecurityRunId": 33195082891,
-        "postMainChecksPassed": true
+        "number": 66,
+        "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+        "mergeCommitSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "mergedAt": "2026-08-30T13:18:36Z",
+        "prBuildRunId": 33313698351,
+        "prRepositorySecurityRunIds": [33313698336, 33313696292],
+        "postMainBuildRunId": 33313831031,
+        "postMainRepositorySecurityRunId": 33313830999,
+        "postMainHeadSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "postMainEvent": "push",
+        "postMainChecksPassed": true,
+        "commitBoundLiveAuditStatus": "not-run-by-this-reconciliation"
+      },
+      "pr64InitialChecks": {
+        "headSha": "2d7ce9d5c60e2fbb2ca0ff02ab891bec0244f165",
+        "baseSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
+        "buildRunId": 33295978683,
+        "repositorySecurityRunIds": [
+          33295978645,
+          33295966461
+        ],
+        "checkJobIds": [
+          99215592768,
+          99215592624,
+          99215562622
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr64LifecycleChecks": {
+        "headSha": "a0e85340b1a5f1ac74a5a1681a2ef3017309b5a1",
+        "baseSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
+        "buildRunId": 33296190305,
+        "repositorySecurityRunIds": [
+          33296190306,
+          33296188647
+        ],
+        "checkJobIds": [
+          99216145516,
+          99216145543,
+          99216140791
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr63InitialChecks": {
+        "headSha": "1e8699c300909bd94b76c9f3bd0fe0837e6ce31e",
+        "baseSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+        "buildRunId": 33293872058,
+        "repositorySecurityRunIds": [
+          33293872075,
+          33293836992
+        ],
+        "checkJobIds": [
+          99210094038,
+          99210094025,
+          99209998693
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr63LifecycleChecks": {
+        "headSha": "5c1fcdb8f1052f3bd970ff0c8edb3c75017843c2",
+        "baseSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+        "buildRunId": 33294066804,
+        "repositorySecurityRunIds": [
+          33294066799,
+          33294064914
+        ],
+        "checkJobIds": [
+          99210610004,
+          99210610047,
+          99210605058
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr56LifecycleChecks": {
+        "headSha": "e60213a54251707b99b0dd97804c3083c9fd67e0",
+        "buildRunId": 33231496724,
+        "repositorySecurityRunIds": [
+          33231495580,
+          33231496723
+        ],
+        "checkJobIds": [
+          99045017592,
+          99045014239,
+          99045017702
+        ],
+        "annotationsEmpty": true
+      },
+      "pr57LifecycleChecks": {
+        "headSha": "f12ee044b063e45fd5bc22ff156db27aa16ea688",
+        "buildRunId": 33233820031,
+        "repositorySecurityRunIds": [
+          33233820062,
+          33233818276
+        ],
+        "checkJobIds": [
+          99051176115,
+          99051176147,
+          99051171330
+        ],
+        "annotationsEmpty": true
+      },
+      "pr58LifecycleChecks": {
+        "headSha": "613b3bf5cc53096a492876c354594b0ce8e6ccb4",
+        "buildRunId": 33238119780,
+        "repositorySecurityRunIds": [
+          33238119775,
+          33238117825
+        ],
+        "checkJobIds": [
+          99062606540,
+          99062606562,
+          99062601801
+        ],
+        "annotationsEmpty": true
+      },
+      "pr59InitialObservation": {
+        "headSha": "54d822c9d040901ed51726e05cbd7e0bc4abdfaf",
+        "baseSha": "ff50754464880fae051d4b6084bbf96989b1eb55",
+        "buildRunId": 33252895483,
+        "pullRequestRepositorySecurityRunId": 33252895480,
+        "pushRepositorySecurityRunId": 33252883174,
+        "pushRepositorySecurityPassed": true,
+        "buildAndPullRequestSecurityPending": true
+      },
+      "pr59LifecycleChecks": {
+        "headSha": "6e1cc09a4871c21c9dbb4da3bf1ae8f43e15dc7b",
+        "buildRunId": 33253060345,
+        "repositorySecurityRunIds": [
+          33253058156,
+          33253060354
+        ],
+        "checkJobIds": [
+          99101955994,
+          99101950713,
+          99101955955
+        ],
+        "annotationsEmpty": true
+      },
+      "pr59FinalAuthorization": {
+        "status": "protected-main-green-cross-day-currentness-closeout-required",
+        "lifecycleHeadSha": "6e1cc09a4871c21c9dbb4da3bf1ae8f43e15dc7b",
+        "finalHeadSha": "0a989882c1c6e35d01d933703b5e69222fff94ae",
+        "finalChecks": {
+          "buildRunId": 33253325561,
+          "repositorySecurityRunIds": [
+            33253323730,
+            33253325560
+          ],
+          "checkJobIds": [
+            99102645721,
+            99102640305,
+            99102645678
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "df85245b59b3706cfe95a767f12eee926c0b98c3",
+        "mergedAt": "2026-08-29T12:48:52Z",
+        "postMainChecks": {
+          "buildRunId": 33253449104,
+          "repositorySecurityRunId": 33253449102,
+          "checkJobIds": [
+            99102981024,
+            99102980932
+          ],
+          "annotationsEmpty": true
+        },
+        "activationCondition": "PR59 exact-head and post-main checks are green with zero annotations, but its 2026-08-30 exact-main audit failed only because three active workItems and their three branches crossed nextReviewAt. A new minimal registry-only currentness closeout must pass its own protected activation before EvidenceFlow full-verifier release.",
+        "fullVerifierAuthorized": false,
+        "branchRetirementIntakeAuthorized": false
+      },
+      "pr60LifecycleChecks": {
+        "headSha": "1bdcc7fc8298e41d1cb609c574f4d78cebea2018",
+        "buildRunId": 33287972622,
+        "repositorySecurityRunIds": [
+          33287962592,
+          33287972632
+        ],
+        "checkJobIds": [
+          99194433331,
+          99194404660,
+          99194433454
+        ],
+        "annotationsEmpty": true
+      },
+      "pr60FinalAuthorization": {
+        "status": "protected-main-green-first-full-verifier-red-baseline-intake-required",
+        "lifecycleHeadSha": "1bdcc7fc8298e41d1cb609c574f4d78cebea2018",
+        "finalHeadSha": "abc726d7340505831e4af78e7a554a8a487296b0",
+        "finalChecks": {
+          "buildRunId": 33288210163,
+          "repositorySecurityRunIds": [
+            33288208538,
+            33288210148
+          ],
+          "checkJobIds": [
+            99195069489,
+            99195065182,
+            99195069252
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+        "mergedAt": "2026-08-30T02:35:02Z",
+        "postMainChecks": {
+          "buildRunId": 33288320360,
+          "repositorySecurityRunId": 33288320358,
+          "checkJobIds": [
+            99195390722,
+            99195390668
+          ],
+          "annotationsEmpty": true
+        },
+        "commitBoundAudit": {
+          "status": "pass",
+          "errorCount": 0,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "activationCondition": "PR60 is protected-main green and its exact-main audit passed. The first authorized full verifier stopped in the broad test phase because the dirty EvidenceFlow checkout still carries the pre-PR59/PR60 registry. A separately protected registry-only authorization must activate before exact c9d463e0 may be ordinary-merged into that lane.",
+        "fullVerifierAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "pr61InitialObservation": {
+        "headSha": "d95c58529ca2b0ffd7c94372f7cb52d56c416da5",
+        "baseSha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+        "pushRepositorySecurityRunId": 33289215656,
+        "pushRepositorySecurityPassed": true,
+        "buildRunId": 33289225203,
+        "buildStatus": "in_progress",
+        "pullRequestRepositorySecurityRunId": 33289225205,
+        "pullRequestRepositorySecurityStatus": "in_progress",
+        "annotationsPending": true
+      },
+      "pr61LifecycleChecks": {
+        "headSha": "618b40898414ef16fc41ca86188bf4fd21d606ca",
+        "buildRunId": 33289409084,
+        "repositorySecurityRunIds": [
+          33289407597,
+          33289409073
+        ],
+        "checkJobIds": [
+          99198275939,
+          99198272228,
+          99198275988
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr61FinalAuthorization": {
+        "status": "protected-main-green-post-build-rerun-heartbeat-required",
+        "lifecycleHeadSha": "618b40898414ef16fc41ca86188bf4fd21d606ca",
+        "finalHeadSha": "2077692b78af62f176455e8a990d258242799a33",
+        "finalChecks": {
+          "buildRunId": 33289734176,
+          "repositorySecurityRunIds": [
+            33289734168,
+            33289732003
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb",
+        "mergedAt": "2026-08-30T03:16:00Z",
+        "postMainChecks": {
+          "buildRunId": 33289868267,
+          "repositorySecurityRunId": 33289868259,
+          "annotationsEmpty": true
+        },
+        "commitBoundAudit": {
+          "status": "pass",
+          "errorCount": 0,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "activationCondition": "PR61 protected activation and exact-main audit are complete. EvidenceFlow has since completed preserve-first intake, the broad and serial verifier phases, and the bounded Node-only client-import remediation. A new registry-only heartbeat must protect the exact post-build snapshot before a separately explicit one-shot verifier rerun release.",
+        "evidenceflowBaselineIntakeAuthorized": true,
+        "fullVerifierRerunAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "pr62InitialObservation": {
+        "headSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
+        "baseSha": "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb",
+        "buildRunId": 33291631050,
+        "repositorySecurityRunIds": [
+          33291631039,
+          33291618533
+        ],
+        "checkJobIds": [
+          99204161196,
+          99204161225,
+          99204126347
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr62LifecycleChecks": {
+        "headSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "buildRunId": 33291848441,
+        "repositorySecurityRunIds": [
+          33291848429,
+          33291846701
+        ],
+        "checkJobIds": [
+          99204730582,
+          99204730659,
+          99204726759
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr62FinalAuthorization": {
+        "status": "final-metadata-pending-own-exact-head-checks",
+        "lifecycleHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "activationCondition": "The final metadata commit produced from this staged registry must pass build and both repository-security checks with zero annotations before PR62 may become Ready and protected-merge. Post-main checks and an exact-main commit-bound live audit remain required before the separate one-shot full-verifier rerun handoff.",
+        "fullVerifierRerunAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
       },
       "latestIndependentReview": {
         "reviewerType": "codex-subagent",
@@ -1103,62 +1469,167 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr45-final-authorization",
+      "dirtyState": "staged-registry-only-pr67-final-authorization",
+      "pr65InitialChecks": {
+        "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
+        "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
+        "buildRunId": 33311988059,
+        "repositorySecurityRunIds": [
+          33311988058,
+          33311969079
+        ],
+        "checkJobIds": [
+          99258591295,
+          99258591267,
+          99258541031
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr65LifecycleChecks": {
+        "headSha": "b6c39536402fd390a6dc4a4cbad4446c78bb0c37",
+        "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
+        "buildRunId": 33312333784,
+        "repositorySecurityRunIds": [
+          33312333779,
+          33312331154
+        ],
+        "checkJobIds": [
+          99259523770,
+          99259523884,
+          99259518107
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr65FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "headSha": "b6c39536402fd390a6dc4a4cbad4446c78bb0c37",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "pr66InitialChecks": {
+        "headSha": "a17ef70610384c88603d8545e02a44ace9e46515",
+        "baseSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+        "buildRunId": 33313280799,
+        "repositorySecurityRunIds": [
+          33313280819,
+          33313264462
+        ],
+        "checkJobIds": [
+          99262039943,
+          99262040158,
+          99261995843
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr66LifecycleChecks": {
+        "headSha": "23f31dfd043b6a7497a285009acde27870b15567",
+        "baseSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+        "buildRunId": 33313492209,
+        "repositorySecurityRunIds": [
+          33313492219,
+          33313490829
+        ],
+        "checkJobIds": [
+          99262608264,
+          99262608329,
+          99262604352
+        ],
+        "annotationsEmpty": true,
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr66FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "headSha": "23f31dfd043b6a7497a285009acde27870b15567",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "branchRetirementIntakeAuthorized": true,
+        "pr46IntakeAuthorized": true,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "pr67InitialChecks": {
+        "pullRequestNumber": 67,
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr67FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "authorizationBasis": "User instruction 'do them' explicitly authorizes the A01 registry-only push, Draft PR, exact-head CI, protected-main merge, and live-registry authority path.",
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 heartbeat and PR lifecycle commits through 4dc99ed passed registry, live audit, write-policy, security, 47/47 governance tests, native pre-commit, and native pre-push; this staged final metadata authorizes Ready/protected merge only after its own exact-head checks pass",
-        "ci": "Draft PR45 exact head 4dc99ed passed build 33200540437 and repository-security 33200540432/33200535553; all three check-run annotation endpoints returned zero",
-        "merged": "PR44 remains merged as protected main 5a30a0dd; Draft PR45 is OPEN/CLEAN/MERGEABLE at exact head 4dc99ed and is conditionally Ready/merge-authorized only after this final metadata commit's exact checks pass",
+        "local": "A01 worktree is clean at exact lifecycle head 0d1a29c; this registry-only final-authorization commit binds the protected-main path without changing product files",
+        "ci": "PR67 exact lifecycle head 0d1a29c passed build 33321558855 and repository-security runs 33321557167/33321558849 with zero annotations; the final authorization commit requires a fresh exact-head CI rerun before Ready/merge",
+        "merged": "PR66 exact head f177819 merged as live protected main 4959f963 at 2026-08-30T13:18:36Z; PR67 final authorization is staged for the exact 0d1a29c lifecycle head and does not authorize A01 ordinary closeout",
         "deployed": "not authorized",
-        "live": "not tested and not claimed"
+        "live": "live origin/main is 4959f963, live A01 is 0d1a29c, PR66 is MERGED, PR67 is OPEN Draft with final authorization staged, and the current topology is 8 local branches/4 registered worktrees/4 live origin branches; EvidenceFlow remains dirty, PR46 remains Draft, all preserved refs and invalid pointers remain retained, and A01 cleanup/remote mutation remain false"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
-    },
-    {
-      "taskId": "SENA-A11-EXACT-MAIN-RECEIPT-20260827",
-      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
-      "repo": "/Volumes/Starship/SENA",
-      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-a11-main-receipt-20260827/sena-hk-template",
-      "owner": "Codex SENA-A11 release verifier",
-      "ownerKey": "SENA-A11",
-      "ownerLane": "A11 release verification",
-      "laneType": "integration-release",
-      "branch": "codex/sena-a11-main-receipt-20260827",
-      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a11-main-receipt-20260827",
-      "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "aheadBehind": {
-        "baseRef": "b002f976442e2b36f1ccf84456117974af37228f",
-        "ahead": 0,
-        "behind": 19
-      },
-      "allowedPaths": [
-        "<ignored build, browser, performance, and temporary runtime artifacts only; no tracked writes>"
-      ],
-      "createdAt": "2026-08-27T04:10:00Z",
-      "lastHeartbeatAt": "2026-08-27T04:56:29.966Z",
-      "lastObservedAt": "2026-08-27T17:38:11Z",
-      "nextReviewAt": "2026-08-28T04:10:00Z",
-      "expectedCloseAt": "2026-08-28T04:10:00Z",
-      "prNumber": null,
-      "noPrReason": "Ephemeral exact-main verification lane; it produces a receipt on the governance branch and no code change or PR.",
-      "dirtyState": "clean-exact-main-verification",
-      "sensitivePaths": [
-        "All API Keys.docx",
-        "sena-hk-template/All API Keys.docx"
-      ],
-      "evidenceState": {
-        "local": "exact-main automated ladder passed on 5cdea568/tree 4a0f018 and the later metadata package was independently verified complete; desktop visual passed but 375x900 mobile visual failed with an open P1, so research-pilot/reviewer handoff is conditional and not fully approved",
-        "ci": "historical PR #20 head build run 33007461716 and post-main build run 33007704490 passed typecheck/build only",
-        "merged": "exact source 5cdea568 is an ancestor of activation merge b002f976; its historical release receipt remains SHA-bound and is not promoted to the newer main",
-        "deployed": "not authorized and not claimed",
-        "live": "not tested and not claimed"
-      },
-      "disposition": "integrated"
     },
     {
       "taskId": "SENA-EVIDENCEFLOW-V1-20260828",
@@ -1172,14 +1643,17 @@
       "branch": "codex/sena-evidenceflow-v1-20260828",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-evidenceflow-v1-20260828",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "78d03e726968ec9b7adb2fb30f07c95d56a89325",
+      "headSha": "434a1aac542e60e793afef77fb35104cdb470d53",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 10,
-        "behind": 0
+        "ahead": 16,
+        "behind": 8
       },
       "allowedPaths": [
         "sena-hk-template/app/api/sena/workflows/**",
+        "sena-hk-template/app/api/sena/analyze/route.ts",
+        "sena-hk-template/app/api/sena/import/route.ts",
+        "sena-hk-template/app/api/sena/reliability/route.ts",
         "sena-hk-template/app/api/sena/validation/**",
         "sena-hk-template/app/api/sena/exports/publication/**",
         "sena-hk-template/app/api/sena/ops/jobs/**",
@@ -1198,23 +1672,1052 @@
         "docs/adr/**"
       ],
       "createdAt": "2026-08-27T18:54:04Z",
-      "lastHeartbeatAt": "2026-08-28T18:29:09Z",
-      "lastObservedAt": "2026-08-28T18:29:09Z",
-      "nextReviewAt": "2026-08-29T00:29:09Z",
+      "lastHeartbeatAt": "2026-08-30T05:56:22Z",
+      "lastObservedAt": "2026-08-30T05:56:22Z",
+      "nextReviewAt": "2026-08-31T05:56:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 38,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "unstaged-bounded-remediation-31-tracked-1-untracked",
+      "dirtyState": "unstaged-bounded-62-tracked-7-untracked-post-review-remediation-authorization-pending",
       "sensitivePaths": [],
+      "activationCondition": "Both fresh exact-candidate reviews completed with mergeApproved=false and the ten unique findings were independently confirmed. This new registry-only heartbeat must pass its own exact-head build and both repository-security checks with zero annotations, protected merge, post-main checks, and exact-main commit-bound live audit before any RED test or remediation write may begin. Candidate commit/push, PR38 Ready/merge, deployment, provider mutation, branch-retirement PR46 intake/Ready/merge, CAS, receipt minting, target-ref mutation, full-verifier rerun, and history rewrite remain prohibited.",
       "evidenceState": {
-        "local": "owner ordinary-merged protected main 5a30a0dd into reviewed candidate 40438885 as exact local head 78d03e72, then resumed only the 12 authorized review-remediation classes; current state is staged 0, unstaged tracked 31, untracked 1, all within the unchanged EvidenceFlow allowlist",
+        "local": "local head is exact 434a1aac on cached origin/main a76e7f70; staged 0, unstaged tracked 62, untracked 7, total changed paths 69, ahead 16 and behind 8; git diff --binary HEAD -- . SHA-256 213d6a94144ddf548fb6fe85821c85e37cbdc9c9128585c89d1c58eb0893611a and git status --porcelain=v1 SHA-256 d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936; protected allowlist expands from 17 to exactly 20 paths for three B-5 route entrypoints",
         "ci": "PR 38 exact head 40438885 passed build 33190293487 and repository-security 33190289095/33190293484; check jobs 98913757103/98913741715/98913757130 each have zero annotations",
-        "merged": "EvidenceFlow remains unmerged; Draft PR 38 remains at remote exact head 40438885 while the local bounded remediation worktree is 78d03e72 plus uncommitted allowed-path changes; Ready/merge remain unauthorized pending remediation, full rerun, and fresh re-review",
+        "merged": "EvidenceFlow remains unmerged; Draft PR38 remote head remains 40438885 while local candidate is uncommitted at 434a1aac plus 62 tracked and 7 untracked bounded paths; no candidate commit/push/Ready/merge is authorized",
         "deployed": "not authorized and not performed",
-        "live": "local production-server desktop/mobile browser flow passed; no deployed endpoint or institution-production claim; engineering graph remains shadow-only"
+        "live": "the sole full verifier passed every phase, but two fresh exact-snapshot reviews independently rejected merge. Their raw P1 count 7 de-duplicates to 6 because A-1 and B-1 are the same workflowCodeSha defect; four P2 findings remain unique. Independent reproduction confirms all ten findings, so verifier PASS does not authorize delivery"
+      },
+      "currentCandidateHeartbeat": {
+        "status": "historical-snapshot-superseded-by-post-build-full-verifier-pass-receipt",
+        "recordedAt": "2026-08-29T06:03:06Z",
+        "candidateHeadSha": "1ed5ab7d82cb586bd49c684c24f2762e58cdacaf",
+        "candidateFullDiffSha256": "98b1cda5bd023da4c0bdf3a5b03204e4391e7adddd94555386cbdae1346065dd",
+        "candidateTrackedDiffSha256": "2fddebc049f7866811f66809e5e52bc913443969264f8bd9b47613ccbd1cda97",
+        "candidateStatusSha256": "d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c",
+        "trackedPathCount": 52,
+        "untrackedPathCount": 7,
+        "trackedLineAdditions": 8283,
+        "trackedLineDeletions": 846,
+        "untrackedArtifacts": [
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-delivery.test.ts",
+            "sha256": "39791be00608062af040e5eaa4d28736d5c9a4d3fd6a2d0ec8013cf500f9ba3b",
+            "bytes": 14194
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-route.test.ts",
+            "sha256": "ff858dce9673297b6c508e36b8dbd9c3ace6364db22d0143ab2480986c75c29a",
+            "bytes": 7795
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-postgres-migration.test.ts",
+            "sha256": "3de6812b7fa6aec4a789b779e156548b5237b5bb4501210d7fd91cf3e092f92d",
+            "bytes": 6166
+          },
+          {
+            "path": "sena-hk-template/lib/sena/workflow/analysis-evidence.ts",
+            "sha256": "ccb4ca6ef0d41fe29f95578fcc5f92f646d5bd0ac34115bd111193c4d026234e",
+            "bytes": 1743
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.d.mts",
+            "sha256": "01c1485da0f922407f214dbe9e15ae4beeeae04d3c7a6177bdec9b1c4c970e8b",
+            "bytes": 761
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.mjs",
+            "sha256": "832c798162ff9b2174a4e8a07fa4c8d957002455e0f9b435291ade4344ae3627",
+            "bytes": 8175
+          },
+          {
+            "path": "sena-hk-template/scripts/verify-sena-automation-browser-smoke.mjs",
+            "sha256": "00d215de7be463e92729832e0114b0711f7b943b3090f85381d87aacf12040a3",
+            "bytes": 14471
+          }
+        ],
+        "p1RemediationReviews": {
+          "recordedAt": "2026-08-29T04:10:24Z",
+          "reviewedTrackedDiffSha256": "2fddebc049f7866811f66809e5e52bc913443969264f8bd9b47613ccbd1cda97",
+          "status": "approved-no-findings",
+          "p0FindingCount": 0,
+          "p1FindingCount": 0,
+          "p2FindingCount": 0,
+          "p3FindingCount": 0,
+          "reviewers": [
+            {
+              "reviewerId": "01a04ba0-6d2c-7370-8c6a-d8ce0d7ba2be",
+              "slice": "immutable-source-snapshot-review-packet-binding",
+              "reviewedFileSha256": "e2f222839d65104ba22a790522ca50dd9552176a5a98b1a3d26d69885d613f1c",
+              "mergeApproved": true
+            },
+            {
+              "reviewerId": "01a04ba0-6f62-78c1-ba34-87cca6800757",
+              "slice": "postgres-run-command-lock-order-and-reclaim-concurrency",
+              "reviewedFileSha256": "06cd53f7709b5d0c13aaded27d7e49408f53c6af85b94f8b8ef20b7ab9467664",
+              "mergeApproved": true
+            }
+          ]
+        },
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false
+      },
+      "postFullVerifierIndependentReviews": {
+        "recordedAt": "2026-08-29T06:03:06Z",
+        "reviewedHeadSha": "1ed5ab7d82cb586bd49c684c24f2762e58cdacaf",
+        "baselineSha": "be0a8f3a198aa3db7ec44a5f4fe0180d9dc6d1d5",
+        "candidateFullDiffSha256": "98b1cda5bd023da4c0bdf3a5b03204e4391e7adddd94555386cbdae1346065dd",
+        "candidateTrackedDiffSha256": "2fddebc049f7866811f66809e5e52bc913443969264f8bd9b47613ccbd1cda97",
+        "candidateStatusSha256": "d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c",
+        "trackedPathCount": 52,
+        "untrackedPathCount": 7,
+        "status": "changes-required",
+        "p0FindingCount": 0,
+        "p1FindingCount": 5,
+        "p2FindingCount": 6,
+        "p3FindingCount": 0,
+        "mergeApproved": false,
+        "domainA": {
+          "reviewerType": "codex-subagent",
+          "reviewerId": "01a04c08-0899-7972-ab39-193e8ec2b8ab",
+          "p0FindingCount": 0,
+          "p1FindingCount": 1,
+          "p2FindingCount": 4,
+          "p3FindingCount": 0,
+          "mergeApproved": false
+        },
+        "domainB": {
+          "reviewerType": "codex-subagent",
+          "reviewerId": "01a04c08-094e-7b81-a1f0-6afff031630f",
+          "p0FindingCount": 0,
+          "p1FindingCount": 4,
+          "p2FindingCount": 2,
+          "p3FindingCount": 0,
+          "mergeApproved": false
+        },
+        "independentClassification": {
+          "fullyConfirmed": 8,
+          "partiallyConfirmed": 2,
+          "falsePositive": 1,
+          "effectiveP1FindingCount": 5,
+          "effectiveP2FindingCount": 5,
+          "partialCorrections": [
+            "governance verifier must bind exact protected-main bytes and a curated environment, while read-only network observation remains required and is not itself an external side effect",
+            "apiKey is already rejected; clientSecret, bearerToken, authorization, and equivalent normalized credential keys remain accepted and require remediation"
+          ],
+          "falsePositiveDisposition": "Postgres command available_at remains database-clock authoritative; caller timestamps remain observation-only and no B6 code change is authorized."
+        }
+      },
+      "boundedPostVerifierRemediationAuthorization": {
+        "status": "protected-main-green-remediation-completed-full-verifier-gated",
+        "governancePullRequest": 58,
+        "initialAuthorizationHeadSha": "737e3e9c99224953d0d00e6ce943a82ff49fbd28",
+        "lifecycleHeadSha": "613b3bf5cc53096a492876c354594b0ce8e6ccb4",
+        "lifecycleChecks": {
+          "buildRunId": 33238119780,
+          "repositorySecurityRunIds": [
+            33238119775,
+            33238117825
+          ],
+          "checkJobIds": [
+            99062606540,
+            99062606562,
+            99062601801
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "ff50754464880fae051d4b6084bbf96989b1eb55",
+        "mergedAt": "2026-08-29T06:20:19Z",
+        "postMainChecks": {
+          "buildRunId": 33238223971,
+          "repositorySecurityRunId": 33238223964,
+          "annotationsEmpty": true
+        },
+        "commitBoundLiveAuditPassed": true,
+        "requestedAt": "2026-08-29T06:03:06Z",
+        "reviewedHeadSha": "1ed5ab7d82cb586bd49c684c24f2762e58cdacaf",
+        "candidateFullDiffSha256": "98b1cda5bd023da4c0bdf3a5b03204e4391e7adddd94555386cbdae1346065dd",
+        "candidateTrackedDiffSha256": "2fddebc049f7866811f66809e5e52bc913443969264f8bd9b47613ccbd1cda97",
+        "candidateStatusSha256": "d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c",
+        "reviewerIds": [
+          "01a04c08-0899-7972-ab39-193e8ec2b8ab",
+          "01a04c08-094e-7b81-a1f0-6afff031630f"
+        ],
+        "allowedPathsUnchanged": true,
+        "redFirstRequired": true,
+        "authorizedFindingClasses": [
+          "run-scoped-review-packet-claim-boundary-consistency",
+          "research-delivery-source-and-storage-key-binding",
+          "all-kind-worker-payload-hash-and-tenant-binding",
+          "managed-queue-postgres-status-store-readiness",
+          "unsupported-external-worker-callback-fail-closed",
+          "reliability-preclaim-poison-job-terminalization",
+          "protected-main-governance-verifier-byte-and-environment-provenance",
+          "checkpoint-credential-key-normalization"
+        ],
+        "authorizedAction": "After protected activation only, add deterministic RED tests and remediate the ten effective findings within the unchanged EvidenceFlow allowlist; rerun focused worker, queue, review-delivery, engineering-preflight, checkpoint, Postgres, full verifier, and fresh comprehensive review gates.",
+        "activationCondition": "This registry-only authorization must first pass its own exact-head build and both repository-security checks with zero annotations, protected merge, post-main build and repository-security checks with zero annotations, and a commit-bound live audit. EvidenceFlow must then ordinary-merge that exact protected main without rebase, reset, stash, force, checkout overwrite, or history rewrite; all 52 tracked and 7 untracked candidate bytes and all three hashes must remain exact before the first RED test is written.",
+        "b6CodeChangeAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false
+      },
+      "preFullVerifierReleaseHeartbeat": {
+        "status": "protected-main-green-baseline-intake-complete-post-build-remediation-rerun-gated",
+        "crossDayGovernancePullRequest": 60,
+        "crossDayLifecycleHeadSha": "1bdcc7fc8298e41d1cb609c574f4d78cebea2018",
+        "crossDayLifecycleChecks": {
+          "buildRunId": 33287972622,
+          "repositorySecurityRunIds": [
+            33287962592,
+            33287972632
+          ],
+          "checkJobIds": [
+            99194433331,
+            99194404660,
+            99194433454
+          ],
+          "annotationsEmpty": true
+        },
+        "governancePullRequest": 59,
+        "lifecycleHeadSha": "6e1cc09a4871c21c9dbb4da3bf1ae8f43e15dc7b",
+        "lifecycleChecks": {
+          "buildRunId": 33253060345,
+          "repositorySecurityRunIds": [
+            33253058156,
+            33253060354
+          ],
+          "checkJobIds": [
+            99101955994,
+            99101950713,
+            99101955955
+          ],
+          "annotationsEmpty": true
+        },
+        "recordedAt": "2026-08-29T12:25:00Z",
+        "candidateHeadSha": "8eed4cec01960a6e8bc2230beb7664f52f123c6a",
+        "originMainSha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+        "ahead": 14,
+        "behind": 7,
+        "stagedPathCount": 0,
+        "trackedPathCount": 62,
+        "untrackedPathCount": 7,
+        "totalChangedPathCount": 69,
+        "candidateFullDiffSha256": "02e6c6fc3a79930a0b62513fcbdd863d3fa9346d2dcecdd7d22955380b792a1d",
+        "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+        "allowedPathCount": 17,
+        "allowedPathViolationCount": 0,
+        "residualProcessCount": 0,
+        "residualOpenHandleCount": 0,
+        "obsoleteManagedFileStoreExpectationRemediation": {
+          "expectationCount": 12,
+          "status": "remediated",
+          "acceptedOutcomes": [
+            "local-shadow-202",
+            "postgres-backed-managed-202",
+            "postgres-absent-503"
+          ]
+        },
+        "focusedRouteTests": {
+          "fileCount": 6,
+          "passedTestCount": 13,
+          "filteredTestCount": 77,
+          "exitCode": 0
+        },
+        "appLocalTypecheckExitCode": 0,
+        "diffCheckExitCode": 0,
+        "isolatedTimeoutClassification": {
+          "caseCount": 6,
+          "passedCaseCount": 6,
+          "allExitCodesZero": true,
+          "classification": "243-file-concurrent-resource-contention"
+        },
+        "pr59FinalHeadSha": "0a989882c1c6e35d01d933703b5e69222fff94ae",
+        "pr59MergeCommitSha": "df85245b59b3706cfe95a767f12eee926c0b98c3",
+        "pr59PostMainChecks": {
+          "buildRunId": 33253449104,
+          "repositorySecurityRunId": 33253449102,
+          "checkJobIds": [
+            99102981024,
+            99102980932
+          ],
+          "annotationsEmpty": true
+        },
+        "pr59CommitBoundAudit": {
+          "generatedAt": "2026-08-30T02:19:01.684Z",
+          "status": "fail-currentness-only",
+          "errorCount": 6,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "pr60FinalHeadSha": "abc726d7340505831e4af78e7a554a8a487296b0",
+        "pr60MergeCommitSha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+        "pr60PostMainChecks": {
+          "buildRunId": 33288320360,
+          "repositorySecurityRunId": 33288320358,
+          "checkJobIds": [
+            99195390722,
+            99195390668
+          ],
+          "annotationsEmpty": true
+        },
+        "pr60CommitBoundAudit": {
+          "status": "pass",
+          "errorCount": 0,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "firstFullVerifierAttempt": {
+          "candidateHeadSha": "8eed4cec01960a6e8bc2230beb7664f52f123c6a",
+          "candidateFullDiffSha256": "02e6c6fc3a79930a0b62513fcbdd863d3fa9346d2dcecdd7d22955380b792a1d",
+          "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+          "terminalExitCode": 1,
+          "pilotSmokePassed": 1,
+          "pilotSmokeTotal": 1,
+          "broadTestFileTotal": 237,
+          "broadTestFilePassed": 231,
+          "broadTestFileFailed": 1,
+          "broadTestFileSkipped": 5,
+          "broadTestTotal": 3064,
+          "broadTestPassed": 3034,
+          "broadTestFailed": 5,
+          "broadTestSkipped": 25,
+          "failedTestFile": "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts",
+          "failureClassification": "stale-checkout-registry-currentness-not-evidenceflow-remediation-semantics",
+          "serialPhaseStarted": false,
+          "buildPhaseStarted": false,
+          "performancePhaseStarted": false,
+          "browserPhaseStarted": false,
+          "postExitResidualProcessCount": 0,
+          "postExitUnreachableCommitCount": 0
+        },
+        "protectedMainGovernanceControl": {
+          "registrySha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+          "commitBoundAuditPassed": true,
+          "repoGovernanceTestFilePassed": true,
+          "repoGovernancePassedTestCount": 48,
+          "repoGovernanceExitCode": 0
+        },
+        "baselineIntakeAuthorization": {
+          "status": "protected-main-green-intake-complete",
+          "governancePullRequest": 61,
+          "authorizationHeadSha": "d95c58529ca2b0ffd7c94372f7cb52d56c416da5",
+          "lifecycleHeadSha": "618b40898414ef16fc41ca86188bf4fd21d606ca",
+          "lifecycleChecks": {
+            "buildRunId": 33289409084,
+            "repositorySecurityRunIds": [
+              33289407597,
+              33289409073
+            ],
+            "checkJobIds": [
+              99198275939,
+              99198272228,
+              99198275988
+            ],
+            "annotationsEmpty": true
+          },
+          "finalHeadSha": "2077692b78af62f176455e8a990d258242799a33",
+          "mergeCommitSha": "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb",
+          "postMainChecks": {
+            "buildRunId": 33289868267,
+            "repositorySecurityRunId": 33289868259,
+            "annotationsEmpty": true
+          },
+          "commitBoundAuditPassed": true,
+          "targetProtectedMainSha": "c9d463e04aea308c4b10c6d5d940f6f124172502",
+          "candidateHeadSha": "8eed4cec01960a6e8bc2230beb7664f52f123c6a",
+          "preserveMethod": "After this registry-only authorization reaches protected main and passes its own post-main checks plus commit-bound audit, ordinary-merge exact c9d463e0 into the dirty EvidenceFlow lane without rebase, reset, stash, force, checkout overwrite, or history rewrite. Preserve all 62 tracked and 7 untracked candidate bytes; verify full diff 02e6c6fc and status d77ff282 remain exact. If Git creates any temporary or stash-shaped safety commits, immediately bind them under task-owned refs/rescue/sena-evidenceflow-v1-20260829 before continuing; never prune or delete them.",
+          "rerunEnvironment": "owner-only TMPDIR outside /Volumes/Starship/SENA and outside every registered worktree; unsandboxed only after a separate explicit rerun handoff",
+          "ordinaryMergeAuthorizedAfterProtectedActivation": true,
+          "fullVerifierRerunAuthorized": false
+        },
+        "activationCondition": "This new registry-only intake authorization must complete exact-head CI, protected merge, post-main CI, and exact-main commit-bound live audit before exact c9d463e0 baseline intake is released. After preserve-first intake and a fresh exact-main audit pass, a separate explicit unsandboxed full-verifier rerun release is still required.",
+        "fullVerifierAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "postBuildRemediationFullVerifierRerunAuthorization": {
+        "status": "one-shot-consumed-terminal-pass-fresh-review-gated",
+        "requestedAt": "2026-08-30T03:54:22Z",
+        "governancePullRequest": 62,
+        "initialAuthorizationHeadSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
+        "initialChecks": {
+          "buildRunId": 33291631050,
+          "repositorySecurityRunIds": [
+            33291631039,
+            33291618533
+          ],
+          "checkJobIds": [
+            99204161196,
+            99204161225,
+            99204126347
+          ],
+          "annotationsEmpty": true
+        },
+        "lifecycleHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "lifecycleChecks": {
+          "buildRunId": 33291848441,
+          "repositorySecurityRunIds": [
+            33291848429,
+            33291846701
+          ],
+          "checkJobIds": [
+            99204730582,
+            99204730659,
+            99204726759
+          ],
+          "annotationsEmpty": true
+        },
+        "finalAuthorizationHeadSha": "01b2f031e9d1310d545324b8b827b06b4559d7e6",
+        "finalChecks": {
+          "buildRunId": 33292049477,
+          "repositorySecurityRunIds": [
+            33292049474,
+            33292047746
+          ],
+          "checkJobIds": [
+            99205273606,
+            99205273597,
+            99205268421
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+        "mergedAt": "2026-08-30T04:17:52Z",
+        "postMainChecks": {
+          "buildRunId": 33292180559,
+          "repositorySecurityRunId": 33292180555,
+          "checkJobIds": [
+            99205624940,
+            99205624836
+          ],
+          "annotationsEmpty": true
+        },
+        "commitBoundLiveAudit": {
+          "generatedAt": "2026-08-30T04:55:58.723Z",
+          "status": "pass",
+          "errorCount": 0,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "candidateHeadSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+        "candidateParentShas": [
+          "bd12f201aba2e4db2290ba8444a29f5431a43dcd",
+          "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb"
+        ],
+        "originMainSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+        "ahead": 16,
+        "behind": 4,
+        "stagedPathCount": 0,
+        "trackedPathCount": 62,
+        "untrackedPathCount": 7,
+        "totalChangedPathCount": 69,
+        "candidateFullDiffSha256": "213d6a94144ddf548fb6fe85821c85e37cbdc9c9128585c89d1c58eb0893611a",
+        "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+        "changedDeliveryTest": {
+          "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-delivery.test.ts",
+          "sha256": "e676da4f36708231f3c2f5333cc2b59e62c844db2f9846546cb8fc4e07ba14e3"
+        },
+        "allowedPathCount": 17,
+        "allowedPathViolationCount": 0,
+        "preRemediationVerifier": {
+          "terminalExitCode": 1,
+          "pilotSmokePassed": 1,
+          "pilotSmokeTotal": 1,
+          "broadFilePassed": 232,
+          "broadFileSkipped": 5,
+          "broadTestPassed": 3039,
+          "broadTestSkipped": 25,
+          "serialFilePassed": 6,
+          "serialTestPassed": 138,
+          "buildFailure": "node:crypto client-bundle UnhandledSchemeError",
+          "performancePhaseStarted": false,
+          "browserPhaseStarted": false
+        },
+        "nodeOnlyClientImportRemediation": {
+          "redTest": "keeps Node-only workflow hashing out of the client review-packet module graph",
+          "redPassedTestCount": 9,
+          "redFailedTestCount": 1,
+          "rootCause": "client-reachable review-packet imported workflow/canonical and therefore node:crypto",
+          "fix": "remove the Node-only import and reuse canonical JSON plus Web Crypto SHA-256 while preserving Node-generated digest parity",
+          "greenDeliveryPassedTestCount": 10,
+          "greenDeliveryFailedTestCount": 0,
+          "moduleBoundaryPassedTestCount": 329,
+          "typecheckExitCode": 0,
+          "diffCheckExitCode": 0,
+          "nextBuildExitCode": 0,
+          "generatedPageCount": 78
+        },
+        "postRemediationIntegrity": {
+          "exactMainAuditStatus": "pass",
+          "auditGeneratedAt": "2026-08-30T03:48:46.696Z",
+          "auditErrorCount": 0,
+          "ownerBlockerCount": 0,
+          "residualProcessCount": 0,
+          "residualOpenHandleCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "rerunRelease": {
+          "currentlyAuthorized": false,
+          "authorizedAfterProtectedActivation": false,
+          "separateExplicitHandoffRequired": false,
+          "oneShotExecutionLimit": 1,
+          "oneShotConsumed": true,
+          "retryAuthorized": false,
+          "unsandboxedRequired": true,
+          "tmpdirMode": "0700",
+          "tmpdirBoundary": "owner-only TMPDIR outside /Volumes/Starship/SENA and every registered worktree"
+        },
+        "fullVerifierReceipt": {
+          "observedAt": "2026-08-30T04:54:20Z",
+          "command": "TMPDIR=/private/tmp/sena-evidenceflow-fullverify.RZAc8i npm run sena:pilot:verify",
+          "cwdBoundary": "exact sena-hk-template app directory",
+          "unsandboxed": true,
+          "terminalText": "SENA pilot verification complete.",
+          "terminalExitCode": 0,
+          "pilotSmoke": {
+            "passedFileCount": 1,
+            "passedTestCount": 1
+          },
+          "broadSuite": {
+            "passedFileCount": 232,
+            "skippedFileCount": 5,
+            "passedTestCount": 3040,
+            "skippedTestCount": 25,
+            "failedTestCount": 0,
+            "durationSeconds": 221.38
+          },
+          "serialSuite": {
+            "passedFileCount": 6,
+            "passedTestCount": 138,
+            "failedTestCount": 0,
+            "durationSeconds": 555.58
+          },
+          "nextBuild": {
+            "version": "16.2.12",
+            "bundler": "webpack",
+            "exitCode": 0,
+            "compileSeconds": 12.3,
+            "typeScriptSeconds": 8.1,
+            "generatedPageCount": 78,
+            "expectedPageCount": 78,
+            "senaWorkspaceArtifactPresent": true,
+            "enaWorkspaceArtifactPresent": true
+          },
+          "performanceBudget": {
+            "passedTestCount": 5,
+            "failedTestCount": 0,
+            "workspaceHtmlBrotliBytes": 3271,
+            "workspaceHtmlBrotliLimitBytes": 80000,
+            "workspaceRouteJsBrotliBytes": 2949,
+            "workspaceRouteJsBrotliLimitBytes": 180000,
+            "totalStaticJsBrotliBytes": 829604,
+            "totalStaticJsBrotliLimitBytes": 848000,
+            "headroomBytes": 18396,
+            "requiredReserveBytes": 12000
+          },
+          "localShortLoadSmoke": {
+            "passedRequestCount": 4,
+            "requestCount": 4,
+            "errorCount": 0,
+            "p95Milliseconds": 20,
+            "productionCapacityProof": false
+          },
+          "browserSmokes": [
+            "sena-workspace",
+            "jena-workbench",
+            "auth",
+            "automation-control-room-one-temporary-shadow-fixture-run",
+            "sso",
+            "enterprise-api-full-evidence-chain",
+            "rbac-collaboration",
+            "reliability",
+            "validation-claim"
+          ],
+          "postExitIntegrity": {
+            "candidateHeadSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+            "originMainSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+            "stagedPathCount": 0,
+            "trackedPathCount": 62,
+            "untrackedPathCount": 7,
+            "totalChangedPathCount": 69,
+            "candidateFullDiffSha256": "213d6a94144ddf548fb6fe85821c85e37cbdc9c9128585c89d1c58eb0893611a",
+            "candidateFullDiffBytes": 728336,
+            "candidateDiffIndexLineCount": 62,
+            "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+            "deliveryTestSha256": "e676da4f36708231f3c2f5333cc2b59e62c844db2f9846546cb8fc4e07ba14e3",
+            "diffCheckExitCode": 0,
+            "unreachableCommitCount": 0,
+            "residualProcessCount": 0,
+            "tcp3101ListenerCount": 0,
+            "worktreeOpenHandleCount": 0,
+            "tmpdirOpenHandleCount": 0
+          },
+          "retainedTmpdir": {
+            "path": "/private/tmp/sena-evidenceflow-fullverify.RZAc8i",
+            "owner": "dongpinhu",
+            "mode": "0700",
+            "sizeKilobytes": 520,
+            "fileCount": 94,
+            "cleaned": false
+          },
+          "applicationReceiptMinted": false
+        },
+        "activationCondition": "The PR62 authorization reached protected main 2580b14c, post-main checks and exact-main audit passed, and the sole full-verifier execution completed with exit 0. The one-shot is consumed and no retry is authorized. The exact candidate remains uncommitted; only a separately protected post-verifier review heartbeat may authorize fresh read-only independent reviews.",
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "postFullVerifierFreshReviewAuthorization": {
+        "status": "protected-main-green-reviews-complete-changes-required",
+        "requestedAt": "2026-08-30T04:54:20Z",
+        "governancePullRequest": 63,
+        "initialHeadSha": "1e8699c300909bd94b76c9f3bd0fe0837e6ce31e",
+        "initialChecks": {
+          "buildRunId": 33293872058,
+          "repositorySecurityRunIds": [
+            33293872075,
+            33293836992
+          ],
+          "checkJobIds": [
+            99210094038,
+            99210094025,
+            99209998693
+          ],
+          "annotationsEmpty": true
+        },
+        "lifecycleHeadSha": "5c1fcdb8f1052f3bd970ff0c8edb3c75017843c2",
+        "lifecycleChecks": {
+          "buildRunId": 33294066804,
+          "repositorySecurityRunIds": [
+            33294066799,
+            33294064914
+          ],
+          "checkJobIds": [
+            99210610004,
+            99210610047,
+            99210605058
+          ],
+          "annotationsEmpty": true
+        },
+        "finalAuthorizationHeadSha": "d1f80eaaa82ad778c1cb27f8ec54b8bb80b90eaf",
+        "finalChecks": {
+          "buildRunId": 33294234244,
+          "repositorySecurityRunIds": [
+            33294234242,
+            33294233080
+          ],
+          "checkJobIds": [
+            99211043502,
+            99211043474,
+            99211039901
+          ],
+          "annotationsEmpty": true
+        },
+        "mergeCommitSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
+        "mergedAt": "2026-08-30T05:16:51Z",
+        "postMainChecks": {
+          "buildRunId": 33294342358,
+          "repositorySecurityRunId": 33294342378,
+          "checkJobIds": [
+            99211325675,
+            99211325668
+          ],
+          "annotationsEmpty": true
+        },
+        "commitBoundLiveAudit": {
+          "generatedAt": "2026-08-30T05:19:46.646Z",
+          "status": "pass",
+          "errorCount": 0,
+          "ownerBlockerCount": 0,
+          "unreachableCommitCount": 0
+        },
+        "sourceFullVerifierAuthorizationPullRequest": 62,
+        "sourceFullVerifierAuthorizationMergeSha": "2580b14c0544467d27d381950de5091d47aae8fc",
+        "candidateHeadSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+        "candidateParentShas": [
+          "bd12f201aba2e4db2290ba8444a29f5431a43dcd",
+          "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb"
+        ],
+        "originMainSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
+        "ahead": 16,
+        "behind": 8,
+        "stagedPathCount": 0,
+        "trackedPathCount": 62,
+        "untrackedPathCount": 7,
+        "totalChangedPathCount": 69,
+        "candidateFullDiffCommand": "git diff --binary HEAD -- .",
+        "candidateFullDiffSha256": "213d6a94144ddf548fb6fe85821c85e37cbdc9c9128585c89d1c58eb0893611a",
+        "candidateFullDiffBytes": 728336,
+        "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+        "allowedPathCount": 17,
+        "allowedPathViolationCount": 0,
+        "untrackedArtifacts": [
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-delivery.test.ts",
+            "sha256": "e676da4f36708231f3c2f5333cc2b59e62c844db2f9846546cb8fc4e07ba14e3"
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-route.test.ts",
+            "sha256": "ff858dce9673297b6c508e36b8dbd9c3ace6364db22d0143ab2480986c75c29a"
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-postgres-migration.test.ts",
+            "sha256": "3de6812b7fa6aec4a789b779e156548b5237b5bb4501210d7fd91cf3e092f92d"
+          },
+          {
+            "path": "sena-hk-template/lib/sena/workflow/analysis-evidence.ts",
+            "sha256": "ccb4ca6ef0d41fe29f95578fcc5f92f646d5bd0ac34115bd111193c4d026234e"
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.d.mts",
+            "sha256": "01c1485da0f922407f214dbe9e15ae4beeeae04d3c7a6177bdec9b1c4c970e8b"
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.mjs",
+            "sha256": "832c798162ff9b2174a4e8a07fa4c8d957002455e0f9b435291ade4344ae3627"
+          },
+          {
+            "path": "sena-hk-template/scripts/verify-sena-automation-browser-smoke.mjs",
+            "sha256": "00d215de7be463e92729832e0114b0711f7b943b3090f85381d87aacf12040a3"
+          }
+        ],
+        "fullVerifier": {
+          "terminalExitCode": 0,
+          "terminalText": "SENA pilot verification complete.",
+          "pilotPassedTestCount": 1,
+          "broadPassedFileCount": 232,
+          "broadSkippedFileCount": 5,
+          "broadPassedTestCount": 3040,
+          "broadSkippedTestCount": 25,
+          "serialPassedFileCount": 6,
+          "serialPassedTestCount": 138,
+          "nextBuildExitCode": 0,
+          "generatedPageCount": 78,
+          "performancePassedTestCount": 5,
+          "localLoadPassedRequestCount": 4,
+          "localLoadErrorCount": 0,
+          "browserSmokesPassed": true,
+          "productionCapacityProof": false
+        },
+        "requiredReviewCount": 2,
+        "reviewersMustBeFresh": true,
+        "reviewersAreReadOnly": true,
+        "requiredReviewDomains": [
+          "security-evidence-governance-and-scientific-boundaries",
+          "postgres-persistence-concurrency-recovery-and-release-boundaries"
+        ],
+        "requiredReviewOutput": [
+          "exact candidate head, full-diff hash, status hash, and 62-plus-7 path binding",
+          "P0, P1, P2, and P3 finding counts with exact file and line evidence",
+          "explicit mergeApproved true or false",
+          "no inference of approval from silence or verifier success"
+        ],
+        "localGovernanceChecks": {
+          "jsonParsePassed": true,
+          "diffCheckExitCode": 0,
+          "registryPassed": true,
+          "writePolicyPassed": true,
+          "writePolicyStagedPathCount": 1,
+          "securityPassed": true,
+          "securityStagedPathCount": 1,
+          "indexAuditPassed": true,
+          "liveIndexAuditGeneratedAt": "2026-08-30T05:01:20.542Z",
+          "liveIndexAuditErrorCount": 0,
+          "liveIndexAuditOwnerBlockerCount": 0,
+          "liveIndexAuditUnreachableCommitCount": 0,
+          "repoGovernanceTestFileCount": 1,
+          "repoGovernancePassedTestCount": 48,
+          "repoGovernanceFailedTestCount": 0,
+          "repoGovernanceTestExitCode": 0
+        },
+        "reviewResults": {
+          "completed": true,
+          "unchangedCandidate": true,
+          "mergeApproved": false,
+          "rawP0FindingCount": 0,
+          "rawP1FindingCount": 7,
+          "rawP2FindingCount": 4,
+          "rawP3FindingCount": 0,
+          "domainA": {
+            "reviewId": "SENA-EVIDENCEFLOW-A-434a1aac-001",
+            "p0FindingCount": 0,
+            "p1FindingCount": 3,
+            "p2FindingCount": 2,
+            "p3FindingCount": 0,
+            "mergeApproved": false
+          },
+          "domainB": {
+            "reviewId": "SENA-EVIDENCEFLOW-B-20260830-01",
+            "p0FindingCount": 0,
+            "p1FindingCount": 4,
+            "p2FindingCount": 2,
+            "p3FindingCount": 0,
+            "mergeApproved": false
+          },
+          "deduplication": {
+            "duplicateFinding": "A-1 and B-1 independently identify the same missing workflowCodeSha producer/worker binding",
+            "uniqueP0FindingCount": 0,
+            "uniqueP1FindingCount": 6,
+            "uniqueP2FindingCount": 4,
+            "uniqueP3FindingCount": 0,
+            "uniqueFindingCount": 10
+          }
+        },
+        "independentClassification": {
+          "fullyConfirmed": 10,
+          "partiallyConfirmed": 0,
+          "falsePositive": 0,
+          "effectiveP0FindingCount": 0,
+          "effectiveP1FindingCount": 6,
+          "effectiveP2FindingCount": 4,
+          "effectiveP3FindingCount": 0
+        },
+        "reviewExecutionCurrentlyAuthorized": false,
+        "reviewExecutionAuthorizedAfterProtectedActivation": false,
+        "reviewExecutionCompleted": true,
+        "activationCondition": "PR63 reached protected main a76e7f70 with exact-head and post-main checks green, zero annotations, and a commit-bound live audit pass. Both required read-only reviews completed on the unchanged candidate and rejected merge. No remediation or delivery action is authorized by this completed review gate.",
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "postFullVerifierRemediationAuthorizationV2": {
+        "status": "final-metadata-pending-own-exact-head-checks",
+        "requestedAt": "2026-08-30T05:56:22Z",
+        "governancePullRequest": 64,
+        "initialHeadSha": "2d7ce9d5c60e2fbb2ca0ff02ab891bec0244f165",
+        "initialChecks": {
+          "buildRunId": 33295978683,
+          "repositorySecurityRunIds": [
+            33295978645,
+            33295966461
+          ],
+          "checkJobIds": [
+            99215592768,
+            99215592624,
+            99215562622
+          ],
+          "annotationsEmpty": true
+        },
+        "lifecycleHeadSha": "a0e85340b1a5f1ac74a5a1681a2ef3017309b5a1",
+        "lifecycleChecks": {
+          "buildRunId": 33296190305,
+          "repositorySecurityRunIds": [
+            33296190306,
+            33296188647
+          ],
+          "checkJobIds": [
+            99216145516,
+            99216145543,
+            99216140791
+          ],
+          "annotationsEmpty": true
+        },
+        "candidateHeadSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+        "originMainSha": "a76e7f7049f589a80c7183e03e44088d9082e6ca",
+        "mergeBaseSha": "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb",
+        "ahead": 16,
+        "behind": 8,
+        "stagedPathCount": 0,
+        "trackedPathCount": 62,
+        "untrackedPathCount": 7,
+        "totalChangedPathCount": 69,
+        "candidateFullDiffCommand": "git diff --binary HEAD -- .",
+        "candidateFullDiffSha256": "213d6a94144ddf548fb6fe85821c85e37cbdc9c9128585c89d1c58eb0893611a",
+        "candidateStatusCommand": "git status --porcelain=v1",
+        "candidateStatusSha256": "d77ff2827bdd251893b298642556cc270afce8cc0edfc43d26afba3229c2a936",
+        "reviewIds": [
+          "SENA-EVIDENCEFLOW-A-434a1aac-001",
+          "SENA-EVIDENCEFLOW-B-20260830-01"
+        ],
+        "reviewMergeApproved": false,
+        "independentClassification": {
+          "fullyConfirmed": 10,
+          "partiallyConfirmed": 0,
+          "falsePositive": 0,
+          "effectiveP0FindingCount": 0,
+          "effectiveP1FindingCount": 6,
+          "effectiveP2FindingCount": 4,
+          "effectiveP3FindingCount": 0
+        },
+        "confirmedFindings": [
+          {
+            "findingId": "EF-R2-01",
+            "severity": "P1",
+            "class": "workflow-server-job-code-sha-producer-binding",
+            "reviewSources": ["A-1", "B-1"],
+            "evidence": "All five workflow server-job producers bind workflowRunId but omit payloadSummary.workflowCodeSha; the non-test worker rejects the job before claim.",
+            "requiredRedProof": "Each import, analysis, reliability, validation, and publication job must fail before the fix and then execute with workflowCodeShaVerification=verified under NODE_ENV=production semantics."
+          },
+          {
+            "findingId": "EF-R2-02",
+            "severity": "P1",
+            "class": "engineering-candidate-protected-base-ancestry",
+            "reviewSources": ["A-2"],
+            "evidence": "Candidate changed paths use base...candidate without proving the protected base is an ancestor or exact merge base.",
+            "requiredRedProof": "Reject sibling, older, and divergent candidates even when their candidate-only changed paths match the allowlist; accept only exact protected-base descendants."
+          },
+          {
+            "findingId": "EF-R2-03",
+            "severity": "P1",
+            "class": "engineering-sandbox-host-side-effect-isolation",
+            "reviewSources": ["A-3"],
+            "evidence": "The macOS sandbox starts allow-default, permits every localhost port, and does not deny host IPC, Apple Events, or process control while receipts claim externalSideEffects=false.",
+            "requiredRedProof": "Adversarial candidates must fail to mutate non-verifier loopback services, host IPC targets, processes, and filesystem sentinels while verifier-owned authenticated loopback remains functional."
+          },
+          {
+            "findingId": "EF-R2-04",
+            "severity": "P2",
+            "class": "publication-package-persisted-byte-verification",
+            "reviewSources": ["A-4"],
+            "evidence": "Package verification reads upload metadata only although the content boundary can decrypt and checksum tenant-scoped stored bytes.",
+            "requiredRedProof": "Missing, corrupt, wrong-size, wrong-profile, malformed-manifest, and cross-tenant publication blobs must prevent package-verification closeout."
+          },
+          {
+            "findingId": "EF-R2-05",
+            "severity": "P2",
+            "class": "dirty-verifier-working-tree-code-identity",
+            "reviewSources": ["A-5"],
+            "evidence": "The verifier builds dirty working-tree bytes but sets SENA_WORKFLOW_CODE_SHA from git rev-parse HEAD, labeling non-HEAD bytes as the exact commit.",
+            "requiredRedProof": "Dirty verifier runs must either use a clean Git-object archive or bind a canonical working-tree content manifest and must never claim the dirty runtime equals HEAD."
+          },
+          {
+            "findingId": "EF-R2-06",
+            "severity": "P1",
+            "class": "analysis-partial-effect-crash-retry-recovery",
+            "reviewSources": ["B-2"],
+            "evidence": "A crash after the deterministic project update advances N to N+1; admission rejects current-version drift before the deterministic revision replay can recover the job-owned effect.",
+            "requiredRedProof": "Kill after project update and before analysis receipt; retry must recognize the exact job-owned revision and finish once, while foreign N+1 drift remains rejected."
+          },
+          {
+            "findingId": "EF-R2-07",
+            "severity": "P1",
+            "class": "server-job-source-preparation-concurrency-claim",
+            "reviewSources": ["B-3"],
+            "evidence": "Concurrent exact validation or publication replays share deterministic ids but both run non-idempotent source creation; a losing reservation can terminally fail the shared job.",
+            "requiredRedProof": "Concurrent same-key same-bytes contenders must converge on one source envelope and one claimable job; only the preparation owner may finalize, and different bytes must conflict."
+          },
+          {
+            "findingId": "EF-R2-08",
+            "severity": "P1",
+            "class": "validation-admitted-revision-execution-consistency",
+            "reviewSources": ["B-4"],
+            "evidence": "Validation admission checks project version N but carries only context; execution re-reads the current project and can persist N+1 evidence after an interleaving update.",
+            "requiredRedProof": "An N-to-N+1 update between preclaim and execution must fail closed or execute the immutable admitted N snapshot; the terminal receipt must equal the queued revision."
+          },
+          {
+            "findingId": "EF-R2-09",
+            "severity": "P2",
+            "class": "legacy-research-queue-request-idempotency",
+            "reviewSources": ["B-5"],
+            "evidence": "Queued analyze, import, and both reliability transports generate random upload and job ids and do not bind a scoped Idempotency-Key.",
+            "requiredRedProof": "Same scoped key plus same canonical bytes returns one job and source universe; same key plus different payload is rejected for analyze, import, JSON reliability, and multipart reliability."
+          },
+          {
+            "findingId": "EF-R2-10",
+            "severity": "P2",
+            "class": "workflow-owned-job-ops-retry-coordination",
+            "reviewSources": ["B-6"],
+            "evidence": "The generic ops retry accepts workflow-owned failed jobs after the workflow consumed failure, but the bridge wakes only waiting_job and node retry insists the job is still failed.",
+            "requiredRedProof": "Generic ops retry must reject workflow-owned jobs or the workflow state machine must consume queued, running, and later success without stranding the blocked run."
+          }
+        ],
+        "allowlistChange": {
+          "previousAllowedPathCount": 17,
+          "newAllowedPathCount": 20,
+          "wildcardExpansion": false,
+          "addedPaths": [
+            "sena-hk-template/app/api/sena/analyze/route.ts",
+            "sena-hk-template/app/api/sena/import/route.ts",
+            "sena-hk-template/app/api/sena/reliability/route.ts"
+          ],
+          "reason": "EF-R2-09 is one cross-route request-idempotency contract; splitting it across writers would create overlapping job and source-custody semantics."
+        },
+        "localGovernanceChecks": {
+          "jsonParsePassed": true,
+          "diffCheckExitCode": 0,
+          "registryPassed": true,
+          "writePolicyPassed": true,
+          "writePolicyStagedPathCount": 1,
+          "securityPassed": true,
+          "securityStagedPathCount": 1,
+          "liveIndexAuditGeneratedAt": "2026-08-30T06:00:19.704Z",
+          "liveIndexAuditStatus": "pass",
+          "liveIndexAuditErrorCount": 0,
+          "liveIndexAuditOwnerBlockerCount": 0,
+          "liveIndexAuditUnreachableCommitCount": 0,
+          "repoGovernanceTestFileCount": 1,
+          "repoGovernancePassedTestCount": 48,
+          "repoGovernanceFailedTestCount": 0,
+          "repoGovernanceTestExitCode": 0
+        },
+        "redFirstRequired": true,
+        "authorizedActionAfterProtectedActivation": "Add deterministic RED tests for only EF-R2-01 through EF-R2-10, implement the minimum fixes inside the exact 20-path allowlist, then rerun focused, concurrency, Postgres, worker, engineering-sandbox, publication-byte, request-idempotency, workflow-retry, full-verifier, and fresh independent review gates.",
+        "activationCondition": "This staged final metadata must produce a new exact head whose build and both repository-security checks pass with zero annotations; only then may PR64 become Ready and protected-merge. The resulting protected main must pass post-main build and repository-security checks with zero annotations plus an exact-main commit-bound live audit. Only after a separate explicit handoff may RED-first remediation begin on the unchanged candidate.",
+        "remediationCurrentlyAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "fullVerifierRerunAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
       },
       "priorIndependentReview": {
         "reviewerType": "codex-subagent",
@@ -1277,6 +2780,257 @@
         "freshReReviewRequired": true,
         "mergeApproved": false
       },
+      "postVerifierIndependentReviews": {
+        "reviewedHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
+        "candidateTrackedDiffSha256": "ffdd68016cea9180b3417e6e1666e903449b2efb15b2812d8ed357a5a5d4f80a",
+        "candidateStatusSha256": "8da30037926c5c1385d28f7ab367f97495d84e6a453b4b6f29911c8f643edfbd",
+        "trackedPathCount": 42,
+        "untrackedPathCount": 4,
+        "completedAt": "2026-08-28T22:46:57Z",
+        "status": "changes-required",
+        "p0FindingCount": 0,
+        "p1FindingCount": 7,
+        "p2UniqueFindingCount": 9,
+        "p3FindingCount": 1,
+        "uniqueFindingCount": 17,
+        "securityAndEvidenceReviewer": {
+          "reviewerType": "codex-subagent",
+          "reviewerId": "01a04a78-e567-7cf0-abbd-012f9329765f",
+          "p1FindingCount": 3,
+          "p2FindingCount": 6,
+          "p3FindingCount": 1
+        },
+        "persistenceAndConcurrencyReviewer": {
+          "reviewerType": "codex-subagent",
+          "reviewerId": "01a04a78-e5e8-7870-b213-f31dd79ea48d",
+          "p1FindingCount": 4,
+          "p2FindingCount": 4,
+          "p3FindingCount": 0
+        },
+        "findingClasses": [
+          "engineering-candidate-post-handoff-intake",
+          "durable-engineering-artifact-content-custody",
+          "downloadable-closeout-byte-digest",
+          "fixture-simulated-evidence-layer-provenance",
+          "closeout-approval-contract-revalidation",
+          "inspectable-human-gate-evidence",
+          "review-packet-and-sha-index-integration",
+          "authoritative-step-attempt-timing",
+          "nonretryable-command-failure-boundary",
+          "redacted-run-projection-schema",
+          "immutable-command-and-server-job-claim-fencing",
+          "postgres-database-time-command-scheduling",
+          "monotonic-concurrent-server-job-dispatch",
+          "server-job-worker-build-attestation",
+          "terminal-job-wakeup-starvation",
+          "concurrent-fork-idempotency",
+          "versioned-serialized-workflow-schema-migration"
+        ],
+        "mergeApproved": false
+      },
+      "expandedRemediationAuthorization": {
+        "status": "protected-main-green",
+        "governancePullRequest": 51,
+        "rootCurrentnessPullRequest": 52,
+        "rootRemoteCurrentnessRepairPullRequest": 53,
+        "finalRootLowerBoundPullRequest": 54,
+        "finalRootLowerBoundPreAuthorizationHeadSha": "447025fc7a24785e9f858978b513e38230229f38",
+        "finalRootLowerBoundPreAuthorizationChecks": {
+          "buildRunId": 33221736576,
+          "repositorySecurityRunIds": [
+            33221734556,
+            33221736558
+          ],
+          "annotationsEmpty": true
+        },
+        "rootRemoteCurrentnessPreAuthorizationHeadSha": "11993aba87c14660333e3f9ac30826ac0dcd3eb9",
+        "rootRemoteCurrentnessPreAuthorizationChecks": {
+          "buildRunId": 33220894189,
+          "repositorySecurityRunIds": [
+            33220891055,
+            33220894175
+          ],
+          "annotationsEmpty": true
+        },
+        "rootCurrentnessPreAuthorizationHeadSha": "13f535dd9ae24cdda4c971ae87fdeb9e9f54901e",
+        "rootCurrentnessPreAuthorizationChecks": {
+          "buildRunId": 33219711377,
+          "repositorySecurityRunIds": [
+            33219708804,
+            33219711384
+          ],
+          "annotationsEmpty": true
+        },
+        "reviewedHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
+        "candidateTrackedDiffSha256": "ffdd68016cea9180b3417e6e1666e903449b2efb15b2812d8ed357a5a5d4f80a",
+        "reviewerIds": [
+          "01a04a78-e567-7cf0-abbd-012f9329765f",
+          "01a04a78-e5e8-7870-b213-f31dd79ea48d"
+        ],
+        "preAuthorizationHeadSha": "f162bbe56b750fd450dafa66160420e49c37466d",
+        "preAuthorizationChecks": {
+          "buildRunId": 33218584041,
+          "repositorySecurityRunIds": [
+            33218578003,
+            33218584050
+          ],
+          "annotationsEmpty": true
+        },
+        "pr51FinalHeadSha": "de89c294acf95fd0d1a63f42c2f94e492467be00",
+        "pr51MergeCommitSha": "d7c4a9727990bb7fe455842871eb4902e4cdddbf",
+        "pr51PostMainChecks": {
+          "buildRunId": 33219057872,
+          "repositorySecurityRunId": 33219057846,
+          "annotationsEmpty": true
+        },
+        "pr52FinalHeadSha": "9ca53f325ec7ee33cd066cee986f80643d8f7527",
+        "pr52MergeCommitSha": "32bf78726d1116770d92d552e41462598736b402",
+        "pr52PostMainChecks": {
+          "buildRunId": 33220146636,
+          "repositorySecurityRunId": 33220145343,
+          "annotationsEmpty": true
+        },
+        "rootRemoteCurrentnessRepair": {
+          "status": "protected-main-green",
+          "failingTopology": "clean local root f067a224, recorded remote lower bound d7c4a972, live origin/main 32bf7872, registry-only intervening commits",
+          "positiveBoundary": "allow ahead/behind drift only when every commit from recorded remoteHeadSha to origin/main changes only coordination/repo-governance/active-work.json",
+          "negativeBoundary": "reject any product, script, test, workflow, or other path in the remote range",
+          "focusedTestPassed": true,
+          "fullGovernanceTestPassed": true,
+          "realTopologyAuditPassed": true
+        },
+        "pr53FinalHeadSha": "02477eb97261feb05ad8d761e85600315eb01a3b",
+        "pr53MergeCommitSha": "2620c29a1465a86aaeae2ddedc3e9b324ef567c4",
+        "pr53PostMainChecks": {
+          "buildRunId": 33221286966,
+          "repositorySecurityRunId": 33221286994,
+          "annotationsEmpty": true
+        },
+        "pr54FinalHeadSha": "c4c802b6fb49a34f9ebb5119b734779b43377109",
+        "pr54FinalChecks": {
+          "buildRunId": 33221984029,
+          "repositorySecurityRunIds": [
+            33221981813,
+            33221984136
+          ],
+          "annotationsEmpty": true
+        },
+        "pr54MergeCommitSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "pr54PostMainChecks": {
+          "buildRunId": 33222099929,
+          "repositorySecurityRunId": 33222099910,
+          "annotationsEmpty": true
+        },
+        "activationCondition": "PR54 merged through protected main as 018146e0 with exact-head and post-main build/repository-security checks green and zero annotations; the authorized 17-class remediation plus analytics settlement work is complete locally, but candidate commit/push/Ready/merge remains separately gated.",
+        "allowedPathsUnchanged": true,
+        "authorizedFindingClasses": [
+          "engineering-candidate-post-handoff-intake",
+          "durable-engineering-artifact-content-custody",
+          "downloadable-closeout-byte-digest",
+          "fixture-simulated-evidence-layer-provenance",
+          "closeout-approval-contract-revalidation",
+          "inspectable-human-gate-evidence",
+          "review-packet-and-sha-index-integration",
+          "authoritative-step-attempt-timing",
+          "nonretryable-command-failure-boundary",
+          "redacted-run-projection-schema",
+          "immutable-command-and-server-job-claim-fencing",
+          "postgres-database-time-command-scheduling",
+          "monotonic-concurrent-server-job-dispatch",
+          "server-job-worker-build-attestation",
+          "terminal-job-wakeup-starvation",
+          "concurrent-fork-idempotency",
+          "versioned-serialized-workflow-schema-migration",
+          "automation-analytics-request-settlement"
+        ],
+        "authorizedAction": "Add deterministic RED tests, remediate only the bound finding classes, and rerun focused, Postgres, concurrency, migration, browser, accessibility, full verifier, and fresh independent review gates.",
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false
+      },
+      "baselineIntakeAuthorization": {
+        "status": "conditional-pr55-final-head-checks",
+        "requestedAt": "2026-08-29T01:00:00Z",
+        "governancePullRequest": 55,
+        "preAuthorizationHeadSha": "c4b549b8525ef0268b2c4052ba064c08aef24f80",
+        "lifecycleHeadSha": "1417944363b1739efce16bc21264fd80e4d52a37",
+        "lifecycleChecks": {
+          "buildRunId": 33225778346,
+          "repositorySecurityRunIds": [
+            33225778326,
+            33225776870
+          ],
+          "checkJobIds": [
+            99029141630,
+            99029141459,
+            99029139744
+          ],
+          "annotationsEmpty": true
+        },
+        "protectedMainSha": "018146e0417128bd7c49a29b638308821c6a37a5",
+        "candidateHeadSha": "09ae35861b80d4ab055e3697c2938cdc0a139fd5",
+        "candidateTrackedDiffSha256": "0361236e341a7d8d02421886d901ca05dd72a8dab4c22fdfdcde406b01b47057",
+        "candidateStatusSha256": "d3ff735a658fa088d3851744bff27e91884fe7de1f11fc7a92ce24e4ea4c880c",
+        "trackedPathCount": 52,
+        "untrackedPathCount": 7,
+        "trackedLineAdditions": 7383,
+        "trackedLineDeletions": 804,
+        "untrackedArtifacts": [
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-delivery.test.ts",
+            "sha256": "06439155dc69417dc2426c089eae93925ea0535c21d33247082f954bcf611848",
+            "bytes": 13213
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-closeout-route.test.ts",
+            "sha256": "c89c16d3c090b3aa6f52c826c0478a8596f78399b5d56f27d506f17a9f482263",
+            "bytes": 3947
+          },
+          {
+            "path": "sena-hk-template/lib/sena/__tests__/workflow-postgres-migration.test.ts",
+            "sha256": "cbd40132ba5ba7999edc397d08869a5f48163eb40e59442fd2b216f021fcf119",
+            "bytes": 5679
+          },
+          {
+            "path": "sena-hk-template/lib/sena/workflow/analysis-evidence.ts",
+            "sha256": "ccb4ca6ef0d41fe29f95578fcc5f92f646d5bd0ac34115bd111193c4d026234e",
+            "bytes": 1743
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.d.mts",
+            "sha256": "01c1485da0f922407f214dbe9e15ae4beeeae04d3c7a6177bdec9b1c4c970e8b",
+            "bytes": 761
+          },
+          {
+            "path": "sena-hk-template/scripts/sena-verifier-postgres.mjs",
+            "sha256": "cf19bb62d86be796bf286047c2f7d362ba3c85155a3d2a69f21d0e000925dddd",
+            "bytes": 8150
+          },
+          {
+            "path": "sena-hk-template/scripts/verify-sena-automation-browser-smoke.mjs",
+            "sha256": "00d215de7be463e92729832e0114b0711f7b943b3090f85381d87aacf12040a3",
+            "bytes": 14471
+          }
+        ],
+        "protectedMainOnlyChangedPaths": [
+          "coordination/repo-governance/active-work.json",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "activationCondition": "This staged final PR55 authorization must produce a new exact head whose build and both repository-security checks pass with zero annotations; only then may PR55 become Ready and protected-merge. The resulting exact protected main must pass post-main build/repository-security checks and a commit-bound live audit before baseline intake activates.",
+        "preserveMethod": "After this authorization reaches protected main and passes its own commit-bound live audit, ordinary-merge exact protected main 018146e0 into the dirty EvidenceFlow worktree without rebase, reset, stash, force, checkout overwrite, or history rewrite; all 52 tracked and 7 untracked candidate paths must remain byte-identical, and both candidate digests plus every untracked artifact hash must be reverified before any new test or write.",
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "mergeAuthorizationGranted": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "branchRetirementIntakeAuthorized": false
+      },
       "finalRemediationAuthorization": {
         "reviewedHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
         "reviewerId": "01a0493a-090d-7ed0-835e-d0a68b3557e4",
@@ -1313,11 +3067,11 @@
       "branch": "codex/sena-branch-retirement-20260829",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-branch-retirement-20260829",
       "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
-      "headSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
+      "headSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
-        "behind": 0
+        "ahead": 3,
+        "behind": 85
       },
       "allowedPaths": [
         "coordination/repo-governance/**",
@@ -1325,21 +3079,21 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-08-28T16:51:55Z",
-      "lastHeartbeatAt": "2026-08-28T19:21:17Z",
-      "lastObservedAt": "2026-08-28T19:21:17Z",
-      "nextReviewAt": "2026-08-29T01:21:17Z",
+      "lastHeartbeatAt": "2026-08-30T17:49:59Z",
+      "lastObservedAt": "2026-08-30T17:49:59Z",
+      "nextReviewAt": "2026-08-30T23:49:59Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "dirty-allowed-pr46-release-state-remediation",
+      "dirtyState": "staged-pr46-preserve-first-intake-compose-both-candidate",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
-      "activationCondition": "PR46 may merge only with Human-AI status=pending-release; later deletion requires a separate protected-main commit that changes it to active and binds machine-readable deletionRelease custody, followed by exact checks, post-main checks, and a separate explicit execution release",
+      "activationCondition": "PR67 exact head b37f1f5d39c1e30b3a7408a3af46df1d01ad72b2 reached protected main 6344f7fd5298f847294253e0e71ffa18420464d4 with post-main build/repository-security success, zero annotations, and commit-bound live audit PASS. The separate preserve-first execution release authorizes only ordinary merge intake plus compose-both governance reconstruction and RED/GREEN proof. CAS, receipt minting, all four target-ref mutations, PR46 Ready/merge, deployment, provider mutation, rebase, reset, stash, force, and history rewrite remain unauthorized.",
       "externalCustodyBoundary": {
         "mixedBundleRoot": "/Volumes/Starship/SENA-backups/round31-pre-clean-uja7LF/",
         "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA-backups/",
@@ -1351,7 +3105,11 @@
           "mode0644Count": 6,
           "otherLocalUserReadableCount": 2,
           "temporaryOwnerOnlyRecoveryBundleCount": 1,
-          "mutationPerformed": true
+          "mutationPerformed": true,
+          "allExactLedgerBundlesRevalidated": true,
+          "ownerOnlyBundleCount": 8,
+          "ownerOnlyParentCount": 8,
+          "completeHistoryVerifiedCount": 8
         },
         "postChangeCustodyReceipt": {
           "observedAt": "2026-08-28T19:04:18Z",
@@ -1376,11 +3134,148 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "Retirement lane was preserve-first fast-forwarded to exact protected main 366cb5f2 after separately hashing and reverse/forward checking three owner-only full-index patches; only verifier/test were replayed, this branch-retirement-owned registry authorization was reconstructed against the protected heartbeat, and no target ref was mutated.",
-        "ci": "PR46 prior head 2e3136b8b79655accceb5cf18f829ba79476e81e passed build and both repository-security checks with zero annotations but independent review rejected its immediately-active release semantics; the pending-release remediation head has no CI claim yet.",
-        "merged": "PR45 exact head 63f75b29d15e07141189db3aba2f54a4eba8e7fa merged as protected main 366cb5f2bf58b1128692ba65c3b05e58baa3b8b6; Draft PR46 remains unmerged and no tag push or branch ref deletion has occurred.",
+        "local": "exact a9b3abc candidate entered ordinary merge with exact protected main 6344f7fd under the separate preserve-first release; only the three registered paths are staged for protected-main registry reconstruction plus compose-both verifier RED/GREEN, while all four target refs and zero task-owned receipts remain unchanged",
+        "ci": "PR67 exact head b37f1f5d passed its exact-head gates and protected main 6344f7fd passed post-main build 33322202603 and repository-security 33322202611 with zero annotations; Draft PR46 remote head remains a9b3abc and this new local intake candidate has no PR46 CI claim",
+        "merged": "PR67 exact head b37f1f5d is merged as protected main 6344f7fd; PR46 remains Draft and unmerged, with Ready/merge, CAS, receipt, and target-ref mutation still false",
         "deployed": "not in scope and not authorized",
-        "live": "All four target local branch refs remain present; Human-AI has no registered worktree occupancy. Live GitHub main and target-ref absence must be freshly read before any later CAS, and no credential-bearing DOCX content may be opened."
+        "live": "exact protected main 6344f7fd commit-bound audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0; remote PR46 head is exact a9b3abc and all four same-name target remote heads are absent; local Human, Quirky, Statistical, and ledger refs remain exact, ledger remains quarantine-only, ordinary bundle ada86c0801288d366533422fd887f7afaa502693ea1776ac5b7888e030fb8d51 remains owner-only and complete-history verified, and task-owned retirement receipt count remains zero"
+      },
+      "currentCustodyHeartbeat": {
+        "recordedAt": "2026-08-30T17:49:59Z",
+        "candidateHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
+        "originMainSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "ahead": 3,
+        "behind": 85,
+        "clean": false,
+        "stagedPathCount": 3,
+        "unstagedPathCount": 0,
+        "untrackedPathCount": 0,
+        "targetLocalRefs": {
+          "codex/sena-human-ai-research-docs": "5537582fbf820951777f88ef5bc5c63e23feada3",
+          "claude/quirky-merkle-da02fa": "1248ec261711e1ed544b9bda4c04aa17034072d6",
+          "codex/sena-statistical-integrity-v2": "c81e6b337f7dc4fcac8baca49517b2f42c3eb774",
+          "docs/ledger-reconciliation-2026-08-19": "18d542f707e56aa9d043dd497e0efe48b540db20"
+        },
+        "remoteSameNameHeadCount": 0,
+        "receiptCount": 0,
+        "taskOwnedRetirementReceiptCount": 0,
+        "sharedReleaseReceiptsDirectoryFileCount": 50,
+        "sharedReleaseReceiptsDirectoryMode": "0755",
+        "sharedReleaseReceiptsDirectoryIsHistoricalOnly": true,
+        "ordinaryArchiveCustody": {
+          "bundleSha256": "ada86c0801288d366533422fd887f7afaa502693ea1776ac5b7888e030fb8d51",
+          "manifestSha256": "35907a588314dbb3e83ab89d5fe2e423b1000087834ee8be505ab85640c60483",
+          "bundleMode": "0600",
+          "parentMode": "0700",
+          "completeHistoryVerified": true,
+          "archiveTagPeels": {
+            "archive/codex-sena-human-ai-research-docs-20260823": "5537582fbf820951777f88ef5bc5c63e23feada3",
+            "archive/claude-quirky-merkle-da02fa-20260823": "1248ec261711e1ed544b9bda4c04aa17034072d6",
+            "archive/codex-sena-statistical-integrity-v2-20260829": "c81e6b337f7dc4fcac8baca49517b2f42c3eb774"
+          },
+          "archiveTagObjects": {
+            "archive/codex-sena-human-ai-research-docs-20260823": "d69d06072483904b0ba3eb3bb264721b7d5c4c43",
+            "archive/claude-quirky-merkle-da02fa-20260823": "9d737c5f1520d87fc63afc9ab52057d34555510f",
+            "archive/codex-sena-statistical-integrity-v2-20260829": "4e887ce8d8fca31f3cef3313ab25ea4b570eaf42"
+          }
+        },
+        "ledgerQuarantineCustody": {
+          "primaryBundleSha256": "dd33e2d1eadf44c9d8eb6845e1afe07fc6e3cd221c1fb01d6b4f0035907746c3",
+          "manifestSha256": "276f03e308a3315999bb5b9efca0693fcc62825100bf19568f67194297f6b10b",
+          "verifiedBundleCount": 8,
+          "ownerOnlyBundleCount": 8,
+          "ownerOnlyParentCount": 8,
+          "completeHistoryVerifiedCount": 8,
+          "ordinaryBranchRestoreAuthorized": false,
+          "freshMainSelectiveReconstructionOnly": true
+        },
+        "intakeConflictTopology": {
+          "observedAt": "2026-08-30T17:49:59Z",
+          "candidateHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
+          "protectedMainSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+          "mergeBaseSha": "366cb5f2bf58b1128692ba65c3b05e58baa3b8b6",
+          "bothSidesChangedPathCount": 3,
+          "conflictingPaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs"
+          ],
+          "autoMergeCleanPaths": [
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "verifierConflict": "PR46 consumedRetirement plus activeItem semantics overlap protected-main branchItem plus integratedRootRegistryAdvance semantics",
+          "futureIntakeRequirement": "PR67 supplied the separate protected preserve-first execution release for ordinary merge intake only; the candidate must retain both consumed-retirement and integrated-read-only-root semantics with RED/GREEN proof before any later PR46 lifecycle authorization.",
+          "intakeAuthorized": true,
+          "authorizationRecorded": true,
+          "authorizationEffective": true,
+          "effectiveAfterProtectedMainAudit": true,
+          "authorizationMode": "preserve-first-only",
+          "composeBothVerifierSemanticsRequired": true,
+          "redGreenProofRequired": true
+        },
+        "branchRetirementIntakeAuthorized": true,
+        "pr46IntakeAuthorized": true,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "preserveFirstIntakeAuthorization": {
+        "status": "active-after-protected-main-audit",
+        "authorizationBasis": "Explicit owner request to advance branch-retirement governance; this permission covers only preserve-first candidate intake and governance reconstruction, never target-ref deletion or CAS.",
+        "candidateHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
+        "protectedMainSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+        "protectedMainLifecycleRequired": true,
+        "effective": true,
+        "authorizationRecorded": true,
+        "activatedAt": "2026-08-30T13:04:30Z",
+        "activationEvidence": {
+          "governancePullRequest": 65,
+          "candidateHeadSha": "69f532d1fa77b8a1cd40f39646eac0febbf4a518",
+          "protectedMainSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+          "postMainBuildRunId": 33312704179,
+          "postMainRepositorySecurityRunId": 33312704175,
+          "postMainAnnotationsEmpty": true,
+          "commitBoundLiveAuditStatus": "pass",
+          "commitBoundLiveAuditErrors": [],
+          "commitBoundLiveAuditOwnerBlockers": [],
+          "unreachableCommitCount": 0
+        },
+        "separateExecutionReleaseRequired": false,
+        "executionRelease": {
+          "governancePullRequest": 67,
+          "candidateHeadSha": "b37f1f5d39c1e30b3a7408a3af46df1d01ad72b2",
+          "protectedMainSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+          "postMainBuildRunId": 33322202603,
+          "postMainBuildJobId": 99286029908,
+          "postMainRepositorySecurityRunId": 33322202611,
+          "postMainRepositorySecurityJobId": 99286029876,
+          "postMainAnnotationsEmpty": true,
+          "commitBoundLiveAuditStatus": "pass",
+          "commitBoundLiveAuditErrors": [],
+          "commitBoundLiveAuditOwnerBlockers": [],
+          "unreachableCommitCount": 0,
+          "scope": "ordinary merge intake plus compose-both registry/verifier/test reconstruction only"
+        },
+        "verifierMethod": "compose consumedRetirement with integratedRootRegistryAdvance; take protected main active-work registry as full base; reconstruct only branch-retirement-owned fields; add RED/GREEN tests for registry-only advance and mixed registry-plus-code rejection",
+        "retirementOrder": [
+          "codex/sena-human-ai-research-docs",
+          "claude/quirky-merkle-da02fa",
+          "codex/sena-statistical-integrity-v2",
+          "docs/ledger-reconciliation-2026-08-19"
+        ],
+        "targetRefsRemainRetained": true,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1499,72 +3394,115 @@
       "owner": "SENA-A01",
       "ownerKey": "SENA-A01",
       "baseSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
-      "headSha": "91f832d183efcf8c5cc8307c922c5677b63dab44",
-      "targetSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
+      "headSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+      "targetSha": "4959f9635350504a9e436957a5556e05e4e952e4",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "fd58ea6a08c0e1beccc3d65f45f0659099c8436b",
+      "remoteHeadSha": "4959f9635350504a9e436957a5556e05e4e952e4",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-08-27T20:53:31Z",
+      "remoteObservedAt": "2026-08-30T15:16:07Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
-      "lastOwnerHeartbeatAt": null,
-      "lastObservedAt": "2026-08-27T20:53:31Z",
-      "lastCommitAt": "2026-08-28T02:22:32+08:00",
-      "nextReviewAt": "2026-08-28T05:00:00Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T13:00:40Z",
+      "lastObservedAt": "2026-08-30T15:16:07Z",
+      "lastCommitAt": "2026-08-30T20:53:36+08:00",
+      "nextReviewAt": "2026-08-31T15:16:07Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "disposition": "integrated",
-      "closeout": "root remains clean and read-only at restored main 91f832d while protected remote main advanced through push-scope PR 30 to fd58ea6; forbidden working copies and index entries remain absent; feature work uses separately registered branches/worktrees"
+      "closeout": "root control checkout remains clean/read-only at 05498b1a while fetched/live protected main is 4959f963; local root is behind 4, and this registry-only observation records PR66/A11 reconciliation without authorizing any root or target-ref mutation"
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "4dc99ed77742a3bd7fac26f269107e41165eed4b",
+      "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "4dc99ed77742a3bd7fac26f269107e41165eed4b",
-      "remoteObservedAt": "2026-08-28T18:46:40Z",
-      "pr": 45,
+      "remoteHeadSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+      "remoteObservedAt": "2026-08-30T16:12:23Z",
+      "pr": 67,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": true,
       "mergeAuthorized": true,
-      "prHeadSha": "4dc99ed77742a3bd7fac26f269107e41165eed4b",
+      "prHeadSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "prBase": "main",
       "noPrReason": null,
+      "pr67InitialChecks": {
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr67FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "authorizationBasis": "User instruction 'do them' explicitly authorizes the A01 registry-only push, Draft PR, exact-head CI, protected-main merge, and live-registry authority path.",
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
-        "number": 44,
-        "headSha": "f44e902831e74c9071a4d0c7ec9ce137b3b5ed89",
-        "mergeCommitSha": "5a30a0dd2a790a8158bab110338103c74df1f6dc",
-        "mergedAt": "2026-08-28T17:31:32Z"
+        "number": 66,
+        "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+        "mergeCommitSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "mergedAt": "2026-08-30T13:18:36Z",
+        "postMainBuildRunId": 33313698351,
+        "postMainRepositorySecurityRunId": 33313698336,
+        "postMainRepositorySecurityRunIds": [33313698336, 33313696292],
+        "postMainChecksPassed": true,
+        "commitBoundLiveAuditStatus": "not-run-by-this-reconciliation"
       },
-      "lastOwnerHeartbeatAt": "2026-08-28T18:46:40Z",
-      "lastObservedAt": "2026-08-28T18:46:40Z",
-      "lastCommitAt": "2026-08-29T02:42:06+08:00",
-      "nextReviewAt": "2026-08-29T00:46:40Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T16:12:23Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "lastCommitAt": "2026-08-31T00:12:23+08:00",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR45 exact head 4dc99ed is CI-green with zero annotations; this registry-only final metadata authorizes Ready/protected merge only after its own exact checks pass"
+      "closeout": "PR67 final authorization is bound to exact lifecycle head 0d1a29c against protected live main 4959f963; fresh CI for the final authorization commit is required before Ready/merge, while A01 remains active and its ordinary closeout/remote mutation remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
       "owner": "Codex SENA EvidenceFlow implementation writer",
       "ownerKey": "Codex-evidenceflow-01a04273",
       "baseSha": "47612849f0b7d9a4940818bbf9e02f0f5b36f077",
-      "headSha": "78d03e726968ec9b7adb2fb30f07c95d56a89325",
+      "headSha": "434a1aac542e60e793afef77fb35104cdb470d53",
       "upstream": "origin/codex/sena-evidenceflow-v1-20260828",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
-      "remoteObservedAt": "2026-08-28T16:43:56Z",
+      "remoteObservedAt": "2026-08-30T05:56:22Z",
       "pr": 38,
       "prState": "OPEN",
       "prIsDraft": true,
@@ -1574,63 +3512,41 @@
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-08-28T18:29:09Z",
-      "lastObservedAt": "2026-08-28T18:29:09Z",
-      "lastCommitAt": "2026-08-29T01:35:16+08:00",
-      "nextReviewAt": "2026-08-29T00:29:09Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T05:56:22Z",
+      "lastObservedAt": "2026-08-30T05:56:22Z",
+      "lastCommitAt": "2026-08-29T14:23:57+08:00",
+      "nextReviewAt": "2026-08-31T05:56:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR38 remote head remains 40438885; local owner head is 78d03e72 with bounded uncommitted allowed-path remediation for the 12 review findings, so Ready/merge remain unauthorized pending full rerun and fresh re-review"
+      "closeout": "Draft PR38 remote head remains 40438885; local owner head is exact 434a1aac against protected main a76e7f70, ahead 16 and behind 8, plus 62 tracked and 7 untracked bounded paths with full diff 213d6a94 and status d77ff282. Both fresh reviews reject merge with ten confirmed findings; exact 20-path RED-first remediation remains gated on this heartbeat"
     },
     {
       "name": "codex/sena-branch-retirement-20260829",
       "owner": "Codex branch-retirement primary writer",
       "ownerKey": "Codex-branch-retirement-01a04916",
       "baseSha": "1edeb32992fe1f5b3101ef16b6e66b42f52c02fa",
-      "headSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
+      "headSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
-      "remoteObservedAt": "2026-08-28T19:21:17Z",
+      "remoteHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
+      "remoteObservedAt": "2026-08-30T17:49:59Z",
       "pr": 46,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "2e3136b8b79655accceb5cf18f829ba79476e81e",
+      "prHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
       "prBase": "main",
       "noPrReason": null,
-      "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-08-28T19:21:17Z",
-      "lastObservedAt": "2026-08-28T19:21:17Z",
-      "lastCommitAt": "2026-08-29T03:11:35+08:00",
-      "nextReviewAt": "2026-08-29T01:21:17Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T17:49:59Z",
+      "lastObservedAt": "2026-08-30T17:49:59Z",
+      "lastCommitAt": "2026-08-29T04:14:20+08:00",
+      "nextReviewAt": "2026-08-30T23:49:59Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "active",
-      "closeout": "Draft PR46 remains open; independent review rejected head 2e3136b8 because status=active could bypass the promised later release. The current remediation makes PR46 pending-release only; no target ref has been deleted."
-    },
-    {
-      "name": "codex/sena-a11-main-receipt-20260827",
-      "owner": "SENA-A11 release verifier",
-      "ownerKey": "SENA-A11",
-      "baseSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "headSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
-      "upstream": "origin/main",
-      "upstreamState": "live",
-      "upstreamCacheState": "present",
-      "remotePresent": false,
-      "remoteObservedAt": "2026-08-27T17:38:11Z",
-      "pr": null,
-      "noPrReason": "Ephemeral exact-main verification lane; no tracked code changes.",
-      "lastOwnerHeartbeatAt": "2026-08-27T04:56:29.966Z",
-      "lastObservedAt": "2026-08-27T17:38:11Z",
-      "lastCommitAt": "2026-08-27T03:55:10+08:00",
-      "nextReviewAt": "2026-08-28T04:10:00Z",
-      "expectedCloseAt": "2026-08-28T04:10:00Z",
-      "disposition": "integrated",
-      "closeout": "historical exact-main receipt remains bound to 5cdea568; against immutable activation merge b002f976 the retained worktree is 19 commits behind and stays read-only pending ordinary closeout"
+      "closeout": "Draft PR46 remote head remains exact a9b3abc while the local lane performs the separately released ordinary merge of protected main 6344f7fd and compose-both RED/GREEN on its exact three-path allowlist; all four target refs remain present, same-name remote target heads are absent, task-owned retirement receipts remain zero, and PR46 Ready/merge plus target-ref mutation remain false"
     }
   ],
   "orphanWorktrees": [
@@ -1873,6 +3789,239 @@
       "researchClaimBoundary": "exploratory-only",
       "completedAt": "2026-08-27T04:56:29.966Z",
       "supersedingRevalidationRecordedAt": "2026-08-27T11:18:41Z"
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "registry-only-reconciliation",
+      "recordedAt": "2026-08-30T15:16:07Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "baseA01HeadSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+      "a11Closeout": {
+        "taskId": "SENA-A11-EXACT-MAIN-RECEIPT-20260827",
+        "branch": "codex/sena-a11-main-receipt-20260827",
+        "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a11-main-receipt-20260827",
+        "targetHeadSha": "5cdea568a053347dbc82069bde3e836cffb55cc6",
+        "targetTreeSha": "4a0f018023803cb5eef8d67b05658d8656ca1f58",
+        "remoteRefDeletionAuthorized": false,
+        "remoteRefPresent": false,
+        "remoteRefAbsenceReadbackAt": "2026-08-30T15:16:07Z",
+        "worktreeRemovalMethod": "ordinary-git-worktree-remove",
+        "worktreePathAbsent": true,
+        "worktreeRegistrationAbsent": true,
+        "localBranchDeletionMethod": "ordinary-git-branch-d",
+        "localBranchAbsent": true,
+        "commitReachableFromLocalMain": true,
+        "ignoredRuntimeArtifactsArchived": false,
+        "ignoredRuntimeArtifactBoundary": [
+          "sena-hk-template/.next/",
+          "sena-hk-template/.sena-enterprise/",
+          "sena-hk-template/node_modules/",
+          "sena-hk-template/output/production-evidence/",
+          "sena-hk-template/tsconfig.tsbuildinfo"
+        ],
+        "verification": {
+          "fullVitest": {
+            "testFilesPassed": 207,
+            "testFilesSkipped": 1,
+            "testsPassed": 2922,
+            "testsSkipped": 2
+          },
+          "targetedVitest": {
+            "testFilesPassed": 5,
+            "testsPassed": 63,
+            "testsFailed": 0
+          },
+          "diffCheck": "pass",
+          "worktreeStatusAtRemoval": "clean",
+          "processCheckAtRemoval": "clear",
+          "worktreePruneDryRun": "clean"
+        }
+      },
+      "liveObservations": {
+        "observedAt": "2026-08-30T15:16:07Z",
+        "main": {
+          "sha": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "cachedOriginMainAfterExactFetch": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "localRootSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+          "localRootBehind": 4
+        },
+        "a01": {
+          "localSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+          "remoteSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+          "worktreeClean": true,
+          "behindLiveMain": 1
+        },
+        "pr66": {
+          "state": "MERGED",
+          "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+          "mergeCommitSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "mergedAt": "2026-08-30T13:18:36Z",
+          "prBuildRunId": 33313698351,
+          "prRepositorySecurityRunIds": [
+            33313698336,
+            33313696292
+          ],
+          "postMainBuildRunId": 33313831031,
+          "postMainRepositorySecurityRunId": 33313830999,
+          "postMainHeadSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "postMainEvent": "push",
+          "postMainChecksPassed": true
+        },
+        "topology": {
+          "localBranchCount": 8,
+          "registeredWorktreeCount": 4,
+          "liveRemoteBranchCount": 4,
+          "distinctLiveTagCount": 2,
+          "currentOpenPullRequestCount": 2,
+          "a11LocalBranchPresent": false,
+          "a11RegisteredWorktreePresent": false,
+          "a11RemoteRefPresent": false
+        }
+      },
+      "localMutationBoundary": {
+        "trackedFilesChanged": [
+          "coordination/repo-governance/active-work.json"
+        ],
+        "remoteTrackingRefresh": {
+          "ref": "refs/remotes/origin/main",
+          "beforeSha": "05498b1a10b726400b8bafbbae3bb3bcf5cff108",
+          "afterSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "method": "exact-no-tags-fetch",
+          "remoteBranchMutation": false
+        },
+        "remoteRefsDeleted": false,
+        "a01BranchOrWorktreeChanged": false,
+        "otherWorktreeHeadsChanged": false
+      },
+      "preservation": {
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "evidenceFlowDirtyPreserved": true,
+        "branchRetirementPreserved": true,
+        "preservedLocalRefCountWithoutWorktree": 4,
+        "preservedInvalidPointerDirectoryCount": 4,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This receipt records a same-owner registry-only reconciliation and the previously authorized A11 ordinary local closeout. It does not authorize A01 ordinary closeout, remote-ref deletion, CAS, PR46 Ready/merge, deployment, provider mutation, or history rewrite; ignored A11 runtime bytes were not separately archived."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr67-draft-lifecycle-binding",
+      "recordedAt": "2026-08-30T16:00:25Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "candidateHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "pullRequest": {
+        "number": 67,
+        "url": "https://github.com/HUDongpin/SENA/pull/67",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRef": "codex/sena-a01-repo-governance-20260827",
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseRef": "main",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "exactHeadChecks": {
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "authorizationBoundary": {
+        "userInstruction": "do them",
+        "pushAuthorized": true,
+        "draftPullRequestAuthorized": true,
+        "exactHeadCiAuthorized": true,
+        "protectedMainPathAuthorized": true,
+        "registryAuthorityTarget": "candidate-only-until-final-exact-head-authorization",
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false
+      },
+      "prohibitions": {
+        "productFilesChanged": false,
+        "otherLaneChanged": false,
+        "remoteRefsDeleted": false,
+        "deploymentPerformed": false,
+        "providerMutationPerformed": false,
+        "historyRewritePerformed": false
+      },
+      "evidenceBoundary": "This receipt binds PR67 to the exact candidate head and its initial required checks. It does not by itself make the candidate registry authoritative on protected main; a later exact final-head authorization and protected merge are required. A01 ordinary closeout and A01 remote-ref deletion remain separately unauthorized."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr67-final-authorization",
+      "recordedAt": "2026-08-30T16:12:23Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "authorizationBasis": "User instruction 'do them' explicitly authorizes this A01 registry-only PR67 path through protected main and live-registry authority.",
+      "target": {
+        "pullRequestNumber": 67,
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "baseRef": "main",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorized": true,
+        "mergeAuthorized": true
+      },
+      "exactHeadChecks": {
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "push-final-authorization-commit",
+        "rerun-exact-head-checks-for-final-authorization-commit",
+        "gh-pr-ready-67",
+        "protected-pr-merge-67",
+        "verify-post-main-checks-and-commit-bound-live-registry"
+      ],
+      "preservation": {
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "evidenceFlowDirtyPreserved": true,
+        "branchRetirementPreserved": true,
+        "preservedInvalidPointerDirectories": 4,
+        "preservedLocalRefsWithoutWorktree": 4
+      },
+      "prohibitions": {
+        "productFilesChanged": false,
+        "otherLaneChanged": false,
+        "remoteRefsDeleted": false,
+        "deploymentPerformed": false,
+        "providerMutationPerformed": false,
+        "historyRewritePerformed": false
+      },
+      "evidenceBoundary": "This receipt authorizes only PR67's registry-only lifecycle through protected main. The listed checks cover the prior exact lifecycle head 0d1a29c; the final authorization commit itself must receive a fresh exact-head build and both repository-security checks before Ready/merge. It does not authorize A01 ordinary closeout, remote-ref deletion, PR38/PR46 actions, CAS, deployment, provider mutation, or history rewrite."
     }
   ]
 }
