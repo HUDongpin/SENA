@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-30T15:16:07Z",
+  "updatedAt": "2026-08-30T15:58:50Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -940,7 +940,7 @@
       "forbiddenFindingCount": 0,
       "quarantineOnly": false,
       "openPullRequestCountBeforeGovernanceDraft": 0,
-      "currentOpenPullRequestCount": 2,
+      "currentOpenPullRequestCount": 3,
       "secretScanning": "not-enabled-or-not-exposed-by-repository-api",
       "pushProtection": "not-enabled-or-not-exposed-by-repository-api",
       "activeRuleset": "main-minimum-safety"
@@ -970,8 +970,8 @@
       ],
       "createdAt": "2026-08-27T18:29:01Z",
       "lastHeartbeatAt": "2026-08-30T13:00:40Z",
-      "lastObservedAt": "2026-08-30T15:16:07Z",
-      "nextReviewAt": "2026-08-31T15:16:07Z",
+      "lastObservedAt": "2026-08-30T15:58:50Z",
+      "nextReviewAt": "2026-08-31T15:58:50Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
@@ -982,7 +982,7 @@
         "ci": "PR65 exact final head 69f532d1 passed its required checks and protected main 05498b1a passed post-main build 33312704179 and repository-security 33312704175 with zero annotations",
         "merged": "PR65 exact head 69f532d1 merged as protected main 05498b1a10b726400b8bafbbae3bb3bcf5cff108; the local read-only root is exact and clean at that merge commit",
         "deployed": "not authorized and not claimed",
-        "live": "live GitHub main and fetched origin/main are exact 4959f963; clean local root remains 05498b1a (behind 4), A01 is f177819, live branch count is 4, registered worktree count is 4, and A11 closeout is recorded separately without authorizing A01 cleanup"
+        "live": "live GitHub main and fetched origin/main are exact 4959f963; clean local root remains 05498b1a (behind 4), A01 candidate is 06db01d bound to Draft PR #67, live branch count is 4, registered worktree count is 4, open PR count is 3, and A11 closeout is recorded separately without authorizing A01 cleanup"
       },
       "disposition": "integrated"
     },
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+      "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 2,
         "behind": 1
       },
       "allowedPaths": [
@@ -1016,12 +1016,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-30T15:16:07Z",
-      "lastObservedAt": "2026-08-30T15:16:07Z",
-      "nextReviewAt": "2026-08-31T15:16:07Z",
+      "lastHeartbeatAt": "2026-08-30T15:58:50Z",
+      "lastObservedAt": "2026-08-30T15:58:50Z",
+      "nextReviewAt": "2026-08-31T15:58:50Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
-      "prIsDraft": false,
+      "prNumber": 67,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1416,8 +1416,8 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "PR66 is merged; this unpushed candidate records A11 closeout and live topology only. A01 ordinary closeout, remote-ref mutation, and new PR/merge remain separately gated.",
-      "dirtyState": "staged-registry-only-a11-closeout-and-live-topology-reconciliation",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr67-lifecycle-binding",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1526,16 +1526,31 @@
         "providerMutationAuthorized": false,
         "historyRewriteAuthorized": false
       },
+      "pr67InitialChecks": {
+        "pullRequestNumber": 67,
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 worktree is clean at exact f177819; this registry-only candidate records the live PR66 merge, fetched protected-main observation, A11 closeout, and 8/4/4 topology without changing product files",
-        "ci": "PR66 exact head f177819 passed build 33313698351 and repository-security runs 33313698336/33313696292 with zero reported failures; this reconciliation adds no new code or CI claim",
-        "merged": "PR66 exact head f177819 merged as live protected main 4959f963 at 2026-08-30T13:18:36Z; A01 remains an active governance lane and this candidate does not authorize its ordinary closeout",
+        "local": "A01 worktree is clean at exact candidate 06db01d; this registry-only lifecycle commit records Draft PR67 against protected main 4959f963 without changing product files",
+        "ci": "PR67 exact head 06db01d passed build 33320677758 and repository-security runs 33320641143/33320677792 with zero annotations; PR67 remains Draft pending final exact-head lifecycle authorization",
+        "merged": "PR66 exact head f177819 merged as live protected main 4959f963 at 2026-08-30T13:18:36Z; PR67 is OPEN Draft and A01 remains active with ordinary closeout and remote-ref deletion unauthorized",
         "deployed": "not authorized",
-        "live": "live origin/main is 4959f963, live A01 is f177819, PR66 is MERGED, and the current topology is 8 local branches/4 registered worktrees/4 live origin branches; EvidenceFlow remains dirty, PR46 remains Draft, all preserved refs and invalid pointers remain retained, and A01 cleanup/remote mutation remain false"
+        "live": "live origin/main is 4959f963, live A01 is 06db01d, PR66 is MERGED, PR67 is OPEN Draft, and the current topology is 8 local branches/4 registered worktrees/4 live origin branches; EvidenceFlow remains dirty, PR46 remains Draft, all preserved refs and invalid pointers remain retained, and A01 cleanup/remote mutation remain false"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3283,21 +3298,35 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
+      "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
-      "remoteObservedAt": "2026-08-30T15:16:07Z",
-      "pr": null,
-      "prState": null,
-      "prIsDraft": false,
+      "remoteHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "remoteObservedAt": "2026-08-30T16:00:25Z",
+      "pr": 67,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
-      "prBase": null,
-      "noPrReason": "PR66 is merged; this unpushed registry-only candidate records A11 closeout and currentness only. A01 ordinary closeout, remote-ref mutation, and new PR/merge remain separately gated.",
+      "prHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "prBase": "main",
+      "noPrReason": null,
+      "pr67InitialChecks": {
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 66,
@@ -3310,13 +3339,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "not-run-by-this-reconciliation"
       },
-      "lastOwnerHeartbeatAt": "2026-08-30T15:16:07Z",
-      "lastObservedAt": "2026-08-30T15:16:07Z",
-      "lastCommitAt": "2026-08-30T21:15:00+08:00",
-      "nextReviewAt": "2026-08-31T15:16:07Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T16:00:25Z",
+      "lastObservedAt": "2026-08-30T16:00:25Z",
+      "lastCommitAt": "2026-08-30T23:45:30+08:00",
+      "nextReviewAt": "2026-08-31T16:00:25Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR66 exact head f177819 merged as protected live main 4959f963; this unpushed registry-only candidate records A11 ordinary closeout and current 8/4/4 topology while A01 remains active and its ordinary closeout/remote mutation remain unauthorized"
+      "closeout": "PR67 is OPEN Draft at exact head 06db01d against protected live main 4959f963 with initial required checks green; this registry-only lifecycle binding records current 8/4/4 topology while A01 remains active and its ordinary closeout/remote mutation remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -3738,6 +3767,61 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This receipt records a same-owner registry-only reconciliation and the previously authorized A11 ordinary local closeout. It does not authorize A01 ordinary closeout, remote-ref deletion, CAS, PR46 Ready/merge, deployment, provider mutation, or history rewrite; ignored A11 runtime bytes were not separately archived."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr67-draft-lifecycle-binding",
+      "recordedAt": "2026-08-30T16:00:25Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "candidateHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "pullRequest": {
+        "number": 67,
+        "url": "https://github.com/HUDongpin/SENA/pull/67",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRef": "codex/sena-a01-repo-governance-20260827",
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "baseRef": "main",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "exactHeadChecks": {
+        "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+        "buildRunId": 33320677758,
+        "repositorySecurityRunIds": [
+          33320641143,
+          33320677792
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "authorizationBoundary": {
+        "userInstruction": "do them",
+        "pushAuthorized": true,
+        "draftPullRequestAuthorized": true,
+        "exactHeadCiAuthorized": true,
+        "protectedMainPathAuthorized": true,
+        "registryAuthorityTarget": "candidate-only-until-final-exact-head-authorization",
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false
+      },
+      "prohibitions": {
+        "productFilesChanged": false,
+        "otherLaneChanged": false,
+        "remoteRefsDeleted": false,
+        "deploymentPerformed": false,
+        "providerMutationPerformed": false,
+        "historyRewritePerformed": false
+      },
+      "evidenceBoundary": "This receipt binds PR67 to the exact candidate head and its initial required checks. It does not by itself make the candidate registry authoritative on protected main; a later exact final-head authorization and protected merge are required. A01 ordinary closeout and A01 remote-ref deletion remain separately unauthorized."
     }
   ]
 }
