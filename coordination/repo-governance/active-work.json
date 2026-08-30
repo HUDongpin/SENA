@@ -1029,9 +1029,12 @@
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
         "mergeCommitSha": "4959f9635350504a9e436957a5556e05e4e952e4",
         "mergedAt": "2026-08-30T13:18:36Z",
-        "postMainBuildRunId": 33313698351,
-        "postMainRepositorySecurityRunId": 33313698336,
-        "postMainRepositorySecurityRunIds": [33313698336, 33313696292],
+        "prBuildRunId": 33313698351,
+        "prRepositorySecurityRunIds": [33313698336, 33313696292],
+        "postMainBuildRunId": 33313831031,
+        "postMainRepositorySecurityRunId": 33313830999,
+        "postMainHeadSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "postMainEvent": "push",
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "not-run-by-this-reconciliation"
       },
@@ -3685,11 +3688,16 @@
           "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
           "mergeCommitSha": "4959f9635350504a9e436957a5556e05e4e952e4",
           "mergedAt": "2026-08-30T13:18:36Z",
-          "buildRunId": 33313698351,
-          "repositorySecurityRunIds": [
+          "prBuildRunId": 33313698351,
+          "prRepositorySecurityRunIds": [
             33313698336,
             33313696292
-          ]
+          ],
+          "postMainBuildRunId": 33313831031,
+          "postMainRepositorySecurityRunId": 33313830999,
+          "postMainHeadSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+          "postMainEvent": "push",
+          "postMainChecksPassed": true
         },
         "topology": {
           "localBranchCount": 8,
