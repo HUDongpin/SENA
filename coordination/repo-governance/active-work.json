@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-30T15:58:50Z",
+  "updatedAt": "2026-08-30T16:12:23Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -970,8 +970,8 @@
       ],
       "createdAt": "2026-08-27T18:29:01Z",
       "lastHeartbeatAt": "2026-08-30T13:00:40Z",
-      "lastObservedAt": "2026-08-30T15:58:50Z",
-      "nextReviewAt": "2026-08-31T15:58:50Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 1
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-30T15:58:50Z",
-      "lastObservedAt": "2026-08-30T15:58:50Z",
-      "nextReviewAt": "2026-08-31T15:58:50Z",
+      "lastHeartbeatAt": "2026-08-30T16:12:23Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 67,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 66,
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
@@ -1417,7 +1417,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr67-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr67-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1541,16 +1541,40 @@
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "CLEAN"
       },
+      "pr67FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "authorizationBasis": "User instruction 'do them' explicitly authorizes the A01 registry-only push, Draft PR, exact-head CI, protected-main merge, and live-registry authority path.",
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 worktree is clean at exact candidate 06db01d; this registry-only lifecycle commit records Draft PR67 against protected main 4959f963 without changing product files",
-        "ci": "PR67 exact head 06db01d passed build 33320677758 and repository-security runs 33320641143/33320677792 with zero annotations; PR67 remains Draft pending final exact-head lifecycle authorization",
-        "merged": "PR66 exact head f177819 merged as live protected main 4959f963 at 2026-08-30T13:18:36Z; PR67 is OPEN Draft and A01 remains active with ordinary closeout and remote-ref deletion unauthorized",
+        "local": "A01 worktree is clean at exact lifecycle head 0d1a29c; this registry-only final-authorization commit binds the protected-main path without changing product files",
+        "ci": "PR67 exact lifecycle head 0d1a29c passed build 33321558855 and repository-security runs 33321557167/33321558849 with zero annotations; the final authorization commit requires a fresh exact-head CI rerun before Ready/merge",
+        "merged": "PR66 exact head f177819 merged as live protected main 4959f963 at 2026-08-30T13:18:36Z; PR67 final authorization is staged for the exact 0d1a29c lifecycle head and does not authorize A01 ordinary closeout",
         "deployed": "not authorized",
-        "live": "live origin/main is 4959f963, live A01 is 06db01d, PR66 is MERGED, PR67 is OPEN Draft, and the current topology is 8 local branches/4 registered worktrees/4 live origin branches; EvidenceFlow remains dirty, PR46 remains Draft, all preserved refs and invalid pointers remain retained, and A01 cleanup/remote mutation remain false"
+        "live": "live origin/main is 4959f963, live A01 is 0d1a29c, PR66 is MERGED, PR67 is OPEN Draft with final authorization staged, and the current topology is 8 local branches/4 registered worktrees/4 live origin branches; EvidenceFlow remains dirty, PR46 remains Draft, all preserved refs and invalid pointers remain retained, and A01 cleanup/remote mutation remain false"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3298,19 +3322,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
-      "remoteObservedAt": "2026-08-30T16:00:25Z",
+      "remoteHeadSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+      "remoteObservedAt": "2026-08-30T16:12:23Z",
       "pr": 67,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
       "prBase": "main",
       "noPrReason": null,
       "pr67InitialChecks": {
@@ -3327,6 +3351,30 @@
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "CLEAN"
       },
+      "pr67FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "authorizationBasis": "User instruction 'do them' explicitly authorizes the A01 registry-only push, Draft PR, exact-head CI, protected-main merge, and live-registry authority path.",
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 66,
@@ -3339,13 +3387,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "not-run-by-this-reconciliation"
       },
-      "lastOwnerHeartbeatAt": "2026-08-30T16:00:25Z",
-      "lastObservedAt": "2026-08-30T16:00:25Z",
-      "lastCommitAt": "2026-08-30T23:45:30+08:00",
-      "nextReviewAt": "2026-08-31T16:00:25Z",
+      "lastOwnerHeartbeatAt": "2026-08-30T16:12:23Z",
+      "lastObservedAt": "2026-08-30T16:12:23Z",
+      "lastCommitAt": "2026-08-31T00:12:23+08:00",
+      "nextReviewAt": "2026-08-31T16:12:23Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR67 is OPEN Draft at exact head 06db01d against protected live main 4959f963 with initial required checks green; this registry-only lifecycle binding records current 8/4/4 topology while A01 remains active and its ordinary closeout/remote mutation remain unauthorized"
+      "closeout": "PR67 final authorization is bound to exact lifecycle head 0d1a29c against protected live main 4959f963; fresh CI for the final authorization commit is required before Ready/merge, while A01 remains active and its ordinary closeout/remote mutation remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -3822,6 +3870,62 @@
         "historyRewritePerformed": false
       },
       "evidenceBoundary": "This receipt binds PR67 to the exact candidate head and its initial required checks. It does not by itself make the candidate registry authoritative on protected main; a later exact final-head authorization and protected merge are required. A01 ordinary closeout and A01 remote-ref deletion remain separately unauthorized."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr67-final-authorization",
+      "recordedAt": "2026-08-30T16:12:23Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "authorizationBasis": "User instruction 'do them' explicitly authorizes this A01 registry-only PR67 path through protected main and live-registry authority.",
+      "target": {
+        "pullRequestNumber": 67,
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "baseRef": "main",
+        "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorized": true,
+        "mergeAuthorized": true
+      },
+      "exactHeadChecks": {
+        "headSha": "0d1a29ceea2eda5aff190153d53820cc3c94e00a",
+        "buildRunId": 33321558855,
+        "repositorySecurityRunIds": [
+          33321557167,
+          33321558849
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "push-final-authorization-commit",
+        "rerun-exact-head-checks-for-final-authorization-commit",
+        "gh-pr-ready-67",
+        "protected-pr-merge-67",
+        "verify-post-main-checks-and-commit-bound-live-registry"
+      ],
+      "preservation": {
+        "a01OrdinaryCloseoutAuthorized": false,
+        "a01RemoteRefDeletionAuthorized": false,
+        "evidenceFlowDirtyPreserved": true,
+        "branchRetirementPreserved": true,
+        "preservedInvalidPointerDirectories": 4,
+        "preservedLocalRefsWithoutWorktree": 4
+      },
+      "prohibitions": {
+        "productFilesChanged": false,
+        "otherLaneChanged": false,
+        "remoteRefsDeleted": false,
+        "deploymentPerformed": false,
+        "providerMutationPerformed": false,
+        "historyRewritePerformed": false
+      },
+      "evidenceBoundary": "This receipt authorizes only PR67's registry-only lifecycle through protected main. The listed checks cover the prior exact lifecycle head 0d1a29c; the final authorization commit itself must receive a fresh exact-head build and both repository-security checks before Ready/merge. It does not authorize A01 ordinary closeout, remote-ref deletion, PR38/PR46 actions, CAS, deployment, provider mutation, or history rewrite."
     }
   ]
 }
