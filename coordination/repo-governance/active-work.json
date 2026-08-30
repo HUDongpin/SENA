@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-30T04:05:49Z",
+  "updatedAt": "2026-08-30T04:11:20Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -998,10 +998,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
+      "headSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1016,14 +1016,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-30T04:05:49Z",
-      "lastObservedAt": "2026-08-30T04:05:49Z",
+      "lastHeartbeatAt": "2026-08-30T04:11:20Z",
+      "lastObservedAt": "2026-08-30T04:11:20Z",
       "nextReviewAt": "2026-08-31T03:54:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 62,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 61,
         "headSha": "2077692b78af62f176455e8a990d258242799a33",
@@ -1284,6 +1284,44 @@
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "CLEAN"
       },
+      "pr62LifecycleChecks": {
+        "headSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "buildRunId": 33291848441,
+        "repositorySecurityRunIds": [
+          33291848429,
+          33291846701
+        ],
+        "checkJobIds": [
+          99204730582,
+          99204730659,
+          99204726759
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "pr62FinalAuthorization": {
+        "status": "final-metadata-pending-own-exact-head-checks",
+        "lifecycleHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "activationCondition": "The final metadata commit produced from this staged registry must pass build and both repository-security checks with zero annotations before PR62 may become Ready and protected-merge. Post-main checks and an exact-main commit-bound live audit remain required before the separate one-shot full-verifier rerun handoff.",
+        "fullVerifierRerunAuthorized": false,
+        "branchRetirementIntakeAuthorized": false,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "pr38ReadyAuthorized": false,
+        "pr38MergeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "latestIndependentReview": {
         "reviewerType": "codex-subagent",
         "reviewerId": "01a048bc-65ce-7dd2-b55a-b7b600fc6e1b",
@@ -1302,17 +1340,17 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr62-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr62-final-authorization",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 exact initial PR62 head 1af91a7b is clean and ordinary-pushed from protected-main baseline 1fedcc5d; only active-work.json is staged for Draft PR62 lifecycle binding",
-        "ci": "Draft PR62 exact initial head 1af91a7b passed build 33291631050/job 99204161196 and repository-security 33291631039/job 99204161225 plus 33291618533/job 99204126347; all three annotation endpoints are empty",
-        "merged": "PR61 exact head 2077692b is merged as protected main 1fedcc5d with exact-head and post-main checks green; exact-main commit-bound audit passed",
+        "local": "A01 exact PR62 lifecycle head ab6b7b12 is clean and ordinary-pushed from protected-main baseline 1fedcc5d; only active-work.json is staged for final authorization metadata",
+        "ci": "Draft PR62 exact lifecycle head ab6b7b12 passed build 33291848441/job 99204730582 and repository-security 33291848429/job 99204730659 plus 33291846701/job 99204726759; all three annotation endpoints are empty",
+        "merged": "PR61 exact head 2077692b remains merged as protected main 1fedcc5d; Draft PR62 lifecycle head ab6b7b12 is CLEAN/MERGEABLE and may become Ready/protected-merge only after this final metadata commit's own exact-head checks pass",
         "deployed": "not authorized",
-        "live": "live main and origin/main remain exact 1fedcc5d; remote A01 branch and Draft PR62 are exact 1af91a7b before this lifecycle-binding commit. The verifier rerun, candidate delivery, and branch-retirement PR46 intake remain fail-closed pending final protected activation"
+        "live": "live main and origin/main remain exact 1fedcc5d; remote A01 branch and Draft PR62 are exact ab6b7b12 before this final metadata commit. The verifier rerun, candidate delivery, and branch-retirement PR46 intake remain fail-closed pending final protected activation"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1788,7 +1826,7 @@
         "historyRewriteAuthorized": false
       },
       "postBuildRemediationFullVerifierRerunAuthorization": {
-        "status": "pending-protected-activation-and-separate-explicit-handoff",
+        "status": "final-metadata-pending-own-exact-head-checks",
         "requestedAt": "2026-08-30T03:54:22Z",
         "governancePullRequest": 62,
         "initialAuthorizationHeadSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
@@ -1802,6 +1840,20 @@
             99204161196,
             99204161225,
             99204126347
+          ],
+          "annotationsEmpty": true
+        },
+        "lifecycleHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+        "lifecycleChecks": {
+          "buildRunId": 33291848441,
+          "repositorySecurityRunIds": [
+            33291848429,
+            33291846701
+          ],
+          "checkJobIds": [
+            99204730582,
+            99204730659,
+            99204726759
           ],
           "annotationsEmpty": true
         },
@@ -1871,7 +1923,7 @@
           "tmpdirMode": "0700",
           "tmpdirBoundary": "owner-only TMPDIR outside /Volumes/Starship/SENA and every registered worktree"
         },
-        "activationCondition": "This one-file heartbeat must pass exact-head build and both repository-security checks with zero annotations, protected merge, post-main build and repository-security checks with zero annotations, and an exact-main commit-bound live audit. Only then may A01 issue one separate explicit one-shot unsandboxed full-verifier rerun handoff for the exact bound candidate.",
+        "activationCondition": "This staged final metadata must produce a new exact head whose build and both repository-security checks pass with zero annotations; only then may PR62 become Ready and protected-merge. The resulting exact protected main must pass post-main build and repository-security checks with zero annotations plus an exact-main commit-bound live audit before A01 may issue one separate explicit one-shot unsandboxed full-verifier rerun handoff for the exact bound candidate.",
         "candidateCommitAuthorized": false,
         "candidatePushAuthorized": false,
         "pr38ReadyAuthorized": false,
@@ -2461,19 +2513,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
+      "headSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
-      "remoteObservedAt": "2026-08-30T04:05:49Z",
+      "remoteHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
+      "remoteObservedAt": "2026-08-30T04:11:20Z",
       "pr": 62,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "1af91a7b2509150c1edc52cebd6b449634bff65e",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "ab6b7b12108dc19e2a525fbb2b65d383124d3d4e",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
@@ -2483,13 +2535,13 @@
         "mergeCommitSha": "1fedcc5dbe23077a800cc1c9a56e7333a8769cfb",
         "mergedAt": "2026-08-30T03:16:00Z"
       },
-      "lastOwnerHeartbeatAt": "2026-08-30T04:05:49Z",
-      "lastObservedAt": "2026-08-30T04:05:49Z",
-      "lastCommitAt": "2026-08-30T12:01:31+08:00",
+      "lastOwnerHeartbeatAt": "2026-08-30T04:11:20Z",
+      "lastObservedAt": "2026-08-30T04:11:20Z",
+      "lastCommitAt": "2026-08-30T12:07:47+08:00",
       "nextReviewAt": "2026-08-31T03:54:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR62 exact initial head 1af91a7b is CLEAN/MERGEABLE on protected-main base 1fedcc5d with build and both repository-security checks green and zero annotations; this staged lifecycle binding remains Draft and mergeUnauthorized. The rerun remains unauthorized until final protected activation and a separate explicit handoff"
+      "closeout": "Draft PR62 exact lifecycle head ab6b7b12 is CLEAN/MERGEABLE on protected-main base 1fedcc5d with build and both repository-security checks green and zero annotations; this staged final metadata conditionally authorizes Ready/protected merge only after its own new exact-head checks pass. The rerun remains unauthorized until post-main activation, exact-main audit, and a separate explicit handoff"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
