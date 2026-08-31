@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T02:11:58Z",
+  "updatedAt": "2026-08-31T02:19:22Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+      "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,14 +1068,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T02:11:58Z",
-      "lastObservedAt": "2026-08-31T02:11:58Z",
-      "nextReviewAt": "2026-09-01T02:11:58Z",
+      "lastHeartbeatAt": "2026-08-31T02:19:22Z",
+      "lastObservedAt": "2026-08-31T02:19:22Z",
+      "nextReviewAt": "2026-09-01T02:19:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 68,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 66,
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr68-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr68-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1639,16 +1639,59 @@
         "prReadyForReview": false,
         "mergeAuthorized": false
       },
+      "pr68LifecycleChecks": {
+        "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "buildRunId": 33350180302,
+        "repositorySecurityRunIds": [
+          33350178243,
+          33350180310
+        ],
+        "checkJobIds": [
+          99361859276,
+          99361853388,
+          99361859706
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "pr68FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "authorizationBasis": "The restored owner task and branch-retirement handoff explicitly authorize this registry-only PR68 through protected main solely to activate an exact 00a857f Draft-PR46 push release.",
+        "lifecycleHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33350180302,
+        "repositorySecurityRunIds": [
+          33350178243,
+          33350180310
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "pr46CandidatePushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false,
+        "activationCondition": "The final authorization commit produced from this registry must pass its own exact-head build and both repository-security checks with zero annotations before PR68 may become Ready and protected-merge. Post-main checks plus exact-main live audit remain required before the separate PR46 push release."
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 exact registry-only head c5c94d4 is clean before this single-file lifecycle binding; no product or other-lane file is changed",
-        "ci": "Draft PR68 exact head c5c94d4 passed build 33349796429 and repository-security 33349796606/33349775289 with zero annotations",
+        "local": "A01 exact lifecycle head f0a1c48 is clean before this single-file final authorization; no product or other-lane file is changed",
+        "ci": "Draft PR68 exact lifecycle head f0a1c48 passed build 33350180302 and repository-security 33350178243/33350180310 with zero annotations; the final authorization commit requires fresh exact-head checks",
         "merged": "PR67 exact head b37f1f5 merged as live protected main 6344f7fd at 2026-08-30T16:20:58Z; PR46 remains Draft and no target ref mutation is authorized",
         "deployed": "not authorized",
-        "live": "live origin/main and root are exact 6344f7fd, live A01 branch and Draft PR68 are exact c5c94d4, and local PR46 intake candidate is 00a857f while remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING"
+        "live": "live origin/main and root are exact 6344f7fd, live A01 branch and Draft PR68 are exact f0a1c48, and local PR46 intake candidate is 00a857f while remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3458,19 +3501,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+      "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
-      "remoteObservedAt": "2026-08-31T02:11:58Z",
+      "remoteHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+      "remoteObservedAt": "2026-08-31T02:19:22Z",
       "pr": 68,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
       "prBase": "main",
       "noPrReason": null,
       "pr67InitialChecks": {
@@ -3525,6 +3568,42 @@
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "BLOCKED"
       },
+      "pr68LifecycleChecks": {
+        "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "buildRunId": 33350180302,
+        "repositorySecurityRunIds": [
+          33350178243,
+          33350180310
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "pr68FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "lifecycleHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "buildRunId": 33350180302,
+        "repositorySecurityRunIds": [
+          33350178243,
+          33350180310
+        ],
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "pr46CandidatePushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 67,
@@ -3537,13 +3616,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T02:11:58Z",
-      "lastObservedAt": "2026-08-31T02:11:58Z",
-      "lastCommitAt": "2026-08-31T10:07:21+08:00",
-      "nextReviewAt": "2026-09-01T02:11:58Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T02:19:22Z",
+      "lastObservedAt": "2026-08-31T02:19:22Z",
+      "lastCommitAt": "2026-08-31T10:15:55+08:00",
+      "nextReviewAt": "2026-09-01T02:19:22Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR68 exact head c5c94d4 binds the PR46 intake push heartbeat and passed its initial checks; Ready/merge and all PR46/ref mutations remain false pending lifecycle/final authorization"
+      "closeout": "Draft PR68 lifecycle head f0a1c48 passed its checks and final authorization is staged; the final commit must pass fresh exact-head checks before Ready/merge, while PR46 push and all ref mutations remain false"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -4202,6 +4281,64 @@
         "historyRewritePerformed": false
       },
       "evidenceBoundary": "This receipt binds Draft PR68 and its initial exact-head checks. A later final-authorization head and its own checks are required before protected merge; PR46 push/Ready/merge, CAS, receipts, target refs, deployment, provider mutation, and history rewrite remain unauthorized."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr68-final-authorization",
+      "recordedAt": "2026-08-31T02:19:22Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "authorizationBasis": "The restored owner task and branch-retirement handoff authorize this registry-only PR68 lifecycle through protected main, solely to activate a later exact 00a857f Draft-PR46 push release.",
+      "target": {
+        "pullRequestNumber": 68,
+        "lifecycleHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "baseRef": "main",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorized": true,
+        "mergeAuthorized": true
+      },
+      "exactLifecycleChecks": {
+        "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+        "buildRunId": 33350180302,
+        "repositorySecurityRunIds": [
+          33350178243,
+          33350180310
+        ],
+        "checkJobIds": [
+          99361859276,
+          99361853388,
+          99361859706
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "push-final-authorization-commit",
+        "verify-final-commit-exact-head-checks-and-zero-annotations",
+        "gh-pr-ready-68",
+        "protected-pr-merge-68",
+        "verify-post-main-checks-and-exact-main-live-audit",
+        "send-separate-exact-00a857f-pr46-push-release"
+      ],
+      "preservation": {
+        "pr46CandidateHeadSha": "00a857fccf5cf853c56c047fa5fd67d36c359d31",
+        "pr46CandidatePushAuthorizedBeforePostMainAudit": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This receipt authorizes only PR68's registry-only Ready/protected-merge path after the final commit receives fresh exact-head checks. It does not authorize PR46 push until post-main audit and a separate handoff, and never authorizes PR46 Ready/merge, CAS, receipts, refs/tags, deployment, provider mutation, or history rewrite."
     }
   ]
 }
