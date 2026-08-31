@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T05:47:35Z",
+  "updatedAt": "2026-08-31T05:57:59Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1021,9 +1021,9 @@
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
-      "lastHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-08-31T05:47:35Z",
-      "nextReviewAt": "2026-09-01T05:47:35Z",
+      "lastHeartbeatAt": "2026-08-31T05:57:59Z",
+      "lastObservedAt": "2026-08-31T05:57:59Z",
+      "nextReviewAt": "2026-09-01T05:57:59Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+      "headSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,13 +1068,13 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-08-31T05:47:35Z",
-      "nextReviewAt": "2026-09-01T05:47:35Z",
+      "lastHeartbeatAt": "2026-08-31T05:57:59Z",
+      "lastObservedAt": "2026-08-31T05:57:59Z",
+      "nextReviewAt": "2026-09-01T05:57:59Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 70,
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "prNumber": 71,
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 66,
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-conflict-validator-authorization",
+      "dirtyState": "staged-registry-only-pr71-lifecycle-binding",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -3564,21 +3564,41 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+      "headSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f2583abde8c32961f04fb60915f2cbe38dff0def",
-      "remoteObservedAt": "2026-08-31T05:47:35Z",
-      "pr": 70,
-      "prState": "MERGED",
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "remoteHeadSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
+      "remoteObservedAt": "2026-08-31T05:57:59Z",
+      "pr": 71,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "f2583abde8c32961f04fb60915f2cbe38dff0def",
+      "prHeadSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
       "prBase": "main",
       "noPrReason": null,
+      "pr71InitialChecks": {
+        "headSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
+        "baseSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+        "buildRunId": 33362210563,
+        "repositorySecurityRunIds": [
+          33362210574,
+          33362180654
+        ],
+        "checkJobIds": [
+          99395604067,
+          99395604378,
+          99395520409
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
       "pr67InitialChecks": {
         "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
         "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
@@ -3679,13 +3699,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-08-31T05:47:35Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T05:57:59Z",
+      "lastObservedAt": "2026-08-31T05:57:59Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
-      "nextReviewAt": "2026-09-01T05:47:35Z",
+      "nextReviewAt": "2026-09-01T05:57:59Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR70 exact final head f2583ab merged as protected main 88d1c550 with post-main build/security green and exact-main audit PASS. This new registry-only PR71 candidate authorizes only later RED-first conflict-validator work; PR46 intake/Ready/merge and all ref actions remain false"
+      "closeout": "Draft PR71 initial exact head b6ddf399 passed build and both repository-security checks with zero annotations. This lifecycle binding creates a new exact head requiring its own checks; PR46 intake/Ready/merge and all ref actions remain false"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
