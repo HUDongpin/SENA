@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T06:18:25Z",
+  "updatedAt": "2026-08-31T06:23:59Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
+      "headSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 4,
+        "ahead": 5,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,14 +1068,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T06:18:25Z",
-      "lastObservedAt": "2026-08-31T06:18:25Z",
-      "nextReviewAt": "2026-09-01T06:18:25Z",
+      "lastHeartbeatAt": "2026-08-31T06:23:59Z",
+      "lastObservedAt": "2026-08-31T06:23:59Z",
+      "nextReviewAt": "2026-09-01T06:23:59Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 71,
       "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 66,
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
@@ -1471,7 +1471,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-post-review-final-authorization",
+      "dirtyState": "staged-registry-only-pr71-review-conflict-correction",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1693,8 +1693,8 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 is clean at exact PR71 head 4777641 before staging this registry-only spec remediation; no product or other-lane file is changed",
-        "ci": "PR71 initial b6ddf399 and lifecycle 7450edd9 heads passed build and both repository-security checks with zero annotations; exact 4777641 checks do not override the fresh immutable spec blocker",
+        "local": "A01 is clean at exact PR71 head 04cd9c2 before staging this registry-only review-conflict correction; no product or other-lane file is changed",
+        "ci": "PR71 exact conditional-authorization head 04cd9c2 passed build 33363786283 and repository-security 33363786282/33363782877 with zero annotations, but CI cannot override conflicting review evidence or authorize Ready/merge",
         "merged": "PR70 exact head f2583ab merged as live protected main 88d1c550 at 2026-08-31T05:15:45Z and exact-main audit passed; PR71 remains Draft and unmerged",
         "deployed": "not authorized",
         "live": "live origin/main and clean root are exact 88d1c550. Local/remote PR46 are exact 4a2d4b18 OPEN/Draft/CONFLICTING; PR71 remains Draft and no PR46 intake or target-ref mutation is authorized"
@@ -3599,19 +3599,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
+      "headSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
-      "remoteObservedAt": "2026-08-31T06:18:25Z",
+      "remoteHeadSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
+      "remoteObservedAt": "2026-08-31T06:23:59Z",
       "pr": 71,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
-      "prHeadSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
       "prBase": "main",
       "noPrReason": null,
       "pr71InitialChecks": {
@@ -3699,28 +3699,28 @@
         "livePreCommitAuditPassed": true
       },
       "pr71SpecRemediationReviews": {
+        "status": "conflicted-do-not-use-as-authorization",
         "reviewedParentHeadSha": "4777641dd1a2d7fcd1228ea52019ca47cb509f95",
         "reviewedStagedDiffSha256": "dc2d7e7c16f72fe53d56a78a11743bd349ead9bebda9a4a37f3b1d345309c036",
         "reviewedRegistryFileSha256": "85f1b09da64551ca81d7199fa3a363f7821f6d40c2ec3c91da48b78c72e7a493",
-        "specApproved": true,
-        "qualityApproved": true,
-        "p0FindingCount": 0,
-        "p1FindingCount": 0,
-        "p2FindingCount": 0,
-        "p3FindingCount": 0,
+        "specApproved": false,
+        "qualityApproved": false,
+        "effectiveFindingCounts": null,
+        "reportedReviewOutcome": "one review path reported zero-finding approval after correcting its own hash-method error, while independent fresh spec and security reviews rejected the same remediation; fail-closed conflict resolution requires new immutable reviews",
         "reviewersReadOnly": true,
-        "reviewerMutationCount": 0
+        "reviewerMutationCount": 0,
+        "freshImmutableRereviewRequired": true
       },
       "pr71PostReviewFinalAuthorization": {
-        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "status": "revoked-by-conflicting-review-evidence",
         "reviewedRemediationHeadSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
         "requiredChecksPassed": true,
         "annotationsEmpty": true,
-        "specApproved": true,
-        "qualityApproved": true,
-        "prReadyForReview": true,
-        "mergeAuthorized": true,
-        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": true,
+        "specApproved": false,
+        "qualityApproved": false,
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": false,
         "separatePostActivationReleaseRequired": true,
         "pr46IntakeAuthorized": false,
         "pr46ReadyAuthorized": false,
@@ -3733,6 +3733,29 @@
         "deploymentAuthorized": false,
         "providerMutationAuthorized": false,
         "historyRewriteAuthorized": false
+      },
+      "pr71ConditionalAuthorizationChecks": {
+        "headSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
+        "baseSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+        "buildRunId": 33363786283,
+        "repositorySecurityRunIds": [
+          33363786282,
+          33363782877
+        ],
+        "checkJobIds": [
+          99400184610,
+          99400184154,
+          99400174502
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "authorizationEffective": false,
+        "reviewConflictDetected": true,
+        "freshImmutableRereviewRequired": true
       },
       "pr67InitialChecks": {
         "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
@@ -3834,13 +3857,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T06:18:25Z",
-      "lastObservedAt": "2026-08-31T06:18:25Z",
-      "lastCommitAt": "2026-08-31T10:15:55+08:00",
-      "nextReviewAt": "2026-09-01T06:18:25Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T06:23:59Z",
+      "lastObservedAt": "2026-08-31T06:23:59Z",
+      "lastCommitAt": "2026-08-31T14:19:43+08:00",
+      "nextReviewAt": "2026-09-01T06:23:59Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR71 spec-remediation exact head 5d8d85f passed build and both repository-security checks with zero annotations after 48/48 governance tests and zero-finding spec/quality reviews. Post-review final authorization metadata is staged and requires its own exact-head checks before Ready/protected merge; PR46 intake and all ref actions remain false"
+      "closeout": "Draft PR71 exact head 04cd9c2 passed build and both repository-security checks with zero annotations but its review evidence conflicted. This staged registry-only correction revokes all current PR71 Ready/merge/spec/quality authorization and requires fresh immutable spec then quality review plus new exact-head CI; PR46 intake/Ready/merge and every external mutation remain false"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
