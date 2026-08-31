@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T06:02:43Z",
+  "updatedAt": "2026-08-31T06:07:29Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+      "headSha": "4777641dd1a2d7fcd1228ea52019ca47cb509f95",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,14 +1068,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T06:02:43Z",
-      "lastObservedAt": "2026-08-31T06:02:43Z",
-      "nextReviewAt": "2026-09-01T06:02:43Z",
+      "lastHeartbeatAt": "2026-08-31T06:07:29Z",
+      "lastObservedAt": "2026-08-31T06:07:29Z",
+      "nextReviewAt": "2026-09-01T06:07:29Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 71,
       "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 66,
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-final-authorization",
+      "dirtyState": "staged-registry-only-pr71-spec-remediation",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1567,8 +1567,13 @@
         "annotationsEmpty": true,
         "prReadyForReview": true,
         "mergeAuthorized": true,
-        "branchRetirementIntakeAuthorized": true,
-        "pr46IntakeAuthorized": true,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
+        "historicalBranchRetirementIntakeAuthorized": true,
+        "historicalPr46IntakeAuthorized": true,
+        "authorizationConsumed": true,
+        "authorizationConsumedAt": "2026-08-31T01:59:54Z",
+        "supersededBy": "protectedConflictValidatorAuthorization",
         "pr46ReadyAuthorized": false,
         "pr46MergeAuthorized": false,
         "casAuthorized": false,
@@ -1687,11 +1692,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 ordinary-fast-forwarded cleanly to exact protected main f65ed07 before staging this single registry file; no product or other-lane file is changed",
-        "ci": "PR69 exact final head 875fd5a and protected main f65ed07 passed build and repository-security checks with zero annotations; this PR70 candidate requires its own exact-head checks",
-        "merged": "PR69 exact head 875fd5a merged as live protected main f65ed07 at 2026-08-31T04:25:18Z and exact-main audit passed; local branch-retirement child 4a2d4b18 remains unpushed",
+        "local": "A01 is clean at exact PR71 head 4777641 before staging this registry-only spec remediation; no product or other-lane file is changed",
+        "ci": "PR71 initial b6ddf399 and lifecycle 7450edd9 heads passed build and both repository-security checks with zero annotations; exact 4777641 checks do not override the fresh immutable spec blocker",
+        "merged": "PR70 exact head f2583ab merged as live protected main 88d1c550 at 2026-08-31T05:15:45Z and exact-main audit passed; PR71 remains Draft and unmerged",
         "deployed": "not authorized",
-        "live": "live origin/main, clean root, and local A01 are exact f65ed07. Local branch-retirement child is clean 4a2d4b18; remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING and no child push or target-ref mutation occurred"
+        "live": "live origin/main and clean root are exact 88d1c550. Local/remote PR46 are exact 4a2d4b18 OPEN/Draft/CONFLICTING; PR71 remains Draft and no PR46 intake or target-ref mutation is authorized"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -1752,7 +1757,7 @@
       "evidenceState": {
         "local": "local head is exact 434a1aac on origin/main 88d1c550; staged 0, unstaged tracked 76, untracked 10, total changed paths 86, ahead 16 and behind 38; git diff --binary HEAD -- . SHA-256 e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1 and git status --porcelain=v1 SHA-256 037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b; all paths remain inside the exact 20-entry allowlist",
         "ci": "PR 38 exact head 40438885 passed build 33190293487 and repository-security 33190289095/33190293484; check jobs 98913757103/98913741715/98913757130 each have zero annotations",
-        "merged": "EvidenceFlow remains unmerged; Draft PR38 remote head remains 40438885 while local candidate is uncommitted at 434a1aac plus 62 tracked and 7 untracked bounded paths; no candidate commit/push/Ready/merge is authorized",
+        "merged": "EvidenceFlow remains unmerged; Draft PR38 remote head remains 40438885 while local candidate is uncommitted at 434a1aac plus 76 tracked and 10 untracked bounded paths; no candidate commit/push/Ready/merge is authorized",
         "deployed": "not authorized and not performed",
         "live": "the prior sole full verifier passed every phase but does not cover later dirty remediation bytes. Current EF-R2-09 focused evidence is 4 files / 24 tests PASS with TypeScript and broader gates still pending; this heartbeat authorizes no delivery claim"
       },
@@ -3184,8 +3189,11 @@
       "protectedConflictValidatorAuthorization": {
         "status": "pending-protected-activation",
         "protectedMainSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+        "protectedMainTreeSha": "21982e55763ac59f6a742daa5bc1378f335e532d",
         "candidateHeadSha": "4a2d4b18d51dc859f006de3558d10b7d53da40b6",
+        "candidateTreeSha": "1201b44fceb5601bc0a7fec8c0517f491a1c655c",
         "mergeBaseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "mergeBaseTreeSha": "fbf3312b4db5aff773fe6f6139fc8e12b0b3fe30",
         "protectedRegistryBlobSha": "e137a6b8c282ae087059783222a1c831049a5ff5",
         "candidateRegistryBlobSha": "86c4247a65d09e8366a3d62894d96bb80442810d",
         "candidateVerifierBlobSha": "43f2e4af8c9dd913d3ae2d888c26743a061b04f5",
@@ -3204,7 +3212,27 @@
         "protectedMainDiffSha256": "e7f7252648a48ebe08d13ef35acf9bb175e8f81bea9db605cf6778fd481ef40e",
         "candidateDiffSha256": "045a58ac3d00151f370f5eba47d8bd27bae57a35b0068729c62a18aa5e30feab",
         "protectedToCandidateDiffSha256": "6443a866577275215f7882d75da6e7ee680511854a4448d6e9d1b8e5df4c2981",
+        "requiredRecomputation": [
+          "resolve and compare the exact protected-main, candidate, and merge-base commits and trees",
+          "recompute active-work, verifier, and governance-test blob identities from the exact commits",
+          "recompute both changed-path sets, their exact one-path overlap, and the clean candidate-only set",
+          "recompute base-to-main, base-to-candidate, and main-to-candidate binary diff SHA-256 values",
+          "reject stale registry data or any commit, tree, blob, path-set, conflict-set, or digest mismatch before reconstruction"
+        ],
+        "requiredRedTests": [
+          "reject stale protected-main SHA or tree",
+          "reject stale candidate SHA or tree",
+          "reject stale merge-base SHA or tree",
+          "reject protected or candidate registry blob mismatch",
+          "reject candidate verifier or governance-test blob mismatch",
+          "reject changed-path, conflict-path, or clean-path-set mismatch",
+          "reject any binary diff digest mismatch",
+          "reject mixed registry-plus-unapproved-code reconstruction"
+        ],
         "redFirstRequired": true,
+        "redGreenProofSatisfied": false,
+        "implementationAuthorizedNow": false,
+        "separatePostActivationReleaseRequired": true,
         "protectedMainFullRegistryBaseRequired": true,
         "branchRetirementOwnedFieldReconstructionOnly": true,
         "pr46IntakeAuthorized": false,
@@ -3244,21 +3272,21 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "currentness child is clean at exact 4a2d4b18 with sole parent 00a857f, ahead 5 and behind 9 versus protected f65ed07; staged, unstaged, and untracked counts are zero; parent-relative diff is only active-work.json with SHA-256 3684ef19 and protected-main-relative three-path diff is d36d3938",
-        "ci": "exact child 4a2d4b18 passed current-byte repo-governance 91/91, registry-from-index/commit, staged write-policy/security, pre-commit index audit, native pre-commit, local/live audit with zero errors/blockers/unreachable commits, and two zero-finding reviews; child remains unpushed",
-        "merged": "PR69 exact head 875fd5a is merged as protected main f65ed07; local child 4a2d4b18 is neither pushed nor merged, while CAS, application receipt, target-ref mutation, Ready transition, and PR46 merge remain false",
+        "local": "current PR46 child is clean at exact 4a2d4b18 with sole parent 00a857f, ahead 5 and behind 13 versus protected 88d1c550; staged, unstaged, and untracked counts are zero; main-relative diff is exactly the three registered paths with SHA-256 6443a866",
+        "ci": "exact child 4a2d4b18 passed its prior current-byte governance gates before push; fresh immutable review now requires a dedicated exact conflict-validator and new RED/GREEN proof before any intake release",
+        "merged": "PR70 exact head f2583ab is merged as protected main 88d1c550; local and remote Draft PR46 are exact 4a2d4b18 but remain unmerged/CONFLICTING, while intake, CAS, application receipt, target-ref mutation, Ready transition, and PR46 merge remain false",
         "deployed": "not in scope and not authorized",
-        "live": "protected main f65ed07 commit-bound audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0; remote PR46 remains exact a9b3abc OPEN/Draft/CONFLICTING and all four same-name target remote heads are absent; local Human, Quirky, Statistical, and ledger refs remain exact, ledger quarantine remains exact, owner-only bundles remain complete-history verified, and task-owned retirement receipt count remains zero"
+        "live": "protected main 88d1c550 commit-bound audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0; remote PR46 is exact 4a2d4b18 OPEN/Draft/CONFLICTING and all four same-name target remote heads are absent; local Human, Quirky, Statistical, and ledger refs remain exact, ledger quarantine remains exact, owner-only bundles remain complete-history verified, and task-owned retirement receipt count remains zero"
       },
       "currentCustodyHeartbeat": {
-      "recordedAt": "2026-08-31T04:52:38Z",
+      "recordedAt": "2026-08-31T06:07:29Z",
       "candidateHeadSha": "4a2d4b18d51dc859f006de3558d10b7d53da40b6",
       "candidateParents": [
         "00a857fccf5cf853c56c047fa5fd67d36c359d31"
       ],
-      "originMainSha": "f65ed07eea966e9a54a45b590509cb407c98700d",
+      "originMainSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
       "ahead": 5,
-      "behind": 9,
+      "behind": 13,
         "clean": true,
         "stagedPathCount": 0,
         "unstagedPathCount": 0,
@@ -3268,7 +3296,7 @@
           "scripts/verify-sena-repo-governance.mjs",
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
-      "protectedMainRelativeDiffSha256": "d36d39383d6451716349e4c6189cfacb521f27ae90afc03ffb0e7580bd33d7de",
+      "protectedMainRelativeDiffSha256": "6443a866577275215f7882d75da6e7ee680511854a4448d6e9d1b8e5df4c2981",
       "parentRelativeChangedPaths": [
         "coordination/repo-governance/active-work.json"
       ],
@@ -3314,9 +3342,9 @@
           "freshMainSelectiveReconstructionOnly": true
         },
         "intakeConflictTopology": {
-        "observedAt": "2026-08-31T04:52:38Z",
+        "observedAt": "2026-08-31T06:07:29Z",
         "candidateHeadSha": "4a2d4b18d51dc859f006de3558d10b7d53da40b6",
-        "protectedMainSha": "f65ed07eea966e9a54a45b590509cb407c98700d",
+        "protectedMainSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
         "mergeBaseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
         "bothSidesChangedPathCount": 1,
         "conflictingPaths": [
@@ -3326,18 +3354,19 @@
           "scripts/verify-sena-repo-governance.mjs",
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
-        "verifierConflict": "resolved in child ancestry; against protected f65ed07 only active-work.json overlaps, while verifier and governance test changes remain the reviewed exact 00a857f implementation",
-        "futureIntakeRequirement": "This second protected registry-only heartbeat must bind exact child 4a2d4b18 and pass exact-head CI, protected merge, post-main CI, and exact-main audit before any separate one-shot native push release.",
-          "intakeAuthorized": true,
+        "verifierConflict": "against exact protected 88d1c550 only active-work.json overlaps; child verifier and governance test remain clean candidate-only paths but require a new exact conflict-validator before reconstruction",
+        "futureIntakeRequirement": "PR71 must pass fresh spec and quality review, exact-head CI, protected merge, post-main CI, and exact-main audit; then a separate release may authorize only RED-first exact conflict-validator implementation, not intake.",
+          "intakeAuthorized": false,
           "authorizationRecorded": true,
-          "authorizationEffective": true,
-          "effectiveAfterProtectedMainAudit": true,
+          "authorizationEffective": false,
+          "effectiveAfterProtectedMainAudit": false,
           "authorizationMode": "preserve-first-only",
           "composeBothVerifierSemanticsRequired": true,
           "redGreenProofRequired": true,
-          "redGreenProofSatisfied": true
+          "redGreenProofSatisfied": false
         },
         "intakeValidation": {
+          "status": "historical-previous-intake-proof-not-current-conflict-validator-proof",
           "redProof": "consumed-ref reappearance 1/1 expected RED",
           "focusedTestsPassed": 2,
           "focusedTestsTotal": 2,
@@ -3370,8 +3399,9 @@
             "mergeApprovedForIntakeOnly": true
           }
         },
-        "branchRetirementIntakeAuthorized": true,
-        "pr46IntakeAuthorized": true,
+        "currentConflictValidatorProofSatisfied": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
         "pr46CandidatePushAuthorized": false,
         "pr46ReadyAuthorized": false,
         "pr46MergeAuthorized": false,
@@ -3383,12 +3413,12 @@
         "historyRewriteAuthorized": false
       },
       "preserveFirstIntakeAuthorization": {
-      "status": "exact-child-complete-push-heartbeat-pending-protected-activation",
+      "status": "superseded-by-exact-conflict-validator-requirement",
         "authorizationBasis": "Explicit owner request to advance branch-retirement governance; this permission covers only preserve-first candidate intake and governance reconstruction, never target-ref deletion or CAS.",
       "candidateHeadSha": "4a2d4b18d51dc859f006de3558d10b7d53da40b6",
-      "protectedMainSha": "f65ed07eea966e9a54a45b590509cb407c98700d",
+      "protectedMainSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
         "protectedMainLifecycleRequired": true,
-        "effective": true,
+        "effective": false,
         "authorizationRecorded": true,
       "activatedAt": "2026-08-31T04:52:38Z",
       "activationEvidence": {
@@ -3403,8 +3433,12 @@
           "commitBoundLiveAuditOwnerBlockers": [],
           "unreachableCommitCount": 0
         },
-        "separateExecutionReleaseRequired": false,
-        "separatePushReleaseRequired": true,
+        "supersededAt": "2026-08-31T06:07:29Z",
+        "supersededBy": "protectedConflictValidatorAuthorization",
+        "separateExecutionReleaseRequired": true,
+        "separatePushReleaseRequired": false,
+        "branchRetirementIntakeAuthorized": false,
+        "pr46IntakeAuthorized": false,
         "verifierMethod": "compose consumedRetirement with integratedRootRegistryAdvance; take protected main active-work registry as full base; reconstruct only branch-retirement-owned fields; add RED/GREEN tests for registry-only advance and mixed registry-plus-code rejection",
         "retirementOrder": [
           "codex/sena-human-ai-research-docs",
@@ -3564,19 +3598,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+      "headSha": "4777641dd1a2d7fcd1228ea52019ca47cb509f95",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
-      "remoteObservedAt": "2026-08-31T06:02:43Z",
+      "remoteHeadSha": "4777641dd1a2d7fcd1228ea52019ca47cb509f95",
+      "remoteObservedAt": "2026-08-31T06:07:29Z",
       "pr": 71,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": true,
-      "mergeAuthorized": true,
-      "prHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "4777641dd1a2d7fcd1228ea52019ca47cb509f95",
       "prBase": "main",
       "noPrReason": null,
       "pr71InitialChecks": {
@@ -3620,13 +3654,15 @@
         "mergeStateStatus": "BLOCKED"
       },
       "pr71FinalAuthorization": {
-        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "status": "superseded-by-fresh-immutable-spec-review",
         "lifecycleHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
         "requiredLifecycleChecksPassed": true,
         "lifecycleAnnotationsEmpty": true,
-        "prReadyForReview": true,
-        "mergeAuthorized": true,
-        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": true,
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": false,
+        "reviewBlockedAt": "2026-08-31T06:07:29Z",
+        "reviewBlocker": "current branch-retirement intake flags and evidence contradicted the new exact conflict-validator boundary; immutable tree commitments and fail-closed recomputation RED contracts were incomplete",
         "pr46IntakeAuthorized": false,
         "pr46ReadyAuthorized": false,
         "pr46MergeAuthorized": false,
@@ -3739,13 +3775,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T06:02:43Z",
-      "lastObservedAt": "2026-08-31T06:02:43Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T06:07:29Z",
+      "lastObservedAt": "2026-08-31T06:07:29Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
-      "nextReviewAt": "2026-09-01T06:02:43Z",
+      "nextReviewAt": "2026-09-01T06:07:29Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR71 lifecycle exact head 7450edd passed build and both repository-security checks with zero annotations. Final authorization metadata is staged and requires its own exact-head checks before Ready/protected merge; PR46 intake/Ready/merge and all ref actions remain false"
+      "closeout": "Draft PR71 exact head 4777641 was stopped before Ready/merge by fresh immutable spec review. This staged registry-only remediation unifies all intake flags to false and adds exact tree/recompute/stale-mismatch RED contracts; it requires full gates plus fresh spec and quality review before any new final authorization"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
