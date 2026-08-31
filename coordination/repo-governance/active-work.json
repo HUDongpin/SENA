@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T06:23:59Z",
+  "updatedAt": "2026-08-31T06:40:37Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
+      "headSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 5,
+        "ahead": 6,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,9 +1068,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T06:23:59Z",
-      "lastObservedAt": "2026-08-31T06:23:59Z",
-      "nextReviewAt": "2026-09-01T06:23:59Z",
+      "lastHeartbeatAt": "2026-08-31T06:40:37Z",
+      "lastObservedAt": "2026-08-31T06:40:37Z",
+      "nextReviewAt": "2026-09-01T06:40:37Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 71,
       "prIsDraft": true,
@@ -1471,7 +1471,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-review-conflict-correction",
+      "dirtyState": "staged-registry-only-pr71-final-lifecycle-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1693,8 +1693,8 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 is clean at exact PR71 head 04cd9c2 before staging this registry-only review-conflict correction; no product or other-lane file is changed",
-        "ci": "PR71 exact conditional-authorization head 04cd9c2 passed build 33363786283 and repository-security 33363786282/33363782877 with zero annotations, but CI cannot override conflicting review evidence or authorize Ready/merge",
+        "local": "A01 is clean at exact PR71 correction head a44dfeb before staging this registry-only final lifecycle authorization; no product or other-lane file is changed",
+        "ci": "PR71 exact correction head a44dfeb passed build 33364986760 and repository-security 33364986788/33364983641 with zero annotations; fresh independent spec and quality reviews approved only this correction, while the final lifecycle commit still requires its own exact-head CI before Ready/protected merge",
         "merged": "PR70 exact head f2583ab merged as live protected main 88d1c550 at 2026-08-31T05:15:45Z and exact-main audit passed; PR71 remains Draft and unmerged",
         "deployed": "not authorized",
         "live": "live origin/main and clean root are exact 88d1c550. Local/remote PR46 are exact 4a2d4b18 OPEN/Draft/CONFLICTING; PR71 remains Draft and no PR46 intake or target-ref mutation is authorized"
@@ -3599,19 +3599,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
+      "headSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
-      "remoteObservedAt": "2026-08-31T06:23:59Z",
+      "remoteHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+      "remoteObservedAt": "2026-08-31T06:40:37Z",
       "pr": 71,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "04cd9c2f015c5696eb961874f295e592401bcba8",
+      "prHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
       "prBase": "main",
       "noPrReason": null,
       "pr71InitialChecks": {
@@ -3712,15 +3712,16 @@
         "freshImmutableRereviewRequired": true
       },
       "pr71PostReviewFinalAuthorization": {
-        "status": "revoked-by-conflicting-review-evidence",
-        "reviewedRemediationHeadSha": "5d8d85f734f81d1f95ebd436de896d5ce05b781e",
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "reviewedRemediationHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
         "requiredChecksPassed": true,
         "annotationsEmpty": true,
-        "specApproved": false,
-        "qualityApproved": false,
-        "prReadyForReview": false,
-        "mergeAuthorized": false,
-        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": false,
+        "specApproved": true,
+        "qualityApproved": true,
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "authorizationEffectiveOnlyAfterExactHeadChecks": true,
+        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": true,
         "separatePostActivationReleaseRequired": true,
         "pr46IntakeAuthorized": false,
         "pr46ReadyAuthorized": false,
@@ -3756,6 +3757,32 @@
         "authorizationEffective": false,
         "reviewConflictDetected": true,
         "freshImmutableRereviewRequired": true
+      },
+      "pr71FreshCorrectionReviews": {
+        "status": "approved-for-registry-only-final-lifecycle-metadata",
+        "reviewedHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+        "reviewedTreeSha": "99acc6c7d64f53cd121cc042151dca5fcfc0c384",
+        "reviewedRegistryBlobSha": "5b9dd68ebdcf4f90eb59ebde55d331d33e121521",
+        "reviewedDiffSha256": "3d73508f400eeb08ad18348e23f8302fcb4cdab586324a592272fc5eaded7043",
+        "reviewedStatusSha256": "f8c06cfa548444a7ddb521145d3177b7ec425ee36b0911cd20e0b1b53598be37",
+        "specReview": {
+          "approved": true,
+          "p0": 0,
+          "p1": 0,
+          "p2": 0,
+          "p3": 0,
+          "scope": "registry-only correction; validator implementation intentionally remains unapproved"
+        },
+        "qualitySecurityReview": {
+          "approved": true,
+          "p0": 0,
+          "p1": 0,
+          "p2": 0,
+          "p3": 0,
+          "scope": "commit/push exact correction to Draft PR71 only; no Ready, merge, PR46, or external mutation authority"
+        },
+        "reviewersReadOnly": true,
+        "reviewerMutationCount": 0
       },
       "pr67InitialChecks": {
         "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
@@ -3857,13 +3884,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T06:23:59Z",
-      "lastObservedAt": "2026-08-31T06:23:59Z",
-      "lastCommitAt": "2026-08-31T14:19:43+08:00",
-      "nextReviewAt": "2026-09-01T06:23:59Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T06:40:37Z",
+      "lastObservedAt": "2026-08-31T06:40:37Z",
+      "lastCommitAt": "2026-08-31T14:34:55+08:00",
+      "nextReviewAt": "2026-09-01T06:40:37Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR71 exact head 04cd9c2 passed build and both repository-security checks with zero annotations but its review evidence conflicted. This staged registry-only correction revokes all current PR71 Ready/merge/spec/quality authorization and requires fresh immutable spec then quality review plus new exact-head CI; PR46 intake/Ready/merge and every external mutation remain false"
+      "closeout": "Draft PR71 exact correction head a44dfeb passed build and both repository-security checks with zero annotations. Fresh immutable spec then quality/security reviews approved this registry-only final lifecycle metadata, which requires its own exact-head CI before Ready/protected merge; PR46 intake/Ready/merge and every external mutation remain false"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
