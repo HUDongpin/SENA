@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T06:40:37Z",
+  "updatedAt": "2026-08-31T16:34:24Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -136,9 +136,9 @@
           "mergedGovernancePullRequest": 21,
           "mergedGovernanceHeadSha": "24d24c819bb92fab7f0b06dd6ec01861207852d0",
           "mergedGovernanceCommitSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-          "ownerAuthorizationReceiptPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-owner-authorization-20260827T165546Z.json",
+          "ownerAuthorizationReceiptPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-owner-authorization-20260827T165546Z.json",
           "ownerAuthorizationReceiptSha256": "8a63c9d790fdd305c84e9ca84f36e7409749f46ad6c3440fd47d6059bfd5c71f",
-          "mergeCloseoutReceiptPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-merge-closeout-20260827T170026Z.json",
+          "mergeCloseoutReceiptPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/pr21-merge-closeout-20260827T170026Z.json",
           "mergeCloseoutReceiptSha256": "d1388392a36dfa312773fde65d7c3532cac0ff04545a6ae5c7219d0369c868fe",
           "postMainBuildRunId": 33095931855,
           "postMainRepositorySecurityRunId": 33095931649,
@@ -262,10 +262,10 @@
         "remoteHeadRequiredAbsent": true,
         "custody": {
           "kind": "ordinary-archive",
-          "root": "/Volumes/Starship/SENA-backups/20260829-branch-retirement/ordinary",
-          "manifestPath": "/Volumes/Starship/SENA-backups/20260829-branch-retirement/ordinary/sena-retired-archive-tags-20260829.manifest.json",
+          "root": "/Volumes/Starship/SENA的衍生文件/SENA-backups/20260829-branch-retirement/ordinary",
+          "manifestPath": "/Volumes/Starship/SENA的衍生文件/SENA-backups/20260829-branch-retirement/ordinary/sena-retired-archive-tags-20260829.manifest.json",
           "manifestSha256": "35907a588314dbb3e83ab89d5fe2e423b1000087834ee8be505ab85640c60483",
-          "bundlePath": "/Volumes/Starship/SENA-backups/20260829-branch-retirement/ordinary/sena-retired-archive-tags-20260829.bundle",
+          "bundlePath": "/Volumes/Starship/SENA的衍生文件/SENA-backups/20260829-branch-retirement/ordinary/sena-retired-archive-tags-20260829.bundle",
           "bundleSha256": "ada86c0801288d366533422fd887f7afaa502693ea1776ac5b7888e030fb8d51",
           "bundleBytes": 190875421,
           "bundleRef": "refs/tags/archive/codex-sena-human-ai-research-docs-20260823",
@@ -273,7 +273,7 @@
           "tagObjectSha": "d69d06072483904b0ba3eb3bb264721b7d5c4c43",
           "peeledCommitSha": "5537582fbf820951777f88ef5bc5c63e23feada3"
         },
-        "receiptDirectory": "/Volumes/Starship/SENA-backups/20260829-branch-retirement/ordinary/receipts",
+        "receiptDirectory": "/Volumes/Starship/SENA的衍生文件/SENA-backups/20260829-branch-retirement/ordinary/receipts",
         "deletionRelease": null,
         "authorizationRegistryCommit": null,
         "eventId": null,
@@ -343,7 +343,7 @@
         "credentialValueHashesRecorded": false,
         "externalReadbackReceipt": {
           "id": "provider-containment-readback-20260827T114654Z",
-          "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T114654Z.json",
+          "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T114654Z.json",
           "sha256": "b46f9c559ac19146f0fc97169615143cac98a1ee39fcbf08175f78331d9e77ca",
           "bytes": 7764,
           "mode": "0600",
@@ -356,7 +356,7 @@
           "supersessionSatisfied": true,
           "completeSupersedingReadback": {
             "id": "provider-containment-readback-20260827T151341Z",
-            "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T151341Z.json",
+            "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T151341Z.json",
             "sha256": "49fbd755fe773f861ae9158445480f1cdfbb68110933a7d40756f41a7c00d1b2",
             "bytes": 12089,
             "mode": "0600",
@@ -392,7 +392,7 @@
               "source": "durable-additive-receipt",
               "recordedAt": "2026-08-27T12:05:32Z",
               "observedAt": "2026-08-27T12:07:57Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-secret-store-binding-correction-20260827T120757Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-secret-store-binding-correction-20260827T120757Z.json",
               "sha256": "2acd8fb2cca3c87057f235aade9779265bddd9d126b9a43124406a2446f7aa5e",
               "bytes": 1687,
               "mode": "0600",
@@ -419,7 +419,7 @@
           "followUpReadbacks": [
             {
               "id": "provider-containment-readback-20260827T122317Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T122317Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-readback-20260827T122317Z.json",
               "sha256": "c00fa574dba8925a9e761674e9046e6ca5f12765d74e445a1d8d023b83aa5b3a",
               "bytes": 4501,
               "mode": "0600",
@@ -441,7 +441,7 @@
           "secretStoreReadinessReceipts": [
             {
               "id": "provider-secret-store-readiness-20260827T122652Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-secret-store-readiness-20260827T122652Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-secret-store-readiness-20260827T122652Z.json",
               "sha256": "84551782024448336e3e4fdda46e13512491bcc8f8ccf37ead62f22b23e6c3db",
               "bytes": 5591,
               "mode": "0600",
@@ -462,7 +462,7 @@
           "blockerReceipts": [
             {
               "id": "provider-containment-blocker-20260827T123124Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-blocker-20260827T123124Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-containment-blocker-20260827T123124Z.json",
               "sha256": "c6b003d5b45adfe69551ab495f314867761b5e26cc1551bcb24001e31a81a824",
               "bytes": 3979,
               "mode": "0600",
@@ -486,7 +486,7 @@
           "preActionReadinessReceipts": [
             {
               "id": "provider-rotation-preaction-readiness-20260827T131206Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-rotation-preaction-readiness-20260827T131206Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/provider-rotation-preaction-readiness-20260827T131206Z.json",
               "sha256": "96b9bc5beb8557b421164c1bbc5898a71d2fa3d664ca5c1685054896772846e7",
               "bytes": 4393,
               "mode": "0600",
@@ -517,7 +517,7 @@
           "rotationCloseoutReceipts": [
             {
               "id": "qwen-rotation-closeout-20260827T133859Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/qwen-rotation-closeout-20260827T133859Z.json",
               "sha256": "7bd7879524647c73a4f14b56f0bbf3c90bbc7aee6fc1cc8658c665e2d897e2ff",
               "bytes": 1863,
               "mode": "0600",
@@ -536,7 +536,7 @@
             },
             {
               "id": "openrouter-rotation-closeout-20260827T134430Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/openrouter-rotation-closeout-20260827T134430Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/openrouter-rotation-closeout-20260827T134430Z.json",
               "sha256": "ae0c909bb42bce5378f2649895ad40ea7f19c13ef0628a08e0f4eea2562cd0d3",
               "bytes": 1978,
               "mode": "0600",
@@ -560,7 +560,7 @@
             },
             {
               "id": "lrs-rotation-closeout-20260827T135705Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/lrs-rotation-closeout-20260827T135705Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/lrs-rotation-closeout-20260827T135705Z.json",
               "sha256": "c60963b8a85c6caa717ec14db0c669c50bad7540cf78759d4e7629e10f147266",
               "bytes": 2834,
               "mode": "0600",
@@ -588,7 +588,7 @@
             },
             {
               "id": "clerk-rotation-closeout-20260827T144832Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/clerk-rotation-closeout-20260827T144832Z.json",
               "sha256": "e4a35fab8384c077cffdfd02b6230971ff9c15c45ef68de54ecad4b90b5986d5",
               "bytes": 2242,
               "mode": "0600",
@@ -616,7 +616,7 @@
             },
             {
               "id": "mathpix-rotation-closeout-20260827T150838Z",
-              "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/mathpix-rotation-closeout-20260827T150838Z.json",
+              "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/mathpix-rotation-closeout-20260827T150838Z.json",
               "sha256": "579f231860591740e48d680a7bd3689679bc800e33f8b992d5c7cd9a16086598",
               "bytes": 3819,
               "mode": "0600",
@@ -901,7 +901,7 @@
             "actorRole": "owner",
             "taskReference": "codex-thread:01a04273-01e1-7b73-8ec2-0045b7acfd6f",
             "receivedAt": "2026-08-27T12:34:26Z",
-            "durableReceiptPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/provider-containment/deepseek-usage-owner-attestation-20260827T123503Z.json",
+            "durableReceiptPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/provider-containment/deepseek-usage-owner-attestation-20260827T123503Z.json",
             "durableReceiptSha256": "b4a7aeaab9f4b364bb235e61c9735b15f02e0628eb5111a0f5c580dd33544af1",
             "durableReceiptRecordedAt": "2026-08-27T12:35:03Z",
             "durableReceiptContainsTaskReference": false,
@@ -942,7 +942,7 @@
       "liveAuditStatus": "pass-incident-closed-remote-ref-absent-zero-known-path-or-blob-findings-root-main-restored-relative-hook-custody-feature-freeze-false",
       "liveRefReachabilityReceipt": {
         "id": "live-ref-reachability-predelete-20260827T120709Z",
-        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-predelete-20260827T120709Z.json",
+        "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-predelete-20260827T120709Z.json",
         "sha256": "0f50fdebd37520288c3a409e635c6cb92bfb75c74fa4e93b8fafe04517922845",
         "bytes": 1593,
         "mode": "0600",
@@ -956,7 +956,7 @@
       },
       "postDeleteLiveRefReachabilityReceipt": {
         "id": "live-ref-reachability-postdelete-20260827T180312Z",
-        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json",
+        "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/live-ref-reachability-postdelete-20260827T180312Z.json",
         "sha256": "e4137d7394b0bace0c9e39f1c26f4eda61bd83b6abc928c48936676ab8668672",
         "bytes": 1266,
         "mode": "0600",
@@ -971,7 +971,7 @@
       },
       "remoteRefDeletionCloseoutReceipt": {
         "id": "remote-ref-deletion-closeout-20260827T180709Z",
-        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/remote-ref-deletion-closeout-20260827T180709Z.json",
+        "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/ref-reachability/remote-ref-deletion-closeout-20260827T180709Z.json",
         "sha256": "d614f86d3a058afbf5aab08466fcac4b41ab08ad148a8bbd3ed966e345fe3873",
         "bytes": 3515,
         "mode": "0600",
@@ -1015,26 +1015,26 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 8
       },
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
-      "lastHeartbeatAt": "2026-08-31T05:57:59Z",
-      "lastObservedAt": "2026-08-31T05:57:59Z",
-      "nextReviewAt": "2026-09-01T05:57:59Z",
+      "lastHeartbeatAt": "2026-08-31T07:13:10Z",
+      "lastObservedAt": "2026-08-31T07:13:10Z",
+      "nextReviewAt": "2026-09-01T07:13:10Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-main-exact-live-main-registry-only",
+      "dirtyState": "clean-root-at-88d1c550-observed-protected-main-registry-only-advance-to-1ceaab6",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "root control checkout is clean at exact live main 88d1c550; staged, unstaged, and untracked counts are zero and ahead/behind is 0/0",
-        "ci": "PR70 exact head f2583ab passed its required checks and protected main 88d1c550 passed post-main build 33359906451 and repository-security 33359906411 with zero annotations",
-        "merged": "PR70 exact head f2583ab merged as protected main 88d1c55074fd74f91a291afd89965f4a42bd39f7; A01 intake used ordinary ff-only without reset, rebase, force, or history rewrite",
+        "local": "root control checkout is clean at exact local main 88d1c550; staged, unstaged, and untracked counts are zero, while fetched protected main has advanced registry-only to 1ceaab6 and root remains read-only",
+        "ci": "PR71 exact head 5808ed3 passed build 33365771953 and repository-security 33365771933/33365769448 with zero annotations; protected main 1ceaab6 passed post-main build 33365976676 and repository-security 33365976713 with zero annotations",
+        "merged": "PR71 exact head 5808ed3 merged as protected main 1ceaab6bb82e0e5a94d400a15191ef9bdfa40b40; root was deliberately not advanced, reset, rebased, or rewritten",
         "deployed": "not authorized and not claimed",
-        "live": "live GitHub main, fetched origin/main, clean root, and clean A01 are exact 88d1c550; commit-bound live audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0. Remote PR46 is exact 4a2d4b18 and remains Draft/CONFLICTING"
+        "live": "live GitHub main and fetched origin/main are exact 1ceaab6; root remains clean at 88d1c550 by read-only control-plane policy, clean A01 is at 1ceaab6, and remote PR46 remains exact 4a2d4b18 Draft/CONFLICTING"
       },
       "disposition": "integrated"
     },
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+      "headSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 6,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,11 +1068,11 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T06:40:37Z",
-      "lastObservedAt": "2026-08-31T06:40:37Z",
-      "nextReviewAt": "2026-09-01T06:40:37Z",
+      "lastHeartbeatAt": "2026-08-31T16:34:24Z",
+      "lastObservedAt": "2026-08-31T16:34:24Z",
+      "nextReviewAt": "2026-09-01T16:34:24Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 71,
+      "prNumber": 72,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
@@ -1471,7 +1471,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-final-lifecycle-authorization",
+      "dirtyState": "staged-registry-only-pr72-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1693,11 +1693,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 is clean at exact PR71 correction head a44dfeb before staging this registry-only final lifecycle authorization; no product or other-lane file is changed",
-        "ci": "PR71 exact correction head a44dfeb passed build 33364986760 and repository-security 33364986788/33364983641 with zero annotations; fresh independent spec and quality reviews approved only this correction, while the final lifecycle commit still requires its own exact-head CI before Ready/protected merge",
-        "merged": "PR70 exact head f2583ab merged as live protected main 88d1c550 at 2026-08-31T05:15:45Z and exact-main audit passed; PR71 remains Draft and unmerged",
+        "local": "A01 local and remote branch heads are exact d0c90ca on Draft PR72; exactly active-work.json is staged for the registry-only final authorization and custody-path relocation, with no product or EvidenceFlow file changed",
+        "ci": "PR72 lifecycle head d0c90ca passed build 33368333791 and repository-security 33368333815/33368330997 with zero annotations; the newly staged final authorization commit has not yet received its own exact-head checks",
+        "merged": "PR71 exact head 5808ed3 remains merged as live protected main 1ceaab6 at 2026-08-31T06:52:50Z; PR72 is still OPEN/Draft and not merged, and this staged final authorization grants no PR46 intake or external mutation",
         "deployed": "not authorized",
-        "live": "live origin/main and clean root are exact 88d1c550. Local/remote PR46 are exact 4a2d4b18 OPEN/Draft/CONFLICTING; PR71 remains Draft and no PR46 intake or target-ref mutation is authorized"
+        "live": "live origin/main is exact 1ceaab6, local and remote A01 plus Draft PR72 are exact d0c90ca and CLEAN/MERGEABLE, and read-only root remains clean at 88d1c550. Local/remote PR46 are exact 4a2d4b18 OPEN/Draft/CONFLICTING with a frozen two-file validator candidate; no PR46 intake or target-ref mutation is authorized"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3164,7 +3164,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 5,
-        "behind": 13
+        "behind": 21
       },
       "allowedPaths": [
         "coordination/repo-governance/**",
@@ -3172,16 +3172,16 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-08-28T16:51:55Z",
-      "lastHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-08-31T05:47:35Z",
-      "nextReviewAt": "2026-08-31T11:47:35Z",
+      "lastHeartbeatAt": "2026-08-31T07:13:10Z",
+      "lastObservedAt": "2026-08-31T07:13:10Z",
+      "nextReviewAt": "2026-09-01T07:13:10Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "clean-pr46-exact-4a2d4b18-conflict-validator-red-first-authorization-pending-protected-activation",
+      "dirtyState": "unstaged-frozen-exact-conflict-validator-two-path-red-green-complete-awaiting-currentness-heartbeat",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
@@ -3248,10 +3248,47 @@
         "providerMutationAuthorized": false,
         "historyRewriteAuthorized": false
       },
+      "conflictValidatorFrozenCheckpoint": {
+        "authorizationRegistryCommit": "1ceaab6bb82e0e5a94d400a15191ef9bdfa40b40",
+        "candidateHeadSha": "4a2d4b18d51dc859f006de3558d10b7d53da40b6",
+        "stagedPathCount": 0,
+        "unstagedPathCount": 2,
+        "untrackedPathCount": 0,
+        "changedPaths": [
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "fullDiffSha256": "e3801fcd4e93ded5f95b0834c3ac11ee036d07e253b9e7743c77e5df1782f976",
+        "statusSha256": "5c56eabaeca42879b17ef448a706489540b75fa581754a9179211591ee62f0c5",
+        "verifierSha256": "6b739aa163f2255eafbe2ed22518b37b2ddd992cb9fb9d265649566e9e3124f3",
+        "governanceTestSha256": "2dadc7686a8d0b2001dff76d211603ea31ddd49ee99f822d31f16a10197790d0",
+        "redGreen": {
+          "unknownCommandRedObserved": true,
+          "exactTripleGreenObserved": true,
+          "mismatchClassifierRedObserved": true,
+          "mismatchClassifierGreenObserved": true,
+          "focusedTestsPassed": 2,
+          "focusedTestsTotal": 2
+        },
+        "verification": {
+          "typeScriptPassed": true,
+          "diffCheckPassed": true,
+          "exactConflictIntakeCliPassed": true,
+          "fullRepoGovernancePassed": 88,
+          "fullRepoGovernanceFailed": 5,
+          "fullRepoGovernanceFailureClassification": "pre-heartbeat protected-main/currentness RED only; no new validator test failed"
+        },
+        "processCount": 0,
+        "openHandleCount": 0,
+        "unreachableCommitCount": 0,
+        "candidateCommitAuthorized": false,
+        "candidatePushAuthorized": false,
+        "preserveFirstIntakeAuthorized": false
+      },
       "externalCustodyBoundary": {
-        "mixedBundleRoot": "/Volumes/Starship/SENA-backups/round31-pre-clean-uja7LF/",
-        "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA-backups/",
-        "ledgerQuarantineRoot": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/",
+        "mixedBundleRoot": "/Volumes/Starship/SENA的衍生文件/SENA-backups/round31-pre-clean-uja7LF/",
+        "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA的衍生文件/SENA-backups/",
+        "ledgerQuarantineRoot": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/",
         "exactLedgerTip": "18d542f707e56aa9d043dd497e0efe48b540db20",
         "scope": "all existing or newly produced bundles whose headers contain the exact quarantined ledger tip, not only the round31 directory",
         "readOnlyCustodyAudit": {
@@ -3273,11 +3310,11 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "current PR46 child is clean at exact 4a2d4b18 with sole parent 00a857f, ahead 5 and behind 13 versus protected 88d1c550; staged, unstaged, and untracked counts are zero; main-relative diff is exactly the three registered paths with SHA-256 6443a866",
-        "ci": "exact child 4a2d4b18 passed its prior current-byte governance gates before push; fresh immutable review now requires a dedicated exact conflict-validator and new RED/GREEN proof before any intake release",
-        "merged": "PR70 exact head f2583ab is merged as protected main 88d1c550; local and remote Draft PR46 are exact 4a2d4b18 but remain unmerged/CONFLICTING, while intake, CAS, application receipt, target-ref mutation, Ready transition, and PR46 merge remain false",
+        "local": "PR46 child remains exact 4a2d4b18 with sole parent 00a857f, ahead 5 and behind 21 versus protected 1ceaab6; staged=0, unstaged tracked=2, untracked=0, changed paths are exactly verifier plus repo-governance test, full diff SHA-256 e3801fcd and status SHA-256 5c56eaba",
+        "ci": "PR71 protected activation separately released RED-first validator work. The validator now has two exact RED-to-GREEN proofs, focused 2/2 PASS, TypeScript PASS, diff-check PASS, and actual conflict-intake CLI PASS; no commit or push is authorized",
+        "merged": "PR71 exact head 5808ed3 is merged as protected main 1ceaab6; local and remote Draft PR46 remain exact 4a2d4b18 and unmerged/CONFLICTING, while intake, CAS, application receipt, target-ref mutation, Ready transition, and PR46 merge remain false",
         "deployed": "not in scope and not authorized",
-        "live": "protected main 88d1c550 commit-bound audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0; remote PR46 is exact 4a2d4b18 OPEN/Draft/CONFLICTING and all four same-name target remote heads are absent; local Human, Quirky, Statistical, and ledger refs remain exact, ledger quarantine remains exact, owner-only bundles remain complete-history verified, and task-owned retirement receipt count remains zero"
+        "live": "protected main 1ceaab6 post-main CI passed but commit-bound audit is intentionally RED only for the now-dirty PR46 worktree declared clean by the prior registry. Full repo-governance is 88 passed / 5 currentness-environment failures; all four same-name target remote heads remain absent, local target refs and ledger quarantine remain exact, custody remains complete-history verified, and task-owned retirement receipt count remains zero"
       },
       "currentCustodyHeartbeat": {
       "recordedAt": "2026-08-31T06:07:29Z",
@@ -3583,11 +3620,11 @@
       "remotePresent": true,
       "remoteHeadSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-08-31T05:47:35Z",
+      "remoteObservedAt": "2026-08-31T07:13:10Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
-      "lastOwnerHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-08-31T05:47:35Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T07:13:10Z",
+      "lastObservedAt": "2026-08-31T07:13:10Z",
       "lastCommitAt": "2026-08-30T20:53:36+08:00",
       "nextReviewAt": "2026-09-01T05:47:35Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
@@ -3599,19 +3636,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+      "headSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
-      "remoteObservedAt": "2026-08-31T06:40:37Z",
-      "pr": 71,
+      "remoteHeadSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
+      "remoteObservedAt": "2026-08-31T16:34:24Z",
+      "pr": 72,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+      "prHeadSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
       "prBase": "main",
       "noPrReason": null,
       "pr71InitialChecks": {
@@ -3784,6 +3821,30 @@
         "reviewersReadOnly": true,
         "reviewerMutationCount": 0
       },
+      "pr72InitialChecks": {
+        "headSha": "371e51036d29f877015eae6fb4fb0ccda5cafa22",
+        "baseSha": "1ceaab6bb82e0e5a94d400a15191ef9bdfa40b40",
+        "buildRunId": 33367992997,
+        "repositorySecurityRunIds": [33367992961, 33367975218],
+        "checkJobIds": [99412586998, 99412586854, 99412533972],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "preserveFirstIntakeAuthorized": false,
+        "pr46CandidateCommitAuthorized": false,
+        "pr46CandidatePushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "pr67InitialChecks": {
         "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
         "baseSha": "4959f9635350504a9e436957a5556e05e4e952e4",
@@ -3884,13 +3945,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T06:40:37Z",
-      "lastObservedAt": "2026-08-31T06:40:37Z",
-      "lastCommitAt": "2026-08-31T14:34:55+08:00",
-      "nextReviewAt": "2026-09-01T06:40:37Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T16:34:24Z",
+      "lastObservedAt": "2026-08-31T16:34:24Z",
+      "lastCommitAt": "2026-09-01T00:34:24+08:00",
+      "nextReviewAt": "2026-09-01T16:34:24Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR71 exact correction head a44dfeb passed build and both repository-security checks with zero annotations. Fresh immutable spec then quality/security reviews approved this registry-only final lifecycle metadata, which requires its own exact-head CI before Ready/protected merge; PR46 intake/Ready/merge and every external mutation remain false"
+      "closeout": "Draft PR72 exact lifecycle head d0c90ca passed build and both repository-security checks with zero annotations. Final authorization metadata is staged under the owner's accepted convergence sequence; this final commit must pass its own exact-head checks before PR72 may become Ready and protected-merge. PR46 intake/Ready/merge, CAS, receipts, target ref/tag/quarantine mutation, deployment, provider mutation, and history rewrite remain false pending post-main audit and a separate release"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -3944,10 +4005,10 @@
       "lastOwnerHeartbeatAt": "2026-08-31T05:47:35Z",
       "lastObservedAt": "2026-08-31T05:47:35Z",
       "lastCommitAt": "2026-08-31T12:47:48+08:00",
-      "nextReviewAt": "2026-08-31T11:47:35Z",
+      "nextReviewAt": "2026-09-01T07:13:10Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "active",
-      "closeout": "local and remote Draft PR46 are exact 4a2d4b18 and OPEN/CONFLICTING against protected 88d1c550. Exact conflict-validator RED-first work is pending this heartbeat; intake/Ready/merge/CAS/receipts/ref/tag/quarantine mutations remain false"
+      "closeout": "local and remote Draft PR46 are exact 4a2d4b18 and OPEN/CONFLICTING against protected 1ceaab6. Exact two-file conflict-validator candidate is frozen with RED/GREEN and focused evidence; its full 93-test 88/5 currentness RED must be cleared only through a separately protected preserve-first intake, while intake/Ready/merge/CAS/receipts/ref/tag/quarantine mutations remain false"
     }
   ],
   "orphanWorktrees": [
@@ -3969,7 +4030,7 @@
       "disposition": "preservation-review",
       "quarantineState": "directory-preserved-in-place",
       "manifestClassification": "fully-inventoried-v2-owner-only-custody",
-      "manifestPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
+      "manifestPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
       "processCwdOpenHandleCheck": "not-run-cleanup-not-authorized",
       "cleanupApproved": false
     },
@@ -3991,7 +4052,7 @@
       "disposition": "preservation-review",
       "quarantineState": "two disk-only source files copied and hash-verified outside repository",
       "manifestClassification": "fully-inventoried-v2-two-reviewable-sources-salvaged",
-      "manifestPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
+      "manifestPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
       "processCwdOpenHandleCheck": "not-run-cleanup-not-authorized",
       "cleanupApproved": false
     },
@@ -4013,7 +4074,7 @@
       "disposition": "preservation-review",
       "quarantineState": "directory-preserved-in-place",
       "manifestClassification": "fully-inventoried-v2-owner-only-custody",
-      "manifestPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
+      "manifestPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
       "processCwdOpenHandleCheck": "not-run-cleanup-not-authorized",
       "cleanupApproved": false
     },
@@ -4035,7 +4096,7 @@
       "disposition": "preservation-review",
       "quarantineState": "directory-preserved-in-place; local branch remains",
       "manifestClassification": "fully-inventoried-v2-local-ref-separately-governed",
-      "manifestPath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
+      "manifestPath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
       "processCwdOpenHandleCheck": "not-run-cleanup-not-authorized",
       "cleanupApproved": false
     }
@@ -4050,11 +4111,11 @@
       "24 additional maximal unreachable tips"
     ],
     "fsckUnreachableCommitsAfter": 0,
-    "bundlePath": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/git-bundle/sena-rescue-refs-20260827.bundle",
+    "bundlePath": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/git-bundle/sena-rescue-refs-20260827.bundle",
     "bundleSha256": "26753db5921b1bfbe6f9e58220737e6a68e769fd97132c2684f3a1e35088159e",
     "bundleVerify": "pass-complete-history",
     "orphanInventory": {
-      "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
+      "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/manifests/orphan-worktree-inventory-20260827-v2.json",
       "sha256": "e7f9ce7fbb267d8fb74ba3539f26e741294dc4019acb5b307e90e6dd923326c0",
       "fileCount": 3860,
       "originMainRepresentedCount": 3849,
@@ -4065,13 +4126,13 @@
     },
     "diskOnlySourceCopies": [
       {
-        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/disk-only-source/components/NavBar.tsx",
+        "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/disk-only-source/components/NavBar.tsx",
         "size": 12116,
         "gitBlob": "9ea67b2c1a98383e8853aefd868a56c7d1a1892e",
         "sha256": "dcd6042ef3e61c4ebd66ee0ecad47db32b29583ebb6692949dc7bbe088bfe718"
       },
       {
-        "path": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/disk-only-source/lib/sena/__tests__/nav-controls-style.test.ts",
+        "path": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/disk-only-source/lib/sena/__tests__/nav-controls-style.test.ts",
         "size": 2367,
         "gitBlob": "218bb2cf0a6a04be4c577c9ee6f8ada54372e5c2",
         "sha256": "3661cc0b6912b8a60d58b45c5f46b9508413210aeb2017cb95103c4def675af6"
@@ -4171,7 +4232,7 @@
       "metadataPackage": {
         "v1AddendumSha256": "6f6cc3f4b7a7a3b67829e4d4e54237aad247a4732bef82d72fe17851843d5621",
         "v1ManifestSha256": "b6404ccb6645c9e5daf9a421cad884212ae53cc5d0a00e9fd6190b30fafd083f",
-        "v2Directory": "/Volumes/Starship/SENA-RESCUE-QUARANTINE-20260827/release-receipts/exact-main-5cdea568-quality-v2-20260827",
+        "v2Directory": "/Volumes/Starship/SENA的衍生文件/SENA-RESCUE-QUARANTINE-20260827/release-receipts/exact-main-5cdea568-quality-v2-20260827",
         "v2ClosureSha256": "e7e0cf43b7055ec4e4e141e1c4b385e7a2314a87371a5a1034fa854ec7b74c1d",
         "v2ManifestSha256": "1cb4c3d196bf0ae12b8c5afd2ff9cc8e7c50718e337beccb44263d37a9aae685",
         "v2ManifestEntryCount": 41,
@@ -5038,6 +5099,69 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This final metadata authorizes only PR70's Ready/protected-merge lifecycle after its final commit receives fresh exact-head checks. Exact child 4a2d4b18 remains unpushed until a separate post-main-audit release; no Ready/merge/CAS/receipt/ref/tag/provider/deploy authority is granted for PR46."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr72-final-authorization",
+      "recordedAt": "2026-08-31T16:34:24Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "authorizationBasis": "The SENA owner accepted Codex's recommended convergence sequence in task 01a05865-c301-7223-b74d-96e228b8a435 and explicitly instructed Codex to execute it. This authorizes the A01 registry-only PR72 checkpoint through protected main, without advancing PR46 or mutating target refs before a separate post-main release.",
+      "target": {
+        "pullRequestNumber": 72,
+        "lifecycleHeadSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
+        "baseRef": "main",
+        "baseSha": "1ceaab6bb82e0e5a94d400a15191ef9bdfa40b40",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorized": true,
+        "mergeAuthorized": true
+      },
+      "exactLifecycleChecks": {
+        "headSha": "d0c90ca711cb1cc82dfd6dbb58c06c054a7080ec",
+        "buildRunId": 33368333791,
+        "repositorySecurityRunIds": [
+          33368333815,
+          33368330997
+        ],
+        "checkJobIds": [
+          99413616145,
+          99413616197,
+          99413607406
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "push-final-authorization-commit",
+        "verify-final-commit-exact-head-build-and-both-security-checks-with-zero-annotations",
+        "mark-pr72-ready",
+        "protected-merge-pr72-without-admin-bypass-and-with-exact-head-lease",
+        "verify-exact-post-main-build-security-and-zero-annotations",
+        "run-exact-main-commit-bound-live-audit",
+        "issue-separate-branch-retirement-conflict-validator-continuation-release"
+      ],
+      "authorizationBoundary": {
+        "pr72ReadyAndProtectedMergeAuthorizedAfterFinalHeadChecks": true,
+        "branchRetirementValidatorCommitAuthorizedBeforePostMainAudit": false,
+        "pr46CandidatePushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "applicationReceiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "tagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This final metadata authorizes only PR72's Ready/protected-merge lifecycle after the final commit receives fresh exact-head checks. The frozen branch-retirement validator bytes remain uncommitted and PR46 remains Draft; no PR46 intake/Ready/merge, CAS, receipt, target ref/tag/quarantine, deployment, provider, or history-rewrite authority is granted before a separate post-main-audit release."
     }
   ]
 }
