@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T05:57:59Z",
+  "updatedAt": "2026-08-31T06:02:43Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
+      "headSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,14 +1068,14 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T05:57:59Z",
-      "lastObservedAt": "2026-08-31T05:57:59Z",
-      "nextReviewAt": "2026-09-01T05:57:59Z",
+      "lastHeartbeatAt": "2026-08-31T06:02:43Z",
+      "lastObservedAt": "2026-08-31T06:02:43Z",
+      "nextReviewAt": "2026-09-01T06:02:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 71,
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
       "lastMergedPullRequest": {
         "number": 66,
         "headSha": "f177819bbbf6ff03e34cd2ca42d90d6c95fa15b6",
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr71-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr71-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -3564,19 +3564,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
+      "headSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
-      "remoteObservedAt": "2026-08-31T05:57:59Z",
+      "remoteHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+      "remoteObservedAt": "2026-08-31T06:02:43Z",
       "pr": 71,
       "prState": "OPEN",
       "prIsDraft": true,
-      "prReadyForReview": false,
-      "mergeAuthorized": false,
-      "prHeadSha": "b6ddf3997a671a5903150bf68d485b584d572a12",
+      "prReadyForReview": true,
+      "mergeAuthorized": true,
+      "prHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
       "prBase": "main",
       "noPrReason": null,
       "pr71InitialChecks": {
@@ -3598,6 +3598,46 @@
         "prIsDraft": true,
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "BLOCKED"
+      },
+      "pr71LifecycleChecks": {
+        "headSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+        "baseSha": "88d1c55074fd74f91a291afd89965f4a42bd39f7",
+        "buildRunId": 33362493375,
+        "repositorySecurityRunIds": [
+          33362493344,
+          33362489823
+        ],
+        "checkJobIds": [
+          99396442146,
+          99396442088,
+          99396431634
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "pr71FinalAuthorization": {
+        "status": "authorized-for-ready-and-protected-merge-after-this-exact-head-checks",
+        "lifecycleHeadSha": "7450edd9f181bac3c4035a48c939faaddbb7f75a",
+        "requiredLifecycleChecksPassed": true,
+        "lifecycleAnnotationsEmpty": true,
+        "prReadyForReview": true,
+        "mergeAuthorized": true,
+        "conflictValidatorRedFirstAuthorizedAfterProtectedActivation": true,
+        "pr46IntakeAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
       },
       "pr67InitialChecks": {
         "headSha": "06db01d18ef57c983875dcb28390f23c33fd73c1",
@@ -3699,13 +3739,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T05:57:59Z",
-      "lastObservedAt": "2026-08-31T05:57:59Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T06:02:43Z",
+      "lastObservedAt": "2026-08-31T06:02:43Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
-      "nextReviewAt": "2026-09-01T05:57:59Z",
+      "nextReviewAt": "2026-09-01T06:02:43Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR71 initial exact head b6ddf399 passed build and both repository-security checks with zero annotations. This lifecycle binding creates a new exact head requiring its own checks; PR46 intake/Ready/merge and all ref actions remain false"
+      "closeout": "Draft PR71 lifecycle exact head 7450edd passed build and both repository-security checks with zero annotations. Final authorization metadata is staged and requires its own exact-head checks before Ready/protected merge; PR46 intake/Ready/merge and all ref actions remain false"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
