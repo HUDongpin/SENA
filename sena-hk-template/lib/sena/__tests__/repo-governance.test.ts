@@ -3745,4 +3745,210 @@ describe("SENA repository governance", () => {
     const report = JSON.parse(result.stdout);
     expect(report.errors).toContain("rescue bundle SHA-256 does not match registry");
   });
+
+  it("validates the exact PR46 conflict triple and rejects a stale authorization snapshot", () => {
+    const authorizationCommit = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const exact = runNode(governanceScript, [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ]);
+    expect(exact.status, `${exact.stdout}${exact.stderr}`).toBe(0);
+    expect(exact.stdout).toContain("SENA_CONFLICT_INTAKE pass");
+    expect(exact.stdout).toContain("mode=evidence-only-superseded-binding");
+
+    const stale = runNode(governanceScript, [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      "88d1c55074fd74f91a291afd89965f4a42bd39f7"
+    ]);
+    expect(stale.status).toBe(1);
+  });
+
+  it("accepts only the exact superseded conflict binding as evidence-only", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const candidateHeadSha = "c".repeat(40);
+    const registry = {
+      workItems: [
+        {
+          taskId: "SENA-BRANCH-RETIREMENT-20260829",
+          protectedConflictValidatorAuthorization: {
+            status: "superseded-after-protected-activation-and-index-counterevidence",
+            supersededBy: "threePathReconstructionAuthorization",
+            candidateHeadSha,
+            validatorCandidateStageCommitPushAuthorizedAfterProtectedActivation: false,
+            implementationAuthorizedNow: false,
+            pr46IntakeAuthorized: false,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            historyRewriteAuthorized: false
+          },
+          threePathReconstructionAuthorization: {
+            candidateHeadSha,
+            conflictIntakePassed: true,
+            threePathStageCommitPushAuthorizedAfterProtectedActivation: true,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            orphanWorktreeMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            resetAuthorized: false,
+            rebaseAuthorized: false,
+            stashAuthorized: false,
+            forceAuthorized: false,
+            historyRewriteAuthorized: false
+          },
+          supersededBindingValidationRepairAuthorization: {
+            status: "pending-protected-activation",
+            candidateHeadSha,
+            repairStageCommitPushAuthorizedAfterProtectedActivation: true,
+            implementationAuthorizedNow: false,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            orphanWorktreeMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            resetAuthorized: false,
+            rebaseAuthorized: false,
+            stashAuthorized: false,
+            forceAuthorized: false,
+            historyRewriteAuthorized: false
+          }
+        }
+      ]
+    };
+
+    expect(governance.conflictIntakeBindingResolutionFromRegistry(registry).mode).toBe(
+      "evidence-only-superseded-binding"
+    );
+
+    const cases: Array<[string, (candidate: typeof registry) => void]> = [
+      ["rule=conflict-intake-authorization-missing", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.status = "arbitrary";
+      }],
+      ["rule=conflict-intake-superseded-link-mismatch", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.supersededBy = "other";
+      }],
+      ["rule=conflict-intake-superseded-binding-action-enabled", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.pr46ReadyAuthorized = true;
+      }],
+      ["rule=conflict-intake-three-path-proof-missing", (candidate) => {
+        candidate.workItems[0].threePathReconstructionAuthorization.conflictIntakePassed = false;
+      }],
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        candidate.workItems[0].supersededBindingValidationRepairAuthorization.status = "arbitrary";
+      }]
+    ];
+    for (const [expectedError, mutate] of cases) {
+      const candidate = structuredClone(registry);
+      mutate(candidate);
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(expectedError);
+    }
+
+    for (const field of [
+      "orphanWorktreeMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "futureMutationAuthorized"
+    ]) {
+      const candidate = structuredClone(registry);
+      (candidate.workItems[0].protectedConflictValidatorAuthorization as Record<string, unknown>)[field] = true;
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(
+        "rule=conflict-intake-superseded-binding-action-enabled"
+      );
+    }
+
+    const nestedBindingAuthorization = structuredClone(registry);
+    (nestedBindingAuthorization.workItems[0].protectedConflictValidatorAuthorization as Record<string, unknown>)[
+      "future"
+    ] = { nestedMutationAuthorized: true };
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(nestedBindingAuthorization)).toThrow(
+      "rule=conflict-intake-superseded-binding-action-enabled"
+    );
+
+    const unknownThreePathAuthorization = structuredClone(registry);
+    (unknownThreePathAuthorization.workItems[0].threePathReconstructionAuthorization as Record<string, unknown>)[
+      "futureMutationAuthorized"
+    ] = true;
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(unknownThreePathAuthorization)).toThrow(
+      "rule=conflict-intake-three-path-proof-missing"
+    );
+
+    const unknownRepairAuthorization = structuredClone(registry);
+    (unknownRepairAuthorization.workItems[0].supersededBindingValidationRepairAuthorization as Record<
+      string,
+      unknown
+    >)["futureMutationAuthorized"] = true;
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(unknownRepairAuthorization)).toThrow(
+      "rule=conflict-intake-repair-authorization-missing"
+    );
+  });
+
+  it("classifies every exact conflict-intake binding mismatch as fail closed", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const binding = {
+      protectedMainSha: "p".repeat(40),
+      protectedMainTreeSha: "a".repeat(40),
+      candidateHeadSha: "c".repeat(40),
+      candidateTreeSha: "b".repeat(40),
+      mergeBaseSha: "m".repeat(40),
+      mergeBaseTreeSha: "d".repeat(40),
+      protectedRegistryBlobSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: "1".repeat(40),
+      candidateGovernanceTestBlobSha: "2".repeat(40),
+      protectedMainChangedPaths: ["coordination/repo-governance/active-work.json"],
+      candidateChangedPaths: [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      conflictingPaths: ["coordination/repo-governance/active-work.json"],
+      cleanCandidateOnlyPaths: [
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      protectedMainDiffSha256: "3".repeat(64),
+      candidateDiffSha256: "4".repeat(64),
+      protectedToCandidateDiffSha256: "5".repeat(64)
+    };
+    const observed = structuredClone(binding);
+    expect(governance.exactConflictIntakeMismatchRules(binding, observed)).toEqual([]);
+
+    const cases: Array<[keyof typeof observed, string, unknown]> = [
+      ["protectedMainTreeSha", "conflict-intake-protected-tree-mismatch", "0".repeat(40)],
+      ["candidateTreeSha", "conflict-intake-candidate-tree-mismatch", "0".repeat(40)],
+      ["mergeBaseTreeSha", "conflict-intake-merge-base-tree-mismatch", "0".repeat(40)],
+      ["protectedRegistryBlobSha", "conflict-intake-protected-registry-blob-mismatch", "0".repeat(40)],
+      ["candidateVerifierBlobSha", "conflict-intake-candidate-verifier-blob-mismatch", "0".repeat(40)],
+      ["candidateGovernanceTestBlobSha", "conflict-intake-candidate-governance-test-blob-mismatch", "0".repeat(40)],
+      ["conflictingPaths", "conflict-intake-conflict-path-set-mismatch", []],
+      ["candidateDiffSha256", "conflict-intake-candidate-diff-mismatch", "0".repeat(64)],
+      ["candidateChangedPaths", "conflict-intake-candidate-path-set-mismatch", ["unexpected.ts"]]
+    ];
+    for (const [field, expectedRule, replacement] of cases) {
+      const mutated = structuredClone(observed);
+      (mutated as Record<string, unknown>)[field] = replacement;
+      expect(governance.exactConflictIntakeMismatchRules(binding, mutated)).toContain(`rule=${expectedRule}`);
+    }
+  });
 });

@@ -680,6 +680,339 @@ function loadProtectedMainAuthorizationRegistry(
   return { ...loaded, commit: commits[0] };
 }
 
+const EXACT_CONFLICT_INTAKE_PATHS = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+function sortedPathSet(paths) {
+  return [...new Set(paths)].sort();
+}
+
+function samePathSet(left, right) {
+  const expected = sortedPathSet(left);
+  const actual = sortedPathSet(right);
+  return expected.length === actual.length && expected.every((path, index) => path === actual[index]);
+}
+
+function exactTreeSha(commit) {
+  return gitText(["rev-parse", `${commit}^{tree}`]).trim();
+}
+
+function exactBlobSha(commit, path) {
+  return gitText(["rev-parse", `${commit}:${path}`]).trim();
+}
+
+function binaryDiffSha256(left, right) {
+  const result = git(
+    ["diff", "--binary", "--no-ext-diff", "--no-renames", left, right, "--", ...EXACT_CONFLICT_INTAKE_PATHS],
+    { binary: true }
+  );
+  return sha256Buffer(result.stdout ?? Buffer.alloc(0));
+}
+
+const CONFLICT_INTAKE_PENDING_STATUS = "pending-protected-activation";
+const CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS =
+  "superseded-after-protected-activation-and-index-counterevidence";
+
+function allExplicitlyFalse(record, fields) {
+  return fields.every((field) => record?.[field] === false);
+}
+
+function trueAuthorizationPaths(value, path = []) {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (entry === true && key.includes("Authorized")) paths.push(nextPath.join("."));
+    if (entry && typeof entry === "object") paths.push(...trueAuthorizationPaths(entry, nextPath));
+  }
+  return paths;
+}
+
+function onlyAllowedTrueAuthorizations(record, allowedPaths) {
+  const allowed = new Set(allowedPaths);
+  return trueAuthorizationPaths(record).every((path) => allowed.has(path));
+}
+
+export function conflictIntakeBindingResolutionFromRegistry(registry) {
+  const item = (registry.workItems ?? []).find(
+    (entry) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const binding = item?.protectedConflictValidatorAuthorization;
+  if (!binding) {
+    throw new Error("rule=conflict-intake-authorization-missing");
+  }
+  if (binding.status === CONFLICT_INTAKE_PENDING_STATUS) {
+    return { binding, mode: "pending-protected-activation-binding" };
+  }
+  if (binding.status !== CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS) {
+    throw new Error("rule=conflict-intake-authorization-missing");
+  }
+  if (binding.supersededBy !== "threePathReconstructionAuthorization") {
+    throw new Error("rule=conflict-intake-superseded-link-mismatch");
+  }
+  if (
+    !allExplicitlyFalse(binding, [
+      "validatorCandidateStageCommitPushAuthorizedAfterProtectedActivation",
+      "implementationAuthorizedNow",
+      "pr46IntakeAuthorized",
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "historyRewriteAuthorized"
+    ]) ||
+    !onlyAllowedTrueAuthorizations(binding, [])
+  ) {
+    throw new Error("rule=conflict-intake-superseded-binding-action-enabled");
+  }
+
+  const threePath = item?.threePathReconstructionAuthorization;
+  if (
+    !threePath ||
+    threePath.candidateHeadSha !== binding.candidateHeadSha ||
+    threePath.conflictIntakePassed !== true ||
+    threePath.threePathStageCommitPushAuthorizedAfterProtectedActivation !== true ||
+    !allExplicitlyFalse(threePath, [
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ]) ||
+    !onlyAllowedTrueAuthorizations(threePath, [
+      "threePathStageCommitPushAuthorizedAfterProtectedActivation"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-three-path-proof-missing");
+  }
+
+  const repair = item?.supersededBindingValidationRepairAuthorization;
+  if (
+    !repair ||
+    repair.status !== CONFLICT_INTAKE_PENDING_STATUS ||
+    repair.candidateHeadSha !== binding.candidateHeadSha ||
+    repair.repairStageCommitPushAuthorizedAfterProtectedActivation !== true ||
+    repair.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(repair, [
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ]) ||
+    !onlyAllowedTrueAuthorizations(repair, [
+      "repairStageCommitPushAuthorizedAfterProtectedActivation"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-authorization-missing");
+  }
+
+  return { binding, mode: "evidence-only-superseded-binding" };
+}
+
+function addConflictIntakeMismatch(errors, rule, expected, actual) {
+  if (expected !== actual) errors.push(`rule=${rule}`);
+}
+
+export function exactConflictIntakeMismatchRules(binding, observed) {
+  const errors = [];
+  const scalarRules = [
+    ["protectedMainSha", "conflict-intake-protected-main-mismatch"],
+    ["protectedMainTreeSha", "conflict-intake-protected-tree-mismatch"],
+    ["candidateHeadSha", "conflict-intake-candidate-head-mismatch"],
+    ["candidateTreeSha", "conflict-intake-candidate-tree-mismatch"],
+    ["mergeBaseSha", "conflict-intake-merge-base-mismatch"],
+    ["mergeBaseTreeSha", "conflict-intake-merge-base-tree-mismatch"],
+    ["protectedRegistryBlobSha", "conflict-intake-protected-registry-blob-mismatch"],
+    ["candidateRegistryBlobSha", "conflict-intake-candidate-registry-blob-mismatch"],
+    ["candidateVerifierBlobSha", "conflict-intake-candidate-verifier-blob-mismatch"],
+    ["candidateGovernanceTestBlobSha", "conflict-intake-candidate-governance-test-blob-mismatch"],
+    ["protectedMainDiffSha256", "conflict-intake-protected-diff-mismatch"],
+    ["candidateDiffSha256", "conflict-intake-candidate-diff-mismatch"],
+    ["protectedToCandidateDiffSha256", "conflict-intake-protected-to-candidate-diff-mismatch"]
+  ];
+  for (const [field, rule] of scalarRules) {
+    if (binding[field] !== observed[field]) errors.push(`rule=${rule}`);
+  }
+  const pathRules = [
+    ["protectedMainChangedPaths", "conflict-intake-protected-path-set-mismatch"],
+    ["candidateChangedPaths", "conflict-intake-candidate-path-set-mismatch"],
+    ["conflictingPaths", "conflict-intake-conflict-path-set-mismatch"],
+    ["cleanCandidateOnlyPaths", "conflict-intake-clean-candidate-path-set-mismatch"]
+  ];
+  for (const [field, rule] of pathRules) {
+    if (!samePathSet(binding[field] ?? [], observed[field] ?? [])) errors.push(`rule=${rule}`);
+  }
+  return errors;
+}
+
+function runConflictIntake(flags) {
+  const authorization = loadProtectedMainAuthorizationRegistry(flags, { required: true });
+  const resolution = conflictIntakeBindingResolutionFromRegistry(authorization.parsed);
+  const binding = resolution.binding;
+  const errors = [];
+  const protectedMain = binding.protectedMainSha;
+  const candidate = binding.candidateHeadSha;
+  const mergeBase = binding.mergeBaseSha;
+
+  for (const commit of [protectedMain, candidate, mergeBase]) {
+    if (!isSha(commit) || !gitObjectExists(`${commit}^{commit}`)) {
+      errors.push("rule=conflict-intake-commit-missing");
+      break;
+    }
+  }
+  const currentHead = gitText(["rev-parse", "HEAD"]).trim();
+  addConflictIntakeMismatch(errors, "conflict-intake-candidate-head-mismatch", candidate, currentHead);
+  if (git(["merge-base", "--is-ancestor", protectedMain, authorization.commit], { allowFailure: true }).status !== 0) {
+    errors.push("rule=conflict-intake-protected-main-not-authorized-history");
+  }
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-merge-base-mismatch",
+    mergeBase,
+    gitText(["merge-base", protectedMain, candidate]).trim()
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-tree-mismatch",
+    binding.protectedMainTreeSha,
+    exactTreeSha(protectedMain)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-tree-mismatch",
+    binding.candidateTreeSha,
+    exactTreeSha(candidate)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-merge-base-tree-mismatch",
+    binding.mergeBaseTreeSha,
+    exactTreeSha(mergeBase)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-registry-blob-mismatch",
+    binding.protectedRegistryBlobSha,
+    exactBlobSha(protectedMain, "coordination/repo-governance/active-work.json")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-registry-blob-mismatch",
+    binding.candidateRegistryBlobSha,
+    exactBlobSha(candidate, "coordination/repo-governance/active-work.json")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-verifier-blob-mismatch",
+    binding.candidateVerifierBlobSha,
+    exactBlobSha(candidate, "scripts/verify-sena-repo-governance.mjs")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-governance-test-blob-mismatch",
+    binding.candidateGovernanceTestBlobSha,
+    exactBlobSha(candidate, "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts")
+  );
+
+  const protectedPaths = changedPathsAgainstParent(mergeBase, protectedMain);
+  const candidatePaths = changedPathsAgainstParent(mergeBase, candidate);
+  const conflicts = sortedPathSet(protectedPaths.filter((path) => candidatePaths.includes(path)));
+  const cleanCandidateOnly = sortedPathSet(candidatePaths.filter((path) => !protectedPaths.includes(path)));
+  if (!samePathSet(binding.protectedMainChangedPaths ?? [], protectedPaths)) {
+    errors.push("rule=conflict-intake-protected-path-set-mismatch");
+  }
+  if (!samePathSet(binding.candidateChangedPaths ?? [], candidatePaths)) {
+    errors.push("rule=conflict-intake-candidate-path-set-mismatch");
+  }
+  if (!samePathSet(binding.conflictingPaths ?? [], conflicts)) {
+    errors.push("rule=conflict-intake-conflict-path-set-mismatch");
+  }
+  if (!samePathSet(binding.cleanCandidateOnlyPaths ?? [], cleanCandidateOnly)) {
+    errors.push("rule=conflict-intake-clean-candidate-path-set-mismatch");
+  }
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-diff-mismatch",
+    binding.protectedMainDiffSha256,
+    binaryDiffSha256(mergeBase, protectedMain)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-diff-mismatch",
+    binding.candidateDiffSha256,
+    binaryDiffSha256(mergeBase, candidate)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-to-candidate-diff-mismatch",
+    binding.protectedToCandidateDiffSha256,
+    binaryDiffSha256(protectedMain, candidate)
+  );
+
+  errors.push(
+    ...exactConflictIntakeMismatchRules(binding, {
+      protectedMainSha: protectedMain,
+      protectedMainTreeSha: exactTreeSha(protectedMain),
+      candidateHeadSha: currentHead,
+      candidateTreeSha: exactTreeSha(candidate),
+      mergeBaseSha: gitText(["merge-base", protectedMain, candidate]).trim(),
+      mergeBaseTreeSha: exactTreeSha(mergeBase),
+      protectedRegistryBlobSha: exactBlobSha(protectedMain, "coordination/repo-governance/active-work.json"),
+      candidateRegistryBlobSha: exactBlobSha(candidate, "coordination/repo-governance/active-work.json"),
+      candidateVerifierBlobSha: exactBlobSha(candidate, "scripts/verify-sena-repo-governance.mjs"),
+      candidateGovernanceTestBlobSha: exactBlobSha(
+        candidate,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      protectedMainChangedPaths: protectedPaths,
+      candidateChangedPaths: candidatePaths,
+      conflictingPaths: conflicts,
+      cleanCandidateOnlyPaths: cleanCandidateOnly,
+      protectedMainDiffSha256: binaryDiffSha256(mergeBase, protectedMain),
+      candidateDiffSha256: binaryDiffSha256(mergeBase, candidate),
+      protectedToCandidateDiffSha256: binaryDiffSha256(protectedMain, candidate)
+    })
+  );
+
+  if (errors.length > 0) {
+    for (const error of [...new Set(errors)].sort()) process.stderr.write(`SENA_CONFLICT_INTAKE blocked ${error}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    `SENA_CONFLICT_INTAKE pass mode=${resolution.mode} authorizationRegistryCommit=${authorization.commit} protectedMain=${protectedMain} candidate=${candidate} mergeBase=${mergeBase}\n`
+  );
+}
+
 function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry, findings) {
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
   const branchName = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
@@ -4429,6 +4762,7 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs conflict-intake --authorization-registry-commit SHA\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement-boundary --authorization-registry-commit SHA --authorization-id ID\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement --authorization-registry-commit SHA --authorization-id ID\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs registry [--registry PATH]\n`);
@@ -4443,6 +4777,7 @@ function main() {
     if (command === "write-policy") return runWritePolicy(flags);
     if (command === "push-policy") return runPushPolicy(flags);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);
+    if (command === "conflict-intake") return runConflictIntake(flags);
     if (command === "local-ref-retirement-boundary") return runLocalRefRetirementBoundary(flags);
     if (command === "local-ref-retirement") return runLocalRefRetirement(flags);
     if (command === "registry") return runRegistry(flags);
