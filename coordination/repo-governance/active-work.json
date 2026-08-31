@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+      "headSha": "a318142060552ebdd766a7c39fbfbbe22e400618",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,8 +1068,8 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T04:10:00Z",
-      "lastObservedAt": "2026-08-31T04:10:00Z",
+      "lastHeartbeatAt": "2026-08-31T04:13:11Z",
+      "lastObservedAt": "2026-08-31T04:13:11Z",
       "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 68,
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr69-candidate-currentness-child-creation-authorization",
+      "dirtyState": "staged-registry-only-pr69-a01-remote-currentness-correction",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -3501,13 +3501,13 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+      "headSha": "a318142060552ebdd766a7c39fbfbbe22e400618",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
-      "remoteObservedAt": "2026-08-31T04:10:00Z",
+      "remoteHeadSha": "84fd92c3e69c98d2ffb9bd3f18126e66cd3b21de",
+      "remoteObservedAt": "2026-08-31T04:13:11Z",
       "pr": 68,
       "prState": "MERGED",
       "prIsDraft": false,
@@ -3616,8 +3616,8 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T04:10:00Z",
-      "lastObservedAt": "2026-08-31T04:10:00Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T04:13:11Z",
+      "lastObservedAt": "2026-08-31T04:13:11Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
       "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
