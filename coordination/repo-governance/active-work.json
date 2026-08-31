@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T01:59:54Z",
+  "updatedAt": "2026-08-31T02:11:58Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+      "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,12 +1068,12 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
-      "nextReviewAt": "2026-09-01T01:59:54Z",
+      "lastHeartbeatAt": "2026-08-31T02:11:58Z",
+      "lastObservedAt": "2026-08-31T02:11:58Z",
+      "nextReviewAt": "2026-09-01T02:11:58Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 67,
-      "prIsDraft": false,
+      "prNumber": 68,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr46-intake-push-heartbeat",
+      "dirtyState": "staged-registry-only-pr68-lifecycle-binding",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1617,16 +1617,38 @@
         "providerMutationAuthorized": false,
         "historyRewriteAuthorized": false
       },
+      "pr68InitialChecks": {
+        "pullRequestNumber": 68,
+        "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "buildRunId": 33349796429,
+        "repositorySecurityRunIds": [
+          33349796606,
+          33349775289
+        ],
+        "checkJobIds": [
+          99360775204,
+          99360775944,
+          99360714708
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED",
+        "prReadyForReview": false,
+        "mergeAuthorized": false
+      },
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 worktree ordinary-fast-forwarded cleanly to exact protected main 6344f7fd and now stages only active-work.json for the PR46 intake push heartbeat",
-        "ci": "PR67 exact head b37f1f5 and protected main 6344f7fd passed build/repository-security with zero annotations; this new registry-only candidate requires its own exact-head CI",
+        "local": "A01 exact registry-only head c5c94d4 is clean before this single-file lifecycle binding; no product or other-lane file is changed",
+        "ci": "Draft PR68 exact head c5c94d4 passed build 33349796429 and repository-security 33349796606/33349775289 with zero annotations",
         "merged": "PR67 exact head b37f1f5 merged as live protected main 6344f7fd at 2026-08-30T16:20:58Z; PR46 remains Draft and no target ref mutation is authorized",
         "deployed": "not authorized",
-        "live": "live origin/main and root are exact 6344f7fd, live A01 branch is b37f1f5, PR67 is MERGED, and exact-main audit passed; local PR46 intake candidate is 00a857f while remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING"
+        "live": "live origin/main and root are exact 6344f7fd, live A01 branch and Draft PR68 are exact c5c94d4, and local PR46 intake candidate is 00a857f while remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3436,19 +3458,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+      "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "b37f1f5d39c1e30b3a7408a3af46df1d01ad72b2",
-      "remoteObservedAt": "2026-08-31T01:59:54Z",
-      "pr": 67,
-      "prState": "MERGED",
-      "prIsDraft": false,
+      "remoteHeadSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+      "remoteObservedAt": "2026-08-31T02:11:58Z",
+      "pr": 68,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "b37f1f5d39c1e30b3a7408a3af46df1d01ad72b2",
+      "prHeadSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
       "prBase": "main",
       "noPrReason": null,
       "pr67InitialChecks": {
@@ -3489,6 +3511,20 @@
         "providerMutationAuthorized": false,
         "historyRewriteAuthorized": false
       },
+      "pr68InitialChecks": {
+        "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "buildRunId": 33349796429,
+        "repositorySecurityRunIds": [
+          33349796606,
+          33349775289
+        ],
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
         "number": 67,
@@ -3501,13 +3537,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
-      "lastCommitAt": "2026-08-31T00:12:23+08:00",
-      "nextReviewAt": "2026-09-01T01:59:54Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T02:11:58Z",
+      "lastObservedAt": "2026-08-31T02:11:58Z",
+      "lastCommitAt": "2026-08-31T10:07:21+08:00",
+      "nextReviewAt": "2026-09-01T02:11:58Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR67 is merged as protected main 6344f7fd with post-main checks and exact-main audit green; A01 now owns only the registry-only PR46 intake push heartbeat, while A01 cleanup and remote mutation remain unauthorized"
+      "closeout": "Draft PR68 exact head c5c94d4 binds the PR46 intake push heartbeat and passed its initial checks; Ready/merge and all PR46/ref mutations remain false pending lifecycle/final authorization"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -4103,6 +4139,69 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This candidate receipt authorizes only the A01 registry heartbeat lifecycle. A separate exact-main release is required before native-hook push of exact 00a857f; it never authorizes PR46 Ready/merge, CAS, receipts, ref/tag mutation, deployment, provider mutation, or history rewrite."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr68-draft-lifecycle-binding",
+      "recordedAt": "2026-08-31T02:11:58Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "candidateHeadSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+      "pullRequest": {
+        "number": 68,
+        "url": "https://github.com/HUDongpin/SENA/pull/68",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRef": "codex/sena-a01-repo-governance-20260827",
+        "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+        "baseRef": "main",
+        "baseSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "exactHeadChecks": {
+        "headSha": "c5c94d49455a8762a81a582537c67e434f422ddc",
+        "buildRunId": 33349796429,
+        "repositorySecurityRunIds": [
+          33349796606,
+          33349775289
+        ],
+        "checkJobIds": [
+          99360775204,
+          99360775944,
+          99360714708
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "authorizationBoundary": {
+        "registryHeartbeatPushAuthorized": true,
+        "draftPullRequestAuthorized": true,
+        "exactHeadCiAuthorized": true,
+        "protectedMainPathAuthorized": true,
+        "registryAuthorityTarget": "candidate-only-until-final-exact-head-authorization",
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "pr46CandidatePushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false
+      },
+      "prohibitions": {
+        "productFilesChanged": false,
+        "otherLaneChanged": false,
+        "remoteRefsDeleted": false,
+        "deploymentPerformed": false,
+        "providerMutationPerformed": false,
+        "historyRewritePerformed": false
+      },
+      "evidenceBoundary": "This receipt binds Draft PR68 and its initial exact-head checks. A later final-authorization head and its own checks are required before protected merge; PR46 push/Ready/merge, CAS, receipts, target refs, deployment, provider mutation, and history rewrite remain unauthorized."
     }
   ]
 }
