@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T21:31:01Z",
+  "updatedAt": "2026-08-31T22:04:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+      "headSha": "832725a307a97d15da51806008ea6fbb4ad98355",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,13 +1068,13 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T21:31:01Z",
-      "lastObservedAt": "2026-08-31T21:31:01Z",
-      "nextReviewAt": "2026-09-01T21:31:01Z",
+      "lastHeartbeatAt": "2026-08-31T22:04:00Z",
+      "lastObservedAt": "2026-08-31T22:04:00Z",
+      "nextReviewAt": "2026-09-01T22:04:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 77,
       "plannedPullRequestNumber": 77,
-      "prIsDraft": false,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1090,6 +1090,31 @@
         "postMainEvent": "push",
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
+      },
+      "pr77InitialChecks": {
+        "headSha": "832725a307a97d15da51806008ea6fbb4ad98355",
+        "headTreeSha": "f39dce7e8c48ccdf364fa118119054b895360cc3",
+        "registryBlobSha": "15409473475473a396273387d82d16a068a5ffa4",
+        "baseSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+        "buildRunId": 33444233925,
+        "repositorySecurityRunIds": [33444233932, 33444206549],
+        "checkJobIds": [99659553677, 99659554595, 99659463838],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "exactMergeAbortAuthorizedNow": false,
+        "repairStageCommitPushAuthorizedNow": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MainMergeAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "resetAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
       },
       "pr64InitialChecks": {
         "headSha": "2d7ce9d5c60e2fbb2ca0ff02ab891bec0244f165",
@@ -1471,8 +1496,8 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "The registry-only PR77 candidate is staged but has not yet been committed, pushed, or created on GitHub.",
-      "dirtyState": "staged-registry-only-pr77-lifecycle-state-repair-authorization",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr77-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1694,11 +1719,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 HEAD and the clean root are exact protected main 7e4a620b; exactly one registry-only PR77 lifecycle-state repair authorization path is staged, while PR46 preserves exact merge state HEAD=9a5234c MERGE_HEAD=7e4a620b with only active-work.json staged",
-        "ci": "PR76 final and protected-main checks passed with zero annotations and the 7e4a620b live audit passed. The PR46 merge resolution preserves exact paths and blobs but current-main conflict-intake correctly fails because repair status advanced from pending to consumed; this PR77 candidate has no checks yet",
-        "merged": "PR76 exact head 854ce7f is merged as live protected main 7e4a620b; PR77 is not yet committed or pushed, and no merge abort, stable repair, re-merge, PR46 Ready/main-merge, or target mutation is currently authorized",
+        "local": "A01 local and remote plus Draft PR77 are exact initial head 832725a, one commit ahead and zero behind protected main 7e4a620b; exactly one registry-only final-authorization path is staged, while PR46 preserves exact frozen merge state with MERGE_AUTOSTASH absent",
+        "ci": "PR77 initial head 832725a passed build 33444233925 and repository-security 33444233932/33444206549; jobs 99659553677/99659554595/99659463838 have zero annotations. The staged final-authorization candidate has not received its own exact-head checks",
+        "merged": "PR76 exact head 854ce7f is merged as live protected main 7e4a620b; PR77 is OPEN/Draft and unmerged, and no merge abort, stable repair, re-merge, PR46 Ready/main-merge, or target mutation is currently authorized",
         "deployed": "not authorized",
-        "live": "live origin/main, fetched origin/main, clean root, and A01 HEAD are exact 7e4a620b; PR76 is MERGED and PR46 remains Draft/CONFLICTING at remote 9a5234c with an exact local merge state frozen. No merge abort, code/test change, re-merge, or target mutation is currently authorized"
+        "live": "live origin/main, fetched origin/main, and clean root are exact 7e4a620b; A01 local/remote and Draft PR77 are exact 832725a and MERGEABLE/CLEAN. PR46 remains Draft/CONFLICTING at remote 9a5234c with an exact local merge state frozen; no merge abort, code/test change, re-merge, or target mutation is currently authorized"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -4016,22 +4041,47 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+      "headSha": "832725a307a97d15da51806008ea6fbb4ad98355",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "854ce7f7be08a3063d68ae39c0a841eeea586178",
-      "remoteObservedAt": "2026-08-31T21:31:01Z",
-      "pr": null,
+      "remoteHeadSha": "832725a307a97d15da51806008ea6fbb4ad98355",
+      "remoteObservedAt": "2026-08-31T22:04:00Z",
+      "pr": 77,
       "plannedPullRequestNumber": 77,
-      "prState": "NOT_CREATED",
-      "prIsDraft": false,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
+      "prHeadSha": "832725a307a97d15da51806008ea6fbb4ad98355",
       "prBase": "main",
-      "noPrReason": "The registry-only PR77 candidate is staged but has not yet been committed, pushed, or created on GitHub.",
+      "noPrReason": null,
+      "pr77InitialChecks": {
+        "headSha": "832725a307a97d15da51806008ea6fbb4ad98355",
+        "headTreeSha": "f39dce7e8c48ccdf364fa118119054b895360cc3",
+        "registryBlobSha": "15409473475473a396273387d82d16a068a5ffa4",
+        "baseSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+        "buildRunId": 33444233925,
+        "repositorySecurityRunIds": [33444233932, 33444206549],
+        "checkJobIds": [99659553677, 99659554595, 99659463838],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "exactMergeAbortAuthorizedNow": false,
+        "repairStageCommitPushAuthorizedNow": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MainMergeAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "resetAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "pr76FinalChecks": {
         "headSha": "854ce7f7be08a3063d68ae39c0a841eeea586178",
         "buildRunId": 33440408367,
@@ -4516,13 +4566,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T21:31:01Z",
-      "lastObservedAt": "2026-08-31T21:31:01Z",
-      "lastCommitAt": "2026-09-01T05:18:13+08:00",
-      "nextReviewAt": "2026-09-01T21:31:01Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T22:04:00Z",
+      "lastObservedAt": "2026-08-31T22:04:00Z",
+      "lastCommitAt": "2026-09-01T06:00:16+08:00",
+      "nextReviewAt": "2026-09-01T22:04:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR76 final head 854ce7f merged as protected main 7e4a620b with exact-head and post-main checks green and zero annotations. A registry-only PR77 lifecycle-state repair authorization is being prepared; it has not been committed, pushed, or created as a PR. PR46 merge abort/repair/redo, Ready/main-merge, CAS, receipts, target ref/tag/quarantine/orphan mutation, deployment, provider mutation, and history rewrite remain unauthorized"
+      "closeout": "Draft PR77 initial head 832725a passed exact-head build and both repository-security checks with zero annotations and is OPEN/MERGEABLE/CLEAN. Exactly one registry-only final-authorization path is staged; that new commit must pass fresh checks before Ready/protected merge. PR46 merge abort/repair/redo, Ready/main-merge, CAS, receipts, target ref/tag/quarantine/orphan mutation, deployment, provider mutation, and history rewrite remain unauthorized"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -6639,6 +6689,106 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This candidate authorizes only a new A01 registry lifecycle. Until PR77 is itself merged to protected main and passes post-main verification, the frozen PR46 merge may not be aborted, changed, committed, or pushed. Even after activation, only the exact abort, clean restoration, bounded re-merge, lifecycle-state repair, and still-Draft PR46 push are authorized. PR46 Ready/main-merge and every target object or external mutation remain unauthorized."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr77-final-authorization",
+      "recordedAt": "2026-08-31T22:04:00Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a05865-c301-7223-b74d-96e228b8a435",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "target": {
+        "pullRequestNumber": 77,
+        "initialHeadSha": "832725a307a97d15da51806008ea6fbb4ad98355",
+        "initialTreeSha": "f39dce7e8c48ccdf364fa118119054b895360cc3",
+        "initialRegistryBlobSha": "15409473475473a396273387d82d16a068a5ffa4",
+        "baseRef": "main",
+        "baseSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+        "state": "OPEN",
+        "isDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "readyForReviewAuthorizedAfterFinalHeadChecks": true,
+        "mergeAuthorizedAfterFinalHeadChecks": true
+      },
+      "exactInitialChecks": {
+        "headSha": "832725a307a97d15da51806008ea6fbb4ad98355",
+        "buildRunId": 33444233925,
+        "repositorySecurityRunIds": [33444233932, 33444206549],
+        "checkJobIds": [99659553677, 99659554595, 99659463838],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "independentReview": {
+        "reviewedParentHeadSha": "7e4a620b7a036b880fac2cfabcb04079cba38679",
+        "reviewedStagedDiffSha256": "a5d52bc299827218b271a74cc9f9541c5f24966fb2df942a3d599e4da7fb48db",
+        "reviewedStatusSha256": "f8c06cfa548444a7ddb521145d3177b7ec425ee36b0911cd20e0b1b53598be37",
+        "reviewedRegistryBlobSha": "15409473475473a396273387d82d16a068a5ffa4",
+        "reviewedRegistryFileSha256": "76966c4fead3e6dfc875656af1990a6d61e3a023b9f55fdd41740ac99211faf4",
+        "specReviewApproved": true,
+        "qualityReviewApproved": true,
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "p3": 0,
+        "reviewersReadOnly": true,
+        "reviewerMutationCount": 0,
+        "resolvedFindingClasses": [
+          "merge-abort-autostash-state-not-bound",
+          "consumed-lifecycle-native-gates-incomplete",
+          "planned-pr-misrepresented-as-live"
+        ]
+      },
+      "environmentEvidence": {
+        "initialPushFirstAttemptStatus": "blocked-environment",
+        "observedError": "No space left on device while pre-push attempted mktemp in the macOS system temporary directory",
+        "systemVolumeAvailableAtObservation": "116Mi",
+        "starshipVolumeAvailableAtObservation": "2.8Ti",
+        "boundedRecovery": "re-ran the same push with TMPDIR isolated under /Volumes/Starship/SENA/.tmp; native pre-push policy and security gates passed",
+        "finalAuthorizationFirstTestAttemptStatus": "blocked-environment",
+        "finalAuthorizationFirstTestAttemptResult": "33 passed and 15 failed; every failure was ENOSPC while creating or writing a temporary fixture or Git index, with no assertion failure",
+        "finalAuthorizationIsolatedTmpdirTestResult": "48/48 passed with the same focused governance-test command and TMPDIR isolated under /Volumes/Starship/SENA/.tmp",
+        "cacheOrUserDataDeleted": false
+      },
+      "executionOrder": [
+        "commit-and-push-this-registry-only-final-pr77-authorization",
+        "verify-the-final-pr77-commit-exact-head-build-security-and-zero-annotations",
+        "mark-pr77-ready",
+        "protected-merge-pr77-without-admin-bypass-and-with-exact-head-lease",
+        "verify-exact-post-main-build-security-zero-annotations-and-commit-bound-live-audit",
+        "verify-the-exact-frozen-pr46-merge-state-including-absent-merge-autostash",
+        "run-only-the-high-level-git-merge-abort-command-and-prove-clean-restoration-to-9a5234c",
+        "preflight-and-merge-the-exact-new-protected-main-with-active-work-as-the-only-conflict",
+        "add-red-tests-and-implement-the-closed-set-pending-plus-exact-consumed-lifecycle-state-repair",
+        "pass-semantic-equivalence-native-focused-full-and-independent-review-gates",
+        "commit-and-push-the-two-parent-merge-to-still-draft-pr46",
+        "stop-before-pr46-ready-main-merge-or-any-target-object-mutation"
+      ],
+      "authorizationBoundary": {
+        "pr77ReadyAndProtectedMergeAuthorizedAfterFinalHeadChecks": true,
+        "exactMergeAbortAuthorizedBeforePostMainAudit": false,
+        "ordinaryMergeRedoAuthorizedBeforePostMainAudit": false,
+        "repairStageCommitPushAuthorizedBeforePostMainAudit": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MainMergeAuthorized": false,
+        "casAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "tagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This final metadata authorizes only PR77 Ready/protected merge after the new final commit itself passes fresh exact-head checks. The exact PR46 merge abort, clean restoration, re-merge, and lifecycle-state repair may not begin until PR77 post-main CI, zero-annotation readback, and commit-bound live audit all pass. PR46 Ready/main-merge and every target object or external mutation remain unauthorized."
     }
   ]
 }
