@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-08-31T17:53:14Z",
+  "updatedAt": "2026-08-31T18:07:46Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "ae5fde78a09614b61798380160ea69723e289534",
+      "headSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,9 +1068,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T17:53:14Z",
-      "lastObservedAt": "2026-08-31T17:53:14Z",
-      "nextReviewAt": "2026-09-01T17:53:14Z",
+      "lastHeartbeatAt": "2026-08-31T18:07:46Z",
+      "lastObservedAt": "2026-08-31T18:07:46Z",
+      "nextReviewAt": "2026-09-01T18:07:46Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 73,
       "prIsDraft": true,
@@ -1471,7 +1471,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr73-draft-lifecycle-binding",
+      "dirtyState": "staged-registry-only-pr73-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1693,11 +1693,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 local and remote branch heads are exact ae5fde78 on Draft PR73; exactly active-work.json is staged for the PR73 lifecycle binding, with no product, EvidenceFlow, or PR46 worktree byte changed",
-        "ci": "PR73 initial head ae5fde78 passed build 33421786707 and repository-security 33421786712/33421758525 with zero annotations; the staged lifecycle-binding commit has not yet received its own exact-head checks",
+        "local": "A01 local and remote branch heads are exact 3ac7502b on Draft PR73; exactly active-work.json is staged for the PR73 final authorization, with no product, EvidenceFlow, or PR46 worktree byte changed",
+        "ci": "PR73 lifecycle head 3ac7502b passed build 33423076564 and repository-security 33423076572/33423071250 with zero annotations; the staged final-authorization commit has not yet received its own exact-head checks",
         "merged": "PR72 exact head 6e29771 remains merged as live protected main 158c93a; PR73 is OPEN/Draft and not merged, and no current PR46 action is authorized",
         "deployed": "not authorized",
-        "live": "live origin/main, fetched origin/main, and clean root are exact 158c93a; local/remote A01 plus Draft PR73 are exact ae5fde78 and CLEAN/MERGEABLE. Local/remote PR46 remain exact 4a2d4b18 OPEN/Draft/CONFLICTING with the unchanged two-file validator WIP; no PR46 intake, Ready, merge, CAS, receipt, or target-ref mutation is currently authorized"
+        "live": "live origin/main, fetched origin/main, and clean root are exact 158c93a; local/remote A01 plus Draft PR73 are exact 3ac7502b and CLEAN/MERGEABLE. Local/remote PR46 remain exact 4a2d4b18 OPEN/Draft/CONFLICTING with the unchanged two-file validator WIP; no PR46 intake, Ready, merge, CAS, receipt, or target-ref mutation is currently authorized"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3637,21 +3637,46 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "ae5fde78a09614b61798380160ea69723e289534",
+      "headSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "ae5fde78a09614b61798380160ea69723e289534",
-      "remoteObservedAt": "2026-08-31T17:53:14Z",
+      "remoteHeadSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
+      "remoteObservedAt": "2026-08-31T18:07:46Z",
       "pr": 73,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "ae5fde78a09614b61798380160ea69723e289534",
+      "prHeadSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
       "prBase": "main",
       "noPrReason": null,
+      "pr73LifecycleChecks": {
+        "headSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
+        "baseSha": "158c93a779cb22f9eb8b4aef021eb3bd4e848e1d",
+        "buildRunId": 33423076564,
+        "repositorySecurityRunIds": [33423076572, 33423071250],
+        "checkJobIds": [99589950125, 99589949732, 99589933823],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true,
+        "prState": "OPEN",
+        "prIsDraft": true,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "validatorCandidateStageCommitPushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "tagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
       "pr73InitialChecks": {
         "headSha": "ae5fde78a09614b61798380160ea69723e289534",
         "baseSha": "158c93a779cb22f9eb8b4aef021eb3bd4e848e1d",
@@ -3971,13 +3996,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T17:53:14Z",
-      "lastObservedAt": "2026-08-31T17:53:14Z",
-      "lastCommitAt": "2026-09-01T01:49:50+08:00",
-      "nextReviewAt": "2026-09-01T17:53:14Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T18:07:46Z",
+      "lastObservedAt": "2026-08-31T18:07:46Z",
+      "lastCommitAt": "2026-09-01T02:04:37+08:00",
+      "nextReviewAt": "2026-09-01T18:07:46Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR73 exact initial head ae5fde78 passed build and both repository-security checks with zero annotations. Lifecycle-binding metadata is staged and must receive its own exact-head checks before a later final authorization; PR46 validator commit/push, Ready/merge, CAS, receipts, target ref/tag/quarantine/orphan mutation, deployment, provider mutation, and history rewrite remain false"
+      "closeout": "Draft PR73 exact lifecycle head 3ac7502b passed build and both repository-security checks with zero annotations. Final-authorization metadata is staged; its own exact-head checks remain required before PR73 Ready/protected merge. The two frozen PR46 validator paths remain unauthorized for stage/commit/push until PR73 post-main CI, commit-bound live audit, exact conflict-intake, and WIP fingerprint revalidation all pass. PR46 Ready/merge, CAS, receipts, target ref/tag/quarantine/orphan mutation, deployment, provider mutation, and history rewrite remain unauthorized after those gates and require separate releases"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -5331,6 +5356,68 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "The initial PR73 head is green, but this receipt only binds its Draft lifecycle. A final authorization commit and fresh exact-head checks are required before Ready/protected merge. The two frozen PR46 validator paths remain unstaged and uncommitted, and no PR46 Ready/merge, CAS, receipt, ref/tag/quarantine/orphan, deployment, provider, or history-rewrite authority is granted."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr73-final-authorization",
+      "recordedAt": "2026-08-31T18:07:46Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a05865-c301-7223-b74d-96e228b8a435",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "target": {
+        "pullRequestNumber": 73,
+        "lifecycleHeadSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
+        "baseRef": "main",
+        "baseSha": "158c93a779cb22f9eb8b4aef021eb3bd4e848e1d",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorizedAfterFinalHeadChecks": true,
+        "mergeAuthorizedAfterFinalHeadChecks": true
+      },
+      "exactLifecycleChecks": {
+        "headSha": "3ac7502b1adf238ca98e71b0571f10fa222b61ef",
+        "buildRunId": 33423076564,
+        "repositorySecurityRunIds": [33423076572, 33423071250],
+        "checkJobIds": [99589950125, 99589949732, 99589933823],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "commit-and-push-final-authorization-metadata",
+        "verify-final-commit-exact-head-build-security-and-zero-annotations",
+        "mark-pr73-ready",
+        "protected-merge-pr73-without-admin-bypass-and-with-exact-head-lease",
+        "verify-exact-post-main-build-security-and-zero-annotations",
+        "run-exact-main-commit-bound-live-audit",
+        "run-conflict-intake-against-the-new-protected-main-authorization-commit",
+        "reverify-frozen-two-file-wip-fingerprints",
+        "stage-commit-and-push-only-the-two-validator-paths-to-draft-pr46",
+        "stop-before-pr46-ready-merge-or-any-target-object-mutation"
+      ],
+      "authorizationBoundary": {
+        "pr73ReadyAndProtectedMergeAuthorizedAfterFinalHeadChecks": true,
+        "validatorCandidateStageCommitPushAuthorizedBeforePostMainAudit": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "applicationReceiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "tagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This final metadata authorizes only PR73 Ready/protected merge after the new final commit itself passes fresh exact-head checks. The two frozen PR46 validator paths may not be staged, committed, or pushed until PR73 post-main CI, zero-annotation readback, commit-bound live audit, exact conflict-intake, and WIP fingerprint checks all pass. PR46 Ready/merge and all target object or external mutations remain unauthorized."
     }
   ]
 }
