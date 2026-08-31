@@ -1015,26 +1015,26 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 4
       },
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
-      "lastHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
-      "nextReviewAt": "2026-09-01T01:59:54Z",
+      "lastHeartbeatAt": "2026-08-31T04:10:00Z",
+      "lastObservedAt": "2026-08-31T04:10:00Z",
+      "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-main-exact-live-main-registry-only",
+      "dirtyState": "clean-read-only-root-four-commits-behind-live-main",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "root control checkout is clean/read-only at exact local main 6344f7fd after an ordinary ff-only advance; staged, unstaged, and untracked counts are zero",
-        "ci": "PR67 exact head b37f1f5 passed its required checks and protected main 6344f7fd passed post-main build 33322202603 and repository-security 33322202611 with zero annotations",
-        "merged": "PR67 exact head b37f1f5 merged as protected main 6344f7fd5298f847294253e0e71ffa18420464d4; the local read-only root and cached origin/main are exact and clean at that merge commit",
+        "local": "root control checkout remains clean/read-only at exact local main 6344f7fd; staged, unstaged, and untracked counts are zero, while cached origin/main is four commits ahead at e0c18715",
+        "ci": "PR68 exact head 84fd92c passed its required checks and protected main e0c18715 passed post-main build 33355727552 and repository-security 33355727526 with zero annotations",
+        "merged": "PR68 exact head 84fd92c merged as protected main e0c1871560df7031fb59865d74473d4f7486ed8c; the local root deliberately remains read-only at 6344f7fd",
         "deployed": "not authorized and not claimed",
-        "live": "live GitHub main, fetched origin/main, and clean root are exact 6344f7fd; exact-main live audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0; branch-retirement intake candidate is local-only exact 00a857f while PR46 remains remote a9b3abc Draft/CONFLICTING"
+        "live": "live GitHub main and fetched origin/main are exact e0c18715; its commit-bound live audit passed with errors=[], ownerBlockers=[], and unreachableCommitCount=0. The exact 00a857f PR46 push attempt was hook-blocked before remote mutation because the outgoing commit carries an expired registry snapshot"
       },
       "disposition": "integrated"
     },
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+      "headSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,11 +1068,11 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T02:19:22Z",
-      "lastObservedAt": "2026-08-31T02:19:22Z",
-      "nextReviewAt": "2026-09-01T02:19:22Z",
+      "lastHeartbeatAt": "2026-08-31T04:21:25Z",
+      "lastObservedAt": "2026-08-31T04:21:25Z",
+      "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 68,
+      "prNumber": 69,
       "prIsDraft": true,
       "prReadyForReview": true,
       "mergeAuthorized": true,
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr68-final-authorization",
+      "dirtyState": "staged-registry-only-pr69-final-authorization",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1687,11 +1687,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 exact lifecycle head f0a1c48 is clean before this single-file final authorization; no product or other-lane file is changed",
-        "ci": "Draft PR68 exact lifecycle head f0a1c48 passed build 33350180302 and repository-security 33350178243/33350180310 with zero annotations; the final authorization commit requires fresh exact-head checks",
-        "merged": "PR67 exact head b37f1f5 merged as live protected main 6344f7fd at 2026-08-30T16:20:58Z; PR46 remains Draft and no target ref mutation is authorized",
+        "local": "A01 ordinary-fast-forwarded cleanly to exact protected main e0c18715 before staging this single registry file; no product or other-lane file is changed",
+        "ci": "PR68 exact final head 84fd92c and protected main e0c18715 passed build and repository-security checks with zero annotations; this new registry candidate requires its own exact-head checks",
+        "merged": "PR68 exact head 84fd92c merged as live protected main e0c18715 at 2026-08-31T04:02:18Z; its exact-main live audit passed, but the one-shot 00a857f push was hook-blocked before remote mutation",
         "deployed": "not authorized",
-        "live": "live origin/main and root are exact 6344f7fd, live A01 branch and Draft PR68 are exact f0a1c48, and local PR46 intake candidate is 00a857f while remote PR46 remains a9b3abc OPEN/Draft/CONFLICTING"
+        "live": "live origin/main and local A01 are exact e0c18715; root remains clean/read-only at 6344f7fd. Local PR46 candidate remains clean 00a857f and remote PR46 remains a9b3abc OPEN/Draft after the native hook refused the expired outgoing registry snapshot"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -3136,7 +3136,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 4,
-        "behind": 0
+        "behind": 4
       },
       "allowedPaths": [
         "coordination/repo-governance/**",
@@ -3144,21 +3144,21 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-08-28T16:51:55Z",
-      "lastHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
-      "nextReviewAt": "2026-08-31T07:59:54Z",
+      "lastHeartbeatAt": "2026-08-31T04:10:00Z",
+      "lastObservedAt": "2026-08-31T04:10:00Z",
+      "nextReviewAt": "2026-08-31T10:10:00Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "clean-pr46-intake-candidate-push-release-pending-protected-activation",
+      "dirtyState": "clean-pr46-intake-candidate-native-push-hook-blocked-currentness-child-authorization-pending",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
-      "activationCondition": "Exact intake candidate 00a857f completed preserve-first ordinary merge and compose-both RED/GREEN locally. A new registry-only protected heartbeat must pass exact-head CI, protected merge, post-main CI, and exact-main live audit before a separate release may authorize native-hook push of only exact 00a857f to Draft PR46. CAS, receipt minting, all four target-ref mutations, PR46 Ready/merge, deployment, provider mutation, reset, rebase, stash, force, and history rewrite remain unauthorized.",
+      "activationCondition": "The one-shot exact 00a857f push release was consumed and native-hook blocked before remote mutation because the outgoing commit embeds an expired authorization/currentness snapshot. This registry-only heartbeat must reach protected main and pass post-main audit before the branch-retirement owner may create one local child of exact 00a857f that changes only active-work.json by taking the protected e0c18715 registry as the full base and reconstructing branch-retirement-owned currentness fields. That child must remain unpushed until a second protected heartbeat binds its exact SHA. CAS, receipts, all target-ref mutations, PR46 Ready/merge, deployment, provider mutation, reset, rebase, stash, force, and history rewrite remain unauthorized.",
       "externalCustodyBoundary": {
         "mixedBundleRoot": "/Volumes/Starship/SENA-backups/round31-pre-clean-uja7LF/",
         "ownerOnlyArchiveRoot": "/Volumes/Starship/SENA-backups/",
@@ -3478,42 +3478,42 @@
       "ownerKey": "SENA-A01",
       "baseSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
       "headSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
-      "targetSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+      "targetSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "6344f7fd5298f847294253e0e71ffa18420464d4",
+      "remoteHeadSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-08-31T01:59:54Z",
+      "remoteObservedAt": "2026-08-31T04:10:00Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
-      "lastOwnerHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T04:10:00Z",
+      "lastObservedAt": "2026-08-31T04:10:00Z",
       "lastCommitAt": "2026-08-30T20:53:36+08:00",
-      "nextReviewAt": "2026-09-01T01:59:54Z",
+      "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "disposition": "integrated",
-      "closeout": "root control checkout, fetched origin/main, and live protected main are exact clean 6344f7fd; this observation authorizes no target-ref mutation"
+      "closeout": "root control checkout remains clean/read-only at 6344f7fd while fetched origin/main and live protected main are exact e0c18715; this lower-bound observation authorizes no root advance or target-ref mutation"
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+      "headSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
-      "remoteObservedAt": "2026-08-31T02:19:22Z",
-      "pr": 68,
+      "remoteHeadSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
+      "remoteObservedAt": "2026-08-31T04:21:25Z",
+      "pr": 69,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": true,
       "mergeAuthorized": true,
-      "prHeadSha": "f0a1c48ca19ae709d008b93fc246a01f3a33eb97",
+      "prHeadSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
       "prBase": "main",
       "noPrReason": null,
       "pr67InitialChecks": {
@@ -3616,13 +3616,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T02:19:22Z",
-      "lastObservedAt": "2026-08-31T02:19:22Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T04:21:25Z",
+      "lastObservedAt": "2026-08-31T04:21:25Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
-      "nextReviewAt": "2026-09-01T02:19:22Z",
+      "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "Draft PR68 lifecycle head f0a1c48 passed its checks and final authorization is staged; the final commit must pass fresh exact-head checks before Ready/merge, while PR46 push and all ref mutations remain false"
+      "closeout": "Draft PR69 exact lifecycle head f1d3e373 passed build and both repository-security checks with zero annotations. Final authorization metadata is staged; its own exact-head checks remain required before Ready/merge, and local child creation remains false until post-main audit"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -3664,7 +3664,7 @@
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
-      "remoteObservedAt": "2026-08-31T01:59:54Z",
+      "remoteObservedAt": "2026-08-31T04:10:00Z",
       "pr": 46,
       "prState": "OPEN",
       "prIsDraft": true,
@@ -3673,13 +3673,13 @@
       "prHeadSha": "a9b3abc54cb1048288e844cda574d4d311a3049d",
       "prBase": "main",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-08-31T01:59:54Z",
-      "lastObservedAt": "2026-08-31T01:59:54Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T04:10:00Z",
+      "lastObservedAt": "2026-08-31T04:10:00Z",
       "lastCommitAt": "2026-08-31T02:14:14+08:00",
-      "nextReviewAt": "2026-08-31T07:59:54Z",
+      "nextReviewAt": "2026-08-31T10:10:00Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "active",
-      "closeout": "local clean intake candidate is exact 00a857f with parents a9b3abc plus 6344f7fd and only three authorized changed paths; remote Draft PR46 remains a9b3abc OPEN/CONFLICTING, all four target refs and custody remain intact, receipt count is zero, and candidate push/PR46 Ready/merge/target-ref mutation remain false"
+      "closeout": "local clean intake candidate remains exact 00a857f with three authorized paths; its only native push attempt was blocked before remote mutation because the outgoing commit carried expired registry currentness. Remote Draft PR46 remains exact a9b3abc; all four target refs and custody remain intact, receipt count is zero, and no retry/push/Ready/merge/ref mutation is authorized"
     }
   ],
   "orphanWorktrees": [
@@ -4339,6 +4339,204 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This receipt authorizes only PR68's registry-only Ready/protected-merge path after the final commit receives fresh exact-head checks. It does not authorize PR46 push until post-main audit and a separate handoff, and never authorizes PR46 Ready/merge, CAS, receipts, refs/tags, deployment, provider mutation, or history rewrite."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr46-currentness-child-creation-authorization-candidate",
+      "recordedAt": "2026-08-31T04:10:00Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "failedPushEvidence": {
+        "releasedCandidateSha": "00a857fccf5cf853c56c047fa5fd67d36c359d31",
+        "attemptedCommand": "git push origin HEAD:refs/heads/codex/sena-branch-retirement-20260829",
+        "nativeHooksEnabled": true,
+        "exitCode": 1,
+        "remoteMutationOccurred": false,
+        "remoteHeadShaAfterFailure": "a9b3abc54cb1048288e844cda574d4d311a3049d",
+        "errors": [
+          "active local-ref retirement authorization contains completion evidence: SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
+          "active workItem SENA-BRANCH-RETIREMENT-20260829 has an overdue nextReviewAt",
+          "active branch codex/sena-branch-retirement-20260829 has an overdue nextReviewAt"
+        ],
+        "classification": "outgoing commit embeds expired authorization/currentness; protected-main registry cannot substitute for the outgoing registry on an ordinary branch push"
+      },
+      "protectedBaseline": {
+        "registryCommitSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+        "sourcePullRequest": 68,
+        "postMainBuildRunId": 33355727552,
+        "postMainRepositorySecurityRunId": 33355727526,
+        "annotationsEmpty": true,
+        "commitBoundLiveAuditStatus": "pass",
+        "commitBoundLiveAuditErrors": [],
+        "commitBoundLiveAuditOwnerBlockers": [],
+        "unreachableCommitCount": 0
+      },
+      "proposedChildMethod": {
+        "parentSha": "00a857fccf5cf853c56c047fa5fd67d36c359d31",
+        "allowedChangedPaths": [
+          "coordination/repo-governance/active-work.json"
+        ],
+        "registryBaseSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+        "method": "take active-work.json from exact protected baseline e0c18715 as the full registry base; reconstruct only branch-retirement-owned workItem, branch, failure evidence, currentness and authorization-child receipt fields; preserve every A01, EvidenceFlow, other-lane and policy field from the protected baseline",
+        "authorizationWindow": {
+          "id": "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
+          "status": "pending-release",
+          "expiresAt": "2026-09-02T01:59:54Z",
+          "deletionRelease": null
+        },
+        "requiredLocalProof": [
+          "exact-parent-and-clean-preflight",
+          "one-path-diff-only",
+          "registry-pass",
+          "repo-governance-tests-pass",
+          "write-policy-pass",
+          "security-pass",
+          "native-pre-commit-pass",
+          "exact-child-sha-and-clean-readback"
+        ]
+      },
+      "authorizationBoundary": {
+        "registryHeartbeatCommitPushAndDraftPrAuthorized": true,
+        "exactHeadCiAuthorized": true,
+        "protectedMainPathAuthorized": true,
+        "localChildCreationAuthorizedBeforeProtectedActivation": false,
+        "localChildCreationAuthorizedOnlyAfterProtectedMainAudit": true,
+        "childPushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "executionOrder": [
+        "protect-this-registry-only-heartbeat-through-exact-head-ci-and-main-audit",
+        "send-separate-local-child-creation-release",
+        "create-and-verify-local-unpushed-one-path-child",
+        "protect-a-second-registry-only-heartbeat-binding-the-exact-child-sha",
+        "only-then-consider-a-new-one-shot-native-push-release"
+      ],
+      "evidenceBoundary": "This first-stage receipt never authorizes another PR46 push. It authorizes only the protected governance lifecycle needed to permit creation of one local, unpushed, active-work-only child of exact 00a857f after post-main audit."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr69-draft-lifecycle-binding",
+      "recordedAt": "2026-08-31T04:17:13Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "pullRequest": {
+        "number": 69,
+        "url": "https://github.com/HUDongpin/SENA/pull/69",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRef": "codex/sena-a01-repo-governance-20260827",
+        "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
+        "baseRef": "main",
+        "baseSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "exactHeadChecks": {
+        "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
+        "buildRunId": 33356441267,
+        "repositorySecurityRunIds": [
+          33356441283,
+          33356423413
+        ],
+        "checkJobIds": [
+          99379417110,
+          99379417053,
+          99379372548
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "authorizationBoundary": {
+        "lifecycleMetadataPushAuthorized": true,
+        "finalAuthorizationCommitAuthorized": true,
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "localChildCreationAuthorized": false,
+        "childPushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "The initial PR69 head is green, but this receipt only binds its Draft lifecycle. A final authorization head and fresh checks are required before protected merge; local child creation remains false until post-main audit."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr69-final-authorization",
+      "recordedAt": "2026-08-31T04:21:25Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "target": {
+        "pullRequestNumber": 69,
+        "lifecycleHeadSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
+        "baseRef": "main",
+        "baseSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+        "state": "OPEN",
+        "isDraft": true,
+        "readyForReviewAuthorized": true,
+        "mergeAuthorized": true
+      },
+      "exactLifecycleChecks": {
+        "headSha": "f1d3e3733afc375323a8b206314f0d7b7c8e7200",
+        "buildRunId": 33356667018,
+        "repositorySecurityRunIds": [
+          33356667038,
+          33356664089
+        ],
+        "checkJobIds": [
+          99380053864,
+          99380055378,
+          99380045773
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "executionOrder": [
+        "push-final-authorization-commit",
+        "verify-final-commit-exact-head-build-and-both-security-checks-with-zero-annotations",
+        "mark-pr69-ready",
+        "protected-merge-pr69-without-admin-bypass",
+        "verify-exact-post-main-build-security-and-zero-annotations",
+        "run-exact-main-commit-bound-live-audit",
+        "send-separate-local-unpushed-child-creation-release"
+      ],
+      "authorizationBoundary": {
+        "pr69ReadyAndProtectedMergeAuthorizedAfterFinalHeadChecks": true,
+        "localChildCreationAuthorizedBeforePostMainAudit": false,
+        "childPushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "This final metadata authorizes only PR69's Ready/protected-merge lifecycle after the final commit receives fresh exact-head checks. It does not itself authorize creating or pushing the branch-retirement child; that requires a separate post-main-audit handoff."
     }
   ]
 }
