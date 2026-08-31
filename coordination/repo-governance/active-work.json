@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a318142060552ebdd766a7c39fbfbbe22e400618",
+      "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,13 +1068,13 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-08-31T04:13:11Z",
-      "lastObservedAt": "2026-08-31T04:13:11Z",
+      "lastHeartbeatAt": "2026-08-31T04:17:13Z",
+      "lastObservedAt": "2026-08-31T04:17:13Z",
       "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": 68,
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "prNumber": 69,
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
         "number": 66,
@@ -1469,7 +1469,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "staged-registry-only-pr69-a01-remote-currentness-correction",
+      "dirtyState": "staged-registry-only-pr69-lifecycle-binding",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -3501,19 +3501,19 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "a318142060552ebdd766a7c39fbfbbe22e400618",
+      "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "84fd92c3e69c98d2ffb9bd3f18126e66cd3b21de",
-      "remoteObservedAt": "2026-08-31T04:13:11Z",
-      "pr": 68,
-      "prState": "MERGED",
-      "prIsDraft": false,
-      "prReadyForReview": true,
+      "remoteHeadSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
+      "remoteObservedAt": "2026-08-31T04:17:13Z",
+      "pr": 69,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "84fd92c3e69c98d2ffb9bd3f18126e66cd3b21de",
+      "prHeadSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
       "prBase": "main",
       "noPrReason": null,
       "pr67InitialChecks": {
@@ -3616,13 +3616,13 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-08-31T04:13:11Z",
-      "lastObservedAt": "2026-08-31T04:13:11Z",
+      "lastOwnerHeartbeatAt": "2026-08-31T04:17:13Z",
+      "lastObservedAt": "2026-08-31T04:17:13Z",
       "lastCommitAt": "2026-08-31T10:15:55+08:00",
       "nextReviewAt": "2026-09-01T04:10:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR68 exact final head 84fd92c merged as protected main e0c18715 and post-main audit passed. The subsequent exact 00a857f PR46 push was native-hook blocked before remote mutation; this branch now stages only the first protected authorization for a local registry-currentness child"
+      "closeout": "Draft PR69 exact initial head 6bc0c486 passed build and both repository-security checks with zero annotations. Lifecycle metadata is staged; local child creation and every PR46/ref action remain false pending a later final exact head and protected activation"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -4423,6 +4423,61 @@
         "only-then-consider-a-new-one-shot-native-push-release"
       ],
       "evidenceBoundary": "This first-stage receipt never authorizes another PR46 push. It authorizes only the protected governance lifecycle needed to permit creation of one local, unpushed, active-work-only child of exact 00a857f after post-main audit."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr69-draft-lifecycle-binding",
+      "recordedAt": "2026-08-31T04:17:13Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a04273-01e1-7b73-8ec2-0045b7acfd6f",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "pullRequest": {
+        "number": 69,
+        "url": "https://github.com/HUDongpin/SENA/pull/69",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRef": "codex/sena-a01-repo-governance-20260827",
+        "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
+        "baseRef": "main",
+        "baseSha": "e0c1871560df7031fb59865d74473d4f7486ed8c",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED"
+      },
+      "exactHeadChecks": {
+        "headSha": "6bc0c486d7986bb99500c04d09236ffb921b5078",
+        "buildRunId": 33356441267,
+        "repositorySecurityRunIds": [
+          33356441283,
+          33356423413
+        ],
+        "checkJobIds": [
+          99379417110,
+          99379417053,
+          99379372548
+        ],
+        "requiredChecksPassed": true,
+        "annotationsEmpty": true
+      },
+      "authorizationBoundary": {
+        "lifecycleMetadataPushAuthorized": true,
+        "finalAuthorizationCommitAuthorized": true,
+        "prReadyForReview": false,
+        "mergeAuthorized": false,
+        "localChildCreationAuthorized": false,
+        "childPushAuthorized": false,
+        "pr46ReadyAuthorized": false,
+        "pr46MergeAuthorized": false,
+        "casAuthorized": false,
+        "receiptMintingAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "The initial PR69 head is green, but this receipt only binds its Draft lifecycle. A final authorization head and fresh checks are required before protected merge; local child creation remains false until post-main audit."
     }
   ]
 }
