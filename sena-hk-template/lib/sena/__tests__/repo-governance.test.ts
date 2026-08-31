@@ -3755,7 +3755,7 @@ describe("SENA repository governance", () => {
     ]);
     expect(exact.status, `${exact.stdout}${exact.stderr}`).toBe(0);
     expect(exact.stdout).toContain("SENA_CONFLICT_INTAKE pass");
-    expect(exact.stdout).toContain("mode=evidence-only-superseded-binding");
+    expect(exact.stdout).toContain("mode=evidence-only-superseded-binding-consumed-repair");
 
     const stale = runNode(governanceScript, [
       "conflict-intake",
@@ -3791,6 +3791,7 @@ describe("SENA repository governance", () => {
             historyRewriteAuthorized: false
           },
           threePathReconstructionAuthorization: {
+            status: "activated-but-blocked-by-full-governance-red",
             candidateHeadSha,
             conflictIntakePassed: true,
             threePathStageCommitPushAuthorizedAfterProtectedActivation: true,
@@ -3901,6 +3902,197 @@ describe("SENA repository governance", () => {
     expect(() => governance.conflictIntakeBindingResolutionFromRegistry(unknownRepairAuthorization)).toThrow(
       "rule=conflict-intake-repair-authorization-missing"
     );
+  });
+
+  it("accepts only the exact consumed repair lifecycle with complete protected evidence", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const registry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    const item = registry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    expect(item.supersededBindingValidationRepairAuthorization.status).toBe(
+      "consumed-by-pr46-candidate-9a5234c"
+    );
+    expect(item.threePathReconstructionAuthorization.status).toBe("consumed-by-pr46-candidate-9a5234c");
+    expect(item.threePathReconstructionAuthorization.threePathStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.supersededBindingValidationRepairAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.status).toBe(
+      "consumed-by-pr77-exact-abort-and-redo-reconciliation"
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.ordinaryMergeNoCommitAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.mergeCommitPushAuthorizedAfterRequiredGates).toBe(false);
+    expect(item.repairLifecycleStateResolutionAuthorization.status).toBe("consumed-by-pr46-merge-candidate");
+    expect(item.repairLifecycleStateResolutionAuthorization.exactMergeAbortAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.repairLifecycleStateResolutionAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    const resolution = governance.conflictIntakeBindingResolutionFromRegistry(registry);
+    expect(resolution.mode).toBe("evidence-only-superseded-binding-consumed-repair");
+    expect(resolution.checkoutHeadSha).toBe("9a5234c53442b63d6926f6b885f9418082475909");
+
+    const cases: Array<[string, (candidate: typeof registry) => void]> = [
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.status = "consumed-by-some-other-candidate";
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics.allowedStatuses.push(
+          "future-status"
+        );
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.futureMutationAuthorized = true;
+      }],
+      ["rule=conflict-intake-ordinary-merge-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.futureMutationAuthorized = true;
+      }],
+      ["rule=conflict-intake-ordinary-merge-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.mergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=conflict-intake-three-path-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.threePathReconstructionAuthorization.threePathStageCommitPushAuthorizedAfterProtectedActivation =
+          true;
+      }],
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation =
+          true;
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.exactMergeAbortAuthorizedAfterProtectedActivation = true;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.candidateCommitSha = "0".repeat(40);
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.candidateIndexAuditPassed = false;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.conflictIntakeMode =
+          "pending-protected-activation-binding";
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.candidateVerification.securityPassed = false;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.nonOwnedRegistrySemanticEquivalencePassed = false;
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics
+          .consumedStatusRequiresExactCompletionEvidence.candidateTreeSha = "0".repeat(40);
+      }]
+    ];
+
+    for (const [expectedError, mutate] of cases) {
+      const candidate = structuredClone(registry);
+      mutate(candidate);
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(expectedError);
+    }
+
+    const observedCheckout = {
+      checkoutHeadSha: "9a5234c53442b63d6926f6b885f9418082475909",
+      checkoutTreeSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909^{tree}"
+      ]),
+      checkoutRegistryBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:coordination/repo-governance/active-work.json"
+      ]),
+      checkoutVerifierBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:scripts/verify-sena-repo-governance.mjs"
+      ]),
+      checkoutGovernanceTestBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ])
+    };
+    const coordinatedMutations = [
+      ["candidateTreeSha", "checkoutTreeSha", "rule=conflict-intake-checkout-tree-mismatch"],
+      [
+        "candidateRegistryBlobSha",
+        "checkoutRegistryBlobSha",
+        "rule=conflict-intake-checkout-registry-blob-mismatch"
+      ],
+      [
+        "candidateVerifierBlobSha",
+        "checkoutVerifierBlobSha",
+        "rule=conflict-intake-checkout-verifier-blob-mismatch"
+      ],
+      [
+        "candidateGovernanceTestBlobSha",
+        "checkoutGovernanceTestBlobSha",
+        "rule=conflict-intake-checkout-governance-test-blob-mismatch"
+      ]
+    ] as const;
+    for (const [registryField, resolutionField, expectedRule] of coordinatedMutations) {
+      const candidate = structuredClone(registry);
+      const workItem = candidate.workItems.find(
+        (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+      );
+      const drifted = "0".repeat(40);
+      workItem.repairLifecycleStateResolutionAuthorization[registryField] = drifted;
+      workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics
+        .consumedStatusRequiresExactCompletionEvidence[registryField] = drifted;
+      workItem.supersededBindingValidationRepairAuthorization.completionEvidence[registryField] = drifted;
+      workItem.ordinaryMergeReconciliationAuthorization[registryField] = drifted;
+      const coordinatedResolution = governance.conflictIntakeBindingResolutionFromRegistry(candidate);
+      expect(coordinatedResolution[resolutionField]).toBe(drifted);
+      expect(governance.exactConsumedCheckoutMismatchRules(coordinatedResolution, observedCheckout)).toContain(
+        expectedRule
+      );
+    }
   });
 
   it("classifies every exact conflict-intake binding mismatch as fail closed", async () => {

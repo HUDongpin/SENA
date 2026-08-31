@@ -715,6 +715,13 @@ function binaryDiffSha256(left, right) {
 const CONFLICT_INTAKE_PENDING_STATUS = "pending-protected-activation";
 const CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS =
   "superseded-after-protected-activation-and-index-counterevidence";
+const CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS = "consumed-by-pr46-candidate-9a5234c";
+const CONFLICT_INTAKE_CONSUMED_REPAIR_MODE = "evidence-only-superseded-binding-consumed-repair";
+const CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS = "consumed-by-pr46-merge-candidate";
+const CONFLICT_INTAKE_ORDINARY_ACTIVE_STATUS = "activated-but-blocked-by-repair-lifecycle-state-red";
+const CONFLICT_INTAKE_ORDINARY_CONSUMED_STATUS =
+  "consumed-by-pr77-exact-abort-and-redo-reconciliation";
+const CONFLICT_INTAKE_THREE_PATH_ACTIVE_STATUS = "activated-but-blocked-by-full-governance-red";
 
 function allExplicitlyFalse(record, fields) {
   return fields.every((field) => record?.[field] === false);
@@ -736,6 +743,16 @@ function onlyAllowedTrueAuthorizations(record, allowedPaths) {
   return trueAuthorizationPaths(record).every((path) => allowed.has(path));
 }
 
+function exactFieldsMatch(actual, expected, fields) {
+  return fields.every((field) => actual?.[field] === expected?.[field]);
+}
+
+function presentFieldsMatch(actual, expected, fields) {
+  return fields.every(
+    (field) => !Object.prototype.hasOwnProperty.call(actual ?? {}, field) || actual[field] === expected?.[field]
+  );
+}
+
 export function conflictIntakeBindingResolutionFromRegistry(registry) {
   const item = (registry.workItems ?? []).find(
     (entry) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
@@ -745,7 +762,11 @@ export function conflictIntakeBindingResolutionFromRegistry(registry) {
     throw new Error("rule=conflict-intake-authorization-missing");
   }
   if (binding.status === CONFLICT_INTAKE_PENDING_STATUS) {
-    return { binding, mode: "pending-protected-activation-binding" };
+    return {
+      binding,
+      mode: "pending-protected-activation-binding",
+      checkoutHeadSha: binding.candidateHeadSha
+    };
   }
   if (binding.status !== CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS) {
     throw new Error("rule=conflict-intake-authorization-missing");
@@ -775,11 +796,19 @@ export function conflictIntakeBindingResolutionFromRegistry(registry) {
   }
 
   const threePath = item?.threePathReconstructionAuthorization;
+  const threePathActionField = "threePathStageCommitPushAuthorizedAfterProtectedActivation";
+  const threePathActionStateValid =
+    (threePath?.status === CONFLICT_INTAKE_THREE_PATH_ACTIVE_STATUS &&
+      threePath?.[threePathActionField] === true &&
+      onlyAllowedTrueAuthorizations(threePath, [threePathActionField])) ||
+    (threePath?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      threePath?.[threePathActionField] === false &&
+      onlyAllowedTrueAuthorizations(threePath, []));
   if (
     !threePath ||
+    !threePathActionStateValid ||
     threePath.candidateHeadSha !== binding.candidateHeadSha ||
     threePath.conflictIntakePassed !== true ||
-    threePath.threePathStageCommitPushAuthorizedAfterProtectedActivation !== true ||
     !allExplicitlyFalse(threePath, [
       "pr46ReadyAuthorized",
       "pr46MergeAuthorized",
@@ -796,20 +825,30 @@ export function conflictIntakeBindingResolutionFromRegistry(registry) {
       "stashAuthorized",
       "forceAuthorized",
       "historyRewriteAuthorized"
-    ]) ||
-    !onlyAllowedTrueAuthorizations(threePath, [
-      "threePathStageCommitPushAuthorizedAfterProtectedActivation"
     ])
   ) {
     throw new Error("rule=conflict-intake-three-path-proof-missing");
   }
 
   const repair = item?.supersededBindingValidationRepairAuthorization;
+  const lifecycleStatus = item?.repairLifecycleStateResolutionAuthorization?.status;
+  const repairActionField = "repairStageCommitPushAuthorizedAfterProtectedActivation";
+  const repairActionStateValid =
+    (repair?.status === CONFLICT_INTAKE_PENDING_STATUS &&
+      repair?.[repairActionField] === true &&
+      onlyAllowedTrueAuthorizations(repair, [repairActionField])) ||
+    (repair?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      lifecycleStatus === CONFLICT_INTAKE_PENDING_STATUS &&
+      repair?.[repairActionField] === true &&
+      onlyAllowedTrueAuthorizations(repair, [repairActionField])) ||
+    (repair?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      lifecycleStatus === CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS &&
+      repair?.[repairActionField] === false &&
+      onlyAllowedTrueAuthorizations(repair, []));
   if (
     !repair ||
-    repair.status !== CONFLICT_INTAKE_PENDING_STATUS ||
+    !repairActionStateValid ||
     repair.candidateHeadSha !== binding.candidateHeadSha ||
-    repair.repairStageCommitPushAuthorizedAfterProtectedActivation !== true ||
     repair.implementationAuthorizedNow !== false ||
     !allExplicitlyFalse(repair, [
       "pr46ReadyAuthorized",
@@ -827,15 +866,229 @@ export function conflictIntakeBindingResolutionFromRegistry(registry) {
       "stashAuthorized",
       "forceAuthorized",
       "historyRewriteAuthorized"
-    ]) ||
-    !onlyAllowedTrueAuthorizations(repair, [
-      "repairStageCommitPushAuthorizedAfterProtectedActivation"
     ])
   ) {
     throw new Error("rule=conflict-intake-repair-authorization-missing");
   }
 
-  return { binding, mode: "evidence-only-superseded-binding" };
+  if (repair.status === CONFLICT_INTAKE_PENDING_STATUS) {
+    return {
+      binding,
+      mode: "evidence-only-superseded-binding",
+      checkoutHeadSha: binding.candidateHeadSha
+    };
+  }
+  if (repair.status !== CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS) {
+    throw new Error("rule=conflict-intake-repair-authorization-missing");
+  }
+
+  const lifecycle = item?.repairLifecycleStateResolutionAuthorization;
+  const semantics = lifecycle?.authorizedRepairSemantics;
+  const expectedCompletion = semantics?.consumedStatusRequiresExactCompletionEvidence;
+  const lifecycleActionFields = [
+    "exactMergeAbortAuthorizedAfterProtectedActivation",
+    "ordinaryMergeRedoAuthorizedAfterProtectedActivation",
+    "repairStageCommitPushAuthorizedAfterProtectedActivation"
+  ];
+  const lifecycleActionStateValid =
+    (lifecycle?.status === CONFLICT_INTAKE_PENDING_STATUS &&
+      lifecycleActionFields.every((field) => lifecycle?.[field] === true) &&
+      onlyAllowedTrueAuthorizations(lifecycle, lifecycleActionFields)) ||
+    (lifecycle?.status === CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS &&
+      allExplicitlyFalse(lifecycle, lifecycleActionFields) &&
+      onlyAllowedTrueAuthorizations(lifecycle, []));
+  const expectedCompletionStateValid =
+    expectedCompletion &&
+    [
+      "candidateCommitSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha"
+    ].every((field) => isSha(expectedCompletion[field])) &&
+    [
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "nonOwnedRegistrySemanticEquivalencePassed",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "pushAnnotationsEmpty"
+    ].every((field) => expectedCompletion[field] === true) &&
+    expectedCompletion.conflictIntakeMode === "evidence-only-superseded-binding" &&
+    expectedCompletion.focusedTestsPassed === 2 &&
+    expectedCompletion.focusedTestsTotal === 2 &&
+    expectedCompletion.fullRepoGovernanceTestsPassed === 94 &&
+    expectedCompletion.fullRepoGovernanceTestsTotal === 94 &&
+    Number.isInteger(expectedCompletion.pushRepositorySecurityRunId) &&
+    expectedCompletion.pushRepositorySecurityRunId > 0 &&
+    Number.isInteger(expectedCompletion.pushRepositorySecurityCheckJobId) &&
+    expectedCompletion.pushRepositorySecurityCheckJobId > 0;
+  if (
+    !lifecycle ||
+    !lifecycleActionStateValid ||
+    !expectedCompletionStateValid ||
+    !samePathSet(semantics?.allowedStatuses ?? [], [
+      CONFLICT_INTAKE_PENDING_STATUS,
+      CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS
+    ]) ||
+    semantics?.arbitraryStatusMustFailClosed !== true ||
+    semantics?.unknownTrueAuthorizationMustFailClosed !== true ||
+    semantics?.pendingStatusMustPreserveAllExistingClosedSetChecks !== true ||
+    lifecycle.candidateHeadSha !== expectedCompletion?.candidateCommitSha ||
+    semantics?.consumedStatusCandidateHeadMustMatch !== expectedCompletion?.candidateCommitSha ||
+    lifecycle.candidateTreeSha !== expectedCompletion?.candidateTreeSha ||
+    lifecycle.candidateRegistryBlobSha !== expectedCompletion?.candidateRegistryBlobSha ||
+    lifecycle.candidateVerifierBlobSha !== expectedCompletion?.candidateVerifierBlobSha ||
+    lifecycle.candidateGovernanceTestBlobSha !== expectedCompletion?.candidateGovernanceTestBlobSha ||
+    lifecycle.frozenMergeState?.mergeAutostashPresent !== false ||
+    lifecycle.frozenMergeState?.mergeAutostashOid !== null ||
+    lifecycle.mergeAbortIsNotGeneralReset !== true ||
+    lifecycle.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(lifecycle, [
+      "pr46ReadyAuthorized",
+      "pr46MainMergeAuthorized",
+      "casAuthorized",
+      "retirementReceiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-lifecycle-authorization-missing");
+  }
+
+  const completion = repair.completionEvidence;
+  const completionRequiredFields = [
+    "candidateCommitSha",
+    "candidateTreeSha",
+    "candidateRegistryBlobSha",
+    "candidateVerifierBlobSha",
+    "candidateGovernanceTestBlobSha",
+    "focusedTestsPassed",
+    "focusedTestsTotal",
+    "fullRepoGovernanceTestsPassed",
+    "fullRepoGovernanceTestsTotal",
+    "specReviewApproved",
+    "qualityReviewApproved",
+    "pushRepositorySecurityRunId",
+    "pushRepositorySecurityCheckJobId",
+    "pushAnnotationsEmpty"
+  ];
+  const completionGateFields = [
+    "candidateIndexAuditPassed",
+    "writePolicyPassed",
+    "securityPassed",
+    "exactConflictIntakePassed",
+    "conflictIntakeMode",
+    "nonOwnedRegistrySemanticEquivalencePassed",
+    "normalizedRegistrySha256"
+  ];
+  const ordinary = item?.ordinaryMergeReconciliationAuthorization;
+  const verification = ordinary?.candidateVerification;
+  const ordinaryActionFields = [
+    "ordinaryMergeNoCommitAuthorizedAfterProtectedActivation",
+    "activeWorkConflictResolutionAuthorizedAfterProtectedActivation",
+    "mergeReconciliationReceiptAuthorizedAfterProtectedActivation",
+    "mergeCommitPushAuthorizedAfterRequiredGates"
+  ];
+  const ordinaryActionStateValid =
+    (ordinary?.status === CONFLICT_INTAKE_ORDINARY_ACTIVE_STATUS &&
+      ordinaryActionFields.every((field) => ordinary?.[field] === true) &&
+      onlyAllowedTrueAuthorizations(ordinary, ordinaryActionFields)) ||
+    (ordinary?.status === CONFLICT_INTAKE_ORDINARY_CONSUMED_STATUS &&
+      allExplicitlyFalse(ordinary, ordinaryActionFields) &&
+      onlyAllowedTrueAuthorizations(ordinary, []));
+  if (
+    !ordinary ||
+    !ordinaryActionStateValid ||
+    ordinary.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(ordinary, [
+      "pr46ReadyAuthorized",
+      "pr46MainMergeAuthorized",
+      "casAuthorized",
+      "retirementReceiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-ordinary-merge-proof-missing");
+  }
+  if (
+    !completion ||
+    !exactFieldsMatch(completion, expectedCompletion, completionRequiredFields) ||
+    !presentFieldsMatch(completion, expectedCompletion, completionGateFields) ||
+    ordinary?.candidateHeadSha !== expectedCompletion?.candidateCommitSha ||
+    ordinary?.candidateTreeSha !== expectedCompletion?.candidateTreeSha ||
+    ordinary?.candidateRegistryBlobSha !== expectedCompletion?.candidateRegistryBlobSha ||
+    ordinary?.candidateVerifierBlobSha !== expectedCompletion?.candidateVerifierBlobSha ||
+    ordinary?.candidateGovernanceTestBlobSha !== expectedCompletion?.candidateGovernanceTestBlobSha ||
+    ordinary?.nonOwnedRegistrySemanticEquivalencePassed !==
+      expectedCompletion?.nonOwnedRegistrySemanticEquivalencePassed ||
+    ordinary?.normalizedRegistrySha256 !== expectedCompletion?.normalizedRegistrySha256 ||
+    !exactFieldsMatch(verification, expectedCompletion, [
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "conflictIntakeMode",
+      "focusedTestsPassed",
+      "focusedTestsTotal",
+      "fullRepoGovernanceTestsPassed",
+      "fullRepoGovernanceTestsTotal",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "pushRepositorySecurityRunId",
+      "pushRepositorySecurityCheckJobId",
+      "pushAnnotationsEmpty"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-completion-evidence-mismatch");
+  }
+
+  return {
+    binding,
+    mode: CONFLICT_INTAKE_CONSUMED_REPAIR_MODE,
+    checkoutHeadSha: expectedCompletion.candidateCommitSha,
+    checkoutTreeSha: expectedCompletion.candidateTreeSha,
+    checkoutRegistryBlobSha: expectedCompletion.candidateRegistryBlobSha,
+    checkoutVerifierBlobSha: expectedCompletion.candidateVerifierBlobSha,
+    checkoutGovernanceTestBlobSha: expectedCompletion.candidateGovernanceTestBlobSha
+  };
+}
+
+export function exactConsumedCheckoutMismatchRules(resolution, observed) {
+  if (resolution?.mode !== CONFLICT_INTAKE_CONSUMED_REPAIR_MODE) return [];
+  const errors = [];
+  const fields = [
+    ["checkoutHeadSha", "conflict-intake-checkout-head-mismatch"],
+    ["checkoutTreeSha", "conflict-intake-checkout-tree-mismatch"],
+    ["checkoutRegistryBlobSha", "conflict-intake-checkout-registry-blob-mismatch"],
+    ["checkoutVerifierBlobSha", "conflict-intake-checkout-verifier-blob-mismatch"],
+    ["checkoutGovernanceTestBlobSha", "conflict-intake-checkout-governance-test-blob-mismatch"]
+  ];
+  for (const [field, rule] of fields) {
+    if (resolution[field] !== observed?.[field]) errors.push(`rule=${rule}`);
+  }
+  return errors;
 }
 
 function addConflictIntakeMismatch(errors, rule, expected, actual) {
@@ -890,7 +1143,34 @@ function runConflictIntake(flags) {
     }
   }
   const currentHead = gitText(["rev-parse", "HEAD"]).trim();
-  addConflictIntakeMismatch(errors, "conflict-intake-candidate-head-mismatch", candidate, currentHead);
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-head-mismatch",
+    resolution.checkoutHeadSha ?? candidate,
+    currentHead
+  );
+  if (resolution.mode === CONFLICT_INTAKE_CONSUMED_REPAIR_MODE) {
+    const checkout = resolution.checkoutHeadSha;
+    if (!isSha(checkout) || !gitObjectExists(`${checkout}^{commit}`)) {
+      errors.push("rule=conflict-intake-checkout-commit-missing");
+    } else {
+      errors.push(
+        ...exactConsumedCheckoutMismatchRules(resolution, {
+          checkoutHeadSha: checkout,
+          checkoutTreeSha: exactTreeSha(checkout),
+          checkoutRegistryBlobSha: exactBlobSha(
+            checkout,
+            "coordination/repo-governance/active-work.json"
+          ),
+          checkoutVerifierBlobSha: exactBlobSha(checkout, "scripts/verify-sena-repo-governance.mjs"),
+          checkoutGovernanceTestBlobSha: exactBlobSha(
+            checkout,
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          )
+        })
+      );
+    }
+  }
   if (git(["merge-base", "--is-ancestor", protectedMain, authorization.commit], { allowFailure: true }).status !== 0) {
     errors.push("rule=conflict-intake-protected-main-not-authorized-history");
   }
@@ -982,7 +1262,7 @@ function runConflictIntake(flags) {
     ...exactConflictIntakeMismatchRules(binding, {
       protectedMainSha: protectedMain,
       protectedMainTreeSha: exactTreeSha(protectedMain),
-      candidateHeadSha: currentHead,
+      candidateHeadSha: candidate,
       candidateTreeSha: exactTreeSha(candidate),
       mergeBaseSha: gitText(["merge-base", protectedMain, candidate]).trim(),
       mergeBaseTreeSha: exactTreeSha(mergeBase),
