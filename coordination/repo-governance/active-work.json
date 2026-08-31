@@ -3641,7 +3641,7 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "a44dfebe19c85ff8011ac7279406b9d5e7f03f63",
+      "remoteHeadSha": "5808ed3403bbe061ffbc0319817eb80733711647",
       "remoteObservedAt": "2026-08-31T07:13:10Z",
       "pr": 71,
       "prState": "MERGED",
